@@ -1,6 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-using System.Diagnostics.CodeAnalysis;
-using LanguageExt;
+﻿using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NEvo.Core;
@@ -40,13 +38,16 @@ registry.Register<MyCommandHandler>();
 var message = new MyCommand("Hello world!");
 //var handler = registry.GetMessageHandler(message);
 var processor = provider.GetRequiredService<IMessageProcessor>();
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
-await processor.ProcessMessageAsync(message, null, CancellationToken.None);
+var messageContext = new MessageContext(new Dictionary<string, string> {
+    { "app-name",  "NEvo.ExampleApp" }
+});
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
+await processor.ProcessMessageAsync(message, messageContext, CancellationToken.None);
 
 
 public record MyCommand : Command
@@ -67,10 +68,10 @@ public record MyCommand : Command
 
 public class MyCommandHandler : ICommandHandler<MyCommand>
 {
-    public async Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext messageContext, CancellationToken cancellationToken)
+    public Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext messageContext, CancellationToken cancellationToken)
     {
         Console.WriteLine(message.Foo);
 
-        return Unit.Default;
+        return UnitExt.DefaultEitherTask;
     }
 }

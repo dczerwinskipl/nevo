@@ -4,7 +4,7 @@ public class MessageContext : IMessageContext
 {
     public IMessageContextHeaders Headers { get; }
 
-    public MessageContext(IReadOnlyDictionary<string, string> headers)
+    public MessageContext(IDictionary<string, string> headers)
     {
         Headers = new MessageContextHeaders(headers);
     }

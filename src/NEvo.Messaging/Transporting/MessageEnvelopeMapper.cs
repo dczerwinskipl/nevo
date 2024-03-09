@@ -14,7 +14,7 @@ public class MessageEnvelopeMapper : IMessageEnvelopeMapper
     public Either<Exception, MessageEnvelope> ToMessageEnvelope(MessageEnvelopeDTO messageEnvelope)
         => _messageSerializer
                 .Deserialize(messageEnvelope.Payload, messageEnvelope.MessageType)
-                .Map(message => new MessageEnvelope(message, new MessageContext(messageEnvelope.Headers)));
+                .Map(message => new MessageEnvelope(message, new MessageContext(messageEnvelope.Headers.ToDictionary())));
 
     public Either<Exception, MessageEnvelopeDTO> ToMessageEnvelopeDTO(MessageEnvelope messageEnvelope)
         => _messageSerializer

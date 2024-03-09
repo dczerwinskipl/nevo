@@ -8,7 +8,7 @@ public class MessageContextHeaders : ReadOnlyDictionary<string, string>, IMessag
     public const string CorrelationIdKey = nameof(CorrelationId);
     public const string CausationIdKey = nameof(CausationId);
 
-    public MessageContextHeaders(IReadOnlyDictionary<string, string> dictionary) : base((IDictionary<string, string>)dictionary)
+    public MessageContextHeaders(IDictionary<string, string> dictionary) : base(dictionary)
     {
     }
 
