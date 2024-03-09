@@ -49,7 +49,6 @@ await processor.ProcessMessageAsync(message, null, CancellationToken.None);
 await processor.ProcessMessageAsync(message, null, CancellationToken.None);
 
 
-[ExcludeFromCodeCoverage]
 public record MyCommand : Command
 {
     public string Foo { get; init; }

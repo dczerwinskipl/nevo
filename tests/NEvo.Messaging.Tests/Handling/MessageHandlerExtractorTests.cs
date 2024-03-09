@@ -15,17 +15,19 @@ public class MessageHandlerExtractorTests
         var handlerInstance = new Mock<IMessageHandler>().Object;
 
         messageHandlerFactoryMock
+            .Setup(m => m.ForInterface).Returns(typeof(IExampleMessageHandler<>));
+        messageHandlerFactoryMock
             .Setup(m => m.GetMessageHandlerDescriptions(typeof(ExampleMessageHandlerA), typeof(IExampleMessageHandler<ExampleMessageA>)))
-            .Returns(new[] {
+            .Returns([
                 messageHandlerDescription
-            });
+            ]);
         messageHandlerFactoryMock
             .Setup(m => m.Create(messageHandlerDescription, It.IsAny<IServiceProvider>()))
             .Returns(handlerInstance);
 
-        var factories = new List<MessageHandlerFactoryDefinition>
+        var factories = new List<IMessageHandlerFactory>
         {
-            new(typeof(IExampleMessageHandler<>), messageHandlerFactoryMock.Object)
+            messageHandlerFactoryMock.Object
         };
 
         var extractor = new MessageHandlerExtractor(factories, serviceProviderMock.Object);
