@@ -31,8 +31,8 @@ public class MessageProcessor : IMessageProcessor
         IMiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>> messageProcessingMiddleware
     )
     {
-        _messageProcessingStrategyFactory = messageProcessingStrategyFactory;
-        _messageProcessingMiddleware = messageProcessingMiddleware;
+        _messageProcessingStrategyFactory = Check.Null(messageProcessingStrategyFactory);
+        _messageProcessingMiddleware = Check.Null(messageProcessingMiddleware);
     }
 
     public async Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)

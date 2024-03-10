@@ -3,6 +3,6 @@
 public interface IMessageHandlerFactory
 {
     public Type ForInterface { get; }
-    IMessageHandler Create(MessageHandlerDescription messageHandlerDescription, IServiceProvider serviceProvider);
+    IMessageHandler Create(MessageHandlerDescription messageHandlerDescription);
     IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface);
 }

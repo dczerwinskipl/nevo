@@ -8,7 +8,7 @@ public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IM
 
     public InboxMessageProcessingMiddleware(IMessageInbox messageInbox)
     {
-        _messageInbox = messageInbox;
+        _messageInbox = Check.Null(messageInbox);
     }
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)

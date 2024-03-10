@@ -16,7 +16,7 @@ public class PollyPolicyMessageProcessingMiddleware : IMessageProcessingHandlerM
 
     public PollyPolicyMessageProcessingMiddleware(IPollyMessageHandlingPolicyProvider messageHandlingPolicyProvider)
     {
-        _messageHandlingPolicyProvider = messageHandlingPolicyProvider;
+        _messageHandlingPolicyProvider = Check.Null(messageHandlingPolicyProvider);
     }
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler handler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)

@@ -11,13 +11,13 @@ public class MessageEnvelopeMapper : IMessageEnvelopeMapper
         _messageSerializer = messageSerializer;
     }
 
-    public Either<Exception, MessageEnvelope> ToMessageEnvelope(MessageEnvelopeDTO messageEnvelope)
+    public Either<Exception, MessageEnvelope> ToMessageEnvelope(MessageEnvelopeDto messageEnvelopeDto)
         => _messageSerializer
-                .Deserialize(messageEnvelope.Payload, messageEnvelope.MessageType)
-                .Map(message => new MessageEnvelope(message, new MessageContext(messageEnvelope.Headers.ToDictionary())));
+                .Deserialize(messageEnvelopeDto.Payload, messageEnvelopeDto.MessageType)
+                .Map(message => new MessageEnvelope(message, new MessageContextHeaders(messageEnvelopeDto.Headers.ToDictionary())));
 
-    public Either<Exception, MessageEnvelopeDTO> ToMessageEnvelopeDTO(MessageEnvelope messageEnvelope)
+    public Either<Exception, MessageEnvelopeDto> ToMessageEnvelopeDTO(MessageEnvelope messageEnvelope)
         => _messageSerializer
                 .Serialize(messageEnvelope.Message)
-                .Map(result => new MessageEnvelopeDTO(result.MessageType, result.Payload, messageEnvelope.Context.Headers));
+                .Map(result => new MessageEnvelopeDto(result.MessageType, result.Payload, messageEnvelope.Headers));
 }

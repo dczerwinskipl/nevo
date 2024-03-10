@@ -9,7 +9,6 @@ public class MessageHandlerExtractorTests
     public void ExtractMessageHandlers_ReturnsCorrectHandlers_ForGivenHandlerType()
     {
         // Arrange
-        var serviceProviderMock = new Mock<IServiceProvider>();
         var messageHandlerFactoryMock = new Mock<IMessageHandlerFactory>();
         var messageHandlerDescription = new MessageHandlerDescription("Key", typeof(ExampleMessageA), typeof(ExampleMessageA), typeof(IExampleMessageHandler<>), typeof(void), null);
         var handlerInstance = new Mock<IMessageHandler>().Object;
@@ -22,7 +21,7 @@ public class MessageHandlerExtractorTests
                 messageHandlerDescription
             ]);
         messageHandlerFactoryMock
-            .Setup(m => m.Create(messageHandlerDescription, It.IsAny<IServiceProvider>()))
+            .Setup(m => m.Create(messageHandlerDescription))
             .Returns(handlerInstance);
 
         var factories = new List<IMessageHandlerFactory>
@@ -30,7 +29,7 @@ public class MessageHandlerExtractorTests
             messageHandlerFactoryMock.Object
         };
 
-        var extractor = new MessageHandlerExtractor(factories, serviceProviderMock.Object);
+        var extractor = new MessageHandlerExtractor(factories);
 
         // Act
         var handlers = extractor.ExtractMessageHandlers<ExampleMessageHandlerA>();

@@ -9,7 +9,7 @@ public class MiddlewareHandler<TInput, TResult, TMiddleware> : IMiddlewareHandle
     {
     }
 
-    public MiddlewareHandler(IEnumerable<MiddlewareConfig<TInput, TResult, TMiddleware>> middlewareConfigs)
+    public MiddlewareHandler(IEnumerable<MiddlewareConfig<TInput, TResult, TMiddleware>>? middlewareConfigs)
     {
         _middlewareConfigs = middlewareConfigs?.Reverse() ?? Enumerable.Empty<MiddlewareConfig<TInput, TResult, TMiddleware>>();
     }

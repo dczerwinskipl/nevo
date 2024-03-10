@@ -3,12 +3,10 @@
 public class MessageHandlerExtractor : IMessageHandlerExtractor
 {
     private readonly IDictionary<Type, IMessageHandlerFactory> _factories;
-    private readonly IServiceProvider _serviceProvider;
 
-    public MessageHandlerExtractor(IEnumerable<IMessageHandlerFactory> factories, IServiceProvider serviceProvider)
+    public MessageHandlerExtractor(IEnumerable<IMessageHandlerFactory> factories)
     {
         _factories = factories.ToDictionary(f => f.ForInterface);
-        _serviceProvider = serviceProvider;
     }
 
     public IDictionary<Type, IMessageHandler> ExtractMessageHandlers<THandler>()
@@ -23,7 +21,7 @@ public class MessageHandlerExtractor : IMessageHandlerExtractor
     {
         foreach (var messageHandlerDescription in input.Factory.GetMessageHandlerDescriptions(input.handlerType, input.HandlerInterface))
         {
-            var handler = input.Factory.Create(messageHandlerDescription, _serviceProvider);
+            var handler = input.Factory.Create(messageHandlerDescription);
             yield return (messageHandlerDescription.MessageType, handler);
         }
     }

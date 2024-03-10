@@ -10,7 +10,7 @@ public class LoggingMessageProcessingMiddleware : IMessageProcessingMiddleware, 
 
     public LoggingMessageProcessingMiddleware(ILogger<LoggingMessageProcessingMiddleware> logger)
     {
-        _logger = logger;
+        _logger = Check.Null(logger);
     }
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)

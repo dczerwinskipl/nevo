@@ -19,7 +19,6 @@ public class CommandProcessingStrategy : IMessageProcessingStrategy
         => await _messageHandlerRegistry
             .GetMessageHandler(message).MatchAsync(
                 LeftAsync: async exception => await LeftAsync<Exception, Unit>(exception),
-                RightAsync: async handler => //TODO: dalej prez procesor? na razie workaround
-                    (await handler.HandleAsync(message, context, cancellationToken)).Map(obj => (Unit)obj)
+                RightAsync: async handler => (await handler.HandleAsync(message, context, cancellationToken)).Map(obj => (Unit)obj)
             );
 }

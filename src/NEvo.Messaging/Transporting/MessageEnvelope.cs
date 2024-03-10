@@ -1,3 +1,3 @@
 ﻿namespace NEvo.Messaging.Transporting;
 
-public record MessageEnvelope(IMessage Message, IMessageContext Context);
+public record MessageEnvelope(IMessage Message, IMessageContextHeaders Headers);
