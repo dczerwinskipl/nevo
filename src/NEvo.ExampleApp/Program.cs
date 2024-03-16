@@ -26,9 +26,7 @@ services.AddSingleton<IMessageProcessor, MessageProcessor>();
 services.AddSingleton<LoggingMessageProcessingMiddleware>();
 services.AddSingleton(sp => new MessageProcessingMiddlewareConfig(sp.GetRequiredService<LoggingMessageProcessingMiddleware>()));
 
-// Events
-services.AddSingleton<IMessageHandlerFactory, EventHandlerAdapterFactory>();
-services.AddSingleton<IMessageProcessingStrategy, EventProcessingStrategy>();
+services.UseEvents();
 
 // CQRS
 services.AddSingleton<IMessageHandlerFactory, CommandHandlerAdapterFactory>();

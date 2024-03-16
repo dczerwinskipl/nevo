@@ -1,14 +1,15 @@
 ﻿using LanguageExt;
+using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.CQRS.Events;
 
-public class EventHandlerAdapterFactory : IMessageHandlerFactory
+public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandlerLogger) : IMessageHandlerFactory
 {
     public Type ForInterface => typeof(IEventHandler<>);
 
     public IMessageHandler Create(MessageHandlerDescription messageHandlerDescription)
-        => new EventHandlerAdapter(messageHandlerDescription);
+        => new EventHandlerAdapter(messageHandlerDescription, eventHandlerLogger);
 
     public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface)
     {

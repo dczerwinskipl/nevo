@@ -1,29 +1,17 @@
 ﻿using LanguageExt;
+using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Handling;
 using static LanguageExt.Prelude;
 
 namespace NEvo.Messaging.CQRS.Events;
 
-public class EventProcessingStrategy : IMessageProcessingStrategy
+public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegistry) : IMessageProcessingStrategy
 {
-    private readonly IMessageHandlerRegistry _messageHandlerRegistry;
-
-    public EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegistry)
-    {
-        _messageHandlerRegistry = messageHandlerRegistry;
-    }
-
     public bool ShouldApply(IMessage message, IMessageContext context) => message is Event;
 
     public async Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        var tasks = _messageHandlerRegistry.GetMessageHandlers(message).Select(async handler =>
-        {
-            // TODO: save result in case of any error? for retries
-            using var scopedContext = context.CreateScope();
-            return (await handler.HandleAsync(message, context.CreateScope(), cancellationToken)).Map(obj => (Unit)obj);
-        });
-
+        var tasks = messageHandlerRegistry.GetMessageHandlers(message).Select(handler => NewMethod(handler, message, context, cancellationToken));
         var results = await Task.WhenAll(tasks);
         var failures = results
             .Choose(either => either.Match(
@@ -32,5 +20,23 @@ public class EventProcessingStrategy : IMessageProcessingStrategy
             ));
 
         return failures.Any() ? new AggregateException(failures) : Unit.Default;
+    }
+
+    private static async Task<Either<Exception, Unit>> NewMethod(IMessageHandler handler, IMessage message, IMessageContext context, CancellationToken cancellationToken)
+    {
+        using var scopedContext = context.CreateScope();
+
+        // TODO: maybe it's better to use here middleware?
+        var inbox = scopedContext.ServiceProvider.GetService<IMessageInbox>();
+        if (inbox != null && inbox.IsAlreadyProcessed(handler, message, context))
+        {
+            return Unit.Default;
+        }
+
+        var result = (await handler.HandleAsync(message, context.CreateScope(), cancellationToken)).Map(obj => (Unit)obj);
+
+        inbox?.RegisterProcessed(handler, message, context);
+
+        return result;
     }
 }

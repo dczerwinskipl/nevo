@@ -1,15 +1,12 @@
 ﻿using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.CQRS.Events;
 
-public class EventHandlerAdapter : MessageHandlerAdapterBase<Event>
+public class EventHandlerAdapter(MessageHandlerDescription messageHandlerDescription, ILogger<EventHandlerAdapter> logger) : MessageHandlerAdapterBase<Event>(messageHandlerDescription)
 {
-    public EventHandlerAdapter(MessageHandlerDescription messageHandlerDescription) : base(messageHandlerDescription)
-    {
-    }
-
     protected override async Task<Either<Exception, Unit>> InternalHandleAsync<TEvent>(TEvent @event, IMessageContext context, CancellationToken cancellationToken)
     {
         try
@@ -19,7 +16,7 @@ public class EventHandlerAdapter : MessageHandlerAdapterBase<Event>
         }
         catch (Exception exc)
         {
-            Console.WriteLine(exc.Message);
+            logger.LogError(exc, exc.Message);
             return exc;
         }
     }
