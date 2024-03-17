@@ -1,10 +1,7 @@
-﻿using LanguageExt;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using NEvo.Core;
+using NEvo.ExampleApp.ExampleDomain;
 using NEvo.Messaging;
-using NEvo.Messaging.CQRS.Commands;
-using NEvo.Messaging.CQRS.Events;
 using NEvo.Messaging.Handling;
 using NEvo.Messaging.Handling.Middleware;
 
@@ -16,32 +13,23 @@ services.AddLogging(logging =>
     logging.AddConsole();
 });
 
-//
-services.AddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
-services.AddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
-services.AddSingleton<IMessageProcessingStrategyFactory, MessageProcessingStrategyFactory>();
-services.AddSingleton<IMessageProcessor, MessageProcessor>();
-
 // middleware - logging
-services.AddSingleton<LoggingMessageProcessingMiddleware>();
-services.AddSingleton(sp => new MessageProcessingMiddlewareConfig(sp.GetRequiredService<LoggingMessageProcessingMiddleware>()));
-
+services.UseMessages();
+services.UseMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 services.UseEvents();
-
-// CQRS
-services.AddSingleton<IMessageHandlerFactory, CommandHandlerAdapterFactory>();
-services.AddSingleton<IMessageProcessingStrategy, CommandProcessingStrategy>();
+services.UseCommands();
 
 var provider = services.BuildServiceProvider();
 
 var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
-registry.Register<MyCommandHandler>();
-registry.Register<MyEventHandlerA>();
-registry.Register<MyEventHandlerB>();
-
 var processor = provider.GetRequiredService<IMessageProcessor>();
+
+registry.AddExampleDomain();
+
 var messageContext = new MessageContext(new Dictionary<string, string> {
     { "app-name",  "NEvo.ExampleApp" },
+    { MessageContextHeaders.CorrelationIdKey, Guid.NewGuid().ToString() },
+    { MessageContextHeaders.CausationIdKey, Guid.NewGuid().ToString() },
 }, provider);
 
 await Execute(new MyCommand("Hello world!"));
@@ -54,63 +42,4 @@ async Task Execute(IMessage message)
         Right: _ => Console.WriteLine($"Success: {message.Id}"),
         Left: _ => Console.WriteLine($"Failure: {message.Id}")
    );
-}
-
-public record MyCommand : Command
-{
-    public string Foo { get; init; }
-
-    public MyCommand(string foo) : base()
-    {
-        Foo = foo;
-    }
-
-    public MyCommand(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
-    {
-        Foo = foo;
-    }
-}
-
-public record MyEvent : Event
-{
-    public string Foo { get; init; }
-
-    public MyEvent(string foo) : base()
-    {
-        Foo = foo;
-    }
-
-    public MyEvent(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
-    {
-        Foo = foo;
-    }
-}
-public class MyCommandHandler : ICommandHandler<MyCommand>
-{
-    public Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext messageContext, CancellationToken cancellationToken)
-    {
-        Console.WriteLine(message.Foo);
-
-        return UnitExt.DefaultEitherTask;
-    }
-}
-
-
-public class MyEventHandlerA : IEventHandler<MyEvent>
-{
-    public Task<Either<Exception, Unit>> HandleAsync(MyEvent message, IMessageContext messageContext, CancellationToken cancellationToken)
-    {
-        Console.WriteLine($"HandlerA: {message.Foo}");
-
-        return UnitExt.DefaultEitherTask;
-    }
-}
-
-public class MyEventHandlerB : IEventHandler<MyEvent>
-{
-    public Task<Either<Exception, Unit>> HandleAsync(MyEvent message, IMessageContext messageContext, CancellationToken cancellationToken)
-    {
-        Console.WriteLine($"HandlerB: {message.Foo}");
-        throw new Exception(message.Foo);
-    }
 }

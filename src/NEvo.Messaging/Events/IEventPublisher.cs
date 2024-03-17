@@ -1,8 +1,8 @@
-﻿using NEvo.Messaging.CQRS.Events;
+﻿using NEvo.Messaging.Cqrs.Events;
 
 namespace NEvo.Messaging.Events;
 
 public interface IEventPublisher
 {
-    public Task PublishAsync(Event @event);
+    Task PublishAsync(Event @event, CancellationToken cancellationToken);
 }

@@ -1,6 +1,6 @@
 ﻿using LanguageExt;
 
-namespace NEvo.Messaging.CQRS.Events;
+namespace NEvo.Messaging.Cqrs.Events;
 
 public interface IEventHandler<in TMessage> where TMessage : Event
 {

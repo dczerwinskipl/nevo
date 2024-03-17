@@ -1,5 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using NEvo.Messaging.CQRS.Events;
+using NEvo.Messaging.Cqrs.Events;
 using NEvo.Messaging.Events.Attributes;
 using System.Reflection;
 
@@ -10,7 +10,7 @@ public class DefaultEventPublishStrategyFactory(IServiceProvider serviceProvider
     public IMessagePublishStrategy CreateFor(Event message) =>
         CreateDedicatedServiceFor(message) ?? serviceProvider.GetRequiredService<IMessagePublishStrategy>();
 
-    private IExternalMessagePublishStrategy? CreateDedicatedServiceFor(Event message) => 
+    private IMessagePublishStrategy? CreateDedicatedServiceFor(Event message) => 
         IsPrivateMessage(message) ?
             serviceProvider.GetService<IInternalMessagePublishStrategy>() :
             serviceProvider.GetService<IExternalMessagePublishStrategy>();

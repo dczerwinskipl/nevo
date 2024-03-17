@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Handling;
 
-namespace NEvo.Messaging.CQRS.Events;
+namespace NEvo.Messaging.Cqrs.Events;
 
 public class EventHandlerAdapter(MessageHandlerDescription messageHandlerDescription, ILogger<EventHandlerAdapter> logger) : MessageHandlerAdapterBase<Event>(messageHandlerDescription)
 {

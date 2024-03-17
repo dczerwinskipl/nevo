@@ -1,6 +1,7 @@
 ﻿namespace NEvo.Messaging;
 
-public interface IInternalMessagePublishStrategy : IExternalMessagePublishStrategy
+public interface IInternalMessagePublishStrategy : IMessagePublishStrategy
 {
 
 }
+

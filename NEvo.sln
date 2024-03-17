@@ -15,7 +15,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Core", "src\NEvo.Core\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging", "src\NEvo.Messaging\NEvo.Messaging.csproj", "{C6EFBBC9-9168-4899-A298-2F29CB8F59BF}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging.CQRS", "src\NEvo.Messaging.CQRS\NEvo.Messaging.CQRS.csproj", "{E0D5F33F-4425-4F88-B430-3E4210E40B83}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging.Cqrs", "src\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj", "{E0D5F33F-4425-4F88-B430-3E4210E40B83}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.ExampleApp", "src\NEvo.ExampleApp\NEvo.ExampleApp.csproj", "{4C83C48D-B3E5-4FC5-B412-792A787D11C3}"
 EndProject

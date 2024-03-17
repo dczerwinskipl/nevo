@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using NEvo.Messaging.Handling;
 
-namespace NEvo.Messaging.CQRS.Commands;
+namespace NEvo.Messaging.Cqrs.Commands;
 
 public class CommandHandlerAdapterFactory : IMessageHandlerFactory
 {

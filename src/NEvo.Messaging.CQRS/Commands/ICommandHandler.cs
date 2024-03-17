@@ -1,6 +1,6 @@
 ﻿using LanguageExt;
 
-namespace NEvo.Messaging.CQRS.Commands;
+namespace NEvo.Messaging.Cqrs.Commands;
 
 public interface ICommandHandler<in TMessage> where TMessage : Command
 {

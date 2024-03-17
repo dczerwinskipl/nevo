@@ -1,10 +1,9 @@
 ﻿using LanguageExt;
 
-namespace NEvo.Messaging
+namespace NEvo.Messaging;
+
+public interface IMessageContextHeaders : IReadOnlyDictionary<string, string>
 {
-    public interface IMessageContextHeaders : IReadOnlyDictionary<string, string>
-    {
-        Option<string> CausationId { get; }
-        Option<string> CorrelationId { get; }
-    }
+    Option<string> CausationId { get; }
+    Option<string> CorrelationId { get; }
 }

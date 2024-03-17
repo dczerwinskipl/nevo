@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 
-namespace NEvo.Messaging.CQRS.Commands;
+namespace NEvo.Messaging.Cqrs.Commands;
 
 [ExcludeFromCodeCoverage]
 public record Command : Message

@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Handling;
 
-namespace NEvo.Messaging.CQRS.Events;
+namespace NEvo.Messaging.Cqrs.Events;
 
 public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandlerLogger) : IMessageHandlerFactory
 {

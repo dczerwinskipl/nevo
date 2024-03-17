@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Handling;
 using static LanguageExt.Prelude;
 
-namespace NEvo.Messaging.CQRS.Events;
+namespace NEvo.Messaging.Cqrs.Events;
 
 public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegistry) : IMessageProcessingStrategy
 {
@@ -11,7 +11,7 @@ public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegis
 
     public async Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        var tasks = messageHandlerRegistry.GetMessageHandlers(message).Select(handler => NewMethod(handler, message, context, cancellationToken));
+        var tasks = messageHandlerRegistry.GetMessageHandlers(message).Select(handler => HandleAsync(handler, message, context, cancellationToken));
         var results = await Task.WhenAll(tasks);
         var failures = results
             .Choose(either => either.Match(
@@ -22,7 +22,7 @@ public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegis
         return failures.Any() ? new AggregateException(failures) : Unit.Default;
     }
 
-    private static async Task<Either<Exception, Unit>> NewMethod(IMessageHandler handler, IMessage message, IMessageContext context, CancellationToken cancellationToken)
+    private static async Task<Either<Exception, Unit>> HandleAsync(IMessageHandler handler, IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
         using var scopedContext = context.CreateScope();
 

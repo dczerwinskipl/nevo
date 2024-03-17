@@ -2,14 +2,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Handling;
 
-namespace NEvo.Messaging.CQRS.Commands;
+namespace NEvo.Messaging.Cqrs.Commands;
 
-public class CommandHandlerAdapter : MessageHandlerAdapterBase<Command>
+public class CommandHandlerAdapter(MessageHandlerDescription messageHandlerDescription) : MessageHandlerAdapterBase<Command>(messageHandlerDescription)
 {
-    public CommandHandlerAdapter(MessageHandlerDescription messageHandlerDescription) : base(messageHandlerDescription)
-    {
-    }
-
     protected override async Task<Either<Exception, Unit>> InternalHandleAsync<TCommand>(TCommand command, IMessageContext context, CancellationToken cancellationToken)
     {
         try

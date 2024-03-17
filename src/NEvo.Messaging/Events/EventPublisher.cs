@@ -1,19 +1,12 @@
-﻿using NEvo.Messaging.CQRS.Events;
+﻿using NEvo.Messaging.Cqrs.Events;
 
 namespace NEvo.Messaging.Events;
 
-public class EventPublisher : IEventPublisher
+public class EventPublisher(IMessagePublishStrategyFactory<Event> messagePublishStrategyFactor) : IEventPublisher
 {
-    private IMessagePublishStrategyFactory<Event> _eventPublishStrategyFactor;
-
-    public EventPublisher(IMessagePublishStrategyFactory<Event> eventPublishStrategyFactor)
+    public Task PublishAsync(Event @event, CancellationToken cancellationToken)
     {
-        _eventPublishStrategyFactor = eventPublishStrategyFactor;
-    }
-
-    public Task PublishAsync(Event @event)
-    {
-        var strategy = _eventPublishStrategyFactor.CreateFor(@event);
-        return strategy.PublishAsync(@event);
+        var strategy = messagePublishStrategyFactor.CreateFor(@event);
+        return strategy.PublishAsync(@event, cancellationToken);
     }
 }
