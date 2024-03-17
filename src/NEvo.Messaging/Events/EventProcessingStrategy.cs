@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Handling;
 using static LanguageExt.Prelude;
 
-namespace NEvo.Messaging.Cqrs.Events;
+namespace NEvo.Messaging.Events;
 
 public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegistry) : IMessageProcessingStrategy
 {

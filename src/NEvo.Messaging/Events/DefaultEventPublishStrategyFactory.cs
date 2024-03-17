@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using NEvo.Messaging.Cqrs.Events;
 using NEvo.Messaging.Events.Attributes;
 using System.Reflection;
 

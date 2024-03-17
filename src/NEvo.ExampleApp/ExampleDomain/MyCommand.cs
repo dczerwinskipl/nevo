@@ -1,19 +1,19 @@
-﻿using NEvo.Messaging.Cqrs.Commands;
+﻿using System.Text.Json.Serialization;
 
-namespace NEvo.ExampleApp.ExampleDomain
+namespace NEvo.ExampleApp.ExampleDomain;
+
+public record MyCommand : Command
 {
-    public record MyCommand : Command
+    public string Foo { get; init; }
+
+    [JsonConstructor]
+    public MyCommand(string foo) : base()
     {
-        public string Foo { get; init; }
+        Foo = foo;
+    }
 
-        public MyCommand(string foo) : base()
-        {
-            Foo = foo;
-        }
-
-        public MyCommand(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
-        {
-            Foo = foo;
-        }
+    public MyCommand(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
+    {
+        Foo = foo;
     }
 }

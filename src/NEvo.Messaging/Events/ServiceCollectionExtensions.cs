@@ -1,5 +1,4 @@
 ﻿using NEvo.Messaging;
-using NEvo.Messaging.Cqrs.Events;
 using NEvo.Messaging.Events;
 using NEvo.Messaging.Handling;
 
@@ -7,7 +6,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static partial class ServiceCollectionExtensions
 {
-    public static IServiceCollection UseEvents(this IServiceCollection services, bool useInternalEventProcessing = false /* TODO: extend by eventType*/)
+    public static IServiceCollection AddEvents(this IServiceCollection services, bool useInternalEventProcessing = false /* TODO: extend by eventType*/)
     {
         services.AddSingleton<IMessageHandlerFactory, EventHandlerAdapterFactory>();
         services.AddSingleton<IMessageProcessingStrategy, EventProcessingStrategy>();

@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 
-namespace NEvo.Messaging.Cqrs.Events;
+namespace NEvo.Messaging.Events;
 
 [ExcludeFromCodeCoverage]
 public record Event : Message

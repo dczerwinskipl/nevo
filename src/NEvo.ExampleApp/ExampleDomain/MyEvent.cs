@@ -1,19 +1,16 @@
-﻿using NEvo.Messaging.Cqrs.Events;
+﻿namespace NEvo.ExampleApp.ExampleDomain;
 
-namespace NEvo.ExampleApp.ExampleDomain
+public record MyEvent : Event
 {
-    public record MyEvent : Event
+    public string Foo { get; init; }
+
+    public MyEvent(string foo) : base()
     {
-        public string Foo { get; init; }
+        Foo = foo;
+    }
 
-        public MyEvent(string foo) : base()
-        {
-            Foo = foo;
-        }
-
-        public MyEvent(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
-        {
-            Foo = foo;
-        }
+    public MyEvent(Guid id, DateTime createdAt, string foo) : base(id, createdAt)
+    {
+        Foo = foo;
     }
 }

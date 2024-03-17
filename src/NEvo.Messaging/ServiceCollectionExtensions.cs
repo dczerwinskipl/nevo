@@ -5,7 +5,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static partial class ServiceCollectionExtensions
 {
-    public static IServiceCollection UseMessages(this IServiceCollection services)
+    public static IServiceCollection AddMessages(this IServiceCollection services)
     {
         // TODO: check scopes
         services.AddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
@@ -16,7 +16,7 @@ public static partial class ServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection UseMessageProcessingMiddleware<TMiddleware>(this IServiceCollection services) where TMiddleware : class, IMessageProcessingMiddleware
+    public static IServiceCollection AddMessageProcessingMiddleware<TMiddleware>(this IServiceCollection services) where TMiddleware : class, IMessageProcessingMiddleware
     {
         // TODO: different scopes?
         services.AddSingleton<TMiddleware>();
