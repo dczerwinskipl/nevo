@@ -2,12 +2,12 @@
 
 namespace NEvo.ExampleApp.ExampleDomain;
 
-public class MyCommandHandler : ICommandHandler<MyCommand>
+public class MyCommandHandler(IEventPublisher eventPublisher) : ICommandHandler<MyCommand>
 {
-    public Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext messageContext, CancellationToken cancellationToken)
+    public async Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext messageContext, CancellationToken cancellationToken)
     {
         Console.WriteLine(message.Foo);
 
-        return UnitExt.DefaultEitherTask;
+        return await eventPublisher.PublishAsync(new MyEvent(message.Foo), cancellationToken);
     }
 }

@@ -42,7 +42,12 @@ app.MapPost("/api/helloWorld", async (MyCommand command, CancellationToken token
     
         result.Match(
             Right: _ => Console.WriteLine($"Success: {command.Id}"),
-            Left: _ => Console.WriteLine($"Failure: {command.Id}")
+            Left: ex => Console.WriteLine($"Failure: {command.Id}, message: {ex.Message}")
+        );
+
+        return result.Match(
+           Right: _ => Results.Ok(),
+           Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
         );
     })
     .WithName("PostHelloWorld")
