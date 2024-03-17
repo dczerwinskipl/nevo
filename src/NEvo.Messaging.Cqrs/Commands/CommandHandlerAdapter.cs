@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Cqrs.Commands;

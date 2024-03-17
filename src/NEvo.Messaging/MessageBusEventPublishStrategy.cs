@@ -1,6 +1,4 @@
-﻿using LanguageExt;
-
-namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging;
 
 public class MessageBusPublishStrategy(IMessageBus messageBus) : IExternalMessagePublishStrategy
 {

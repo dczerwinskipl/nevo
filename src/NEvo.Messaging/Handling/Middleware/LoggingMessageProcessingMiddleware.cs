@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using LanguageExt;
 using Microsoft.Extensions.Logging;
 
 namespace NEvo.Messaging.Handling.Middleware;

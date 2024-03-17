@@ -2,5 +2,5 @@
 
 public interface ICommandDispatcher
 {
-    Task DispatchAsync(Command command, CancellationToken cancellationToken);
+    Task<Either<Exception, Unit>> DispatchAsync(Command command, CancellationToken cancellationToken);
 }

@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using Polly;
+﻿using Polly;
 
 namespace NEvo.Messaging.Handling.Middleware;
 

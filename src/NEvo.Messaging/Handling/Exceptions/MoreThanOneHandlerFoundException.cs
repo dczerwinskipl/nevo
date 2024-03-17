@@ -1,6 +1,4 @@
-﻿using LanguageExt;
-
-namespace NEvo.Messaging.Handling.Exceptions;
+﻿namespace NEvo.Messaging.Handling.Exceptions;
 
 public class MoreThanOneHandlerFoundException : MessageHandlerRegistryException
 {

@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using LanguageExt;
 using NEvo.Messaging.Handling.Exceptions;
 
 namespace NEvo.Messaging.Handling;

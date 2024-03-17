@@ -36,15 +36,9 @@ app.MapGet("/api/helloWorld", () => "Hello World!")
     .WithOpenApi();
 
 // example post with message (TODO: use MessageBus, not processor directly)
-app.MapPost("/api/helloWorld", async (MyCommand command, IMessageProcessor processor, IServiceProvider serviceProvider) =>
-    {
-        var messageContext = new MessageContext(new Dictionary<string, string> {
-            { "app-name",  AppName },
-            { MessageContextHeaders.CorrelationIdKey, Guid.NewGuid().ToString() },
-            { MessageContextHeaders.CausationIdKey, Guid.NewGuid().ToString() },
-        }, serviceProvider);
-    
-        var result = await processor.ProcessMessageAsync(command, messageContext, CancellationToken.None);
+app.MapPost("/api/helloWorld", async (MyCommand command, CancellationToken token, ICommandDispatcher commandDispatcher) =>
+    {    
+        var result = await commandDispatcher.DispatchAsync(command, token);
     
         result.Match(
             Right: _ => Console.WriteLine($"Success: {command.Id}"),

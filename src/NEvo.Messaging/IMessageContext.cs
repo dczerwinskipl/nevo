@@ -1,8 +1,4 @@
-﻿using LanguageExt;
-using Microsoft.Extensions.DependencyInjection;
-using System.Runtime.InteropServices;
-
-namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging;
 
 public interface IMessageContext
 {

@@ -1,7 +1,4 @@
-﻿ 
-using LanguageExt;
-
-namespace NEvo.Messaging.Transporting;
+﻿namespace NEvo.Messaging.Transporting;
 
 public interface IMessageEnvelopeMapper
 {

@@ -1,6 +1,4 @@
-﻿using LanguageExt;
-
-namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging;
 
 public interface IMessageBus
 {

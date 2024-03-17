@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using LanguageExt;
 
 namespace NEvo.Messaging.Transporting;
 

@@ -1,6 +1,4 @@
-﻿using LanguageExt;
-
-namespace NEvo.Messaging.Handling.Middleware;
+﻿namespace NEvo.Messaging.Handling.Middleware;
 
 public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IMessageProcessingHandlerMiddleware
 {

@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using NEvo.Messaging.Handling;
+﻿using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Cqrs.Commands;
 

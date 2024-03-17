@@ -1,6 +1,4 @@
-﻿using LanguageExt;
-
-namespace NEvo.Messaging.Handling;
+﻿namespace NEvo.Messaging.Handling;
 
 public interface IMessageProcessor
 {

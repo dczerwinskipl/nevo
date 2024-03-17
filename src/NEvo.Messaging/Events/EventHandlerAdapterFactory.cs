@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Events;

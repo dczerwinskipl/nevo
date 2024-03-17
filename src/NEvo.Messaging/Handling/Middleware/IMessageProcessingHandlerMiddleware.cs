@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using NEvo.Core;
+﻿using NEvo.Core;
 
 namespace NEvo.Messaging.Handling.Middleware;
 
