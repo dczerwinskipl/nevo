@@ -34,7 +34,10 @@ public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegis
 
         var result = (await handler.HandleAsync(message, context.CreateScope(), cancellationToken)).Map(obj => (Unit)obj);
 
-        inbox?.RegisterProcessed(handler, message, context);
+        if (inbox != null)
+        {
+            await inbox.RegisterProcessedAsync(handler, message, context);
+        }
 
         return result;
     }

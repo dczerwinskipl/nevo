@@ -9,9 +9,9 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddEvents(this IServiceCollection services, bool useInternalEventProcessing = false /* TODO: extend by eventType*/)
     {
         services.AddSingleton<IMessageHandlerFactory, EventHandlerAdapterFactory>();
-        services.AddSingleton<IMessageProcessingStrategy, EventProcessingStrategy>();
-        services.AddSingleton<IEventPublisher, EventPublisher>();
-        services.AddSingleton<IMessagePublishStrategyFactory<Event>, DefaultEventPublishStrategyFactory>();
+        services.AddScoped<IMessageProcessingStrategy, EventProcessingStrategy>();
+        services.AddScoped<IEventPublisher, EventPublisher>();
+        services.AddScoped<IMessagePublishStrategyFactory<Event>, DefaultEventPublishStrategyFactory>();
 
         return services;
     }

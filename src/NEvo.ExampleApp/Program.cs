@@ -1,4 +1,6 @@
-﻿using NEvo.ExampleApp.ExampleDomain;
+﻿using Microsoft.EntityFrameworkCore;
+using NEvo.ExampleApp.Database;
+using NEvo.ExampleApp.ExampleDomain;
 using NEvo.Messaging.Handling.Middleware;
 
 const string AppName = "NEvo.ExampleApp";
@@ -11,11 +13,19 @@ builder.Services.AddLogging(logging =>
     logging.AddConsole();
 });
 
+// database
+builder.Services.AddDbContext<ExampleDbContext>();
+
 // nEvo (TODO: presets)
 builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 builder.Services.AddEvents();
 builder.Services.AddCommands();
+
+// nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
+// example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
+builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware>();
+builder.Services.AddEntityFrameworkInbox<ExampleDbContext>();
 
 // swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -60,6 +70,12 @@ app.UseSwaggerUI(options =>
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     options.RoutePrefix = string.Empty;
 });
+
+// migrate db
+using (var scope = app.Services.CreateScope())
+{
+    await scope.ServiceProvider.GetRequiredService<ExampleDbContext>().Database.MigrateAsync();
+}
 
 app.Run();
 

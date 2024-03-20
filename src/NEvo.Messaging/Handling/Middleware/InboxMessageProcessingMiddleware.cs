@@ -14,11 +14,13 @@ public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IM
         if (_messageInbox.IsAlreadyProcessed(message, context))
             return Unit.Default;
 
-        var result = await next();
-
-        result.IfRight(_ => _messageInbox.RegisterProcessed(message, context));
-
-        return result;
+        return await next().MapAsync(
+           async successResult => 
+           {
+               await _messageInbox.RegisterProcessedAsync(message, context);
+               return successResult;
+           }
+        );
     }
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler handler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
@@ -26,10 +28,12 @@ public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IM
         if (_messageInbox.IsAlreadyProcessed(handler, message, context))
             return Unit.Default;
 
-        var result = await next();
-
-        result.IfRight(_ => _messageInbox.RegisterProcessed(handler, message, context));
-
-        return result;
+        return await next().MapAsync(
+           async successResult => 
+           {
+               await _messageInbox.RegisterProcessedAsync(message, context);
+               return successResult;
+           }
+        );
     }
 }
