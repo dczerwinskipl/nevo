@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\NEvo.Messaging\NEvo.Messaging.csproj" />
+    <ProjectReference Include="..\NEvo.Messaging\NEvo.Messaging.csproj" />
   </ItemGroup>
 
 </Project>

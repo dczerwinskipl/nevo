@@ -19,7 +19,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging.Cqrs", "src\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.ExampleApp", "src\NEvo.ExampleApp\NEvo.ExampleApp.csproj", "{4C83C48D-B3E5-4FC5-B412-792A787D11C3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.EntityFramework", "NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj", "{4F975565-2FD1-44B3-BE6D-5494457EB3E0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.EntityFramework", "src\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj", "{4F975565-2FD1-44B3-BE6D-5494457EB3E0}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

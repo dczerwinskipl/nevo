@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj" />
+    <ProjectReference Include="..\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj" />
     <ProjectReference Include="..\NEvo.Core\NEvo.Core.csproj" />
     <ProjectReference Include="..\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
     <ProjectReference Include="..\NEvo.Messaging\NEvo.Messaging.csproj" />
