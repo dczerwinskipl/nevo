@@ -1,23 +1,29 @@
 ﻿using NEvo.Messaging.Context;
+using System.Linq;
 
 namespace NEvo.Messaging.Transporting;
 
-public class MessageEnvelopeMapper : IMessageEnvelopeMapper
+public class MessageEnvelopeMapper(IMessageSerializer messageSerializer) : IMessageEnvelopeMapper
 {
-    private readonly IMessageSerializer _messageSerializer;
-
-    public MessageEnvelopeMapper(IMessageSerializer messageSerializer)
-    {
-        _messageSerializer = messageSerializer;
-    }
-
     public Either<Exception, MessageEnvelope> ToMessageEnvelope(MessageEnvelopeDto messageEnvelopeDto)
-        => _messageSerializer
-                .Deserialize(messageEnvelopeDto.Payload, messageEnvelopeDto.MessageType)
-                .Map(message => new MessageEnvelope(message, new MessageContextHeaders(messageEnvelopeDto.Headers.ToDictionary())));
+        => messageSerializer
+                .DeserializeMessage(messageEnvelopeDto.Payload, messageEnvelopeDto.MessageType)
+                .Map(message => new MessageEnvelope(
+                    message,
+                    messageSerializer
+                        .DeserializeHeaders(messageEnvelopeDto.Headers)
+                        .IfLeft(_ => new MessageContextHeaders(new Dictionary<string, string>()))
+                 ));
 
     public Either<Exception, MessageEnvelopeDto> ToMessageEnvelopeDTO(MessageEnvelope messageEnvelope)
-        => _messageSerializer
+        => messageSerializer
                 .Serialize(messageEnvelope.Message)
-                .Map(result => new MessageEnvelopeDto(result.MessageType, result.Payload, messageEnvelope.Headers));
+                .Map(result => new MessageEnvelopeDto(
+                    messageEnvelope.Message.Id,
+                    result.MessageType,
+                    result.Payload,
+                    messageSerializer
+                        .SerializeHeaders(messageEnvelope.Headers)
+                        .IfLeft(string.Empty)
+                ));
 }

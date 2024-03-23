@@ -1,6 +1,6 @@
-﻿using NEvo.Messaging.Context;
+﻿using LanguageExt;
+using NEvo.Messaging.Context;
 using NEvo.Messaging.EntityFramework.Models;
-using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.EntityFramework;
 
@@ -19,15 +19,17 @@ public class EntityFrameworkMessageInbox : IMessageInbox
     public bool IsAlreadyProcessed(IMessageHandler handler, IMessage message, IMessageContext context) =>
         _dbContext.InboxProcessedHandlers.Any(ipm => ipm.MessageId == message.Id && ipm.HandlerKey == handler.HandlerDescription.Key);
 
-    public async Task RegisterProcessedAsync(IMessage message, IMessageContext context)
+    public async Task<Unit> RegisterProcessedAsync(IMessage message, IMessageContext context)
     {
         await _dbContext.InboxProcessedMessages.AddAsync(new InboxProcessedMessage(message.Id, DateTime.UtcNow));
         await _dbContext.SaveChangesAsync();
+        return Unit.Default;
     }
 
-    public async Task RegisterProcessedAsync(IMessageHandler handler, IMessage message, IMessageContext context)
+    public async Task<Unit> RegisterProcessedAsync(IMessageHandler handler, IMessage message, IMessageContext context)
     {
         await _dbContext.InboxProcessedHandlers.AddAsync(new InboxProcessedHandler(message.Id, handler.HandlerDescription.Key, DateTime.UtcNow));
         await _dbContext.SaveChangesAsync();
+        return Unit.Default;
     }
 }

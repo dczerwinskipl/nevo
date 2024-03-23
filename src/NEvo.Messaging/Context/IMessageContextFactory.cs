@@ -2,5 +2,6 @@
 
 public interface IMessageContextFactory
 {
-    IMessageContext Create();
+    IMessageContext CreateContext();
+    IMessageContextHeaders CreateHeaders();
 }

@@ -1,4 +1,4 @@
-﻿using NEvo.Messaging.Publish;
+﻿using NEvo.Messaging.Publishing;
 
 namespace NEvo.Messaging.Events;
 

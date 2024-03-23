@@ -1,6 +1,7 @@
 ﻿using NEvo.Core;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling.Middleware;
+using NEvo.Messaging.Handling.Strategies;
 
 namespace NEvo.Messaging.Handling;
 

@@ -2,6 +2,8 @@
 
 public class MessageContextFactory(IServiceProvider serviceProvider) : IMessageContextFactory
 {
-    // TODO: custom headers
-    public IMessageContext Create() => new MessageContext(new Dictionary<string, string>(), serviceProvider);
+    public IMessageContext CreateContext() => new MessageContext(CreateHeaders().ToDictionary(), serviceProvider);
+
+    // TODO: custom headers (middleware?)
+    public IMessageContextHeaders CreateHeaders() => new MessageContextHeaders(new Dictionary<string, string>());
 }

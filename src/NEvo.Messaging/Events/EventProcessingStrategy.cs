@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Handling.Strategies;
 using static LanguageExt.Prelude;
 
 namespace NEvo.Messaging.Events;

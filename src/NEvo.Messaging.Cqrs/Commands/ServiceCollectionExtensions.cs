@@ -1,6 +1,7 @@
 ﻿using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Dispatch;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Handling.Strategies;
 
 namespace Microsoft.Extensions.DependencyInjection;
 

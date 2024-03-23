@@ -5,10 +5,11 @@ using NEvo.Messaging.EntityFramework.Models;
 
 namespace NEvo.ExampleApp.Database;
 
-public class ExampleDbContext : DbContext, IInboxDbContext
+public class ExampleDbContext : DbContext, IInboxDbContext, IOutboxDbContext
 {
     public DbSet<InboxProcessedHandler> InboxProcessedHandlers { get; set; }
     public DbSet<InboxProcessedMessage> InboxProcessedMessages { get; set; }
+    public DbSet<OutboxMessage> OutboxMessages { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -19,5 +20,6 @@ public class ExampleDbContext : DbContext, IInboxDbContext
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyInboxConfiguration();
+        modelBuilder.ApplyOutboxConfiguration();
     }
 }

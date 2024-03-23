@@ -1,6 +1,6 @@
 ﻿using NEvo.Messaging.Context;
 
-namespace NEvo.Messaging.Handling;
+namespace NEvo.Messaging.Handling.Strategies;
 
 public interface IMessageProcessingStrategyFactory
 {

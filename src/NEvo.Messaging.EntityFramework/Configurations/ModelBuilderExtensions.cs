@@ -11,4 +11,11 @@ public static class ServiceCollectionExtensions
         modelBuilder.ApplyConfiguration<InboxProcessedHandler>(configuration);
         return modelBuilder;
     }
+
+    public static ModelBuilder ApplyOutboxConfiguration(this ModelBuilder modelBuilder)
+    {
+        var configuration = new OutboxEntityTypeConfiguration();
+        modelBuilder.ApplyConfiguration(configuration);
+        return modelBuilder;
+    }
 }
