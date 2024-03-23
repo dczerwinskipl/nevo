@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Events.Attributes;
+using NEvo.Messaging.Publish;
 using System.Reflection;
 
 namespace NEvo.Messaging.Events;

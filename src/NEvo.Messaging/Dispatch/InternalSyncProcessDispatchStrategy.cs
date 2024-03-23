@@ -1,6 +1,7 @@
-﻿using NEvo.Messaging.Handling;
+﻿using NEvo.Messaging.Context;
+using NEvo.Messaging.Handling;
 
-namespace NEvo.Messaging;
+namespace NEvo.Messaging.Dispatch;
 
 public class InternalSyncProcessDispatchStrategy(IMessageProcessor messageProcessor, IMessageContextFactory messageContextFactory) : IInternalMessageDispatchStrategy
 {

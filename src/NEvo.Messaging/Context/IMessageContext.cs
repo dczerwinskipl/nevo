@@ -1,4 +1,4 @@
-﻿namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging.Context;
 
 public interface IMessageContext
 {

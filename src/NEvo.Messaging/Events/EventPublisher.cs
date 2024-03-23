@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Events;
+﻿using NEvo.Messaging.Publish;
+
+namespace NEvo.Messaging.Events;
 
 public class EventPublisher(IMessagePublishStrategyFactory<Event> messagePublishStrategyFactor) : IEventPublisher
 {

@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using NEvo.Messaging.Dispatch;
 
 namespace NEvo.Messaging.Cqrs.Commands;
 

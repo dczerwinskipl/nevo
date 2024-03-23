@@ -1,6 +1,6 @@
-﻿using NEvo.Messaging;
-using NEvo.Messaging.Events;
+﻿using NEvo.Messaging.Events;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Publish;
 
 namespace Microsoft.Extensions.DependencyInjection;
 

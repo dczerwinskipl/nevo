@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Transporting;
+﻿using NEvo.Messaging.Context;
+
+namespace NEvo.Messaging.Transporting;
 
 public class MessageEnvelopeMapper : IMessageEnvelopeMapper
 {

@@ -1,6 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 
-namespace NEvo.Messaging;
+namespace NEvo.Messaging.Context;
 
 public class MessageContextHeaders(IDictionary<string, string> dictionary) : ReadOnlyDictionary<string, string>(Check.Null(dictionary)), IMessageContextHeaders
 {

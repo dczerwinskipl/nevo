@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Handling;
+﻿using NEvo.Messaging.Context;
+
+namespace NEvo.Messaging.Handling;
 
 public interface IMessageProcessingStrategy
 {

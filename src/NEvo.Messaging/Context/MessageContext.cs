@@ -1,4 +1,4 @@
-﻿namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging.Context;
 
 public class MessageContext(IDictionary<string, string> headers, IServiceProvider serviceProvider) : IMessageContext
 {

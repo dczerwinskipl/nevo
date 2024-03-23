@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Events;

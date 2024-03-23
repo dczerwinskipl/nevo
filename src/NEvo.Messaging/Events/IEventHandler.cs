@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Events;
+﻿using NEvo.Messaging.Context;
+
+namespace NEvo.Messaging.Events;
 
 public interface IEventHandler<in TMessage> where TMessage : Event
 {

@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace NEvo.Messaging;
+namespace NEvo.Messaging.Context;
 
 public class ScopedMessageContext(IDictionary<string, string> headers, IServiceProvider serviceProvider) : IScopedMessageContext
 {

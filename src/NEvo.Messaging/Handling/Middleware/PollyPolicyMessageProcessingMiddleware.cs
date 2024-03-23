@@ -1,4 +1,5 @@
-﻿using Polly;
+﻿using NEvo.Messaging.Context;
+using Polly;
 
 namespace NEvo.Messaging.Handling.Middleware;
 

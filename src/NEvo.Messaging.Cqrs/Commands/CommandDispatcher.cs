@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Cqrs.Commands;
+﻿using NEvo.Messaging.Dispatch;
+
+namespace NEvo.Messaging.Cqrs.Commands;
 
 public class CommandDispatcher(IMessageDispatchStrategyFactory<Command> messageDispatchStrategyFactory) : ICommandDispatcher
 {

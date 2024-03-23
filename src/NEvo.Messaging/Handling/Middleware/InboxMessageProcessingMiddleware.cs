@@ -1,4 +1,6 @@
-﻿namespace NEvo.Messaging.Handling.Middleware;
+﻿using NEvo.Messaging.Context;
+
+namespace NEvo.Messaging.Handling.Middleware;
 
 public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IMessageProcessingHandlerMiddleware
 {

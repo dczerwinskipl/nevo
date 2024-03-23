@@ -1,13 +1,13 @@
-﻿using NEvo.Messaging.Handling;
+﻿using NEvo.Messaging.Context;
 using System.Reflection;
 
-namespace NEvo.Messaging;
+namespace NEvo.Messaging.Handling;
 
 public abstract class MessageHandlerAdapterBase<TMessageGroup> : IMessageHandler
 {
     private readonly MethodInfo _genericInternalHandleAsyncMethod;
     public MessageHandlerDescription HandlerDescription { get; init; }
-    
+
     public MessageHandlerAdapterBase(MessageHandlerDescription messageHandlerDescription) : base()
     {
         HandlerDescription = messageHandlerDescription;

@@ -1,4 +1,4 @@
-﻿namespace NEvo.Messaging;
+﻿namespace NEvo.Messaging.Dispatch;
 
 public interface IMessageDispatchStrategyFactory<TMessageGroup> where TMessageGroup : IMessage
 {
