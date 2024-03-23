@@ -5,24 +5,8 @@ public class MessageContextProvider(IServiceProvider serviceProvider) : IMessage
     private MessageContextHeaders? _messageContextHeaders;
     private MessageContext? _messageContext;
 
-    public IMessageContext CreateContext()
-    {
-        if (_messageContext == null)
-        {
-            _messageContext = new MessageContext(CreateHeaders().ToDictionary(), serviceProvider);
-        }
-
-        return _messageContext;
-    }
+    public IMessageContext CreateContext() => _messageContext ??= new MessageContext(CreateHeaders(), serviceProvider);
 
     // TODO: custom headers (middleware?)
-    public IMessageContextHeaders CreateHeaders()
-    {
-        if (_messageContextHeaders == null)
-        {
-            _messageContextHeaders = new MessageContextHeaders(new Dictionary<string, string>());
-        }
-
-        return _messageContextHeaders;
-    }
+    public IMessageContextHeaders CreateHeaders() => _messageContextHeaders ??= new MessageContextHeaders(new Dictionary<string, string>());
 }
