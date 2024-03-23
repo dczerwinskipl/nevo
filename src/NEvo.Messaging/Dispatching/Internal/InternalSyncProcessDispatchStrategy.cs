@@ -3,7 +3,7 @@ using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Dispatch.Internal;
 
-public class InternalSyncProcessDispatchStrategy(IMessageProcessor messageProcessor, IMessageContextFactory messageContextFactory) : IInternalMessageDispatchStrategy
+public class InternalSyncProcessDispatchStrategy(IMessageProcessor messageProcessor, IMessageContextProvider messageContextFactory) : IInternalMessageDispatchStrategy
 {
     private IMessageProcessor _messageProcessor = messageProcessor;
 

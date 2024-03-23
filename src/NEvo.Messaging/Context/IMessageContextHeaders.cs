@@ -1,7 +1,7 @@
 ﻿namespace NEvo.Messaging.Context;
 
-public interface IMessageContextHeaders : IReadOnlyDictionary<string, string>
+public interface IMessageContextHeaders : IDictionary<string, string>
 {
-    Option<string> CausationId { get; }
-    Option<string> CorrelationId { get; }
+    Option<string> CausationId { get; set; }
+    Option<string> CorrelationId { get; set; }
 }

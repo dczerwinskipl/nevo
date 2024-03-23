@@ -6,5 +6,4 @@ public interface IMessageContext
     Option<string> CorrelationId => Headers.CorrelationId;
     Option<string> CausationId => Headers.CausationId;
     IServiceProvider ServiceProvider { get; }
-    IScopedMessageContext CreateScope();
 }

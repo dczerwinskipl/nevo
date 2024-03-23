@@ -16,10 +16,14 @@ public static partial class ServiceCollectionExtensions
         // TODO: check scopes
         services.AddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
         services.AddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
+
+        services.AddMessageProcessingMiddleware<CorrelationIdMessageProcessingMiddleware>();
+        services.AddMessageProcessingMiddleware<CausationIdIdMessageProcessingMiddleware>();
+
         services.AddScoped<IMessageProcessingStrategyFactory, MessageProcessingStrategyFactory>();
         services.AddScoped<IMessageProcessor, MessageProcessor>();
 
-        services.AddScoped<IMessageContextFactory, MessageContextFactory>();
+        services.AddScoped<IMessageContextProvider, MessageContextProvider>();
 
         services.AddScoped<IMessageDispatchStrategy, InternalSyncProcessDispatchStrategy>();
         services.AddScoped<IInternalMessageDispatchStrategy, InternalSyncProcessDispatchStrategy>();

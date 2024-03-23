@@ -1,6 +1,6 @@
 ﻿namespace NEvo.Messaging.Context;
 
-public interface IMessageContextFactory
+public interface IMessageContextProvider
 {
     IMessageContext CreateContext();
     IMessageContextHeaders CreateHeaders();
