@@ -10,18 +10,11 @@ public interface IPollyMessageHandlingPolicyProvider
     public Policy<Task<Either<Exception, object>>> For(IMessageHandler handler, IMessage message, IMessageContext context);
 }
 
-public class PollyPolicyMessageProcessingMiddleware : IMessageProcessingHandlerMiddleware
+public class PollyPolicyMessageProcessingMiddleware(IPollyMessageHandlingPolicyProvider messageHandlingPolicyProvider) : IMessageProcessingHandlerMiddleware
 {
-    private readonly IPollyMessageHandlingPolicyProvider _messageHandlingPolicyProvider;
-
-    public PollyPolicyMessageProcessingMiddleware(IPollyMessageHandlingPolicyProvider messageHandlingPolicyProvider)
-    {
-        _messageHandlingPolicyProvider = Check.Null(messageHandlingPolicyProvider);
-    }
-
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler handler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
-        var policy = _messageHandlingPolicyProvider.For(handler, message, context);
+        var policy = messageHandlingPolicyProvider.For(handler, message, context);
         return await policy.Execute(next);
     }
 }

@@ -24,6 +24,7 @@ builder.Services.AddCommands();
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
+builder.Services.AddMessageProcessingMiddleware<TransactionScopeMessageProcessingMiddleware>();
 builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware>();
 builder.Services.AddEntityFrameworkInbox<ExampleDbContext>();
 
