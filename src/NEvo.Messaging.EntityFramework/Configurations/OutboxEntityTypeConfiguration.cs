@@ -5,16 +5,16 @@ namespace NEvo.Messaging.EntityFramework.Configurations;
 
 public class OutboxEntityTypeConfiguration : IEntityTypeConfiguration<OutboxMessage>
 {
-    private string _prefix;
+    private string _schema;
 
     public OutboxEntityTypeConfiguration()
     {
-        _prefix = "__Outbox_";
+        _schema = "nEvo";
     }
 
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable($"{_prefix}OutboxMessages");
+        builder.ToTable("OutboxMessages", _schema);
         builder.HasKey(x => x.MessageId).IsClustered(false);
         builder.Property(x => x.Order).ValueGeneratedOnAdd();
         builder.HasIndex(x => new { x.Status, x.Partition, x.Order }).IsClustered();
