@@ -12,7 +12,7 @@ public class MiddlewareHandlerTests
     {
         // Arrange
         var returnValue = "Base";
-        var handler = new MiddlewareHandler<string, string, IMiddleware<string, string>>(Enumerable.Empty<IMiddleware<string, string>>());
+        var handler = new MiddlewareHandler<string, string>(Enumerable.Empty<IMiddleware<string, string>>());
         var baseFunctionMock = new Mock<Func<string, CancellationToken, Task<string>>>();
         baseFunctionMock.Setup(InvokeWithAnyParams).ReturnsAsync(returnValue);
 
@@ -46,7 +46,7 @@ public class MiddlewareHandlerTests
             middlewareMocks.Add(mock);
         }
 
-        var handler = new MiddlewareHandler<string, string, IMiddleware<string, string>>(middlewareMocks.ConvertAll(m => m.Object));
+        var handler = new MiddlewareHandler<string, string>(middlewareMocks.ConvertAll(m => m.Object));
 
         // Act
         var result = await handler.ExecuteAsync((input, ct) =>
@@ -74,14 +74,14 @@ public class MiddlewareHandlerTests
         thirdMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
                             .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
 
-        var middlewares = new List<MiddlewareConfig<string, string, IMiddleware<string, string>>>
+        var middlewares = new List<MiddlewareConfig<string, string>>
         {
             new(firstMiddlewareMock.Object, null),
             new(secondMiddlewareMock.Object, _ => true),
             new(thirdMiddlewareMock.Object, _ => false)
         };
 
-        var handler = new MiddlewareHandler<string, string, IMiddleware<string, string>>(middlewares);
+        var handler = new MiddlewareHandler<string, string>(middlewares);
 
         // Act
         await handler.ExecuteAsync((input, ct) => Task.FromResult("Base"), "Input", CancellationToken.None);
@@ -110,7 +110,7 @@ public class MiddlewareHandlerTests
         var baseFunctionMock = new Mock<Func<string, CancellationToken, Task<string>>>();
         baseFunctionMock.Setup(InvokeWithAnyParams).ReturnsAsync(string.Empty);
 
-        var handler = new MiddlewareHandler<string, string, IMiddleware<string, string>>(new List<IMiddleware<string, string>>
+        var handler = new MiddlewareHandler<string, string>(new List<IMiddleware<string, string>>
         {
             firstMiddlewareMock.Object, secondMiddlewareMock.Object, thirdMiddlewareMock.Object
         });

@@ -18,7 +18,7 @@ public class MessageProcessor(
         IEnumerable<MessageProcessingMiddlewareConfig> messageProcessingMiddlewares
     ) : this(
         messageProcessingStrategyFactory,
-        new MiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>, IMessageProcessingMiddleware>(messageProcessingMiddlewares)
+        new MiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>>(messageProcessingMiddlewares)
     )
     {
     }

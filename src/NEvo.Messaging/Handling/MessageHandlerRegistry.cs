@@ -24,11 +24,6 @@ public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtra
             ? SelectMessageHandler(messageType, handlers)
             : new NoHandlerFoundException(messageType);
 
-    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers) => 
-        handlers.Count > 1
-            ? new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription))
-            : Prelude.Right<Exception, IMessageHandler>(handlers.Single());
-
     public Either<Exception, IMessageHandler> GetMessageHandler<TResult>(Type messageType) =>
         GetMessageHandler(messageType)
             .Bind(handler =>
@@ -41,4 +36,9 @@ public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtra
         _handlers.TryGetValue(messageType, out var handlers)
             ? handlers
             : Enumerable.Empty<IMessageHandler>();
+
+    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers) =>
+        handlers.Count > 1
+            ? new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription))
+            : Prelude.Right<Exception, IMessageHandler>(handlers.Single());
 }
