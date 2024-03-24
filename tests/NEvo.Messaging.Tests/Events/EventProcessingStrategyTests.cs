@@ -7,15 +7,16 @@ namespace NEvo.Messaging.Tests.Events;
 
 public class EventProcessingStrategyTests
 {
-    private readonly Mock<IMessageHandlerRegistry> _messageHandlerRegistryMock = new();
     private readonly IMessageContext _messageContext;
+    private readonly Mock<IMessageHandlerRegistry> _messageHandlerRegistryMock = new();
+    private readonly Mock<IServiceProvider> _serviceProciderMock = new();
     private readonly EventProcessingStrategy _sut;
+    
 
     public EventProcessingStrategyTests()
     {
-        var serviceProciderMock = new Mock<IServiceProvider>();
         var messageContextMock = new Mock<IMessageContext>();
-        messageContextMock.Setup(m => m.ServiceProvider).Returns(serviceProciderMock.Object);
+        messageContextMock.Setup(m => m.ServiceProvider).Returns(_serviceProciderMock.Object);
         _messageContext = messageContextMock.Object;
 
         _sut = new EventProcessingStrategy(_messageHandlerRegistryMock.Object);
@@ -86,5 +87,53 @@ public class EventProcessingStrategyTests
         // Assert
         result.ExpectLeft().Should().BeOfType<AggregateException>()
             .Which.InnerException.Should().Be(exception);
+    }
+
+
+    [Fact]
+    public async Task ProcessMessageAsync_CallInbox_IfProvided()
+    {
+        // Arrange
+        var eventMessage = new Event();
+        var handlerMock = new Mock<IMessageHandler>();
+        handlerMock.Setup(h => h.HandleAsync(eventMessage, It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Either<Exception, object>.Right(Unit.Default));
+
+        _messageHandlerRegistryMock.Setup(registry => registry.GetMessageHandlers(eventMessage))
+            .Returns([handlerMock.Object]);
+
+        var inboxMock = new Mock<IMessageInbox>();
+        _serviceProciderMock.Setup(s => s.GetService(typeof(IMessageInbox))).Returns(inboxMock.Object);
+
+        // Act
+        var result = await _sut.ProcessMessageAsync(eventMessage, _messageContext, CancellationToken.None);
+
+        // Assert
+        handlerMock.Verify(h => h.HandleAsync(eventMessage, It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()), Times.Once);
+        inboxMock.Verify(i => i.IsAlreadyProcessed(handlerMock.Object, eventMessage, _messageContext), Times.Once);
+        inboxMock.Verify(i => i.RegisterProcessedAsync(handlerMock.Object, eventMessage, _messageContext), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessMessageAsync_SkipProcessingMessage_IfMessageAlreadyProcessed()
+    {
+        // Arrange
+        var eventMessage = new Event();
+        var handlerMock = new Mock<IMessageHandler>();
+        handlerMock.Setup(h => h.HandleAsync(eventMessage, It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Either<Exception, object>.Right(Unit.Default));
+
+        _messageHandlerRegistryMock.Setup(registry => registry.GetMessageHandlers(eventMessage))
+            .Returns([handlerMock.Object]);
+
+        var inboxMock = new Mock<IMessageInbox>();
+        inboxMock.Setup(i => i.IsAlreadyProcessed(handlerMock.Object, eventMessage, _messageContext)).Returns(true);
+        _serviceProciderMock.Setup(s => s.GetService(typeof(IMessageInbox))).Returns(inboxMock.Object);
+
+        // Act
+        var result = await _sut.ProcessMessageAsync(eventMessage, _messageContext, CancellationToken.None);
+
+        // Assert
+        handlerMock.Verify(h => h.HandleAsync(eventMessage, It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }
