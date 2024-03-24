@@ -44,7 +44,7 @@ public class MessageContextTests
         var serviceProvider = new Mock<IServiceProvider>().Object;
 
         // Act
-        var act = () => new MessageContext(null, serviceProvider);
+        var act = () => new MessageContext(null!, serviceProvider);
 
         // Assert
         act.Should().Throw<ArgumentNullException>();
@@ -57,7 +57,7 @@ public class MessageContextTests
         var headers = new Dictionary<string, string>();
 
         // Act
-        var act = () => new MessageContext(headers, null);
+        var act = () => new MessageContext(headers, null!);
 
         // Assert
         act.Should().Throw<ArgumentNullException>();

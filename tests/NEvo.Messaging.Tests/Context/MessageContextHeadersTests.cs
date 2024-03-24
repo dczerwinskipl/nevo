@@ -1,5 +1,4 @@
-﻿using LanguageExt;
-using NEvo.Messaging.Context;
+﻿using NEvo.Messaging.Context;
 
 namespace NEvo.Messaging.Tests.Context;
 
@@ -26,7 +25,7 @@ public class MessageContextHeadersTests
     public void Constructor_ShouldThrowArgumentNullException_WhenDictionaryIsNull()
     {
         // Act
-        Action act = () => new MessageContextHeaders(null);
+        var act = () => new MessageContextHeaders(null!);
 
         // Assert
         act.Should().ThrowExactly<ArgumentNullException>();
