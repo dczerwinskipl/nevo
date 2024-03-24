@@ -2,7 +2,7 @@
 
 namespace NEvo.Messaging.Handling.Middleware;
 
-public class CausationIdIdMessageProcessingMiddleware : IMessageProcessingMiddleware
+public class CausationIdMessageProcessingMiddleware : IMessageProcessingMiddleware
 {
     public Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {

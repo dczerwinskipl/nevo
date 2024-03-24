@@ -1,5 +1,8 @@
-﻿namespace NEvo.Messaging.Handling.Exceptions;
+﻿using System.Diagnostics.CodeAnalysis;
 
+namespace NEvo.Messaging.Handling.Exceptions;
+
+[ExcludeFromCodeCoverage]
 public class MoreThanOneHandlerFoundException : MessageHandlerRegistryException
 {
     public Type MessageType { get; }

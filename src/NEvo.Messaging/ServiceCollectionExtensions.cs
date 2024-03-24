@@ -18,7 +18,7 @@ public static partial class ServiceCollectionExtensions
         services.AddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
 
         services.AddMessageProcessingMiddleware<CorrelationIdMessageProcessingMiddleware>();
-        services.AddMessageProcessingMiddleware<CausationIdIdMessageProcessingMiddleware>();
+        services.AddMessageProcessingMiddleware<CausationIdMessageProcessingMiddleware>();
 
         services.AddScoped<IMessageProcessingStrategyFactory, MessageProcessingStrategyFactory>();
         services.AddScoped<IMessageProcessor, MessageProcessor>();

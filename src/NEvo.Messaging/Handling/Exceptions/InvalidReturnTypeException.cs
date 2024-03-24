@@ -1,5 +1,8 @@
-﻿namespace NEvo.Messaging.Handling.Exceptions;
+﻿using System.Diagnostics.CodeAnalysis;
 
+namespace NEvo.Messaging.Handling.Exceptions;
+
+[ExcludeFromCodeCoverage]
 public class InvalidReturnTypeException : MessageHandlerRegistryException
 {
     public Type MessageType { get; }

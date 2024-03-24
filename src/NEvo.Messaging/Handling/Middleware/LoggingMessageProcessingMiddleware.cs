@@ -26,15 +26,15 @@ public class LoggingMessageProcessingMiddleware(ILogger<LoggingMessageProcessing
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler messageHandler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
         var stopwatch = new Stopwatch();
-        logger.LogInformation("Handler {Handler} for message #{MessageId} started", messageHandler.HandlerDescription.ToString(), message.Id);
+        logger.LogInformation("Handler {Handler} for message #{MessageId} started", messageHandler.HandlerDescription.Key, message.Id);
 
         stopwatch.Start();
         var result = await next();
         stopwatch.Stop();
 
         result.Match(
-            _ => logger.LogInformation("Handler {Handler} for message #{MessageId} finished with success in {Time} ms", messageHandler.HandlerDescription.ToString(), message.Id, stopwatch.ElapsedMilliseconds),
-            exc => logger.LogError(exc, "Handler {Handler} for message #{MessageId} finished with exception in {Time} ms", messageHandler.HandlerDescription.ToString(), message.Id, stopwatch.ElapsedMilliseconds)
+            _ => logger.LogInformation("Handler {Handler} for message #{MessageId} finished with success in {Time} ms", messageHandler.HandlerDescription.Key, message.Id, stopwatch.ElapsedMilliseconds),
+            exc => logger.LogError(exc, "Handler {Handler} for message #{MessageId} finished with exception in {Time} ms", messageHandler.HandlerDescription.Key, message.Id, stopwatch.ElapsedMilliseconds)
         );
 
         return result;
