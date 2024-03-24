@@ -36,7 +36,7 @@ public class MiddlewareHandlerTests
         {
             var mock = new Mock<IMiddleware<string, string>>();
             mock.Setup(ExecuteAsyncWithAnyParams)
-                .Returns<string, CancellationToken, Func<Task<string>>>(async (input, ct, next) =>
+                .Returns<string, Func<Task<string>>, CancellationToken>(async (input, next, ct) =>
                 {
                     executionOrder.Add($"pre-{name}");
                     var nextResult = await next();
@@ -68,11 +68,11 @@ public class MiddlewareHandlerTests
         var secondMiddlewareMock = new Mock<IMiddleware<string, string>>();
         var thirdMiddlewareMock = new Mock<IMiddleware<string, string>>();
         firstMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                           .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
+                           .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => next());
         secondMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                            .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
+                            .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => next());
         thirdMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                            .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
+                            .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => next());
 
         var middlewares = new List<MiddlewareConfig<string, string>>
         {
@@ -101,11 +101,11 @@ public class MiddlewareHandlerTests
         var secondMiddlewareMock = new Mock<IMiddleware<string, string>>();
         var thirdMiddlewareMock = new Mock<IMiddleware<string, string>>();
         firstMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                           .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => Task.FromResult(firstResult));
+                           .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => Task.FromResult(firstResult));
         secondMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                            .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
+                            .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => next());
         thirdMiddlewareMock.Setup(ExecuteAsyncWithAnyParams)
-                            .Returns<string, CancellationToken, Func<Task<string>>>((input, ct, next) => next());
+                            .Returns<string, Func<Task<string>>, CancellationToken>((input, next, ct) => next());
 
         var baseFunctionMock = new Mock<Func<string, CancellationToken, Task<string>>>();
         baseFunctionMock.Setup(InvokeWithAnyParams).ReturnsAsync(string.Empty);
