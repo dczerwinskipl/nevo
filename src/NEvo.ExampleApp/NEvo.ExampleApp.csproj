@@ -4,13 +4,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-  </PropertyGroup>
-
-  <ItemGroup>
     <SonarQubeExclude>true</SonarQubeExclude>
-    <AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
-  </ItemGroup>
-
+  </PropertyGroup>
+  
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.3" />
@@ -32,6 +28,10 @@
     <ProjectReference Include="..\NEvo.Core\NEvo.Core.csproj" />
     <ProjectReference Include="..\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
     <ProjectReference Include="..\NEvo.Messaging\NEvo.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
   </ItemGroup>
 
 </Project>

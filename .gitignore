@@ -351,3 +351,6 @@ MigrationBackup/
 
 # SonarQube
 .sonarqube/
+
+# Code coverage
+coverage.xml
