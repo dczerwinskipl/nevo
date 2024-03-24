@@ -1,7 +1,9 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NEvo.Messaging.Transporting;
 
+[ExcludeFromCodeCoverage]
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
 public class MessageTypeAttribute : Attribute
 {
@@ -13,6 +15,7 @@ public class MessageTypeAttribute : Attribute
     }
 }
 
+[ExcludeFromCodeCoverage]
 public class AttributeMessageTypeMapper : IMessageTypeMapper
 {
     private readonly ConcurrentDictionary<string, Type> _nameMapping = new();
