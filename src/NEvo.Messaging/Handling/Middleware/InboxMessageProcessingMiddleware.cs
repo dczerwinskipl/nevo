@@ -2,14 +2,9 @@
 
 namespace NEvo.Messaging.Handling.Middleware;
 
-public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IMessageProcessingHandlerMiddleware
+public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMessageProcessingMiddleware, IMessageProcessingHandlerMiddleware
 {
-    private readonly IMessageInbox _messageInbox;
-
-    public InboxMessageProcessingMiddleware(IMessageInbox messageInbox)
-    {
-        _messageInbox = Check.Null(messageInbox);
-    }
+    private readonly IMessageInbox _messageInbox = Check.Null(messageInbox);
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
@@ -25,9 +20,9 @@ public class InboxMessageProcessingMiddleware : IMessageProcessingMiddleware, IM
         );
     }
 
-    public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler handler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
+    public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler messageHandler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
-        if (_messageInbox.IsAlreadyProcessed(handler, message, context))
+        if (_messageInbox.IsAlreadyProcessed(messageHandler, message, context))
             return Unit.Default;
 
         return await next().MapAsync(

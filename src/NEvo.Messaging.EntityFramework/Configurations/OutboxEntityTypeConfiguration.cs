@@ -5,12 +5,7 @@ namespace NEvo.Messaging.EntityFramework.Configurations;
 
 public class OutboxEntityTypeConfiguration : IEntityTypeConfiguration<OutboxMessage>
 {
-    private string _schema;
-
-    public OutboxEntityTypeConfiguration()
-    {
-        _schema = "nEvo";
-    }
+    private readonly string _schema = "nEvo";
 
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
