@@ -6,5 +6,3 @@ public interface IMessagePublishStrategyFactory<TMessageGroup> where TMessageGro
 {
     IMessagePublishStrategy CreateFor(TMessageGroup message);
 }
-
-

@@ -1,11 +1,13 @@
 ﻿namespace NEvo.Messaging.Attribues;
 
+[AttributeUsage(AttributeTargets.Property)]
 public class PartitionKeyAttribute : Attribute
 {
     public string? Type { get; set; }
 }
 
-public class PatritionKayTypeAttribute
+[AttributeUsage(AttributeTargets.Property)]
+public class PartitionKeyTypeAttribute : Attribute
 {
   
 }

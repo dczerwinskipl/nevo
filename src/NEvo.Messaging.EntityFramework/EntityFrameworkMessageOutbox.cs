@@ -1,11 +1,10 @@
 ﻿using LanguageExt;
 using NEvo.Messaging.EntityFramework.Models;
-using NEvo.Messaging.Publishing;
 using NEvo.Messaging.Transporting;
 
 namespace NEvo.Messaging.EntityFramework;
 
-public class EntityFrameworkMessageOubox(IOutboxDbContext dbContext, IPartitionProvider partitionProvider) : IMessageOutbox
+public class EntityFrameworkMessageOutbox(IOutboxDbContext dbContext) : IMessageOutbox
 {
     public IAsyncEnumerable<MessageEnvelopeDto> GetMessagesToPublishAsync(int cnt, int? partition)
     {
@@ -28,14 +27,14 @@ public class EntityFrameworkMessageOubox(IOutboxDbContext dbContext, IPartitionP
         //TODO: locking
         return query
                 .Take(cnt)
-                .Select(m => new MessageEnvelopeDto(m.MessageId, m.MessageType, m.Payload, m.Headers, m.PartitionKay))
+                .Select(m => new MessageEnvelopeDto(m.MessageId, m.MessageType, m.Payload, m.Headers, m.PartitionKey))
                 .AsAsyncEnumerable();
     }
 
     public async Task<Unit> SaveMessageAsync(MessageEnvelopeDto message)
     {
         //TODO partitioning
-        await dbContext.AddAsync(new OutboxMessage(message.MessageId, message.Payload, message.MessageType, message.Headers, message.PartotitionKey, 0));
+        await dbContext.AddAsync(new OutboxMessage(message.MessageId, message.Payload, message.MessageType, message.Headers, message.PartitionKey, 0));
         await dbContext.SaveChangesAsync();
         return Unit.Default;
     }

@@ -19,8 +19,9 @@ public class OutboxEntityTypeConfiguration : IEntityTypeConfiguration<OutboxMess
         builder.Property(x => x.Order).ValueGeneratedOnAdd();
         builder.HasIndex(x => new { x.Status, x.Partition, x.Order }).IsClustered();
         builder.HasIndex(x => new { x.Status, x.Order });
-        builder.Property(x => x.Payload).HasMaxLength(int.MaxValue).IsRequired();
         builder.Property(x => x.MessageType).HasMaxLength(255).IsRequired();
+        builder.Property(x => x.Payload).HasMaxLength(int.MaxValue).IsRequired();
         builder.Property(x => x.Headers).HasMaxLength(1024).IsRequired();
+        builder.Property(x => x.PartitionKey).HasMaxLength(255).IsRequired(false);
     }
 }

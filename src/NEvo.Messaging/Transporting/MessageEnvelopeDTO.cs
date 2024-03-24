@@ -1,3 +1,3 @@
 ﻿namespace NEvo.Messaging.Transporting;
 
-public record MessageEnvelopeDto(Guid MessageId, string MessageType, string Payload, string Headers, string PartotitionKey);
+public record MessageEnvelopeDto(Guid MessageId, string MessageType, string Payload, string Headers, string? PartitionKey);

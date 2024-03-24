@@ -89,6 +89,10 @@ namespace NEvo.ExampleApp.Migrations
                     b.Property<int>("Partition")
                         .HasColumnType("int");
 
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
                     b.Property<string>("Payload")
                         .IsRequired()
                         .HasMaxLength(2147483647)

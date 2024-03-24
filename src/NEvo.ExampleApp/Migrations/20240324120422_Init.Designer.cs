@@ -12,8 +12,8 @@ using NEvo.ExampleApp.Database;
 namespace NEvo.ExampleApp.Migrations
 {
     [DbContext(typeof(ExampleDbContext))]
-    [Migration("20240323125113_Add_Outbox")]
-    partial class Add_Outbox
+    [Migration("20240324120422_Init")]
+    partial class Init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -44,7 +44,7 @@ namespace NEvo.ExampleApp.Migrations
 
                     SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("ProcessedAt"));
 
-                    b.ToTable("__Inbox_InboxProcessedHandlers", (string)null);
+                    b.ToTable("InboxProcessedHandlers", "nEvo");
                 });
 
             modelBuilder.Entity("NEvo.Messaging.EntityFramework.Models.InboxProcessedMessage", b =>
@@ -64,7 +64,7 @@ namespace NEvo.ExampleApp.Migrations
 
                     SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("ProcessedAt"));
 
-                    b.ToTable("__Inbox_InboxProcessedMessages", (string)null);
+                    b.ToTable("InboxProcessedMessages", "nEvo");
                 });
 
             modelBuilder.Entity("NEvo.Messaging.EntityFramework.Models.OutboxMessage", b =>
@@ -92,6 +92,10 @@ namespace NEvo.ExampleApp.Migrations
                     b.Property<int>("Partition")
                         .HasColumnType("int");
 
+                    b.Property<string>("PartitionKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
                     b.Property<string>("Payload")
                         .IsRequired()
                         .HasMaxLength(2147483647)
@@ -110,7 +114,7 @@ namespace NEvo.ExampleApp.Migrations
 
                     SqlServerIndexBuilderExtensions.IsClustered(b.HasIndex("Status", "Partition", "Order"));
 
-                    b.ToTable("__Outbox_OutboxMessages", (string)null);
+                    b.ToTable("OutboxMessages", "nEvo");
                 });
 #pragma warning restore 612, 618
         }

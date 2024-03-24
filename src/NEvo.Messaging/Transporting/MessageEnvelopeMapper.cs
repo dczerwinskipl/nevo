@@ -25,6 +25,6 @@ public class MessageEnvelopeMapper(IMessageSerializer messageSerializer) : IMess
                     messageSerializer
                         .SerializeHeaders(messageEnvelope.Headers)
                         .IfLeft(string.Empty),
-                    "..." // gey Partition Kery
+                    null // TODO: get Partition Key
                 ));
 }

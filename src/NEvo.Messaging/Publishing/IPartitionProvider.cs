@@ -4,5 +4,5 @@ namespace NEvo.Messaging.Publishing;
 
 public interface IPartitionProvider
 {
-    string GetPartition(IMessage messagge, IMessageContext context);
+    string GetPartition(IMessage message, IMessageContext context);
 }
