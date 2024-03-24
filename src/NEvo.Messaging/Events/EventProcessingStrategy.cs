@@ -25,7 +25,6 @@ public class EventProcessingStrategy(IMessageHandlerRegistry messageHandlerRegis
 
     private static async Task<Either<Exception, Unit>> HandleAsync(IMessageHandler handler, IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        // TODO: maybe it's better to use here middleware?
         var inbox = context.ServiceProvider.GetService<IMessageInbox>();
         if (inbox != null && inbox.IsAlreadyProcessed(handler, message, context))
         {

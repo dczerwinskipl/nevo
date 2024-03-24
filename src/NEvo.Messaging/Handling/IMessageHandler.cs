@@ -3,7 +3,7 @@ using NEvo.Messaging.Context;
 
 namespace NEvo.Messaging.Handling;
 
-public record MessageHandlerDescription(string Key, Type HandlerType, Type MessageType, Type InterfaceType, Type? ReturnType, MethodInfo? Method);
+public record MessageHandlerDescription(string Key, Type HandlerType, Type MessageType, Type InterfaceType, Type? ReturnType = null, MethodInfo? Method = null);
 
 public interface IMessageHandler
 {

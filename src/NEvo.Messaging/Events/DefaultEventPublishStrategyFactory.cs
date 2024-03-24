@@ -18,8 +18,6 @@ public class DefaultEventPublishStrategyFactory(IServiceProvider serviceProvider
             serviceProvider.GetService<IInternalMessagePublishStrategy>() :
             serviceProvider.GetService<IExternalMessagePublishStrategy>();
 
-    // TODO: extend it as dependency
-    //       can be used like: Attribute, Convention (visiblity, naming), direct configuration
     private static bool IsPrivateMessage(Event message)
     {
         var customAttributes = message.GetType().GetCustomAttributes<EventVisibilityAttribute>(true).ToList();

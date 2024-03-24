@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using System.Diagnostics.CodeAnalysis;
 
-namespace NEvo.Core.Tests.Assertions;
+namespace NEvo.Messaging.Tests.Assertions;
 
 [ExcludeFromCodeCoverage]
 public static class EitherAssertions
