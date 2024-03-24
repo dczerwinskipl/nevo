@@ -3,16 +3,11 @@ using NEvo.Messaging.Handling.Exceptions;
 
 namespace NEvo.Messaging.Handling;
 
-public class MessageHandlerRegistry : IMessageHandlerRegistry
+public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtractor) : IMessageHandlerRegistry
 {
     private readonly ConcurrentDictionary<Type, List<IMessageHandler>> _handlers = new();
 
-    private readonly IMessageHandlerExtractor _messageHandlerExtractor;
-
-    public MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtractor)
-    {
-        _messageHandlerExtractor = messageHandlerExtractor;
-    }
+    private readonly IMessageHandlerExtractor _messageHandlerExtractor = messageHandlerExtractor;
 
     public void Register<THandler>()
     {

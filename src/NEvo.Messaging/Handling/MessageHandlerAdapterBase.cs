@@ -16,7 +16,7 @@ public abstract class MessageHandlerAdapterBase<TMessageGroup> : IMessageHandler
 
     public async Task<Either<Exception, object>> HandleAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        var result = await (Task<Either<Exception, Unit>>)_genericInternalHandleAsyncMethod.Invoke(this, new object[] { message, context, cancellationToken })!;
+        var result = await (Task<Either<Exception, Unit>>)_genericInternalHandleAsyncMethod.Invoke(this, [message, context, cancellationToken])!;
 
         var objectResult = result.Map(unit => (object)unit);
 

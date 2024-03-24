@@ -5,10 +5,13 @@ using NEvo.Messaging.Handling.Strategies;
 
 namespace NEvo.Messaging.Handling;
 
-public class MessageProcessor : IMessageProcessor
+public class MessageProcessor(
+    IMessageProcessingStrategyFactory messageProcessingStrategyFactory,
+    IMiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>> messageProcessingMiddleware
+    ) : IMessageProcessor
 {
-    private readonly IMessageProcessingStrategyFactory _messageProcessingStrategyFactory;
-    private readonly IMiddlewareHandler<(IMessage Message, IMessageContext MessageContext), Either<Exception, object>> _messageProcessingMiddleware;
+    private readonly IMessageProcessingStrategyFactory _messageProcessingStrategyFactory = Check.Null(messageProcessingStrategyFactory);
+    private readonly IMiddlewareHandler<(IMessage Message, IMessageContext MessageContext), Either<Exception, object>> _messageProcessingMiddleware = Check.Null(messageProcessingMiddleware);
 
     public MessageProcessor(
         IMessageProcessingStrategyFactory messageProcessingStrategyFactory,
@@ -18,15 +21,6 @@ public class MessageProcessor : IMessageProcessor
         new MiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>, IMessageProcessingMiddleware>(messageProcessingMiddlewares)
     )
     {
-    }
-
-    public MessageProcessor(
-        IMessageProcessingStrategyFactory messageProcessingStrategyFactory,
-        IMiddlewareHandler<(IMessage message, IMessageContext), Either<Exception, object>> messageProcessingMiddleware
-    )
-    {
-        _messageProcessingStrategyFactory = Check.Null(messageProcessingStrategyFactory);
-        _messageProcessingMiddleware = Check.Null(messageProcessingMiddleware);
     }
 
     public async Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)

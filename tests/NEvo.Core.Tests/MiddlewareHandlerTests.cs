@@ -5,7 +5,7 @@ namespace NEvo.Core.Tests;
 public class MiddlewareHandlerTests
 {
     private static Expression<Func<Func<string, CancellationToken, Task<string>>, Task<string>>> InvokeWithAnyParams => f => f.Invoke(It.IsAny<string>(), It.IsAny<CancellationToken>());
-    private static Expression<Func<IMiddleware<string, string>, Task<string>>> ExecuteAsyncWithAnyParams => m => m.ExecuteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<Func<Task<string>>>());
+    private static Expression<Func<IMiddleware<string, string>, Task<string>>> ExecuteAsyncWithAnyParams => m => m.ExecuteAsync(It.IsAny<string>(), It.IsAny<Func<Task<string>>>(), It.IsAny<CancellationToken>());
 
     [Fact]
     public async Task MiddlewareHandler_CallsBaseFunction()
@@ -57,7 +57,7 @@ public class MiddlewareHandlerTests
 
         // Assert
         result.Should().Be("First-Second-Third-Base");
-        executionOrder.Should().Equal(new[] { "pre-First", "pre-Second", "pre-Third", "Base", "post-Third", "post-Second", "post-First" });
+        executionOrder.Should().Equal(["pre-First", "pre-Second", "pre-Third", "Base", "post-Third", "post-Second", "post-First"]);
     }
 
     [Fact]
