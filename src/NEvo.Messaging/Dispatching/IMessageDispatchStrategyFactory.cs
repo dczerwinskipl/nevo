@@ -1,6 +1,6 @@
 ﻿namespace NEvo.Messaging.Dispatch;
 
-public interface IMessageDispatchStrategyFactory<TMessageGroup> where TMessageGroup : IMessage
+public interface IMessageDispatchStrategyFactory<in TMessageGroup> where TMessageGroup : IMessage
 {
     IMessageDispatchStrategy CreateFor(TMessageGroup message);
 }

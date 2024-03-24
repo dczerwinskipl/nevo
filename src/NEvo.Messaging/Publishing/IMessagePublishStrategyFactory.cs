@@ -2,7 +2,7 @@
 
 namespace NEvo.Messaging.Publishing;
 
-public interface IMessagePublishStrategyFactory<TMessageGroup> where TMessageGroup : IMessage
+public interface IMessagePublishStrategyFactory<in TMessageGroup> where TMessageGroup : IMessage
 {
     IMessagePublishStrategy CreateFor(TMessageGroup message);
 }

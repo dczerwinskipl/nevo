@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+﻿using NEvo.Core;
 
 namespace NEvo.Messaging.Context;
 
@@ -11,7 +11,7 @@ public class MessageContextHeaders(IDictionary<string, string> dictionary) : Dic
     {
         get
         {
-            return TryGetValue(CorrelationIdKey, out var correlationId) ? correlationId : null;
+            return TryGetValue(CorrelationIdKey, out var correlationId) ? correlationId : Option<string>.None;
         }
         set
         {
@@ -31,7 +31,7 @@ public class MessageContextHeaders(IDictionary<string, string> dictionary) : Dic
     {
         get
         {
-            return TryGetValue(CausationIdKey, out var causationId) ? causationId : null;
+            return TryGetValue(CausationIdKey, out var causationId) ? causationId : Option<string>.None;
         }
         set
         {

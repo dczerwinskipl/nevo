@@ -8,7 +8,7 @@ public abstract class MessageHandlerAdapterBase<TMessageGroup> : IMessageHandler
     private readonly MethodInfo _genericInternalHandleAsyncMethod;
     public MessageHandlerDescription HandlerDescription { get; init; }
 
-    public MessageHandlerAdapterBase(MessageHandlerDescription messageHandlerDescription) : base()
+    protected MessageHandlerAdapterBase(MessageHandlerDescription messageHandlerDescription) : base()
     {
         HandlerDescription = messageHandlerDescription;
         _genericInternalHandleAsyncMethod = GetType().GetMethod(nameof(InternalHandleAsync), BindingFlags.NonPublic | BindingFlags.Instance)!.MakeGenericMethod(messageHandlerDescription.MessageType);

@@ -12,7 +12,7 @@ public class MessageHandlerExtractor : IMessageHandlerExtractor
     public IDictionary<Type, IMessageHandler> ExtractMessageHandlers<THandler>()
         => typeof(THandler)
             .GetInterfaces()
-            .Where(handlerInterface => handlerInterface.IsGenericType && _factories.Keys.Contains(handlerInterface.GetGenericTypeDefinition()))
+            .Where(handlerInterface => handlerInterface.IsGenericType && _factories.ContainsKey(handlerInterface.GetGenericTypeDefinition()))
             .Select(handlerInterface => (typeof(THandler), handlerInterface, _factories[handlerInterface.GetGenericTypeDefinition()]))
             .SelectMany(CreateMessageHandler)
             .ToDictionary(i => i.MessageType, i => i.MessageHandler);

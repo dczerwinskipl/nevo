@@ -13,9 +13,9 @@ public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandle
     public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface)
     {
         yield return new MessageHandlerDescription(
-            Key: $"{handlerType.FullName}-{handlerInterface.GetGenericArguments().First()}",
+            Key: $"{handlerType.FullName}-{handlerInterface.GetGenericArguments()[0]}",
             HandlerType: handlerType,
-            MessageType: handlerInterface.GetGenericArguments().First(),
+            MessageType: handlerInterface.GetGenericArguments()[0],
             InterfaceType: handlerInterface,
             ReturnType: typeof(Unit),
             Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(IEventHandler<Event>.HandleAsync))

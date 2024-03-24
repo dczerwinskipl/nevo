@@ -23,6 +23,6 @@ public class DefaultEventPublishStrategyFactory(IServiceProvider serviceProvider
     private static bool IsPrivateMessage(Event message)
     {
         var customAttributes = message.GetType().GetCustomAttributes<EventVisibilityAttribute>(true).ToList();
-        return customAttributes.Count != 0 && !customAttributes.Any(v => !v.IsPrivate);
+        return customAttributes.Count != 0 && !customAttributes.Exists(v => !v.IsPrivate);
     }
 }
