@@ -117,4 +117,48 @@ public class CheckTests
         // Assert
         result.Should().Be(expected);
     }
+
+    [Fact]
+    public void Default_WhenCalledWithDefaultValue_ShouldThrowException()
+    {
+        // Arrange
+        int value = default;
+
+        // Act
+        var act = () => Check.Default(value);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Default_WhenCalledWithDefaultValueMessageAndParamName_ShouldThrowExceptionWithMessageAndParamName()
+    {
+        // Arrange
+        int value = default;
+        string message = "message";
+        string paramName = "param name";
+
+        // Act
+        var act = () => Check.Default(value, message, paramName);
+
+        // Assert
+        var exception = act.Should().Throw<ArgumentNullException>().Which;
+        exception.Message.Should().Contain(message);
+        exception.ParamName.Should().Be(paramName);
+    }
+
+    [Fact]
+    public void Default_WhenCalledWithNonDefaultValue_ShouldReturnSameValue()
+    {
+        // Arrange
+        int value = 1;
+
+        // Act
+        var result = Check.Null(value);
+
+        // Assert
+        result.Should().Be(value);
+    }
+
 }
