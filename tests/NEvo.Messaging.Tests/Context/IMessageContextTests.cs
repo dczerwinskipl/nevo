@@ -6,7 +6,7 @@ public class IMessageContextTests
 {
     private readonly IMessageContext _sut;
     private readonly string _correlationId = "Correlation123";
-    private readonly string _causationId = "Correlation123";
+    private readonly string _causationId = "Causation123";
 
     public IMessageContextTests()
     {

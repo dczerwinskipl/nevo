@@ -36,7 +36,7 @@ public class TransactionScopeMessageProcessingMiddlewareTests
         var result = await _middleware.ExecuteAsync(Mock.Of<IMessage>(), Mock.Of<IMessageContext>(), _nextMock.Object, CancellationToken.None);
 
         // Assert
-        _nextMock.Verify(n => n.Invoke(), Times.Once); // Verify that next was called
+        _nextMock.Verify(n => n.Invoke(), Times.Once); 
         result.ExpectLeft().Should().Be(expectedException);
     }
 }
