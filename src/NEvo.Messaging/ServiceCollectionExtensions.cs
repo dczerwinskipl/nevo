@@ -42,4 +42,12 @@ public static partial class ServiceCollectionExtensions
 
         return services;
     }
+    public static IServiceCollection AddMessageProcessingHandlerMiddleware<TMiddleware>(this IServiceCollection services) where TMiddleware : class, IMessageProcessingHandlerMiddleware
+    {
+        // TODO: different scopes?
+        services.AddScoped<TMiddleware>();
+        services.AddScoped(sp => new MessageProcessingHandlerMiddlewareConfig(sp.GetRequiredService<TMiddleware>()));
+
+        return services;
+    }
 }

@@ -26,6 +26,7 @@ builder.Services.AddCommands();
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
 builder.Services.AddMessageProcessingMiddleware<TransactionScopeMessageProcessingMiddleware>();
 builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware>();
+builder.Services.AddMessageProcessingHandlerMiddleware<InboxMessageProcessingMiddleware>();
 builder.Services.AddEntityFrameworkInbox<ExampleDbContext>();
 
 // swagger
