@@ -19,7 +19,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging.Cqrs", "src\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.ExampleApp", "src\NEvo.ExampleApp\NEvo.ExampleApp.csproj", "{4C83C48D-B3E5-4FC5-B412-792A787D11C3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.EntityFramework", "src\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj", "{4F975565-2FD1-44B3-BE6D-5494457EB3E0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.Messaging.EntityFramework", "src\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj", "{4F975565-2FD1-44B3-BE6D-5494457EB3E0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.Web", "src\NEvo.Messaging.Web\NEvo.Messaging.Web.csproj", "{85594382-0E50-4627-B9C0-2E07B8F5115F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Web", "src\NEvo.Web\NEvo.Web.csproj", "{4008DCE4-D8E9-452F-B860-E98F78500DA1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -55,6 +59,14 @@ Global
 		{4F975565-2FD1-44B3-BE6D-5494457EB3E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4F975565-2FD1-44B3-BE6D-5494457EB3E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4F975565-2FD1-44B3-BE6D-5494457EB3E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{85594382-0E50-4627-B9C0-2E07B8F5115F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{85594382-0E50-4627-B9C0-2E07B8F5115F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{85594382-0E50-4627-B9C0-2E07B8F5115F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{85594382-0E50-4627-B9C0-2E07B8F5115F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4008DCE4-D8E9-452F-B860-E98F78500DA1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4008DCE4-D8E9-452F-B860-E98F78500DA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4008DCE4-D8E9-452F-B860-E98F78500DA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4008DCE4-D8E9-452F-B860-E98F78500DA1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -67,6 +79,8 @@ Global
 		{E0D5F33F-4425-4F88-B430-3E4210E40B83} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 		{4C83C48D-B3E5-4FC5-B412-792A787D11C3} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 		{4F975565-2FD1-44B3-BE6D-5494457EB3E0} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{85594382-0E50-4627-B9C0-2E07B8F5115F} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{4008DCE4-D8E9-452F-B860-E98F78500DA1} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {07F44DAC-9AD2-42D7-AB3B-453ECA7722DA}
