@@ -1,10 +1,10 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 
-namespace NEvo.Messaging.Events.Attributes;
+namespace NEvo.Messaging.Attributes;
 
 [ExcludeFromCodeCoverage]
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = true)]
-public class PublicEventAttribute : EventVisibilityAttribute
+public class PublicMessageAttribute : MessageVisibilityAttribute
 {
     public override bool IsPrivate => false;
 }

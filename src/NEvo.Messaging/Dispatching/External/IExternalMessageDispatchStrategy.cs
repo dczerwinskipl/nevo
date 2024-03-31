@@ -2,5 +2,5 @@
 
 public interface IExternalMessageDispatchStrategy : IMessageDispatchStrategy
 {
-
+    bool ShouldApply(IMessage message);
 }

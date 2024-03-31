@@ -1,7 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using NEvo.ExampleApp.Database;
 using NEvo.ExampleApp.ExampleDomain;
+using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling.Middleware;
+using NEvo.Messaging.Transporting;
 
 const string AppName = "NEvo.ExampleApp";
 
@@ -21,6 +23,12 @@ builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 builder.Services.AddEvents();
 builder.Services.AddCommands();
+builder.Services.AddRestMessageDispatcher((opts) =>
+{
+    opts.Name = "ExternalService/RestMessageDispatcher";
+    opts.BaseAddress = "http://localhost:64631/api/messages/";
+}, [typeof(MyExternalCommand)]);
+
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
@@ -47,11 +55,10 @@ app.MapGet("/api/helloWorld", () => "Hello World!")
     .WithName("GetHelloWorld")
     .WithOpenApi();
 
-// example post with message (TODO: use MessageBus, not processor directly)
 app.MapPost("/api/helloWorld", async (MyCommand command, CancellationToken token, ICommandDispatcher commandDispatcher) =>
-    {    
+    {
         var result = await commandDispatcher.DispatchAsync(command, token);
-    
+
         result.Match(
             Right: _ => Console.WriteLine($"Success: {command.Id}"),
             Left: ex => Console.WriteLine($"Failure: {command.Id}, message: {ex.Message}")
@@ -64,6 +71,39 @@ app.MapPost("/api/helloWorld", async (MyCommand command, CancellationToken token
     })
     .WithName("PostHelloWorld")
     .WithOpenApi();
+
+app.MapPost("/api/externalHelloWorld", async (MyExternalCommand command, CancellationToken token, ICommandDispatcher commandDispatcher) =>
+    {
+        var result = await commandDispatcher.DispatchAsync(command, token);
+
+        result.Match(
+            Right: _ => Console.WriteLine($"Success: {command.Id}"),
+            Left: ex => Console.WriteLine($"Failure: {command.Id}, message: {ex.Message}")
+        );
+
+        return result.Match(
+           Right: _ => Results.Ok(),
+           Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
+        );
+    })
+    .WithName("PostExternalHelloWorld")
+    .WithOpenApi();
+
+app.MapPost("/api/messages/dispatch", async (MessageEnvelopeDto dto, IMessageEnvelopeMapper mapper, IMessageProcessor messageProcessor, IMessageContextProvider messageContextProvider, CancellationToken cancellationToken) =>
+{
+    var result = await mapper
+        .ToMessageEnvelope(dto)
+        .BindAsync(async envelope =>
+        {
+            // TODO - read headers from envelope
+            return await messageProcessor.ProcessMessageAsync(envelope.Message, messageContextProvider.CreateContext(), cancellationToken);
+        });
+
+    return result.Match(
+       Right: _ => Results.Ok(),
+       Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
+    );
+});
 
 // swagger
 app.UseSwagger();

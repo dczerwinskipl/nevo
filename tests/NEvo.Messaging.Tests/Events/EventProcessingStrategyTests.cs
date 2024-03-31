@@ -6,16 +6,15 @@ using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Tests.Events;
 
-public class EventProcessingStrategyTests
+public class ParallelEventProcessingStrategyTests
 {
     private readonly IMessageContext _messageContext;
-    private readonly Mock<IMessageHandlerRegistry> _messageHandlerRegistryMock = new(); 
+    private readonly Mock<IMessageHandlerRegistry> _messageHandlerRegistryMock = new();
     private readonly Mock<IMiddlewareHandler<(IMessageHandler, IMessage, IMessageContext), Either<Exception, object>>> _middlewareMock = new();
     private readonly Mock<IServiceProvider> _serviceProciderMock = new();
-    private readonly EventProcessingStrategy _sut;
-    
+    private readonly ParallelEventProcessingStrategy _sut;
 
-    public EventProcessingStrategyTests()
+    public ParallelEventProcessingStrategyTests()
     {
         var messageContextMock = new Mock<IMessageContext>();
         messageContextMock.Setup(m => m.ServiceProvider).Returns(_serviceProciderMock.Object);
@@ -28,14 +27,14 @@ public class EventProcessingStrategyTests
                     (IMessageHandler, IMessage, IMessageContext) input,
                     CancellationToken cancellationToken
                 ) => baseDelegate(input, cancellationToken));
-        _sut = new EventProcessingStrategy(_messageHandlerRegistryMock.Object, _middlewareMock.Object);
+        _sut = new ParallelEventProcessingStrategy(_messageHandlerRegistryMock.Object, _middlewareMock.Object);
     }
 
     [Fact]
     public void ShouldApply_ReturnsTrue_ForEvent()
     {
         // Arrange
-        var eventMessage = new Event(); 
+        var eventMessage = new Event();
 
         // Act
         var shouldApply = _sut.ShouldApply(eventMessage, _messageContext);

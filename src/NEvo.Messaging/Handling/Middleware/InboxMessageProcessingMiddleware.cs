@@ -9,11 +9,12 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
+        context.ForceSingleThread();
         if (_messageInbox.IsAlreadyProcessed(message, context))
             return Unit.Default;
 
         return await next().MapAsync(
-           async successResult => 
+           async successResult =>
            {
                await _messageInbox.RegisterProcessedAsync(message, context);
                return successResult;
@@ -23,13 +24,14 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler messageHandler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
+        context.ForceSingleThread();
         if (_messageInbox.IsAlreadyProcessed(messageHandler, message, context))
             return Unit.Default;
 
         return await next().MapAsync(
-           async successResult => 
+           async successResult =>
            {
-               await _messageInbox.RegisterProcessedAsync(message, context);
+               await _messageInbox.RegisterProcessedAsync(messageHandler, message, context);
                return successResult;
            }
         );

@@ -2,18 +2,15 @@
 using System.Text.Json;
 using LanguageExt;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
 
 namespace NEvo.Web.Client.Rest;
 
-public abstract class RestClientBase : HttpClientBase
+public abstract class RestClientServiceBase : HttpClientServiceBase
 {
     private const string JsonMediaType = "application/json";
 
-    protected RestClientBase(IHttpClientFactory httpClientFactory) : base(httpClientFactory)
-    {
-    }
-
-    protected RestClientBase(IHttpClientFactory httpClientFactory, IAuthenticationStrategy authenticationStrategy) : base(httpClientFactory, authenticationStrategy)
+    protected RestClientServiceBase(IHttpClientServiceFactory httpClientFactory, IOptions<HttpClientServiceConfiguration> options) : base(httpClientFactory, options)
     {
     }
 
@@ -21,7 +18,7 @@ public abstract class RestClientBase : HttpClientBase
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url.TrimStart('/'));
             if (queryParams is not null)
             {
                 request.Content = new FormUrlEncodedContent(queryParams);
@@ -44,7 +41,7 @@ public abstract class RestClientBase : HttpClientBase
                 url = QueryHelpers.AddQueryString(url, queryParams!);
             }
 
-            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            var request = new HttpRequestMessage(HttpMethod.Post, url.TrimStart('/'));
 
             return await SendAsync(request).BindAsync(ParseAsync<TResponse>);
         }
@@ -63,7 +60,7 @@ public abstract class RestClientBase : HttpClientBase
                 url = QueryHelpers.AddQueryString(url, queryParams!);
             }
 
-            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            var request = new HttpRequestMessage(HttpMethod.Post, url.TrimStart('/'))
             {
                 Content = new StringContent(JsonSerializer.Serialize(requestData), Encoding.UTF8, JsonMediaType)
             };

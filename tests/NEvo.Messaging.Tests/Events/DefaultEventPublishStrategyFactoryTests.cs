@@ -1,5 +1,5 @@
-﻿using NEvo.Messaging.Events;
-using NEvo.Messaging.Events.Attributes;
+﻿using NEvo.Messaging.Attributes;
+using NEvo.Messaging.Events;
 using NEvo.Messaging.Publish;
 using NEvo.Messaging.Publishing.External;
 using NEvo.Messaging.Publishing.Internal;
@@ -34,7 +34,7 @@ public class DefaultEventPublishStrategyFactoryTests
         // Arrange
         var serviceProviderMock = new Mock<IServiceProvider>();
         var externalStrategyMock = new Mock<IExternalMessagePublishStrategy>();
-        var publicEvent = new PublicEvent(); 
+        var publicEvent = new PublicEvent();
 
         serviceProviderMock.Setup(sp => sp.GetService(typeof(IExternalMessagePublishStrategy)))
             .Returns(externalStrategyMock.Object);
@@ -56,7 +56,7 @@ public class DefaultEventPublishStrategyFactoryTests
         var fallbackStrategyMock = new Mock<IMessagePublishStrategy>();
         var eventWithoutSpecificStrategy = new Event();
 
-        serviceProviderMock.Setup(sp => sp.GetService(It.IsAny<Type>())).Returns(null!); 
+        serviceProviderMock.Setup(sp => sp.GetService(It.IsAny<Type>())).Returns(null!);
         serviceProviderMock.Setup(sp => sp.GetService(typeof(IMessagePublishStrategy)))
             .Returns(fallbackStrategyMock.Object);
 
@@ -69,13 +69,13 @@ public class DefaultEventPublishStrategyFactoryTests
         strategy.Should().BeSameAs(fallbackStrategyMock.Object);
     }
 
-    [PrivateEvent]
+    [PrivateMessage]
     private record PrivateEvent : Event
     {
 
     }
 
-    [PublicEvent]
+    [PublicMessage]
     private record PublicEvent : Event
     {
 

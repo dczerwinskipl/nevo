@@ -24,9 +24,11 @@ public class MessageProcessor(
 
     public async Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        var strategy = _messageProcessingStrategyFactory.CreateForMessage(message, context);
         var result = await _messageProcessingMiddleware.ExecuteAsync(
-            async (input, cancellationToken) => (await strategy.ProcessMessageAsync(message, context, cancellationToken)).Map(unit => (object)unit),
+            async (input, cancellationToken) => (await _messageProcessingStrategyFactory
+                                                            .CreateForMessage(message, context)
+                                                            .ProcessMessageAsync(message, context, cancellationToken))
+                                                            .Map(unit => (object)unit),
             (message, context),
             cancellationToken
         );
@@ -35,9 +37,10 @@ public class MessageProcessor(
 
     public async Task<Either<Exception, TResult>> ProcessMessageAsync<TResult>(IMessage<TResult> message, IMessageContext context, CancellationToken cancellationToken)
     {
-        var strategy = _messageProcessingStrategyFactory.CreateForMessageWithResult(message, context);
         var result = await _messageProcessingMiddleware.ExecuteAsync(
-            async (input, cancellationToken) => await strategy.ProcessMessageWithResultAsync(message, context, cancellationToken),
+            async (input, cancellationToken) => await _messageProcessingStrategyFactory
+                                                            .CreateForMessageWithResult(message, context)
+                                                            .ProcessMessageWithResultAsync(message, context, cancellationToken),
             (message, context),
             cancellationToken
         );

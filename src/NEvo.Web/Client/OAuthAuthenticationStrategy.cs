@@ -7,19 +7,19 @@ namespace NEvo.Web.Client;
 
 public record OAuthAuthenticationConfiugration(string TokenEndpoint = "", string ClientId = "", string ClientSecret = "");
 
-public class OAuthAuthenticationStrategy : HttpClientBase, IAuthenticationStrategy
+public class OAuthAuthenticationStrategy : HttpClientServiceBase, IAuthenticationStrategy
 {
     private readonly string _tokenEndpoint;
     private readonly string _clientId;
     private readonly string _clientSecret;
 
-    public OAuthAuthenticationStrategy(IHttpClientFactory httpClientFactory, IOptions<OAuthAuthenticationConfiugration> options)
-        : this(httpClientFactory, options.Value.TokenEndpoint, options.Value.ClientId, options.Value.ClientSecret)
+    public OAuthAuthenticationStrategy(IHttpClientServiceFactory httpClientFactory, IOptions<HttpClientServiceConfiguration> options, IOptions<OAuthAuthenticationConfiugration> authOptions)
+        : this(httpClientFactory, options, authOptions.Value.TokenEndpoint, authOptions.Value.ClientId, authOptions.Value.ClientSecret)
     {
 
     }
 
-    public OAuthAuthenticationStrategy(IHttpClientFactory httpClientFactory, string tokenEndpoint, string clientId, string clientSecret) : base(httpClientFactory)
+    public OAuthAuthenticationStrategy(IHttpClientServiceFactory httpClientFactory, IOptions<HttpClientServiceConfiguration> options, string tokenEndpoint, string clientId, string clientSecret) : base(httpClientFactory, options)
     {
         _tokenEndpoint = tokenEndpoint;
         _clientId = clientId;

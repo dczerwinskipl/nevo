@@ -1,8 +1,8 @@
-﻿using NEvo.Messaging.Events;
+﻿using System.Diagnostics.CodeAnalysis;
+using NEvo.Messaging.Events;
 using NEvo.Messaging.Handling;
 using NEvo.Messaging.Handling.Strategies;
 using NEvo.Messaging.Publishing;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -12,7 +12,8 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddEvents(this IServiceCollection services, bool useInternalEventProcessing = false /* TODO: extend by eventType*/)
     {
         services.AddSingleton<IMessageHandlerFactory, EventHandlerAdapterFactory>();
-        services.AddScoped<IMessageProcessingStrategy, EventProcessingStrategy>();
+        services.AddScoped<IMessageProcessingStrategy, ParallelEventProcessingStrategy>();
+        services.AddScoped<IMessageProcessingStrategy, SequentialEventProcessingStrategy>();
         services.AddScoped<IEventPublisher, EventPublisher>();
         services.AddScoped<IMessagePublishStrategyFactory<Event>, DefaultEventPublishStrategyFactory>();
 

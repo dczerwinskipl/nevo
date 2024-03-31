@@ -7,4 +7,11 @@ public class MessageContext(IDictionary<string, string> headers, IServiceProvide
     public IMessageContextHeaders Headers { get; } = new MessageContextHeaders(Check.Null(headers));
 
     public IServiceProvider ServiceProvider { get; } = Check.Null(serviceProvider);
+
+    public bool SingleThread { get; internal set; }
+
+    public void ForceSingleThread()
+    {
+        SingleThread = true;
+    }
 }
