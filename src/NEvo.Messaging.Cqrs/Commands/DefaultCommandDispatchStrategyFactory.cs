@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using NEvo.Messaging.Attributes;
 using NEvo.Messaging.Dispatch;
 using NEvo.Messaging.Dispatch.External;
@@ -7,7 +8,16 @@ using NEvo.Messaging.Dispatch.Internal;
 
 namespace NEvo.Messaging.Cqrs.Commands;
 
-public class DefaultCommandDispatchStrategyFactory(IServiceProvider serviceProvider, IEnumerable<IExternalMessageDispatchStrategy> externalMessageDispatchStrategies) : IMessageDispatchStrategyFactory<Command>
+public record CommandDispatchStrategyConfiguration
+{
+    public System.Collections.Generic.HashSet<Type> ExternalTypes { get; } = [];
+}
+
+public class DefaultCommandDispatchStrategyFactory(
+    IServiceProvider serviceProvider,
+    IEnumerable<IExternalMessageDispatchStrategy> externalMessageDispatchStrategies,
+    IOptions<CommandDispatchStrategyConfiguration> options
+) : IMessageDispatchStrategyFactory<Command>
 {
     public IMessageDispatchStrategy CreateFor(Command message) =>
         CreateDedicatedServiceFor(message) ?? serviceProvider.GetRequiredService<IMessageDispatchStrategy>();
@@ -29,8 +39,12 @@ public class DefaultCommandDispatchStrategyFactory(IServiceProvider serviceProvi
         return null;
     }
 
-    private static bool IsPrivateMessage(Command message)
+    // TODO change to: is External
+    private bool IsPrivateMessage(Command message)
     {
+        if (options.Value.ExternalTypes.Contains(message.GetType()))
+            return false;
+
         var customAttributes = message.GetType().GetCustomAttributes<MessageVisibilityAttribute>(true).ToList();
         return customAttributes.Count == 0 || customAttributes.All(v => v.IsPrivate);
     }

@@ -1,6 +1,6 @@
 ﻿using NEvo.Messaging.Attribues;
 
-namespace NEvo.ExampleApp.ExampleDomain;
+namespace NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 
 public record MyEvent : Event
 {

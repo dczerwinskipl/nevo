@@ -5,11 +5,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using NEvo.ExampleApp.Database;
+using NEvo.ExampleApp.ServiceB.Api.Database;
 
 #nullable disable
 
-namespace NEvo.ExampleApp.Migrations
+namespace NEvo.ExampleApp.ServiceB.Api.Migrations
 {
     [DbContext(typeof(ExampleDbContext))]
     [ExcludeFromCodeCoverage]

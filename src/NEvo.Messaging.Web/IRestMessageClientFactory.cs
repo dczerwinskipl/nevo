@@ -11,7 +11,7 @@ public interface IRestMessageClientFactory
 
 public record RestMessageClientFactoryConfiguration
 {
-    public Dictionary<Type, string> MessageMapping { get; } = new();
+    public Dictionary<Type, string> MessageMapping { get; } = [];
 }
 
 public class RestMessageClientFactory(IHttpClientServiceFactory httpClientFactory, IOptions<RestMessageClientFactoryConfiguration> factoryOptions, IOptionsMonitor<HttpClientServiceConfiguration> clientOptions) : IRestMessageClientFactory

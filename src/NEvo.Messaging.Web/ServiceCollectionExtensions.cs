@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection.Extensions;
+using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Dispatch.External;
 using NEvo.Messaging.Web;
 using NEvo.Web.Client;
@@ -14,6 +15,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IExternalMessageDispatchStrategy, RestExternalMessageDispatchStrategy>();
         return services;
     }
+
     public static IServiceCollection AddRestMessageDispatcher(this IServiceCollection services, Action<HttpClientServiceConfiguration> configure, params Type[] messages)
     {
         services.AddRestMessageDispatcher();
@@ -23,6 +25,13 @@ public static class ServiceCollectionExtensions
             foreach (var type in messages)
             {
                 opts.MessageMapping[type] = name;
+            }
+        });
+        services.Configure<CommandDispatchStrategyConfiguration>(opts =>
+        {
+            foreach (var type in messages)
+            {
+                opts.ExternalTypes.Add(type);
             }
         });
         return services;

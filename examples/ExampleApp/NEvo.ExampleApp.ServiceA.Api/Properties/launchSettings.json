@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "NEvo.ExampleApp": {
+    "NEvo.ExampleApp.ServiceA.Api": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

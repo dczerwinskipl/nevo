@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using NEvo.Messaging.Context;
 
-namespace NEvo.ExampleApp.ExampleDomain;
+namespace NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 
 public class MyEventHandlerB : IEventHandler<MyEvent>
 {

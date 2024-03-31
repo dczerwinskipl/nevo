@@ -3,7 +3,7 @@ using NEvo.Messaging.EntityFramework;
 using NEvo.Messaging.EntityFramework.Configurations;
 using NEvo.Messaging.EntityFramework.Models;
 
-namespace NEvo.ExampleApp.Database;
+namespace NEvo.ExampleApp.ServiceB.Api.Database;
 
 public class ExampleDbContext : DbContext, IInboxDbContext, IOutboxDbContext
 {
@@ -13,7 +13,7 @@ public class ExampleDbContext : DbContext, IInboxDbContext, IOutboxDbContext
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlServer(@"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=ExampleDb;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False;");
+        optionsBuilder.UseSqlServer(@"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=ExampleDbB;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False;");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
