@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using NEvo.Messaging.Context;
-using NEvo.Messaging.Handling.Middleware;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Handling.Middleware;
 
 namespace NEvo.Messaging.Tests.Handling.Middleware;
 
@@ -75,6 +75,6 @@ public class InboxMessageProcessingMiddlewareTests
 
         // Assert
         _nextMock.Verify(n => n.Invoke(), Times.Once);
-        _messageInboxMock.Verify(m => m.RegisterProcessedAsync(_messageMock.Object, _contextMock.Object), Times.Once);
+        _messageInboxMock.Verify(m => m.RegisterProcessedAsync(_messageHandlerMock.Object, _messageMock.Object, _contextMock.Object), Times.Once);
     }
 }
