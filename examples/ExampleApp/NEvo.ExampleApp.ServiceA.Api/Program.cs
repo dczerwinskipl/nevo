@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
 using NEvo.Messaging.Handling.Middleware;
@@ -6,6 +6,8 @@ using NEvo.Messaging.Handling.Middleware;
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
 
 // logging
 builder.Services.AddLogging(logging =>
@@ -24,7 +26,7 @@ builder.Services.AddCommands();
 builder.Services.AddRestMessageDispatcher((opts) =>
 {
     opts.Name = "ServiceB/RestMessageDispatcher";
-    opts.BaseAddress = "http://localhost:64632/api/messages/";
+    opts.BaseAddress = new Uri("http://ServiceB/api/messages/");
 }, [typeof(ServiceBCommand)]);
 
 
@@ -43,6 +45,8 @@ builder.Services.AddSwaggerGen(setup =>
 });
 
 var app = builder.Build();
+
+app.MapDefaultEndpoints();
 
 // register handlers (TODO: change to setup of messaging)
 var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();

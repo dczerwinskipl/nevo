@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
         return serviceCollection.AddHttpClientService<TService, TClient>((opts) =>
         {
             opts.Name = name;
-            opts.BaseAddress = baseAddress;
+            opts.BaseAddress = new Uri(baseAddress);
         });
     }
 
@@ -32,7 +32,7 @@ public static class ServiceCollectionExtensions
             opts.Name = httpClientConfiguration.Name;
             opts.AuthenticationStrategy = httpClientConfiguration.AuthenticationStrategy;
         });
-        serviceCollection.AddHttpClient(httpClientConfiguration.Name, action => action.BaseAddress = new Uri(httpClientConfiguration.BaseAddress));
+        serviceCollection.AddHttpClient(httpClientConfiguration.Name, action => action.BaseAddress = httpClientConfiguration.BaseAddress);
 
         return serviceCollection;
     }

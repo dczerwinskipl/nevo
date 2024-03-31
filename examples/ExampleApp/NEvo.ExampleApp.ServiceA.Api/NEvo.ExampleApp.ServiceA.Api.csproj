@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\..\src\NEvo.Messaging.Web\NEvo.Messaging.Web.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging\NEvo.Messaging.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Web\NEvo.Web.csproj" />
+    <ProjectReference Include="..\NEvo.ExampleApp.Orchestration\NEvo.ExampleApp.Orchestration.ServiceDefaults\NEvo.ExampleApp.Orchestration.ServiceDefaults.csproj" />
     <ProjectReference Include="..\NEvo.ExampleApp.ServiceB.Api\NEvo.ExampleApp.ServiceB.Api.csproj" />
   </ItemGroup>
 

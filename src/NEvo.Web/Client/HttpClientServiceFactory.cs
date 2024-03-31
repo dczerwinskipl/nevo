@@ -6,7 +6,7 @@ namespace NEvo.Web.Client;
 public class HttpClientServiceConfiguration
 {
     public string Name { get; set; } = string.Empty;
-    public string BaseAddress { get; set; } = string.Empty;
+    public Uri BaseAddress { get; set; }
     public IAuthenticationStrategy AuthenticationStrategy { get; set; } = new NoAuthenticationStrategy();
 }
 

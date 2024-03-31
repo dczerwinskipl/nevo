@@ -1,10 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using NEvo.ExampleApp.ServiceB.Api.Database;
 using NEvo.Messaging.Handling.Middleware;
 
 const string AppName = "NEvo.ExampleApp.ServiceB.Api";
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
 
 // logging
 builder.Services.AddLogging(logging =>
@@ -36,6 +38,8 @@ builder.Services.AddSwaggerGen(setup =>
 });
 
 var app = builder.Build();
+
+app.MapDefaultEndpoints();
 
 // register handlers (TODO: change to setup of messaging)
 var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();
