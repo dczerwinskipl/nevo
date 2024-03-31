@@ -11,9 +11,9 @@ public class ExampleDbContext : DbContext, IInboxDbContext, IOutboxDbContext
     public DbSet<InboxProcessedMessage> InboxProcessedMessages { get; set; }
     public DbSet<OutboxMessage> OutboxMessages { get; set; }
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    public ExampleDbContext(DbContextOptions<ExampleDbContext> options) : base(options)
     {
-        optionsBuilder.UseSqlServer(@"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=ExampleDbB;Integrated Security=True;Connect Timeout=30;Encrypt=False;Trust Server Certificate=False;Application Intent=ReadWrite;Multi Subnet Failover=False;");
+
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

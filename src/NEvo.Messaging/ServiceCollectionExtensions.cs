@@ -22,6 +22,9 @@ public static partial class ServiceCollectionExtensions
         // default middlesares
         services.AddMessageProcessingMiddleware<CorrelationIdMessageProcessingMiddleware>();
         services.AddMessageProcessingMiddleware<CausationIdMessageProcessingMiddleware>();
+        // TOOD: optional?
+        services.AddMessageProcessingMiddleware<TelemetryMessageProcessingMiddleware>();
+        services.AddMessageProcessingHandlerMiddleware<TelemetryMessageProcessingMiddleware>();
 
         // processing
         services.AddScoped<IMessageProcessingStrategyFactory, MessageProcessingStrategyFactory>();

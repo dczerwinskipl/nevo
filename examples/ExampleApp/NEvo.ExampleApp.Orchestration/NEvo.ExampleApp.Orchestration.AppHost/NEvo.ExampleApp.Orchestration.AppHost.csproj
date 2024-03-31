@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Dashboard" Version="8.0.0-preview.1.23557.2" />
-    <PackageReference Include="Aspire.Hosting" Version="8.0.0-preview.1.23557.2" />
+    <PackageReference Include="Aspire.Hosting" Version="8.0.0-preview.4.24156.9" />
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0-preview.4.24156.9" />
   </ItemGroup>
 
   <ItemGroup>

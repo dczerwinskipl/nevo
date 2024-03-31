@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
 using NEvo.Messaging.Handling.Middleware;
+using Polly;
 
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
 
@@ -16,7 +17,7 @@ builder.Services.AddLogging(logging =>
 });
 
 // database
-builder.Services.AddDbContext<ExampleDbContext>();
+builder.AddSqlServerDbContext<ExampleDbContext>("ServiceASql", settings => settings.Retry = false);
 
 // nEvo (TODO: presets)
 builder.Services.AddMessages();
@@ -63,11 +64,25 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = string.Empty;
 });
 
-// migrate db
-using (var scope = app.Services.CreateScope())
+// db migration
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+var retryPolicy = Policy
+    .Handle<Exception>()
+    .WaitAndRetryAsync(
+        10,
+        retryAttempt => TimeSpan.FromSeconds(1),
+        onRetry: (exception, timeSpan, retryCount, context) =>
+        {
+            logger.LogWarning($"Retry {retryCount}: Encountered an error during DB migration. Retrying...");
+            logger.LogWarning($"Exception: {exception.Message}");
+        });
+
+await retryPolicy.ExecuteAsync(async () =>
 {
-    await scope.ServiceProvider.GetRequiredService<ExampleDbContext>().Database.MigrateAsync();
-}
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ExampleDbContext>();
+    await dbContext.Database.MigrateAsync();
+});
 
 app.Run();
 

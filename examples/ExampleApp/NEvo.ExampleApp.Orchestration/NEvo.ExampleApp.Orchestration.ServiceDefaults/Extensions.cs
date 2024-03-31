@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -33,6 +34,13 @@ public static class Extensions
 
     public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder)
     {
+        // Na pocz¹tku Twojej aplikacji
+        OpenTelemetry.Sdk.SetDefaultTextMapPropagator(new CompositeTextMapPropagator(new TextMapPropagator[]
+        {
+            new TraceContextPropagator(),
+            new BaggagePropagator(),
+        }));
+
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
@@ -55,7 +63,10 @@ public static class Extensions
 
                 tracing.AddAspNetCoreInstrumentation()
                        .AddGrpcClientInstrumentation()
-                       .AddHttpClientInstrumentation();
+                       .AddHttpClientInstrumentation()
+                       // TODO: add extension method to enable telemetry
+                       .AddSource("MessageProcessingSource")
+                       .AddSource("MessageProcessingHandlerSoutce");
             });
 
         builder.AddOpenTelemetryExporters();
