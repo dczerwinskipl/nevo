@@ -65,7 +65,7 @@ app.MapPost("/api/helloWorld", async (MyCommand command, CancellationToken token
         );
 
         return result.Match(
-           Right: _ => Results.Ok(),
+           Right: result => Results.Ok(result),
            Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
         );
     })
@@ -82,8 +82,8 @@ app.MapPost("/api/externalHelloWorld", async (MyExternalCommand command, Cancell
         );
 
         return result.Match(
-           Right: _ => Results.Ok(),
-           Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
+            Right: result => Results.Ok(result),
+            Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
         );
     })
     .WithName("PostExternalHelloWorld")
@@ -100,7 +100,7 @@ app.MapPost("/api/messages/dispatch", async (MessageEnvelopeDto dto, IMessageEnv
         });
 
     return result.Match(
-       Right: _ => Results.Ok(),
+       Right: result => Results.Ok(result),
        Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
     );
 });
