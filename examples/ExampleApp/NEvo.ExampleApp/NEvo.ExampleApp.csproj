@@ -24,14 +24,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj" />
-    <ProjectReference Include="..\NEvo.Core\NEvo.Core.csproj" />
-    <ProjectReference Include="..\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
-    <ProjectReference Include="..\NEvo.Messaging\NEvo.Messaging.csproj" />
+    <AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute" />
+    <ProjectReference Include="..\..\..\src\NEvo.Core\NEvo.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging.Web\NEvo.Messaging.Web.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging\NEvo.Messaging.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Web\NEvo.Web.csproj" />
   </ItemGroup>
 
 </Project>
