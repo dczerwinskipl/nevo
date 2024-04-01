@@ -63,7 +63,7 @@ var retryPolicy = Policy
     .Handle<Exception>()
     .WaitAndRetryAsync(
         10,
-        retryAttempt => TimeSpan.FromSeconds(1),
+        retryAttempt => TimeSpan.FromSeconds(retryAttempt),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
             logger.LogWarning($"Retry {retryCount}: Encountered an error during DB migration. Retrying...");

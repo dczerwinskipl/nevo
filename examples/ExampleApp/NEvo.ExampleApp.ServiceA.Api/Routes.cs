@@ -7,9 +7,9 @@ public static class Routes
 {
     public static WebApplication MapServiceARoutes(this WebApplication app)
     {
-        app.MapMessagesEndpoints();
-        app.MapCommandEndpoint<ServiceACommand>("/api/hello");
-        app.MapCommandEndpoint<ServiceBCommand>("/api/world");
+        app.MapMessagesEndpoints().RequireAuthorization();
+        app.MapCommandEndpoint<ServiceACommand>("/api/hello").RequireAuthorization();
+        app.MapCommandEndpoint<ServiceBCommand>("/api/world").RequireAuthorization();
         return app;
     }
 }

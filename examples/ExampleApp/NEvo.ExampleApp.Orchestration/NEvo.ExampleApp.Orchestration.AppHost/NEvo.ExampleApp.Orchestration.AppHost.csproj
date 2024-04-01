@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\NEvo.ExampleApp.Identity.Api\NEvo.ExampleApp.Identity.Api.csproj" />
     <ProjectReference Include="..\..\NEvo.ExampleApp.ServiceA.Api\NEvo.ExampleApp.ServiceA.Api.csproj" />
     <ProjectReference Include="..\..\NEvo.ExampleApp.ServiceB.Api\NEvo.ExampleApp.ServiceB.Api.csproj" />
   </ItemGroup>

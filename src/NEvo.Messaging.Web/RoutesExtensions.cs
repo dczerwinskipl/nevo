@@ -9,7 +9,7 @@ namespace Microsoft.AspNetCore.Routing
 {
     public static class RoutesExtensions
     {
-        public static T MapMessagesEndpoints<T>(this T routeBuilder, string prefix = "/api/messages") where T : IEndpointRouteBuilder
+        public static RouteGroupBuilder MapMessagesEndpoints<T>(this T routeBuilder, string prefix = "/api/messages") where T : IEndpointRouteBuilder
         {
             var group = routeBuilder.MapGroup(prefix);
 
@@ -29,18 +29,13 @@ namespace Microsoft.AspNetCore.Routing
                 );
             });
 
-            return routeBuilder;
+            return group;
         }
 
-        public static IEndpointRouteBuilder MapCommandEndpoint<TCommand>(this IEndpointRouteBuilder routeBuilder, string routeName)
-            where TCommand : Command => routeBuilder.MapCommandEndpoint<IEndpointRouteBuilder, TCommand>(routeName);
-
-
-        public static T MapCommandEndpoint<T, TCommand>(this T routeBuilder, string routeName)
-            where T : IEndpointRouteBuilder
+        public static RouteHandlerBuilder MapCommandEndpoint<TCommand>(this IEndpointRouteBuilder routeBuilder, string routeName)
             where TCommand : Command
         {
-            routeBuilder.MapPost(routeName, async (TCommand command, CancellationToken token, ICommandDispatcher commandDispatcher) =>
+            var handler = routeBuilder.MapPost(routeName, async (TCommand command, CancellationToken token, ICommandDispatcher commandDispatcher) =>
             {
                 var result = await commandDispatcher.DispatchAsync(command, token);
 
@@ -55,7 +50,7 @@ namespace Microsoft.AspNetCore.Routing
                 );
             });
 
-            return routeBuilder;
+            return handler;
         }
     }
 }

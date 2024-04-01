@@ -1,8 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Logging;
+using Microsoft.IdentityModel.Tokens;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
 using NEvo.Messaging.Handling.Middleware;
 using Polly;
+
+IdentityModelEventSource.ShowPII = true;
 
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
 
@@ -38,6 +42,26 @@ builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware
 builder.Services.AddMessageProcessingHandlerMiddleware<InboxMessageProcessingMiddleware>();
 builder.Services.AddEntityFrameworkInbox<ExampleDbContext>();
 
+// auth
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultScheme = "Bearer";
+        options.DefaultChallengeScheme = "Bearer";
+    })
+    .AddJwtBearer("Bearer", options =>
+    {
+        options.Authority = "https://Identity";
+        options.RequireHttpsMetadata = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 // swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(setup =>
@@ -48,6 +72,9 @@ builder.Services.AddSwaggerGen(setup =>
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // register handlers (TODO: change to setup of messaging)
 var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();
@@ -70,7 +97,7 @@ var retryPolicy = Policy
     .Handle<Exception>()
     .WaitAndRetryAsync(
         10,
-        retryAttempt => TimeSpan.FromSeconds(1),
+        retryAttempt => TimeSpan.FromSeconds(retryAttempt),
         onRetry: (exception, timeSpan, retryCount, context) =>
         {
             logger.LogWarning($"Retry {retryCount}: Encountered an error during DB migration. Retrying...");
@@ -85,4 +112,3 @@ await retryPolicy.ExecuteAsync(async () =>
 });
 
 app.Run();
-
