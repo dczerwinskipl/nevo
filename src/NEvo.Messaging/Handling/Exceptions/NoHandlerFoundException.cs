@@ -3,13 +3,7 @@
 namespace NEvo.Messaging.Handling.Exceptions;
 
 [ExcludeFromCodeCoverage]
-public class NoHandlerFoundException : MessageHandlerRegistryException
+public class NoHandlerFoundException(Type messageType) : MessageHandlerRegistryException($"No handler found for message type: {messageType.Name}")
 {
-    public Type MessageType { get; }
-
-    public NoHandlerFoundException(Type messageType)
-        : base($"No handler found for message type: {messageType.Name}")
-    {
-        MessageType = messageType;
-    }
+    public Type MessageType { get; } = messageType;
 }

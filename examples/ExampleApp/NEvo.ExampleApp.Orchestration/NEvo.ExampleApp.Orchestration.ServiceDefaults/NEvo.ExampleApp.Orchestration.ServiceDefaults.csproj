@@ -22,4 +22,9 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.7.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\NEvo.EntityFramework\NEvo.EntityFramework.csproj" />
+    <ProjectReference Include="..\..\..\..\src\NEvo.Messaging\NEvo.Messaging.csproj" />
+  </ItemGroup>
+
 </Project>

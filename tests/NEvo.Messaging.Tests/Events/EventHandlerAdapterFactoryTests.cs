@@ -53,8 +53,8 @@ public class EventHandlerAdapterFactoryTests
     {
         // Arrange
         var factory = new EventHandlerAdapterFactory(_mockLogger);
-        Type handlerType = typeof(EventHandlerMock); 
-        Type handlerInterface = typeof(IEventHandler<EventMock>); 
+        Type handlerType = typeof(EventHandlerMock);
+        Type handlerInterface = typeof(IEventHandler<EventMock>);
 
         // Act
         var descriptions = factory.GetMessageHandlerDescriptions(handlerType, handlerInterface).ToList();

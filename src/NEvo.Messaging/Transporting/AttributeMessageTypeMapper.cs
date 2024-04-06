@@ -5,14 +5,9 @@ namespace NEvo.Messaging.Transporting;
 
 [ExcludeFromCodeCoverage]
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
-public class MessageTypeAttribute : Attribute
+public class MessageTypeAttribute(string name) : Attribute
 {
-    public string Name { get; }
-
-    public MessageTypeAttribute(string name)
-    {
-        Name = name;
-    }
+    public string Name { get; } = name;
 }
 
 [ExcludeFromCodeCoverage]
@@ -20,11 +15,6 @@ public class AttributeMessageTypeMapper : IMessageTypeMapper
 {
     private readonly ConcurrentDictionary<string, Type> _nameMapping = new();
     private readonly ConcurrentDictionary<Type, string> _typeMapping = new();
-
-    public AttributeMessageTypeMapper()
-    {
-        //TODO: create mapping
-    }
 
     public Option<string> ToName(Type messageType) =>
         _typeMapping.TryGetValue(messageType, out var messageName) ? (Option<string>)messageName : Option<string>.None;

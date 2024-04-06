@@ -6,7 +6,7 @@ namespace NEvo.Messaging.EntityFramework;
 
 public class EntityFrameworkMessageInbox(IInboxDbContext dbContext) : IMessageInbox
 {
-    public bool IsAlreadyProcessed(IMessage message, IMessageContext context) => 
+    public bool IsAlreadyProcessed(IMessage message, IMessageContext context) =>
         dbContext.InboxProcessedMessages.Any(ipm => ipm.MessageId == message.Id);
 
     public bool IsAlreadyProcessed(IMessageHandler handler, IMessage message, IMessageContext context) =>

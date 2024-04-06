@@ -1,0 +1,9 @@
+{
+  "TemplatePath": null,
+  "ContainerSettings": {
+    "Registry": "localhost:5000",
+    "RepositoryPrefix": "nevo",
+    "Tag": null,
+    "Builder": "docker"
+  }
+}

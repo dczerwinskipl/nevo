@@ -37,6 +37,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.ExampleApp.Orchestrati
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.ExampleApp.Identity.Api", "examples\ExampleApp\NEvo.ExampleApp.Identity.Api\NEvo.ExampleApp.Identity.Api.csproj", "{AD076CAB-71D5-4453-9A44-3C0DA378DBAE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.EntityFramework", "src\NEvo.EntityFramework\NEvo.EntityFramework.csproj", "{43BCD029-550B-4834-A29D-CE593611C043}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -95,6 +97,10 @@ Global
 		{AD076CAB-71D5-4453-9A44-3C0DA378DBAE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AD076CAB-71D5-4453-9A44-3C0DA378DBAE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AD076CAB-71D5-4453-9A44-3C0DA378DBAE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43BCD029-550B-4834-A29D-CE593611C043}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43BCD029-550B-4834-A29D-CE593611C043}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43BCD029-550B-4834-A29D-CE593611C043}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43BCD029-550B-4834-A29D-CE593611C043}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -114,6 +120,7 @@ Global
 		{40C371C3-175B-4277-A22C-D4C0FAA070CD} = {558BB589-3CF8-4832-97C4-4BA2C8321737}
 		{E184B113-F7B7-4177-A2E9-39CAA16950D2} = {558BB589-3CF8-4832-97C4-4BA2C8321737}
 		{AD076CAB-71D5-4453-9A44-3C0DA378DBAE} = {558BB589-3CF8-4832-97C4-4BA2C8321737}
+		{43BCD029-550B-4834-A29D-CE593611C043} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {07F44DAC-9AD2-42D7-AB3B-453ECA7722DA}

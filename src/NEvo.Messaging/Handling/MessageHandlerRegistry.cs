@@ -1,5 +1,5 @@
-﻿using System.Collections.Concurrent;
-using NEvo.Messaging.Handling.Exceptions;
+﻿using NEvo.Messaging.Handling.Exceptions;
+using System.Collections.Concurrent;
 
 namespace NEvo.Messaging.Handling;
 

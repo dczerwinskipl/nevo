@@ -1,5 +1,5 @@
-﻿using System.Transactions;
-using NEvo.Messaging.Context;
+﻿using NEvo.Messaging.Context;
+using System.Transactions;
 
 namespace NEvo.Messaging.Handling.Middleware;
 

@@ -1,12 +1,10 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Logging;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Net.Http.Headers;
+using Microsoft.OpenApi.Models;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
 using NEvo.Messaging.Handling.Middleware;
-using Polly;
-
-IdentityModelEventSource.ShowPII = true;
 
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
 
@@ -22,6 +20,7 @@ builder.Services.AddLogging(logging =>
 
 // database
 builder.AddSqlServerDbContext<ExampleDbContext>("ServiceASql", settings => settings.Retry = false);
+builder.Services.AddMigrationWorker<ExampleDbContext>();
 
 // nEvo (TODO: presets)
 builder.Services.AddMessages();
@@ -51,8 +50,8 @@ builder.Services
     })
     .AddJwtBearer("Bearer", options =>
     {
-        options.Authority = "https://Identity";
-        options.RequireHttpsMetadata = false;
+        options.Authority = builder.Configuration.GetValue<string>("IdentityUrl");
+        options.RequireHttpsMetadata = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = false,
@@ -67,6 +66,38 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(setup =>
 {
     setup.SwaggerDoc("v1", new() { Title = AppName, Version = "v1" });
+    setup.AddSecurityDefinition(
+        "oauth",
+        new OpenApiSecurityScheme
+        {
+            Flows = new OpenApiOAuthFlows
+            {
+                Password = new OpenApiOAuthFlow
+                {
+                    Scopes = new Dictionary<string, string>
+                    {
+                        ["api"] = ""
+                    },
+                    TokenUrl = new Uri($"{builder.Configuration.GetValue<string>("IdentityUrl")}/connect/token"),
+                },
+            },
+            In = ParameterLocation.Header,
+            Name = HeaderNames.Authorization,
+            Type = SecuritySchemeType.OAuth2
+        }
+    );
+    setup.AddSecurityRequirement(
+        new OpenApiSecurityRequirement
+        {
+            {
+                new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "oauth" },
+                },
+                new[] { "api" }
+            }
+        }
+    );
 });
 
 var app = builder.Build();
@@ -89,26 +120,6 @@ app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
     options.RoutePrefix = string.Empty;
-});
-
-// db migration
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-var retryPolicy = Policy
-    .Handle<Exception>()
-    .WaitAndRetryAsync(
-        10,
-        retryAttempt => TimeSpan.FromSeconds(retryAttempt),
-        onRetry: (exception, timeSpan, retryCount, context) =>
-        {
-            logger.LogWarning($"Retry {retryCount}: Encountered an error during DB migration. Retrying...");
-            logger.LogWarning($"Exception: {exception.Message}");
-        });
-
-await retryPolicy.ExecuteAsync(async () =>
-{
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<ExampleDbContext>();
-    await dbContext.Database.MigrateAsync();
 });
 
 app.Run();

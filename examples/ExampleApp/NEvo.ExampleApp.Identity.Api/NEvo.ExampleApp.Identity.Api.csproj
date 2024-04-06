@@ -23,6 +23,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\..\..\src\NEvo.EntityFramework\NEvo.EntityFramework.csproj" />
 		<ProjectReference Include="..\NEvo.ExampleApp.Orchestration\NEvo.ExampleApp.Orchestration.ServiceDefaults\NEvo.ExampleApp.Orchestration.ServiceDefaults.csproj" />
 	</ItemGroup>
 

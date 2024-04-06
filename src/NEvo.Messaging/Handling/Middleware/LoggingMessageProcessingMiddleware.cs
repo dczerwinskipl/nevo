@@ -1,6 +1,6 @@
-﻿using System.Diagnostics;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Context;
+using System.Diagnostics;
 
 namespace NEvo.Messaging.Handling.Middleware;
 

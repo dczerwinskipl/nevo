@@ -10,7 +10,8 @@ public static class OptionAssertions
     {
         return option.Match(
             some => some,
-            () => {
+            () =>
+            {
                 Assert.Fail("Expected option to be Some, but it was None.");
                 throw new InvalidOperationException();
             }

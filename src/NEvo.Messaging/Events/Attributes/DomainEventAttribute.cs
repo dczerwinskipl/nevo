@@ -1,5 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using NEvo.Messaging.Attributes;
+﻿using NEvo.Messaging.Attributes;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NEvo.Messaging.Events.Attributes;
 

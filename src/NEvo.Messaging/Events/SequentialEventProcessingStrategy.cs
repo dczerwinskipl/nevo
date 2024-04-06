@@ -1,7 +1,7 @@
-﻿using System.Runtime.CompilerServices;
-using NEvo.Core;
+﻿using NEvo.Core;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
+using System.Runtime.CompilerServices;
 
 namespace NEvo.Messaging.Events;
 

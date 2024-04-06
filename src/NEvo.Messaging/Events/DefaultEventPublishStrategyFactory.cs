@@ -1,10 +1,10 @@
-﻿using System.Reflection;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using NEvo.Messaging.Attributes;
 using NEvo.Messaging.Publish;
 using NEvo.Messaging.Publishing;
 using NEvo.Messaging.Publishing.External;
 using NEvo.Messaging.Publishing.Internal;
+using System.Reflection;
 
 namespace NEvo.Messaging.Events;
 

@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\NEvo.Core\NEvo.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.EntityFramework\NEvo.EntityFramework.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging.EntityFramework\NEvo.Messaging.EntityFramework.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging.Web\NEvo.Messaging.Web.csproj" />

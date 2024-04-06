@@ -1,7 +1,7 @@
-﻿using System.Net.Http.Headers;
-using System.Text.Json;
-using LanguageExt;
+﻿using LanguageExt;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace NEvo.Web.Client;
 

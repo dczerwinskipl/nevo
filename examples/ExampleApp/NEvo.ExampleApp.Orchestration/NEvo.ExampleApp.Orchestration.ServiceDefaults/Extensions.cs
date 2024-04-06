@@ -34,12 +34,11 @@ public static class Extensions
 
     public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder)
     {
-        // Na pocz¹tku Twojej aplikacji
-        OpenTelemetry.Sdk.SetDefaultTextMapPropagator(new CompositeTextMapPropagator(new TextMapPropagator[]
-        {
+        OpenTelemetry.Sdk.SetDefaultTextMapPropagator(new CompositeTextMapPropagator(
+        [
             new TraceContextPropagator(),
             new BaggagePropagator(),
-        }));
+        ]));
 
         builder.Logging.AddOpenTelemetry(logging =>
         {
@@ -65,8 +64,9 @@ public static class Extensions
                        .AddGrpcClientInstrumentation()
                        .AddHttpClientInstrumentation()
                        // TODO: add extension method to enable telemetry
-                       .AddSource("MessageProcessingSource")
-                       .AddSource("MessageProcessingHandlerSoutce");
+                       .AddSource(NEvo.Messaging.Telemetry.MessageProcessing)
+                       .AddSource(NEvo.Messaging.Telemetry.MessageProcessingHandler)
+                       .AddSource(NEvo.EntityFramework.Telemetry.Migration);
             });
 
         builder.AddOpenTelemetryExporters();

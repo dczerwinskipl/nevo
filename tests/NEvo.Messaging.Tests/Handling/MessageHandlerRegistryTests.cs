@@ -1,6 +1,6 @@
-﻿using NEvo.Messaging.Handling.Exceptions;
+﻿using LanguageExt;
 using NEvo.Messaging.Handling;
-using LanguageExt;
+using NEvo.Messaging.Handling.Exceptions;
 
 namespace NEvo.Messaging.Tests.Handling;
 

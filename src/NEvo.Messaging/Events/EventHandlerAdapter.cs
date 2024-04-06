@@ -16,7 +16,7 @@ public class EventHandlerAdapter(MessageHandlerDescription messageHandlerDescrip
         }
         catch (Exception exc)
         {
-            logger.LogError(exc, exc.Message);
+            logger.LogError(exc, "{Message}", exc.Message);
             return exc;
         }
     }

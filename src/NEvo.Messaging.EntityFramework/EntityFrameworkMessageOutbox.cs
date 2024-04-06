@@ -9,7 +9,7 @@ public class EntityFrameworkMessageOutbox(IOutboxDbContext dbContext) : IMessage
     public IAsyncEnumerable<MessageEnvelopeDto> GetMessagesToPublishAsync(int cnt, int? partition)
     {
         var query = dbContext.OutboxMessages.Where(m => m.Status == OutboxMessage.OutboxMessageStatus.Created);
-        if(partition.HasValue)
+        if (partition.HasValue)
         {
             query = query
                         .Where(m => m.Partition == partition.Value)

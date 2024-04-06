@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using NEvo.Messaging.Context;
-using NEvo.Messaging.Handling.Middleware;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Handling.Middleware;
 using Polly;
 
 namespace NEvo.Messaging.Tests.Handling.Middleware;
@@ -37,7 +37,7 @@ public class PollyPolicyMessageProcessingMiddlewareTests
         // Assert
         _policyProviderMock.Verify(x => x.For(messageHandlerMock.Object, messageMock.Object, contextMock.Object), Times.Once);
         _policyMock.Verify(p => p.ExecuteAsync(It.IsAny<Func<Task<Either<Exception, object>>>>()), Times.Once);
-        _nextMock.Verify(n => n.Invoke(), Times.Once); 
+        _nextMock.Verify(n => n.Invoke(), Times.Once);
         result.ExpectRight().Should().NotBeNull();
     }
 

@@ -1,10 +1,10 @@
-﻿using System.Reflection;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NEvo.Messaging.Attributes;
 using NEvo.Messaging.Dispatch;
 using NEvo.Messaging.Dispatch.External;
 using NEvo.Messaging.Dispatch.Internal;
+using System.Reflection;
 
 namespace NEvo.Messaging.Cqrs.Commands;
 

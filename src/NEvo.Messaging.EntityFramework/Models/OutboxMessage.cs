@@ -12,7 +12,7 @@ public class OutboxMessage(Guid messageId, string payload, string messageType, s
     public OutboxMessageStatus Status { get; set; } = OutboxMessageStatus.Created;
 
     public enum OutboxMessageStatus
-    { 
+    {
         Created,
         Published
     }

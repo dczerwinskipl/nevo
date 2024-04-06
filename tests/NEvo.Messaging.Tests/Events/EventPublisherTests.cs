@@ -11,7 +11,7 @@ public class EventPublisherTests
     public async Task PublishAsync_CallsStrategyFactory_AndPublishesEvent()
     {
         // Arrange
-        var eventMock = new Mock<Event>(); 
+        var eventMock = new Mock<Event>();
         var cancellationToken = new CancellationToken(false);
         var strategyMock = new Mock<IMessagePublishStrategy>();
         var factoryMock = new Mock<IMessagePublishStrategyFactory<Event>>();

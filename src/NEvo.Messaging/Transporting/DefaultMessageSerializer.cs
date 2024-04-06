@@ -1,5 +1,5 @@
-﻿using System.Text.Json;
-using NEvo.Messaging.Context;
+﻿using NEvo.Messaging.Context;
+using System.Text.Json;
 
 namespace NEvo.Messaging.Transporting;
 

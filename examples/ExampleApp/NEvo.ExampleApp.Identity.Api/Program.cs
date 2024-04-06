@@ -4,7 +4,6 @@ using Microsoft.IdentityModel.Logging;
 using NEvo.ExampleApp.Identity.Api;
 using NEvo.ExampleApp.Identity.Api.Database;
 using OpenIddict.Abstractions;
-using Polly;
 
 IdentityModelEventSource.ShowPII = true;
 
@@ -19,6 +18,7 @@ builder.AddSqlServerDbContext<ExampleAppIdentityDbContext>("IdentitySql",
     {
         options.UseOpenIddict();
     });
+builder.Services.AddMigrationWorker<ExampleAppIdentityDbContext>();
 
 // Identity
 builder.Services.AddIdentity<IdentityUser, IdentityRole>()
@@ -63,7 +63,8 @@ builder.Services.AddOpenIddict()
 
         // sign and  encrypt
         options.DisableAccessTokenEncryption()
-               .AddDevelopmentSigningCertificate();
+               .AddEphemeralEncryptionKey()
+               .AddEphemeralSigningKey();
 
         // Register ASP.NET Core host and configuration options
         options
@@ -124,43 +125,6 @@ if (app.Environment.IsDevelopment())
         options.RoutePrefix = string.Empty;
     });
 }
-
-// db migration
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-var retryPolicy = Policy
-    .Handle<Exception>()
-    .WaitAndRetryAsync(
-        10,
-        retryAttempt => TimeSpan.FromSeconds(retryAttempt),
-        onRetry: (exception, timeSpan, retryCount, context) =>
-        {
-            logger.LogWarning($"Retry {retryCount}: Encountered an error during DB migration. Retrying...");
-            logger.LogWarning($"Exception: {exception.Message}");
-        });
-
-await retryPolicy.ExecuteAsync(async () =>
-{
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<ExampleAppIdentityDbContext>();
-    await dbContext.Database.MigrateAsync();
-
-    var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-    var existingClientApp = manager.FindByClientIdAsync("nEvo-app").GetAwaiter().GetResult();
-    if (existingClientApp == null)
-    {
-        manager.CreateAsync(new OpenIddictApplicationDescriptor
-        {
-            ClientId = "nEvo-app",
-            ClientSecret = "499D56FA-B47B-5199-BA61-B298D431C318",
-            DisplayName = "Default client application",
-            Permissions =
-            {
-                OpenIddictConstants.Permissions.Endpoints.Token,
-                OpenIddictConstants.Permissions.GrantTypes.Password
-            }
-        }).GetAwaiter().GetResult();
-    }
-});
 
 app.Run();
 

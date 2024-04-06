@@ -7,7 +7,7 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static partial class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddCommands(this IServiceCollection services, bool useInternalCommandProcessing = false /* TODO: extend by CommandType*/)
+    public static IServiceCollection AddCommands(this IServiceCollection services)
     {
         services.AddSingleton<IMessageHandlerFactory, CommandHandlerAdapterFactory>();
         services.AddScoped<IMessageProcessingStrategy, CommandProcessingStrategy>();

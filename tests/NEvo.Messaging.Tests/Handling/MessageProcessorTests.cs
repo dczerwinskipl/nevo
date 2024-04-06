@@ -1,9 +1,8 @@
 ﻿using LanguageExt;
 using NEvo.Core;
 using NEvo.Messaging.Context;
-using NEvo.Messaging.Handling.Strategies;
 using NEvo.Messaging.Handling;
-using System;
+using NEvo.Messaging.Handling.Strategies;
 
 namespace NEvo.Messaging.Tests.Handling;
 
@@ -59,7 +58,7 @@ public class MessageProcessorTests
     [Fact]
     public async Task ProcessMessageAsync_ExecutesSuccessfully_ForTResult()
     {
-        var expectedValue = 42; 
+        var expectedValue = 42;
         _strategyWithResultMock.Setup(s => s.ProcessMessageWithResultAsync(_messageWithResultMock.Object, _contextMock.Object, It.IsAny<CancellationToken>())).ReturnsAsync(Either<Exception, int>.Right(expectedValue));
         _middlewareMock.Setup(m => m.ExecuteAsync(It.IsAny<Func<(IMessage, IMessageContext), CancellationToken, Task<Either<Exception, object>>>>(), It.IsAny<(IMessage, IMessageContext)>(), It.IsAny<CancellationToken>()))
                        .ReturnsAsync(Either<Exception, object>.Right(expectedValue));

@@ -9,7 +9,9 @@ public static class Routes
     {
         app.MapMessagesEndpoints().RequireAuthorization();
         app.MapCommandEndpoint<ServiceACommand>("/api/hello").RequireAuthorization();
+        app.MapCommandEndpoint<ServiceACommand>("/api/hello_noAuth");
         app.MapCommandEndpoint<ServiceBCommand>("/api/world").RequireAuthorization();
+        app.MapCommandEndpoint<ServiceBCommand>("/api/world_noAuth");
         return app;
     }
 }

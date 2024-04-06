@@ -1,6 +1,4 @@
 ﻿using LanguageExt;
-using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities;
-using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.ObjectModel;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Transporting;
 
@@ -25,7 +23,7 @@ public class MessageEnvelopeMapperTests
         _messageSerializerMock.Setup(s => s.DeserializeMessage(dto.Payload, dto.MessageType))
             .Returns(Either<Exception, IMessage>.Right(expectedMessage));
         _messageSerializerMock.Setup(s => s.DeserializeHeaders(dto.Headers))
-            .Returns(Either<Exception, IMessageContextHeaders>.Right(new MessageContextHeaders(new Dictionary<string,string>())));
+            .Returns(Either<Exception, IMessageContextHeaders>.Right(new MessageContextHeaders(new Dictionary<string, string>())));
 
         // Act
         var result = _mapper.ToMessageEnvelope(dto);
@@ -93,7 +91,7 @@ public class MessageEnvelopeMapperTests
 
     private record MyMessage : Message
     {
-        
+
     }
 }
 

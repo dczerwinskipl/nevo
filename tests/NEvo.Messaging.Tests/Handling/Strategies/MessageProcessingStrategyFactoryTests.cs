@@ -24,7 +24,7 @@ public class MessageProcessingStrategyFactoryTests
     {
         // Arrange
         var strategies = new List<IMessageProcessingStrategy> { _applicableStrategyMock.Object };
-        var factory = new MessageProcessingStrategyFactory(strategies, Enumerable.Empty<IMessageProcessingStrategyWithResult>());
+        var factory = new MessageProcessingStrategyFactory(strategies, []);
 
         // Act
         var selectedStrategy = factory.CreateForMessage(_messageMock.Object, _contextMock.Object);
@@ -38,7 +38,7 @@ public class MessageProcessingStrategyFactoryTests
     {
         // Arrange
         var strategiesWithResult = new List<IMessageProcessingStrategyWithResult> { _applicableStrategyWithResultMock.Object };
-        var factory = new MessageProcessingStrategyFactory(Enumerable.Empty<IMessageProcessingStrategy>(), strategiesWithResult);
+        var factory = new MessageProcessingStrategyFactory([], strategiesWithResult);
 
         // Act
         var selectedStrategy = factory.CreateForMessageWithResult<int>(_messageWithResultMock.Object, _contextMock.Object);
@@ -51,7 +51,7 @@ public class MessageProcessingStrategyFactoryTests
     public void CreateForMessage_ThrowsWhenNoStrategyApplies()
     {
         // Arrange
-        var factory = new MessageProcessingStrategyFactory(Enumerable.Empty<IMessageProcessingStrategy>(), Enumerable.Empty<IMessageProcessingStrategyWithResult>());
+        var factory = new MessageProcessingStrategyFactory([], []);
 
         // Act
         var act = () => factory.CreateForMessage(_messageMock.Object, _contextMock.Object);
@@ -64,7 +64,7 @@ public class MessageProcessingStrategyFactoryTests
     public void CreateForMessageWithResult_ThrowsWhenNoStrategyApplies()
     {
         // Arrange
-        var factory = new MessageProcessingStrategyFactory(Enumerable.Empty<IMessageProcessingStrategy>(), Enumerable.Empty<IMessageProcessingStrategyWithResult>());
+        var factory = new MessageProcessingStrategyFactory([], []);
 
         // Act
         var act = () => factory.CreateForMessageWithResult<int>(_messageWithResultMock.Object, _contextMock.Object);
