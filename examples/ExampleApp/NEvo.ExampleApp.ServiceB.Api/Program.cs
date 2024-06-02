@@ -14,7 +14,7 @@ builder.Services.AddLogging(logging =>
 });
 
 // database
-builder.AddSqlServerDbContext<ExampleDbContext>("ServiceBSql", settings => settings.Retry = false);
+builder.AddSqlServerDbContext<ExampleDbContext>("ServiceBSql", settings => settings.DisableRetry = true);
 builder.Services.AddMigrationWorker<ExampleDbContext>();
 
 // nEvo (TODO: presets)

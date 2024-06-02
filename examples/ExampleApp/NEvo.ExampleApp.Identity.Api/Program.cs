@@ -13,7 +13,7 @@ builder.AddServiceDefaults();
 
 // Database
 builder.AddSqlServerDbContext<ExampleAppIdentityDbContext>("IdentitySql",
-    settings => settings.Retry = false,
+    settings => settings.DisableRetry = true,
     options =>
     {
         options.UseOpenIddict();
