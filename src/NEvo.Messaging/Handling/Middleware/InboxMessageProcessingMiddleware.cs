@@ -10,8 +10,11 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
         context.ForceSingleThread();
+        
         if (_messageInbox.IsAlreadyProcessed(message, context))
+        {
             return Unit.Default;
+        }
 
         return await next().MapAsync(
            async successResult =>
@@ -25,8 +28,11 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler messageHandler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
         context.ForceSingleThread();
+
         if (_messageInbox.IsAlreadyProcessed(messageHandler, message, context))
+        {
             return Unit.Default;
+        }
 
         return await next().MapAsync(
            async successResult =>
