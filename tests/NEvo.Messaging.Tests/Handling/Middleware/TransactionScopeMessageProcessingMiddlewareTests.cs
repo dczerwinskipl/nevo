@@ -8,17 +8,19 @@ public class TransactionScopeMessageProcessingMiddlewareTests
 {
     private readonly TransactionScopeMessageProcessingMiddleware _middleware = new();
     private readonly Mock<Func<Task<Either<Exception, object>>>> _nextMock = new();
+    private readonly Mock<IMessageContext> _contextMock = new();
 
     public TransactionScopeMessageProcessingMiddlewareTests()
     {
         _nextMock.Setup(n => n.Invoke()).ReturnsAsync(Either<Exception, object>.Right(new object()));
+        _contextMock.Setup(m => m.GetFeature<ThreadingOptions>()).Returns(new ThreadingOptions());
     }
 
     [Fact]
     public async Task ExecuteAsync_CompletesTransaction_OnSuccess()
     {
         // Act
-        var result = await _middleware.ExecuteAsync(Mock.Of<IMessage>(), Mock.Of<IMessageContext>(), _nextMock.Object, CancellationToken.None);
+        var result = await _middleware.ExecuteAsync(Mock.Of<IMessage>(), _contextMock.Object, _nextMock.Object, CancellationToken.None);
 
         // Assert
         _nextMock.Verify(n => n.Invoke(), Times.Once);
@@ -33,7 +35,7 @@ public class TransactionScopeMessageProcessingMiddlewareTests
         _nextMock.Setup(n => n.Invoke()).ReturnsAsync(Either<Exception, object>.Left(expectedException));
 
         // Act
-        var result = await _middleware.ExecuteAsync(Mock.Of<IMessage>(), Mock.Of<IMessageContext>(), _nextMock.Object, CancellationToken.None);
+        var result = await _middleware.ExecuteAsync(Mock.Of<IMessage>(), _contextMock.Object, _nextMock.Object, CancellationToken.None);
 
         // Assert
         _nextMock.Verify(n => n.Invoke(), Times.Once);

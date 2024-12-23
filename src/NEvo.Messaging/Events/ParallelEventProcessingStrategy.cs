@@ -24,7 +24,7 @@ public class ParallelEventProcessingStrategy : EventProcessingStrategyBase
     }
 
     public override bool ShouldApply(IMessage message, IMessageContext context)
-        => message is Event && !context.SingleThread;
+        => message is Event && !context.GetThreadingOptions().SingleThread;
 
     protected override async Task<IEnumerable<Either<Exception, Unit>>> HandleAsync(IEnumerable<IMessageHandler> messageHandlers, IMessage message, IMessageContext context, CancellationToken cancellationToken)
     {

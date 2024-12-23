@@ -41,7 +41,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NEvo.EntityFramework", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Ddd.EventSourcing", "src\NEvo.Ddd.EventSourcing\NEvo.Ddd.EventSourcing.csproj", "{FBDA27B1-DB47-403E-9910-781E7B5C4DDC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.Permissions", "src\NEvo.Messaging.Permissions\NEvo.Messaging.Permissions.csproj", "{7CB75336-1303-475B-AEE7-05D73AB91FA1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Messaging.Authorization", "src\NEvo.Messaging.Authorization\NEvo.Messaging.Authorization.csproj", "{7CB75336-1303-475B-AEE7-05D73AB91FA1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Authorization", "src\NEvo.Authorization\NEvo.Authorization.csproj", "{881A7AB1-5498-46C3-B521-EAB49CCAD8D9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Web.Authorization", "src\NEvo.Web.Authorization\NEvo.Web.Authorization.csproj", "{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Web.Authorization.Tests", "tests\NEvo.Web.Authorization.Tests\NEvo.Web.Authorization.Tests.csproj", "{069ED814-8AE7-4091-AC9E-554E092F1D29}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -113,6 +119,18 @@ Global
 		{7CB75336-1303-475B-AEE7-05D73AB91FA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7CB75336-1303-475B-AEE7-05D73AB91FA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7CB75336-1303-475B-AEE7-05D73AB91FA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{881A7AB1-5498-46C3-B521-EAB49CCAD8D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{881A7AB1-5498-46C3-B521-EAB49CCAD8D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{881A7AB1-5498-46C3-B521-EAB49CCAD8D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{881A7AB1-5498-46C3-B521-EAB49CCAD8D9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{069ED814-8AE7-4091-AC9E-554E092F1D29}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{069ED814-8AE7-4091-AC9E-554E092F1D29}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{069ED814-8AE7-4091-AC9E-554E092F1D29}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{069ED814-8AE7-4091-AC9E-554E092F1D29}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -135,6 +153,9 @@ Global
 		{43BCD029-550B-4834-A29D-CE593611C043} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 		{FBDA27B1-DB47-403E-9910-781E7B5C4DDC} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 		{7CB75336-1303-475B-AEE7-05D73AB91FA1} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{881A7AB1-5498-46C3-B521-EAB49CCAD8D9} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{C7AE4A9A-E948-4A08-A28E-FE29DEFAA04E} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{069ED814-8AE7-4091-AC9E-554E092F1D29} = {4A3F954D-3044-4638-80F1-8B272F8CEA3C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {07F44DAC-9AD2-42D7-AB3B-453ECA7722DA}

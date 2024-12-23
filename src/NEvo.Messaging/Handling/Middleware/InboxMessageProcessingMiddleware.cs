@@ -9,8 +9,8 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
-        context.ForceSingleThread();
-        
+        context.GetThreadingOptions().ForceSingleThread();
+
         if (_messageInbox.IsAlreadyProcessed(message, context))
         {
             return Unit.Default;
@@ -27,7 +27,7 @@ public class InboxMessageProcessingMiddleware(IMessageInbox messageInbox) : IMes
 
     public async Task<Either<Exception, object>> ExecuteAsync(IMessageHandler messageHandler, IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
-        context.ForceSingleThread();
+        context.GetThreadingOptions().ForceSingleThread();
 
         if (_messageInbox.IsAlreadyProcessed(messageHandler, message, context))
         {

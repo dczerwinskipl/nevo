@@ -9,7 +9,7 @@ public class TransactionScopeMessageProcessingMiddleware() : IMessageProcessingM
     {
         //TODO: check if we should use transaction should be used for that message instead of using it always
         //TODO: check mutliple handlers/internal publishing
-        context.ForceSingleThread();
+        context.GetThreadingOptions().ForceSingleThread();
         using var transactionScope = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
 
         var result = await next();

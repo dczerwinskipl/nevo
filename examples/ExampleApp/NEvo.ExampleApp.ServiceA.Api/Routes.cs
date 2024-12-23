@@ -8,8 +8,8 @@ public static class Routes
     public static WebApplication MapServiceARoutes(this WebApplication app)
     {
         app.MapMessagesEndpoints().RequireAuthorization();
-        app.MapCommandEndpoint<ServiceACommand>("/api/hello").RequireAuthorization();
-        app.MapCommandEndpoint<ServiceACommand>("/api/hello_noAuth");
+        app.MapCommandEndpoint<SayHelloCommand>("/api/hello").RequireAuthorization();
+        app.MapCommandEndpoint<SayHelloCommand>("/api/hello_noAuth");
         app.MapCommandEndpoint<ServiceBCommand>("/api/world").RequireAuthorization();
         app.MapCommandEndpoint<ServiceBCommand>("/api/world_noAuth");
         return app;

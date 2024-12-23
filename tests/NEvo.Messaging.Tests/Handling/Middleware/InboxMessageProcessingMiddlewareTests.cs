@@ -16,6 +16,7 @@ public class InboxMessageProcessingMiddlewareTests
     public InboxMessageProcessingMiddlewareTests()
     {
         _nextMock.Setup(n => n.Invoke()).ReturnsAsync(Either<Exception, object>.Right(new object()));
+        _contextMock.Setup(m => m.GetFeature<ThreadingOptions>()).Returns(new ThreadingOptions());
     }
 
     [Fact]

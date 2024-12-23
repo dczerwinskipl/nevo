@@ -2,8 +2,12 @@ using Microsoft.IdentityModel.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
+using NEvo.Authorization.Permissions;
+using NEvo.ExampleApp.ServiceA.Api;
 using NEvo.ExampleApp.ServiceA.Api.Database;
+using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
+using NEvo.Messaging.Authorization;
 using NEvo.Messaging.Handling.Middleware;
 
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
@@ -23,6 +27,7 @@ builder.AddSqlServerDbContext<ExampleDbContext>("ServiceASql", settings => setti
 builder.Services.AddMigrationWorker<ExampleDbContext>();
 
 // nEvo (TODO: presets)
+
 builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 builder.Services.AddEvents();
@@ -33,9 +38,11 @@ builder.Services.AddRestMessageDispatcher((opts) =>
     opts.BaseAddress = new Uri("http://ServiceB/api/messages/");
 }, [typeof(ServiceBCommand)]);
 
-
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
+builder.Services.AddMessageProcessingMiddleware<UserContextMiddleware<Guid, RoleDataScope>>();
+builder.Services.AddMessageProcessingHandlerMiddleware<ValidatePermissionMiddleware<Guid>>();
+
 builder.Services.AddMessageProcessingMiddleware<TransactionScopeMessageProcessingMiddleware>();
 builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware>();
 builder.Services.AddMessageProcessingHandlerMiddleware<InboxMessageProcessingMiddleware>();
@@ -52,6 +59,7 @@ builder.Services
     {
         options.Authority = builder.Configuration.GetValue<string>("IdentityUrl");
         options.RequireHttpsMetadata = true;
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = false,
@@ -60,6 +68,9 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddHttpContextAccessor(); // TODO: part of claims auth?
+builder.Services.AddClaimsAuthorization<Guid, RoleDataScope>();
+builder.Services.AddSingleton<IPermissionMapper<RoleDataScope>, SayHelloPermissionMapper>();
 
 // swagger
 builder.Services.AddEndpointsApiExplorer();

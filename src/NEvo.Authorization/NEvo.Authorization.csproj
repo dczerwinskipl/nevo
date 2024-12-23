@@ -8,9 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../NEvo.Core/NEvo.Core.csproj" />
-    <ProjectReference Include="..\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
-    <ProjectReference Include="..\NEvo.Messaging\NEvo.Messaging.csproj" />
-    <ProjectReference Include="..\NEvo.Web\NEvo.Web.csproj" />
   </ItemGroup>
 
 </Project>

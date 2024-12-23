@@ -17,6 +17,7 @@ public class ParallelEventProcessingStrategyTests
     public ParallelEventProcessingStrategyTests()
     {
         var messageContextMock = new Mock<IMessageContext>();
+        messageContextMock.Setup(m => m.GetFeature<ThreadingOptions>()).Returns(new ThreadingOptions());
         messageContextMock.Setup(m => m.ServiceProvider).Returns(_serviceProciderMock.Object);
         _messageContext = messageContextMock.Object;
         _middlewareMock

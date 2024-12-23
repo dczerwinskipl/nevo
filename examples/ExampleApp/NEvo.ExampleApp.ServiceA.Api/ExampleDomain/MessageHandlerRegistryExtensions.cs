@@ -7,7 +7,7 @@ public static partial class MessageHandlerRegistryExtensions
     // TODO: Create some point of NEvo Extensions to register those
     public static IMessageHandlerRegistry UseServiceADomain(this IMessageHandlerRegistry registry)
     {
-        registry.Register<ServiceACommandHandler>();
+        registry.Register<SayHelloCommandHandler>();
         registry.Register<MyEventHandlerA>();
         registry.Register<MyEventHandlerB>();
 

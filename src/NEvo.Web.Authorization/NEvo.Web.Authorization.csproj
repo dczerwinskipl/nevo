@@ -8,13 +8,10 @@
 
   <ItemGroup>
 	  <FrameworkReference Include="Microsoft.AspNetCore.App" Version="9.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NEvo.Core\NEvo.Core.csproj" />
+    <ProjectReference Include="../NEvo.Authorization/NEvo.Authorization.csproj" />
   </ItemGroup>
 
 </Project>

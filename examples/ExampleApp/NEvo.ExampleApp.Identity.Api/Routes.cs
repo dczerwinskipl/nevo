@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
+using System.Collections.Immutable;
 using System.Security.Claims;
 
 namespace NEvo.ExampleApp.Identity.Api;
@@ -35,6 +36,12 @@ public static class Routes
 
                 identity.AddClaim(OpenIddictConstants.Claims.Subject, user.Id.ToString(), OpenIddictConstants.Destinations.AccessToken);
                 identity.AddClaim(OpenIddictConstants.Claims.Username, user.UserName!, OpenIddictConstants.Destinations.AccessToken);
+                identity.AddClaim(OpenIddictConstants.Claims.Name, user.UserName!, OpenIddictConstants.Destinations.AccessToken);
+
+                // hardcoded for testing
+                identity.AddClaim(OpenIddictConstants.Claims.Role, """{ "name": "Manager", "dataScope": { "tenantId": "T1", "companyId": "*" } }""", OpenIddictConstants.Destinations.AccessToken);
+                identity.AddClaim(OpenIddictConstants.Claims.Role, """{ "name": "Admin", "dataScope": { "tenantId": "T1", "companyId": "C1" } }""", OpenIddictConstants.Destinations.AccessToken);
+                identity.AddClaim(OpenIddictConstants.Claims.Role, """{ "name": "Invalid", "dataScope": { "companyId": "C1" } }""", OpenIddictConstants.Destinations.AccessToken);
                 // Add more claims if necessary
 
                 /*
@@ -51,6 +58,15 @@ public static class Routes
                     OpenIddictConstants.Scopes.Email,
                     OpenIddictConstants.Scopes.Profile,
                 });
+
+                var destinations = new Dictionary<string, string[]>
+                {
+                    { OpenIddictConstants.Claims.Subject, [OpenIddictConstants.Destinations.AccessToken] },
+                    { OpenIddictConstants.Claims.Username, [OpenIddictConstants.Destinations.AccessToken] },
+                    { OpenIddictConstants.Claims.Name, [OpenIddictConstants.Destinations.AccessToken] },
+                    { OpenIddictConstants.Claims.Role, [OpenIddictConstants.Destinations.AccessToken] }
+                }.ToImmutableDictionary();
+                claimsPrincipal.SetDestinations(destinations);
 
                 // Assuming configuration for OpenIddict to issue tokens is done in ConfigureServices
                 return Results.SignIn(claimsPrincipal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);

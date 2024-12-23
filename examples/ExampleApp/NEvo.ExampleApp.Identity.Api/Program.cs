@@ -11,6 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
+// test only
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+builder.Logging.AddConsole();
+
 // Database
 builder.AddSqlServerDbContext<ExampleAppIdentityDbContext>("IdentitySql",
     settings => settings.DisableRetry = true,
@@ -70,6 +74,14 @@ builder.Services.AddOpenIddict()
         options
             .UseAspNetCore()
             .EnableTokenEndpointPassthrough();
+
+        options.Configure(o =>
+        {
+            o.Claims.Add(OpenIddictConstants.Claims.Subject);
+            o.Claims.Add(OpenIddictConstants.Claims.Username);
+            o.Claims.Add(OpenIddictConstants.Claims.Name);
+            o.Claims.Add(OpenIddictConstants.Claims.Role);
+        });
     })
     .AddValidation(options =>
     {

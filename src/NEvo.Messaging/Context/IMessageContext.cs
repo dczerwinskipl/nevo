@@ -7,6 +7,6 @@ public interface IMessageContext
     Option<string> CausationId => Headers.CausationId;
     IServiceProvider ServiceProvider { get; }
 
-    bool SingleThread { get; }
-    void ForceSingleThread();
+    T GetFeature<T>() where T : new();
+    void SetFeature<T>(T feature) where T : new();
 }
