@@ -13,14 +13,25 @@ namespace Microsoft.AspNetCore.Routing
         {
             var group = routeBuilder.MapGroup(prefix);
 
-            group.MapPost("/dispatch", async (MessageEnvelopeDto dto, IMessageEnvelopeMapper mapper, IMessageProcessor messageProcessor, IMessageContextProvider messageContextProvider, CancellationToken cancellationToken) =>
+            group.MapPost("/dispatch", async (
+                MessageEnvelopeDto dto,
+                IMessageEnvelopeMapper mapper,
+                IMessageProcessor messageProcessor,
+                IMessageContextAccessor messageContextAccessor,
+                IMessageContextProvider messageContextProvider,
+                CancellationToken cancellationToken) =>
             {
                 var result = await mapper
                     .ToMessageEnvelope(dto)
                     .BindAsync(async envelope =>
                     {
                         // TODO - read headers from envelope
-                        return await messageProcessor.ProcessMessageAsync(envelope.Message, messageContextProvider.CreateContext(), cancellationToken);
+                        var context = messageContextAccessor.MessageContext ??= messageContextProvider.CreateContext();
+                        foreach (var header in envelope.Headers)
+                        {
+                            context.Headers.Add(header.Key, header.Value);
+                        }
+                        return await messageProcessor.ProcessMessageAsync(envelope.Message, messageContextAccessor.MessageContext, cancellationToken);
                     });
 
                 return result.Match(

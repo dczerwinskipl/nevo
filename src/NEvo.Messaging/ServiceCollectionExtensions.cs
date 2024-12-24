@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection.Extensions;
 using NEvo.Messaging.Context;
-using NEvo.Messaging.Dispatch;
-using NEvo.Messaging.Dispatch.Internal;
+using NEvo.Messaging.Dispatching;
+using NEvo.Messaging.Dispatching.Internal;
 using NEvo.Messaging.Handling;
 using NEvo.Messaging.Handling.Middleware;
 using NEvo.Messaging.Handling.Strategies;
@@ -16,8 +16,9 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddMessages(this IServiceCollection services)
     {
         // TODO: check scopes
-        services.AddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
-        services.AddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
+        services.TryAddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
+        services.TryAddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
+        services.TryAddSingleton<IMessageContextAccessor, MessageContextAccessor>();
 
         // default middlesares
         services.AddMessageProcessingMiddleware<CorrelationIdMessageProcessingMiddleware>();

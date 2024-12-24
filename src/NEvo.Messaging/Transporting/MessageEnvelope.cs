@@ -4,4 +4,4 @@ using System.Diagnostics.CodeAnalysis;
 namespace NEvo.Messaging.Transporting;
 
 [ExcludeFromCodeCoverage]
-public record MessageEnvelope(IMessage Message, IMessageContextHeaders Headers);
+public record MessageEnvelope(IMessage Message, MessageContextHeaders Headers);

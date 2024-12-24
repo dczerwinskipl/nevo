@@ -1,12 +1,21 @@
-﻿using NEvo.Core;
+﻿using System.Text.Json.Serialization;
+using NEvo.Core;
 
 namespace NEvo.Messaging.Context;
 
-public class MessageContextHeaders(IDictionary<string, string> dictionary) : Dictionary<string, string>(Check.Null(dictionary)), IMessageContextHeaders
+public class MessageContextHeaders(IDictionary<string, string> dictionary) : Dictionary<string, string>(Check.Null(dictionary))
 {
+    public MessageContextHeaders() : this(new Dictionary<string, string>())
+    {
+    }
+
+    [JsonIgnore]
     public const string CorrelationIdKey = nameof(CorrelationId);
+
+    [JsonIgnore]
     public const string CausationIdKey = nameof(CausationId);
 
+    [JsonIgnore]
     public Option<string> CorrelationId
     {
         get
@@ -27,6 +36,8 @@ public class MessageContextHeaders(IDictionary<string, string> dictionary) : Dic
             );
         }
     }
+
+    [JsonIgnore]
     public Option<string> CausationId
     {
         get

@@ -6,5 +6,5 @@ public class MessageContextProvider(IServiceProvider serviceProvider) : IMessage
     private MessageContext? _messageContext;
 
     public IMessageContext CreateContext() => _messageContext ??= new MessageContext(CreateHeaders(), serviceProvider);
-    public IMessageContextHeaders CreateHeaders() => _messageContextHeaders ??= new MessageContextHeaders(new Dictionary<string, string>());
+    public MessageContextHeaders CreateHeaders() => _messageContextHeaders ??= new MessageContextHeaders(new Dictionary<string, string>());
 }

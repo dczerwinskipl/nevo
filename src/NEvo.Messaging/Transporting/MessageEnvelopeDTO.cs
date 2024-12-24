@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using NEvo.Messaging.Context;
 
 namespace NEvo.Messaging.Transporting;
 
 [ExcludeFromCodeCoverage]
-public record MessageEnvelopeDto(Guid MessageId, string MessageType, string Payload, string Headers, string? PartitionKey = null);
+public record MessageEnvelopeDto(Guid MessageId, string MessageType, string Payload, MessageContextHeaders Headers, string? PartitionKey = null);

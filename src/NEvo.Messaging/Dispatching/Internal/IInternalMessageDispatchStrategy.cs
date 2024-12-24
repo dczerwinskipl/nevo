@@ -1,4 +1,4 @@
-﻿namespace NEvo.Messaging.Dispatch.Internal;
+﻿namespace NEvo.Messaging.Dispatching.Internal;
 
 public interface IInternalMessageDispatchStrategy : IMessageDispatchStrategy
 {

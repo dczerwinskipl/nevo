@@ -2,7 +2,7 @@
 
 public interface IMessageContext
 {
-    IMessageContextHeaders Headers { get; }
+    MessageContextHeaders Headers { get; }
     Option<string> CorrelationId => Headers.CorrelationId;
     Option<string> CausationId => Headers.CausationId;
     IServiceProvider ServiceProvider { get; }

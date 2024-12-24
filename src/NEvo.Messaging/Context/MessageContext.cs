@@ -6,13 +6,13 @@ public class MessageContext(IDictionary<string, string> headers, IServiceProvide
 {
     private readonly Dictionary<Type, object> _featureCollection = new();
 
-    public IMessageContextHeaders Headers { get; } = new MessageContextHeaders(Check.Null(headers));
+    public MessageContextHeaders Headers { get; } = new MessageContextHeaders(Check.Null(headers));
 
     public IServiceProvider ServiceProvider { get; } = Check.Null(serviceProvider);
 
     public T GetFeature<T>() where T : new()
     {
-        if (!_featureCollection.TryGetValue(typeof(T), out var feature)) 
+        if (!_featureCollection.TryGetValue(typeof(T), out var feature))
         {
             feature = new T();
             _featureCollection.Add(typeof(T), feature);

@@ -1,4 +1,4 @@
-﻿namespace NEvo.Messaging.Dispatch.External;
+﻿namespace NEvo.Messaging.Dispatching.External;
 
 public interface IExternalMessageDispatchStrategy : IMessageDispatchStrategy
 {

@@ -1,7 +1,7 @@
 ﻿using LanguageExt;
 using NEvo.Core;
 using NEvo.Messaging.Context;
-using NEvo.Messaging.Dispatch.Internal;
+using NEvo.Messaging.Dispatching.Internal;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Tests.Dispatching.Internal;
@@ -10,14 +10,13 @@ public class InternalSyncProcessDispatchStrategyTests
 {
     private readonly InternalSyncProcessDispatchStrategy _sut;
     private readonly Mock<IMessageProcessor> _messageProcessorMock;
+    private readonly Mock<IMessageContext> _messageContextMock;
 
     public InternalSyncProcessDispatchStrategyTests()
     {
         _messageProcessorMock = new Mock<IMessageProcessor>();
-        var messageContextMock = new Mock<IMessageContext>();
-        var messageContextFactoryMock = new Mock<IMessageContextProvider>();
-        messageContextFactoryMock.Setup(mcf => mcf.CreateContext()).Returns(messageContextMock.Object);
-        _sut = new InternalSyncProcessDispatchStrategy(_messageProcessorMock.Object, messageContextFactoryMock.Object);
+        _messageContextMock = new Mock<IMessageContext>();
+        _sut = new InternalSyncProcessDispatchStrategy(_messageProcessorMock.Object);
     }
 
     [Fact]
@@ -31,7 +30,7 @@ public class InternalSyncProcessDispatchStrategyTests
             .Returns(expected);
 
         // Act
-        var result = await _sut.DispatchAsync(messageMock.Object, cancellationToken);
+        var result = await _sut.DispatchAsync(messageMock.Object, _messageContextMock.Object, cancellationToken);
 
         // Assert
         result.Should().BeEquivalentTo(await expected);
@@ -49,7 +48,7 @@ public class InternalSyncProcessDispatchStrategyTests
             .Returns(expected);
 
         // Act
-        var result = await _sut.DispatchAsync(messageMock.Object, cancellationToken);
+        var result = await _sut.DispatchAsync(messageMock.Object, _messageContextMock.Object, cancellationToken);
 
         // Assert
         result.Should().BeEquivalentTo(await expected);

@@ -3,5 +3,5 @@
 public interface IMessageContextProvider
 {
     IMessageContext CreateContext();
-    IMessageContextHeaders CreateHeaders();
+    MessageContextHeaders CreateHeaders();
 }

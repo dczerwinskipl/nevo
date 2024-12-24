@@ -27,14 +27,14 @@ public class EntityFrameworkMessageOutbox(IOutboxDbContext dbContext) : IMessage
         //TODO: locking
         return query
                 .Take(cnt)
-                .Select(m => new MessageEnvelopeDto(m.MessageId, m.MessageType, m.Payload, m.Headers, m.PartitionKey))
+                .Select(m => new MessageEnvelopeDto(m.MessageId, m.MessageType, m.Payload, new Context.MessageContextHeaders() /* ToDo - serialize? */, m.PartitionKey))
                 .AsAsyncEnumerable();
     }
 
     public async Task<Unit> SaveMessageAsync(MessageEnvelopeDto message)
     {
         //TODO partitioning
-        await dbContext.AddAsync(new OutboxMessage(message.MessageId, message.Payload, message.MessageType, message.Headers, message.PartitionKey, 0));
+        await dbContext.AddAsync(new OutboxMessage(message.MessageId, message.Payload, message.MessageType, string.Empty /* ToDo - serialize? */, message.PartitionKey, 0));
         await dbContext.SaveChangesAsync();
         return Unit.Default;
     }

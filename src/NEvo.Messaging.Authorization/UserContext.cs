@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using LanguageExt;
 using NEvo.Authorization;
 using NEvo.Authorization.Permissions;
@@ -12,6 +13,7 @@ public class UserContext<TId>
 
     public IEnumerable<IRole> UserRoles { get; set; } = [];
 
+    [JsonIgnore]
     public IEnumerable<IPermission> UserPermissions { get; set; } = [];
 
     public IEnumerable<Role<TDataScope>> GetRoles<TDataScope>() where TDataScope : AuthDataScope

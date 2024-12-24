@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection.Extensions;
 using NEvo.Messaging.Cqrs.Commands;
-using NEvo.Messaging.Dispatch.External;
+using NEvo.Messaging.Dispatching.External;
 using NEvo.Messaging.Web;
 using NEvo.Web.Client;
 
