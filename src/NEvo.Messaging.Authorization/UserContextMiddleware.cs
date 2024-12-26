@@ -8,6 +8,8 @@ using NEvo.Core;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling.Middleware;
 
+using static LanguageExt.Prelude;
+
 namespace NEvo.Messaging.Authorization;
 
 public class UserContextMiddleware<TId, TRoleDataScope>(
@@ -23,40 +25,48 @@ public class UserContextMiddleware<TId, TRoleDataScope>(
     public Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
         var userContext = context.GetUserContext<TId>();
-        if (userContext.User.IsNone)
-        {
-            if (context.Headers.TryGetValue("user-context", out string? userContextDataJson))
-            {
-                try
-                {
-                    // TODO: extract serializer/deserializer and validate
-                    var jsonDoc = JsonDocument.Parse(userContextDataJson);
-                    var userElement = jsonDoc.RootElement.GetProperty("user");
-                    var rolesElement = jsonDoc.RootElement.GetProperty("userRoles");
-
-                    var user = JsonSerializer.Deserialize<User<TId>>(userElement, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    var userRoles = JsonSerializer.Deserialize<List<Role<TRoleDataScope>>>(rolesElement, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                    userContext.User = user;
-                    userContext.UserRoles = userRoles!;
-                    userContext.UserPermissions = _permissionProvider.GetPermissions(userRoles!);
-                }
-                catch
-                {
-                    return Task.FromResult<Either<Exception, object>>(new Exception("Invalid header user context data"));
-                }
-            }
-            else
-            {
-                userContext.User = _userProvider.GetUser();
-
-                var userRoles = _roleProvider.GetRoles();
-                userContext.UserRoles = userRoles;
-                userContext.UserPermissions = _permissionProvider.GetPermissions(userRoles);
-            }
-        }
+        ResolveUserWithRoles(context)
+            .Iter((userWithRoles) => PopulateUserContext(userContext, userWithRoles));
 
         return next();
     }
+    private Option<UserWithRoles> ResolveUserWithRoles(IMessageContext context) =>
+        UserHeader(context)
+            .Match(
+                Some: Some,
+                None: FromProviders
+            );
+
+    private static Option<UserWithRoles> UserHeader(IMessageContext context)
+        => Optional(
+                // todo: use a constant for the header name
+                // todo: add check if we should use header data or not
+                context.Headers.TryGetValue("user-context", out string? userContextDataJson)
+                ? userContextDataJson
+                : null
+            ).Bind(PraseHeaderContext);
+
+    private static Option<UserWithRoles> PraseHeaderContext(string userContextDataJson)
+        => Try(() => JsonSerializer.Deserialize<UserWithRoles>(
+                userContextDataJson,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+            )).Match(
+                Succ: Some,
+                Fail: _ => None
+            );
+
+    private Option<UserWithRoles> FromProviders()
+        => _userProvider
+            .GetUser()
+            .Map(user => new UserWithRoles(user, _roleProvider.GetRoles()));
+
+    private void PopulateUserContext(UserContext<TId> userContext, UserWithRoles userWithRoles)
+    {
+        userContext.User = userWithRoles.User;
+        userContext.UserRoles = userWithRoles.Roles;
+        userContext.UserPermissions = _permissionProvider.GetPermissions(userWithRoles.Roles);
+    }
+
+    private record UserWithRoles(User<TId> User, IEnumerable<Role<TRoleDataScope>> Roles);
 }
 
