@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace NEvo.Authorization.Roles;
 
 public record Role<T>(
