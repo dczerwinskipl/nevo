@@ -8,7 +8,10 @@ public class OrchestrationManager(IOrchestrationRunner orchestrationRunner) : IO
 {
     private readonly IOrchestrationRunner _orchestrationRunner = Check.Null(orchestrationRunner);
 
-    public async Task<Either<Exception, Unit>> CompleteAsync(Guid orchestrationId)
+    public async Task<Either<Exception, Unit>> CompleteAsync(
+        Guid orchestrationId,
+        CancellationToken cancellationToken
+    )
     {
         var orchestrationState = (OrchestratorState)null!;
 
@@ -19,27 +22,36 @@ public class OrchestrationManager(IOrchestrationRunner orchestrationRunner) : IO
             select (Orchestrator: orchestrator, DataType: dataType)
         )
         .BindAsync(
-            tuple => InvokeRunAsync(tuple.Orchestrator, orchestrationState, tuple.DataType)
+            tuple => InvokeRunAsync(tuple.Orchestrator, orchestrationState, tuple.DataType, cancellationToken)
         );
     }
 
-    public async Task<Either<Exception, Unit>> RunAsync<TData>(IOrchestrator<TData> orchestrator, TData data) where TData : new()
+    public async Task<Either<Exception, Unit>> RunAsync<TData>(
+        IOrchestrator<TData> orchestrator,
+        TData data,
+        CancellationToken cancellationToken
+    ) where TData : new()
     {
         var orchestrationState = new OrchestratorState<TData>
         {
             Id = Guid.NewGuid(),
             OrchestratorType = orchestrator.GetType().AssemblyQualifiedName!, // todo: change to mapper?
-            State = OrchestrationState.New,
+            Status = OrchestratorStatus.New,
             Data = data
         };
 
         // save state in db
         // await _stateRepository.SaveAsync(orchestrationState);
 
-        return await _orchestrationRunner.RunAsync(orchestrator, orchestrationState);
+        return await _orchestrationRunner.RunAsync(orchestrator, orchestrationState, cancellationToken);
     }
 
-    private async Task<Either<Exception, Unit>> InvokeRunAsync(object orchestrator, object state, Type dataType)
+    private async Task<Either<Exception, Unit>> InvokeRunAsync(
+        object orchestrator,
+        object state,
+        Type dataType,
+        CancellationToken cancellationToken
+    )
     {
         var method = typeof(IOrchestrationRunner)
             .GetMethod(nameof(IOrchestrationRunner.RunAsync), BindingFlags.Public | BindingFlags.Instance)
@@ -50,7 +62,7 @@ public class OrchestrationManager(IOrchestrationRunner orchestrationRunner) : IO
             return new InvalidOperationException("Failed to find RunAsync method.");
         }
 
-        return await (Task<Either<Exception, Unit>>)method.Invoke(_orchestrationRunner, [orchestrator, state])!;
+        return await (Task<Either<Exception, Unit>>)method.Invoke(_orchestrationRunner, [orchestrator, state, cancellationToken])!;
     }
 
     private static Either<Exception, Type> ResolveOrchestratorType(OrchestratorState orchestrationState)

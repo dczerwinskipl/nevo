@@ -1,6 +1,6 @@
 namespace NEvo.Orchestrating;
 
-public enum OrchestrationState
+public enum OrchestratorStatus
 {
     New = 0,
     Running = 1,

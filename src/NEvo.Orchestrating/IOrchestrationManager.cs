@@ -6,10 +6,12 @@ public interface IOrchestrationManager
 {
     public Task<Either<Exception, Unit>> RunAsync<TData>(
         IOrchestrator<TData> orchestrator,
-        TData data
+        TData data,
+        CancellationToken cancellationToken
     ) where TData : new();
 
     public Task<Either<Exception, Unit>> CompleteAsync(
-        Guid orchestrationId
+        Guid orchestrationId,
+        CancellationToken cancellationToken
     );
 }

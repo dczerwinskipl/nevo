@@ -5,6 +5,6 @@ namespace NEvo.Orchestrating;
 public interface IOrchestratorStep<TData>
 {
     public string Name { get; }
-    public EitherAsync<Exception, Unit> ExecuteAsync(TData data);
-    public EitherAsync<Exception, Unit> CompensateAsync(TData data);
+    public Task<Either<Exception, Unit>> ExecuteAsync(TData data, CancellationToken cancellationToken);
+    public Task<Either<Exception, Unit>> CompensateAsync(TData data, CancellationToken cancellationToken);
 }
