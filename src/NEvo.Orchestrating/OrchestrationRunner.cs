@@ -95,18 +95,6 @@ public class OrchestrationRunner(IStepExecutor stepExecutor) : IOrchestrationRun
         );
     }
 
-    private static IEnumerable<IOrchestratorStep<TData>> GetStepsToExecute<TData>(IOrchestrator<TData> orchestrator, string? lastStep) where TData : new()
-    {
-        return lastStep == null
-            ? orchestrator.Steps
-            : orchestrator.Steps.SkipWhile(steps => steps.Name != lastStep).Skip(1);
-    }
-
-    private static IEnumerable<IOrchestratorStep<TData>> GetStepsToCompensate<TData>(IOrchestrator<TData> orchestrator, string? lastStep) where TData : new()
-        => lastStep == null
-            ? []
-            : orchestrator.Steps.Reverse().SkipWhile(steps => steps.Name != lastStep);
-
     private static async Task<Either<Exception, Unit>> ExecuteOrchestrationStepsAsync<TData>(
         IEnumerable<IOrchestratorStep<TData>> steps,
         Func<IOrchestratorStep<TData>, Task<Either<Exception, Unit>>> run
@@ -122,4 +110,14 @@ public class OrchestrationRunner(IStepExecutor stepExecutor) : IOrchestrationRun
         }
         return Unit.Default;
     }
+
+    private static IEnumerable<IOrchestratorStep<TData>> GetStepsToExecute<TData>(IOrchestrator<TData> orchestrator, string? lastStep) where TData : new()
+        => lastStep == null
+            ? orchestrator.Steps
+            : orchestrator.Steps.SkipWhile(steps => steps.Name != lastStep).Skip(1);
+
+    private static IEnumerable<IOrchestratorStep<TData>> GetStepsToCompensate<TData>(IOrchestrator<TData> orchestrator, string? lastStep) where TData : new()
+        => lastStep == null
+            ? []
+            : orchestrator.Steps.Reverse().SkipWhile(steps => steps.Name != lastStep);
 }

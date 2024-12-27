@@ -13,17 +13,8 @@ public class OrchestrationManager(IOrchestrationRunner orchestrationRunner) : IO
         CancellationToken cancellationToken
     )
     {
-        var orchestrationState = (OrchestratorState)null!;
-
-        return await (
-            from orchestratorType in ResolveOrchestratorType(orchestrationState)
-            from dataType in GetOrchestratorDataType(orchestratorType)
-            from orchestrator in CreateOrchestratorInstance(orchestratorType)
-            select (Orchestrator: orchestrator, DataType: dataType)
-        )
-        .BindAsync(
-            tuple => InvokeRunAsync(tuple.Orchestrator, orchestrationState, tuple.DataType, cancellationToken)
-        );
+        var orchestrationState = (OrchestratorState)null!; // get from DB
+        return await _orchestrationRunner.RunAsync(orchestrationState, cancellationToken);
     }
 
     public async Task<Either<Exception, Unit>> RunAsync<TData>(
@@ -44,60 +35,5 @@ public class OrchestrationManager(IOrchestrationRunner orchestrationRunner) : IO
         // await _stateRepository.SaveAsync(orchestrationState);
 
         return await _orchestrationRunner.RunAsync(orchestrator, orchestrationState, cancellationToken);
-    }
-
-    private async Task<Either<Exception, Unit>> InvokeRunAsync(
-        object orchestrator,
-        object state,
-        Type dataType,
-        CancellationToken cancellationToken
-    )
-    {
-        var method = typeof(IOrchestrationRunner)
-            .GetMethod(nameof(IOrchestrationRunner.RunAsync), BindingFlags.Public | BindingFlags.Instance)
-            ?.MakeGenericMethod(dataType);
-
-        if (method == null)
-        {
-            return new InvalidOperationException("Failed to find RunAsync method.");
-        }
-
-        return await (Task<Either<Exception, Unit>>)method.Invoke(_orchestrationRunner, [orchestrator, state, cancellationToken])!;
-    }
-
-    private static Either<Exception, Type> ResolveOrchestratorType(OrchestratorState orchestrationState)
-    {
-        var type = Type.GetType(orchestrationState.OrchestratorType);
-        if (type == null)
-        {
-            return new InvalidOperationException("Cannot resolve orchestrator type.");
-        }
-
-        return type;
-    }
-
-    private static Either<Exception, object> CreateOrchestratorInstance(Type orchestratorType)
-    {
-        var instance = Activator.CreateInstance(orchestratorType);
-        if (instance == null)
-        {
-            return new InvalidOperationException($"Failed to create orchestrator of type: {orchestratorType.Name}");
-        }
-
-        return instance;
-    }
-
-    private static Either<Exception, Type> GetOrchestratorDataType(Type orchestratorType)
-    {
-        var orchestratorInterface = orchestratorType
-            .GetInterfaces()
-            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IOrchestrator<>));
-
-        if (orchestratorInterface == null)
-        {
-            return new InvalidOperationException("The orchestrator type does not implement IOrchestrator<TData>.");
-        }
-
-        return orchestratorInterface.GetGenericArguments()[0];
     }
 }
