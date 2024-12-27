@@ -69,7 +69,9 @@ public class OrchestrationRunner(IStepExecutor stepExecutor) : IOrchestrationRun
         state.Status = OrchestratorStatus.Running;
         var result = await ExecuteOrchestrationStepsAsync(
             GetStepsToExecute(orchestrator, state.LastStep),
-            step => _stepExecutor.ExecuteAsync(step, state, cancellationToken)
+            step => _stepExecutor
+                        .ExecuteAsync(step, state, cancellationToken)
+                        .MapAsync(_ => Unit.Default)
         );
 
         return result.Do(
@@ -86,7 +88,9 @@ public class OrchestrationRunner(IStepExecutor stepExecutor) : IOrchestrationRun
     {
         var result = await ExecuteOrchestrationStepsAsync(
             GetStepsToCompensate(orchestrator, state.LastCompensatedStep ?? state.LastStep),
-            step => _stepExecutor.CompensateAsync(step, state, cancellationToken)
+            step => _stepExecutor
+                        .CompensateAsync(step, state, cancellationToken)
+                        .MapAsync(_ => Unit.Default)
         );
 
         return result.Do(
