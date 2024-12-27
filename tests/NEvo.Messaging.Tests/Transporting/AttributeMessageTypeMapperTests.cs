@@ -18,12 +18,10 @@ public class MessageEnvelopeMapperTests
     public void ToMessageEnvelope_SuccessfullyDeserializes()
     {
         // Arrange
-        var dto = new MessageEnvelopeDto(Guid.NewGuid(), typeof(MyMessage).AssemblyQualifiedName!, "{}", "{}");
+        var dto = new MessageEnvelopeDto(Guid.NewGuid(), typeof(MyMessage).AssemblyQualifiedName!, "{}", []);
         var expectedMessage = new MyMessage();
         _messageSerializerMock.Setup(s => s.DeserializeMessage(dto.Payload, dto.MessageType))
             .Returns(Either<Exception, IMessage>.Right(expectedMessage));
-        _messageSerializerMock.Setup(s => s.DeserializeHeaders(dto.Headers))
-            .Returns(Either<Exception, IMessageContextHeaders>.Right(new MessageContextHeaders(new Dictionary<string, string>())));
 
         // Act
         var result = _mapper.ToMessageEnvelope(dto);
@@ -38,7 +36,7 @@ public class MessageEnvelopeMapperTests
     public void ToMessageEnvelope_HandlesDeserializationFailure()
     {
         // Arrange
-        var dto = new MessageEnvelopeDto(Guid.NewGuid(), typeof(MyMessage).AssemblyQualifiedName!, "{}", "{}");
+        var dto = new MessageEnvelopeDto(Guid.NewGuid(), typeof(MyMessage).AssemblyQualifiedName!, "{}", []);
         _messageSerializerMock.Setup(s => s.DeserializeMessage(dto.Payload, dto.MessageType))
             .Returns(Either<Exception, IMessage>.Left(new Exception()));
 
@@ -59,8 +57,6 @@ public class MessageEnvelopeMapperTests
         var serializationResult = (Payload: "{}", MessageType: "MyMessage");
         _messageSerializerMock.Setup(s => s.Serialize(message))
             .Returns(Either<Exception, (string Payload, string MessageType)>.Right(serializationResult));
-        _messageSerializerMock.Setup(s => s.SerializeHeaders(headers))
-            .Returns(Either<Exception, string>.Right("{}"));
 
         // Act
         var result = _mapper.ToMessageEnvelopeDTO(envelope);
@@ -69,7 +65,7 @@ public class MessageEnvelopeMapperTests
         var dto = result.ExpectRight();
         dto.MessageType.Should().Be(serializationResult.MessageType);
         dto.Payload.Should().Be(serializationResult.Payload);
-        dto.Headers.Should().Be("{}");
+        dto.Headers.Should().BeEquivalentTo(headers);
     }
 
     [Fact]

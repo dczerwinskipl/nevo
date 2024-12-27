@@ -11,12 +11,14 @@ public class IMessageContextTests
     public IMessageContextTests()
     {
         // Arrange
-        var headersMock = new Mock<IMessageContextHeaders>();
-        headersMock.Setup(h => h.CorrelationId).Returns(_correlationId);
-        headersMock.Setup(h => h.CausationId).Returns(_causationId);
+        var headers = new MessageContextHeaders
+        {
+            CorrelationId = _correlationId,
+            CausationId = _causationId
+        };
 
         var contextMock = new Mock<IMessageContext>() { CallBase = true };
-        contextMock.Setup(m => m.Headers).Returns(headersMock.Object);
+        contextMock.Setup(m => m.Headers).Returns(headers);
         _sut = contextMock.Object;
     }
 

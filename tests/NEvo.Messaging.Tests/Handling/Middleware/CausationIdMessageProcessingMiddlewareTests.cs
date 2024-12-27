@@ -7,13 +7,13 @@ namespace NEvo.Messaging.Tests.Handling.Middleware;
 public class CausationIdMessageProcessingMiddlewareTests
 {
     private readonly Mock<IMessage> _messageMock = new();
-    private readonly Mock<IMessageContextHeaders> _headersMock = new();
+    private readonly MessageContextHeaders _headers = [];
     private readonly Mock<IMessageContext> _contextMock = new();
     private readonly Mock<Func<Task<Either<Exception, object>>>> _nextMock = new();
 
     public CausationIdMessageProcessingMiddlewareTests()
     {
-        _contextMock.SetupGet(c => c.Headers).Returns(_headersMock.Object);
+        _contextMock.SetupGet(c => c.Headers).Returns(_headers);
         _messageMock.SetupGet(m => m.Id).Returns(Guid.NewGuid());
         _nextMock.Setup(n => n.Invoke()).ReturnsAsync(Either<Exception, object>.Right(new object()));
     }
@@ -24,8 +24,7 @@ public class CausationIdMessageProcessingMiddlewareTests
         // Arrange
         var messageId = Guid.NewGuid();
         _messageMock.Setup(m => m.Id).Returns(messageId);
-        var noneOption = Option<string>.None;
-        _headersMock.SetupProperty(h => h.CausationId, noneOption);
+        _headers.CausationId = Option<string>.None;
         var middleware = new CausationIdMessageProcessingMiddleware();
 
         // Act
@@ -40,7 +39,7 @@ public class CausationIdMessageProcessingMiddlewareTests
     {
         // Arrange
         var originalCausationId = Guid.NewGuid().ToString();
-        _headersMock.SetupProperty(h => h.CausationId, originalCausationId);
+        _headers.CausationId = originalCausationId;
         var middleware = new CausationIdMessageProcessingMiddleware();
 
         // Act

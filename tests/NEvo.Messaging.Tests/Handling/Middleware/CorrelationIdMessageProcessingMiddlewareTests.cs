@@ -7,13 +7,13 @@ namespace NEvo.Messaging.Tests.Handling.Middleware;
 public class CorrelationIdMessageProcessingMiddlewareTests
 {
     private readonly Mock<IMessage> _messageMock = new();
-    private readonly Mock<IMessageContextHeaders> _headersMock = new();
+    private readonly MessageContextHeaders _headers = [];
     private readonly Mock<IMessageContext> _contextMock = new();
     private readonly Mock<Func<Task<Either<Exception, object>>>> _nextMock = new();
 
     public CorrelationIdMessageProcessingMiddlewareTests()
     {
-        _contextMock.SetupGet(c => c.Headers).Returns(_headersMock.Object);
+        _contextMock.SetupGet(c => c.Headers).Returns(_headers);
         _messageMock.SetupGet(m => m.Id).Returns(Guid.NewGuid());
         _nextMock.Setup(n => n.Invoke()).ReturnsAsync(Either<Exception, object>.Right(new object()));
     }
@@ -22,8 +22,7 @@ public class CorrelationIdMessageProcessingMiddlewareTests
     public async Task ExecuteAsync_SetsCorrelationId_WhenNoneExists()
     {
         // Arrange
-        var noneOption = Option<string>.None;
-        _headersMock.SetupProperty(h => h.CorrelationId, noneOption);
+        _headers.CorrelationId = Option<string>.None;
         var middleware = new CorrelationIdMessageProcessingMiddleware();
 
         // Act
@@ -38,7 +37,7 @@ public class CorrelationIdMessageProcessingMiddlewareTests
     {
         // Arrange
         var originalCorrelationId = Guid.NewGuid().ToString();
-        _headersMock.SetupProperty(h => h.CorrelationId, originalCorrelationId);
+        _headers.CorrelationId = originalCorrelationId;
         var middleware = new CorrelationIdMessageProcessingMiddleware();
 
         // Act
