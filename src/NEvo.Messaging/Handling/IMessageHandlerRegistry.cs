@@ -4,6 +4,7 @@ namespace NEvo.Messaging.Handling;
 
 public interface IMessageHandlerRegistry
 {
+    void Register(Type type);
     void Register<THandler>();
 
     Either<Exception, IMessageHandler> GetMessageHandler(Type messageType);

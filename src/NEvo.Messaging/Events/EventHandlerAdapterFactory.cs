@@ -5,7 +5,12 @@ namespace NEvo.Messaging.Events;
 
 public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandlerLogger) : IMessageHandlerFactory
 {
-    public Type ForInterface => typeof(IEventHandler<>);
+    public static Type ForInterface => typeof(IEventHandler<>);
+
+    public bool CanApply(Type handlerType)
+        => handlerType
+            .GetInterfaces()
+            .Any(handlerInterface => handlerInterface.IsGenericType && handlerInterface.GetGenericTypeDefinition() == ForInterface);
 
     public IMessageHandler Create(MessageHandlerDescription messageHandlerDescription)
         => new EventHandlerAdapter(messageHandlerDescription, eventHandlerLogger);
@@ -20,5 +25,10 @@ public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandle
             ReturnType: typeof(Unit),
             Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(IEventHandler<Event>.HandleAsync))
         );
+    }
+
+    public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType)
+    {
+        throw new NotImplementedException();
     }
 }

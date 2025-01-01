@@ -20,7 +20,7 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var handlerMock = new Mock<IMessageHandler>();
-        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers<IMessageHandler>())
+        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers(typeof(IMessageHandler)))
             .Returns(new Dictionary<Type, IMessageHandler> { { messageType, handlerMock.Object } });
 
         // Act
@@ -37,7 +37,7 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var handlerMock = new Mock<IMessageHandler>();
-        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers<IMessageHandler>())
+        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers(typeof(IMessageHandler)))
             .Returns(new Dictionary<Type, IMessageHandler> { { messageType, handlerMock.Object } });
 
         _registry.Register<IMessageHandler>();
@@ -69,7 +69,7 @@ public class MessageHandlerRegistryTests
         var messageType = typeof(IMessage);
         var handlerMock = new Mock<IMessageHandler>();
         handlerMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Handler key", typeof(IMessageHandler), typeof(IMessage), typeof(IMessageHandler)));
-        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers<IMessageHandler>())
+        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers(typeof(IMessageHandler)))
             .Returns(new Dictionary<Type, IMessageHandler> {
                 { messageType, handlerMock.Object }
             });
@@ -92,7 +92,7 @@ public class MessageHandlerRegistryTests
         var messageType = typeof(IMessage);
         var handlerMock = new Mock<IMessageHandler>() { CallBase = true };
         handlerMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Handler key", typeof(IMessageHandler), typeof(IMessage), typeof(IMessageHandler), typeof(Unit)));
-        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers<IMessageHandler>())
+        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers(typeof(IMessageHandler)))
             .Returns(new Dictionary<Type, IMessageHandler> { { messageType, handlerMock.Object } });
 
         _registry.Register<IMessageHandler>();
@@ -124,7 +124,7 @@ public class MessageHandlerRegistryTests
         var messageType = typeof(IMessage);
         var handlerMock = new Mock<IMessageHandler>() { CallBase = true };
         handlerMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Handler key", typeof(IMessageHandler), typeof(IMessage), typeof(IMessageHandler), typeof(Unit)));
-        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers<IMessageHandler>())
+        _messageHandlerExtractorMock.Setup(extractor => extractor.ExtractMessageHandlers(typeof(IMessageHandler)))
             .Returns(new Dictionary<Type, IMessageHandler> {
                 { messageType, handlerMock.Object }
             });

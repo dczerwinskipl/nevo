@@ -1,5 +1,6 @@
 ﻿using NEvo.Messaging.Handling.Exceptions;
 using System.Collections.Concurrent;
+using System.Reflection.Metadata;
 
 namespace NEvo.Messaging.Handling;
 
@@ -9,15 +10,17 @@ public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtra
 
     private readonly IMessageHandlerExtractor _messageHandlerExtractor = messageHandlerExtractor;
 
-    public void Register<THandler>()
+    public void Register(Type type)
     {
-        var handlers = _messageHandlerExtractor.ExtractMessageHandlers<THandler>();
+        var handlers = _messageHandlerExtractor.ExtractMessageHandlers(type);
         foreach (var (Key, Value) in handlers)
         {
             var messageHandlers = _handlers.GetOrAdd(Key, []);
             messageHandlers.Add(Value);
         }
     }
+
+    public void Register<THandler>() => Register(typeof(THandler));
 
     public Either<Exception, IMessageHandler> GetMessageHandler(Type messageType) =>
         _handlers.TryGetValue(messageType, out var handlers)
@@ -41,4 +44,5 @@ public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtra
         handlers.Count > 1
             ? new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription))
             : Prelude.Right<Exception, IMessageHandler>(handlers.Single());
+
 }

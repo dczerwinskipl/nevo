@@ -16,7 +16,7 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddMessages(this IServiceCollection services)
     {
         // TODO: check scopes
-        services.AddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
+        services.AddSingleton<IMessageHandlerExtractor, InterfaceBasedMessageHandlerExtractor>();
         services.AddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
 
         // default middlesares

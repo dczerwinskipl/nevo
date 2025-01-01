@@ -10,21 +10,12 @@ public class HttpClientServiceConfiguration
     public IAuthenticationStrategy AuthenticationStrategy { get; set; } = new NoAuthenticationStrategy();
 }
 
-public class HttpClientServiceFactory : IHttpClientServiceFactory
+public class HttpClientServiceFactory(IHttpClientFactory baseFactory, IOptionsMonitor<HttpClientServiceConfiguration> options) : IHttpClientServiceFactory
 {
-    private readonly IHttpClientFactory _baseFactory;
-    private readonly IOptionsMonitor<HttpClientServiceConfiguration> _options;
-
-    public HttpClientServiceFactory(IHttpClientFactory baseFactory, IOptionsMonitor<HttpClientServiceConfiguration> options)
-    {
-        _baseFactory = baseFactory;
-        _options = options;
-    }
-
     public async Task<Either<Exception, HttpClient>> CreateClientAsync(string name)
     {
-        var configuration = _options.Get(name) ?? new();
-        var client = _baseFactory.CreateClient(name);
+        var configuration = options.Get(name) ?? new();
+        var client = baseFactory.CreateClient(name);
         return await configuration.AuthenticationStrategy.AuthenticateHttpClientAsync(client);
     }
 }

@@ -2,5 +2,5 @@
 
 public interface IMessageHandlerExtractor
 {
-    IDictionary<Type, IMessageHandler> ExtractMessageHandlers<THandler>();
+    IDictionary<Type, IMessageHandler> ExtractMessageHandlers(Type type);
 }

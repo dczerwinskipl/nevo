@@ -22,7 +22,7 @@ public class EventHandlerAdapterFactoryTests
         var factory = new EventHandlerAdapterFactory(_mockLogger);
 
         // Act
-        var forInterface = factory.ForInterface;
+        var forInterface = EventHandlerAdapterFactory.ForInterface;
 
         // Assert
         forInterface.Should().Be(typeof(IEventHandler<>));

@@ -2,7 +2,7 @@
 
 public interface IMessageHandlerFactory
 {
-    public Type ForInterface { get; }
+    bool CanApply(Type handlerType);
     IMessageHandler Create(MessageHandlerDescription messageHandlerDescription);
-    IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface);
+    IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType);
 }

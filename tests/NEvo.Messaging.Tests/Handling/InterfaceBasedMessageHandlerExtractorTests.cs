@@ -1,9 +1,10 @@
-﻿using NEvo.Messaging.Handling;
+﻿using LanguageExt.ClassInstances;
+using NEvo.Messaging.Handling;
 using NEvo.Messaging.Tests.Handling.Mocks;
 
 namespace NEvo.Messaging.Tests.Handling;
 
-public class MessageHandlerExtractorTests
+public class InterfaceBasedMessageHandlerExtractorTests
 {
     [Fact]
     public void ExtractMessageHandlers_ReturnsCorrectHandlers_ForGivenHandlerType()
@@ -14,9 +15,10 @@ public class MessageHandlerExtractorTests
         var handlerInstance = new Mock<IMessageHandler>().Object;
 
         messageHandlerFactoryMock
-            .Setup(m => m.ForInterface).Returns(typeof(IExampleMessageHandler<>));
+            .Setup(m => m.CanApply(typeof(ExampleMessageHandlerA)))
+            .Returns(true);
         messageHandlerFactoryMock
-            .Setup(m => m.GetMessageHandlerDescriptions(typeof(ExampleMessageHandlerA), typeof(IExampleMessageHandler<ExampleMessageA>)))
+            .Setup(m => m.GetMessageHandlerDescriptions(typeof(ExampleMessageHandlerA)))
             .Returns([
                 messageHandlerDescription
             ]);
@@ -29,10 +31,10 @@ public class MessageHandlerExtractorTests
             messageHandlerFactoryMock.Object
         };
 
-        var extractor = new MessageHandlerExtractor(factories);
+        var extractor = new InterfaceBasedMessageHandlerExtractor(factories);
 
         // Act
-        var handlers = extractor.ExtractMessageHandlers<ExampleMessageHandlerA>();
+        var handlers = extractor.ExtractMessageHandlers(typeof(ExampleMessageHandlerA));
 
         // Assert
         handlers.Should().NotBeNull()
