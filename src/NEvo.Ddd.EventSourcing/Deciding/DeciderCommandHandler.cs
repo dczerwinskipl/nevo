@@ -39,7 +39,7 @@ public class DeciderCommandHandler(
         where TCommand : IAggregateCommand<TAggregate, TId>
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
-        => command is ICreateAggregateCommand
+        => command is ICreateAggregateCommand<TAggregate, TId>
             ? TAggregate.CreateEmpty(command.StreamId)
             : Option<TAggregate>.None;
 }

@@ -127,5 +127,5 @@ public class DeciderCommandHandlerTests
 
     public record MockEvent(int StreamId) : Event, IAggregateEvent<MockAggregate, int>;
     public record MockCommand(int StreamId) : Command, IAggregateCommand<MockAggregate, int>;
-    public record MockCreateCommand(int StreamId) : MockCommand(StreamId), ICreateAggregateCommand;
+    public record MockCreateCommand(int StreamId) : MockCommand(StreamId), ICreateAggregateCommand<MockAggregate, int>;
 }
