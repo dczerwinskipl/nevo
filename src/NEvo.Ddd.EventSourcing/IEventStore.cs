@@ -1,5 +1,3 @@
-using LanguageExt;
-
 namespace NEvo.Ddd.EventSourcing;
 
 public interface IEventStore
