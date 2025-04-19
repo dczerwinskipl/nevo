@@ -1,0 +1,128 @@
+using LanguageExt;
+
+namespace NEvo.Ddd.EventSourcing.Tests;
+
+public class DeciderCommandHandlerTests
+{
+    [Fact]
+    public async Task HandleAsync_WhenAggregateAndDeciderFound_ShouldAppendNewEvents()
+    {
+        // Arrange
+        var deciderRegistryMock = new Mock<IDeciderRegistry>();
+        var eventStoreMock = new Mock<IEventStore>();
+        var deciderMock = new Mock<IDecider>();
+        var command = new MockCommand(1) { StreamId = 1 };
+        var aggregate = new MockAggregate { Id = 1 };
+        MockEvent[] events = [new MockEvent(1) { StreamId = 1 }];
+
+        deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
+            .Returns(Option<IDecider>.Some(deciderMock.Object));
+
+        eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
+            .Returns(OptionAsync<MockAggregate>.Some(aggregate));
+
+        deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, aggregate, It.IsAny<CancellationToken>()))
+            .Returns((EitherAsync<Exception, MockEvent[]>)events);
+
+        eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregate.Id, events, It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(Unit.Default));
+
+        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+
+        // Act
+        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+
+        // Assert
+        result.Should().BeRight();
+        eventStoreMock.Verify(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregate.Id, events, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenNoDeciderFound_ShouldReturnError()
+    {
+        // Arrange
+        var deciderRegistryMock = new Mock<IDeciderRegistry>();
+        var eventStoreMock = new Mock<IEventStore>();
+        var command = new MockCommand(1) { StreamId = 1 };
+
+        deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
+            .Returns(Option<IDecider>.None);
+
+        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+
+        // Act
+        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+
+        // Assert
+        result.Should().BeLeft()
+            .Which.Message.Should().Be("No decider found for command MockCommand");
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenAggregateNotFound_ShouldReturnError()
+    {
+        // Arrange
+        var deciderRegistryMock = new Mock<IDeciderRegistry>();
+        var eventStoreMock = new Mock<IEventStore>();
+        var deciderMock = new Mock<IDecider>();
+        var command = new MockCommand(1) { StreamId = 1 };
+
+        deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
+            .Returns(Option<IDecider>.Some(deciderMock.Object));
+
+        eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
+            .Returns(OptionAsync<MockAggregate>.None);
+
+        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+
+        // Act
+        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+
+        // Assert
+        result.Should().BeLeft()
+            .Which.Message.Should().Be("No aggregate found for command MockCommand");
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenAggregateNotFoundButCommandIsCreateCommand_ShouldAppendNewEvents()
+    {
+        // Arrange
+        int aggregateId = 1;
+        var deciderRegistryMock = new Mock<IDeciderRegistry>();
+        var eventStoreMock = new Mock<IEventStore>();
+        var deciderMock = new Mock<IDecider>();
+        var command = new MockCreateCommand(1) { StreamId = 1 };
+        MockEvent[] events = [new MockEvent(1) { StreamId = 1 }];
+
+        deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
+            .Returns(Option<IDecider>.Some(deciderMock.Object));
+
+        eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
+            .Returns(OptionAsync<MockAggregate>.None);
+
+        deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, It.IsAny<MockAggregate>(), It.IsAny<CancellationToken>()))
+            .Returns((EitherAsync<Exception, MockEvent[]>)events);
+
+        eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(Unit.Default));
+
+        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+
+        // Act
+        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+
+        // Assert
+        result.Should().BeRight();
+        eventStoreMock.Verify(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    public class MockAggregate : IAggregateRoot<int, MockAggregate>
+    {
+        public int Id { get; set; }
+        public static MockAggregate CreateEmpty(int id) => new() { Id = id };
+    }
+
+    public record MockEvent(int StreamId) : AggregateEvent<MockAggregate, int>(StreamId);
+    public record MockCommand(int StreamId) : AggregateCommand<MockAggregate, int>(StreamId);
+    public record MockCreateCommand(int streamId) : MockCommand(streamId), ICreateAggregateCommand;
+}

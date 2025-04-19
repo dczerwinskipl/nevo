@@ -7,7 +7,7 @@ namespace NEvo.Orchestrating;
 public class PersistentStepExecutor(
     IStepExecutor stepExecutor,
     IOrchestratorStateRepository stateRepository
-    ) : IStepExecutor
+) : IStepExecutor
 {
     private readonly IStepExecutor _innerStepExecutor = Check.Null(stepExecutor);
     private readonly IOrchestratorStateRepository _stateRepository = Check.Null(stateRepository);
