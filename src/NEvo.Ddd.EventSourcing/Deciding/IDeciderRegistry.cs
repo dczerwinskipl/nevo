@@ -1,11 +1,12 @@
 using LanguageExt;
+using NEvo.Messaging.Cqrs.Commands;
 
-namespace NEvo.Ddd.EventSourcing;
+namespace NEvo.Ddd.EventSourcing.Deciding;
 
 public interface IDeciderRegistry
 {
     public Option<IDecider> GetDecider<TCommand, TAggregate, TId>(TCommand command)
-        where TCommand : AggregateCommand<TAggregate, TId>
+        where TCommand : Command, IAggregateCommand<TAggregate, TId>
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 }

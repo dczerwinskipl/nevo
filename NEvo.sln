@@ -55,6 +55,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Orchestrating.Tests", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Orchestrating.EntityFramework", "src\NEvo.Orchestrating.EntityFramework\NEvo.Orchestrating.EntityFramework.csproj", "{9A19D00A-B595-4DB4-AB08-5C6A7DA641C0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NEvo.Ddd.EventSourcing.Tests", "tests\NEvo.Ddd.EventSourcing.Tests\NEvo.Ddd.EventSourcing.Tests.csproj", "{0F26D213-3B9D-4770-A538-CC6651AD74C1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -149,6 +151,10 @@ Global
 		{9A19D00A-B595-4DB4-AB08-5C6A7DA641C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9A19D00A-B595-4DB4-AB08-5C6A7DA641C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9A19D00A-B595-4DB4-AB08-5C6A7DA641C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0F26D213-3B9D-4770-A538-CC6651AD74C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F26D213-3B9D-4770-A538-CC6651AD74C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F26D213-3B9D-4770-A538-CC6651AD74C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F26D213-3B9D-4770-A538-CC6651AD74C1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -177,6 +183,7 @@ Global
 		{F93C1E6B-C430-47FA-B105-F2EBE97C20F8} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
 		{9F891CD5-1948-439B-BF22-1319EF21C7B8} = {4A3F954D-3044-4638-80F1-8B272F8CEA3C}
 		{9A19D00A-B595-4DB4-AB08-5C6A7DA641C0} = {87D0F1CD-CCEE-40E6-A4A1-8F4B2B77BF77}
+		{0F26D213-3B9D-4770-A538-CC6651AD74C1} = {4A3F954D-3044-4638-80F1-8B272F8CEA3C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {07F44DAC-9AD2-42D7-AB3B-453ECA7722DA}

@@ -1,4 +1,7 @@
 using LanguageExt;
+using NEvo.Ddd.EventSourcing.Deciding;
+using NEvo.Messaging.Cqrs.Commands;
+using NEvo.Messaging.Events;
 
 namespace NEvo.Ddd.EventSourcing.Tests;
 
@@ -11,9 +14,9 @@ public class DeciderCommandHandlerTests
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var eventStoreMock = new Mock<IEventStore>();
         var deciderMock = new Mock<IDecider>();
-        var command = new MockCommand(1) { StreamId = 1 };
-        var aggregate = new MockAggregate { Id = 1 };
-        MockEvent[] events = [new MockEvent(1) { StreamId = 1 }];
+        var command = new MockCommand(1);
+        var aggregate = new MockAggregate(1);
+        MockEvent[] events = [new MockEvent(1)];
 
         deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
             .Returns(Option<IDecider>.Some(deciderMock.Object));
@@ -22,7 +25,7 @@ public class DeciderCommandHandlerTests
             .Returns(OptionAsync<MockAggregate>.Some(aggregate));
 
         deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, aggregate, It.IsAny<CancellationToken>()))
-            .Returns((EitherAsync<Exception, MockEvent[]>)events);
+            .Returns((EitherAsync<Exception, IEnumerable<MockEvent>>)events);
 
         eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregate.Id, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
@@ -43,7 +46,7 @@ public class DeciderCommandHandlerTests
         // Arrange
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var eventStoreMock = new Mock<IEventStore>();
-        var command = new MockCommand(1) { StreamId = 1 };
+        var command = new MockCommand(1);
 
         deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
             .Returns(Option<IDecider>.None);
@@ -65,7 +68,7 @@ public class DeciderCommandHandlerTests
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var eventStoreMock = new Mock<IEventStore>();
         var deciderMock = new Mock<IDecider>();
-        var command = new MockCommand(1) { StreamId = 1 };
+        var command = new MockCommand(1);
 
         deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
             .Returns(Option<IDecider>.Some(deciderMock.Object));
@@ -91,8 +94,8 @@ public class DeciderCommandHandlerTests
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var eventStoreMock = new Mock<IEventStore>();
         var deciderMock = new Mock<IDecider>();
-        var command = new MockCreateCommand(1) { StreamId = 1 };
-        MockEvent[] events = [new MockEvent(1) { StreamId = 1 }];
+        var command = new MockCreateCommand(aggregateId);
+        MockEvent[] events = [new MockEvent(aggregateId)];
 
         deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
             .Returns(Option<IDecider>.Some(deciderMock.Object));
@@ -101,7 +104,7 @@ public class DeciderCommandHandlerTests
             .Returns(OptionAsync<MockAggregate>.None);
 
         deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, It.IsAny<MockAggregate>(), It.IsAny<CancellationToken>()))
-            .Returns((EitherAsync<Exception, MockEvent[]>)events);
+            .Returns((EitherAsync<Exception, IEnumerable<MockEvent>>)events);
 
         eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
@@ -116,13 +119,13 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Verify(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    public class MockAggregate : IAggregateRoot<int, MockAggregate>
+    public class MockAggregate(int id) : IAggregateRoot<int, MockAggregate>
     {
-        public int Id { get; set; }
-        public static MockAggregate CreateEmpty(int id) => new() { Id = id };
+        public int Id { get; set; } = id;
+        public static MockAggregate CreateEmpty(int id) => new(id);
     }
 
-    public record MockEvent(int StreamId) : AggregateEvent<MockAggregate, int>(StreamId);
-    public record MockCommand(int StreamId) : AggregateCommand<MockAggregate, int>(StreamId);
-    public record MockCreateCommand(int streamId) : MockCommand(streamId), ICreateAggregateCommand;
+    public record MockEvent(int StreamId) : Event, IAggregateEvent<MockAggregate, int>;
+    public record MockCommand(int StreamId) : Command, IAggregateCommand<MockAggregate, int>;
+    public record MockCreateCommand(int StreamId) : MockCommand(StreamId), ICreateAggregateCommand;
 }
