@@ -68,18 +68,24 @@ public static class AggregateDeciderExtractor
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
     {
-        var createDecider = CreateDecideMethod.MakeGenericMethod([commandType, typeof(TAggregate), eventType, typeof(TId)]);
+        var createDecider = CreateDecideMethod.MakeGenericMethod([typeof(TAggregate), typeof(TId)]);
         var decider = (Delegate)createDecider.Invoke(null, [method])!;
         return (commandType, method.DeclaringType!, decider);
     }
 
     private static readonly MethodInfo CreateDecideMethod = typeof(AggregateDeciderExtractor)
                 .GetMethod(nameof(CreateDecide), BindingFlags.Static | BindingFlags.NonPublic)!;
-    private static AggregateDecider.Decide<TCommand, TAggregate, TEvent, TId> CreateDecide<TCommand, TAggregate, TEvent, TId>(MethodInfo methodInfo)
-        where TCommand : Command, IAggregateCommand<TAggregate, TId>
+    private static AggregateDecider.DecideDelegate<TAggregate, TId> CreateDecide<TAggregate, TId>(MethodInfo methodInfo)
         where TAggregate : IAggregateRoot<TId, TAggregate>
-        where TEvent : Event, IAggregateEvent<TAggregate, TId>
-        where TId : notnull => (aggregate, command)
-        => (Either<Exception, IEnumerable<TEvent>>)methodInfo.Invoke(aggregate, [command])!;
+        where TId : notnull =>
+        (aggregate, command) =>
+        {
+            dynamic result = methodInfo.Invoke(aggregate, [command])!;
+            return result.Map(
+                (Func<IEnumerable<dynamic>, IEnumerable<IAggregateEvent<TAggregate, TId>>>)(
+                    events => events.Cast<IAggregateEvent<TAggregate, TId>>()
+                )
+            );
+        };
 
 }

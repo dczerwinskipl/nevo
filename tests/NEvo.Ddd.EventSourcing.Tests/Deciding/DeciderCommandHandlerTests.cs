@@ -24,10 +24,10 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
             .Returns(OptionAsync<MockAggregate>.Some(aggregate));
 
-        deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, aggregate, It.IsAny<CancellationToken>()))
-            .Returns((EitherAsync<Exception, IEnumerable<MockEvent>>)events);
+        deciderMock.Setup(d => d.DecideAsync(aggregate, command, It.IsAny<CancellationToken>()))
+            .Returns((EitherAsync<Exception, IEnumerable<IAggregateEvent<MockAggregate, int>>>)events);
 
-        eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregate.Id, events, It.IsAny<CancellationToken>()))
+        eventStoreMock.Setup(es => es.AppendEventsAsync(aggregate.Id, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
 
         var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
@@ -37,7 +37,7 @@ public class DeciderCommandHandlerTests
 
         // Assert
         result.Should().BeRight();
-        eventStoreMock.Verify(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregate.Id, events, It.IsAny<CancellationToken>()), Times.Once);
+        eventStoreMock.Verify(es => es.AppendEventsAsync(aggregate.Id, events, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -103,10 +103,10 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
             .Returns(OptionAsync<MockAggregate>.None);
 
-        deciderMock.Setup(d => d.DecideAsync<MockCommand, MockAggregate, MockEvent, int>(command, It.IsAny<MockAggregate>(), It.IsAny<CancellationToken>()))
-            .Returns((EitherAsync<Exception, IEnumerable<MockEvent>>)events);
+        deciderMock.Setup(d => d.DecideAsync(It.IsAny<MockAggregate>(), command, It.IsAny<CancellationToken>()))
+            .Returns((EitherAsync<Exception, IEnumerable<IAggregateEvent<MockAggregate, int>>>)events);
 
-        eventStoreMock.Setup(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()))
+        eventStoreMock.Setup(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
 
         var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
@@ -116,7 +116,7 @@ public class DeciderCommandHandlerTests
 
         // Assert
         result.Should().BeRight();
-        eventStoreMock.Verify(es => es.AppendEventsAsync<MockEvent, MockAggregate, int>(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
+        eventStoreMock.Verify(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     public class MockAggregate(int id) : IAggregateRoot<int, MockAggregate>

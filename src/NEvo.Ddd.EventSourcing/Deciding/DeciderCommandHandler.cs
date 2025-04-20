@@ -12,8 +12,8 @@ public class DeciderCommandHandler(
         where TId : notnull
         => from decider in GetDecider<TCommand, TAggregate, TId>(command)
            from aggregate in GetAggregate<TCommand, TAggregate, TId>(command, cancellationToken)
-           from events in decider.DecideAsync<TCommand, TAggregate, TEvent, TId>(command, aggregate, cancellationToken)
-           from result in eventStore.AppendEventsAsync<TEvent, TAggregate, TId>(aggregate.Id, events, cancellationToken)
+           from events in decider.DecideAsync(aggregate, command, cancellationToken)
+           from result in eventStore.AppendEventsAsync(aggregate.Id, events, cancellationToken)
            select result;
 
     private EitherAsync<Exception, IDecider> GetDecider<TCommand, TAggregate, TId>(TCommand command)

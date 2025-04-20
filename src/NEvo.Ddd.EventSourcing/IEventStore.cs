@@ -2,8 +2,7 @@ namespace NEvo.Ddd.EventSourcing;
 
 public interface IEventStore
 {
-    public EitherAsync<Exception, Unit> AppendEventsAsync<TEvent, TAggregate, TId>(TId streamId, IEnumerable<TEvent> events, CancellationToken cancellationToken)
-        where TEvent : IAggregateEvent<TAggregate, TId>
+    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 

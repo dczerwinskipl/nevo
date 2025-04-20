@@ -2,9 +2,7 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 
 public interface IDecider
 {
-    public EitherAsync<Exception, IEnumerable<TEvent>> DecideAsync<TCommand, TAggregate, TEvent, TId>(TCommand command, TAggregate aggregate, CancellationToken cancellationToken)
-        where TCommand : Command, IAggregateCommand<TAggregate, TId>
+    public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId, TAggregate>
-        where TEvent : Event, IAggregateEvent<TAggregate, TId>
         where TId : notnull;
 }
