@@ -5,7 +5,7 @@ public class DeciderRegistry(IEnumerable<IDecider> deciders) : IDeciderRegistry
     private readonly List<IDecider> _deciders = deciders.ToList();
 
     public IEnumerable<DeciderDescription> GetDeciderDesciptions()
-        => _deciders.SelectMany(d => d.GetDeciderDesciptions());
+        => _deciders.SelectMany(d => d.GetDeciderDescriptions());
 
     public Option<IDecider> GetDecider<TCommand, TAggregate, TId>(TCommand command)
         where TCommand : Command, IAggregateCommand<TAggregate, TId>
