@@ -3,18 +3,13 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 /// <summary>
 /// Decider that use Aggregate instance to handle the command.
 /// </summary>
-public class AggregateDecider : IDecider
+public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider
 {
     public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 
-    private static IDictionary<Type, List<(Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)>> _deciders = null!;
-
-    public AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider)
-    {
-        _deciders = aggregateDeciderProvider.GetAggregateDeciders();
-    }
+    private readonly IDictionary<Type, List<(Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)>> _deciders = aggregateDeciderProvider.GetAggregateDeciders();
 
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId, TAggregate>
@@ -24,7 +19,7 @@ public class AggregateDecider : IDecider
                from events in decider(aggregate, command).ToAsync()
                select events;
 
-    private static Option<AggregateDecideDelegate<TAggregate, TId>> GetDeciderDelegate<TAggregate, TId>(Type aggregateType, IAggregateCommand<TAggregate, TId> command)
+    private Option<AggregateDecideDelegate<TAggregate, TId>> GetDeciderDelegate<TAggregate, TId>(Type aggregateType, IAggregateCommand<TAggregate, TId> command)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull =>
         _deciders
@@ -42,7 +37,7 @@ public class AggregateDecider : IDecider
         where TId : notnull => _deciders
             .TryGetValue(command.GetType()).IsSome;
 
-    public IEnumerable<DeciderDescription> GetDeciderDesciptions()
+    public IEnumerable<DeciderDescription> GetDeciderDescriptions()
         => _deciders
             .SelectMany(
                 decider => decider.Value.Select(
