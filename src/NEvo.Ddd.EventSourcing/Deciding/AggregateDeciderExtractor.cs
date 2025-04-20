@@ -4,7 +4,7 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 
 public static class AggregateDeciderExtractor
 {
-    public static IEnumerable<(Type, Type, Delegate)> ExtractDeciders(Type aggregateType)
+    public static IEnumerable<(Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)> ExtractDeciders(Type aggregateType)
     {
         // Ensure the type implements IAggregateRoot<,>
         var aggregateRootInterface = aggregateType
@@ -21,7 +21,7 @@ public static class AggregateDeciderExtractor
         var aggregateGenericType = genericArguments[1];
         var internalExtractDeciders = InternalExtractDecidersMethod.MakeGenericMethod(aggregateGenericType, idType);
 
-        return (IEnumerable<(Type, Type, Delegate)>)internalExtractDeciders.Invoke(null, null)!;
+        return (IEnumerable<(Type, Type, Type, Type, Delegate)>)internalExtractDeciders.Invoke(null, null)!;
     }
 
     private static bool IsCommand(this Type type)
@@ -31,8 +31,7 @@ public static class AggregateDeciderExtractor
         => type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAggregateEvent<,>));
 
     private static IEnumerable<Type> GetAllAggregateImplementations(Type aggregateType)
-        => AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(assembly => assembly.GetTypes())
+        => aggregateType.Assembly.GetTypes()
             .Where(aggregateType.IsAssignableFrom);
 
     private static IEnumerable<(MethodInfo Method, Type EventType)> WithValidReturnType(this IEnumerable<MethodInfo> methods)
@@ -55,7 +54,7 @@ public static class AggregateDeciderExtractor
     private static readonly MethodInfo InternalExtractDecidersMethod = typeof(AggregateDeciderExtractor)
             .GetMethod(nameof(InternalExtractDeciders), BindingFlags.Static | BindingFlags.NonPublic)!;
 
-    private static IEnumerable<(Type, Type, Delegate)> InternalExtractDeciders<TAggregate, TId>()
+    private static IEnumerable<(Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate decide)> InternalExtractDeciders<TAggregate, TId>()
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
         => GetAllAggregateImplementations(typeof(TAggregate))
@@ -64,18 +63,18 @@ public static class AggregateDeciderExtractor
             .WithCommandInputParameter()
             .Select(input => ToDecider<TAggregate, TId>(input.Method, input.EventType, input.CommandType));
 
-    private static (Type CommandType, Type DeclaringType, Delegate decider) ToDecider<TAggregate, TId>(MethodInfo method, Type eventType, Type commandType)
+    private static (Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate decider) ToDecider<TAggregate, TId>(MethodInfo method, Type eventType, Type commandType)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
     {
         var createDecider = CreateDecideMethod.MakeGenericMethod([typeof(TAggregate), typeof(TId)]);
         var decider = (Delegate)createDecider.Invoke(null, [method])!;
-        return (commandType, method.DeclaringType!, decider);
+        return (commandType, typeof(TAggregate), method.DeclaringType!, typeof(TId), decider);
     }
 
     private static readonly MethodInfo CreateDecideMethod = typeof(AggregateDeciderExtractor)
                 .GetMethod(nameof(CreateDecide), BindingFlags.Static | BindingFlags.NonPublic)!;
-    private static AggregateDecider.DecideDelegate<TAggregate, TId> CreateDecide<TAggregate, TId>(MethodInfo methodInfo)
+    private static AggregateDecider.AggregateDecideDelegate<TAggregate, TId> CreateDecide<TAggregate, TId>(MethodInfo methodInfo)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull =>
         (aggregate, command) =>

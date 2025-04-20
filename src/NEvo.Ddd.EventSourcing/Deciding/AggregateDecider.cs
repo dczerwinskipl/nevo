@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace NEvo.Ddd.EventSourcing.Deciding;
 
 /// <summary>
@@ -7,45 +5,55 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 /// </summary>
 public class AggregateDecider : IDecider
 {
-    public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideDelegate<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command)
+    public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 
-    private static IDictionary<Type, List<(Type AggregateType, Delegate Decide)>> _deciders = null!;
+    private static IDictionary<Type, List<(Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)>> _deciders = null!;
 
-    // TODO: add DI with some registry?
-    // TODO: and/or replace Type with some options
-    public AggregateDecider(Type[] aggregateTypes)
+    public AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider)
     {
-        _deciders ??= aggregateTypes
-            .SelectMany(AggregateDeciderExtractor.ExtractDeciders)
-            .GroupBy(
-                decider => decider.Item1,
-                decider => (decider.Item2, decider.Item3)
-            )
-            .ToDictionary(
-                deciders => deciders.Key,
-                deciders => deciders.ToList()
-            );
+        _deciders = aggregateDeciderProvider.GetAggregateDeciders();
     }
 
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
-            => from decider in GetDecider(aggregate, command)
+            => from decider in GetDeciderDelegate(aggregate.GetType(), command)
                     .ToEitherAsync(() => new Exception($"No decider found for command {command.GetType().Name} on aggregate {aggregate.GetType().Name}"))
                from events in decider(aggregate, command).ToAsync()
                select events;
 
-    private static Option<DecideDelegate<TAggregate, TId>> GetDecider<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command)
+    private static Option<AggregateDecideDelegate<TAggregate, TId>> GetDeciderDelegate<TAggregate, TId>(Type aggregateType, IAggregateCommand<TAggregate, TId> command)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull =>
         _deciders
             .TryGetValue(command.GetType())
             .SelectMany(x => x)
-            .Where(decider => decider.AggregateType.IsAssignableFrom(aggregate.GetType()))
+            .Where(decider => decider.DeclaringType.IsAssignableFrom(aggregateType))
             .ToOption()
-            .Bind<DecideDelegate<TAggregate, TId>>(
-                decider => decider.Decide as DecideDelegate<TAggregate, TId>
+            .Bind<AggregateDecideDelegate<TAggregate, TId>>(
+                decider => decider.Decide as AggregateDecideDelegate<TAggregate, TId>
+            );
+
+    public bool CanHandle<TCommand, TAggregate, TId>(TCommand command)
+        where TCommand : Command, IAggregateCommand<TAggregate, TId>
+        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TId : notnull => _deciders
+            .TryGetValue(command.GetType()).IsSome;
+
+    public IEnumerable<DeciderDescription> GetDeciderDesciptions()
+        => _deciders
+            .SelectMany(
+                decider => decider.Value.Select(
+                    x => new DeciderDescription
+                    {
+                        CommandType = decider.Key,
+                        AggregateType = x.AggregateType,
+                        DeclaringType = x.DeclaringType,
+                        IdType = x.IdType,
+                        DeciderType = typeof(AggregateDecider)
+                    }
+                )
             );
 }

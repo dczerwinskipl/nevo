@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using NEvo.Authorization.Permissions;
+using NEvo.Ddd.EventSourcing.Tests.Mocks;
 using NEvo.ExampleApp.ServiceA.Api;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
@@ -39,6 +40,7 @@ builder.Services.AddRestMessageDispatcher((opts) =>
 }, [typeof(ServiceBCommand)]);
 
 builder.Services.AddServiceADomain();
+builder.Services.AddEventSourcing(typeof(DocumentAggregateBase));
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());

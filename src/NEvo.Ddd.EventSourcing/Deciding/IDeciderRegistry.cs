@@ -7,18 +7,5 @@ public interface IDeciderRegistry
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 
-    public IEnumerable<DeciderDescription> GetCommands();
-}
-
-public record DeciderDescription
-{
-    public Type CommandType { get; init; }
-    public Type AggregateType { get; init; }
-    public Type IdType { get; init; }
-    public Type DeciderType { get; init; }
-
-    public override string ToString()
-    {
-        return $"{CommandType.Name} -> {AggregateType.Name} -> {IdType.Name} -> {DeciderType.Name}";
-    }
+    public IEnumerable<DeciderDescription> GetDeciderDesciptions();
 }

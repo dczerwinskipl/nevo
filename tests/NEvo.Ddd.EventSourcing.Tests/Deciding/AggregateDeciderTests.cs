@@ -1,19 +1,31 @@
+using Microsoft.Extensions.Options;
 using NEvo.Ddd.EventSourcing.Deciding;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Deciding;
 
 public class AggregateDeciderTests
 {
+    private AggregateDecider _decider;
+
+    public AggregateDeciderTests()
+    {
+        var configuration = new AggregateExtractorConfiguration()
+        {
+            AggregateTypes = { typeof(DocumentAggregateBase) }
+        };
+        var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
+        _decider = new AggregateDecider(deciderProvider);
+    }
+
     [Fact]
     public async Task DecideAsync_WhenCalledWithCommandAvailableForAggregateState_ShouldReturnNewEvents()
     {
         // arrange
         var aggregate = DocumentAggregateBase.CreateEmpty(Guid.NewGuid());
-        var decider = new AggregateDecider([typeof(DocumentAggregateBase)]);
         var data = "Data";
 
         // act
-        var result = await decider.DecideAsync(
+        var result = await _decider.DecideAsync(
             aggregate,
             new CreateDocument(aggregate.Id, data),
             CancellationToken.None
@@ -32,10 +44,9 @@ public class AggregateDeciderTests
     {
         // arrange
         var aggregate = DocumentAggregateBase.CreateEmpty(Guid.NewGuid());
-        var decider = new AggregateDecider([typeof(DocumentAggregateBase)]);
 
         // act
-        var result = await decider.DecideAsync(
+        var result = await _decider.DecideAsync(
             aggregate,
             new ChangeDocument(aggregate.Id, "Data"),
             CancellationToken.None

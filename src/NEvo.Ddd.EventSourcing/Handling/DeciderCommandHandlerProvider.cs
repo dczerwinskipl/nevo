@@ -1,14 +1,16 @@
+using Microsoft.Extensions.DependencyInjection;
 using NEvo.Ddd.EventSourcing.Deciding;
 using NEvo.Messaging.Handling;
 
 namespace NEvo.Ddd.EventSourcing.Handling;
 
-public class DeciderCommandHandlerProvider(IDeciderRegistry deciderRegistry) : IMessageHandlerProvider
+public class DeciderCommandHandlerProvider(IServiceProvider serviceProvider, IDeciderRegistry deciderRegistry) : IMessageHandlerProvider
 {
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly IDeciderRegistry _deciderRegistry = deciderRegistry;
 
     public IDictionary<Type, IEnumerable<IMessageHandler>> GetMessageHandlers()
-        => _deciderRegistry.GetCommands()
+        => _deciderRegistry.GetDeciderDesciptions()
             .Select(d =>
             {
                 var handlerType = typeof(DeciderCommandHandlerAdapter<,,>).MakeGenericType(d.CommandType, d.AggregateType, d.IdType);
@@ -19,7 +21,7 @@ public class DeciderCommandHandlerProvider(IDeciderRegistry deciderRegistry) : I
                     null!, // interface?
                     typeof(Unit)
                 );
-                var handler = (IMessageHandler)Activator.CreateInstance(handlerType, handlerDescription)!;
+                var handler = (IMessageHandler)ActivatorUtilities.CreateInstance(_serviceProvider, handlerType, handlerDescription)!;
                 return new { d.CommandType, Handler = handler };
             })
             .GroupBy(x => x.CommandType)

@@ -8,7 +8,6 @@ using NEvo.Messaging.Handling;
 namespace NEvo.Ddd.EventSourcing.Handling;
 
 public class DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>(
-    IServiceProvider serviceProvider,
     ILogger<DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>> logger,
     MessageHandlerDescription handlerDescription
 ) : IMessageHandler
@@ -16,7 +15,6 @@ public class DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>(
     where TAggregate : IAggregateRoot<TId, TAggregate>
     where TId : notnull
 {
-    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly ILogger<DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>> _logger = logger;
 
     public MessageHandlerDescription HandlerDescription { get; } = handlerDescription;
@@ -26,7 +24,8 @@ public class DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>(
         try
         {
             var handler = ActivatorUtilities.CreateInstance<DeciderCommandHandler<TCommand, TAggregate, TId>>(context.ServiceProvider);
-            return await handler.HandleAsync((TCommand)message, cancellationToken);
+            var result = await handler.HandleAsync((TCommand)message, cancellationToken);
+            return result.Map(unit => (object)unit);
         }
         catch (Exception exc)
         {
