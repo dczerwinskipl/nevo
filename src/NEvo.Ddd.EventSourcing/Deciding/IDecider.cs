@@ -2,7 +2,7 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 
 public interface IDecider
 {
-    public IEnumerable<DeciderDescription> GetDeciderDesciptions();
+    public IEnumerable<DeciderDescription> GetDeciderDescriptions();
 
     public bool CanHandle<TCommand, TAggregate, TId>(TCommand command)
         where TCommand : Command, IAggregateCommand<TAggregate, TId>
