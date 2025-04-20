@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using NEvo.Authorization.Permissions;
+using NEvo.Ddd.EventSourcing.Tests.Mocks;
 using NEvo.ExampleApp.ServiceA.Api;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
@@ -37,6 +38,9 @@ builder.Services.AddRestMessageDispatcher((opts) =>
     opts.Name = "ServiceB/RestMessageDispatcher";
     opts.BaseAddress = new Uri("http://ServiceB/api/messages/");
 }, [typeof(ServiceBCommand)]);
+
+builder.Services.AddServiceADomain();
+builder.Services.AddEventSourcing(typeof(DocumentAggregateBase));
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
@@ -117,10 +121,6 @@ app.MapDefaultEndpoints();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-// register handlers (TODO: change to setup of messaging)
-var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();
-registry.UseServiceADomain();
 
 // app routes
 app.MapServiceARoutes();

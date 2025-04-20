@@ -1,16 +1,31 @@
-﻿namespace NEvo.Messaging.Handling;
+﻿using Microsoft.Extensions.Options;
 
-public class MessageHandlerExtractor(IEnumerable<IMessageHandlerFactory> factories) : IMessageHandlerExtractor
+namespace NEvo.Messaging.Handling;
+
+public class MessageHandlerExtractorConfiguration
 {
+    public System.Collections.Generic.HashSet<Type> Handlers { get; } = [];
+}
+
+public class MessageHandlerExtractor(
+    IEnumerable<IMessageHandlerFactory> factories,
+    IOptions<MessageHandlerExtractorConfiguration> options
+) : IMessageHandlerProvider
+{
+    private readonly MessageHandlerExtractorConfiguration _configuration = options.Value;
     private readonly Dictionary<Type, IMessageHandlerFactory> _factories = factories.ToDictionary(f => f.ForInterface);
 
-    public IDictionary<Type, IMessageHandler> ExtractMessageHandlers<THandler>()
-        => typeof(THandler)
-            .GetInterfaces()
-            .Where(handlerInterface => handlerInterface.IsGenericType && _factories.ContainsKey(handlerInterface.GetGenericTypeDefinition()))
-            .Select(handlerInterface => (typeof(THandler), handlerInterface, _factories[handlerInterface.GetGenericTypeDefinition()]))
-            .SelectMany(CreateMessageHandler)
-            .ToDictionary(i => i.MessageType, i => i.MessageHandler);
+    public IDictionary<Type, IEnumerable<IMessageHandler>> GetMessageHandlers()
+        => _configuration.Handlers
+            .SelectMany(handlerType =>
+                handlerType
+                    .GetInterfaces()
+                    .Where(handlerInterface => handlerInterface.IsGenericType && _factories.ContainsKey(handlerInterface.GetGenericTypeDefinition()))
+                    .Select(handlerInterface => (handlerType, handlerInterface, _factories[handlerInterface.GetGenericTypeDefinition()]))
+                    .SelectMany(CreateMessageHandler)
+            )
+            .GroupBy(x => x.MessageType)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.MessageHandler));
 
     private IEnumerable<(Type MessageType, IMessageHandler MessageHandler)> CreateMessageHandler((Type handlerType, Type HandlerInterface, IMessageHandlerFactory Factory) input)
     {

@@ -30,6 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../../src/NEvo.Ddd.EventSourcing/NEvo.Ddd.EventSourcing.csproj" />
     <ProjectReference Include="../../../src/NEvo.Messaging.Authorization/NEvo.Messaging.Authorization.csproj" />
     <ProjectReference Include="../../../src/NEvo.Web.Authorization/NEvo.Web.Authorization.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Core\NEvo.Core.csproj" />

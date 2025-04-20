@@ -16,7 +16,7 @@ public static partial class ServiceCollectionExtensions
     public static IServiceCollection AddMessages(this IServiceCollection services)
     {
         // TODO: check scopes
-        services.TryAddSingleton<IMessageHandlerExtractor, MessageHandlerExtractor>();
+        services.TryAddSingleton<IMessageHandlerProvider, MessageHandlerExtractor>();
         services.TryAddSingleton<IMessageHandlerRegistry, MessageHandlerRegistry>();
         services.TryAddSingleton<IMessageContextAccessor, MessageContextAccessor>();
 

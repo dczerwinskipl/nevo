@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.RenderTree;
 using NEvo.ExampleApp.ServiceB.Api.Database;
 using NEvo.Messaging.Handling.Middleware;
 
@@ -22,6 +23,7 @@ builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 builder.Services.AddEvents();
 builder.Services.AddCommands();
+builder.Services.AddExampleDomain();
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
@@ -40,10 +42,6 @@ builder.Services.AddSwaggerGen(setup =>
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
-
-// register handlers (TODO: change to setup of messaging)
-var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();
-registry.UseExampleDomain();
 
 // app routes
 app.MapServiceBRoutes();

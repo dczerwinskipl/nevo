@@ -3,19 +3,20 @@ using System.Collections.Concurrent;
 
 namespace NEvo.Messaging.Handling;
 
-public class MessageHandlerRegistry(IMessageHandlerExtractor messageHandlerExtractor) : IMessageHandlerRegistry
+public class MessageHandlerRegistry : IMessageHandlerRegistry
 {
     private readonly ConcurrentDictionary<Type, List<IMessageHandler>> _handlers = new();
 
-    private readonly IMessageHandlerExtractor _messageHandlerExtractor = messageHandlerExtractor;
-
-    public void Register<THandler>()
+    public MessageHandlerRegistry(IEnumerable<IMessageHandlerProvider> messageHandlerExtractors)
     {
-        var handlers = _messageHandlerExtractor.ExtractMessageHandlers<THandler>();
-        foreach (var (Key, Value) in handlers)
+        foreach (var messageHandlerExtractor in messageHandlerExtractors)
         {
-            var messageHandlers = _handlers.GetOrAdd(Key, []);
-            messageHandlers.Add(Value);
+            var handlers = messageHandlerExtractor.GetMessageHandlers();
+            foreach (var (Key, Value) in handlers)
+            {
+                var messageHandlers = _handlers.GetOrAdd(Key, []);
+                messageHandlers.AddRange(Value);
+            }
         }
     }
 

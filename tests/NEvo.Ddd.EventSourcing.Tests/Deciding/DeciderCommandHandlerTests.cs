@@ -30,10 +30,10 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.AppendEventsAsync(aggregate.Id, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
 
-        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+        var sut = new DeciderCommandHandler<MockCommand, MockAggregate, int>(deciderRegistryMock.Object, eventStoreMock.Object);
 
         // Act
-        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+        var result = await sut.HandleAsync(command, CancellationToken.None);
 
         // Assert
         result.Should().BeRight();
@@ -51,10 +51,10 @@ public class DeciderCommandHandlerTests
         deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
             .Returns(Option<IDecider>.None);
 
-        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+        var sut = new DeciderCommandHandler<MockCommand, MockAggregate, int>(deciderRegistryMock.Object, eventStoreMock.Object);
 
         // Act
-        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+        var result = await sut.HandleAsync(command, CancellationToken.None);
 
         // Assert
         result.Should().BeLeft()
@@ -76,10 +76,10 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
             .Returns(OptionAsync<MockAggregate>.None);
 
-        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+        var sut = new DeciderCommandHandler<MockCommand, MockAggregate, int>(deciderRegistryMock.Object, eventStoreMock.Object);
 
         // Act
-        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+        var result = await sut.HandleAsync(command, CancellationToken.None);
 
         // Assert
         result.Should().BeLeft()
@@ -109,10 +109,10 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()))
             .Returns(Task.FromResult(Unit.Default));
 
-        var sut = new DeciderCommandHandler(deciderRegistryMock.Object, eventStoreMock.Object);
+        var sut = new DeciderCommandHandler<MockCommand, MockAggregate, int>(deciderRegistryMock.Object, eventStoreMock.Object);
 
         // Act
-        var result = await sut.HandleAsync<MockCommand, MockAggregate, MockEvent, int>(command, CancellationToken.None);
+        var result = await sut.HandleAsync(command, CancellationToken.None);
 
         // Assert
         result.Should().BeRight();

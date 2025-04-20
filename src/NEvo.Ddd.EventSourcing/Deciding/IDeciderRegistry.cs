@@ -6,4 +6,6 @@ public interface IDeciderRegistry
         where TCommand : Command, IAggregateCommand<TAggregate, TId>
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
+
+    public IEnumerable<DeciderDescription> GetDeciderDesciptions();
 }

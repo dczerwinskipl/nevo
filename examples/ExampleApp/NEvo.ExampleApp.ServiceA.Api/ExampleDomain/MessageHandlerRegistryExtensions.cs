@@ -2,15 +2,17 @@
 
 namespace NEvo.Messaging.Handling;
 
-public static partial class MessageHandlerRegistryExtensions
+public static partial class ServiceCollectionExtensions
 {
     // TODO: Create some point of NEvo Extensions to register those
-    public static IMessageHandlerRegistry UseServiceADomain(this IMessageHandlerRegistry registry)
+    public static IServiceCollection AddServiceADomain(this IServiceCollection serviceCollection)
     {
-        registry.Register<SayHelloCommandHandler>();
-        registry.Register<MyEventHandlerA>();
-        registry.Register<MyEventHandlerB>();
-
-        return registry;
+        serviceCollection.Configure<MessageHandlerExtractorConfiguration>(options =>
+        {
+            options.Handlers.Add(typeof(SayHelloCommandHandler));
+            options.Handlers.Add(typeof(MyEventHandlerA));
+            options.Handlers.Add(typeof(MyEventHandlerB));
+        });
+        return serviceCollection;
     }
 }

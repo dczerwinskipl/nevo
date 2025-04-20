@@ -1,4 +1,5 @@
-﻿using NEvo.Messaging.Handling;
+﻿using Microsoft.Extensions.Options;
+using NEvo.Messaging.Handling;
 using NEvo.Messaging.Tests.Handling.Mocks;
 
 namespace NEvo.Messaging.Tests.Handling;
@@ -28,15 +29,19 @@ public class MessageHandlerExtractorTests
         {
             messageHandlerFactoryMock.Object
         };
+        var configuration = new MessageHandlerExtractorConfiguration
+        {
+            Handlers = { typeof(ExampleMessageHandlerA) }
+        };
 
-        var extractor = new MessageHandlerExtractor(factories);
+        var extractor = new MessageHandlerExtractor(factories, Options.Create(configuration));
 
         // Act
-        var handlers = extractor.ExtractMessageHandlers<ExampleMessageHandlerA>();
+        var handlers = extractor.GetMessageHandlers();
 
         // Assert
         handlers.Should().NotBeNull()
             .And.ContainKey(typeof(ExampleMessageA), because: "the extractor should return a handler for the specified message type")
-            .WhoseValue.Should().Be(handlerInstance, because: "the factory should create a handler instance for the message type");
+            .WhoseValue.Should().Contain(handlerInstance, because: "the factory should create a handler instance for the message type");
     }
 }
