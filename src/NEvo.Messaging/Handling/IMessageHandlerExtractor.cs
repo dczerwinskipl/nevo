@@ -1,6 +1,6 @@
 ﻿namespace NEvo.Messaging.Handling;
 
-public interface IMessageHandlerExtractor
+public interface IMessageHandlerProvider
 {
-    IDictionary<Type, IMessageHandler> ExtractMessageHandlers<THandler>();
+    IDictionary<Type, IEnumerable<IMessageHandler>> GetMessageHandlers();
 }

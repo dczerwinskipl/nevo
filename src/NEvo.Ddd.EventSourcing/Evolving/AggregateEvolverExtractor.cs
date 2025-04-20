@@ -68,5 +68,4 @@ public static class AggregateEvolverExtractor
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull => (aggregate, @event)
         => (TAggregate)methodInfo.Invoke(aggregate, [@event])!;
-
 }

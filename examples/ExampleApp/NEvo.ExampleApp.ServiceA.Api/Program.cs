@@ -38,6 +38,8 @@ builder.Services.AddRestMessageDispatcher((opts) =>
     opts.BaseAddress = new Uri("http://ServiceB/api/messages/");
 }, [typeof(ServiceBCommand)]);
 
+builder.Services.AddServiceADomain();
+
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
 builder.Services.AddMessageProcessingMiddleware<UserContextMiddleware<Guid, RoleDataScope>>();
@@ -117,10 +119,6 @@ app.MapDefaultEndpoints();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-// register handlers (TODO: change to setup of messaging)
-var registry = app.Services.GetRequiredService<IMessageHandlerRegistry>();
-registry.UseServiceADomain();
 
 // app routes
 app.MapServiceARoutes();
