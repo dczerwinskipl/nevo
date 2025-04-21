@@ -23,7 +23,7 @@ public class DeciderCommandHandlerTests
             .Returns(Option<IDecider>.Some(deciderMock.Object));
 
         repositoryMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
-            .Returns(OptionAsync<(MockAggregate, int)>.Some((aggregate, version)));
+            .Returns(Option<(MockAggregate, int)>.Some((aggregate, version)));
 
         deciderMock.Setup(d => d.DecideAsync(aggregate, command, It.IsAny<CancellationToken>()))
             .Returns((EitherAsync<Exception, IEnumerable<IAggregateEvent<MockAggregate, int>>>)events);
@@ -77,7 +77,7 @@ public class DeciderCommandHandlerTests
             .Returns(Option<IDecider>.Some(deciderMock.Object));
 
         repositoryMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
-            .Returns(OptionAsync<(MockAggregate, int)>.None);
+            .Returns(Option<(MockAggregate, int)>.None);
 
         deciderMock.Setup(d => d.DecideAsync(It.IsAny<Option<MockAggregate>>(), command, It.IsAny<CancellationToken>()))
             .Returns((EitherAsync<Exception, IEnumerable<IAggregateEvent<MockAggregate, int>>>)events);

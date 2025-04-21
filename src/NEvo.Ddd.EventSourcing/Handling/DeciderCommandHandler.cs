@@ -12,20 +12,25 @@ public class DeciderCommandHandler<TCommand, TAggregate, TId>(
     private readonly IAggregateRepository _repository = repository;
 
     public EitherAsync<Exception, Unit> HandleAsync(TCommand command, CancellationToken cancellationToken)
-        => GetDecider(command).BindAsync(decider =>
-                _repository
-                    .LoadAggregateAsync<TAggregate, TId>(command.StreamId, cancellationToken)
-                    .Match(
-                        Some: (loaded) =>
+        => GetDecider(command).Bind(decider =>
+            _repository
+                .LoadAggregateAsync<TAggregate, TId>(command.StreamId, cancellationToken)
+                .Bind(aggregateOption =>
+                    aggregateOption.Match(
+                        Some: loaded =>
                             decider
                                 .DecideAsync(Option<TAggregate>.Some(loaded.Aggregate), command, cancellationToken)
-                                .Bind(events => _repository.AppendEventsAsync(loaded.Aggregate.Id, events, loaded.Version, cancellationToken)),
-
+                                .Bind(events =>
+                                    _repository.AppendEventsAsync(loaded.Aggregate.Id, events, loaded.Version, cancellationToken)
+                                ),
                         None: () =>
                             decider
                                 .DecideAsync(Option<TAggregate>.None, command, cancellationToken)
-                                .Bind(events => _repository.AppendEventsAsync(command.StreamId, events, 0, cancellationToken))
+                                .Bind(events =>
+                                    _repository.AppendEventsAsync(command.StreamId, events, 0, cancellationToken)
+                                )
                     )
+                )
             );
 
     private EitherAsync<Exception, IDecider> GetDecider(TCommand command)

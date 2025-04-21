@@ -15,11 +15,11 @@ public class FakeAggregateRepository : IAggregateRepository
         return Unit.Default;
     }
 
-    public OptionAsync<(TAggregate, int)> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
+    public EitherAsync<Exception, Option<(TAggregate, int)>> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        return OptionAsync<(TAggregate, int)>.None;
+        return Option<(TAggregate, int)>.None;
     }
 
     public OptionAsync<TProjection> LoadProjectionAsync<TProjection, TId>(TId projectionId)
