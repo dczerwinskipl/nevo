@@ -27,8 +27,7 @@ public static class AggregateEvolverExtractor
         => type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAggregateEvent<,>));
 
     private static IEnumerable<Type> GetAllAggregateImplementations(Type aggregateType)
-        => AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(assembly => assembly.GetTypes())
+        => aggregateType.Assembly.GetTypes()
             .Where(aggregateType.IsAssignableFrom);
 
     private static IEnumerable<MethodInfo> WithValidReturnType(this IEnumerable<MethodInfo> methods, Type aggregateType)

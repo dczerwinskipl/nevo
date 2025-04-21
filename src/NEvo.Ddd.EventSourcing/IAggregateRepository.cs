@@ -28,10 +28,10 @@ public interface IEventStore
         where TId : notnull;
 }
 
-public class AggregateRepository(IEventStore eventStore, IEvolverRepository evolverRepository) : IAggregateRepository
+public class AggregateRepository(IEventStore eventStore, IEvolverRegistry evolverRepository) : IAggregateRepository
 {
     private readonly IEventStore _eventStore = eventStore;
-    private readonly IEvolverRepository _evolverRepository = evolverRepository;
+    private readonly IEvolverRegistry _evolverRepository = evolverRepository;
 
     public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, int expectedVersion, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
