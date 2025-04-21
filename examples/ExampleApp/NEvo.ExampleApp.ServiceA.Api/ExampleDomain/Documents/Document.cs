@@ -2,30 +2,24 @@ using LanguageExt;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-public abstract class DocumentAggregateBase(Guid id) : IAggregateRoot<Guid, DocumentAggregateBase>
+public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
+    public string Data { get; set; } = data;
 
-    public static DocumentAggregateBase CreateEmpty(Guid id) => new EmptyDocument(id);
-}
-
-public class EmptyDocument(Guid id) : DocumentAggregateBase(id)
-{
-    public Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
+    // Decider - create
+    public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
     {
-        return new[] { new DocumentCreated(Id, command.Data) };
+        return new[] { new DocumentCreated(command.DocumentId, command.Data) };
     }
 
-    public Document Apply(DocumentCreated @event)
+    // Evolver - initial state
+    public static Document Apply(DocumentCreated @event)
     {
-        return new EditableDocument(Id, @event.Data);
+        return new EditableDocument(@event.DocumentId, @event.Data);
     }
 }
 
-public abstract class Document(Guid id, string Data) : DocumentAggregateBase(id)
-{
-    public string Data { get; set; } = Data;
-}
 
 public class EditableDocument(Guid id, string data) : Document(id, data)
 {

@@ -9,14 +9,14 @@ namespace Microsoft.Extensions.DependencyInjection;
 public class FakeEventStore : IEventStore
 {
     public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, CancellationToken cancellationToken)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         return Unit.Default;
     }
 
     public OptionAsync<TAggregate> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         return OptionAsync<TAggregate>.None;

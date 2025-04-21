@@ -44,4 +44,8 @@
     <ProjectReference Include="..\NEvo.ExampleApp.ServiceB.Api\NEvo.ExampleApp.ServiceB.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="ExampleDomain/Documents/" />
+  </ItemGroup>
+
 </Project>

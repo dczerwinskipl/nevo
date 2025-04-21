@@ -3,7 +3,7 @@ using NEvo.Messaging.Cqrs.Commands;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-public record DocumentCommand(Guid DocumentId) : Command, IAggregateCommand<DocumentAggregateBase, Guid>
+public record DocumentCommand(Guid DocumentId) : Command, IAggregateCommand<Document, Guid>
 {
     public Guid StreamId => DocumentId;
 }

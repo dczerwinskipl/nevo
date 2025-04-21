@@ -1,3 +1,4 @@
+using LanguageExt;
 using Microsoft.Extensions.Options;
 using NEvo.Ddd.EventSourcing.Deciding;
 using NEvo.Ddd.EventSourcing.Evolving;
@@ -13,19 +14,20 @@ public class AggregateDeciderEvolverIntegrationTests
     {
         var configuration = new AggregateExtractorConfiguration()
         {
-            AggregateTypes = { typeof(DocumentAggregateBase) }
+            AggregateTypes = { typeof(Document) }
         };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
         _decider = new AggregateDecider(deciderProvider);
-        _evolver = new AggregateEvolver([typeof(DocumentAggregateBase)]);
+        _evolver = new AggregateEvolver([typeof(Document)]);
     }
 
     [Fact]
     public async Task CreateDocumentCommand_WhenProcessed_ReturnsEditableDocumentWithCorrectData()
     {
         // arrange
-        var aggregate = DocumentAggregateBase.CreateEmpty(Guid.NewGuid());
-        var command = new CreateDocument(aggregate.Id, "Data");
+        var id = Guid.NewGuid();
+        var aggregate = Option<Document>.None;
+        var command = new CreateDocument(id, "Data");
 
         // act
         var result = await aggregate.ExecuteAsync(

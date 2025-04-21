@@ -62,31 +62,6 @@ public class DeciderCommandHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_WhenAggregateNotFound_ShouldReturnError()
-    {
-        // Arrange
-        var deciderRegistryMock = new Mock<IDeciderRegistry>();
-        var eventStoreMock = new Mock<IEventStore>();
-        var deciderMock = new Mock<IDecider>();
-        var command = new MockCommand(1);
-
-        deciderRegistryMock.Setup(dr => dr.GetDecider<MockCommand, MockAggregate, int>(command))
-            .Returns(Option<IDecider>.Some(deciderMock.Object));
-
-        eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
-            .Returns(OptionAsync<MockAggregate>.None);
-
-        var sut = new DeciderCommandHandler<MockCommand, MockAggregate, int>(deciderRegistryMock.Object, eventStoreMock.Object);
-
-        // Act
-        var result = await sut.HandleAsync(command, CancellationToken.None);
-
-        // Assert
-        result.Should().BeLeft()
-            .Which.Message.Should().Be("No aggregate found for command MockCommand");
-    }
-
-    [Fact]
     public async Task HandleAsync_WhenAggregateNotFoundButCommandIsCreateCommand_ShouldAppendNewEvents()
     {
         // Arrange
@@ -103,7 +78,7 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Setup(es => es.LoadAggregateAsync<MockAggregate, int>(command.StreamId, It.IsAny<CancellationToken>()))
             .Returns(OptionAsync<MockAggregate>.None);
 
-        deciderMock.Setup(d => d.DecideAsync(It.IsAny<MockAggregate>(), command, It.IsAny<CancellationToken>()))
+        deciderMock.Setup(d => d.DecideAsync(It.IsAny<Option<MockAggregate>>(), command, It.IsAny<CancellationToken>()))
             .Returns((EitherAsync<Exception, IEnumerable<IAggregateEvent<MockAggregate, int>>>)events);
 
         eventStoreMock.Setup(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()))
@@ -119,10 +94,9 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Verify(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    public class MockAggregate(int id) : IAggregateRoot<int, MockAggregate>
+    public class MockAggregate(int id) : IAggregateRoot<int>
     {
         public int Id { get; set; } = id;
-        public static MockAggregate CreateEmpty(int id) => new(id);
     }
 
     public record MockEvent(int StreamId) : Event, IAggregateEvent<MockAggregate, int>;
