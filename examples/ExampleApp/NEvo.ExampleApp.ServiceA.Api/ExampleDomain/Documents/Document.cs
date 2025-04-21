@@ -2,10 +2,10 @@ using LanguageExt;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-public abstract class Document(Guid id, string Data) : IAggregateRoot<Guid>
+public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
-    public string Data { get; set; } = Data;
+    public string Data { get; set; } = data;
 
     // Decider - create
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)

@@ -73,6 +73,6 @@ public static class AggregateEvolverExtractor
                 ) :
                 aggregateOption.Match<Either<Exception, TAggregate>>(
                     Some: aggregate => (TAggregate)methodInfo.Invoke(aggregate, [@event])!,
-                    None: () => new InvalidOperationException("Aggregate doesn't exists")
+                    None: () => new InvalidOperationException("Aggregate doesn't exist")
                 );
 }

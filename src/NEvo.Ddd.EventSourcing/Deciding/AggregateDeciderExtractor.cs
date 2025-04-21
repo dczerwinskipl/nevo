@@ -84,7 +84,7 @@ public static class AggregateDeciderExtractor
                 ) :
                 aggregateOption.Match(
                     Some: aggregate => methodInfo.Invoke(aggregate, [command]).ToDeciderResult<TAggregate, TId>(),
-                    None: () => new InvalidOperationException("Aggregate doesn't exists")
+                    None: () => new InvalidOperationException("Aggregate doesn't exist")
                 );
 
     private static Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> ToDeciderResult<TAggregate, TId>(this object? methodResult)
