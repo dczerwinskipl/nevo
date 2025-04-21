@@ -12,7 +12,7 @@ public class AggregateDeciderTests
     {
         var configuration = new AggregateExtractorConfiguration()
         {
-            AggregateTypes = { typeof(DocumentAggregateBase) }
+            AggregateTypes = { typeof(Document) }
         };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
         _decider = new AggregateDecider(deciderProvider);
@@ -23,7 +23,7 @@ public class AggregateDeciderTests
     {
         // arrange
         var id = Guid.NewGuid();
-        var aggregate = Option<DocumentAggregateBase>.None;
+        var aggregate = Option<Document>.None;
         var data = "Data";
 
         // act
@@ -46,7 +46,7 @@ public class AggregateDeciderTests
     {
         // arrange
         var id = Guid.NewGuid();
-        var aggregate = Option<DocumentAggregateBase>.None;
+        var aggregate = Option<Document>.None;
 
         // act
         var result = await _decider.DecideAsync(
@@ -58,7 +58,7 @@ public class AggregateDeciderTests
         // assert
         result.Should().BeLeft().Which
             .Should().BeOfType<Exception>().Which
-            .Message.Should().Contain("No decider found for command ChangeDocument on aggregate DocumentAggregateBase");
+            .Message.Should().Contain("No decider found for command ChangeDocument on aggregate Document");
     }
 
     [Fact]

@@ -6,13 +6,13 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider
 {
     public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull;
 
     private readonly IDictionary<Type, List<(Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)>> _deciders = aggregateDeciderProvider.GetAggregateDeciders();
 
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(Option<TAggregate> aggregateOption, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         var aggregateType = aggregateOption.Map(a => a.GetType()).IfNone(typeof(TAggregate));
@@ -23,7 +23,7 @@ public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider
     }
 
     private Option<AggregateDecideDelegate<TAggregate, TId>> GetDeciderDelegate<TAggregate, TId>(Type aggregateType, IAggregateCommand<TAggregate, TId> command)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull =>
         _deciders
             .TryGetValue(command.GetType())
@@ -36,7 +36,7 @@ public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider
 
     public bool CanHandle<TCommand, TAggregate, TId>(TCommand command)
         where TCommand : Command, IAggregateCommand<TAggregate, TId>
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull => _deciders
             .TryGetValue(command.GetType()).IsSome;
 

@@ -94,10 +94,9 @@ public class DeciderCommandHandlerTests
         eventStoreMock.Verify(es => es.AppendEventsAsync(aggregateId, events, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    public class MockAggregate(int id) : IAggregateRoot<int, MockAggregate>
+    public class MockAggregate(int id) : IAggregateRoot<int>
     {
         public int Id { get; set; } = id;
-        public static MockAggregate CreateEmpty(int id) => new(id);
     }
 
     public record MockEvent(int StreamId) : Event, IAggregateEvent<MockAggregate, int>;

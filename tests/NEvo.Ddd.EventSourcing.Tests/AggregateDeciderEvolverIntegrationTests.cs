@@ -14,11 +14,11 @@ public class AggregateDeciderEvolverIntegrationTests
     {
         var configuration = new AggregateExtractorConfiguration()
         {
-            AggregateTypes = { typeof(DocumentAggregateBase) }
+            AggregateTypes = { typeof(Document) }
         };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
         _decider = new AggregateDecider(deciderProvider);
-        _evolver = new AggregateEvolver([typeof(DocumentAggregateBase)]);
+        _evolver = new AggregateEvolver([typeof(Document)]);
     }
 
     [Fact]
@@ -26,7 +26,7 @@ public class AggregateDeciderEvolverIntegrationTests
     {
         // arrange
         var id = Guid.NewGuid();
-        var aggregate = Option<DocumentAggregateBase>.None;
+        var aggregate = Option<Document>.None;
         var command = new CreateDocument(id, "Data");
 
         // act

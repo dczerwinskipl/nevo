@@ -12,7 +12,7 @@ public static class AggregateExtensions
         IAggregateCommand<TAggregate, TId> command,
         CancellationToken cancellationToken
     )
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
         => decider.DecideAsync(
             aggregateOption,

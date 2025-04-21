@@ -2,10 +2,10 @@ using LanguageExt;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-
-public abstract class DocumentAggregateBase(Guid id) : IAggregateRoot<Guid, DocumentAggregateBase>
+public abstract class Document(Guid id, string Data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
+    public string Data { get; set; } = Data;
 
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
     {
@@ -16,11 +16,6 @@ public abstract class DocumentAggregateBase(Guid id) : IAggregateRoot<Guid, Docu
     {
         return new EditableDocument(@event.DocumentId, @event.Data);
     }
-}
-
-public abstract class Document(Guid id, string Data) : DocumentAggregateBase(id)
-{
-    public string Data { get; set; } = Data;
 }
 
 public class EditableDocument(Guid id, string data) : Document(id, data)

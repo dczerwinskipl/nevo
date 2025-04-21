@@ -10,8 +10,8 @@ public class AggregateEvolverTests
     {
         // arrange
         var id = Guid.NewGuid();
-        var aggregate = Option<DocumentAggregateBase>.None;
-        var evolver = new AggregateEvolver([typeof(DocumentAggregateBase)]);
+        var aggregate = Option<Document>.None;
+        var evolver = new AggregateEvolver([typeof(Document)]);
         var data = "Data";
 
         // act
@@ -31,8 +31,8 @@ public class AggregateEvolverTests
     {
         // arrange
         var id = Guid.NewGuid();
-        var aggregate = Option<DocumentAggregateBase>.None;
-        var evolver = new AggregateEvolver([typeof(DocumentAggregateBase)]);
+        var aggregate = Option<Document>.None;
+        var evolver = new AggregateEvolver([typeof(Document)]);
         var data = "Data";
 
         // act
@@ -44,6 +44,6 @@ public class AggregateEvolverTests
         // assert
         result.Should().BeLeft().Which
             .Should().BeOfType<Exception>().Which
-            .Message.Should().Contain("No evolver found for event DocumentChanged on aggregate DocumentAggregateBase");
+            .Message.Should().Contain("No evolver found for event DocumentChanged on aggregate Document");
     }
 }

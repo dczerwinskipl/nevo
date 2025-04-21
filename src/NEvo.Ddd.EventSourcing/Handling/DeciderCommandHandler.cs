@@ -1,6 +1,3 @@
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-
 namespace NEvo.Ddd.EventSourcing.Deciding;
 
 public class DeciderCommandHandler<TCommand, TAggregate, TId>(
@@ -8,7 +5,7 @@ public class DeciderCommandHandler<TCommand, TAggregate, TId>(
     IEventStore eventStore
 )
     where TCommand : Command, IAggregateCommand<TAggregate, TId>
-    where TAggregate : IAggregateRoot<TId, TAggregate>
+    where TAggregate : IAggregateRoot<TId>
     where TId : notnull
 {
     public EitherAsync<Exception, Unit> HandleAsync(TCommand command, CancellationToken cancellationToken)

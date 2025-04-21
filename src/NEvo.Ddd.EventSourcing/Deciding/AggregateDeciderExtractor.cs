@@ -6,10 +6,10 @@ public static class AggregateDeciderExtractor
 {
     public static IEnumerable<(Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)> ExtractDeciders(Type aggregateType)
     {
-        // Ensure the type implements IAggregateRoot<,>
+        // Ensure the type implements IAggregateRoot<>
         var aggregateRootInterface = aggregateType
             .GetInterfaces()
-            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAggregateRoot<,>));
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAggregateRoot<>));
 
         if (aggregateRootInterface == null)
         {
@@ -18,8 +18,7 @@ public static class AggregateDeciderExtractor
 
         var genericArguments = aggregateRootInterface.GetGenericArguments();
         var idType = genericArguments[0];
-        var aggregateGenericType = genericArguments[1];
-        var internalExtractDeciders = InternalExtractDecidersMethod.MakeGenericMethod(aggregateGenericType, idType);
+        var internalExtractDeciders = InternalExtractDecidersMethod.MakeGenericMethod(aggregateType, idType);
 
         return (IEnumerable<(Type, Type, Type, Type, Delegate)>)internalExtractDeciders.Invoke(null, null)!;
     }
@@ -55,7 +54,7 @@ public static class AggregateDeciderExtractor
             .GetMethod(nameof(InternalExtractDeciders), BindingFlags.Static | BindingFlags.NonPublic)!;
 
     private static IEnumerable<(Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate decide)> InternalExtractDeciders<TAggregate, TId>()
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
         => GetAllAggregateImplementations(typeof(TAggregate))
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
@@ -64,7 +63,7 @@ public static class AggregateDeciderExtractor
             .Select(input => ToDecider<TAggregate, TId>(input.Method, input.EventType, input.CommandType));
 
     private static (Type CommandType, Type AggregateType, Type DeclaringType, Type IdType, Delegate decider) ToDecider<TAggregate, TId>(MethodInfo method, Type eventType, Type commandType)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         var createDecider = CreateDecideMethod.MakeGenericMethod([typeof(TAggregate), typeof(TId)]);
@@ -75,7 +74,7 @@ public static class AggregateDeciderExtractor
     private static readonly MethodInfo CreateDecideMethod = typeof(AggregateDeciderExtractor)
                 .GetMethod(nameof(CreateDecide), BindingFlags.Static | BindingFlags.NonPublic)!;
     private static AggregateDecider.AggregateDecideDelegate<TAggregate, TId> CreateDecide<TAggregate, TId>(MethodInfo methodInfo)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull =>
         (aggregateOption, command) =>
             methodInfo.IsStatic ?
@@ -89,7 +88,7 @@ public static class AggregateDeciderExtractor
                 );
 
     private static Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> ToDeciderResult<TAggregate, TId>(this object? methodResult)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         dynamic result = methodResult!;

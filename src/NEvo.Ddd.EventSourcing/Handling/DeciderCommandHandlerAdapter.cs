@@ -12,7 +12,7 @@ public class DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>(
     MessageHandlerDescription handlerDescription
 ) : IMessageHandler
     where TCommand : Command, IAggregateCommand<TAggregate, TId>
-    where TAggregate : IAggregateRoot<TId, TAggregate>
+    where TAggregate : IAggregateRoot<TId>
     where TId : notnull
 {
     private readonly ILogger<DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>> _logger = logger;

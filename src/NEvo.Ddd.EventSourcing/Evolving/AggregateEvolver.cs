@@ -3,7 +3,7 @@ namespace NEvo.Ddd.EventSourcing.Evolving;
 public class AggregateEvolver : IEvolver
 {
     public delegate Either<Exception, TAggregate> EvolveDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateEvent<TAggregate, TId> @event)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull;
 
     private static IDictionary<Type, List<(Type AggregateType, Delegate Decide)>> _evolvers = null!;
@@ -25,7 +25,7 @@ public class AggregateEvolver : IEvolver
     }
 
     public Either<Exception, TAggregate> Evolve<TAggregate, TId>(Option<TAggregate> aggregateOption, IAggregateEvent<TAggregate, TId> @event)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         var aggregateType = aggregateOption.Map(a => a.GetType()).IfNone(typeof(TAggregate));
@@ -36,7 +36,7 @@ public class AggregateEvolver : IEvolver
     }
 
     private static Option<EvolveDelegate<TAggregate, TId>> GetEvolverDelegate<TAggregate, TId>(Type aggregateType, IAggregateEvent<TAggregate, TId> @event)
-        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TAggregate : IAggregateRoot<TId>
         where TId : notnull =>
         _evolvers
             .TryGetValue(@event.GetType())

@@ -2,7 +2,7 @@ using LanguageExt;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-public abstract class Document(Guid id, string Data) : IAggregateRoot<Guid, Document>
+public abstract class Document(Guid id, string Data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
     public string Data { get; set; } = Data;
