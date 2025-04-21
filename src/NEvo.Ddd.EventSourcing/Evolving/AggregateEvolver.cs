@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using NEvo.Ddd.EventSourcing.Deciding;
+
 namespace NEvo.Ddd.EventSourcing.Evolving;
 
 public class AggregateEvolver : IEvolver
@@ -6,13 +9,13 @@ public class AggregateEvolver : IEvolver
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull;
 
-    private static IDictionary<Type, List<(Type AggregateType, Delegate Decide)>> _evolvers = null!;
+    private readonly System.Collections.Generic.HashSet<Type> _aggregateTypes;
+    private readonly IDictionary<Type, List<(Type AggregateType, Delegate Decide)>> _evolvers;
 
-    // TODO: add DI with some registry?
-    // TODO: and/or replace Type with some options
-    public AggregateEvolver(Type[] aggregateTypes)
+    public AggregateEvolver(IOptions<AggregateExtractorConfiguration> options)
     {
-        _evolvers ??= aggregateTypes
+        _aggregateTypes = options.Value.AggregateTypes.ToHashSet(); ;
+        _evolvers = _aggregateTypes
             .SelectMany(AggregateEvolverExtractor.ExtractEvolvers)
             .GroupBy(
                 decider => decider.EventType,
@@ -35,7 +38,7 @@ public class AggregateEvolver : IEvolver
                select result;
     }
 
-    private static Option<EvolveDelegate<TAggregate, TId>> GetEvolverDelegate<TAggregate, TId>(Type aggregateType, IAggregateEvent<TAggregate, TId> @event)
+    private Option<EvolveDelegate<TAggregate, TId>> GetEvolverDelegate<TAggregate, TId>(Type aggregateType, IAggregateEvent<TAggregate, TId> @event)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull =>
         _evolvers
@@ -50,4 +53,9 @@ public class AggregateEvolver : IEvolver
                     return x;
                 }
             );
+
+    public bool CanHandle<TAggregate, TId>()
+        where TAggregate : IAggregateRoot<TId>
+        where TId : notnull => _aggregateTypes.Contains(typeof(TAggregate));
+
 }

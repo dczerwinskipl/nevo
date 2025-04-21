@@ -14,6 +14,8 @@ public static class Routes
         app.MapCommandEndpoint<ServiceBCommand>("/api/world").RequireAuthorization();
         app.MapCommandEndpoint<ServiceBCommand>("/api/world_noAuth");
         app.MapCommandEndpoint<CreateDocument>("/api/document/create");
+        app.MapCommandEndpoint<ChangeDocument>("/api/document/change");
+        app.MapCommandEndpoint<ApproveDocument>("/api/document/approve");
         return app;
     }
 }
