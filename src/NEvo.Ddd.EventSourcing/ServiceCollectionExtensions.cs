@@ -6,20 +6,20 @@ using NEvo.Messaging.Handling;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
-public class FakeEventStore : IEventStore
+public class FakeAggregateRepository : IAggregateRepository
 {
-    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, CancellationToken cancellationToken)
+    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, int expectedVersion, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         return Unit.Default;
     }
 
-    public OptionAsync<TAggregate> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
+    public OptionAsync<(TAggregate, int)> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        return OptionAsync<TAggregate>.None;
+        return OptionAsync<(TAggregate, int)>.None;
     }
 
     public OptionAsync<TProjection> LoadProjectionAsync<TProjection, TId>(TId projectionId)
@@ -34,7 +34,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddEventSourcing(this IServiceCollection services, params Type[] aggregateTypes)
     {
-        services.TryAddScoped<IEventStore, FakeEventStore>();
+        services.TryAddScoped<IAggregateRepository, FakeAggregateRepository>();
 
         // deciders
         services.AddSingleton<IMessageHandlerProvider, DeciderCommandHandlerProvider>();
