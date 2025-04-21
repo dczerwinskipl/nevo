@@ -66,6 +66,14 @@ public static class AggregateEvolverExtractor
                 .GetMethod(nameof(CreateEvolve), BindingFlags.Static | BindingFlags.NonPublic)!;
     private static AggregateEvolver.EvolveDelegate<TAggregate, TId> CreateEvolve<TAggregate, TId>(MethodInfo methodInfo)
         where TAggregate : IAggregateRoot<TId, TAggregate>
-        where TId : notnull => (aggregate, @event)
-        => (TAggregate)methodInfo.Invoke(aggregate, [@event])!;
+        where TId : notnull => (aggregateOption, @event)
+        => methodInfo.IsStatic ?
+                aggregateOption.Match<Either<Exception, TAggregate>>(
+                    Some: aggregate => new InvalidOperationException($"Aggregate {aggregate.GetType().Name} already exists"),
+                    None: () => (TAggregate)methodInfo.Invoke(null, [@event])!
+                ) :
+                aggregateOption.Match<Either<Exception, TAggregate>>(
+                    Some: aggregate => (TAggregate)methodInfo.Invoke(aggregate, [@event])!,
+                    None: () => new InvalidOperationException("Aggregate doesn't exists")
+                );
 }

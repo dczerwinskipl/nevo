@@ -6,7 +6,7 @@ namespace NEvo.Ddd.EventSourcing;
 public static class AggregateExtensions
 {
     public static EitherAsync<Exception, TAggregate> ExecuteAsync<TAggregate, TId>(
-        this TAggregate aggregate,
+        this Option<TAggregate> aggregateOption,
         IDecider decider,
         IEvolver evolver,
         IAggregateCommand<TAggregate, TId> command,
@@ -15,14 +15,23 @@ public static class AggregateExtensions
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
         => decider.DecideAsync(
-            aggregate,
+            aggregateOption,
             command,
             cancellationToken
-        ).Bind(events => events.Aggregate(
-                Either<Exception, TAggregate>.Right(aggregate),
-                (currentAggregate, @event) => currentAggregate.Bind(aggregate =>
-                    evolver.Evolve(aggregate, @event)
-                )
-            ).ToAsync()
-        );
+        ).Bind(events =>
+        {
+            if (!events.Any())
+            {
+                return aggregateOption
+                    .ToEitherAsync(() => new Exception($"No events generated for command {command.GetType().Name} and empty aggregate"));
+            }
+
+            var aggregate = evolver.Evolve(aggregateOption, events.First());
+            foreach (var @event in events.Skip(1))
+            {
+                aggregate = aggregate.Bind(agg => evolver.Evolve(agg, @event));
+            }
+
+            return aggregate.ToAsync();
+        });
 }

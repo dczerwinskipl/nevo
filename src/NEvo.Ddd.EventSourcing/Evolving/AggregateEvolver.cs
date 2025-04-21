@@ -2,7 +2,7 @@ namespace NEvo.Ddd.EventSourcing.Evolving;
 
 public class AggregateEvolver : IEvolver
 {
-    public delegate TAggregate EvolveDelegate<TAggregate, TId>(TAggregate aggregate, IAggregateEvent<TAggregate, TId> @event)
+    public delegate Either<Exception, TAggregate> EvolveDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateEvent<TAggregate, TId> @event)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 
@@ -24,20 +24,24 @@ public class AggregateEvolver : IEvolver
             );
     }
 
-    public Either<Exception, TAggregate> Evolve<TAggregate, TId>(TAggregate aggregate, IAggregateEvent<TAggregate, TId> @event)
+    public Either<Exception, TAggregate> Evolve<TAggregate, TId>(Option<TAggregate> aggregateOption, IAggregateEvent<TAggregate, TId> @event)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
-            => from evolve in GetEvolver(aggregate, @event)
-                    .ToEither(() => new Exception($"No evolver found for event {@event.GetType().Name} on aggregate {aggregate.GetType().Name}"))
-               select evolve(aggregate, @event);
+    {
+        var aggregateType = aggregateOption.Map(a => a.GetType()).IfNone(typeof(TAggregate));
+        return from evolver in GetEvolverDelegate(aggregateType, @event)
+                    .ToEither(() => new Exception($"No evolver found for event {@event.GetType().Name} on aggregate {aggregateType.Name}"))
+               from result in evolver(aggregateOption, @event)
+               select result;
+    }
 
-    private static Option<EvolveDelegate<TAggregate, TId>> GetEvolver<TAggregate, TId>(TAggregate aggregate, IAggregateEvent<TAggregate, TId> @event)
+    private static Option<EvolveDelegate<TAggregate, TId>> GetEvolverDelegate<TAggregate, TId>(Type aggregateType, IAggregateEvent<TAggregate, TId> @event)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull =>
         _evolvers
             .TryGetValue(@event.GetType())
             .SelectMany(x => x)
-            .Where(decider => decider.AggregateType.IsAssignableFrom(aggregate.GetType()))
+            .Where(decider => decider.AggregateType.IsAssignableFrom(aggregateType))
             .ToOption()
             .Bind<EvolveDelegate<TAggregate, TId>>(
                 decider =>

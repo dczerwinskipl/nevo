@@ -40,7 +40,7 @@ builder.Services.AddRestMessageDispatcher((opts) =>
 }, [typeof(ServiceBCommand)]);
 
 builder.Services.AddServiceADomain();
-builder.Services.AddEventSourcing(typeof(DocumentAggregateBase));
+builder.Services.AddEventSourcing(typeof(Document));
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());

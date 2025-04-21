@@ -7,19 +7,14 @@ public abstract class DocumentAggregateBase(Guid id) : IAggregateRoot<Guid, Docu
 {
     public Guid Id { get; set; } = id;
 
-    public static DocumentAggregateBase CreateEmpty(Guid id) => new EmptyDocument(id);
-}
-
-public class EmptyDocument(Guid id) : DocumentAggregateBase(id)
-{
-    public Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
+    public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
     {
-        return new[] { new DocumentCreated(Id, command.Data) };
+        return new[] { new DocumentCreated(command.DocumentId, command.Data) };
     }
 
-    public Document Apply(DocumentCreated @event)
+    public static Document Apply(DocumentCreated @event)
     {
-        return new EditableDocument(Id, @event.Data);
+        return new EditableDocument(@event.DocumentId, @event.Data);
     }
 }
 

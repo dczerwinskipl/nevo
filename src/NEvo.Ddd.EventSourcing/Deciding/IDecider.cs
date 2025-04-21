@@ -9,7 +9,7 @@ public interface IDecider
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 
-    public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(TAggregate aggregate, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
+    public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull;
 }

@@ -58,7 +58,7 @@ public static class AggregateDeciderExtractor
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull
         => GetAllAggregateImplementations(typeof(TAggregate))
-            .SelectMany(type => type.GetMethods())
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
             .WithValidReturnType()
             .WithCommandInputParameter()
             .Select(input => ToDecider<TAggregate, TId>(input.Method, input.EventType, input.CommandType));
@@ -77,14 +77,26 @@ public static class AggregateDeciderExtractor
     private static AggregateDecider.AggregateDecideDelegate<TAggregate, TId> CreateDecide<TAggregate, TId>(MethodInfo methodInfo)
         where TAggregate : IAggregateRoot<TId, TAggregate>
         where TId : notnull =>
-        (aggregate, command) =>
-        {
-            dynamic result = methodInfo.Invoke(aggregate, [command])!;
-            return result.Map(
+        (aggregateOption, command) =>
+            methodInfo.IsStatic ?
+                aggregateOption.Match(
+                    Some: aggregate => new InvalidOperationException($"Aggregate {aggregate.GetType().Name} already exists"),
+                    None: () => methodInfo.Invoke(null, [command]).ToDeciderResult<TAggregate, TId>()
+                ) :
+                aggregateOption.Match(
+                    Some: aggregate => methodInfo.Invoke(aggregate, [command]).ToDeciderResult<TAggregate, TId>(),
+                    None: () => new InvalidOperationException("Aggregate doesn't exists")
+                );
+
+    private static Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> ToDeciderResult<TAggregate, TId>(this object? methodResult)
+        where TAggregate : IAggregateRoot<TId, TAggregate>
+        where TId : notnull
+    {
+        dynamic result = methodResult!;
+        return result.Map(
                 (Func<IEnumerable<dynamic>, IEnumerable<IAggregateEvent<TAggregate, TId>>>)(
                     events => events.Cast<IAggregateEvent<TAggregate, TId>>()
                 )
             );
-        };
-
+    }
 }
