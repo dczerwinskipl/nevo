@@ -17,10 +17,11 @@ skill, and a read-only research subagent — without replacing `AGENTS.md`,
 description into `docs/ai/specification-workflow.md` so Claude, Cursor, and Copilot
 adapters can point to one source instead of duplicating it.
 
-This change was authorized in full by an owner-provided instruction document
-(`01-add-nevo-ai-operational-workflow.md`), which pre-approved the file structure,
-responsibilities, and safety constraints below — see "Owner decisions" for what remained
-open.
+This change was authorized in full by an owner-provided instruction document, copied
+verbatim into this change directory as
+[`origin-instruction.md`](origin-instruction.md) for traceability, which pre-approved the
+file structure, responsibilities, and safety constraints below — see "Owner decisions"
+for what remained open.
 
 ## Acceptance criteria
 
@@ -63,12 +64,23 @@ open.
   `README.md` describing how AI-assisted work happens in this repository — added to
   scope for this change rather than filed as a separate one, since it is a small,
   purely-additive documentation change directly about this same workflow.
+- **`tools/specs.mjs` / `tools/docs.mjs` bug fix:** GitHub Copilot's review of PR #12
+  flagged two context-path resolution concerns that turned out to be false positives
+  (the CLI's `join('specs/active', slug, p)` logic resolves them correctly, independent
+  of the task file's real subdirectory nesting — verified directly against the code).
+  Investigating them surfaced a real, pre-existing defect: `parseScalar` read an inline
+  `[]` as the literal string `"[]"` instead of an empty array, crashing
+  `buildContextPacket`'s `.map()` for any task using `required: []` — including the
+  original `architecture-documentation` task. Owner explicitly approved fixing this
+  narrow parsing bug in `tools/specs.mjs` and `tools/docs.mjs` (same duplicated parser)
+  as part of this change, despite the general rule that `tools/**` behavior changes need
+  approval.
 
 ## Out of scope
 
-- Any change to `tools/specs.mjs` or `tools/docs.mjs` *behavior* (schema, status
-  transitions, CLI commands) — only documentation/help-text-level changes were
-  permitted, and none were needed.
+- Any change to `tools/specs.mjs` or `tools/docs.mjs` *behavior* beyond the one narrow,
+  owner-approved parser bug fix noted above (no schema, status-transition, or CLI-command
+  changes).
 - Any change to the specification/document schema, valid status transitions, or branch
   naming rules.
 - A Claude Code plugin — this is project-local commands/skills/agents only.

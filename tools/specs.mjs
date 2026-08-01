@@ -29,6 +29,8 @@ function parseYaml(text) {
     if (s === 'true') return true;
     if (s === 'false') return false;
     if (s === 'null' || s === '~') return null;
+    if (s === '[]') return [];
+    if (s === '{}') return {};
     if (/^-?\d+$/.test(s)) return Number(s);
     if (/^['"].*['"]$/.test(s)) return s.slice(1, -1);
     return s;
