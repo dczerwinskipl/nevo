@@ -45,7 +45,12 @@ packet declares.
 - New packages or projects
 - CI/CD pipeline changes
 
-When in doubt: stop, describe the decision needed, present options, wait.
+When in doubt: stop, describe the decision needed, present options, wait. For any
+change classified T or larger that touches one of the items above, present at least two
+meaningfully different options with trade-offs — never only the simplest one — and when
+options cost the same, state what each unlocks and forecloses instead of picking
+silently. See `docs/ai/specification-workflow.md` § "Solution option analysis" for the
+full procedure, and § "Signal-based classification" for how S/T/A/E is decided.
 
 ## Context loading rules
 

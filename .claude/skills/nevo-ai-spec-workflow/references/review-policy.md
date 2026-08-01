@@ -10,7 +10,12 @@ A spec is ready for implementation when:
 - acceptance criteria are testable (a build/test/behavior check can confirm them — not
   aspirational language),
 - no owner decision needed for the next task is still open,
-- documentation impact (architecture docs, ADRs) is identified, even if deferred.
+- documentation impact (architecture docs, ADRs) is identified, even if deferred,
+- if the change touches an owner-approval gate, it contains an actual option analysis
+  (≥2 real options, trade-offs, consequences stated for tied-cost options) rather than a
+  single proposed approach — see `references/solution-option-analysis.md`. A spec that
+  jumped straight to one recommendation for a gated decision is not ready; flag it as
+  blocking.
 
 ## Implementation review criteria
 

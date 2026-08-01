@@ -31,7 +31,9 @@ Load only the reference file(s) for the phase you are in — not all of them.
 
 | Phase | Reference | When |
 |---|---|---|
+| Classifying a request (S/T/A/E) | `references/triage-policy.md` | `spec-create` at classification; `spec-refine`/`task-start` when re-checking mid-flight |
 | Discovery | `references/discovery-policy.md` | Any command starting fresh discovery (`spec-create`, and `spec-refine`/`spec-review` when evidence is stale) |
+| Comparing solution options for a gated decision | `references/solution-option-analysis.md` | Any command about to recommend a design once the change is T+ and touches an owner-approval gate |
 | Presenting options / recording decisions | `references/decision-policy.md` | Any command about to ask the owner something, or record what they answered |
 | Choosing artifact shape | `references/artifact-policy.md` | `spec-create` (initial structure), `spec-refine` (detecting oversized/undersized artifacts) |
 | Loading context | `references/context-policy.md` | `task-next`, `task-start` |
@@ -53,6 +55,14 @@ whenever:
   with another — report the conflict, do not silently pick one,
 - a command is about to cross from specification into implementation, or from review
   into applying fixes, without the owner having asked for that explicitly.
+
+Two more, specific to decision support (see `references/solution-option-analysis.md`):
+
+- never present only the simplest option when the decision touches architecture,
+  public API, or a package boundary — the owner chooses the trade-off, the agent does
+  not pre-select it by omission,
+- never silently pick between two options of materially equal cost — state what each
+  unlocks and forecloses, and let the owner decide.
 
 ## Commands, this skill, and the CLI
 

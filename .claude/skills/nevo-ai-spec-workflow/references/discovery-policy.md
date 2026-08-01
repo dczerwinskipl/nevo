@@ -46,6 +46,16 @@ an inconsistency with both citations (doc line, code line). Do not silently trus
 doc, and do not silently trust the code — the owner decides which is authoritative going
 forward (this may itself require an ADR update).
 
+## Check for an existing solution before proposing a custom one
+
+Before a discovery report frames a need as "we should build X," check whether the .NET
+BCL or an already-referenced package already provides it. NEvo's own purpose is to give
+consumers building blocks (see `README.md`) — reinventing infrastructure that already
+exists elsewhere is a cost to flag, not a default to reach for. Note candidate
+existing solutions as evidence for the later option analysis
+(`references/solution-option-analysis.md`); a new external dependency still needs owner
+approval regardless of which option is eventually chosen.
+
 ## When to stop discovery
 
 Stop once you can state, with evidence: current behavior, affected areas, constraints,

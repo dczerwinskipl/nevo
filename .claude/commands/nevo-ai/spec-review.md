@@ -21,7 +21,10 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    assumption risks, architecture conflicts, acceptance-criteria quality, task
    decomposition quality, task dependency correctness, context-packet quality,
    allowed/forbidden-path quality, documentation/ADR impact, and implementation
-   readiness per task.
+   readiness per task. For any gated decision in the spec (per `AGENTS.md`
+   owner-approval list), check specifically that a real option analysis exists —
+   `references/solution-option-analysis.md` — not just a single proposed approach;
+   flag its absence as blocking.
 
 ## Rules
 

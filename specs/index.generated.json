@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-01T15:25:12.937Z",
+  "generated": "2026-08-01T15:30:07.202Z",
   "changes": [
     {
       "id": "architecture-documentation",
@@ -28,6 +28,15 @@
           "order": 1,
           "file": "tasks/01-add-operational-layer.md",
           "status": "implemented"
+        },
+        {
+          "id": "add-technical-decision-support",
+          "order": 2,
+          "file": "tasks/02-add-technical-decision-support.md",
+          "status": "implemented",
+          "depends_on": [
+            "add-operational-layer"
+          ]
         }
       ]
     }

@@ -2,7 +2,10 @@
 
 ## Small vs. standard vs. architectural artifact sets
 
-Mirrors the change classes in `AGENTS.md`:
+Which class a change falls into is decided by the signal procedure in
+`references/triage-policy.md`, not by matching the change against the examples below —
+those examples exist to make the classes concrete, not to define them. Once classified,
+the artifact set mirrors the change classes in `AGENTS.md`:
 
 - **S — Small**: no spec artifact. Only use this when the change truly needs no
   discovery and no owner decision (a typo, a local rename, a test for existing behavior).

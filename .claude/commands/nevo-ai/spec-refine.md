@@ -22,18 +22,29 @@ focus area to narrow the refinement.
 4. Detect, per `references/artifact-policy.md` and `references/review-policy.md`:
    unresolved owner decisions, missing or untestable acceptance criteria, oversized
    artifacts, missing area decomposition, duplicated requirements, task context bloat,
-   unclear dependencies, documentation impact, migration/compatibility gaps.
-5. Present the proposed refinements using the facts/inferences/recommendation/decision
+   unclear dependencies, documentation impact, migration/compatibility gaps, and — per
+   `references/review-policy.md` — a gated decision that only has a single proposed
+   approach instead of a real option analysis.
+5. Re-run the signal evaluation from `references/triage-policy.md` if refinement reveals
+   information that wasn't available at classification time. If a signal flips (e.g. the
+   change turns out to touch a public contract), this is an **escalation** — name the
+   flipped signal explicitly to the owner and follow the escalation rule in
+   `docs/ai/specification-workflow.md` rather than quietly restructuring the spec under
+   the old classification.
+6. If refinement surfaces a gated concern (`AGENTS.md` owner-approval list) that the
+   spec doesn't yet have an option analysis for, run
+   `references/solution-option-analysis.md` before proposing the refinement.
+7. Present the proposed refinements using the facts/inferences/recommendation/decision
    separation from `references/decision-policy.md`.
-6. **Wait for owner approval** before applying any refinement that changes behavior,
+8. **Wait for owner approval** before applying any refinement that changes behavior,
    scope, acceptance criteria, or architecture. Purely editorial fixes (typos, broken
    links, formatting) may be applied and reported without a stop, if the owner's
    invocation didn't already scope this command to read-only review.
-7. Apply only the approved updates. Record any new owner decisions via
+9. Apply only the approved updates. Record any new owner decisions via
    `templates/owner-decisions.md`.
-8. Run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if docs were
-   touched).
-9. Do not implement code — this command only edits specification artifacts under
-   `specs/active/<change-id>/`.
+10. Run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if docs were
+    touched).
+11. Do not implement code — this command only edits specification artifacts under
+    `specs/active/<change-id>/`.
 
 Report: what was refined, what still needs an owner decision, and validation results.

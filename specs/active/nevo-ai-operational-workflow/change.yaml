@@ -14,3 +14,9 @@ tasks:
     order: 1
     file: tasks/01-add-operational-layer.md
     status: implemented
+  - id: add-technical-decision-support
+    order: 2
+    file: tasks/02-add-technical-decision-support.md
+    status: implemented
+    depends_on:
+      - add-operational-layer

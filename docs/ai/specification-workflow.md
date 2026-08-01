@@ -7,6 +7,7 @@ read_when:
   - starting a new change
   - deciding how much specification a change needs
   - unsure whether a decision needs owner approval
+  - presenting an architectural, public-API, or package-boundary decision to the owner
 summary: >
   Vendor-neutral description of NEvo's human-led, spec-anchored development process:
   how changes are classified, discovered, specified, decomposed into tasks, and
@@ -15,6 +16,7 @@ related:
   - ai.how-to-navigate
   - ai.task-execution-policy
   - adr.0002-lightweight-markdown-workflow
+  - adr.0003-technical-decision-triage-and-option-analysis
 ---
 
 # NEvo specification workflow
@@ -57,6 +59,51 @@ authoritative table; in summary:
 When in doubt between two classes, prefer the smaller one and let refinement upgrade it
 if the owner's decisions turn out to require more structure.
 
+### Signal-based classification
+
+Judgment calls on S/T/A/E drift over time without a shared basis. Before classifying,
+evaluate the change against these technical signals — each rated GREEN (clearly yes,
+with evidence), YELLOW (uncertain — state what's missing), or RED (clearly no /
+contested):
+
+| Signal | Question |
+|---|---|
+| Behavioral clarity | Is the expected behavior fully determined by existing tests, docs, or an established pattern already used elsewhere in the codebase? |
+| Public surface impact | Does the change avoid altering any public API, contract, or a package's exported surface? |
+| Package boundary impact | Is the change contained within one package/project, introducing no new inter-package dependency (see `docs/architecture/package-boundaries.md`)? |
+| Blast radius | Does the change affect only the named file(s)/type(s), without touching shared infrastructure (messaging pipeline, persistence base types, middleware pipeline)? |
+| Reversibility | Can the change be reverted without a migration, a breaking-change release, or renegotiating a contract? |
+
+Never infer GREEN from silence — evaluate only what the request and repository evidence
+actually support.
+
+Classification rule:
+- All GREEN → **S**
+- One or two YELLOW, blast radius GREEN → **T**
+- Public surface impact RED, package boundary impact RED, or blast radius RED → **A**
+- Reversibility RED (cannot be undone without a migration or breaking release) → at
+  least **A**, regardless of the other signals
+- Classification cannot be safely determined from available evidence → **E** (discovery
+  first; the owner decides the next class from the discovery report)
+
+### Escalation is explicit and one-way
+
+A change may be reclassified upward mid-work, never silently absorbed into the original
+scope:
+
+- **S → T**: implementation reveals a public-surface change, a new inter-package
+  dependency, or a behavior change beyond the original one-line description.
+- **T → A**: implementation reveals the change cannot stay inside one package, needs a
+  new external dependency, changes transaction/persistence semantics, or requires a
+  breaking change.
+- **A** is the final level for implementation work. If an Architectural change turns out
+  to be genuinely unscoped, drop back to **E** (discovery) explicitly rather than
+  guessing further.
+
+When escalating: stop, name the specific signal that flipped, state the new
+classification, and run the owner-approval gate below before continuing — do not keep
+implementing under the old classification's assumptions.
+
 ## Discovery before specification
 
 Before proposing a specification, an agent must ground itself in the current repository
@@ -85,6 +132,116 @@ external dependencies, transaction semantics, persistence ownership, message pro
 behavior changes, breaking changes, compatibility decisions, new packages/projects,
 CI/CD changes). When a change touches one of these, the agent presents options and a
 recommendation, then stops and waits — it does not proceed on an assumed answer.
+
+## Solution option analysis
+
+**The agent's role is to support the decision, not make it.** Whenever a change is
+classified **T** or larger *and* touches one of the owner-approval gates above, the
+agent does not go straight from "here's a change" to "here's the plan" — it stops
+between the two and presents options.
+
+### Do not default to the simplest option
+
+The instinct to reach for the smallest possible diff is useful for effort estimation,
+but wrong as a decision rule here. For any change gated above, present at least two
+meaningfully different options — typically framed as:
+
+1. **Minimal change** — the smallest change that satisfies the acceptance criteria using
+   established patterns already in the codebase.
+2. **Balanced improvement** — addresses the underlying structural issue (the reason a
+   minimal change would be a shortcut) without a full redesign.
+3. **Target shape** — the cleanest long-term structure, if its cost is justified.
+
+Rename these to fit the actual trade-off being made. Do not force a third option when
+only two real trade-offs exist; propose a fourth when a genuinely distinct trade-off
+exists beyond these three. Each option must represent a materially different trade-off,
+not a cosmetic variation of another.
+
+### Check for an existing solution before proposing a custom one
+
+Before designing a custom implementation for a generic concern (serialization, caching,
+retry/backoff, background scheduling, schema/OpenAPI generation, and similar
+infrastructure-shaped problems), check whether the .NET BCL or an already-referenced
+package already solves it. Include "use existing package/API `X`" as a candidate
+alongside "custom implementation" — for a framework whose own purpose is to provide
+building blocks (see `README.md`), reinventing infrastructure that already exists
+elsewhere is a cost, not a virtue. Adding a *new* external dependency still requires
+owner approval regardless of which option is eventually chosen.
+
+### Evaluate options on relevant dimensions only
+
+Include dimensions that would actually change the recommendation; state "not relevant"
+for the rest rather than filling every cell:
+
+implementation cost · long-term maintenance cost · coupling and cohesion (see the
+coupling checks below) · reversibility · public-API / breaking-change risk · test and
+regression scope · performance/allocation impact · consistency with established NEvo
+patterns (e.g. `Either<Exception, T>`, package boundaries) · migration cost if replacing
+existing behavior.
+
+Size each option with a t-shirt size — a relative-complexity signal, not a time
+estimate:
+
+| Size | Meaning |
+|---|---|
+| XS | Trivial, local, no structural impact |
+| S | Small, one package, known pattern |
+| M | Moderate — one main package plus some cross-cutting impact |
+| L | Significant — affects multiple packages or a public contract |
+| XL | Architectural — new package, dependency-direction change, breaking change, migration |
+| XXL | Too large for one slice — split before proceeding |
+
+### Coupling and package-boundary checks
+
+Run these whenever an option introduces or changes a cross-package relationship (see
+`docs/architecture/package-boundaries.md` for the current boundaries):
+
+- **Structural coupling** — does the option add a new dependency between packages? Is
+  its direction consistent with the documented boundaries? A new dependency against the
+  documented direction, or a new bidirectional dependency, is an architectural concern
+  requiring approval regardless of which option is otherwise cheapest.
+- **API-surface coupling** — does any option require one package to depend on another
+  package's *internal* (non-exported) types? That is a boundary violation regardless of
+  short-term convenience.
+- **Extraction test** — if the affected package were versioned and shipped
+  independently, would this option create a circular reference back to it? Flag this
+  explicitly as a high-risk consequence if so.
+
+### The consequences rule
+
+When two or more options have materially equal cost, **do not silently pick one.** State
+explicitly, for each option, what it unlocks (future work it makes easier or possible)
+and what it forecloses (what becomes harder or impossible later if this option is
+chosen). This is a required part of the recommendation, not an optional aside — the
+owner may weigh a foreclosed future path very differently than the agent would.
+
+### Recommending
+
+Recommend the option that best satisfies, in order: (1) the acceptance criteria, (2) the
+owner's stated priorities, if any were given, (3) known constraints (ADRs, package
+boundaries, compatibility requirements), (4) lowest long-term maintenance cost among the
+options that satisfy 1–3. Implementation cost *now* is a tie-breaker of last resort, not
+the primary driver — do not let it override a stated priority or a foreclosed-future
+consequence the owner has not weighed in on. Always state explicitly why each
+non-recommended option was rejected.
+
+### Presenting for confirmation
+
+Present, before generating any implementation plan: the recommended option and why, what
+would be implemented if approved, what stays out of scope, decisions the owner must make
+now versus ones that can be deferred, and any unresolved open questions that still
+matter. Then ask for a decision using a small, closed set of choices rather than an
+open-ended question, for example:
+
+```
+1. Yes, use this option.
+2. No, revise the options.
+3. Re-analyze with different priorities.
+4. I want to provide my own direction.
+```
+
+Do not generate implementation tasks in the same step unless the owner has already
+approved a direction.
 
 ## Artifact decomposition
 

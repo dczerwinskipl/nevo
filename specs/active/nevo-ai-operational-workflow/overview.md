@@ -17,6 +17,12 @@ skill, and a read-only research subagent — without replacing `AGENTS.md`,
 description into `docs/ai/specification-workflow.md` so Claude, Cursor, and Copilot
 adapters can point to one source instead of duplicating it.
 
+A second task extends the same operational layer with technical (non-domain) decision
+support — signal-based change triage and mandatory solution-option analysis for
+architecture-gated decisions — adapted from reviewing an external, DDD-oriented example
+repository and keeping only what applies to a technical framework with no business
+domain to model. See [ADR-0003](../../../docs/adr/ADR-0003-technical-decision-triage-and-option-analysis.md).
+
 This change was authorized in full by an owner-provided instruction document, copied
 verbatim into this change directory as
 [`origin-instruction.md`](origin-instruction.md) for traceability, which pre-approved the
@@ -45,6 +51,15 @@ for what remained open.
 - `README.md` gains a short "Working with AI" section pointing to `AGENTS.md` and
   `docs/ai/specification-workflow.md` (owner-requested during this change, see Owner
   decisions).
+- `docs/ai/specification-workflow.md` includes a signal-based classification/escalation
+  procedure and a "Solution option analysis" section (≥2 options required for
+  architecture-gated decisions, do-not-default-to-simplest principle, consequences
+  stated when options tie on cost) — vendor-neutral, so Cursor/Copilot benefit too.
+- `docs/adr/ADR-0003-*.md` records why these two mechanisms were adopted and what was
+  deliberately left out (DDD tactical/strategic modeling, artifact-lifecycle machinery).
+- The Claude skill's `references/triage-policy.md` and
+  `references/solution-option-analysis.md` point to that policy rather than duplicating
+  it; `/nevo-ai:spec-create`, `spec-refine`, and `spec-review` are updated to use them.
 - `node tools/docs.mjs validate` and `node tools/specs.mjs validate` pass.
 - No file under `src/**`, `tests/**`, `examples/**`, `*.csproj`, `*.sln`,
   `Directory.Build.props`, `Directory.Packages.props`, `global.json`, or
