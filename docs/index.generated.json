@@ -1,0 +1,330 @@
+{
+  "generated": "2026-08-01T13:48:09.972Z",
+  "docs": [
+    {
+      "file": "docs/architecture/event-sourcing.md",
+      "id": "architecture.event-sourcing",
+      "type": "architecture",
+      "title": "Event sourcing",
+      "status": "experimental",
+      "scope": [
+        "event-sourcing",
+        "aggregates",
+        "ddd"
+      ],
+      "read_when": [
+        "working on NEvo.Ddd.EventSourcing",
+        "reviewing the event sourcing branch"
+      ],
+      "summary": "Experimental event sourcing implementation. In progress. Do not use as the basis for refactoring other modules. Characterization tests are needed before changes.",
+      "related": [
+        "architecture.messaging-pipeline",
+        "architecture.package-boundaries"
+      ]
+    },
+    {
+      "file": "docs/architecture/inbox-outbox.md",
+      "id": "architecture.inbox-outbox",
+      "type": "architecture",
+      "title": "Inbox and outbox",
+      "status": "current",
+      "scope": [
+        "messaging",
+        "inbox",
+        "outbox",
+        "idempotency"
+      ],
+      "read_when": [
+        "working with inbox or outbox",
+        "implementing idempotency",
+        "modifying message persistence"
+      ],
+      "summary": "Inbox (idempotency) and outbox (transactional message publishing) abstractions. Both are opt-in — not required for basic messaging scenarios.",
+      "related": [
+        "architecture.persistence",
+        "architecture.messaging-pipeline"
+      ]
+    },
+    {
+      "file": "docs/architecture/message-context.md",
+      "id": "architecture.message-context",
+      "type": "architecture",
+      "title": "Message context",
+      "status": "current",
+      "scope": [
+        "messaging",
+        "context",
+        "correlation"
+      ],
+      "read_when": [
+        "modifying context propagation",
+        "adding context features",
+        "working with correlation or causation IDs"
+      ],
+      "summary": "Describes IMessageContext, its propagation via AsyncLocal, header management, and the feature storage mechanism.",
+      "related": [
+        "architecture.messaging-pipeline"
+      ]
+    },
+    {
+      "file": "docs/architecture/messaging-pipeline.md",
+      "id": "architecture.messaging-pipeline",
+      "type": "architecture",
+      "title": "Messaging pipeline",
+      "status": "current",
+      "scope": [
+        "messaging",
+        "middleware",
+        "handlers",
+        "dispatch"
+      ],
+      "read_when": [
+        "modifying message processing",
+        "adding middleware",
+        "changing handler resolution",
+        "adding a new processing strategy"
+      ],
+      "summary": "Describes message dispatch, middleware chain execution, processing strategy resolution, and handler invocation. Entry point: IMessageProcessor.",
+      "related": [
+        "architecture.processing-model",
+        "architecture.message-context",
+        "architecture.inbox-outbox"
+      ]
+    },
+    {
+      "file": "docs/architecture/orchestration.md",
+      "id": "architecture.orchestration",
+      "type": "architecture",
+      "title": "Orchestration",
+      "status": "experimental",
+      "scope": [
+        "orchestration",
+        "sagas"
+      ],
+      "read_when": [
+        "working on NEvo.Orchestrating"
+      ],
+      "summary": "Experimental saga orchestration implementation. In progress. Decoupled from messaging. Do not use as basis for refactoring other modules.",
+      "related": [
+        "architecture.package-boundaries"
+      ]
+    },
+    {
+      "file": "docs/architecture/overview.md",
+      "id": "architecture.overview",
+      "type": "architecture",
+      "title": "NEvo architecture overview",
+      "status": "current",
+      "scope": [
+        "overview",
+        "modules",
+        "philosophy"
+      ],
+      "read_when": [
+        "starting work on any module",
+        "evaluating scope of a change",
+        "writing a new specification"
+      ],
+      "summary": "High-level overview of NEvo's modular structure, design philosophy, and current maturity status of each module.",
+      "related": [
+        "architecture.package-boundaries",
+        "architecture.messaging-pipeline"
+      ]
+    },
+    {
+      "file": "docs/architecture/package-boundaries.md",
+      "id": "architecture.package-boundaries",
+      "type": "architecture",
+      "title": "Package boundaries",
+      "status": "current",
+      "scope": [
+        "packages",
+        "dependencies",
+        "modularity"
+      ],
+      "read_when": [
+        "adding a new project reference",
+        "evaluating whether a new package is needed",
+        "checking allowed dependency direction"
+      ],
+      "summary": "Dependency graph, allowed reference directions, and modularity rules. Core rule: dependencies flow downward only. No upward references.",
+      "related": [
+        "architecture.overview"
+      ]
+    },
+    {
+      "file": "docs/architecture/persistence.md",
+      "id": "architecture.persistence",
+      "type": "architecture",
+      "title": "Persistence",
+      "status": "current",
+      "scope": [
+        "persistence",
+        "entity-framework",
+        "transactions"
+      ],
+      "read_when": [
+        "working with EF DbContext",
+        "modifying persistence behavior",
+        "working on transaction-related code"
+      ],
+      "summary": "Current EF Core integration, DbContext usage, and open questions around transaction ownership. Transaction semantics are explicitly unresolved.",
+      "related": [
+        "architecture.inbox-outbox",
+        "architecture.package-boundaries"
+      ]
+    },
+    {
+      "file": "docs/architecture/processing-model.md",
+      "id": "architecture.processing-model",
+      "type": "architecture",
+      "title": "Processing model",
+      "status": "current",
+      "scope": [
+        "messaging",
+        "strategies",
+        "handlers"
+      ],
+      "read_when": [
+        "adding a new message type",
+        "changing dispatch strategy",
+        "modifying handler resolution"
+      ],
+      "summary": "Describes how NEvo selects a processing strategy for a given message and how handlers are resolved. Strategy pattern with factory, predicate-filtered selection.",
+      "related": [
+        "architecture.messaging-pipeline"
+      ]
+    },
+    {
+      "file": "docs/development/commit-conventions.md",
+      "id": "development.commit-conventions",
+      "type": "development",
+      "title": "Commit conventions",
+      "status": "current",
+      "read_when": [
+        "writing a commit message",
+        "writing a PR title",
+        "reviewing a PR"
+      ],
+      "summary": "Conventional Commits format adopted for this project. PR title is the squash commit message — it must follow this format.",
+      "related": [
+        "development.git-workflow",
+        "development.pull-requests"
+      ]
+    },
+    {
+      "file": "docs/development/git-workflow.md",
+      "id": "development.git-workflow",
+      "type": "development",
+      "title": "Git workflow",
+      "status": "current",
+      "read_when": [
+        "creating a branch",
+        "preparing a pull request",
+        "using the specs CLI",
+        "starting a new task"
+      ],
+      "summary": "Branch naming, PR strategy, merge model, and specs CLI integration for branch lifecycle.",
+      "related": [
+        "development.commit-conventions",
+        "development.pull-requests"
+      ]
+    },
+    {
+      "file": "docs/development/local-setup.md",
+      "id": "development.local-setup",
+      "type": "development",
+      "title": "Local setup",
+      "status": "current",
+      "read_when": [
+        "setting up the development environment",
+        "running the example applications"
+      ],
+      "summary": "Prerequisites, build commands, and how to run the example applications locally.",
+      "related": [
+        "development.testing"
+      ]
+    },
+    {
+      "file": "docs/development/pull-requests.md",
+      "id": "development.pull-requests",
+      "type": "development",
+      "title": "Pull requests",
+      "status": "current",
+      "read_when": [
+        "preparing a pull request",
+        "reviewing a pull request"
+      ],
+      "summary": "PR format, required fields by change class, and review expectations.",
+      "related": [
+        "development.git-workflow",
+        "development.commit-conventions"
+      ]
+    },
+    {
+      "file": "docs/development/testing.md",
+      "id": "development.testing",
+      "type": "development",
+      "title": "Testing",
+      "status": "current",
+      "read_when": [
+        "writing tests",
+        "choosing a test approach",
+        "adding a test project"
+      ],
+      "summary": "Test stack, project structure, coverage expectations, and conventions. Integration tests for the messaging pipeline do not yet exist — this is a known gap.",
+      "related": [
+        "development.local-setup"
+      ]
+    },
+    {
+      "file": "docs/adr/ADR-0001-conventional-commits.md",
+      "id": "adr.0001-conventional-commits",
+      "type": "adr",
+      "title": "Adopt Conventional Commits",
+      "status": "accepted",
+      "date": "2026-08-01",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/adr/ADR-0002-lightweight-markdown-workflow.md",
+      "id": "adr.0002-lightweight-markdown-workflow",
+      "type": "adr",
+      "title": "Use lightweight custom Markdown workflow for AI-assisted SDLC",
+      "status": "accepted",
+      "date": "2026-08-01",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/ai/how-to-navigate.md",
+      "id": "ai.how-to-navigate",
+      "type": "ai",
+      "title": "How to navigate NEvo artifacts",
+      "status": "current",
+      "read_when": [
+        "starting any task in this repository"
+      ],
+      "summary": "Step-by-step guide for agents to find the right context for a task. Always start with the specs CLI, not by scanning all files.",
+      "related": [
+        "ai.task-execution-policy"
+      ]
+    },
+    {
+      "file": "docs/ai/task-execution-policy.md",
+      "id": "ai.task-execution-policy",
+      "type": "ai",
+      "title": "Task execution policy",
+      "status": "current",
+      "read_when": [
+        "starting implementation of a task",
+        "deciding whether to proceed or stop"
+      ],
+      "summary": "Rules for how agents execute tasks: what they may decide independently, what requires owner approval, and when to stop.",
+      "related": [
+        "ai.how-to-navigate"
+      ]
+    }
+  ]
+}

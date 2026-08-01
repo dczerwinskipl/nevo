@@ -1,0 +1,32 @@
+---
+description: NEvo project rules for Cursor
+globs:
+  - "**/*.cs"
+  - "**/*.csproj"
+  - "**/*.md"
+  - "**/*.yaml"
+  - "**/*.mjs"
+alwaysApply: true
+---
+
+# NEvo — Cursor Rules
+
+Read `AGENTS.md` in the repository root before acting on any task. This file is the source
+of truth for change classes, decision policy, and context loading rules.
+
+## Quick reference
+
+- Change classes: S (small), T (standard), A (architectural), E (exploratory)
+- Spec CLI: `node tools/specs.mjs next` → `context` → `start`
+- Docs CLI: `node tools/docs.mjs validate`
+- Owner approval required for: public API, package dependencies, transaction semantics,
+  persistence ownership, breaking changes, new external packages
+
+## Architecture
+
+Architecture documentation is in `docs/architecture/`. Do not duplicate it here.
+ADRs are in `docs/adr/`. Development rules are in `docs/development/`.
+
+## Git safety
+
+Do not commit, push, or create PRs without explicit owner instruction. Do not use --no-verify.
