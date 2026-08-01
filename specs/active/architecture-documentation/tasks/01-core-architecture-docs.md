@@ -37,7 +37,7 @@ as the first real spec. Create `tools/docs.mjs` and `tools/specs.mjs`.
 - Documents describe current behavior with evidence from the codebase
 - Experimental modules (`event-sourcing`, `orchestration`) are explicitly marked
 - Open questions are noted — not filled with assumptions
-- `tools/specs.mjs next` returns this task as implemented
+- `node tools/specs.mjs validate` reports no errors for this change
 - `tools/docs.mjs generate` produces valid `docs/index.generated.json`
 
 ## Out of scope

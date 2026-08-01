@@ -198,7 +198,8 @@ function generateIndexes(docs) {
     md += '| ID | Title | Status | Scopes |\n|---|---|---|---|\n';
     for (const doc of typeDocs) {
       const scopes = Array.isArray(doc.scope) ? doc.scope.join(', ') : (doc.scope || '');
-      md += `| \`${doc.id}\` | [${doc.title}](${doc.file}) | ${doc.status} | ${scopes} |\n`;
+      const relLink = relative(DOCS_DIR, join(ROOT, doc.file)).replace(/\\/g, '/');
+      md += `| \`${doc.id}\` | [${doc.title}](${relLink}) | ${doc.status} | ${scopes} |\n`;
     }
     md += '\n';
   }
@@ -275,9 +276,10 @@ switch (cmd) {
     break;
   }
   case 'find': {
-    const scope = args[args.indexOf('--scope') + 1] || null;
-    const type = args[args.indexOf('--type') + 1] || null;
-    const format = args[args.indexOf('--format') + 1] || 'text';
+    const flagValue = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
+    const scope = flagValue('--scope');
+    const type = flagValue('--type');
+    const format = flagValue('--format') || 'text';
     findDocs(docs, { scope, type, format });
     break;
   }

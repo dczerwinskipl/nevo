@@ -316,18 +316,18 @@ function validateSpecs() {
       }
     }
 
-    // Simple cycle detection
-    for (const task of change.tasks) {
-      const visited = new Set();
-      const stack = [task.id];
-      while (stack.length) {
-        const cur = stack.pop();
-        if (visited.has(cur)) { errors.push(`${change._file}: dependency cycle involving '${cur}'`); break; }
-        visited.add(cur);
-        const t = change.tasks.find(t => t.id === cur);
-        for (const d of t?.depends_on || []) stack.push(d);
-      }
-    }
+    // Cycle detection: DFS with path tracking (handles diamond deps correctly)
+    const safelyExplored = new Set();
+    const dfs = (id, path) => {
+      if (path.has(id)) { errors.push(`${change._file}: dependency cycle involving '${id}'`); return; }
+      if (safelyExplored.has(id)) return;
+      path.add(id);
+      const t = change.tasks.find(t => t.id === id);
+      for (const d of t?.depends_on || []) dfs(d, path);
+      path.delete(id);
+      safelyExplored.add(id);
+    };
+    for (const task of change.tasks) dfs(task.id, new Set());
   }
   return errors;
 }
