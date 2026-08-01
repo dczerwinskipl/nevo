@@ -11,6 +11,13 @@ change classes, decision policy, and context loading rules for this project.
 - New external packages require owner approval
 - Transaction semantics and persistence ownership require owner approval
 
+## Workflow
+
+The full, vendor-neutral specification workflow is `docs/ai/specification-workflow.md`,
+driven by `tools/specs.mjs` and `tools/docs.mjs`. Follow that document and `AGENTS.md`
+directly — this repository does not define Copilot-specific slash commands or prompts;
+those are Claude-specific (`.claude/commands/nevo-ai/`) and should not be copied here.
+
 ## Project stack
 
 - .NET 9, C# with preview features in core projects

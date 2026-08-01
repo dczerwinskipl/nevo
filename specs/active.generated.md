@@ -5,3 +5,4 @@
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
 | `architecture-documentation` | Architecture documentation | in-implementation | 10 | 2026-08-01 |
+| `nevo-ai-operational-workflow` | NEvo AI operational workflow (Claude Code layer) | in-implementation | 10 | 2026-08-01 |

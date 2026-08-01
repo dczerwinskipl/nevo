@@ -27,6 +27,14 @@ of truth for change classes, decision policy, and context loading rules.
 Architecture documentation is in `docs/architecture/`. Do not duplicate it here.
 ADRs are in `docs/adr/`. Development rules are in `docs/development/`.
 
+## Workflow
+
+The full, vendor-neutral specification workflow is `docs/ai/specification-workflow.md`.
+It, together with `tools/specs.mjs` and `tools/docs.mjs`, is the source of truth for how
+changes are discovered, specified, and implemented in this repository. Cursor has no
+namespaced commands of its own here — follow that document and `AGENTS.md` directly
+rather than emulating Claude's `/nevo-ai:*` commands.
+
 ## Git safety
 
 Do not commit, push, or create PRs without explicit owner instruction. Do not use --no-verify.

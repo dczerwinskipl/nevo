@@ -40,3 +40,22 @@ dotnet test
 node tools/specs.mjs validate
 node tools/docs.mjs validate
 ```
+
+## `/nevo-ai:*` commands
+
+The shared, vendor-neutral workflow lives in `docs/ai/specification-workflow.md`. Claude
+Code exposes it through namespaced commands (`.claude/commands/nevo-ai/`), backed by the
+shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
+`nevo-ai-spec-researcher` subagent:
+
+| Command | Purpose |
+|---|---|
+| `/nevo-ai:spec-create <change-id> <goal>` | Discover, then create a new specification after owner decisions |
+| `/nevo-ai:spec-refine <change-id> [focus]` | Refine an existing active spec (no implementation) |
+| `/nevo-ai:spec-review <change-id>` | Read-only implementation-readiness review |
+| `/nevo-ai:task-next [filters]` | Return the next approved, ready task |
+| `/nevo-ai:task-start <change-id> <task-id>` | Safely start one task and prepare its context |
+| `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |
+
+Do not use unqualified `/spec-*` or `/task-*` commands — this repository only defines
+the `nevo-ai` namespace.
