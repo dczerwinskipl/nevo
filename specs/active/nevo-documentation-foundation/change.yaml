@@ -86,7 +86,7 @@ tasks:
   - id: navigation-and-validation
     order: 13
     file: tasks/13-navigation-and-validation.md
-    status: approved
+    status: implemented
     depends_on:
       - exampleapp-walkthrough-guide
       - quickstart-and-installation-guide

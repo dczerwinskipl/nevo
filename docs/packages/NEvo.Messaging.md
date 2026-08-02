@@ -43,6 +43,9 @@ all through the `Either<Exception, T>` convention inherited from
   abstractions — see [Inbox and outbox](../architecture/inbox-outbox.md)
   (`architecture.inbox-outbox`) for when to use each and the wire format
   (`MessageEnvelopeDto`).
+- Define the event side of messaging (`NEvo.Messaging.Events` namespace: `Event`,
+  `IEventHandler<T>`, `IEventPublisher`) — unlike commands, this lives in
+  `NEvo.Messaging` itself, not `NEvo.Messaging.Cqrs`. See "Public surface" below.
 
 ## Dependencies
 
@@ -73,22 +76,53 @@ public interface IMessage<TResult> : IMessage { }
 object>>` — see [Messaging pipeline](../architecture/messaging-pipeline.md) § "Handler
 registration" for how handlers are discovered and adapted.
 
+### Events (`NEvo.Messaging.Events`)
+
+```csharp
+public record Event : Message;
+
+public interface IEventHandler<in TMessage> where TMessage : Event
+{
+    Task<Either<Exception, Unit>> HandleAsync(TMessage message, IMessageContext messageContext, CancellationToken cancellationToken);
+}
+
+public interface IEventPublisher
+{
+    Task<Either<Exception, Unit>> PublishAsync(Event @event, CancellationToken cancellationToken);
+}
+```
+
+Unlike a command (exactly one handler expected), an event can have **multiple**
+handlers, processed either sequentially or in parallel
+(`SequentialEventProcessingStrategy`/`ParallelEventProcessingStrategy`, both
+registered by `AddEvents()` below) — see
+[Messaging pipeline](../architecture/messaging-pipeline.md) for how the processing
+strategy is selected per message.
+
 ## Configuration
 
 ```csharp
 builder.Services.AddMessages();
+builder.Services.AddEvents(); // registers IEventPublisher and event handler discovery
 ```
 
-Registers (per `src/NEvo.Messaging/ServiceCollectionExtensions.cs`): the handler
-registry/provider (reflection-based discovery), `IMessageContextAccessor`, the default
-`CorrelationIdMessageProcessingMiddleware`/`CausationIdMessageProcessingMiddleware`/
-`TelemetryMessageProcessingMiddleware`, `IMessageProcessor`, `IMessageContextProvider`,
-internal dispatch/publish strategies, and transport defaults (`IMessageEnvelopeMapper`,
-`IMessageSerializer`, `IMessageTypeMapper`). Additional middleware is registered via
+`AddMessages()` registers (per `src/NEvo.Messaging/ServiceCollectionExtensions.cs`):
+the handler registry/provider (reflection-based discovery), `IMessageContextAccessor`,
+the default `CorrelationIdMessageProcessingMiddleware`/
+`CausationIdMessageProcessingMiddleware`/`TelemetryMessageProcessingMiddleware`,
+`IMessageProcessor`, `IMessageContextProvider`, internal dispatch/publish strategies,
+and transport defaults (`IMessageEnvelopeMapper`, `IMessageSerializer`,
+`IMessageTypeMapper`). Additional middleware is registered via
 `AddMessageProcessingMiddleware<T>()` / `AddMessageProcessingHandlerMiddleware<T>()`.
 Inbox/outbox are **not** registered by `AddMessages()` — both are opt-in (see
 [Inbox and outbox](../architecture/inbox-outbox.md)) and require an explicit
 implementation registration (e.g. from `NEvo.Messaging.EntityFramework`).
+
+`AddEvents()` is a separate call (per `src/NEvo.Messaging/Events/
+ServiceCollectionExtensions.cs`): registers the event handler adapter factory, both
+sequential/parallel processing strategies, `IEventPublisher`, and the default event
+publish-strategy factory. Call it alongside `AddMessages()` if you publish or handle
+events, not just commands.
 
 ## Basic usage
 
@@ -103,6 +137,20 @@ public class MyCommandHandler : IMessageHandler
 
 // dispatch:
 Either<Exception, int> result = await messageProcessor.ProcessMessageAsync(new MyCommand("x"), context, ct);
+```
+
+Publishing an event (requires `AddEvents()`):
+
+```csharp
+public record MyEvent(string Data) : Event;
+
+public class MyEventHandler : IEventHandler<MyEvent>
+{
+    public Task<Either<Exception, Unit>> HandleAsync(MyEvent message, IMessageContext context, CancellationToken cancellationToken)
+        => UnitExt.DefaultEitherTask;
+}
+
+await eventPublisher.PublishAsync(new MyEvent("x"), cancellationToken);
 ```
 
 ## Advanced usage

@@ -41,24 +41,42 @@ Core rule: dependencies flow downward only, no upward references — see
 
 ## Packages
 
-Per-package documentation lives under `docs/packages/`, grouped by
-[Package classification](packages/classification.md). Individual package docs are added
-incrementally by later tasks in the `nevo-documentation-foundation` change — until a
-package has its own doc, the classification page and the architecture docs above are the
-canonical references.
+All 13 real `src/` packages have their own doc under `docs/packages/`, grouped per
+[Package classification](packages/classification.md):
+
+| Doc | Status | Covers |
+|---|---|---|
+| [NEvo.Core](packages/NEvo.Core.md) | current | Functional primitives (`Either<Exception, T>`, `Check`) and the middleware-pipeline abstraction. Root of the dependency graph. |
+| [NEvo.Messaging](packages/NEvo.Messaging.md) | current | Message processing pipeline: dispatch, middleware chain, handler resolution, context, opt-in inbox/outbox. |
+| [NEvo.Messaging.Cqrs](packages/NEvo.Messaging.Cqrs.md) | current | CQRS command side (`Command`, `ICommandHandler`, `ICommandDispatcher`). No query-side support. |
+| [NEvo.Messaging.Authorization](packages/NEvo.Messaging.Authorization.md) | current | Populates message-pipeline user context and enforces `[AllowPermission]` checks. No DI registration helper. |
+| [NEvo.Messaging.Web](packages/NEvo.Messaging.Web.md) | current | REST dispatch to external services and ASP.NET Core route mapping. |
+| [NEvo.Messaging.EntityFramework](packages/NEvo.Messaging.EntityFramework.md) | current | EF-backed inbox/outbox implementations. Only inbox has a DI registration helper. |
+| [NEvo.Authorization](packages/NEvo.Authorization.md) | current | Core user/role/permission provider abstractions, transport-agnostic. |
+| [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current | Adapts ASP.NET Core claims into `NEvo.Authorization`'s abstractions. Despite the name, no dependency on `NEvo.Web`. |
+| [NEvo.EntityFramework](packages/NEvo.EntityFramework.md) | current | Shared EF infrastructure: startup migrations with retry. Not a dependency of the other two EF packages. |
+| [NEvo.Web](packages/NEvo.Web.md) | current | HTTP client wrapper (named clients, OAuth/none auth, REST base). Not middleware or routing. |
+| [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental | Saga-style orchestration: sequential steps with reverse-order compensation. Decoupled from messaging. |
+| [NEvo.Orchestrating.EntityFramework](packages/NEvo.Orchestrating.EntityFramework.md) | experimental | EF entity shape for orchestrator state — does not itself implement a working repository. |
+| [NEvo.Ddd.EventSourcing](packages/NEvo.Ddd.EventSourcing.md) | experimental | Event-sourced aggregates (decide/evolve). Default event store is a non-functional stub. |
 
 ## Guides
 
-Use-case and end-to-end guides live under `docs/guides/`, using
-[the guide-doc template](templates/guide-doc-template.md). Populated by later tasks in
-the `nevo-documentation-foundation` change (quickstart/installation, ExampleApp
-walkthrough, developer/extension guides).
+Use-case and end-to-end guides live under `docs/guides/`:
+
+| Guide | Covers |
+|---|---|
+| [Installation](guides/installation.md) | Referencing NEvo packages in a new project (no NuGet feed exists yet). |
+| [Quick start](guides/quick-start.md) | Minimal working setup with `NEvo.Core` + `NEvo.Messaging`, dispatching a first message. |
+| [ExampleApp walkthrough](guides/example-app-walkthrough.md) | End-to-end tour of `examples/ExampleApp`'s 5 projects: auth, permissions, event sourcing, cross-service dispatch. |
+| [Extending NEvo](guides/extending-nevo.md) | How to add a transport, persistence mechanism, handler, or event type — each grounded in an existing package. |
 
 ## Development
 
 | Doc | Covers |
 |---|---|
 | [Local setup](development/local-setup.md) | Prerequisites, build commands, running the example apps. |
+| [Coding conventions](development/coding-conventions.md) | Standing rules: `Either<Exception, T>`, dependency direction, DI registration shape. |
 | [Testing](development/testing.md) | Test stack, project structure, coverage expectations. |
 | [Git workflow](development/git-workflow.md) | Branch naming, PR strategy, specs CLI integration. |
 | [Commit conventions](development/commit-conventions.md) | Conventional Commits format (also the PR title format). |

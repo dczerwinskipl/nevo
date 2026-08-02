@@ -258,3 +258,35 @@
     narrower scope.
 - **Date:** 2026-08-02
 - **Affected artifacts:** all remaining tasks in this change.
+
+## D12: Task 13's own scope — quality audit vs. "no new content"
+
+- **Question:** Task `navigation-and-validation`'s own file states "Out of scope:
+  Writing any new content — this task only links and validates what prior tasks
+  produced." Mid-session, the owner reviewed `NEvo.Messaging.Authorization.md` and
+  found real gaps (wiring completeness, failure-mode clarity), fixed there and in
+  `NEvo.Messaging.Web.md` immediately (before task 8), and explicitly agreed to defer
+  auditing the remaining already-committed package docs to this task rather than
+  stopping forward progress each time. Does that verbal agreement extend this task's
+  written scope to include fixing content gaps discovered during the audit, or does
+  the task file's "no new content" line override it?
+- **Options considered:** (1) the owner's real-time agreement extends this task's
+  scope for this specific, already-agreed audit — fix what the audit finds | (2) honor
+  the task file literally, do only linking/validation, and open a follow-up task for
+  any audit findings
+- **Decision:** Option (1).
+- **Rationale:** The owner's in-conversation agreement is the more specific and more
+  recent instruction, made with full knowledge of the task file's "no new content"
+  line (the audit-deferral conversation happened after task 8's own gap was found and
+  fixed). Re-litigating it here as a blocker would contradict what was already agreed.
+- **Consequences:** This task's diff includes one content fix beyond pure
+  linking/validation: `docs/packages/NEvo.Messaging.md` was missing any mention of
+  `NEvo.Messaging`'s own `Events` namespace (`Event`, `IEventHandler<T>`,
+  `IEventPublisher`, `AddEvents()`) — found via a structural audit of all 13 package
+  docs' section presence and `Configuration`-section code-sample presence, not a
+  fresh re-read of every doc from scratch. No other content gap was found in the
+  audit; the other 12 package docs' `Configuration` sections either had a wiring code
+  sample or accurately stated no DI registration exists.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/packages/NEvo.Messaging.md`, task
+  `navigation-and-validation`.
