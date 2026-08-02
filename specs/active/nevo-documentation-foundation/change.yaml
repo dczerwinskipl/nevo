@@ -17,7 +17,7 @@ tasks:
   - id: package-classification-and-navigation-hub
     order: 2
     file: tasks/02-package-classification-and-navigation-hub.md
-    status: approved
+    status: implemented
     depends_on:
       - doc-taxonomy-and-tooling
   - id: architecture-corrections

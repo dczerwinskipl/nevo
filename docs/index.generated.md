@@ -2,7 +2,19 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T13:24:50.690Z_
+_Generated: 2026-08-02T17:52:03.493Z_
+
+## Hub
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `docs.readme` | [NEvo documentation](README.md) | current |  |
+
+## Package
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `packages.classification` | [Package classification](packages/classification.md) | current |  |
 
 ## Architecture
 

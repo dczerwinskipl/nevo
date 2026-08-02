@@ -1,6 +1,23 @@
 {
-  "generated": "2026-08-02T13:24:50.690Z",
+  "generated": "2026-08-02T17:52:03.493Z",
   "docs": [
+    {
+      "file": "docs/README.md",
+      "id": "docs.readme",
+      "type": "hub",
+      "title": "NEvo documentation",
+      "status": "current",
+      "summary": "Curated, human-facing navigation hub linking architecture docs, package docs, guides, and ADRs by relationship — distinct from the auto-generated docs/index.generated.md."
+    },
+    {
+      "file": "docs/packages/classification.md",
+      "id": "packages.classification",
+      "type": "package",
+      "title": "Package classification",
+      "status": "current",
+      "dependencies": [],
+      "summary": "Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into functional categories, as the entry point for the per-package documentation under docs/packages/."
+    },
     {
       "file": "docs/architecture/event-sourcing.md",
       "id": "architecture.event-sourcing",
