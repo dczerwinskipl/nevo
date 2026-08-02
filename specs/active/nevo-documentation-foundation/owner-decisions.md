@@ -290,3 +290,29 @@
 - **Date:** 2026-08-02
 - **Affected artifacts:** `docs/packages/NEvo.Messaging.md`, task
   `navigation-and-validation`.
+
+## D13: Follow-up task for the examples-and-wire-up audit
+
+- **Question:** `/nevo-ai:spec-audit`'s `reviews/audit-examples-and-wireup.md` (all 13
+  tasks already `implemented`) found 3 unresolved `AUTO_FIX` findings (F1, F2, F8) —
+  `quick-start.md` and `example-app-walkthrough.md` don't tell one connected,
+  domain-named "HTTP request → command → event → second handler" story, even though
+  every API needed already exists and is already documented. The audit itself cannot
+  apply fixes (read-only) and recommended one new task rather than three separate edits.
+  Add that task now via `spec-refine`, or leave it as an open, undated follow-up?
+- **Options considered:** (1) add task `quickstart-end-to-end-narrative` now, scoped
+  exactly to `docs/guides/quick-start.md` and `docs/guides/example-app-walkthrough.md`,
+  per the audit's own handoff | (2) leave `audit_status: open` with no task added,
+  revisit later
+- **Decision:** Option (1) — add the task now.
+- **Rationale:** Owner accepted the recommendation as presented — the audit already did
+  the analysis and named the exact scope; deferring adds no new information.
+- **Consequences:** `change.yaml` gains task 14, `quickstart-end-to-end-narrative`,
+  `depends_on: quickstart-and-installation-guide, exampleapp-walkthrough-guide`. This
+  decision does not itself set `audit_status: actioned` on the audit report — that field
+  is only set by `/nevo-ai:spec-audit`'s own closed-menu confirmation, not by
+  `spec-refine`.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `change.yaml`, `overview.md`, `areas/06-use-case-guides.md`,
+  task `quickstart-end-to-end-narrative`
+  (`tasks/14-quickstart-end-to-end-narrative.md`).

@@ -109,9 +109,11 @@ remaining 11 packages:
    `package-docs-web-and-experimental`) — `NEvo.Authorization`, `NEvo.EntityFramework`,
    `NEvo.Web`, `NEvo.Ddd.EventSourcing`, `NEvo.Orchestrating.EntityFramework`.
 6. **Use-case guides** (`quickstart-and-installation-guide`,
-   `exampleapp-walkthrough-guide`) — installation, minimal setup, and an
-   `examples/ExampleApp` walkthrough (common scenarios, edge cases, troubleshooting,
-   expected runtime behavior).
+   `exampleapp-walkthrough-guide`, `quickstart-end-to-end-narrative`) — installation,
+   minimal setup, an `examples/ExampleApp` walkthrough (common scenarios, edge cases,
+   troubleshooting, expected runtime behavior), and — added after the first
+   implementation pass, per a change-wide examples audit — one connected end-to-end
+   narrative tying the two guides together (see D13).
 7. **Developer & extension guides** (`developer-and-extension-guides`) — repository
    structure, how to add a transport/persistence mechanism/handler/event type/extension,
    coding conventions beyond commit conventions.

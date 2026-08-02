@@ -26,6 +26,11 @@ no quick-start or installation guide anywhere in the repo.
 - If any run/setup step described cannot be verified from the repository alone (e.g. SQL
   Server connection details, Identity server seeding), state it as an open question rather
   than inventing plausible-sounding steps.
+- One connected, domain-named "HTTP request → command handler → published event →
+  independent second handler" narrative spanning `quick-start.md` and
+  `example-app-walkthrough.md`, using only real, already-shipped, already-documented
+  APIs (task `quickstart-end-to-end-narrative`, added per
+  `reviews/audit-examples-and-wireup.md` F1/F2/F8).
 
 ## Constraints
 
@@ -42,12 +47,15 @@ Consumes: package docs from areas 03-05 (cross-links "which package does what" b
 - The walkthrough guide names every one of the 5 `examples/ExampleApp` projects at least
   once and cites the specific files inspected for each claim.
 - No claim about `examples/Gdpr` appears anywhere in these guides.
+- `quick-start.md` and `example-app-walkthrough.md` tell one connected end-to-end story
+  rather than three disconnected fragments (per the audit's F1/F2/F8).
 
 ## Dependencies
 
 `quick-start.md`/`installation.md` depend on `04-core-and-messaging-docs`. The
 walkthrough guide depends on `05-remaining-package-docs` (needs the full package set to
-cross-link accurately).
+cross-link accurately). `quickstart-end-to-end-narrative` depends on both guides already
+existing.
 
 ## Out of scope
 
