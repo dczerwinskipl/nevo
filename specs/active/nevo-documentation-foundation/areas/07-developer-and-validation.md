@@ -21,8 +21,8 @@ own).
   (`NEvo.Messaging.Web` as a transport, `NEvo.Messaging.EntityFramework` as a persistence
   mechanism) actually implement their respective extension points, cited by file/type
   name.
-- A conventions section (new doc or an addition to an existing `docs/development/`
-  document — implementer's choice) covering patterns already established in code
+- A conventions section in `docs/development/coding-conventions.md` (new file — decided
+  in D7, `owner-decisions.md`) covering patterns already established in code
   (`Either<Exception, T>`, package-boundary dependency direction) that aren't yet written
   down as conventions.
 - Final pass: `node tools/docs.mjs generate` then `node tools/docs.mjs check`,
