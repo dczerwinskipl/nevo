@@ -173,6 +173,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-next` | `task-ready` \| `no-tasks-ready` |
 | `task-start` | `prepared` \| `blocked` |
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
+| `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
 | `spec-finalize` | `finalized` \| `gate-passed` \| `blocked` |
 

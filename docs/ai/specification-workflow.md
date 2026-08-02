@@ -460,9 +460,16 @@ findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <chang
 --from-review`.) After any such pass, re-review rather than trusting the pre-fix
 verdict — a stale review file describing the old state is worse than no file.
 
-A task review has no equivalent auto-apply step: fixing code is implementation, and
-implementation always needs an explicit owner go-ahead, even for an `AUTO_FIX`-tagged
-finding. The natural next step there is fixing the named issues, then re-reviewing.
+A task review's equivalent is a single batch confirmation, not per-finding: every
+`AUTO_FIX` finding is already pre-authorized by its category ("the agent may make this
+fix without further deliberation once told to proceed"), so the one thing still needed
+is being told to proceed — once, for the whole batch, not fixing code silently on the
+strength of the category alone. (In Claude Code: `/nevo-ai:task-apply-review
+<change-id> <task-id>`.) It then re-runs the task review itself against the changed
+diff, so "fix, then remember to re-review" is one command instead of a manual two-step
+the owner has to drive. `OWNER_DECISION`/`NEEDS_CLARIFICATION`/`NON_BLOCKING` findings
+are never auto-applied — they're shown, not silently dropped, but still need the owner
+directly.
 
 ### Change-wide audits are a third, distinct review shape
 
@@ -575,10 +582,11 @@ Full detail: `docs/development/git-workflow.md` and `docs/development/commit-con
 This document is the shared policy. Tool-specific layers are thin:
 
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
-  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:task-next`,
-  `/nevo-ai:task-start`, `/nevo-ai:task-review`, `/nevo-ai:spec-audit`, and
-  `/nevo-ai:spec-finalize` (see `.claude/commands/nevo-ai/`), backed by the shared
-  skill `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
+  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:spec-audit`,
+  `/nevo-ai:spec-finalize`, `/nevo-ai:task-next`, `/nevo-ai:task-start`,
+  `/nevo-ai:task-review`, and `/nevo-ai:task-apply-review` (see
+  `.claude/commands/nevo-ai/`), backed by the shared skill
+  `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
   `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
   parallel workflow.
 - **Cursor** and **Copilot** have no namespaced commands. They follow this document and

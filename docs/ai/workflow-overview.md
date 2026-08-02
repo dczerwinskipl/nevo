@@ -51,6 +51,13 @@ sequence.
    If that transition makes every task in the change terminal, offers to
    archive right there (see step 10) — no need to remember to come back.
 
+7a. [if changes-required] /nevo-ai:task-apply-review <change-id> <task-id>
+    Applies every unresolved AUTO_FIX finding from that review in one
+    confirmed batch, then automatically re-runs step 7's own flow against
+    the changed diff — including its pass menu and archive offer.
+    OWNER_DECISION/NEEDS_CLARIFICATION/NON_BLOCKING findings are listed,
+    never auto-applied.
+
 8. [optional, cross-task] /nevo-ai:spec-audit <change-id> <focus>
    Thematic audit across an already-implemented change (e.g. "are the
    examples actually wired end-to-end?"). Never re-grades any task's own
@@ -111,4 +118,7 @@ category:
   archive). "Change" and "spec" name the same entity in this repository
   (`specs/active/<change-id>/`), so there is deliberately no separate `change-*`
   prefix.
-- **`task-*`** — one task: `task-next`, `task-start`, `task-review`.
+- **`task-*`** — one task: `task-next`, `task-start`, `task-review`, and
+  `task-apply-review` (applies a task review's own `AUTO_FIX` findings, then re-runs
+  `task-review` itself — still task scope, since it never touches anything outside the
+  one task's diff).
