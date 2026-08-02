@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T17:56:20.626Z",
+  "generated": "2026-08-02T18:02:08.931Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -27,7 +27,7 @@
           "id": "architecture-corrections",
           "order": 3,
           "file": "tasks/03-architecture-corrections.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "package-classification-and-navigation-hub"
           ]
@@ -36,7 +36,7 @@
           "id": "package-doc-orchestrating",
           "order": 4,
           "file": "tasks/04-package-doc-orchestrating.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "architecture-corrections"
           ]

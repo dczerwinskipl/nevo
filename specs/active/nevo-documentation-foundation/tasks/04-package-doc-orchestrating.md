@@ -11,6 +11,7 @@ context:
 allowed_paths:
   - docs/packages/NEvo.Orchestrating.md
   - docs/templates/package-doc-template.md
+  - docs/architecture/orchestration.md
   - specs/active/nevo-documentation-foundation/**
 forbidden_paths:
   - src/**
@@ -44,6 +45,8 @@ messaging-independent package.
   well, fix the template itself (allowed_paths permits it) rather than deviating ad hoc —
   every later package-doc task reuses this template unmodified unless it also needs a
   fix.
+- Per D10: `docs/architecture/orchestration.md`'s pseudocode/state-machine diagram is
+  stale against real source — correct it (descriptive only) while writing this doc.
 
 ## Acceptance criteria
 

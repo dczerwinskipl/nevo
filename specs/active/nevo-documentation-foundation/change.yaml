@@ -29,7 +29,7 @@ tasks:
   - id: package-doc-orchestrating
     order: 4
     file: tasks/04-package-doc-orchestrating.md
-    status: approved
+    status: implemented
     depends_on:
       - architecture-corrections
   - id: package-doc-web-authorization

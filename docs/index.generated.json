@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T17:56:21.475Z",
+  "generated": "2026-08-02T18:02:09.838Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -17,6 +17,17 @@
       "status": "current",
       "dependencies": [],
       "summary": "Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into functional categories, as the entry point for the per-package documentation under docs/packages/."
+    },
+    {
+      "file": "docs/packages/NEvo.Orchestrating.md",
+      "id": "packages.nevo-orchestrating",
+      "type": "package",
+      "title": "NEvo.Orchestrating",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Saga-style orchestration: sequential step execution with automatic reverse-order compensation on failure. Experimental and in progress — deliberately decoupled from the messaging pipeline (depends only on NEvo.Core)."
     },
     {
       "file": "docs/architecture/event-sourcing.md",

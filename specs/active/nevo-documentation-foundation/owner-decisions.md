@@ -180,3 +180,36 @@
 - **Date:** 2026-08-02
 - **Affected artifacts:** `docs/packages/classification.md`, task
   `architecture-corrections`.
+
+## D10: `docs/architecture/orchestration.md` pseudocode is stale against real source
+
+- **Question:** Writing `docs/packages/NEvo.Orchestrating.md` (task 4) required reading
+  the real `src/NEvo.Orchestrating/*.cs` source directly (per this task's own
+  instruction not to present the package as more stable/complete than the code
+  supports). That reading found `docs/architecture/orchestration.md`'s illustrative
+  pseudocode has drifted from the real code: `IOrchestratorStep.ExecuteAsync`/
+  `CompensateAsync` actually return `Task<Either<Exception, Unit>>`, not `Task<TData>`
+  as shown; the real `OrchestratorStatus` enum values are `New, Running, Completed,
+  Failed, CompensationCompleted, CompensationFailed` — the doc's state-machine diagram
+  names states `Compensating`/`Compensated` that don't exist in the enum at all. This is
+  the same "wrong facts get copied into new package docs" risk D3 addressed for
+  `package-boundaries.md`/`README.md`, discovered one layer deeper. `docs/architecture/
+  orchestration.md` is outside task 4's `allowed_paths`. Fix it now or leave it stale?
+- **Options considered:** (1) fix it now as part of task 4, widening `allowed_paths` by
+  one file (same pattern as D1/D8/D9) — ground the correction directly in the source
+  files already read for the package doc | (2) leave it stale, write the package doc
+  from real source anyway (so at least the new doc is correct), flag the architecture
+  doc as a follow-up
+- **Decision:** Option (1) — fix now.
+- **Rationale:** Same rationale as D9: this change's entire purpose is documentation
+  accuracy, the correction is descriptive only (no code/behavior change), and the
+  evidence was already gathered while writing the package doc — deferring it would mean
+  two different documents disagreeing about the same package's behavior the moment both
+  exist.
+- **Consequences:** Task `package-doc-orchestrating`'s `allowed_paths` is amended to
+  include `docs/architecture/orchestration.md`. The correction is purely descriptive
+  (interface signatures, enum values, state-machine diagram) — no architectural claim or
+  recommendation is added.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/architecture/orchestration.md`, task
+  `package-doc-orchestrating`.
