@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:35:42.052Z",
+  "generated": "2026-08-02T18:39:00.564Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -91,7 +91,7 @@
           "id": "quickstart-and-installation-guide",
           "order": 10,
           "file": "tasks/10-quickstart-and-installation-guide.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "package-docs-core-and-messaging"
           ]
@@ -100,7 +100,7 @@
           "id": "exampleapp-walkthrough-guide",
           "order": 11,
           "file": "tasks/11-exampleapp-walkthrough-guide.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "package-docs-auth-and-persistence",
             "package-docs-web-and-experimental"

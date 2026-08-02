@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:35:42.908Z_
+_Generated: 2026-08-02T18:39:01.267Z_
 
 ## Hub
 
@@ -14,6 +14,7 @@ _Generated: 2026-08-02T18:35:42.908Z_
 
 | ID | Title | Status | Scopes |
 |---|---|---|---|
+| `guides.example-app-walkthrough` | [ExampleApp walkthrough](guides/example-app-walkthrough.md) | current |  |
 | `guides.installation` | [Installation](guides/installation.md) | current |  |
 | `guides.quick-start` | [Quick start](guides/quick-start.md) | current |  |
 

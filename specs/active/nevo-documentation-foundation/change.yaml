@@ -72,7 +72,7 @@ tasks:
   - id: exampleapp-walkthrough-guide
     order: 11
     file: tasks/11-exampleapp-walkthrough-guide.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-auth-and-persistence
       - package-docs-web-and-experimental

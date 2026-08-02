@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:35:42.908Z",
+  "generated": "2026-08-02T18:39:01.267Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -8,6 +8,14 @@
       "title": "NEvo documentation",
       "status": "current",
       "summary": "Curated, human-facing navigation hub linking architecture docs, package docs, guides, and ADRs by relationship — distinct from the auto-generated docs/index.generated.md."
+    },
+    {
+      "file": "docs/guides/example-app-walkthrough.md",
+      "id": "guides.example-app-walkthrough",
+      "type": "guide",
+      "title": "ExampleApp walkthrough",
+      "status": "current",
+      "summary": "End-to-end guide to examples/ExampleApp's 5 projects: auth, a permission-checked command, the Document event-sourcing flow (and why it doesn't actually persist anything by default), and cross-service dispatch."
     },
     {
       "file": "docs/guides/installation.md",
