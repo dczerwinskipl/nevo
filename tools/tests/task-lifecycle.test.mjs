@@ -1,10 +1,10 @@
-// Tests for the centralized task state machine in tools/specs.mjs
+// Tests for the centralized task state machine in tools/specs/lifecycle.mjs
 // (draft -> approved -> in-implementation -> implemented -> verified).
 // Run: node --test tools/tests/
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateTransition, validateApproval, TRANSITIONS } from '../specs.mjs';
+import { validateTransition, validateApproval, TRANSITIONS } from '../specs/lifecycle.mjs';
 
 describe('validateTransition — valid transitions', () => {
   test('approve: draft -> approved is allowed', () => {

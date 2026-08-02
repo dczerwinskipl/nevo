@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T12:18:20.565Z_
+_Generated: 2026-08-02T13:24:50.690Z_
 
 ## Architecture
 

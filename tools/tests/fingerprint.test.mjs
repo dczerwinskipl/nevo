@@ -1,4 +1,4 @@
-// Tests for the deterministic spec fingerprint (tools/specs.mjs).
+// Tests for the deterministic spec fingerprint (tools/specs/service.mjs).
 // Run: node --test tools/tests/
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadChange, computeSpecFingerprint } from '../specs.mjs';
+import { loadChange, computeSpecFingerprint } from '../specs/service.mjs';
 
 let root;
 

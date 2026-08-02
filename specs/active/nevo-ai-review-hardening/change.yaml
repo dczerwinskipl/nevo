@@ -1,5 +1,5 @@
 id: nevo-ai-review-hardening
-title: Deterministic approval gate and hardened Bash guard (PR #13 fix)
+title: "Deterministic approval gate and hardened Bash guard (PR #13 fix)"
 type: architectural
 status: in-implementation
 priority: 10

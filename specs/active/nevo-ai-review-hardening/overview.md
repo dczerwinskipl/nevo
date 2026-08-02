@@ -1,7 +1,7 @@
 ---
 id: spec.nevo-ai-review-hardening
 type: change
-title: Deterministic approval gate and hardened Bash guard (PR #13 fix)
+title: "Deterministic approval gate and hardened Bash guard (PR #13 fix)"
 status: in-implementation
 change: nevo-ai-review-hardening
 ---
