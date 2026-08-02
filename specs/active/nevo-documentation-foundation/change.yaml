@@ -66,7 +66,7 @@ tasks:
   - id: quickstart-and-installation-guide
     order: 10
     file: tasks/10-quickstart-and-installation-guide.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-core-and-messaging
   - id: exampleapp-walkthrough-guide

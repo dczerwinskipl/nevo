@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:32:11.232Z",
+  "generated": "2026-08-02T18:35:42.908Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -8,6 +8,22 @@
       "title": "NEvo documentation",
       "status": "current",
       "summary": "Curated, human-facing navigation hub linking architecture docs, package docs, guides, and ADRs by relationship — distinct from the auto-generated docs/index.generated.md."
+    },
+    {
+      "file": "docs/guides/installation.md",
+      "id": "guides.installation",
+      "type": "guide",
+      "title": "Installation",
+      "status": "current",
+      "summary": "How to reference NEvo packages in a new project today, and the open question around NuGet publishing this guide does not paper over."
+    },
+    {
+      "file": "docs/guides/quick-start.md",
+      "id": "guides.quick-start",
+      "type": "guide",
+      "title": "Quick start",
+      "status": "current",
+      "summary": "Minimal working setup using NEvo.Core and NEvo.Messaging: register the pipeline, understand what raw NEvo.Messaging gives you, and why the very next package most consumers add is NEvo.Messaging.Cqrs."
     },
     {
       "file": "docs/packages/classification.md",

@@ -2,13 +2,20 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:32:11.232Z_
+_Generated: 2026-08-02T18:35:42.908Z_
 
 ## Hub
 
 | ID | Title | Status | Scopes |
 |---|---|---|---|
 | `docs.readme` | [NEvo documentation](README.md) | current |  |
+
+## Guide
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `guides.installation` | [Installation](guides/installation.md) | current |  |
+| `guides.quick-start` | [Quick start](guides/quick-start.md) | current |  |
 
 ## Package
 
