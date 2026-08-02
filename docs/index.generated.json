@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-01T15:02:47.173Z",
+  "generated": "2026-08-02T13:24:50.690Z",
   "docs": [
     {
       "file": "docs/architecture/event-sourcing.md",
@@ -298,6 +298,36 @@
       "superseded_by": null
     },
     {
+      "file": "docs/adr/ADR-0003-technical-decision-triage-and-option-analysis.md",
+      "id": "adr.0003-technical-decision-triage-and-option-analysis",
+      "type": "adr",
+      "title": "Adopt signal-based triage and mandatory solution-option analysis, without DDD apparatus",
+      "status": "accepted",
+      "date": "2026-08-01",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/adr/ADR-0004-review-artifacts-and-handoff.md",
+      "id": "adr.0004-review-artifacts-and-handoff",
+      "type": "adr",
+      "title": "Persist review output as an artifact with actor-classified findings and a fixed closing shape",
+      "status": "accepted",
+      "date": "2026-08-02",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/adr/ADR-0005-deterministic-approval-and-hardened-guard.md",
+      "id": "adr.0005-deterministic-approval-and-hardened-guard",
+      "type": "adr",
+      "title": "Make task approval deterministic and CLI-enforced; replace the Bash guard's regex allowlist with an explicit, whitelist-only validator",
+      "status": "accepted",
+      "date": "2026-08-02",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
       "file": "docs/ai/how-to-navigate.md",
       "id": "ai.how-to-navigate",
       "type": "ai",
@@ -320,13 +350,17 @@
       "read_when": [
         "starting a new change",
         "deciding how much specification a change needs",
-        "unsure whether a decision needs owner approval"
+        "unsure whether a decision needs owner approval",
+        "presenting an architectural, public-API, or package-boundary decision to the owner"
       ],
       "summary": "Vendor-neutral description of NEvo's human-led, spec-anchored development process: how changes are classified, discovered, specified, decomposed into tasks, and implemented, and how tools/docs.mjs and tools/specs.mjs enforce it.",
       "related": [
         "ai.how-to-navigate",
         "ai.task-execution-policy",
-        "adr.0002-lightweight-markdown-workflow"
+        "adr.0002-lightweight-markdown-workflow",
+        "adr.0003-technical-decision-triage-and-option-analysis",
+        "adr.0004-review-artifacts-and-handoff",
+        "adr.0005-deterministic-approval-and-hardened-guard"
       ]
     },
     {

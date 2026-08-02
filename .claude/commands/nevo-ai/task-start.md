@@ -39,6 +39,17 @@ create the branch manually.
    task X"). The default meaning of `task-start` is *prepare and start the task*, not
    silently finish it.
 
+## Ending the response
+
+Use the closing shape from `SKILL.md` § "Ending every command's response": `Status` is
+`prepared` (branch created/switched, task `in-implementation`, plan shown) or `blocked`
+(a safety check in step 1 or 3 failed). The facts line names the branch and task. Since
+`git checkout -b`/`specs.mjs start` already changed repo state, list that under
+`Artifact` too (e.g. "branch `feature/<slug>`, task status → `in-implementation`") —
+`Artifact` here means "state changed this run," not only "file written." `Next` is
+"confirm to begin implementation" (`blocked`: the specific safety issue found), and once
+work is done, `/nevo-ai:task-review <change-id> <task-id>`.
+
 ## Rules
 
 - Do not commit, push, or create a pull request from this command.

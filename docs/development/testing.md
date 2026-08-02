@@ -65,3 +65,22 @@ priority after architecture documentation.
 Before modifying any subsystem, add characterization tests that capture current behavior.
 This is especially important for the messaging pipeline, inbox/outbox, and persistence layer.
 Do not change behavior and write tests simultaneously.
+
+## Tooling tests (`tools/`)
+
+`tools/specs.mjs` and `tools/docs.mjs` (and `.claude/hooks/*.mjs`) are plain Node
+scripts, not part of the xUnit stack above — they have their own, separate tests using
+Node's built-in `node:test` runner. No new dependency: Node 18+ ships it.
+
+```bash
+node --test tools/tests/*.test.mjs
+```
+
+Structure: `tools/tests/*.test.mjs`. Prefer testing exported pure functions
+(`parseYaml`, `validateTransition`, `validateApproval`, `computeSpecFingerprint`,
+the Bash guard's `validateCommand`, ...) directly over spawning a process for every
+case — reserve spawned-process tests (`node:child_process`) for a small set of
+CLI-level smoke tests covering the important success/failure paths. Both `tools/
+specs.mjs` and `tools/docs.mjs` guard their CLI dispatch behind an
+"is this the directly-executed module" check specifically so their internals can be
+imported by tests without triggering `process.exit()`.

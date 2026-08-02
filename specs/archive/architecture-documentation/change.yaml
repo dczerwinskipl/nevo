@@ -13,4 +13,4 @@ tasks:
   - id: core-architecture-docs
     order: 1
     file: tasks/01-core-architecture-docs.md
-    status: implemented
+    status: verified

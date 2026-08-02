@@ -45,8 +45,8 @@ approved work inside a declared context.
   `node tools/docs.mjs <validate|find|...>` drive specification and documentation
   lifecycle deterministically — see the workflow doc for the full command list.
 - **Claude Code:** exposes this workflow through namespaced `/nevo-ai:*` commands
-  (`spec-create`, `spec-refine`, `spec-review`, `task-next`, `task-start`,
-  `task-review`) — see [`CLAUDE.md`](CLAUDE.md).
+  (`spec-create`, `spec-refine`, `spec-review`, `spec-approve`, `task-next`,
+  `task-start`, `task-review`) — see [`CLAUDE.md`](CLAUDE.md).
 - **Cursor / Copilot:** follow `AGENTS.md` and `docs/ai/specification-workflow.md`
   directly via `.cursor/rules/` and `.github/copilot-instructions.md`.
 

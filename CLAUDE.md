@@ -11,6 +11,39 @@ Read `AGENTS.md` first. This file adds Claude-specific configuration only.
 Working directory: `D:\repos\git\nevo`
 Primary shell: PowerShell (Windows 11). Use PowerShell syntax in Bash tool calls.
 
+## Repository command execution
+
+Run repository commands directly from the repository root.
+
+Do not prefix commands with `cd`, `cd /d`, `pushd`, or `git -C`.
+
+Prefer simple, standalone commands such as:
+
+```
+node --test tools/tests/
+node tools/specs.mjs validate
+node tools/specs.mjs generate
+node tools/specs.mjs check
+git diff -- specs/active.generated.md specs/index.generated.json
+```
+
+Do not use `head`, `tail`, `grep`, pipes, `2>&1`, `&&`, semicolons, or multiple commands in one Bash call unless they are necessary.
+
+Run independent commands as separate Bash calls.
+
+Prefer:
+
+```
+node --test tools/tests/
+```
+
+Instead of:
+
+```
+cd /d/repos/git/nevo
+node --test tools/tests/ 2>&1 | tail -150
+```
+
 ## Mandatory first steps for any task
 
 1. Run `node tools/specs.mjs next` to find the approved task (if starting new work).
@@ -39,6 +72,7 @@ dotnet build
 dotnet test
 node tools/specs.mjs validate
 node tools/docs.mjs validate
+node --test tools/tests/*.test.mjs   # tests for tools/*.mjs and .claude/hooks/*.mjs themselves
 ```
 
 ## `/nevo-ai:*` commands
@@ -53,6 +87,7 @@ shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
 | `/nevo-ai:spec-create <change-id> <goal>` | Discover, then create a new specification after owner decisions |
 | `/nevo-ai:spec-refine <change-id> [focus]` | Refine an existing active spec (no implementation) |
 | `/nevo-ai:spec-review <change-id>` | Read-only implementation-readiness review |
+| `/nevo-ai:spec-approve <change-id> [task-id]` | Interactive approval gate — confirms with the owner, then writes `approved` |
 | `/nevo-ai:task-next [filters]` | Return the next approved, ready task |
 | `/nevo-ai:task-start <change-id> <task-id>` | Safely start one task and prepare its context |
 | `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |

@@ -7,6 +7,7 @@ read_when:
   - starting a new change
   - deciding how much specification a change needs
   - unsure whether a decision needs owner approval
+  - presenting an architectural, public-API, or package-boundary decision to the owner
 summary: >
   Vendor-neutral description of NEvo's human-led, spec-anchored development process:
   how changes are classified, discovered, specified, decomposed into tasks, and
@@ -15,6 +16,9 @@ related:
   - ai.how-to-navigate
   - ai.task-execution-policy
   - adr.0002-lightweight-markdown-workflow
+  - adr.0003-technical-decision-triage-and-option-analysis
+  - adr.0004-review-artifacts-and-handoff
+  - adr.0005-deterministic-approval-and-hardened-guard
 ---
 
 # NEvo specification workflow
@@ -57,6 +61,51 @@ authoritative table; in summary:
 When in doubt between two classes, prefer the smaller one and let refinement upgrade it
 if the owner's decisions turn out to require more structure.
 
+### Signal-based classification
+
+Judgment calls on S/T/A/E drift over time without a shared basis. Before classifying,
+evaluate the change against these technical signals — each rated GREEN (clearly yes,
+with evidence), YELLOW (uncertain — state what's missing), or RED (clearly no /
+contested):
+
+| Signal | Question |
+|---|---|
+| Behavioral clarity | Is the expected behavior fully determined by existing tests, docs, or an established pattern already used elsewhere in the codebase? |
+| Public surface impact | Does the change avoid altering any public API, contract, or a package's exported surface? |
+| Package boundary impact | Is the change contained within one package/project, introducing no new inter-package dependency (see `docs/architecture/package-boundaries.md`)? |
+| Blast radius | Does the change affect only the named file(s)/type(s), without touching shared infrastructure (messaging pipeline, persistence base types, middleware pipeline)? |
+| Reversibility | Can the change be reverted without a migration, a breaking-change release, or renegotiating a contract? |
+
+Never infer GREEN from silence — evaluate only what the request and repository evidence
+actually support.
+
+Classification rule:
+- All GREEN → **S**
+- One or two YELLOW, blast radius GREEN → **T**
+- Public surface impact RED, package boundary impact RED, or blast radius RED → **A**
+- Reversibility RED (cannot be undone without a migration or breaking release) → at
+  least **A**, regardless of the other signals
+- Classification cannot be safely determined from available evidence → **E** (discovery
+  first; the owner decides the next class from the discovery report)
+
+### Escalation is explicit and one-way
+
+A change may be reclassified upward mid-work, never silently absorbed into the original
+scope:
+
+- **S → T**: implementation reveals a public-surface change, a new inter-package
+  dependency, or a behavior change beyond the original one-line description.
+- **T → A**: implementation reveals the change cannot stay inside one package, needs a
+  new external dependency, changes transaction/persistence semantics, or requires a
+  breaking change.
+- **A** is the final level for implementation work. If an Architectural change turns out
+  to be genuinely unscoped, drop back to **E** (discovery) explicitly rather than
+  guessing further.
+
+When escalating: stop, name the specific signal that flipped, state the new
+classification, and run the owner-approval gate below before continuing — do not keep
+implementing under the old classification's assumptions.
+
 ## Discovery before specification
 
 Before proposing a specification, an agent must ground itself in the current repository
@@ -85,6 +134,116 @@ external dependencies, transaction semantics, persistence ownership, message pro
 behavior changes, breaking changes, compatibility decisions, new packages/projects,
 CI/CD changes). When a change touches one of these, the agent presents options and a
 recommendation, then stops and waits — it does not proceed on an assumed answer.
+
+## Solution option analysis
+
+**The agent's role is to support the decision, not make it.** Whenever a change is
+classified **T** or larger *and* touches one of the owner-approval gates above, the
+agent does not go straight from "here's a change" to "here's the plan" — it stops
+between the two and presents options.
+
+### Do not default to the simplest option
+
+The instinct to reach for the smallest possible diff is useful for effort estimation,
+but wrong as a decision rule here. For any change gated above, present at least two
+meaningfully different options — typically framed as:
+
+1. **Minimal change** — the smallest change that satisfies the acceptance criteria using
+   established patterns already in the codebase.
+2. **Balanced improvement** — addresses the underlying structural issue (the reason a
+   minimal change would be a shortcut) without a full redesign.
+3. **Target shape** — the cleanest long-term structure, if its cost is justified.
+
+Rename these to fit the actual trade-off being made. Do not force a third option when
+only two real trade-offs exist; propose a fourth when a genuinely distinct trade-off
+exists beyond these three. Each option must represent a materially different trade-off,
+not a cosmetic variation of another.
+
+### Check for an existing solution before proposing a custom one
+
+Before designing a custom implementation for a generic concern (serialization, caching,
+retry/backoff, background scheduling, schema/OpenAPI generation, and similar
+infrastructure-shaped problems), check whether the .NET BCL or an already-referenced
+package already solves it. Include "use existing package/API `X`" as a candidate
+alongside "custom implementation" — for a framework whose own purpose is to provide
+building blocks (see `README.md`), reinventing infrastructure that already exists
+elsewhere is a cost, not a virtue. Adding a *new* external dependency still requires
+owner approval regardless of which option is eventually chosen.
+
+### Evaluate options on relevant dimensions only
+
+Include dimensions that would actually change the recommendation; state "not relevant"
+for the rest rather than filling every cell:
+
+implementation cost · long-term maintenance cost · coupling and cohesion (see the
+coupling checks below) · reversibility · public-API / breaking-change risk · test and
+regression scope · performance/allocation impact · consistency with established NEvo
+patterns (e.g. `Either<Exception, T>`, package boundaries) · migration cost if replacing
+existing behavior.
+
+Size each option with a t-shirt size — a relative-complexity signal, not a time
+estimate:
+
+| Size | Meaning |
+|---|---|
+| XS | Trivial, local, no structural impact |
+| S | Small, one package, known pattern |
+| M | Moderate — one main package plus some cross-cutting impact |
+| L | Significant — affects multiple packages or a public contract |
+| XL | Architectural — new package, dependency-direction change, breaking change, migration |
+| XXL | Too large for one slice — split before proceeding |
+
+### Coupling and package-boundary checks
+
+Run these whenever an option introduces or changes a cross-package relationship (see
+`docs/architecture/package-boundaries.md` for the current boundaries):
+
+- **Structural coupling** — does the option add a new dependency between packages? Is
+  its direction consistent with the documented boundaries? A new dependency against the
+  documented direction, or a new bidirectional dependency, is an architectural concern
+  requiring approval regardless of which option is otherwise cheapest.
+- **API-surface coupling** — does any option require one package to depend on another
+  package's *internal* (non-exported) types? That is a boundary violation regardless of
+  short-term convenience.
+- **Extraction test** — if the affected package were versioned and shipped
+  independently, would this option create a circular reference back to it? Flag this
+  explicitly as a high-risk consequence if so.
+
+### The consequences rule
+
+When two or more options have materially equal cost, **do not silently pick one.** State
+explicitly, for each option, what it unlocks (future work it makes easier or possible)
+and what it forecloses (what becomes harder or impossible later if this option is
+chosen). This is a required part of the recommendation, not an optional aside — the
+owner may weigh a foreclosed future path very differently than the agent would.
+
+### Recommending
+
+Recommend the option that best satisfies, in order: (1) the acceptance criteria, (2) the
+owner's stated priorities, if any were given, (3) known constraints (ADRs, package
+boundaries, compatibility requirements), (4) lowest long-term maintenance cost among the
+options that satisfy 1–3. Implementation cost *now* is a tie-breaker of last resort, not
+the primary driver — do not let it override a stated priority or a foreclosed-future
+consequence the owner has not weighed in on. Always state explicitly why each
+non-recommended option was rejected.
+
+### Presenting for confirmation
+
+Present, before generating any implementation plan: the recommended option and why, what
+would be implemented if approved, what stays out of scope, decisions the owner must make
+now versus ones that can be deferred, and any unresolved open questions that still
+matter. Then ask for a decision using a small, closed set of choices rather than an
+open-ended question, for example:
+
+```
+1. Yes, use this option.
+2. No, revise the options.
+3. Re-analyze with different priorities.
+4. I want to provide my own direction.
+```
+
+Do not generate implementation tasks in the same step unless the owner has already
+approved a direction.
 
 ## Artifact decomposition
 
@@ -115,6 +274,8 @@ node tools/specs.mjs check                     # validate + verify indexes are c
 node tools/specs.mjs list                      # list active changes and task statuses
 node tools/specs.mjs next                      # next approved, dependency-ready task → JSON
 node tools/specs.mjs context <change> <task>   # context packet for one task → JSON
+node tools/specs.mjs fingerprint <change>      # deterministic hash of the spec inputs (for review freshness)
+node tools/specs.mjs approve <change> <task>   # mark task approved — requires draft status and a current, ready, fully-resolved review
 node tools/specs.mjs start <change> <task>     # create/switch branch, set task in-implementation
 node tools/specs.mjs complete <change> <task>  # mark task implemented
 node tools/specs.mjs verify <change> <task>    # mark task verified (owner-reviewed)
@@ -154,6 +315,155 @@ is "ready for implementation" only once:
 Implementation then proceeds task by task via `tools/specs.mjs start`, never by an agent
 inferring that "the spec looks done."
 
+## Review artifacts and handoff
+
+A review — of a specification or of a task's implementation diff — is not finished when
+the analysis is finished. It is finished when it has produced something the owner or the
+next step can act on without re-reading and re-interpreting a long report.
+
+### Findings are actor-classified
+
+Every finding gets exactly one category, so it's clear who acts on it, not just what was
+found:
+
+| Category | Meaning | Who acts |
+|---|---|---|
+| `AUTO_FIX` | Mechanical, unambiguous correction — no judgment call, no scope/behavior change | Whoever applies fixes, directly — no owner decision needed |
+| `OWNER_DECISION` | Falls under an owner-approval gate, or changes scope/behavior/architecture | Owner must decide |
+| `NEEDS_CLARIFICATION` | Reviewer needs more information to finish the finding | Owner must answer before it becomes a fix |
+| `NON_BLOCKING` | Real, but doesn't block readiness or approval | Optional — owner's call, now or later |
+| `INFORMATIONAL` | Confirms something is already correct | No action — context only |
+
+`AUTO_FIX` is still *reported*, never silently applied by the review itself (see below)
+— it tells whoever runs the follow-up exactly what's safe to do, it doesn't do it for
+them without a trace.
+
+### A review writes a persistent artifact
+
+A review's output is a file, not just conversation text: a specification review writes
+`specs/active/<change-id>/reviews/spec.md`; a task implementation review writes
+`specs/active/<change-id>/reviews/<task-id>.md`. Each file is overwritten on every run —
+it represents the review's *current* state, not a history. Git already tracks that
+file's history; there is no separate in-repo versioning scheme for reviews (see
+ADR-0004 for why that was deliberately not built).
+
+Writing this one file is the only exception to "review is read-only" — a review never
+edits the change, task, or spec artifacts it is evaluating.
+
+### A review's verdict is derived from a table, never composed as a sentence
+
+The failure mode this guards against is real, not hypothetical: a review can correctly
+find "unresolved owner decision on task 12" and *separately* conclude "spec ready for
+owner approval" — two locally-plausible sentences that were never checked against each
+other. The fix is to make the verdict, and two booleans that travel with it, the output
+of an explicit table rather than independent prose:
+
+| # | Condition | Verdict | `ready_for_approval` | `implementation_allowed` |
+|---|---|---|---|---|
+| 1 | Validation fails, or sources of truth contradict unresolvably | `blocked` | false | false |
+| 2 | An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding exists | `owner-decision-required` | false | false |
+| 3 | An unresolved `AUTO_FIX` finding exists (rows 1–2 don't apply) | `changes-required` | false | false |
+| 4 | No unresolved findings from rows 1–3 remain, but the relevant task(s) aren't `approved` | `ready-for-approval` | true | false |
+| 5 | No unresolved blocking findings remain, and the relevant task(s) **are** `status: approved` in `change.yaml` (checked, not assumed) | `approved-for-implementation` | true | true |
+
+Evaluate top to bottom; the first matching row wins. `NON_BLOCKING`/`INFORMATIONAL`
+findings never appear in the table — they cannot affect the verdict, by construction. A
+task implementation review uses the same idea at task scope: `blocked` /
+`changes-required` / `pass`.
+
+Before emitting a review, check it against its own table: an unresolved
+`OWNER_DECISION`/`NEEDS_CLARIFICATION`/`AUTO_FIX` finding cannot coexist with
+`ready_for_approval: true`; a non-`approved` task cannot coexist with
+`implementation_allowed: true`; `approved-for-implementation` requires the task(s) to
+actually carry `status: approved` right now. A report that fails its own check has a
+bug — fix the verdict, don't publish the contradiction.
+
+If a review presents an `OWNER_DECISION`/`NEEDS_CLARIFICATION` finding as something
+that could be deferred, it names the concrete consequence — resolve it now and proceed;
+remove the affected scope and split it into a new task; or leave this task unapproved
+while unrelated tasks proceed. "Resolve it, or defer it" is not a real option — deferring
+without naming which of these three applies leaves `ready_for_approval` undefined.
+
+Never phrase a verdict more optimistically than its row justifies — "ready for
+implementation" and bare "pending" are banned; use only the five fixed values.
+
+A specification review additionally answers, explicitly: may implementation start now?
+(literally `implementation_allowed`). Are the relevant tasks actually `approved`
+(checked in `change.yaml`, not assumed)? What concretely has to happen first?
+
+### Review freshness is verified deterministically, not inferred
+
+Time passes between a review being written and an owner acting on it, and the spec can
+change in between. Approval must not proceed against a review that no longer matches
+the current specification — and whether it matches must be a **computed fact**, not a
+model's impression of recency. `tools/specs.mjs fingerprint <change>` prints a sha256
+hash over the specification's approval-relevant inputs (manifest, overview, owner
+decisions, every area/task file — sorted, deterministic), deliberately excluding the
+review artifact itself so writing the review never invalidates its own fingerprint. A
+review embeds this exact printed value; approval recomputes it and refuses if the two
+don't match, naming both values so the mismatch is verifiable.
+
+### A re-review reads current files, never infers "unchanged" from git
+
+A real failure: a re-review saw `git status` report an untracked directory, treated
+that as "nothing changed," and repeated findings that had already been fixed. An
+untracked directory carries zero file-level diff information — it is not evidence
+either way. The rule: **every review, first-time or repeat, fully re-reads the actual
+current content of every file it evaluates.** Never infer "unchanged" from an untracked
+directory, a clean `git status`, the absence of a `git diff`, or conversation memory.
+
+The real baseline for a re-review is the previous review *file itself* — read before it
+gets overwritten, not git. If none exists yet, say so verbatim: "No reliable
+previous-file baseline is available. Performing a fresh review of the current
+specification." Before repeating any baseline finding, re-verify its exact predicate
+against the file it refers to, right now — e.g. actually re-open the task file and
+check its current `forbidden_paths` list, don't rely on what a prior review said it was.
+A finding resolved since the baseline is reported as resolved, not repeated as an
+active blocker, and the verdict is always computed from the current run's findings, not
+carried forward.
+
+### Gating versus non-gating checks
+
+`tools/specs.mjs validate` / `tools/docs.mjs validate` are gating — a failure makes the
+verdict `blocked`. `tools/specs.mjs check` / `tools/docs.mjs check` are not — they check
+whether *repository-wide* generated indexes are current, which can fail because of a
+completely unrelated change, not the one under review. Run them, report the result, but
+never let a `check` failure change the verdict; label the two results separately
+("Gating validation: passed", "Non-gating repository check: failed — <reason>") so the
+reader never has to guess why one failure mattered and the other didn't.
+
+### A favorable verdict still isn't a status change
+
+Reaching `ready-for-approval` doesn't end the process with an instruction to hand-edit
+`change.yaml` — the next step is an explicit, interactive confirmation (in Claude Code:
+`/nevo-ai:spec-approve`) that asks the owner directly and only writes `approved` after
+an answer, and whose gate (review exists, verdict ready, nothing unresolved, fingerprint
+current) is enforced by the CLI, not by an agent's judgment call. Approving a task and
+starting its implementation are always two separate, separately-confirmed actions —
+there is no combined "approve and start" shortcut, even when both are what the owner
+ultimately wants; each step is invoked on its own.
+
+### The response ends with a short, structured summary, not the full report
+
+The conversation gets a short, clearly formatted block — verdict, the relevant
+booleans/counts as a short bulleted list (not a single dense `Key: value · Key: value`
+line, which is hard to scan and renders poorly in Markdown-capable tools), the
+artifact's path, and one exact next command in its own block — not a restatement of the
+full report. The full analysis lives in the file from the previous section.
+
+### Review feeds refinement without manual copying
+
+A `changes-required` specification review's natural next step applies its own
+`AUTO_FIX` findings directly and stops only at `OWNER_DECISION`/`NEEDS_CLARIFICATION`
+ones — reading the review file itself rather than requiring anyone to retype or paste
+findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <change-id>
+--from-review`.) After any such pass, re-review rather than trusting the pre-fix
+verdict — a stale review file describing the old state is worse than no file.
+
+A task review has no equivalent auto-apply step: fixing code is implementation, and
+implementation always needs an explicit owner go-ahead, even for an `AUTO_FIX`-tagged
+finding. The natural next step there is fixing the named issues, then re-reviewing.
+
 ## Architecture documentation and ADRs
 
 `docs/architecture/` describes **current** behavior, not desired future state.
@@ -188,11 +498,11 @@ Full detail: `docs/development/git-workflow.md` and `docs/development/commit-con
 This document is the shared policy. Tool-specific layers are thin:
 
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
-  `/nevo-ai:spec-review`, `/nevo-ai:task-next`, `/nevo-ai:task-start`, and
-  `/nevo-ai:task-review` (see `.claude/commands/nevo-ai/`), backed by the shared skill
-  `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
-  `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
-  parallel workflow.
+  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:task-next`,
+  `/nevo-ai:task-start`, and `/nevo-ai:task-review` (see `.claude/commands/nevo-ai/`),
+  backed by the shared skill `.claude/skills/nevo-ai-spec-workflow/`. These commands
+  call the same `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not
+  implement a parallel workflow.
 - **Cursor** and **Copilot** have no namespaced commands. They follow this document and
   `AGENTS.md` directly, driving `tools/specs.mjs` / `tools/docs.mjs` from the terminal.
 
