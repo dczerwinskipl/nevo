@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-01T13:48:09.972Z",
+  "generated": "2026-08-01T15:02:47.173Z",
   "docs": [
     {
       "file": "docs/architecture/event-sourcing.md",
@@ -309,6 +309,24 @@
       "summary": "Step-by-step guide for agents to find the right context for a task. Always start with the specs CLI, not by scanning all files.",
       "related": [
         "ai.task-execution-policy"
+      ]
+    },
+    {
+      "file": "docs/ai/specification-workflow.md",
+      "id": "ai.specification-workflow",
+      "type": "ai",
+      "title": "NEvo specification workflow",
+      "status": "current",
+      "read_when": [
+        "starting a new change",
+        "deciding how much specification a change needs",
+        "unsure whether a decision needs owner approval"
+      ],
+      "summary": "Vendor-neutral description of NEvo's human-led, spec-anchored development process: how changes are classified, discovered, specified, decomposed into tasks, and implemented, and how tools/docs.mjs and tools/specs.mjs enforce it.",
+      "related": [
+        "ai.how-to-navigate",
+        "ai.task-execution-policy",
+        "adr.0002-lightweight-markdown-workflow"
       ]
     },
     {

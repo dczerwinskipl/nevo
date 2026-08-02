@@ -94,3 +94,14 @@ specs/archive/         ← completed and abandoned changes (do not load by defau
 
 → See `docs/ai/how-to-navigate.md` for detailed navigation instructions.
 → See `docs/ai/task-execution-policy.md` for task execution rules.
+→ See `docs/ai/specification-workflow.md` for the full, vendor-neutral workflow this
+  file summarizes.
+
+## Tool-specific operational layers
+
+Claude Code users may invoke the namespaced `/nevo-ai:*` commands (`spec-create`,
+`spec-refine`, `spec-review`, `task-next`, `task-start`, `task-review`) — see
+`CLAUDE.md`. Other agents (Cursor, Copilot, or anything else) follow this file and
+`docs/ai/specification-workflow.md` directly, driving `tools/specs.mjs` and
+`tools/docs.mjs` from the terminal. No agent, in any tool, may invent an owner decision
+that these documents require to be asked explicitly.
