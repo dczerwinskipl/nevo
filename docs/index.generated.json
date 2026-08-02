@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:16:31.587Z",
+  "generated": "2026-08-02T18:25:54.087Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -19,6 +19,17 @@
       "summary": "Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into functional categories, as the entry point for the per-package documentation under docs/packages/."
     },
     {
+      "file": "docs/packages/NEvo.Authorization.md",
+      "id": "packages.nevo-authorization",
+      "type": "package",
+      "title": "NEvo.Authorization",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Core authorization abstractions: user/role/permission provider contracts and a data-scope-aware role/permission model. Transport-agnostic — consumed by both NEvo.Messaging.Authorization and NEvo.Web.Authorization."
+    },
+    {
       "file": "docs/packages/NEvo.Core.md",
       "id": "packages.nevo-core",
       "type": "package",
@@ -26,6 +37,17 @@
       "status": "current",
       "dependencies": [],
       "summary": "Root of the dependency graph: functional primitives (Either-based error handling, argument checks) and the generic middleware-pipeline abstraction every processing pipeline in NEvo (messaging, and by extension its extensions) is built on."
+    },
+    {
+      "file": "docs/packages/NEvo.EntityFramework.md",
+      "id": "packages.nevo-entityframework",
+      "type": "package",
+      "title": "NEvo.EntityFramework",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Shared EF Core infrastructure: startup migrations with retry, and a telemetry activity-source name. Not a dependency of NEvo.Messaging.EntityFramework or NEvo.Orchestrating.EntityFramework — see Related packages."
     },
     {
       "file": "docs/packages/NEvo.Messaging.md",

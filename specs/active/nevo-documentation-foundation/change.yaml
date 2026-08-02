@@ -54,7 +54,7 @@ tasks:
   - id: package-docs-auth-and-persistence
     order: 8
     file: tasks/08-package-docs-auth-and-persistence.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-messaging-extensions
   - id: package-docs-web-and-experimental

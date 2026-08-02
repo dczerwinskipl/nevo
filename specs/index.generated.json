@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:16:30.626Z",
+  "generated": "2026-08-02T18:25:53.318Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -64,7 +64,7 @@
           "id": "package-docs-messaging-extensions",
           "order": 7,
           "file": "tasks/07-package-docs-messaging-extensions.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "package-docs-core-and-messaging"
           ]
@@ -73,7 +73,7 @@
           "id": "package-docs-auth-and-persistence",
           "order": 8,
           "file": "tasks/08-package-docs-auth-and-persistence.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "package-docs-messaging-extensions"
           ]
