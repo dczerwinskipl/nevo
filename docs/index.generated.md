@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:12:41.924Z_
+_Generated: 2026-08-02T18:16:31.587Z_
 
 ## Hub
 
@@ -17,6 +17,10 @@ _Generated: 2026-08-02T18:12:41.924Z_
 | `packages.classification` | [Package classification](packages/classification.md) | current |  |
 | `packages.nevo-core` | [NEvo.Core](packages/NEvo.Core.md) | current |  |
 | `packages.nevo-messaging` | [NEvo.Messaging](packages/NEvo.Messaging.md) | current |  |
+| `packages.nevo-messaging-authorization` | [NEvo.Messaging.Authorization](packages/NEvo.Messaging.Authorization.md) | current |  |
+| `packages.nevo-messaging-cqrs` | [NEvo.Messaging.Cqrs](packages/NEvo.Messaging.Cqrs.md) | current |  |
+| `packages.nevo-messaging-entityframework` | [NEvo.Messaging.EntityFramework](packages/NEvo.Messaging.EntityFramework.md) | current |  |
+| `packages.nevo-messaging-web` | [NEvo.Messaging.Web](packages/NEvo.Messaging.Web.md) | current |  |
 | `packages.nevo-orchestrating` | [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental |  |
 | `packages.nevo-web-authorization` | [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current |  |
 

@@ -48,7 +48,7 @@ tasks:
   - id: package-docs-messaging-extensions
     order: 7
     file: tasks/07-package-docs-messaging-extensions.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-core-and-messaging
   - id: package-docs-auth-and-persistence
