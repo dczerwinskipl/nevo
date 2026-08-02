@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tools/specs.mjs — specification lifecycle CLI
-// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status>
+// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status|comments|resolve-comment>
 
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
@@ -295,6 +295,43 @@ export function handleStatus(changeSlug) {
   console.log(JSON.stringify({ change: changeSlug, branch, ...result }, null, 2));
 }
 
+function requirePrForChange(changeSlug) {
+  requireChange(changeSlug); // only to give the usual "not found" error for a bad slug
+  const branch = git.getCurrentBranch(ROOT);
+  const pr = github.getPrForBranch(ROOT, branch);
+  if (!pr) throw new CliError(`No pull request found for branch '${branch}'.`);
+  return pr;
+}
+
+// Read-only: every review thread on this change's PR, unresolved ones first, with full
+// comment text and each comment's databaseId (needed by `resolve-comment --reply`).
+// Never filters out bot reviewers (e.g. GitHub Copilot) — a thread is a thread
+// regardless of who opened it.
+export function handleComments(changeSlug) {
+  const pr = requirePrForChange(changeSlug);
+  const threads = github.getReviewThreads(ROOT, pr.number);
+  threads.sort((a, b) => Number(a.isResolved) - Number(b.isResolved));
+  console.log(JSON.stringify({ change: changeSlug, pr: pr.number, threads }, null, 2));
+}
+
+// Resolves one review thread (its GraphQL `id`, from `comments`' output — not a
+// comment's databaseId). `--reply` posts a reply on the thread's first comment before
+// resolving, so the reviewer sees why it was closed instead of a silent resolution.
+export function handleResolveComment(changeSlug, threadId, options = {}) {
+  const pr = requirePrForChange(changeSlug);
+  if (options.reply) {
+    const threads = github.getReviewThreads(ROOT, pr.number);
+    const thread = threads.find(t => t.id === threadId);
+    if (!thread) throw new CliError(`Thread '${threadId}' not found on PR #${pr.number}.`);
+    const firstComment = thread.comments[0];
+    if (!firstComment) throw new CliError(`Thread '${threadId}' has no comments to reply to.`);
+    github.replyToReviewComment(ROOT, pr.number, firstComment.databaseId, options.reply);
+    console.log(`Replied on thread '${threadId}'.`);
+  }
+  const result = github.resolveReviewThread(ROOT, threadId);
+  console.log(`Thread '${threadId}' resolved: ${result.isResolved}`);
+}
+
 // ── CLI wiring ───────────────────────────────────────────────────────────────
 
 export function buildProgram() {
@@ -360,6 +397,18 @@ export function buildProgram() {
     .description('Read-only: where this change sits in the spec→task→PR→merge chain, and the one next action')
     .argument('<change>')
     .action(handleStatus);
+
+  program.command('comments')
+    .description("Read-only: this change's PR review threads, unresolved first, with full comment text")
+    .argument('<change>')
+    .action(handleComments);
+
+  program.command('resolve-comment')
+    .description('Resolve one PR review thread (--reply to post a reply first)')
+    .argument('<change>')
+    .argument('<thread-id>')
+    .option('--reply <text>', 'Reply on the thread before resolving it')
+    .action((changeSlug, threadId, opts) => handleResolveComment(changeSlug, threadId, opts));
 
   return program;
 }

@@ -118,33 +118,18 @@ get wrong because half of it (opening the PR, Copilot's review) happens outside 
    exists (if Copilot review is enabled on this repository) — nothing in this workflow
    triggers it, and nothing needs to. It posts inline comments as its own review, exactly
    like a human reviewer would.
-7. **Resolving those comments (Copilot's or a human's) — today, this is the one step
-   that happens outside this workflow entirely:**
-   - Read them: `gh pr view <pr> --comments`, or the GitHub PR page.
-   - Fix what's real; push the fix as a new commit on the same branch.
-   - Click **"Resolve conversation"** on GitHub for each thread once addressed.
-     `tools/lib/github.mjs` can only *read* whether a thread is resolved
-     (`getUnresolvedReviewThreadCount`, which step 8 uses) — it has no way to resolve one
-     itself yet. See "The one gap this doesn't close" below.
+7. `/nevo-ai:spec-resolve-comments <change-id>` — reads every unresolved thread
+   (Copilot's or a human's, no distinction), classifies each as fixable now (a clear,
+   unambiguous correction the comment itself fully specifies) or needing the owner's
+   input, shows both lists, then — after one batch confirmation covering only the
+   fixable ones — applies each fix, replies on the thread (never a silent resolution),
+   and resolves it. Threads needing input are never touched; they're reported with the
+   actual question to ask. Does **not** commit or push — the next step names that
+   explicitly.
 8. `/nevo-ai:spec-finalize <change-id>` — run with `--check` first: it reports
-   `unresolvedThreads` from step 7 directly, and refuses to proceed while it's above
-   zero. Once the gate passes, the closed-menu confirmation, then the real run: archive
-   locally → commit → push → squash-merge the PR → delete the branch.
-
-### The one gap this doesn't close
-
-Step 7's "resolve on GitHub" is a manual click today. Closing it fully would mean adding
-a `resolveReviewThread` GraphQL mutation to `tools/lib/github.mjs` (the write-side
-counterpart to the existing read-only `getUnresolvedReviewThreadCount`), plus a command
-that fetches each unresolved comment, fixes or discusses it, and calls the mutation once
-addressed — the same "apply, then verify" shape `/nevo-ai:task-apply-review` already
-uses, but for GitHub's PR comments instead of this repo's own review file. Deliberately
-not built yet: mutating a reviewer's comment thread is exactly the kind of hard-to-
-reverse, shared-state action this repository's git-safety rules require an explicit
-go-ahead for, and — separately — there are signs another concurrent process may already
-be building something similar (an unrelated `gh-query-temp.graphql` file with its own
-review-thread GraphQL query has appeared in the repo root this session) worth checking
-before a second implementation gets built.
+   `unresolvedThreads` directly, and refuses to proceed while it's above zero. Once the
+   gate passes, the closed-menu confirmation, then the real run: archive locally →
+   commit → push → squash-merge the PR → delete the branch.
 
 ## Where this chain used to end, and what closed the gap
 
@@ -173,11 +158,11 @@ category:
 
 - **`spec-*`** — the specification/change as a whole: `spec-create`, `spec-refine`,
   `spec-review`, `spec-approve`, and the whole-change-scoped commands `spec-audit`
-  (cross-task thematic audit), `spec-finalize` (gate → merge → archive), and
-  `spec-status` (read-only: where the change is, right now, across the whole chain).
-  "Change" and "spec" name the same entity in this repository
-  (`specs/active/<change-id>/`), so there is deliberately no separate `change-*`
-  prefix.
+  (cross-task thematic audit), `spec-resolve-comments` (PR review-thread triage),
+  `spec-finalize` (gate → merge → archive), and `spec-status` (read-only: where the
+  change is, right now, across the whole chain). "Change" and "spec" name the same
+  entity in this repository (`specs/active/<change-id>/`), so there is deliberately no
+  separate `change-*` prefix.
 - **`task-*`** — one task: `task-next`, `task-start`, `task-review`, and
   `task-apply-review` (applies a task review's own `AUTO_FIX` findings, then re-runs
   `task-review` itself — still task scope, since it never touches anything outside the

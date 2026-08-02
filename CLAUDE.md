@@ -93,6 +93,7 @@ shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
 | `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |
 | `/nevo-ai:task-apply-review <change-id> <task-id>` | Apply a review's AUTO_FIX findings, then auto re-review |
 | `/nevo-ai:spec-audit <change-id> <focus>` | Read-only, cross-task thematic audit of an already-implemented change |
+| `/nevo-ai:spec-resolve-comments <change-id>` | Fix and resolve clear PR review comments in one batch; flag the rest for you |
 | `/nevo-ai:spec-finalize <change-id>` | Gate on PR/review/verification state, then merge + archive |
 | `/nevo-ai:spec-status <change-id>` | Read-only: where the change sits in the whole chain, and the one next action |
 

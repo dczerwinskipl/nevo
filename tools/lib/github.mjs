@@ -19,8 +19,44 @@ query($owner: String!, $repo: String!, $pr: Int!) {
   }
 }`;
 
+const REVIEW_THREADS_DETAIL_QUERY = `
+query($owner: String!, $repo: String!, $pr: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          path
+          line
+          comments(first: 20) {
+            nodes {
+              databaseId
+              author { login }
+              body
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+const RESOLVE_REVIEW_THREAD_MUTATION = `
+mutation($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) {
+    thread { id isResolved }
+  }
+}`;
+
 function run(root, args) {
   return execFileSync('gh', args, { cwd: root, encoding: 'utf8' });
+}
+
+function ownerAndRepo(root) {
+  const [owner, repo] = getRepoSlug(root).split('/');
+  return { owner, repo };
 }
 
 export function isGhAvailable() {
@@ -58,10 +94,7 @@ export function getPrForBranch(root, branch) {
 // single-maintainer workflow expects to hit, but the count would silently undercount
 // if it did.
 export function getUnresolvedReviewThreadCount(root, prNumber) {
-  const { owner, repo } = (() => {
-    const [o, r] = getRepoSlug(root).split('/');
-    return { owner: o, repo: r };
-  })();
+  const { owner, repo } = ownerAndRepo(root);
   const json = run(root, [
     'api', 'graphql',
     '-f', `query=${REVIEW_THREADS_QUERY}`,
@@ -71,6 +104,60 @@ export function getUnresolvedReviewThreadCount(root, prNumber) {
   ]);
   const nodes = JSON.parse(json).data.repository.pullRequest.reviewThreads.nodes;
   return nodes.filter(n => !n.isResolved).length;
+}
+
+// Full thread + comment detail (author, body, path/line, and each comment's REST
+// `databaseId` for replyToReviewComment) — the read side an agent needs to actually
+// evaluate and act on PR feedback, not just count it. Same 100-thread/20-comment
+// pagination limit as getUnresolvedReviewThreadCount, for the same reason.
+export function getReviewThreads(root, prNumber) {
+  const { owner, repo } = ownerAndRepo(root);
+  const json = run(root, [
+    'api', 'graphql',
+    '-f', `query=${REVIEW_THREADS_DETAIL_QUERY}`,
+    '-f', `owner=${owner}`,
+    '-f', `repo=${repo}`,
+    '-F', `pr=${prNumber}`,
+  ]);
+  const nodes = JSON.parse(json).data.repository.pullRequest.reviewThreads.nodes;
+  return nodes.map(t => ({
+    id: t.id,
+    isResolved: t.isResolved,
+    path: t.path,
+    line: t.line,
+    comments: t.comments.nodes.map(c => ({
+      databaseId: c.databaseId,
+      author: c.author?.login ?? 'unknown',
+      body: c.body,
+      createdAt: c.createdAt,
+    })),
+  }));
+}
+
+// Marks a review thread resolved — the GraphQL node `id` from getReviewThreads, not a
+// REST databaseId. This is a write against another party's review conversation
+// (possibly a bot's, possibly a human reviewer's); the interactive confirmation this
+// needs happens one layer up, in the command that calls it, before it's ever called —
+// same split as mergePr below.
+export function resolveReviewThread(root, threadId) {
+  const json = run(root, [
+    'api', 'graphql',
+    '-f', `query=${RESOLVE_REVIEW_THREAD_MUTATION}`,
+    '-f', `threadId=${threadId}`,
+  ]);
+  return JSON.parse(json).data.resolveReviewThread.thread;
+}
+
+// Replies to one review comment (by its REST databaseId, from getReviewThreads) —
+// this is the simple REST reply endpoint, not a GraphQL mutation; GitHub has no
+// GraphQL "reply to thread" primitive, only "reply to a specific comment."
+export function replyToReviewComment(root, prNumber, commentDatabaseId, body) {
+  const { owner, repo } = ownerAndRepo(root);
+  const json = run(root, [
+    'api', `repos/${owner}/${repo}/pulls/${prNumber}/comments/${commentDatabaseId}/replies`,
+    '-f', `body=${body}`,
+  ]);
+  return JSON.parse(json);
 }
 
 // Squash-merges and deletes the branch — matches this repository's documented merge
