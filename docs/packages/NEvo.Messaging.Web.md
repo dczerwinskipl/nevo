@@ -42,9 +42,8 @@ separate edge in `docs/architecture/package-boundaries.md`).
 **This is the one documented exception to `package-boundaries.md` rule 4** ("messaging
 extension packages depend on `NEvo.Messaging` but not on each other") — this package
 also depends on `NEvo.Messaging.Cqrs`, for its `Command`/`ICommandDispatcher`-based
-route mapping (`MapCommandEndpoint<TCommand>`, `RoutesExtensions.cs`). This was
-corrected in task `architecture-corrections`; do not describe messaging extension
-packages as fully independent of each other.
+route mapping (`MapCommandEndpoint<TCommand>`, `RoutesExtensions.cs`). Do not describe
+messaging extension packages as fully independent of each other.
 
 ## Public surface
 
@@ -115,14 +114,20 @@ No advanced usage beyond configuring which message types are externally routed (
   incomplete.
 - `MapCommandEndpoint`'s success/failure branches currently write to `Console.WriteLine`
   — no structured logging.
+- Both `MapMessagesEndpoints` and `MapCommandEndpoint` map **every** `Either.Left`
+  (any exception, including a permission-denied failure from
+  `NEvo.Messaging.Authorization`) to the same generic `Results.Problem(statusCode:
+  500)` — there is no error-type-aware status mapping (e.g. `403` for authorization
+  failures, `400` for validation). See
+  [`NEvo.Messaging.Authorization.md`](NEvo.Messaging.Authorization.md) § "What happens
+  when validation fails" for a concrete case.
 
 ## Related packages
 
 - [`NEvo.Messaging`](NEvo.Messaging.md), [`NEvo.Messaging.Cqrs`](NEvo.Messaging.Cqrs.md)
   — both real dependencies (see "Dependencies").
 - [`NEvo.Web`](NEvo.Web.md) — provides the underlying HTTP client wrapper this
-  package's REST dispatch is built on. Not yet documented (see task
-  `package-docs-web-and-experimental`).
+  package's REST dispatch is built on.
 
 ## Examples and tests
 

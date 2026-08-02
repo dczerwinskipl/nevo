@@ -116,9 +116,9 @@ No advanced usage beyond the above is documented yet.
 
 - [`NEvo.Messaging`](NEvo.Messaging.md) — the package this one extends; provides the
   `IMessageInbox`/`IMessageOutbox` contracts implemented here.
-- `NEvo.EntityFramework` — the shared EF base package (migrations, resilience). Not a
-  direct dependency of this package (confirmed: not in its `.csproj`), but thematically
-  related. Not yet documented (see task `package-docs-auth-and-persistence`).
+- [`NEvo.EntityFramework`](NEvo.EntityFramework.md) — the shared EF base package
+  (migrations, resilience). Not a direct dependency of this package (confirmed: not in
+  its `.csproj`), but thematically related.
 
 ## Examples and tests
 

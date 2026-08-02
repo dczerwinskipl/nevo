@@ -41,8 +41,8 @@ state machine, not a messaging pattern.
 
 Depends only on `NEvo.Core` (verified directly against
 `src/NEvo.Orchestrating/NEvo.Orchestrating.csproj`'s `ProjectReference`, and against
-`docs/architecture/package-boundaries.md`, corrected in task `architecture-corrections`).
-No dependency on `NEvo.Messaging` or any other NEvo package — this is rule 3 of
+`docs/architecture/package-boundaries.md`). No dependency on `NEvo.Messaging` or any
+other NEvo package — this is rule 3 of
 `package-boundaries.md`: *"`NEvo.Orchestrating` depends only on `NEvo.Core` —
 orchestration does not require messaging."*
 
@@ -152,9 +152,6 @@ No DI/`IServiceCollection` registration extension exists in this package (unlike
 
 ## Basic usage
 
-Adapted directly from `tests/NEvo.Orchestrating.Tests/OrchestrationRunnerTests.cs`
-(there is no example-app usage of this package today — see "Examples and tests"):
-
 ```csharp
 public record OrderData();
 
@@ -216,9 +213,7 @@ usable as shipped — see "Limitations".
 
 - [`NEvo.Orchestrating.EntityFramework`](NEvo.Orchestrating.EntityFramework.md) —
   provides the EF-based `IOrchestratorStateRepository` implementation that
-  `PersistentStepExecutor` needs for real persistence. Not yet documented (this task is
-  out of scope for it — see task `package-docs-web-and-experimental`); linked here per
-  `areas/03-edge-package-pilot.md`'s acceptance criteria.
+  `PersistentStepExecutor` needs for real persistence.
 
 ## Examples and tests
 

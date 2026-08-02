@@ -35,11 +35,9 @@ src/NEvo.Web.Authorization/` — no matches).
 ## Dependencies
 
 Depends only on `NEvo.Authorization` — confirmed directly against
-`src/NEvo.Web.Authorization/NEvo.Web.Authorization.csproj`'s single `ProjectReference`,
-and against the corrected `docs/architecture/package-boundaries.md` (the previous,
-now-fixed diagram falsely showed a dependency on `NEvo.Web` — see task
-`architecture-corrections`). **This package does not depend on `NEvo.Web`, despite the
-name.**
+`src/NEvo.Web.Authorization/NEvo.Web.Authorization.csproj`'s single `ProjectReference`
+and against `docs/architecture/package-boundaries.md`. **This package does not depend
+on `NEvo.Web`, despite the name.**
 
 ## Public surface
 
@@ -152,8 +150,7 @@ registration uses `TryAddScoped`, so an explicit `AddScoped` call after it wins)
 ## Related packages
 
 - [`NEvo.Authorization`](NEvo.Authorization.md) — the only real dependency; this package
-  exists purely to adapt ASP.NET Core claims into its abstractions. Not yet documented
-  (see task `package-docs-auth-and-persistence`).
+  exists purely to adapt ASP.NET Core claims into its abstractions.
 - **Not** `NEvo.Web` — despite the name, no dependency exists (see "Dependencies").
 
 ## Examples and tests

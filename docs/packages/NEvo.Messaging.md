@@ -132,9 +132,11 @@ for the two chain types and predicate-based conditional application
 
 - [`NEvo.Core`](NEvo.Core.md) — the only dependency; provides the middleware primitive
   this package's pipeline is built on.
-- `NEvo.Messaging.Cqrs`, `NEvo.Messaging.Authorization`, `NEvo.Messaging.Web`,
-  `NEvo.Messaging.EntityFramework` — extension packages that depend on this one. Not yet
-  documented (see task `package-docs-messaging-extensions`).
+- [`NEvo.Messaging.Cqrs`](NEvo.Messaging.Cqrs.md),
+  [`NEvo.Messaging.Authorization`](NEvo.Messaging.Authorization.md),
+  [`NEvo.Messaging.Web`](NEvo.Messaging.Web.md),
+  [`NEvo.Messaging.EntityFramework`](NEvo.Messaging.EntityFramework.md) — extension
+  packages that depend on this one.
 
 ## Examples and tests
 

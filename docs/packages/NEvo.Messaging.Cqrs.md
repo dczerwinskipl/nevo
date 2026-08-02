@@ -108,9 +108,8 @@ No advanced usage beyond the above is documented yet — dispatch-strategy custo
 ## Related packages
 
 - [`NEvo.Messaging`](NEvo.Messaging.md) — the package this one extends.
-- `NEvo.Messaging.Web` depends on this package (for `Command`/`ICommandDispatcher` in
-  its route-mapping helpers) — not yet documented (see task
-  `package-docs-messaging-extensions`, this same task).
+- [`NEvo.Messaging.Web`](NEvo.Messaging.Web.md) depends on this package (for
+  `Command`/`ICommandDispatcher` in its route-mapping helpers).
 
 ## Examples and tests
 

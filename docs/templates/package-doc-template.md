@@ -75,8 +75,11 @@ architecture doc's own gap list, if any.
 ### Related packages
 
 Links to other package docs this package composes with or is composed with (e.g. the
-package providing this one's persistence/EF implementation). If a related package's doc
-doesn't exist yet, name it anyway and note it's documented in a later task.
+package providing this one's persistence/EF implementation). If a related package
+doesn't have its own doc yet, name it and link `docs/packages/<Name>.md` anyway (the
+link becomes live once that doc is written) — don't explain the absence, don't
+reference task IDs, spec files, or this change's own planning artifacts. Nothing about
+how or when this documentation set was built belongs in the documentation itself.
 
 ### Examples and tests
 
