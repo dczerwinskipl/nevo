@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:05:35.235Z_
+_Generated: 2026-08-02T18:12:41.924Z_
 
 ## Hub
 
@@ -15,6 +15,8 @@ _Generated: 2026-08-02T18:05:35.235Z_
 | ID | Title | Status | Scopes |
 |---|---|---|---|
 | `packages.classification` | [Package classification](packages/classification.md) | current |  |
+| `packages.nevo-core` | [NEvo.Core](packages/NEvo.Core.md) | current |  |
+| `packages.nevo-messaging` | [NEvo.Messaging](packages/NEvo.Messaging.md) | current |  |
 | `packages.nevo-orchestrating` | [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental |  |
 | `packages.nevo-web-authorization` | [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current |  |
 

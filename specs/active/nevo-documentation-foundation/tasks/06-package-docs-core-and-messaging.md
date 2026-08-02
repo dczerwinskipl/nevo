@@ -15,6 +15,8 @@ context:
 allowed_paths:
   - docs/packages/NEvo.Core.md
   - docs/packages/NEvo.Messaging.md
+  - docs/architecture/messaging-pipeline.md
+  - docs/architecture/message-context.md
   - specs/active/nevo-documentation-foundation/**
 forbidden_paths:
   - src/**

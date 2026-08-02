@@ -41,7 +41,7 @@ tasks:
   - id: package-docs-core-and-messaging
     order: 6
     file: tasks/06-package-docs-core-and-messaging.md
-    status: approved
+    status: implemented
     depends_on:
       - package-doc-orchestrating
       - package-doc-web-authorization

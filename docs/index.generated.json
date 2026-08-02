@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:05:35.235Z",
+  "generated": "2026-08-02T18:12:41.924Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -17,6 +17,26 @@
       "status": "current",
       "dependencies": [],
       "summary": "Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into functional categories, as the entry point for the per-package documentation under docs/packages/."
+    },
+    {
+      "file": "docs/packages/NEvo.Core.md",
+      "id": "packages.nevo-core",
+      "type": "package",
+      "title": "NEvo.Core",
+      "status": "current",
+      "dependencies": [],
+      "summary": "Root of the dependency graph: functional primitives (Either-based error handling, argument checks) and the generic middleware-pipeline abstraction every processing pipeline in NEvo (messaging, and by extension its extensions) is built on."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.md",
+      "id": "packages.nevo-messaging",
+      "type": "package",
+      "title": "NEvo.Messaging",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Message processing pipeline: dispatch, middleware chain, handler resolution, context propagation, and opt-in inbox/outbox abstractions. The foundation every NEvo.Messaging.* extension package builds on."
     },
     {
       "file": "docs/packages/NEvo.Orchestrating.md",

@@ -213,3 +213,39 @@
 - **Date:** 2026-08-02
 - **Affected artifacts:** `docs/architecture/orchestration.md`, task
   `package-doc-orchestrating`.
+
+## D11: Standing policy — architecture-doc drift found while writing package docs
+
+- **Question:** D9 and D10 each hit the same situation (a source-code read for a
+  package doc revealing an existing architecture doc had drifted from real code) and
+  each went through a full owner-decision write-up to fix it. Task 6 hit a third
+  instance (`messaging-pipeline.md`'s `IMiddleware` pseudocode names the method
+  `RunAsync`; the real method is `ExecuteAsync`. `message-context.md`'s
+  `IMessageContext.GetFeature<T>()`/`SetFeature<T>()` pseudocode omits the real
+  `where T : new()` constraint and shows a nullable return the real signature doesn't
+  have). Repeating the full D9/D10 ceremony for every future instance in this change
+  (tasks 7, 8, 9 remain, each touching more architecture docs) adds overhead without
+  changing the outcome. Should this become a standing, pre-authorized policy for the
+  rest of this change instead of a fresh decision each time?
+- **Options considered:** (1) standing policy: for the remainder of this change, when
+  writing a package doc surfaces a descriptive-only drift (signatures, enum values,
+  state diagrams — never a new architectural claim or recommendation) between an
+  architecture doc and real source, fix it in the same task, widen that task's
+  `allowed_paths` to the specific file, and record it as a one-line entry under this
+  decision rather than a new full D-entry | (2) keep requiring a full new D-entry every
+  time
+- **Decision:** Option (1).
+- **Rationale:** D9 and D10 already established the fix is correct and low-risk
+  (descriptive only, reversible, no behavior change) — re-litigating the same judgment
+  call repeatedly is process overhead, not additional safety.
+- **Consequences:** Every subsequent task's `allowed_paths` may be widened to a specific
+  drifted architecture-doc file without a dedicated new D-entry; each instance is logged
+  as a bullet below instead. The task's own review report still records the finding in
+  full (per `references/review-policy.md`), so nothing is silently fixed —
+  `owner-decisions.md` just stops repeating the same justification.
+- **Instances applied (logged, not separately decided):**
+  - Task 6: `docs/architecture/messaging-pipeline.md` (`IMiddleware.ExecuteAsync`, not
+    `RunAsync`) and `docs/architecture/message-context.md`
+    (`GetFeature`/`SetFeature`'s `where T : new()` constraint, non-nullable return).
+- **Date:** 2026-08-02
+- **Affected artifacts:** all remaining tasks in this change.

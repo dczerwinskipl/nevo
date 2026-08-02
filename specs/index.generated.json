@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:05:34.436Z",
+  "generated": "2026-08-02T18:12:41.115Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -45,7 +45,7 @@
           "id": "package-doc-web-authorization",
           "order": 5,
           "file": "tasks/05-package-doc-web-authorization.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "architecture-corrections"
           ]
@@ -54,7 +54,7 @@
           "id": "package-docs-core-and-messaging",
           "order": 6,
           "file": "tasks/06-package-docs-core-and-messaging.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "package-doc-orchestrating",
             "package-doc-web-authorization"

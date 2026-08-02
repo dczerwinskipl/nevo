@@ -36,8 +36,8 @@ interface IMessageContext
     IServiceProvider ServiceProvider { get; }
     Option<string> CorrelationId => Headers.CorrelationId;
     Option<string> CausationId => Headers.CausationId;
-    T? GetFeature<T>();
-    void SetFeature<T>(T value);
+    T GetFeature<T>() where T : new();
+    void SetFeature<T>(T value) where T : new();
 }
 ```
 
