@@ -23,6 +23,13 @@ command, what it gates, and the status it leaves behind. Full rules for each ste
 in [`specification-workflow.md`](specification-workflow.md); this page only maps the
 sequence.
 
+**Not sure what's next for a change already in progress? Don't reason through the list
+below — run `/nevo-ai:spec-status <change-id>`.** It's read-only, spans the whole chain
+(task approval → PR → review comments → verification → merge-ready), and always answers
+with exactly one next action, computed from a fixed table, never composed as prose. The
+numbered list below is what it's checking, in order — useful for understanding the
+chain, not for manually figuring out where you are in it.
+
 ```
 1. /nevo-ai:spec-create <change-id> <goal>
    Discovery + owner decisions → writes the spec (S/T/A per classification).
@@ -164,9 +171,10 @@ Exactly two prefixes, matching the two real scopes a command can operate at — 
 category:
 
 - **`spec-*`** — the specification/change as a whole: `spec-create`, `spec-refine`,
-  `spec-review`, `spec-approve`, and the two whole-change-scoped commands,
-  `spec-audit` (cross-task thematic audit) and `spec-finalize` (gate → merge →
-  archive). "Change" and "spec" name the same entity in this repository
+  `spec-review`, `spec-approve`, and the whole-change-scoped commands `spec-audit`
+  (cross-task thematic audit), `spec-finalize` (gate → merge → archive), and
+  `spec-status` (read-only: where the change is, right now, across the whole chain).
+  "Change" and "spec" name the same entity in this repository
   (`specs/active/<change-id>/`), so there is deliberately no separate `change-*`
   prefix.
 - **`task-*`** — one task: `task-next`, `task-start`, `task-review`, and

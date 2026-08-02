@@ -182,3 +182,87 @@ export function validateFinalize(change, facts) {
 
   return { ok: true, idempotent: false };
 }
+
+/**
+ * Pure lifecycle-stage classifier: given a change's tasks and the same `facts` bag
+ * `validateFinalize` takes, name exactly where this change currently sits in the full
+ * spec → task → PR → merge chain, and the single next action — never more than one, and
+ * never composed as prose. Read-only in intent: callers (handleStatus in
+ * tools/specs.mjs) must not use this to decide anything to *write*; it only classifies
+ * what's already true. Evaluated top to bottom, first match wins, same convention as
+ * validateApproval/validateFinalize.
+ *
+ * Returns `{ stage, detail, nextCommand }`. `stage` is one of: `needs-approval` |
+ * `ready-to-start` | `in-progress` | `needs-pr` | `pr-draft` |
+ * `needs-comment-resolution` | `needs-verification-fixes` | `ready-to-finalize` |
+ * `done`.
+ */
+export function deriveStage(change, facts) {
+  const draft = change.tasks.find(t => t.status === 'draft');
+  if (draft) {
+    return {
+      stage: 'needs-approval',
+      detail: `Task '${draft.id}' is still draft.`,
+      nextCommand: `/nevo-ai:spec-review ${change._slug || change.id}`,
+    };
+  }
+
+  const approved = change.tasks.find(t => t.status === 'approved');
+  if (approved) {
+    return {
+      stage: 'ready-to-start',
+      detail: `Task '${approved.id}' is approved but not started.`,
+      nextCommand: `/nevo-ai:task-start ${change._slug || change.id} ${approved.id}`,
+    };
+  }
+
+  const inProgress = change.tasks.find(t => t.status === 'in-implementation');
+  if (inProgress) {
+    return {
+      stage: 'in-progress',
+      detail: `Task '${inProgress.id}' is in-implementation.`,
+      nextCommand: `Implement, then /nevo-ai:task-review ${change._slug || change.id} ${inProgress.id}`,
+    };
+  }
+
+  // Every task is now in a terminal status (implemented/verified/archived/abandoned) —
+  // the rest of the chain is about the PR, not the tasks.
+  if (!facts.pr) {
+    return {
+      stage: 'needs-pr',
+      detail: 'Every task is terminal. No pull request found for this branch yet.',
+      nextCommand: 'pr-create skill (open a pull request)',
+    };
+  }
+  if (facts.pr.state === 'MERGED') {
+    return { stage: 'done', detail: `PR #${facts.pr.number} is merged.`, nextCommand: 'None.' };
+  }
+  if (facts.pr.isDraft) {
+    return {
+      stage: 'pr-draft',
+      detail: `PR #${facts.pr.number} is still a draft.`,
+      nextCommand: 'Mark the PR ready for review on GitHub.',
+    };
+  }
+  if (facts.pr.unresolvedThreads > 0) {
+    return {
+      stage: 'needs-comment-resolution',
+      detail: `PR #${facts.pr.number} has ${facts.pr.unresolvedThreads} unresolved review thread(s).`,
+      nextCommand: `Resolve the open comments on PR #${facts.pr.number} (any reviewer, including bot reviewers).`,
+    };
+  }
+  const failedChecks = facts.verification.filter(v => !v.passed);
+  if (failedChecks.length) {
+    return {
+      stage: 'needs-verification-fixes',
+      detail: `Verification failing: ${failedChecks.map(v => v.name).join(', ')}.`,
+      nextCommand: `Fix: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
+    };
+  }
+
+  return {
+    stage: 'ready-to-finalize',
+    detail: `PR #${facts.pr.number} is open, no unresolved threads, verification green.`,
+    nextCommand: `/nevo-ai:spec-finalize ${change._slug || change.id}`,
+  };
+}

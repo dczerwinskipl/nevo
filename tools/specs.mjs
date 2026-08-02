@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tools/specs.mjs — specification lifecycle CLI
-// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize>
+// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status>
 
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,7 @@ import { validateSpecs } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
   TERMINAL_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval, validateFinalize,
+  deriveStage,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -279,6 +280,21 @@ export function handleFinalize(changeSlug, options = {}) {
   console.log(`Pushed archive commit and merged PR #${facts.pr.number} (squash, branch deleted).`);
 }
 
+// Read-only lifecycle navigator: where does this change sit right now, across the
+// whole spec → task → PR → merge chain, and what is the single next action. Never
+// writes anything. Skips the git/gh/verification calls entirely while any task is
+// still non-terminal, since deriveStage's task-status checks always win first in that
+// case — no need to pay for a PR lookup or a dotnet build just to report "task X is
+// still in-implementation."
+export function handleStatus(changeSlug) {
+  const change = requireChange(changeSlug);
+  const branch = git.getCurrentBranch(ROOT);
+  const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
+  const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, verification: [] };
+  const result = deriveStage(change, facts);
+  console.log(JSON.stringify({ change: changeSlug, branch, ...result }, null, 2));
+}
+
 // ── CLI wiring ───────────────────────────────────────────────────────────────
 
 export function buildProgram() {
@@ -339,6 +355,11 @@ export function buildProgram() {
     .argument('<change>')
     .option('--check', 'Report the gate result only — no merge, no archive, no writes')
     .action((changeSlug, opts) => handleFinalize(changeSlug, opts));
+
+  program.command('status')
+    .description('Read-only: where this change sits in the spec→task→PR→merge chain, and the one next action')
+    .argument('<change>')
+    .action(handleStatus);
 
   return program;
 }

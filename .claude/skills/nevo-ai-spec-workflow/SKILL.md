@@ -176,6 +176,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
 | `spec-finalize` | `finalized` \| `gate-passed` \| `blocked` |
+| `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |
 
 **Precise wording rule**: never use a more optimistic word than the `Status`/`Verdict`
 value justifies. Do not say "ready for implementation" when fixes, owner decisions, or

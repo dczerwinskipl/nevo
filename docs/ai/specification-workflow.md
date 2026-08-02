@@ -583,12 +583,14 @@ This document is the shared policy. Tool-specific layers are thin:
 
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
   `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:spec-audit`,
-  `/nevo-ai:spec-finalize`, `/nevo-ai:task-next`, `/nevo-ai:task-start`,
-  `/nevo-ai:task-review`, and `/nevo-ai:task-apply-review` (see
+  `/nevo-ai:spec-finalize`, `/nevo-ai:spec-status`, `/nevo-ai:task-next`,
+  `/nevo-ai:task-start`, `/nevo-ai:task-review`, and `/nevo-ai:task-apply-review` (see
   `.claude/commands/nevo-ai/`), backed by the shared skill
   `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
   `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
-  parallel workflow.
+  parallel workflow. `/nevo-ai:spec-status <change-id>` is the one command that spans
+  the whole chain read-only — reach for it any time the next step isn't obvious, instead
+  of reasoning through every other command's own narrower "Next command" field.
 - **Cursor** and **Copilot** have no namespaced commands. They follow this document and
   `AGENTS.md` directly, driving `tools/specs.mjs` / `tools/docs.mjs` from the terminal.
 

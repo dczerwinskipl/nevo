@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateTransition, validateApproval, validateFinalize, TRANSITIONS } from '../specs/lifecycle.mjs';
+import { validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS } from '../specs/lifecycle.mjs';
 
 describe('validateTransition — valid transitions', () => {
   test('approve: draft -> approved is allowed', () => {
@@ -238,5 +238,91 @@ describe('validateFinalize — the finalize gate', () => {
     const r = validateFinalize(doneChange(), cleanFacts());
     assert.equal(r.ok, true);
     assert.equal(r.idempotent, false);
+  });
+});
+
+describe('deriveStage — the whole-lifecycle navigator', () => {
+  const emptyFacts = () => ({ pr: null, verification: [] });
+  const cleanPrFacts = () => ({
+    pr: { number: 7, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
+    verification: [{ name: 'specs validate', passed: true }],
+  });
+
+  test('needs-approval when any task is still draft, even if others are further along', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }, { id: 't2', status: 'draft' }] };
+    const r = deriveStage(change, emptyFacts());
+    assert.equal(r.stage, 'needs-approval');
+    assert.match(r.nextCommand, /spec-review c1/);
+  });
+
+  test('ready-to-start when a task is approved but not yet started', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'approved' }] };
+    const r = deriveStage(change, emptyFacts());
+    assert.equal(r.stage, 'ready-to-start');
+    assert.match(r.nextCommand, /task-start c1 t1/);
+  });
+
+  test('in-progress when a task is in-implementation', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'in-implementation' }] };
+    const r = deriveStage(change, emptyFacts());
+    assert.equal(r.stage, 'in-progress');
+    assert.match(r.nextCommand, /task-review c1 t1/);
+  });
+
+  test('draft beats approved beats in-implementation when several tasks are at different stages', () => {
+    const change = {
+      _slug: 'c1',
+      tasks: [
+        { id: 't1', status: 'in-implementation' },
+        { id: 't2', status: 'approved' },
+        { id: 't3', status: 'draft' },
+      ],
+    };
+    assert.equal(deriveStage(change, emptyFacts()).stage, 'needs-approval');
+  });
+
+  test('needs-pr once every task is terminal but no PR exists yet', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const r = deriveStage(change, emptyFacts());
+    assert.equal(r.stage, 'needs-pr');
+    assert.match(r.nextCommand, /pr-create/);
+  });
+
+  test('done when the PR is already merged', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const facts = { pr: { number: 7, state: 'MERGED', isDraft: false, unresolvedThreads: 0 }, verification: [] };
+    assert.equal(deriveStage(change, facts).stage, 'done');
+  });
+
+  test('pr-draft when the PR exists but is still a draft', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const facts = { pr: { number: 7, state: 'OPEN', isDraft: true, unresolvedThreads: 0 }, verification: [] };
+    assert.equal(deriveStage(change, facts).stage, 'pr-draft');
+  });
+
+  test('needs-comment-resolution when the PR has unresolved review threads', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const facts = { pr: { number: 7, state: 'OPEN', isDraft: false, unresolvedThreads: 2 }, verification: [] };
+    const r = deriveStage(change, facts);
+    assert.equal(r.stage, 'needs-comment-resolution');
+    assert.match(r.detail, /2 unresolved/);
+  });
+
+  test('needs-verification-fixes when the PR is otherwise clean but a check failed', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const facts = {
+      pr: { number: 7, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
+      verification: [{ name: 'dotnet test', passed: false, detail: '1 failed' }],
+    };
+    const r = deriveStage(change, facts);
+    assert.equal(r.stage, 'needs-verification-fixes');
+    assert.match(r.nextCommand, /dotnet test/);
+  });
+
+  test('ready-to-finalize when the PR is open, clean, and verification is green', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const r = deriveStage(change, cleanPrFacts());
+    assert.equal(r.stage, 'ready-to-finalize');
+    assert.match(r.nextCommand, /spec-finalize c1/);
   });
 });
