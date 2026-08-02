@@ -152,6 +152,13 @@ export function validateFinalize(change, facts) {
     return { ok: false, reason: 'Branch has commits not yet pushed to origin. Push before finalizing.' };
   }
 
+  // facts.pr === null is ambiguous by itself: "checked, genuinely no PR" and "couldn't
+  // check" produce the same null. facts.ghAvailable is what disambiguates them — never
+  // report "no PR" when the real answer is "unknown," since that could send someone to
+  // open a second PR for a branch that already has one.
+  if (facts.ghAvailable === false) {
+    return { ok: false, reason: 'gh CLI is not available — cannot verify PR/review-thread state. Install/authenticate gh and retry.' };
+  }
   if (!facts.pr) {
     return { ok: false, reason: 'No pull request found for this branch. Open one before finalizing.' };
   }
@@ -193,7 +200,7 @@ export function validateFinalize(change, facts) {
  * validateApproval/validateFinalize.
  *
  * Returns `{ stage, detail, nextCommand }`. `stage` is one of: `needs-approval` |
- * `ready-to-start` | `in-progress` | `needs-pr` | `pr-draft` |
+ * `ready-to-start` | `in-progress` | `cannot-verify-pr` | `needs-pr` | `pr-draft` |
  * `needs-comment-resolution` | `needs-verification-fixes` | `ready-to-finalize` |
  * `done`.
  */
@@ -226,7 +233,16 @@ export function deriveStage(change, facts) {
   }
 
   // Every task is now in a terminal status (implemented/verified/archived/abandoned) —
-  // the rest of the chain is about the PR, not the tasks.
+  // the rest of the chain is about the PR, not the tasks. facts.pr === null is
+  // ambiguous on its own (see validateFinalize's identical guard) — check ghAvailable
+  // first, or "gh isn't installed" silently reads as "no PR exists yet."
+  if (facts.ghAvailable === false) {
+    return {
+      stage: 'cannot-verify-pr',
+      detail: 'Every task is terminal, but gh CLI is not available — PR/comment state is unknown, not confirmed absent.',
+      nextCommand: 'Install/authenticate gh, then re-check. Do not assume no PR exists.',
+    };
+  }
   if (!facts.pr) {
     return {
       stage: 'needs-pr',

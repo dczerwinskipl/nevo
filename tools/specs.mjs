@@ -40,6 +40,18 @@ function requireChange(slug, baseDir = ACTIVE_DIR) {
   return change;
 }
 
+// Looks in specs/active/ first, then specs/archive/ — for commands that need to reason
+// about a change's PR/merge state regardless of whether it was (possibly prematurely)
+// archived already. A change archived before its PR was pushed/merged is exactly the
+// scenario status/finalize/comments need to keep working for, not error out on.
+function requireChangeAnywhere(slug) {
+  const active = loadChange(slug, ACTIVE_DIR);
+  if (active) return { change: active, location: 'active' };
+  const archived = loadChange(slug, ARCHIVE_DIR);
+  if (archived) return { change: archived, location: 'archive' };
+  throw new CliError(`Change '${slug}' not found in specs/active/ or specs/archive/`);
+}
+
 function requireTask(change, taskId) {
   const task = change.tasks.find(t => t.id === taskId);
   if (!task) throw new CliError(`Task '${taskId}' not found in change '${change._slug}'`);
@@ -219,7 +231,8 @@ function gatherFinalizeFacts(branch) {
   verification.push({ name: 'docs check', passed: docCheckProblems.length === 0, detail: docCheckProblems[0] });
 
   let pr = null;
-  if (!github.isGhAvailable()) {
+  const ghAvailable = github.isGhAvailable();
+  if (!ghAvailable) {
     verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
   } else {
     pr = github.getPrForBranch(ROOT, branch);
@@ -240,6 +253,9 @@ function gatherFinalizeFacts(branch) {
   return {
     gitClean: git.isWorkingTreeClean(ROOT),
     branch: git.getAheadBehind(ROOT, branch),
+    ghAvailable,
+    // null means "checked, genuinely none" ONLY when ghAvailable is true — when
+    // ghAvailable is false this is "unknown," never treat it as "confirmed absent."
     pr: pr ? { number: pr.number, state: pr.state, isDraft: pr.isDraft, unresolvedThreads: pr.unresolvedThreads } : null,
     verification,
   };
@@ -248,36 +264,42 @@ function gatherFinalizeFacts(branch) {
 // Finalize gate: every task terminal, working tree clean and pushed, an open (or
 // already-merged, idempotently) PR with zero unresolved review threads, and every
 // verification command green. `--check` only reports the gate result — no side
-// effects. Without it, once the gate passes, this archives the change locally, commits
-// and pushes that, then squash-merges the PR — matching the order the owner specified:
-// verify → archive locally → commit → push → merge. Never merges or archives on a
-// failing gate, and the interactive "are you sure" for this whole action lives one
-// layer up, in /nevo-ai:spec-finalize — this command does exactly what it's told,
-// deterministically, the same split as `approve`/`archive`.
+// effects. Without it, once the gate passes: archive locally (skipped if the change was
+// already archived — e.g. someone ran bare `archive` before finalizing, which this
+// command still needs to recover from, not just refuse) → commit → push → squash-merge
+// the PR. Never merges or archives on a failing gate, and the interactive "are you
+// sure" for this whole action lives one layer up, in /nevo-ai:spec-finalize — this
+// command does exactly what it's told, deterministically, the same split as
+// `approve`/`archive`.
 export function handleFinalize(changeSlug, options = {}) {
-  const change = requireChange(changeSlug);
+  const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
   const facts = gatherFinalizeFacts(branch);
   const result = validateFinalize(change, facts);
 
   if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, branch, facts, result }, null, 2));
+    console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
     return;
   }
 
   if (!result.ok) throw new CliError(result.reason);
 
-  handleArchive(changeSlug);
-  git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
+  if (location === 'active') {
+    handleArchive(changeSlug);
+    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
+  } else {
+    console.log(`Change '${changeSlug}' is already archived.`);
+    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): finalize ${changeSlug}`);
+  }
 
   if (result.idempotent) {
-    console.log('PR was already merged. Archive committed locally — push manually if the remote branch still exists.');
+    console.log('PR was already merged. Any pending local changes were committed — push manually if the remote branch still exists.');
     return;
   }
 
   git.push(ROOT, branch);
   github.mergePr(ROOT, facts.pr.number);
-  console.log(`Pushed archive commit and merged PR #${facts.pr.number} (squash, branch deleted).`);
+  console.log(`Pushed and merged PR #${facts.pr.number} (squash, branch deleted).`);
 }
 
 // Read-only lifecycle navigator: where does this change sit right now, across the
@@ -285,18 +307,20 @@ export function handleFinalize(changeSlug, options = {}) {
 // writes anything. Skips the git/gh/verification calls entirely while any task is
 // still non-terminal, since deriveStage's task-status checks always win first in that
 // case — no need to pay for a PR lookup or a dotnet build just to report "task X is
-// still in-implementation."
+// still in-implementation." Checks specs/archive/ too — a change archived before its
+// PR was pushed/merged (the exact incident this command exists to prevent recurring)
+// must still be reportable, not just error out with "not found."
 export function handleStatus(changeSlug) {
-  const change = requireChange(changeSlug);
+  const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
   const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
-  const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, verification: [] };
+  const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, ghAvailable: true, verification: [] };
   const result = deriveStage(change, facts);
-  console.log(JSON.stringify({ change: changeSlug, branch, ...result }, null, 2));
+  console.log(JSON.stringify({ change: changeSlug, branch, location, ...result }, null, 2));
 }
 
 function requirePrForChange(changeSlug) {
-  requireChange(changeSlug); // only to give the usual "not found" error for a bad slug
+  requireChangeAnywhere(changeSlug); // only for the usual "not found" error on a bad slug
   const branch = git.getCurrentBranch(ROOT);
   const pr = github.getPrForBranch(ROOT, branch);
   if (!pr) throw new CliError(`No pull request found for branch '${branch}'.`);

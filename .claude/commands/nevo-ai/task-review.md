@@ -78,8 +78,9 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
     whether a bare local archive is actually safe. Its `stage` becomes this response's
     `Next command` in step 10 below, verbatim, whatever it is (`ready-to-start` /
     `in-progress` if other tasks in the change aren't terminal yet — same as today;
-    `needs-pr` / `pr-draft` / `needs-comment-resolution` / `needs-verification-fixes` /
-    `ready-to-finalize` / `done` once every task is terminal). Report it, do not act on
+    `cannot-verify-pr` / `needs-pr` / `pr-draft` / `needs-comment-resolution` /
+    `needs-verification-fixes` / `ready-to-finalize` / `done` once every task is
+    terminal). Report it, do not act on
     it — same rule `/nevo-ai:spec-status` itself follows.
 10. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
     — adapted shape". `Verdict` is the value from step 7 (`pass` stays `pass`

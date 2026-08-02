@@ -150,8 +150,17 @@ describe('validateFinalize — the finalize gate', () => {
   const cleanFacts = () => ({
     gitClean: true,
     branch: { hasUpstream: true, ahead: 0, behind: 0 },
+    ghAvailable: true,
     pr: { number: 42, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
     verification: [{ name: 'specs validate', passed: true }, { name: 'docs validate', passed: true }],
+  });
+
+  test('rejects when gh is unavailable, and never conflates that with "no PR exists"', () => {
+    const facts = { ...cleanFacts(), ghAvailable: false, pr: null };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /gh CLI is not available/);
+    assert.doesNotMatch(r.reason, /No pull request found/);
   });
 
   test('rejects when a task is not in a terminal status', () => {
@@ -242,10 +251,19 @@ describe('validateFinalize — the finalize gate', () => {
 });
 
 describe('deriveStage — the whole-lifecycle navigator', () => {
-  const emptyFacts = () => ({ pr: null, verification: [] });
+  const emptyFacts = () => ({ pr: null, ghAvailable: true, verification: [] });
   const cleanPrFacts = () => ({
     pr: { number: 7, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
+    ghAvailable: true,
     verification: [{ name: 'specs validate', passed: true }],
+  });
+
+  test('cannot-verify-pr (never needs-pr) when every task is terminal but gh is unavailable', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
+    const facts = { pr: null, ghAvailable: false, verification: [] };
+    const r = deriveStage(change, facts);
+    assert.equal(r.stage, 'cannot-verify-pr');
+    assert.doesNotMatch(r.detail, /No pull request found/);
   });
 
   test('needs-approval when any task is still draft, even if others are further along', () => {

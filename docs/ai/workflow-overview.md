@@ -151,6 +151,28 @@ every task is verified" for the full detail. `archive` on its own still exists a
 still occasionally the right call (e.g. a Class S/T change with no PR at all), but for
 anything that went through a PR, `spec-finalize` is the step to reach for.
 
+### Two more real incidents this closed
+
+Both hit the same day the fix above landed, from real usage, not hypotheticals:
+
+1. **A change was archived via bare `archive` before its PR was even pushed** —
+   `task-review`'s own archive-offer (the very first version of this fix) asked
+   "archive now?" and, on yes, ran `node tools/specs.mjs archive` directly, which has no
+   relationship to `validateFinalize` at all. Fixed by having `task-review` (and
+   `task-next`'s equivalent backstop) report `node tools/specs.mjs status`'s
+   `stage`/`nextCommand` instead of ever offering bare `archive` itself — see
+   `references/review-policy.md` § "Owner-only transitions" for the corrected rule.
+2. **Once archived, `spec-status`/`spec-finalize`/`spec-resolve-comments` couldn't see
+   the change at all** — they only looked in `specs/active/`, so a change archived
+   *before* its PR/merge state was confirmed (exactly incident 1) became unreportable
+   right when reporting it mattered most. Fixed: all three now check `specs/active/`
+   first, then `specs/archive/`.
+3. **`gh` unavailable and "no PR exists" produced the identical `pr: null`** — reported
+   as `needs-pr` either way, which could send someone to open a *second* PR for a branch
+   that already has one. Fixed with an explicit `ghAvailable` fact: `stage:
+   'cannot-verify-pr'` (never `needs-pr`) whenever `gh` couldn't be checked, in both
+   `validateFinalize` and `deriveStage`.
+
 ## Command-surface naming
 
 Exactly two prefixes, matching the two real scopes a command can operate at — no third

@@ -38,12 +38,16 @@ where you are, here's the one next action. It never performs that action itself.
 
 Use the closing shape from `SKILL.md` § "Ending every command's response". `Status` is
 the `stage` value verbatim (`needs-approval` \| `ready-to-start` \| `in-progress` \|
-`needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \|
-`ready-to-finalize` \| `done`). The facts line is `detail`. `Artifact` is `none` — this
-command never writes anything. `Next command` is `nextCommand` verbatim — for stages
-whose next action isn't a `/nevo-ai:*` command (`needs-pr`, `pr-draft`,
-`needs-comment-resolution`, `needs-verification-fixes`), it is still exactly one
-sentence naming the concrete action, not a vague pointer.
+`cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \|
+`needs-verification-fixes` \| `ready-to-finalize` \| `done`). The facts line is
+`detail`. `Artifact` is `none` — this command never writes anything. `Next command` is
+`nextCommand` verbatim — for stages whose next action isn't a `/nevo-ai:*` command
+(`cannot-verify-pr`, `needs-pr`, `pr-draft`, `needs-comment-resolution`,
+`needs-verification-fixes`), it is still exactly one sentence naming the concrete
+action, not a vague pointer. `cannot-verify-pr` means `gh` isn't available — **never**
+report this as `needs-pr` or otherwise imply no PR exists; the truthful answer is
+"unknown," and reporting it as "none" risks a duplicate PR being opened for a branch
+that already has one.
 
 ## Rules
 

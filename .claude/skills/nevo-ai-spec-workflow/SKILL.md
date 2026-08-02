@@ -177,7 +177,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
 | `spec-finalize` | `finalized` \| `gate-passed` \| `blocked` |
 | `spec-resolve-comments` | `resolved` \| `needs-owner-input` \| `none-unresolved` |
-| `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |
+| `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |
 
 **Precise wording rule**: never use a more optimistic word than the `Status`/`Verdict`
 value justifies. Do not say "ready for implementation" when fixes, owner decisions, or
