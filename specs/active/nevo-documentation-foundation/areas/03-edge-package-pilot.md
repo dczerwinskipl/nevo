@@ -11,7 +11,9 @@ Neither `NEvo.Orchestrating` nor `NEvo.Web.Authorization` has any dedicated docu
 today. `NEvo.Orchestrating` depends only on `NEvo.Core` (deliberately decoupled from
 messaging per `package-boundaries.md` rule 3) and is marked `experimental` in
 `docs/architecture/orchestration.md`'s front matter. `NEvo.Web.Authorization` is a
-single-file package (`ServiceCollectionExtensions.cs`) depending only on
+small, single-purpose package (`ServiceCollectionExtensions.cs` plus provider
+implementations under `Claims/`, `Roles/`, `Users/` — corrected here from "single-file"
+after task `package-doc-web-authorization` read the real source) depending only on
 `NEvo.Authorization`.
 
 ## Requirements

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:02:09.838Z",
+  "generated": "2026-08-02T18:05:35.235Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -28,6 +28,17 @@
         "NEvo.Core"
       ],
       "summary": "Saga-style orchestration: sequential step execution with automatic reverse-order compensation on failure. Experimental and in progress — deliberately decoupled from the messaging pipeline (depends only on NEvo.Core)."
+    },
+    {
+      "file": "docs/packages/NEvo.Web.Authorization.md",
+      "id": "packages.nevo-web-authorization",
+      "type": "package",
+      "title": "NEvo.Web.Authorization",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Authorization"
+      ],
+      "summary": "Adapts ASP.NET Core's ClaimsPrincipal into NEvo.Authorization's IUserProvider/ IRoleProvider abstractions. Despite the name, does not depend on NEvo.Web."
     },
     {
       "file": "docs/architecture/event-sourcing.md",

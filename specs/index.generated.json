@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:02:08.931Z",
+  "generated": "2026-08-02T18:05:34.436Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -36,7 +36,7 @@
           "id": "package-doc-orchestrating",
           "order": 4,
           "file": "tasks/04-package-doc-orchestrating.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "architecture-corrections"
           ]
@@ -45,7 +45,7 @@
           "id": "package-doc-web-authorization",
           "order": 5,
           "file": "tasks/05-package-doc-web-authorization.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "architecture-corrections"
           ]

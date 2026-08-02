@@ -35,7 +35,7 @@ tasks:
   - id: package-doc-web-authorization
     order: 5
     file: tasks/05-package-doc-web-authorization.md
-    status: approved
+    status: implemented
     depends_on:
       - architecture-corrections
   - id: package-docs-core-and-messaging

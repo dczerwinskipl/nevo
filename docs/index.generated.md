@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:02:09.838Z_
+_Generated: 2026-08-02T18:05:35.235Z_
 
 ## Hub
 
@@ -16,6 +16,7 @@ _Generated: 2026-08-02T18:02:09.838Z_
 |---|---|---|---|
 | `packages.classification` | [Package classification](packages/classification.md) | current |  |
 | `packages.nevo-orchestrating` | [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental |  |
+| `packages.nevo-web-authorization` | [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current |  |
 
 ## Architecture
 
