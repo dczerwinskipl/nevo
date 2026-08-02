@@ -42,6 +42,7 @@ The branch mode (`per-change` or `per-task`) is declared in the change manifest 
 ## Branch lifecycle via specs CLI
 
 ```bash
+node tools/specs.mjs approve <change> <task>  # marks task approved (ready for start)
 node tools/specs.mjs start <change> <task>    # creates branch, sets task in-implementation
 node tools/specs.mjs complete <change> <task> # marks task implemented
 node tools/specs.mjs verify <change> <task>   # marks task verified

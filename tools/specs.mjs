@@ -396,6 +396,26 @@ switch (cmd) {
     break;
   }
 
+  case 'approve': {
+    if (!changeSlug || !taskId) { console.error('Usage: specs.mjs approve <change> <task>'); process.exit(1); }
+    const change = loadChange(changeSlug);
+    if (!change) { console.error(`Change '${changeSlug}' not found`); process.exit(1); }
+    const task = change.tasks.find(t => t.id === taskId);
+    if (!task) { console.error(`Task '${taskId}' not found`); process.exit(1); }
+    if (task.status === 'approved') {
+      console.log(`Task '${taskId}' is already approved.`);
+      break;
+    }
+    if (task.status === 'in-implementation' || TERMINAL_STATUSES.has(task.status)) {
+      console.error(`Task '${taskId}' has status '${task.status}' — already past approval, not changing it.`);
+      process.exit(1);
+    }
+    change._pendingUpdates = [{ id: taskId, status: 'approved' }];
+    saveChange(change);
+    console.log(`Task '${taskId}' marked as approved.`);
+    break;
+  }
+
   case 'start': {
     if (!changeSlug || !taskId) { console.error('Usage: specs.mjs start <change> <task>'); process.exit(1); }
 
@@ -485,6 +505,7 @@ switch (cmd) {
       '  list                      List active changes and task statuses',
       '  next                      Select next approved ready task → JSON',
       '  context <change> <task>   Print context packet → JSON',
+      '  approve <change> <task>   Mark task as approved (ready for start)',
       '  start <change> <task>     Create branch, set task in-implementation',
       '  complete <change> <task>  Mark task as implemented',
       '  verify <change> <task>    Mark task as verified',

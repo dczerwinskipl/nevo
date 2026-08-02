@@ -50,9 +50,14 @@ statement.
    - decompose large work into cohesive areas/tasks rather than one monolithic file,
    - run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if docs were
      touched).
-10. Report: created/updated files, recorded owner decisions, any decisions still
-    unresolved, validation results, and the recommended next command
-    (typically `/nevo-ai:spec-review <change-id>`).
+## Ending the response
+
+Use the closing shape from `SKILL.md` § "Ending every command's response": `Status` is
+`created` (new change directory), `updated` (an existing draft was extended), or
+`blocked-on-decisions` (stopped at step 8 awaiting the owner). The facts line names
+recorded vs. unresolved owner decisions. `Artifact` lists the created/updated files.
+`Next` is `/nevo-ai:spec-review <change-id>` once artifacts exist, or the specific
+pending question if `blocked-on-decisions`.
 
 ## Non-negotiable rules
 

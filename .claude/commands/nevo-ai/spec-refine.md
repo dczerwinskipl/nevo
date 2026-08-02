@@ -1,6 +1,6 @@
 ---
 description: Refine an existing active NEvo specification without implementing it.
-argument-hint: <change-id> [focus]
+argument-hint: <change-id> [focus | --from-review]
 disable-model-invocation: true
 ---
 
@@ -8,7 +8,35 @@ Read the shared skill `nevo-ai-spec-workflow` (`.claude/skills/nevo-ai-spec-work
 if not already in context, plus `docs/ai/specification-workflow.md`.
 
 Arguments (`$ARGUMENTS`): `<change-id> [focus]` — the active change slug, and an optional
-focus area to narrow the refinement.
+focus area to narrow the refinement — **or** `<change-id> --from-review` (the trailing
+word `latest` is accepted and ignored, e.g. `--from-review latest`, for compatibility
+with that phrasing — there is only ever one current review file, see below, so there is
+no actual "latest" to select among).
+
+## `--from-review` mode
+
+If `$ARGUMENTS` contains `--from-review`:
+
+1. Read `specs/active/<change-id>/reviews/spec.md`. If it doesn't exist, stop and tell
+   the owner to run `/nevo-ai:spec-review <change-id>` first — do not improvise findings
+   from memory of an earlier conversation.
+2. Parse its `## Findings` table. For every `AUTO_FIX` finding: apply it directly (no
+   stop), and list exactly what changed in the response. For every `OWNER_DECISION` or
+   `NEEDS_CLARIFICATION` finding: present it per `references/decision-policy.md` and
+   **stop and wait** — do not apply any refinement tied to it until answered. Leave
+   `NON_BLOCKING`/`INFORMATIONAL` findings untouched unless the owner explicitly asks
+   for them too.
+3. After applying the `AUTO_FIX` findings (and any `OWNER_DECISION`/
+   `NEEDS_CLARIFICATION` findings the owner just resolved), run `node tools/specs.mjs
+   validate` (and `docs.mjs validate` if docs changed), then skip to the closing summary
+   below — do not re-run the rest of this file's general-purpose flow (steps 4-8) on top
+   of a review-driven pass; `/nevo-ai:spec-review` is what re-evaluates readiness, not
+   this command.
+4. Recommend `/nevo-ai:spec-review <change-id>` as the next command — a stale
+   `reviews/spec.md` describing pre-fix state is misleading, so re-review rather than
+   trusting the old verdict.
+
+Otherwise (no `--from-review`), run the general flow below.
 
 ## Flow
 
@@ -47,4 +75,12 @@ focus area to narrow the refinement.
 11. Do not implement code — this command only edits specification artifacts under
     `specs/active/<change-id>/`.
 
-Report: what was refined, what still needs an owner decision, and validation results.
+## Ending the response
+
+Use the closing shape from `SKILL.md` § "Ending every command's response":
+`Status` is `refined` (something changed), `blocked-on-decisions` (stopped on an
+unresolved `OWNER_DECISION`/`NEEDS_CLARIFICATION` finding or gate), or
+`no-changes-needed` (nothing to refine). The facts line names what was refined or what's
+still open. `Artifact` lists the changed file(s), or `none`. `Next` is
+`/nevo-ai:spec-review <change-id>` after any refinement, or the specific question still
+awaiting an answer if `blocked-on-decisions`.

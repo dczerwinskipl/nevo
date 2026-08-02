@@ -20,12 +20,15 @@ the CLI.
 2. If it returns "No approved tasks ready," report that plainly. Do not pick a task
    yourself.
 3. Otherwise, from the returned context packet, report: change ID, task ID, task status,
-   dependency status, proposed branch, required context files, a concise goal, and the
-   exact command to run next:
+   dependency status, proposed branch, required context files, and a concise goal.
 
-```
-/nevo-ai:task-start <change-id> <task-id>
-```
+## Ending the response
+
+Use the closing shape from `SKILL.md` § "Ending every command's response": `Status` is
+`task-ready` or `no-tasks-ready`. The facts line names the change/task ID (or says why
+nothing is ready — e.g. "0 approved tasks"). `Artifact` is `none` — this command never
+writes a file. `Next` is `/nevo-ai:task-start <change-id> <task-id>` when `task-ready`,
+or `none — no approved task in specs/active/` when not.
 
 ## Rules
 

@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-01T15:30:07.081Z_
+_Generated: 2026-08-02T11:47:11.636Z_
 
 ## Architecture
 
@@ -35,6 +35,7 @@ _Generated: 2026-08-01T15:30:07.081Z_
 | `adr.0001-conventional-commits` | [Adopt Conventional Commits](adr/ADR-0001-conventional-commits.md) | accepted |  |
 | `adr.0002-lightweight-markdown-workflow` | [Use lightweight custom Markdown workflow for AI-assisted SDLC](adr/ADR-0002-lightweight-markdown-workflow.md) | accepted |  |
 | `adr.0003-technical-decision-triage-and-option-analysis` | [Adopt signal-based triage and mandatory solution-option analysis, without DDD apparatus](adr/ADR-0003-technical-decision-triage-and-option-analysis.md) | accepted |  |
+| `adr.0004-review-artifacts-and-handoff` | [Persist review output as an artifact with actor-classified findings and a fixed closing shape](adr/ADR-0004-review-artifacts-and-handoff.md) | accepted |  |
 
 ## Ai
 

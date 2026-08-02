@@ -2,7 +2,6 @@
 name: nevo-ai-spec-workflow
 description: Shared NEvo workflow for human-led discovery, specification, task decomposition, review, and task execution. Used by the namespaced /nevo-ai:* commands.
 user-invocable: false
-disable-model-invocation: true
 ---
 
 # NEvo spec workflow (shared)
@@ -11,10 +10,12 @@ This skill is the internal playbook behind the `/nevo-ai:*` commands. It is not 
 directly — the owner interacts through the namespaced commands, and each command loads
 this file plus only the reference(s) it needs.
 
-> If this Claude Code build does not honor `user-invocable: false` /
-> `disable-model-invocation: true`, this file may still surface directly. Treat it as
-> read-only background material in that case, not as something to run standalone —
-> always prefer the `/nevo-ai:*` command for the phase you are in.
+> `user-invocable: false` only hides this skill from the `/` menu — it stays loadable by
+> Claude via the Skill tool, which is how the `/nevo-ai:*` commands pull it in. If this
+> Claude Code build does not honor `user-invocable: false`, this file may still surface
+> directly in the menu. Treat it as read-only background material in that case, not as
+> something to run standalone — always prefer the `/nevo-ai:*` command for the phase you
+> are in.
 
 ## The one source of truth
 
@@ -103,9 +104,66 @@ structurally separate:
 
 `spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs
 start`, and never mark a task `approved`. `spec-review` and `task-review` never edit
-files unless the owner explicitly asked for fixes to be applied. The transition from
-"specification" to "implementation" is always a separate, explicit owner-invoked step
-(`/nevo-ai:task-start`, then the owner's explicit go-ahead to write code).
+files unless the owner explicitly asked for fixes to be applied — writing their own
+`reviews/*.md` artifact is the one exception, and it is never the change/task/spec
+files under review. `spec-approve` is the single place a task's `approved` status gets
+written, and even there only after an explicit, interactive answer in the same turn —
+never as a side effect of `spec-review` reaching a favorable verdict. The transition
+from "specification" to "implementation" is always a separate, explicit owner-invoked
+step (`/nevo-ai:task-start`, then the owner's explicit go-ahead to write code) — unless
+the owner's answer to `spec-approve`'s menu explicitly authorized both in one shot.
+
+## Ending every command's response
+
+Every `/nevo-ai:*` command ends its response with the same four-line shape, so the owner
+never has to parse prose to find the outcome or figure out what to run next. Define the
+shape once here — commands and `references/*.md` point to this section instead of
+restating it.
+
+```
+---
+Status: <value from the command's status vocabulary below>
+<2-5 short facts relevant to this command — counts, not prose>
+Artifact: <file path(s) written this run, and/or repo state changed (branch created,
+          task status transitioned) — or "none">
+Next: <one exact, copy-pasteable /nevo-ai:* command — or "none — <why>">
+---
+```
+
+Status vocabulary per command — fixed, no free-form synonyms in this line:
+
+| Command | Status values |
+|---|---|
+| `spec-create` | `created` \| `updated` \| `blocked-on-decisions` |
+| `spec-refine` | `refined` \| `blocked-on-decisions` \| `no-changes-needed` |
+| `spec-review` | `blocked` \| `owner-decision-required` \| `changes-required` \| `ready-for-approval` \| `approved-for-implementation` |
+| `spec-approve` | `approved` \| `not-approved` \| `shown-report` |
+| `task-next` | `task-ready` \| `no-tasks-ready` |
+| `task-start` | `prepared` \| `blocked` |
+| `task-review` | `pass` \| `changes-required` \| `blocked` |
+
+**Precise wording rule**: never use a more optimistic word than the Status value
+justifies. Do not say "ready for implementation" when fixes, owner decisions, or task
+approval are still pending — say `changes-required` and, in the facts line, spell out
+what's pending (e.g. "2 auto-fix · 1 owner decision"). A verdict that overstates
+readiness is worse than a blunt one; the owner acts on this line without reading the
+full artifact.
+
+`Artifact` and `Next` are never omitted even when there's nothing to report — write
+`none` explicitly rather than dropping the line, so the shape stays predictable across
+every command.
+
+**`Status` is derived, never composed as a sentence.** A command whose outcome depends
+on more than one condition (validation state, finding categories, task statuses...)
+must evaluate those conditions against an explicit table with a fixed evaluation order,
+and the table's output *is* the `Status` value — not an input the agent paraphrases.
+`references/review-policy.md` § "Spec-review verdicts are derived, never chosen
+narratively" is the worked example: it exists because a review once reported an
+unresolved owner decision and "ready for owner approval" in the same response — two
+locally-plausible sentences that were never checked against each other. Any command
+with more than two possible `Status` values should have (or point to) a table with the
+same shape: conditions in a fixed evaluation order, first match wins, and a short
+consistency check run before the response is emitted.
 
 ## Preventing oversized specifications
 

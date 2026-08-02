@@ -17,6 +17,7 @@ related:
   - ai.task-execution-policy
   - adr.0002-lightweight-markdown-workflow
   - adr.0003-technical-decision-triage-and-option-analysis
+  - adr.0004-review-artifacts-and-handoff
 ---
 
 # NEvo specification workflow
@@ -272,6 +273,7 @@ node tools/specs.mjs check                     # validate + verify indexes are c
 node tools/specs.mjs list                      # list active changes and task statuses
 node tools/specs.mjs next                      # next approved, dependency-ready task → JSON
 node tools/specs.mjs context <change> <task>   # context packet for one task → JSON
+node tools/specs.mjs approve <change> <task>   # mark task approved (ready for start)
 node tools/specs.mjs start <change> <task>     # create/switch branch, set task in-implementation
 node tools/specs.mjs complete <change> <task>  # mark task implemented
 node tools/specs.mjs verify <change> <task>    # mark task verified (owner-reviewed)
@@ -311,6 +313,139 @@ is "ready for implementation" only once:
 Implementation then proceeds task by task via `tools/specs.mjs start`, never by an agent
 inferring that "the spec looks done."
 
+## Review artifacts and handoff
+
+A review — of a specification or of a task's implementation diff — is not finished when
+the analysis is finished. It is finished when it has produced something the owner or the
+next step can act on without re-reading and re-interpreting a long report.
+
+### Findings are actor-classified
+
+Every finding gets exactly one category, so it's clear who acts on it, not just what was
+found:
+
+| Category | Meaning | Who acts |
+|---|---|---|
+| `AUTO_FIX` | Mechanical, unambiguous correction — no judgment call, no scope/behavior change | Whoever applies fixes, directly — no owner decision needed |
+| `OWNER_DECISION` | Falls under an owner-approval gate, or changes scope/behavior/architecture | Owner must decide |
+| `NEEDS_CLARIFICATION` | Reviewer needs more information to finish the finding | Owner must answer before it becomes a fix |
+| `NON_BLOCKING` | Real, but doesn't block readiness or approval | Optional — owner's call, now or later |
+| `INFORMATIONAL` | Confirms something is already correct | No action — context only |
+
+`AUTO_FIX` is still *reported*, never silently applied by the review itself (see below)
+— it tells whoever runs the follow-up exactly what's safe to do, it doesn't do it for
+them without a trace.
+
+### A review writes a persistent artifact
+
+A review's output is a file, not just conversation text: a specification review writes
+`specs/active/<change-id>/reviews/spec.md`; a task implementation review writes
+`specs/active/<change-id>/reviews/<task-id>.md`. Each file is overwritten on every run —
+it represents the review's *current* state, not a history. Git already tracks that
+file's history; there is no separate in-repo versioning scheme for reviews (see
+ADR-0004 for why that was deliberately not built).
+
+Writing this one file is the only exception to "review is read-only" — a review never
+edits the change, task, or spec artifacts it is evaluating.
+
+### A review's verdict is derived from a table, never composed as a sentence
+
+The failure mode this guards against is real, not hypothetical: a review can correctly
+find "unresolved owner decision on task 12" and *separately* conclude "spec ready for
+owner approval" — two locally-plausible sentences that were never checked against each
+other. The fix is to make the verdict, and two booleans that travel with it, the output
+of an explicit table rather than independent prose:
+
+| # | Condition | Verdict | `ready_for_approval` | `implementation_allowed` |
+|---|---|---|---|---|
+| 1 | Validation fails, or sources of truth contradict unresolvably | `blocked` | false | false |
+| 2 | An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding exists | `owner-decision-required` | false | false |
+| 3 | An unresolved `AUTO_FIX` finding exists (rows 1–2 don't apply) | `changes-required` | false | false |
+| 4 | No unresolved findings from rows 1–3 remain, but the relevant task(s) aren't `approved` | `ready-for-approval` | true | false |
+| 5 | No unresolved blocking findings remain, and the relevant task(s) **are** `status: approved` in `change.yaml` (checked, not assumed) | `approved-for-implementation` | true | true |
+
+Evaluate top to bottom; the first matching row wins. `NON_BLOCKING`/`INFORMATIONAL`
+findings never appear in the table — they cannot affect the verdict, by construction. A
+task implementation review uses the same idea at task scope: `blocked` /
+`changes-required` / `pass`.
+
+Before emitting a review, check it against its own table: an unresolved
+`OWNER_DECISION`/`NEEDS_CLARIFICATION`/`AUTO_FIX` finding cannot coexist with
+`ready_for_approval: true`; a non-`approved` task cannot coexist with
+`implementation_allowed: true`; `approved-for-implementation` requires the task(s) to
+actually carry `status: approved` right now. A report that fails its own check has a
+bug — fix the verdict, don't publish the contradiction.
+
+If a review presents an `OWNER_DECISION`/`NEEDS_CLARIFICATION` finding as something
+that could be deferred, it names the concrete consequence — resolve it now and proceed;
+remove the affected scope and split it into a new task; or leave this task unapproved
+while unrelated tasks proceed. "Resolve it, or defer it" is not a real option — deferring
+without naming which of these three applies leaves `ready_for_approval` undefined.
+
+Never phrase a verdict more optimistically than its row justifies — "ready for
+implementation" and bare "pending" are banned; use only the five fixed values.
+
+A specification review additionally answers, explicitly: may implementation start now?
+(literally `implementation_allowed`). Are the relevant tasks actually `approved`
+(checked in `change.yaml`, not assumed)? What concretely has to happen first?
+
+### A re-review reads current files, never infers "unchanged" from git
+
+A real failure: a re-review saw `git status` report an untracked directory, treated
+that as "nothing changed," and repeated findings that had already been fixed. An
+untracked directory carries zero file-level diff information — it is not evidence
+either way. The rule: **every review, first-time or repeat, fully re-reads the actual
+current content of every file it evaluates.** Never infer "unchanged" from an untracked
+directory, a clean `git status`, the absence of a `git diff`, or conversation memory.
+
+The real baseline for a re-review is the previous review *file itself* — read before it
+gets overwritten, not git. If none exists yet, say so verbatim: "No reliable
+previous-file baseline is available. Performing a fresh review of the current
+specification." Before repeating any baseline finding, re-verify its exact predicate
+against the file it refers to, right now — e.g. actually re-open the task file and
+check its current `forbidden_paths` list, don't rely on what a prior review said it was.
+A finding resolved since the baseline is reported as resolved, not repeated as an
+active blocker, and the verdict is always computed from the current run's findings, not
+carried forward.
+
+### Gating versus non-gating checks
+
+`tools/specs.mjs validate` / `tools/docs.mjs validate` are gating — a failure makes the
+verdict `blocked`. `tools/specs.mjs check` / `tools/docs.mjs check` are not — they check
+whether *repository-wide* generated indexes are current, which can fail because of a
+completely unrelated change, not the one under review. Run them, report the result, but
+never let a `check` failure change the verdict; label the two results separately
+("Gating validation: passed", "Non-gating repository check: failed — <reason>") so the
+reader never has to guess why one failure mattered and the other didn't.
+
+### A favorable verdict still isn't a status change
+
+Reaching `ready-for-approval` doesn't end the process with an instruction to hand-edit
+`change.yaml` — the next step is an explicit, interactive confirmation (in Claude Code:
+`/nevo-ai:spec-approve`) that asks the owner directly and only writes `approved` after
+an answer. Approving a task and starting its implementation stay two separate
+decisions, confirmed separately, unless the owner's single answer explicitly
+authorizes both at once.
+
+### The response ends with a short summary, not the full report
+
+The conversation gets a short block — verdict, a count per finding category, the
+artifact's path, and one exact next command to run or paste — not a restatement of the
+full report. The full analysis lives in the file from the previous section.
+
+### Review feeds refinement without manual copying
+
+A `changes-required` specification review's natural next step applies its own
+`AUTO_FIX` findings directly and stops only at `OWNER_DECISION`/`NEEDS_CLARIFICATION`
+ones — reading the review file itself rather than requiring anyone to retype or paste
+findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <change-id>
+--from-review`.) After any such pass, re-review rather than trusting the pre-fix
+verdict — a stale review file describing the old state is worse than no file.
+
+A task review has no equivalent auto-apply step: fixing code is implementation, and
+implementation always needs an explicit owner go-ahead, even for an `AUTO_FIX`-tagged
+finding. The natural next step there is fixing the named issues, then re-reviewing.
+
 ## Architecture documentation and ADRs
 
 `docs/architecture/` describes **current** behavior, not desired future state.
@@ -345,11 +480,11 @@ Full detail: `docs/development/git-workflow.md` and `docs/development/commit-con
 This document is the shared policy. Tool-specific layers are thin:
 
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
-  `/nevo-ai:spec-review`, `/nevo-ai:task-next`, `/nevo-ai:task-start`, and
-  `/nevo-ai:task-review` (see `.claude/commands/nevo-ai/`), backed by the shared skill
-  `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
-  `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
-  parallel workflow.
+  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:task-next`,
+  `/nevo-ai:task-start`, and `/nevo-ai:task-review` (see `.claude/commands/nevo-ai/`),
+  backed by the shared skill `.claude/skills/nevo-ai-spec-workflow/`. These commands
+  call the same `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not
+  implement a parallel workflow.
 - **Cursor** and **Copilot** have no namespaced commands. They follow this document and
   `AGENTS.md` directly, driving `tools/specs.mjs` / `tools/docs.mjs` from the terminal.
 

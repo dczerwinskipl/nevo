@@ -20,3 +20,9 @@ tasks:
     status: implemented
     depends_on:
       - add-operational-layer
+  - id: add-review-handoff
+    order: 3
+    file: tasks/03-add-review-handoff.md
+    status: implemented
+    depends_on:
+      - add-operational-layer

@@ -11,25 +11,92 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
 
 ## Flow
 
-1. Resolve `<change-id>` under `specs/active/`. Read `change.yaml` and all its artifacts.
-2. Run `node tools/specs.mjs validate` to get mechanical dependency/cycle/id checks for
-   free — do not re-derive those by hand.
-3. Evaluate readiness per `references/review-policy.md` — "Specification readiness
-   criteria."
-4. Produce a structured review using `templates/review-report.md` as a guide, covering:
-   readiness verdict, blocking issues, owner decisions still required, ambiguity/
+1. Resolve `<change-id>` under `specs/active/`.
+2. Check whether `specs/active/<change-id>/reviews/spec.md` already exists. If it does,
+   **read its full current content now, before anything else touches it** — this is the
+   baseline for this run, per `references/review-policy.md` § "Re-review: current file
+   contents are the source of truth, not git status or memory." If it doesn't exist,
+   there is no baseline; the final response must include, verbatim, "No reliable
+   previous-file baseline is available. Performing a fresh review of the current
+   specification." **Do not consult `git status` or `git diff` to decide whether
+   anything changed — that signal is not part of this mechanism, ever** (an untracked
+   directory carries zero file-level diff information, which is exactly how a past
+   re-review went stale).
+3. Read `change.yaml` and every current artifact (`overview.md`, `areas/`, `tasks/`) in
+   full, fresh — regardless of what step 2 found, regardless of git status. This is not
+   optional even when nothing seems to have changed.
+4. Run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if the change
+   touches docs) — these are the **gating** checks; do not re-derive them by hand. If
+   either fails, the verdict is `blocked` — stop there, don't continue evaluating
+   readiness on top of a structurally broken spec. Also run `node tools/specs.mjs
+   check` and `node tools/docs.mjs check` — these are **non-gating**: they check
+   whether *repository-wide* generated indexes are current, which can fail because of
+   an unrelated active change, not this one. Record the result as an `INFORMATIONAL`
+   finding either way, explicitly labeled "Gating validation: passed/failed" vs.
+   "Non-gating repository check: passed/failed" with a reason if failed — never let a
+   `check` failure change the verdict, and never present the two together in a way
+   that leaves the reader guessing which one mattered (see `references/review-policy.md`
+   § "Gating versus non-gating checks").
+5. Evaluate readiness per `references/review-policy.md` — "Specification readiness
+   criteria" — covering blocking issues, owner decisions still required, ambiguity/
    assumption risks, architecture conflicts, acceptance-criteria quality, task
    decomposition quality, task dependency correctness, context-packet quality,
-   allowed/forbidden-path quality, documentation/ADR impact, and implementation
-   readiness per task. For any gated decision in the spec (per `AGENTS.md`
-   owner-approval list), check specifically that a real option analysis exists —
-   `references/solution-option-analysis.md` — not just a single proposed approach;
-   flag its absence as blocking.
+   allowed/forbidden-path quality, and documentation/ADR impact. For any gated decision
+   in the spec (per `AGENTS.md` owner-approval list), check specifically that a real
+   option analysis exists — `references/solution-option-analysis.md` — not just a
+   single proposed approach; record its absence as an `OWNER_DECISION` or
+   `NEEDS_CLARIFICATION` finding (whichever fits — see below).
+6. Classify every current finding per `references/review-policy.md` § "Findings must be
+   actor-classified" (`AUTO_FIX` / `OWNER_DECISION` / `NEEDS_CLARIFICATION` /
+   `NON_BLOCKING` / `INFORMATIONAL`). If step 2 found a baseline, additionally verify
+   the **exact literal predicate** of every baseline finding against the content just
+   re-read in step 3 (not against memory of what the predicate probably still says),
+   and assign a lifecycle status (`resolved` / `still-present` / `changed` /
+   `cannot-verify`) per `references/review-policy.md` § "Findings have a lifecycle, on
+   top of their actor category." A finding recorded in `owner-decisions.md` as answered
+   is `resolved`, not repeated as an unanswered `OWNER_DECISION`. If any
+   `OWNER_DECISION`/`NEEDS_CLARIFICATION` finding could be presented as deferrable, name
+   its structural consequence per § "Deferring an owner decision has a structural
+   consequence, name it" — never "resolve it, or defer it" as if deferring alone clears
+   it.
+7. Compute the verdict and the `ready_for_approval`/`implementation_allowed` booleans
+   **by running the decision table** in `references/review-policy.md` § "The decision
+   table," using only this run's unresolved findings (never a carried-forward previous
+   verdict) — do not compose the verdict as a sentence. Run the consistency validation
+   in that same section, including the re-review checks, before continuing; if it
+   fails, a classification or a file read upstream is wrong — fix it and recompute,
+   don't emit a report that fails its own check. Answer the three
+   implementation-readiness questions from § "Implementation readiness declaration."
+8. Write the full report to `specs/active/<change-id>/reviews/spec.md` using
+   `templates/review-report.md`'s shape (create the `reviews/` directory if needed),
+   including the frontmatter `verdict`, `ready_for_approval`, and
+   `implementation_allowed` fields, and — per finding — its predicate, lifecycle, and
+   evidence. This overwrites the file read in step 2; that's expected, it's the one
+   file this command writes — everything else about the change stays untouched.
+9. End the response with the closing shape from `SKILL.md` § "Ending every command's
+   response": `Status` is the verdict from step 7 (one of `blocked` /
+   `owner-decision-required` / `changes-required` / `ready-for-approval` /
+   `approved-for-implementation` — never "ready for implementation" or "pending", see
+   `references/review-policy.md` § "Forbidden phrasing"); the facts line states
+   `ready_for_approval`, `implementation_allowed`, and counts of unresolved required
+   fixes (`AUTO_FIX`) and owner decisions (`OWNER_DECISION` + `NEEDS_CLARIFICATION`);
+   `Artifact` is the path from step 8; `Next` is:
+   - `blocked` → the specific manual fix needed before any command can proceed,
+   - `owner-decision-required` → the exact decision(s) needed, one per finding ID, not
+     `/nevo-ai:spec-refine --from-review` (that command stops at these findings too —
+     don't send the owner in a circle),
+   - `changes-required` → `/nevo-ai:spec-refine <change-id> --from-review`,
+   - `ready-for-approval` → `/nevo-ai:spec-approve <change-id> <task-id>` — do not tell
+     the owner to hand-edit `change.yaml`; that command is the interactive approval
+     gate,
+   - `approved-for-implementation` → `/nevo-ai:task-next`.
 
 ## Rules
 
-- This command is **read-only by default**. Do not edit any file.
-- Do not approve the change on the owner's behalf, and do not change any status.
-- If the owner explicitly asks this invocation to also apply fixes, apply only the
-  specific fixes requested, then re-report — do not expand into a general refinement
-  pass (use `/nevo-ai:spec-refine` for that).
+- This command is **read-only with respect to the change being reviewed** — it never
+  edits `change.yaml`, `overview.md`, `areas/`, or `tasks/`. Writing its own
+  `reviews/spec.md` (step 8) is the one exception, not a loophole to edit anything else.
+- Do not approve the change on the owner's behalf, and do not change any task status —
+  `approved-for-implementation` reports that status, it never sets it.
+- If the owner explicitly asks this invocation to also apply fixes, stop — redirect to
+  `/nevo-ai:spec-refine <change-id> --from-review` instead of expanding scope here.

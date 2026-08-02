@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-01T15:30:07.080Z",
+  "generated": "2026-08-02T11:47:11.636Z",
   "docs": [
     {
       "file": "docs/architecture/event-sourcing.md",
@@ -308,6 +308,16 @@
       "superseded_by": null
     },
     {
+      "file": "docs/adr/ADR-0004-review-artifacts-and-handoff.md",
+      "id": "adr.0004-review-artifacts-and-handoff",
+      "type": "adr",
+      "title": "Persist review output as an artifact with actor-classified findings and a fixed closing shape",
+      "status": "accepted",
+      "date": "2026-08-02",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
       "file": "docs/ai/how-to-navigate.md",
       "id": "ai.how-to-navigate",
       "type": "ai",
@@ -338,7 +348,8 @@
         "ai.how-to-navigate",
         "ai.task-execution-policy",
         "adr.0002-lightweight-markdown-workflow",
-        "adr.0003-technical-decision-triage-and-option-analysis"
+        "adr.0003-technical-decision-triage-and-option-analysis",
+        "adr.0004-review-artifacts-and-handoff"
       ]
     },
     {
