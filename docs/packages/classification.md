@@ -55,7 +55,7 @@ these groups are drawn from.
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Web` | ASP.NET Core integration, HTTP client. |
+| `NEvo.Web` | HTTP client wrapper with pluggable authentication strategies (OAuth, none) and a REST client base (`NEvo.Web.Client`). |
 
 ## Event sourcing (experimental)
 

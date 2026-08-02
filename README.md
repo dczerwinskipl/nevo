@@ -15,7 +15,7 @@ This is **.NET Evolution** — build only what matters, and scale when you're re
 | Package | Responsibility | Tags | Status |
 |---------|----------------|------|--------|
 | [`NEvo.Core`](src/NEvo.Core) | Core primitives and abstractions shared across the framework | ![Core](https://img.shields.io/badge/Core-blue) | Pre-Alpha |
-| [`NEvo.Web`](src/NEvo.Web) | HTTP middleware, request routing and integration with ASP.NET Core | ![Web](https://img.shields.io/badge/Web-lightgrey) | Pre-Alpha |
+| [`NEvo.Web`](src/NEvo.Web) | HTTP client wrapper with pluggable authentication strategies (OAuth, none) and a REST client base (`NEvo.Web.Client`) | ![Web](https://img.shields.io/badge/Web-lightgrey) | Pre-Alpha |
 | [`NEvo.Web.Authorization`](src/NEvo.Web.Authorization) | Authorization middleware and policies for web layer | ![Web](https://img.shields.io/badge/Web-lightgrey) ![Authorization](https://img.shields.io/badge/Authorization-orange) | Pre-Alpha |
 | [`NEvo.Authorization`](src/NEvo.Authorization) | Core abstractions and infrastructure for authorization logic | ![Core](https://img.shields.io/badge/Core-blue) ![Authorization](https://img.shields.io/badge/Authorization-orange) | Pre-Alpha |
 | [`NEvo.Messaging`](src/NEvo.Messaging) | Messaging infrastructure: event dispatching, base contracts | ![Messaging](https://img.shields.io/badge/Messaging-purple) | Pre-Alpha |

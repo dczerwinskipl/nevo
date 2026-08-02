@@ -159,3 +159,24 @@
   `specs/active/**` scope) so this fix is in-scope rather than a silent violation.
 - **Date:** 2026-08-02
 - **Affected artifacts:** `.gitignore`, task `doc-taxonomy-and-tooling`.
+
+## D9: Sequencing gap — `classification.md` copied the `NEvo.Web` fact D3 corrects
+
+- **Question:** Task `package-classification-and-navigation-hub` (task 2) ran before
+  `architecture-corrections` (task 3) and copied the same stale `NEvo.Web` one-liner
+  ("ASP.NET Core integration, HTTP client") that D3 identifies as wrong — exactly the
+  "wrong facts copied into new package docs" failure mode D3 exists to prevent, just one
+  task earlier in the sequence than the dependency graph anticipated.
+  `docs/packages/classification.md` is outside task 3's `allowed_paths`. Fix it now or
+  leave it for a later task?
+- **Options considered:** (1) fix it now as part of task 3, widening `allowed_paths` by
+  one file (same pattern as D1/D8) | (2) leave it stale and flag it as a follow-up
+- **Decision:** Option (1) — fix now.
+- **Rationale:** Consistent with D3's own purpose; the fix is a one-line, low-risk
+  correction in a file this change already owns, and leaving it stale defeats the point
+  of running `architecture-corrections` at all.
+- **Consequences:** Task `architecture-corrections`'s `allowed_paths` is amended to
+  include `docs/packages/classification.md`.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/packages/classification.md`, task
+  `architecture-corrections`.

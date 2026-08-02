@@ -10,6 +10,7 @@ context:
 allowed_paths:
   - docs/architecture/package-boundaries.md
   - README.md
+  - docs/packages/classification.md
   - specs/active/nevo-documentation-foundation/**
 forbidden_paths:
   - src/**
@@ -45,6 +46,8 @@ dependency graph; this section mirrors it for readability only.
 - Correct `README.md`'s one-line description of `NEvo.Web` to match its actual contents
   (`src/NEvo.Web/Client/*`, namespace `NEvo.Web.Client` — an HTTP client wrapper).
 - Do not touch `docs/architecture/overview.md`'s maturity table — out of scope per D3.
+- Per D9: also correct the same stale `NEvo.Web` one-liner in
+  `docs/packages/classification.md` (task 2 ran before this task and copied it).
 
 ## Acceptance criteria
 

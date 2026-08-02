@@ -23,7 +23,7 @@ tasks:
   - id: architecture-corrections
     order: 3
     file: tasks/03-architecture-corrections.md
-    status: approved
+    status: implemented
     depends_on:
       - package-classification-and-navigation-hub
   - id: package-doc-orchestrating
