@@ -6,6 +6,41 @@
 // validateFinalize) that take already-fetched facts and can be tested without `gh`.
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+
+// Resolves once per process — a long-running Claude Code session (or any long-lived
+// shell) can predate `gh` being added to PATH (e.g. installed mid-session), and a
+// process doesn't pick up PATH changes made after it started. Bare `gh` is tried first
+// (works for everyone whose PATH is already correct); these are only a fallback for
+// the specific, real case this repository hit: `gh` installed and working in a fresh
+// terminal, but invisible to an already-running process. Windows-only, matching this
+// repository's documented primary environment (see CLAUDE.md).
+const WINDOWS_GH_FALLBACK_PATHS = [
+  'C:\\Program Files\\GitHub CLI\\gh.exe',
+  'C:\\Program Files (x86)\\GitHub CLI\\gh.exe',
+];
+
+let resolvedGhBinary; // cached after the first successful resolution this process
+
+function resolveGhBinary() {
+  if (resolvedGhBinary) return resolvedGhBinary;
+  try {
+    execFileSync('gh', ['--version'], { encoding: 'utf8' });
+    resolvedGhBinary = 'gh';
+    return resolvedGhBinary;
+  } catch {
+    // fall through to the fallback paths below
+  }
+  if (process.platform === 'win32') {
+    for (const candidate of WINDOWS_GH_FALLBACK_PATHS) {
+      if (existsSync(candidate)) {
+        resolvedGhBinary = candidate;
+        return resolvedGhBinary;
+      }
+    }
+  }
+  return null; // genuinely unavailable — isGhAvailable() reports this, callers check it
+}
 
 const REVIEW_THREADS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
@@ -51,7 +86,9 @@ mutation($threadId: ID!) {
 }`;
 
 function run(root, args) {
-  return execFileSync('gh', args, { cwd: root, encoding: 'utf8' });
+  const binary = resolveGhBinary();
+  if (!binary) throw new Error('gh CLI is not available (checked PATH and known Windows install locations).');
+  return execFileSync(binary, args, { cwd: root, encoding: 'utf8' });
 }
 
 function ownerAndRepo(root) {
@@ -60,12 +97,7 @@ function ownerAndRepo(root) {
 }
 
 export function isGhAvailable() {
-  try {
-    execFileSync('gh', ['--version'], { encoding: 'utf8' });
-    return true;
-  } catch {
-    return false;
-  }
+  return resolveGhBinary() !== null;
 }
 
 export function getRepoSlug(root) {
