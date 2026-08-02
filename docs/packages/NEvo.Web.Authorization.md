@@ -95,15 +95,10 @@ builder.Services.AddClaimsAuthorization<Guid, MyDataScope>();
 
 `AddHttpContextAccessor()` is **not** called by `AddClaimsAuthorization` — a consumer
 must register it separately (`UserClaimsProvider` takes a constructor-injected
-`IHttpContextAccessor`; without it registered, DI resolution fails). This is easy to
-miss: even `examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs:75` registers it
-right before `AddClaimsAuthorization` with the comment `// TODO: part of claims auth?`,
-i.e. the example's own author wasn't sure it was this package's responsibility either.
+`IHttpContextAccessor`; without it registered, DI resolution fails at first use, not at
+registration time).
 
 ## Basic usage
-
-Registration, adapted directly from
-`examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs:74-76`:
 
 ```csharp
 builder.Services.AddAuthorization();
@@ -163,9 +158,6 @@ registration uses `TryAddScoped`, so an explicit `AddScoped` call after it wins)
 
 ## Examples and tests
 
-- `examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs:74-77` — real
-  registration, including the JWT bearer auth it's paired with and a custom
-  `IPermissionMapper<RoleDataScope>`.
 - `tests/NEvo.Web.Authorization.Tests/Claims/UserClaimsProviderTests.cs`
 - `tests/NEvo.Web.Authorization.Tests/Roles/ClaimRoleProviderTests.cs`
 - `tests/NEvo.Web.Authorization.Tests/Users/ClaimUserProviderTests.cs`

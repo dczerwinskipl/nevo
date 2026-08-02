@@ -225,8 +225,8 @@ usable as shipped — see "Limitations".
 - `tests/NEvo.Orchestrating.Tests/OrchestrationRunnerTests.cs` — the primary coverage:
   full-success and fail-then-compensate scenarios, using
   `tests/NEvo.Orchestrating.Tests/Stubs/OrchestratorStub.cs` and `StepExecutorStub.cs`.
-- No usage exists in `examples/ExampleApp/` today. `examples/ExampleApp/
-  NEvo.ExampleApp.Orchestration/` is a .NET Aspire `AppHost`/`ServiceDefaults` pair for
-  running the example services together locally — an unrelated meaning of
-  "orchestration" (service-topology orchestration, not this package's saga pattern). Do
-  not confuse the two when looking for a real-world usage example.
+- No example-app usage of this package exists today; unit tests are the only current
+  coverage. Note: "orchestration" also appears elsewhere in this repo referring to
+  .NET Aspire service-topology orchestration (running multiple services together
+  locally) — an unrelated meaning. Don't confuse the two when looking for a real-world
+  usage example.
