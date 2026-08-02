@@ -175,7 +175,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
 | `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
-| `spec-finalize` | `finalized` \| `gate-passed` \| `blocked` |
+| `spec-finalize` | `finalized` \| `pushed` \| `gate-passed` \| `blocked` |
 | `spec-resolve-comments` | `resolved` \| `needs-owner-input` \| `none-unresolved` |
 | `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |
 

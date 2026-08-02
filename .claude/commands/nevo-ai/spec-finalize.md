@@ -37,9 +37,32 @@ own transitions.
    since PR/comment state can't be verified without it.
 
 3. If the gate result is `ok: false`: report the exact blocking reason from the JSON
-   `result.reason` field and stop. Do not suggest working around it — every reason maps
-   to a concrete next action (push, resolve the named PR comments, fix the failing
-   check, wait for the PR to leave draft, etc.).
+   `result.reason` field.
+
+   - **If, and only if, the reason is specifically about the branch not being fully
+     pushed** (`facts.branch.ahead > 0` or `!facts.branch.hasUpstream`, per the `--check`
+     JSON) — this is the one blocking reason worth its own low-stakes offer, since
+     pushing is far more reversible than merging and doesn't need the same ceremony:
+
+     ```
+     `<change-id>`'s branch has commit(s) not yet pushed to origin.
+
+     Push now? This does not merge anything — pushing may trigger a fresh review pass
+     (e.g. GitHub Copilot) on whatever gets pushed, so re-running
+     /nevo-ai:spec-finalize immediately after won't show a clean gate yet; give review
+     time first.
+     1. Yes — push now
+     2. No
+     ```
+
+     On 1 → `git push` (or `git push -u origin <branch>` if there's no upstream yet).
+     Report that it pushed, and end this response there — do not re-run `finalize
+     --check` or ask about merging in the same turn; the whole point is a pause for
+     review to happen. On 2 → make no changes.
+   - **For every other blocking reason** (unresolved PR comments, failing verification,
+     draft PR, `gh` unavailable, PR not found): report it and stop. Do not suggest
+     working around it and do not offer to push — pushing doesn't address any of these,
+     and only the push-specific blocker above gets an offer.
 
 4. If the gate result is `ok: true`, ask a closed menu — never proceed without this
    answer, regardless of how confident the gate check looked:
@@ -59,12 +82,16 @@ own transitions.
    On 2 → make no changes.
 
 5. End with the closing shape from `SKILL.md` § "Ending every command's response".
-   `Status` is `finalized` (menu option 1 ran) \| `gate-passed` (gate passed, owner chose
-   not yet) \| `blocked` (gate failed). `Artifact` states what changed this run (e.g.
-   "branch `feature/<slug>` pushed, PR #<n> merged, change archived to
-   `specs/archive/<change-id>/`") or `none`. `Next command` is `No further action
-   required.` after a successful finalize; the specific fix needed when `blocked`; `none
-   — re-run /nevo-ai:spec-finalize <change-id> when ready` for `gate-passed`.
+   `Status` is `finalized` (menu option 1 ran) \| `pushed` (step 3's push offer ran) \|
+   `gate-passed` (gate passed, owner chose not yet) \| `blocked` (gate failed, no push
+   offered or declined). `Artifact` states what changed this run (e.g. "branch
+   `feature/<slug>` pushed, PR #<n> merged, change archived to
+   `specs/archive/<change-id>/`", or just "branch `feature/<slug>` pushed" for `pushed`)
+   or `none`. `Next command` is `No further action required.` after a successful
+   finalize; `wait for review on the newly-pushed commits, then re-run
+   /nevo-ai:spec-finalize <change-id>` for `pushed`; the specific fix needed when
+   `blocked`; `none — re-run /nevo-ai:spec-finalize <change-id> when ready` for
+   `gate-passed`.
 
 ## Rules
 
@@ -75,6 +102,13 @@ own transitions.
   re-run it fresh every time this command runs, for the same reason a review never
   trusts memory over current file contents (`references/review-policy.md` § "Re-review:
   current file contents are the source of truth").
-- Do not attempt to resolve PR review threads, fix failing verification, or push commits
-  from this command — it only reports and, once confirmed, runs the one finalize
-  command. Fixing whatever the gate found is a separate, explicit step.
+- Do not attempt to resolve PR review threads or fix failing verification from this
+  command — those are separate, explicit steps. Pushing is the one exception, and only
+  for the specific "not pushed" blocker in step 3, and only after that step's own
+  confirmation — never combined with a merge in the same confirmed action, and never
+  followed by immediately re-checking the gate in the same turn (see step 3).
+- If the working tree isn't clean when `finalize` (no `--check`) actually runs — e.g.
+  something else changed it between the gate check and this run — it aborts on its own
+  (`gitClean: false`) rather than merging or archiving against a state nobody confirmed.
+  Report that plainly; do not commit or discard whatever changed it without being told
+  to.
