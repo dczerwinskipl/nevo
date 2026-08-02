@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:39:01.267Z_
+_Generated: 2026-08-02T18:42:17.452Z_
 
 ## Hub
 
@@ -15,6 +15,7 @@ _Generated: 2026-08-02T18:39:01.267Z_
 | ID | Title | Status | Scopes |
 |---|---|---|---|
 | `guides.example-app-walkthrough` | [ExampleApp walkthrough](guides/example-app-walkthrough.md) | current |  |
+| `guides.extending-nevo` | [Extending NEvo](guides/extending-nevo.md) | current |  |
 | `guides.installation` | [Installation](guides/installation.md) | current |  |
 | `guides.quick-start` | [Quick start](guides/quick-start.md) | current |  |
 
@@ -55,6 +56,7 @@ _Generated: 2026-08-02T18:39:01.267Z_
 
 | ID | Title | Status | Scopes |
 |---|---|---|---|
+| `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current |  |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current |  |
 | `development.git-workflow` | [Git workflow](development/git-workflow.md) | current |  |
 | `development.local-setup` | [Local setup](development/local-setup.md) | current |  |

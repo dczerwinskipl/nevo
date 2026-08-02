@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:39:00.564Z",
+  "generated": "2026-08-02T18:42:16.626Z",
   "changes": [
     {
       "id": "nevo-documentation-foundation",
@@ -100,7 +100,7 @@
           "id": "exampleapp-walkthrough-guide",
           "order": 11,
           "file": "tasks/11-exampleapp-walkthrough-guide.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "package-docs-auth-and-persistence",
             "package-docs-web-and-experimental"
@@ -110,7 +110,7 @@
           "id": "developer-and-extension-guides",
           "order": 12,
           "file": "tasks/12-developer-and-extension-guides.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "package-docs-auth-and-persistence",
             "package-docs-web-and-experimental"

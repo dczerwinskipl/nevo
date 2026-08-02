@@ -79,7 +79,7 @@ tasks:
   - id: developer-and-extension-guides
     order: 12
     file: tasks/12-developer-and-extension-guides.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-auth-and-persistence
       - package-docs-web-and-experimental
