@@ -482,6 +482,18 @@ Archived specs are not loaded by default — only when a task explicitly referen
 when historical reasoning is requested, or when an ADR or active spec requires it. Never
 start a task from `specs/archive/`.
 
+Every task reaching a terminal status does not archive a change by itself — that would
+silently foreclose follow-up work (another review pass, a task someone still means to
+add) without ever asking. Whichever tool-adapter action marks a change's last task
+terminal is responsible for offering to archive it right then, as an explicit,
+interactive confirmation — not a standing instruction to run later. In Claude Code, that
+is `/nevo-ai:task-review`; `/nevo-ai:task-next` is a read-only backstop that surfaces
+(never archives) a fully-terminal change still sitting in `specs/active/`. Cursor,
+Copilot, and any terminal-driven use of `tools/specs.mjs` follow the same rule directly:
+after `verify`/`complete` leaves every task in a change terminal, ask the owner whether
+to run `node tools/specs.mjs archive <change>` before moving on, rather than leaving the
+change active indefinitely.
+
 ## Git safety
 
 - No commit, push, or pull request without explicit owner instruction.

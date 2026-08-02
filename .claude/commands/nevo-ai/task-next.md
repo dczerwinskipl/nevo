@@ -21,14 +21,24 @@ the CLI.
    yourself.
 3. Otherwise, from the returned context packet, report: change ID, task ID, task status,
    dependency status, proposed branch, required context files, and a concise goal.
+4. Either way, also run `node tools/specs.mjs list` and check whether any change under
+   `specs/active/` has every one of its tasks in a terminal status (implemented /
+   verified / archived / abandoned). Such a change is eligible for
+   `node tools/specs.mjs archive <change-id>` but hasn't been archived yet — surface it
+   as a fact in the closing summary (see below). This is read-only: report it, never
+   archive it from this command.
 
 ## Ending the response
 
 Use the closing shape from `SKILL.md` § "Ending every command's response": `Status` is
 `task-ready` or `no-tasks-ready`. The facts line names the change/task ID (or says why
-nothing is ready — e.g. "0 approved tasks"). `Artifact` is `none` — this command never
-writes a file. `Next` is `/nevo-ai:task-start <change-id> <task-id>` when `task-ready`,
-or `none — no approved task in specs/active/` when not.
+nothing is ready — e.g. "0 approved tasks"), plus one more fact line: "Archivable
+change(s) pending: `<comma-separated change IDs>`" or "Archivable change(s) pending:
+none", from step 4. `Artifact` is `none` — this command never writes a file. `Next` is
+`/nevo-ai:task-start <change-id> <task-id>` when `task-ready`, or
+`none — no approved task in specs/active/` when not — if step 4 found an archivable
+change, append a second line: `<change-id> is fully terminal — run
+node tools/specs.mjs archive <change-id> whenever ready.`
 
 ## Rules
 

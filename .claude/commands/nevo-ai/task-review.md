@@ -68,22 +68,48 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
+9a. If option 1 or 2 was chosen, run `node tools/specs.mjs list` and check every task
+    belonging to `<change-id>` (not just this one). If any task is still not in a
+    terminal status, skip the rest of this step — nothing more to offer yet. If every
+    task in `<change-id>` is now terminal, ask a second closed menu, in the same turn
+    (same principle as step 9 — a known transition is confirmed and applied now, not
+    left as an instruction to type later):
+
+    ```
+    All tasks in `<change-id>` are now in a terminal status.
+
+    Archive the change now?
+    1. Yes — archive it
+    2. Not yet — leave it in specs/active/ (e.g. more follow-up work is still planned)
+    ```
+
+    On 1 → run `node tools/specs.mjs archive <change-id>` and report its output. On 2 →
+    make no changes. This question never fires when option 3 ("leave as-is") was chosen
+    in step 9, and never fires for tasks belonging to other, unrelated changes.
 10. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
     — adapted shape". `Verdict` is the value from step 7 (`pass` stays `pass`
     regardless of which menu option was chosen — the status-transition outcome goes in
-    a bullet, e.g. "Status change: marked implemented" / "marked verified" / "left
-    as-is"); bullets give blocking/non-blocking finding counts; `Report` is the path
-    from step 8; `Next command` is:
+    a bullet, e.g. "Status change: marked implemented" / "marked verified, change
+    archived" / "marked verified (change now fully terminal — archive declined for
+    now)" / "left as-is"); bullets give blocking/non-blocking finding counts; `Report`
+    is the path from step 8; `Next command` is:
     - `blocked` → the specific manual fix needed,
     - `changes-required` → what to fix, then re-run
       `/nevo-ai:task-review <change-id> <task-id>`,
-    - `pass` + option 1 or 2 → `/nevo-ai:task-next`,
+    - `pass` + option 1 or 2, change archived in step 9a → `No further action required.`,
+    - `pass` + option 1 or 2, change fully terminal but archive declined in step 9a →
+      `No further action required. (<change-id> is fully terminal — run
+      node tools/specs.mjs archive <change-id> whenever ready.)`,
+    - `pass` + option 1 or 2, change not yet fully terminal → `/nevo-ai:task-next`,
     - `pass` + option 3 → `No further action required.`
 
 ## Rules
 
 - Status changes only happen after the explicit menu answer in step 9 — never before
   it, and never inferred from the verdict alone.
+- The archive offer in step 9a fires only immediately after this run's own status
+  transition made `<change-id>` fully terminal — never for an already-terminal change
+  found incidentally, and never without the explicit menu answer.
 - Do not fix the code yourself as part of this command, even for an `AUTO_FIX`-tagged
   finding — review stays read-only with respect to the code under review; writing its
   own `reviews/<task-id>.md` (step 8) and applying the status transition the owner just
