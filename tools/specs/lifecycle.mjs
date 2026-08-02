@@ -247,7 +247,7 @@ export function deriveStage(change, facts) {
     return {
       stage: 'needs-pr',
       detail: 'Every task is terminal. No pull request found for this branch yet.',
-      nextCommand: 'pr-create skill (open a pull request)',
+      nextCommand: "nevo-ai-github skill's \"Create a PR\" flow (open a pull request)",
     };
   }
   if (facts.pr.state === 'MERGED') {

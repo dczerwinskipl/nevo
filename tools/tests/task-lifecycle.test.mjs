@@ -303,7 +303,7 @@ describe('deriveStage — the whole-lifecycle navigator', () => {
     const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'verified' }] };
     const r = deriveStage(change, emptyFacts());
     assert.equal(r.stage, 'needs-pr');
-    assert.match(r.nextCommand, /pr-create/);
+    assert.match(r.nextCommand, /nevo-ai-github/);
   });
 
   test('done when the PR is already merged', () => {

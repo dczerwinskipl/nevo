@@ -33,7 +33,7 @@ own transitions.
 2. Show the owner a structured summary of the result — gate outcome first, then the
    facts that produced it (git state, PR state, unresolved-thread count, each
    verification check pass/fail). If `gh` itself isn't available or not authenticated,
-   say exactly that (same as `pr-create`'s own check) — that alone blocks finalizing,
+   say exactly that (same as the `nevo-ai-github` skill's own check) — that alone blocks finalizing,
    since PR/comment state can't be verified without it.
 
 3. If the gate result is `ok: false`: report the exact blocking reason from the JSON

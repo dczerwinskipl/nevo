@@ -15,7 +15,8 @@ needs a real decision.
 ## Flow
 
 1. Run `node tools/specs.mjs comments <change-id>`. Read-only — no PR found is reported
-   plainly (nothing to resolve yet; point at the `pr-create` skill instead) rather than
+   plainly (nothing to resolve yet; point at the `nevo-ai-github` skill's "Create a PR"
+   flow instead) rather than
    treated as an error to work around.
 2. If every thread is already resolved (or there are none), say so and stop — `Next
    command` is `/nevo-ai:spec-status <change-id>`.

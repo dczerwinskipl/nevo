@@ -109,11 +109,11 @@ get wrong because half of it (opening the PR, Copilot's review) happens outside 
    `implemented`) in its menu.
 4. Repeat 1–3 for every task in the change (per-change branch mode: same branch every
    time; per-task mode: one branch and, typically, one PR per task).
-5. Open the PR: the `pr-create` skill ("stwórz PR" / "open a pull request"). This is
-   deliberately **not** a `/nevo-ai:*` command — opening a PR isn't gated by anything in
-   the spec workflow itself, it's the natural point where implementation work becomes
-   visible outside the branch. It pushes (if needed) and runs `gh pr create`, after its
-   own confirmation.
+5. Open the PR: the `nevo-ai-github` skill's "Create a PR" flow ("stwórz PR" / "open a
+   pull request"). This is deliberately **not** a `/nevo-ai:*` command — opening a PR
+   isn't gated by anything in the spec workflow itself, it's the natural point where
+   implementation work becomes visible outside the branch. It pushes (if needed) and
+   runs `gh pr create`, after its own confirmation.
 6. **GitHub Copilot's automated PR review runs on its own**, asynchronously, once the PR
    exists (if Copilot review is enabled on this repository) — nothing in this workflow
    triggers it, and nothing needs to. It posts inline comments as its own review, exactly
@@ -138,7 +138,8 @@ and it is purely local — it only checks task status in `change.yaml`, with **n
 knowledge of git or GitHub**. A change could be (and, on this repository, once was)
 archived while its commits sat only on a local feature branch that was never merged to
 `main`. Pushing and opening a PR existed only as a separate, disconnected skill
-(`pr-create`) that nothing in the chain called automatically, and resolving GitHub
+(`pr-create`, since merged into `nevo-ai-github` — see "Command-surface naming" below)
+that nothing in the chain called automatically, and resolving GitHub
 Copilot's (or a human reviewer's) PR comments and merging had no defined step at
 all — that used to happen by hand, outside this workflow, the same way the fixes that
 became `nevo-ai-review-hardening` originally did.
@@ -189,3 +190,13 @@ category:
   `task-apply-review` (applies a task review's own `AUTO_FIX` findings, then re-runs
   `task-review` itself — still task scope, since it never touches anything outside the
   one task's diff).
+
+`/nevo-ai:*` commands are not the only naming surface — **skills**
+(`.claude/skills/*/SKILL.md`) are the discovery layer in front of them: a command only
+runs when its literal `/nevo-ai:*` name is typed (or an agent deliberately reads and
+follows its file), while a skill's `description` lets it be found from plain language.
+`nevo-ai-github` is that layer for everything GitHub-facing — it used to be split
+across itself (routing only) and a separately-named `pr-create` skill with no `nevo-ai`
+prefix and no link back to the rest of this workflow; merged into one skill so PR
+creation, status, comment resolution, and finalize/merge are found and reached the same
+way instead of one of them being a naming exception.

@@ -31,7 +31,8 @@ where you are, here's the one next action. It never performs that action itself.
    value, don't invent a looser synonym).
 
 3. Do not act on `nextCommand` from this command — even when it looks like a single,
-   obvious next step (e.g. `needs-pr` → the `pr-create` skill). Naming it is this
+   obvious next step (e.g. `needs-pr` → the `nevo-ai-github` skill's "Create a PR"
+   flow). Naming it is this
    command's entire job; running it is a separate, explicit request.
 
 ## Ending the response

@@ -92,8 +92,9 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
     - `changes-required` → what to fix, then re-run
       `/nevo-ai:task-review <change-id> <task-id>`,
     - `pass` + option 1 or 2 → step 9a's `node tools/specs.mjs status <change-id>`
-      result, verbatim: its `nextCommand` (e.g. `/nevo-ai:task-next`, the `pr-create`
-      skill, "resolve N review threads", `/nevo-ai:spec-finalize <change-id>`, or "None"
+      result, verbatim: its `nextCommand` (e.g. `/nevo-ai:task-next`, the
+      `nevo-ai-github` skill's "Create a PR" flow, "resolve N review threads",
+      `/nevo-ai:spec-finalize <change-id>`, or "None"
       when `done`),
     - `pass` + option 3 → `No further action required.`
 
