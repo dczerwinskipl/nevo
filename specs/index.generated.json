@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T16:51:00.605Z",
+  "generated": "2026-08-02T17:42:27.413Z",
   "changes": [
     {
       "id": "nevo-ai-review-hardening",
@@ -27,7 +27,7 @@
           "id": "doc-taxonomy-and-tooling",
           "order": 1,
           "file": "tasks/01-doc-taxonomy-and-tooling.md",
-          "status": "approved"
+          "status": "in-implementation"
         },
         {
           "id": "package-classification-and-navigation-hub",

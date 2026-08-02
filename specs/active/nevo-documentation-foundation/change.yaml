@@ -13,7 +13,7 @@ tasks:
   - id: doc-taxonomy-and-tooling
     order: 1
     file: tasks/01-doc-taxonomy-and-tooling.md
-    status: approved
+    status: implemented
   - id: package-classification-and-navigation-hub
     order: 2
     file: tasks/02-package-classification-and-navigation-hub.md

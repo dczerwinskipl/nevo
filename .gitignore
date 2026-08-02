@@ -192,6 +192,9 @@ PublishScripts/
 !**/[Pp]ackages/build/
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
+# docs/ never contains NuGet restore output or other build artifacts — keep all
+# documentation content tracked regardless of what it's named (e.g. docs/packages/).
+!docs/**
 # NuGet v3's project.json files produces more ignorable files
 *.nuget.props
 *.nuget.targets

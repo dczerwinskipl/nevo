@@ -131,3 +131,31 @@
   task's blocking open question is resolved.
 - **Date:** 2026-08-02
 - **Affected artifacts:** `tasks/12-developer-and-extension-guides.md`.
+
+## D8: `.gitignore` collision with `docs/packages/`
+
+- **Question:** `docs/packages/` (the D2 central location) is silently caught by the
+  legacy Visual Studio NuGet-restore ignore rule `**/[Pp]ackages/*` in `.gitignore:190`
+  — every file written there by tasks `package-doc-orchestrating`,
+  `package-doc-web-authorization`, `package-docs-core-and-messaging`,
+  `package-docs-messaging-extensions`, `package-docs-auth-and-persistence`, and
+  `package-docs-web-and-experimental` would silently never be tracked by git. `.gitignore`
+  is outside every task's `allowed_paths`. How should this be fixed?
+- **Options considered:** (1) narrow negation `!docs/packages/**` right after the NuGet
+  block | (2) broader negation `!docs/**` in the same spot, covering the whole docs tree
+  against this and any future legacy build-artifact pattern collision (repo uses
+  `Directory.Packages.props` central package management — confirmed via
+  `git status --porcelain --ignored=matching` that no real NuGet `packages/` restore
+  folder exists anywhere in the repo today, so the rule is legacy/dead weight outside
+  `docs/`) | (3) narrow the NuGet rule itself to `src/**/[Pp]ackages/*`
+- **Decision:** Option (2) — `!docs/**` added at `.gitignore` (after the existing
+  `!**/[Pp]ackages/build/` line).
+- **Rationale:** Owner asked for the most universal fix. Scoping the negation to the
+  whole `docs/` tree (not just `docs/packages/`) prevents the same silent-ignore failure
+  for any future documentation directory, without touching the NuGet rule's behavior for
+  actual code under `src/`.
+- **Consequences:** Task `doc-taxonomy-and-tooling`'s `allowed_paths` is amended to
+  include `.gitignore` (repo-wide file, outside the change's normal `docs/**`/
+  `specs/active/**` scope) so this fix is in-scope rather than a silent violation.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `.gitignore`, task `doc-taxonomy-and-tooling`.
