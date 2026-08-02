@@ -72,6 +72,13 @@ ADRs: `docs/adr/`
 - Do not mix unrelated changes in one commit
 - Do not perform drive-by refactoring outside `allowed_paths`
 - Show diff and verification results before asking to commit
+- Opening a PR, checking/resolving its review comments, merging, and checking what's
+  next each have a defined command in `docs/ai/specification-workflow.md` § "Tool
+  adapters" (Claude Code: `.claude/commands/nevo-ai/`). Use those instead of improvising
+  the same operation with raw `gh`/`git` calls — this is not a Claude-only convention,
+  Cursor/Copilot/terminal use follows the same shapes directly from that document. See
+  `docs/ai/workflow-overview.md` for the concrete incident (a change archived before its
+  PR was even pushed) this rule exists to prevent from recurring a different way.
 
 ## Source of truth precedence
 
