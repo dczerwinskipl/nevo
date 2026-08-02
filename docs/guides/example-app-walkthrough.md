@@ -5,8 +5,9 @@ title: ExampleApp walkthrough
 status: current
 summary: >
   End-to-end guide to examples/ExampleApp's 5 projects: auth, a permission-checked
-  command, the Document event-sourcing flow (and why it doesn't actually persist
-  anything by default), and cross-service dispatch.
+  command that also publishes an event to two independent handlers, the Document
+  event-sourcing flow (and why it doesn't actually persist anything by default), and
+  cross-service dispatch.
 ---
 
 # ExampleApp walkthrough
@@ -127,6 +128,21 @@ A `companyId` other than `"C1"` gets a permission-denied failure — per
 [`NEvo.Messaging.Authorization.md`](../packages/NEvo.Messaging.Authorization.md) §
 "What happens when validation fails", that currently surfaces as a generic HTTP `500`,
 not `403`.
+
+**On success, the handler also publishes an event, fanned out to two independent
+handlers.** `SayHelloCommandHandler` doesn't just return success — it publishes
+`MyEvent(message.Foo)` via `IEventPublisher` (`SayHelloCommandHandler.cs:14`). Two
+handlers are registered for `MyEvent`
+(`MessageHandlerRegistryExtensions.cs:13-14`): `MyEventHandlerA` and `MyEventHandlerB`,
+each independently implementing `IEventHandler<MyEvent>` and printing `HandlerA:
+<foo>` / `HandlerB: <foo>` to the console; `MyEventHandlerB` additionally throws if
+`foo` is literally the string `"Exception"` (`MyEventHandlerB.cs:11-12` — a simple way
+to exercise the failure path of one handler in the fan-out without affecting the
+other). Watch the console for both `HandlerA:`/`HandlerB:` lines after a successful
+`/api/hello` call — this is the exact "command handler publishes an event, independent
+handlers react" shape walked through from scratch, on a smaller illustrative example,
+in [Quick start § 6. Publish an event, and react to it
+independently](quick-start.md#6-publish-an-event-and-react-to-it-independently).
 
 ## Scenario 3: the Document event-sourcing flow
 

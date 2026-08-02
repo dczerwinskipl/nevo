@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T19:59:05.632Z_
+_Generated: 2026-08-02T20:51:42.517Z_
 
 ## Hub
 

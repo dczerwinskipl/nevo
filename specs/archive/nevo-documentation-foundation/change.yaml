@@ -94,7 +94,7 @@ tasks:
   - id: quickstart-end-to-end-narrative
     order: 14
     file: tasks/14-quickstart-end-to-end-narrative.md
-    status: approved
+    status: implemented
     depends_on:
       - quickstart-and-installation-guide
       - exampleapp-walkthrough-guide

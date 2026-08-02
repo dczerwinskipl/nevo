@@ -1,6 +1,69 @@
 {
-  "generated": "2026-08-02T20:46:20.343Z",
+  "generated": "2026-08-02T20:58:08.385Z",
   "changes": [
+    {
+      "id": "architecture-documentation",
+      "title": "Architecture documentation",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "core-architecture-docs",
+          "order": 1,
+          "file": "tasks/01-core-architecture-docs.md",
+          "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-operational-workflow",
+      "title": "NEvo AI operational workflow (Claude Code layer)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "add-operational-layer",
+          "order": 1,
+          "file": "tasks/01-add-operational-layer.md",
+          "status": "verified"
+        },
+        {
+          "id": "add-technical-decision-support",
+          "order": 2,
+          "file": "tasks/02-add-technical-decision-support.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        },
+        {
+          "id": "add-review-handoff",
+          "order": 3,
+          "file": "tasks/03-add-review-handoff.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-review-hardening",
+      "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-02",
+      "tasks": [
+        {
+          "id": "harden-approval-and-guard",
+          "order": 1,
+          "file": "tasks/01-harden-approval-and-guard.md",
+          "status": "verified"
+        }
+      ]
+    },
     {
       "id": "nevo-documentation-foundation",
       "title": "NEvo documentation foundation",
@@ -131,74 +194,11 @@
           "id": "quickstart-end-to-end-narrative",
           "order": 14,
           "file": "tasks/14-quickstart-end-to-end-narrative.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "quickstart-and-installation-guide",
             "exampleapp-walkthrough-guide"
           ]
-        }
-      ]
-    },
-    {
-      "id": "architecture-documentation",
-      "title": "Architecture documentation",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "core-architecture-docs",
-          "order": 1,
-          "file": "tasks/01-core-architecture-docs.md",
-          "status": "verified"
-        }
-      ]
-    },
-    {
-      "id": "nevo-ai-operational-workflow",
-      "title": "NEvo AI operational workflow (Claude Code layer)",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "add-operational-layer",
-          "order": 1,
-          "file": "tasks/01-add-operational-layer.md",
-          "status": "verified"
-        },
-        {
-          "id": "add-technical-decision-support",
-          "order": 2,
-          "file": "tasks/02-add-technical-decision-support.md",
-          "status": "verified",
-          "depends_on": [
-            "add-operational-layer"
-          ]
-        },
-        {
-          "id": "add-review-handoff",
-          "order": 3,
-          "file": "tasks/03-add-review-handoff.md",
-          "status": "verified",
-          "depends_on": [
-            "add-operational-layer"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "nevo-ai-review-hardening",
-      "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-02",
-      "tasks": [
-        {
-          "id": "harden-approval-and-guard",
-          "order": 1,
-          "file": "tasks/01-harden-approval-and-guard.md",
-          "status": "verified"
         }
       ]
     }
