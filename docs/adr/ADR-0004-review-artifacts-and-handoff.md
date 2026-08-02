@@ -58,6 +58,22 @@ that `task-review`'s `pass` verdict had the identical gap (telling the owner to 
 presented ambiguously — a repository-wide, non-gating check failure sat next to a
 `ready-for-approval` verdict with no explanation of why the failure didn't block it.
 
+**Third refinement, later the same day:** point 4 below originally left task review with
+no auto-apply step at all, reasoning that "fixing code is implementation" and
+implementation always needs an explicit go-ahead. Real usage showed this conflated two
+different questions: *whether* a fix may happen without further deliberation (already
+answered per-finding by the `AUTO_FIX` category itself) and *when* the owner is asked —
+per finding, or once for the whole batch. The owner asked, in the same session that also
+identified this, for a command that applies a task review's `AUTO_FIX` findings and
+re-verifies itself, framed explicitly as "apply review changes," not as a
+`spec-refine`-style silent fix. `/nevo-ai:task-apply-review` resolves this: one batch
+confirmation covers every `AUTO_FIX` finding (never `OWNER_DECISION`/
+`NEEDS_CLARIFICATION`/`NON_BLOCKING` — those still go to the owner directly), then it
+re-runs `/nevo-ai:task-review`'s own flow automatically. This completes point 4's
+original goal (no fix ever happens without an explicit go-ahead) rather than reversing
+it — the go-ahead just now covers a batch instead of requiring a separate manual
+invocation of `/nevo-ai:task-review` after every fix.
+
 ## Decision
 
 1. **Findings are actor-classified**: `AUTO_FIX` / `OWNER_DECISION` /
@@ -79,8 +95,15 @@ presented ambiguously — a repository-wide, non-gating check failure sat next t
    `OWNER_DECISION`/`NEEDS_CLARIFICATION` finding, and leaves
    `NON_BLOCKING`/`INFORMATIONAL` findings untouched unless the owner asks. It then
    recommends re-running `/nevo-ai:spec-review` rather than trusting the now-stale
-   verdict. Task review has no equivalent auto-apply command — fixing code is
-   implementation and always needs an explicit go-ahead, `AUTO_FIX`-tagged or not.
+   verdict. **`/nevo-ai:task-apply-review <change-id> <task-id>`** (added in this ADR's
+   third refinement, above) is task review's equivalent: one batch confirmation for
+   every unresolved `AUTO_FIX` finding in `reviews/<task-id>.md` — never
+   `OWNER_DECISION`/`NEEDS_CLARIFICATION`/`NON_BLOCKING`, those still require the owner
+   directly — then it automatically re-runs `/nevo-ai:task-review`'s own flow against
+   the changed diff, including that command's `pass` menu and archive offer. Fixing code
+   is still implementation and still always needs an explicit go-ahead; what changed is
+   that the go-ahead now covers one confirmed batch instead of requiring a separate,
+   manual `/nevo-ai:task-review` invocation after every fix.
 5. **Every `/nevo-ai:*` command — not only the two review commands — ends its response
    with the same four-line shape** (`Status` / a short facts line / `Artifact` /
    `Next`), defined once in `.claude/skills/nevo-ai-spec-workflow/SKILL.md` § "Ending
@@ -157,7 +180,11 @@ copied verbatim.
   perform a manual file edit, for every command, not just review.
 - `/nevo-ai:*` now has seven commands, not six — `spec-approve` is a genuinely new,
   narrow one, not a repurposed existing one, keeping the "each command has one job"
-  property the other six already had.
+  property the other six already had. (Still later additions — `spec-audit`,
+  `spec-finalize`, `task-apply-review` — aren't durable architectural decisions this ADR
+  covers; `task-apply-review` is recorded in this ADR's third refinement above since it
+  directly amends point 4, and the full current command set is kept current in
+  [`docs/ai/workflow-overview.md`](../ai/workflow-overview.md), not restated here.)
 - `tools/specs.mjs` gains one new subcommand (`approve`), mirroring `complete`/`verify`
   exactly — the only `tools/**` behavior change in this ADR's history besides the
   earlier parser bug fix, and likewise explicitly owner-approved first.
