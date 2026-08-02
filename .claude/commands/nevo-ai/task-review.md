@@ -68,39 +68,32 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
-9a. If option 1 or 2 was chosen, run `node tools/specs.mjs list` and check every task
-    belonging to `<change-id>` (not just this one). If any task is still not in a
-    terminal status, skip the rest of this step — nothing more to offer yet. If every
-    task in `<change-id>` is now terminal, ask a second closed menu, in the same turn
-    (same principle as step 9 — a known transition is confirmed and applied now, not
-    left as an instruction to type later):
-
-    ```
-    All tasks in `<change-id>` are now in a terminal status.
-
-    Archive the change now?
-    1. Yes — archive it
-    2. Not yet — leave it in specs/active/ (e.g. more follow-up work is still planned)
-    ```
-
-    On 1 → run `node tools/specs.mjs archive <change-id>` and report its output. On 2 →
-    make no changes. This question never fires when option 3 ("leave as-is") was chosen
-    in step 9, and never fires for tasks belonging to other, unrelated changes.
+9a. If option 1 or 2 was chosen, run `node tools/specs.mjs status <change-id>`. This
+    command is never asked to *decide* anything here — it's read-only, and its job is to
+    say correctly whether the rest of the change is done or whether a PR/review/merge
+    story is still pending. Do **not** ask about or run `node tools/specs.mjs archive`
+    directly from this step — archiving a change before its PR is pushed, reviewed, and
+    merged is exactly the mistake `spec-status`/`spec-finalize` exist to prevent (see
+    `docs/ai/workflow-overview.md`), and this command has no way to know on its own
+    whether a bare local archive is actually safe. Its `stage` becomes this response's
+    `Next command` in step 10 below, verbatim, whatever it is (`ready-to-start` /
+    `in-progress` if other tasks in the change aren't terminal yet — same as today;
+    `needs-pr` / `pr-draft` / `needs-comment-resolution` / `needs-verification-fixes` /
+    `ready-to-finalize` / `done` once every task is terminal). Report it, do not act on
+    it — same rule `/nevo-ai:spec-status` itself follows.
 10. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
     — adapted shape". `Verdict` is the value from step 7 (`pass` stays `pass`
     regardless of which menu option was chosen — the status-transition outcome goes in
-    a bullet, e.g. "Status change: marked implemented" / "marked verified, change
-    archived" / "marked verified (change now fully terminal — archive declined for
-    now)" / "left as-is"); bullets give blocking/non-blocking finding counts; `Report`
-    is the path from step 8; `Next command` is:
+    a bullet, e.g. "Status change: marked implemented" / "marked verified" / "left
+    as-is"); bullets give blocking/non-blocking finding counts; `Report` is the path
+    from step 8; `Next command` is:
     - `blocked` → the specific manual fix needed,
     - `changes-required` → what to fix, then re-run
       `/nevo-ai:task-review <change-id> <task-id>`,
-    - `pass` + option 1 or 2, change archived in step 9a → `No further action required.`,
-    - `pass` + option 1 or 2, change fully terminal but archive declined in step 9a →
-      `No further action required. (<change-id> is fully terminal — run
-      node tools/specs.mjs archive <change-id> whenever ready.)`,
-    - `pass` + option 1 or 2, change not yet fully terminal → `/nevo-ai:task-next`,
+    - `pass` + option 1 or 2 → step 9a's `node tools/specs.mjs status <change-id>`
+      result, verbatim: its `nextCommand` (e.g. `/nevo-ai:task-next`, the `pr-create`
+      skill, "resolve N review threads", `/nevo-ai:spec-finalize <change-id>`, or "None"
+      when `done`),
     - `pass` + option 3 → `No further action required.`
 
 ## Rules

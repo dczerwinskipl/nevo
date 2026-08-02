@@ -51,10 +51,10 @@ leaving "fix, then remember to re-review" as a manual two-step the owner has to 
    `allowed_paths` is not something to apply silently; stop and report it instead.
 8. Immediately re-run `/nevo-ai:task-review <change-id> <task-id>`'s own flow (that
    command's steps 2 onward) against the now-changed diff — same file, same lifecycle
-   rules, the baseline being the review read in step 1 above, same closed menus for
-   marking the task done and, if applicable, the archive offer. Do not hand this back to
-   the owner as a separate manual step — running it automatically is this command's
-   entire purpose.
+   rules, the baseline being the review read in step 1 above, same closed menu for
+   marking the task done and, if applicable, the same `node tools/specs.mjs status`
+   report in place of a `Next command`. Do not hand this back to the owner as a separate
+   manual step — running it automatically is this command's entire purpose.
 9. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
    — adapted shape" (this command produces the same artifact and verdict vocabulary; it
    only adds one prior step). Prefix the response with one line: "Applied `<N>` AUTO_FIX

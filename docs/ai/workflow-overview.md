@@ -54,16 +54,17 @@ chain, not for manually figuring out where you are in it.
 
 7. /nevo-ai:task-review <change-id> <task-id>
    Diff vs. this task's acceptance criteria → pass | changes-required |
-   blocked. On pass: menu → implemented | verified | leave-as-is.
-   If that transition makes every task in the change terminal, offers to
-   archive right there (see step 10) — no need to remember to come back.
+   blocked. On pass: menu → implemented | verified | leave-as-is. Its own
+   "Next command" is whatever node tools/specs.mjs status <change-id>
+   reports (see spec-status below) — it never offers a bare
+   `archive` itself, and never decides that for you.
 
 7a. [if changes-required] /nevo-ai:task-apply-review <change-id> <task-id>
     Applies every unresolved AUTO_FIX finding from that review in one
     confirmed batch, then automatically re-runs step 7's own flow against
-    the changed diff — including its pass menu and archive offer.
-    OWNER_DECISION/NEEDS_CLARIFICATION/NON_BLOCKING findings are listed,
-    never auto-applied.
+    the changed diff — including its pass menu and its status-derived
+    Next command. OWNER_DECISION/NEEDS_CLARIFICATION/NON_BLOCKING findings
+    are listed, never auto-applied.
 
 8. [optional, cross-task] /nevo-ai:spec-audit <change-id> <focus>
    Thematic audit across an already-implemented change (e.g. "are the

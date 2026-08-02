@@ -534,9 +534,15 @@ the same session, instead of being left as a manual follow-up action.
 
 ## Owner-only transitions
 
-Marking a task `approved` or `verified`, and archiving a change, still only ever happen
-after the owner's explicit answer — `spec-approve` and `task-review`'s confirmation
-menu are how that answer is captured and acted on, not an exception to owner control.
+Marking a task `approved` or `verified` still only ever happens after the owner's
+explicit answer — `spec-approve` and `task-review`'s confirmation menus are how that
+answer is captured and acted on, not an exception to owner control. Archiving a change
+is the same principle, one level up: `task-review` reports where a fully-terminal
+change actually stands (`node tools/specs.mjs status`) but never offers or performs a
+bare `archive` itself — that would silently skip whatever PR/review/merge story the
+change still has open, which is exactly the mistake this section exists to prevent (see
+`docs/ai/workflow-overview.md` for the concrete incident this was fixed after).
+`/nevo-ai:spec-finalize`'s own confirmation menu is what actually archives (and merges).
 No command infers or defaults to a status change from silence, a favorable verdict, or
 elapsed time.
 
