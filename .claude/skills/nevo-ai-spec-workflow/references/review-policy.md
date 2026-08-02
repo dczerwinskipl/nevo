@@ -1,4 +1,4 @@
-# Review policy
+﻿# Review policy
 
 ## Findings must be actor-classified
 
@@ -275,6 +275,89 @@ booleans — those are spec-level concepts):
 Do not duplicate this formatting contract in any command file — `spec-review.md` and
 `task-review.md` reference this section instead of restating the template.
 
+## Change-wide audits
+
+`/nevo-ai:task-review` gates one task's diff against its own acceptance criteria.
+`/nevo-ai:spec-review` gates a whole spec's readiness for approval. Neither fits a third,
+real shape of request: "look across an already-`implemented` change through one named
+lens" (e.g. "are the examples genuinely useful and wired end-to-end, or copy-pasted
+fragments?"). Before this section existed, that request had no defined artifact shape,
+and an agent handling it improvised a non-standard `verdict` value and a `task:` field
+that didn't name a real task — exactly the inconsistency this section exists to prevent.
+`/nevo-ai:spec-audit <change-id> <focus>` is the one command for this shape of request.
+
+A spec-audit never re-evaluates any task's own acceptance criteria — those were
+already gated by that task's own `/nevo-ai:task-review` pass. It looks across the whole
+change (or the subset `<focus>` implicates) for something *outside* any single task's
+acceptance-criteria text.
+
+### File naming
+
+`specs/active/<change-id>/reviews/audit-<slug>.md`, where `<slug>` is a short kebab-case
+derivation of the owner's focus (e.g. `audit-examples-and-wireup.md`). Never
+`reviews/<task-id>.md` — that path means a task review, and a colliding name would make
+an audit indistinguishable from one at a glance.
+
+### Verdict decision table
+
+Evaluate top to bottom; the first matching row wins. This table is deliberately
+different from spec-review's and task-review's — an audit never gates approval or a
+diff, it only recommends:
+
+| # | Condition | Verdict |
+|---|---|---|
+| 1 | Any finding requires an owner decision before it can even be scoped as a task | `owner-decision-required` |
+| 2 | No `OWNER_DECISION`/`NEEDS_CLARIFICATION` findings, but at least one `AUTO_FIX` or `NON_BLOCKING` finding exists | `changes-recommended` |
+| 3 | No unresolved findings of any actionable category | `no-findings` |
+
+`NON_BLOCKING` participates in this table (unlike spec-review's/task-review's tables) —
+an audit has nothing to gate, so there is no reason to exclude a real, non-blocking
+observation from `changes-recommended`.
+
+### `audit_status` — a second, independent axis
+
+`verdict` describes the findings *at the moment the audit was written*. `audit_status`
+tracks whether anything has been done about them since — a separate frontmatter field,
+manually set, never computed from `verdict`:
+
+| `audit_status` | Meaning |
+|---|---|
+| `open` | Default. Recommendations not yet acted on. |
+| `actioned` | The recommended follow-up (usually a new task) was completed — set only via the step 8 closed-menu confirmation in `/nevo-ai:spec-audit`, on a re-audit where every baseline finding now resolves. |
+| `dismissed` | The owner explicitly decided not to act on this audit's findings. |
+
+This is not validated by `tools/specs.mjs` (which doesn't read `reviews/**`) — same as
+`verdict`, it's a convention for humans and for a future `/nevo-ai:spec-audit` re-run
+to parse. Setting `actioned` or `dismissed` is an owner-only transition, same principle
+as marking a task `verified` or archiving a change (see "Owner-only transitions" below)
+— never inferred from a favorable verdict alone.
+
+### Chat output shape
+
+```markdown
+## Change audit result
+
+**Verdict:** `<no-findings|changes-recommended|owner-decision-required>`
+
+- Actionable findings: **<count>**
+- Owner-decision findings: **<count>**
+
+### Required action
+
+<omit if none>
+
+**Report:** `<artifact path>`
+
+**Next command:**
+
+​```text
+<exact command, or "No further action required.">
+​```
+```
+
+Do not duplicate this formatting contract in any command file — `spec-audit.md`
+references this section instead of restating it.
+
 ## Spec-review verdicts are derived, never chosen narratively
 
 The single biggest failure mode of a review command is a *locally* correct finding
@@ -456,3 +539,12 @@ after the owner's explicit answer — `spec-approve` and `task-review`'s confirm
 menu are how that answer is captured and acted on, not an exception to owner control.
 No command infers or defaults to a status change from silence, a favorable verdict, or
 elapsed time.
+
+Merging a PR is the highest-consequence transition in this workflow — shared, hard to
+fully undo, and explicitly named in `AGENTS.md`'s git-safety rules as needing explicit
+instruction every time. `/nevo-ai:spec-finalize` never merges on the strength of its
+own `--check` gate alone: the deterministic gate (`node tools/specs.mjs finalize
+--check`, backed by `validateFinalize`) only establishes that merging *would* be safe —
+whether it happens is still the owner's explicit answer to that command's own closed
+menu, the same split used everywhere else in this section (CLI enforces the gate,
+conversation captures the human decision).

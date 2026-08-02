@@ -91,6 +91,8 @@ shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
 | `/nevo-ai:task-next [filters]` | Return the next approved, ready task |
 | `/nevo-ai:task-start <change-id> <task-id>` | Safely start one task and prepare its context |
 | `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |
+| `/nevo-ai:spec-audit <change-id> <focus>` | Read-only, cross-task thematic audit of an already-implemented change |
+| `/nevo-ai:spec-finalize <change-id>` | Gate on PR/review/verification state, then merge + archive |
 
 Do not use unqualified `/spec-*` or `/task-*` commands — this repository only defines
 the `nevo-ai` namespace.

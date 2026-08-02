@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T19:57:21.212Z_
+_Generated: 2026-08-02T19:59:05.632Z_
 
 ## Hub
 
@@ -80,4 +80,5 @@ _Generated: 2026-08-02T19:57:21.212Z_
 | `ai.how-to-navigate` | [How to navigate NEvo artifacts](ai/how-to-navigate.md) | current |  |
 | `ai.specification-workflow` | [NEvo specification workflow](ai/specification-workflow.md) | current |  |
 | `ai.task-execution-policy` | [Task execution policy](ai/task-execution-policy.md) | current |  |
+| `ai.workflow-overview` | [NEvo AI workflow — end-to-end flow](ai/workflow-overview.md) | current |  |
 

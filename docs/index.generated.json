@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T19:57:21.212Z",
+  "generated": "2026-08-02T19:59:05.632Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -585,6 +585,22 @@
       ],
       "summary": "Rules for how agents execute tasks: what they may decide independently, what requires owner approval, and when to stop.",
       "related": [
+        "ai.how-to-navigate"
+      ]
+    },
+    {
+      "file": "docs/ai/workflow-overview.md",
+      "id": "ai.workflow-overview",
+      "type": "ai",
+      "title": "NEvo AI workflow — end-to-end flow",
+      "status": "current",
+      "read_when": [
+        "orienting to the full spec-to-merge flow for the first time",
+        "unsure which /nevo-ai:* command comes next"
+      ],
+      "summary": "The full chain of /nevo-ai:* commands from a new idea to an archived change, in order, with what each step actually gates. Companion to docs/ai/specification-workflow.md (the detailed policy) — this page is the map, that page is the rulebook.",
+      "related": [
+        "ai.specification-workflow",
         "ai.how-to-navigate"
       ]
     }

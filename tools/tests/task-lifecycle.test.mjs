@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateTransition, validateApproval, TRANSITIONS } from '../specs/lifecycle.mjs';
+import { validateTransition, validateApproval, validateFinalize, TRANSITIONS } from '../specs/lifecycle.mjs';
 
 describe('validateTransition — valid transitions', () => {
   test('approve: draft -> approved is allowed', () => {
@@ -140,6 +140,102 @@ describe('validateApproval — the full approve gate', () => {
 
   test('approves successfully with a current, ready, fully-resolved review', () => {
     const r = validateApproval('draft', readyReview(), 'abc123');
+    assert.equal(r.ok, true);
+    assert.equal(r.idempotent, false);
+  });
+});
+
+describe('validateFinalize — the finalize gate', () => {
+  const doneChange = () => ({ tasks: [{ id: 't1', status: 'verified' }, { id: 't2', status: 'implemented' }] });
+  const cleanFacts = () => ({
+    gitClean: true,
+    branch: { hasUpstream: true, ahead: 0, behind: 0 },
+    pr: { number: 42, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
+    verification: [{ name: 'specs validate', passed: true }, { name: 'docs validate', passed: true }],
+  });
+
+  test('rejects when a task is not in a terminal status', () => {
+    const change = { tasks: [{ id: 't1', status: 'in-implementation' }] };
+    const r = validateFinalize(change, cleanFacts());
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /not in a terminal status/);
+    assert.match(r.reason, /t1/);
+  });
+
+  test('rejects a dirty working tree', () => {
+    const r = validateFinalize(doneChange(), { ...cleanFacts(), gitClean: false });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /uncommitted changes/);
+  });
+
+  test('rejects when local branch is behind its remote', () => {
+    const facts = { ...cleanFacts(), branch: { hasUpstream: true, ahead: 0, behind: 2 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /behind/);
+  });
+
+  test('rejects an unpushed branch (never pushed at all)', () => {
+    const facts = { ...cleanFacts(), branch: { hasUpstream: false, ahead: null, behind: null } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /not yet been pushed|Push before finalizing/);
+  });
+
+  test('rejects when local commits are ahead but unpushed', () => {
+    const facts = { ...cleanFacts(), branch: { hasUpstream: true, ahead: 1, behind: 0 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /Push before finalizing/);
+  });
+
+  test('rejects when no PR exists for the branch', () => {
+    const r = validateFinalize(doneChange(), { ...cleanFacts(), pr: null });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /No pull request found/);
+  });
+
+  test('idempotent no-op when the PR is already merged', () => {
+    const facts = { ...cleanFacts(), pr: { number: 42, state: 'MERGED', isDraft: false, unresolvedThreads: 0 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, true);
+    assert.equal(r.idempotent, true);
+  });
+
+  test('rejects a draft PR', () => {
+    const facts = { ...cleanFacts(), pr: { number: 42, state: 'OPEN', isDraft: true, unresolvedThreads: 0 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /draft/);
+  });
+
+  test('rejects a PR in an unexpected state (e.g. CLOSED without merging)', () => {
+    const facts = { ...cleanFacts(), pr: { number: 42, state: 'CLOSED', isDraft: false, unresolvedThreads: 0 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /CLOSED/);
+  });
+
+  test('rejects when the PR has unresolved review threads', () => {
+    const facts = { ...cleanFacts(), pr: { number: 42, state: 'OPEN', isDraft: false, unresolvedThreads: 3 } };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /3 unresolved review thread/);
+  });
+
+  test('rejects when a verification check failed', () => {
+    const facts = {
+      ...cleanFacts(),
+      verification: [{ name: 'specs validate', passed: true }, { name: 'dotnet test', passed: false, detail: '2 failed' }],
+    };
+    const r = validateFinalize(doneChange(), facts);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /dotnet test/);
+    assert.match(r.reason, /2 failed/);
+  });
+
+  test('passes with a clean, pushed branch, an open PR with no unresolved threads, and green verification', () => {
+    const r = validateFinalize(doneChange(), cleanFacts());
     assert.equal(r.ok, true);
     assert.equal(r.idempotent, false);
   });

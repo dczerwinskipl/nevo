@@ -1,7 +1,9 @@
 # Review report template
 
 This is the file written to disk — `specs/active/<change>/reviews/spec.md` (spec
-review) or `specs/active/<change>/reviews/<task-id>.md` (task review). It's the full
+review), `specs/active/<change>/reviews/<task-id>.md` (task review), or
+`specs/active/<change>/reviews/audit-<slug>.md` (spec-audit — see
+`references/review-policy.md` § "Change-wide audits"). It's the full
 report; the conversation only gets the short structured summary from
 `references/review-policy.md` § "Chat output shape" plus a pointer to this file. A
 guide, not mandatory boilerplate — omit any section with nothing to say, but never omit
@@ -9,12 +11,15 @@ guide, not mandatory boilerplate — omit any section with nothing to say, but n
 
 ```markdown
 ---
-review-of: spec | task
+review-of: spec | task | spec-audit
 change: <change-id>
 task: <task-id>              # task review only
+audit-focus: <owner's focus, verbatim, short>   # spec-audit only — never invent a task field instead
 generated: <ISO date>
 verdict: blocked | owner-decision-required | changes-required | ready-for-approval | approved-for-implementation
          # task review: blocked | changes-required | pass
+         # spec-audit: owner-decision-required | changes-recommended | no-findings
+audit_status: open | actioned | dismissed   # spec-audit only — see references/review-policy.md § "audit_status"; starts `open`, never anything else on first write
 ready_for_approval: true | false        # spec review only
 implementation_allowed: true | false
 unresolved_required_fixes: <count>          # unresolved AUTO_FIX findings

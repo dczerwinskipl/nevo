@@ -107,3 +107,78 @@ export function validateApproval(taskStatus, review, currentFingerprint) {
 
   return { ok: true, idempotent: false };
 }
+
+/**
+ * Pure finalize-gate check: given a change's tasks and a bag of already-fetched facts
+ * (git state, PR state, verification results), decide whether `finalize` may merge the
+ * PR and archive the change. Does not touch git, GitHub, or the filesystem — see
+ * handleFinalize in tools/specs.mjs for the I/O that gathers `facts` and acts on the
+ * result. Every condition is evaluated and the *first* failing one is reported —
+ * finalize never merges/archives on a partial pass.
+ *
+ * `facts` shape:
+ *   {
+ *     gitClean: boolean,
+ *     branch: { hasUpstream: boolean, ahead: number|null, behind: number|null },
+ *     pr: { number, state, isDraft, unresolvedThreads } | null,
+ *     verification: [{ name: string, passed: boolean, detail?: string }],
+ *   }
+ *
+ * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
+ * `idempotent: true` means the PR is already merged — a safe no-op, same convention as
+ * validateTransition's idempotent re-runs.
+ */
+export function validateFinalize(change, facts) {
+  const notTerminal = change.tasks.filter(t => !TERMINAL_STATUSES.has(t.status));
+  if (notTerminal.length) {
+    return {
+      ok: false,
+      reason: `Task(s) not in a terminal status: ${notTerminal.map(t => t.id).join(', ')}. ` +
+        `Every task must be implemented/verified before finalizing.`,
+    };
+  }
+
+  if (!facts.gitClean) {
+    return { ok: false, reason: 'Working tree has uncommitted changes. Commit or discard them first.' };
+  }
+
+  if (facts.branch.behind > 0) {
+    return {
+      ok: false,
+      reason: `Local branch is ${facts.branch.behind} commit(s) behind its remote — pull/rebase first.`,
+    };
+  }
+  if (!facts.branch.hasUpstream || facts.branch.ahead > 0) {
+    return { ok: false, reason: 'Branch has commits not yet pushed to origin. Push before finalizing.' };
+  }
+
+  if (!facts.pr) {
+    return { ok: false, reason: 'No pull request found for this branch. Open one before finalizing.' };
+  }
+  if (facts.pr.state === 'MERGED') {
+    return { ok: true, idempotent: true };
+  }
+  if (facts.pr.isDraft) {
+    return { ok: false, reason: `PR #${facts.pr.number} is still a draft.` };
+  }
+  if (facts.pr.state !== 'OPEN') {
+    return { ok: false, reason: `PR #${facts.pr.number} has state '${facts.pr.state}', expected 'OPEN' or 'MERGED'.` };
+  }
+  if (facts.pr.unresolvedThreads > 0) {
+    return {
+      ok: false,
+      reason: `PR #${facts.pr.number} has ${facts.pr.unresolvedThreads} unresolved review thread(s). ` +
+        `Resolve every comment (including bot reviewers) before finalizing.`,
+    };
+  }
+
+  const failedChecks = facts.verification.filter(v => !v.passed);
+  if (failedChecks.length) {
+    return {
+      ok: false,
+      reason: `Verification failed: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
+    };
+  }
+
+  return { ok: true, idempotent: false };
+}
