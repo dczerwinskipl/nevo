@@ -50,6 +50,16 @@ New specs are always created in `specs/active/`. Never create directly in
 `specs/archive/`. A change moves to `specs/archive/` only via `node tools/specs.mjs
 archive <change>`, which itself refuses to run unless every task is in a terminal status.
 
+A change reaching "every task terminal" is not self-executing — nothing archives it
+automatically, and a terminal task alone does not mean the work is done (a review, a
+follow-up task, or more discovery may still be planned). `/nevo-ai:task-review` is the
+command responsible for offering to archive, in the same interactive turn, the moment its
+own status transition makes a change fully terminal (see that command's step 9a).
+`/nevo-ai:task-next` is the read-only backstop: it surfaces (never archives) any change
+under `specs/active/` that is fully terminal but wasn't archived through that offer —
+e.g. because the transition happened outside `task-review`, or the owner declined at the
+time.
+
 ## Source-of-truth precedence
 
 When artifacts disagree, resolve using the precedence in `AGENTS.md` ("Source of truth

@@ -19,6 +19,8 @@ export const REQUIRED_FIELDS = {
   adr:          ['id', 'type', 'title', 'status', 'date'],
   ai:           ['id', 'type', 'title', 'status', 'summary'],
   change:       ['id', 'type', 'title', 'status', 'change'],
+  package:      ['id', 'type', 'title', 'status', 'dependencies', 'summary'],
+  guide:        ['id', 'type', 'title', 'status', 'summary'],
 };
 
 const GENERATED_NOTICE = '<!-- GENERATED FILE — do not edit. Run: node tools/docs.mjs generate -->\n\n';

@@ -2,7 +2,41 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T13:24:50.690Z_
+_Generated: 2026-08-02T20:51:42.517Z_
+
+## Hub
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `docs.readme` | [NEvo documentation](README.md) | current |  |
+
+## Guide
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `guides.example-app-walkthrough` | [ExampleApp walkthrough](guides/example-app-walkthrough.md) | current |  |
+| `guides.extending-nevo` | [Extending NEvo](guides/extending-nevo.md) | current |  |
+| `guides.installation` | [Installation](guides/installation.md) | current |  |
+| `guides.quick-start` | [Quick start](guides/quick-start.md) | current |  |
+
+## Package
+
+| ID | Title | Status | Scopes |
+|---|---|---|---|
+| `packages.classification` | [Package classification](packages/classification.md) | current |  |
+| `packages.nevo-authorization` | [NEvo.Authorization](packages/NEvo.Authorization.md) | current |  |
+| `packages.nevo-core` | [NEvo.Core](packages/NEvo.Core.md) | current |  |
+| `packages.nevo-ddd-eventsourcing` | [NEvo.Ddd.EventSourcing](packages/NEvo.Ddd.EventSourcing.md) | experimental |  |
+| `packages.nevo-entityframework` | [NEvo.EntityFramework](packages/NEvo.EntityFramework.md) | current |  |
+| `packages.nevo-messaging` | [NEvo.Messaging](packages/NEvo.Messaging.md) | current |  |
+| `packages.nevo-messaging-authorization` | [NEvo.Messaging.Authorization](packages/NEvo.Messaging.Authorization.md) | current |  |
+| `packages.nevo-messaging-cqrs` | [NEvo.Messaging.Cqrs](packages/NEvo.Messaging.Cqrs.md) | current |  |
+| `packages.nevo-messaging-entityframework` | [NEvo.Messaging.EntityFramework](packages/NEvo.Messaging.EntityFramework.md) | current |  |
+| `packages.nevo-messaging-web` | [NEvo.Messaging.Web](packages/NEvo.Messaging.Web.md) | current |  |
+| `packages.nevo-orchestrating` | [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental |  |
+| `packages.nevo-orchestrating-entityframework` | [NEvo.Orchestrating.EntityFramework](packages/NEvo.Orchestrating.EntityFramework.md) | experimental |  |
+| `packages.nevo-web` | [NEvo.Web](packages/NEvo.Web.md) | current |  |
+| `packages.nevo-web-authorization` | [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current |  |
 
 ## Architecture
 
@@ -22,6 +56,7 @@ _Generated: 2026-08-02T13:24:50.690Z_
 
 | ID | Title | Status | Scopes |
 |---|---|---|---|
+| `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current |  |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current |  |
 | `development.git-workflow` | [Git workflow](development/git-workflow.md) | current |  |
 | `development.local-setup` | [Local setup](development/local-setup.md) | current |  |
@@ -45,4 +80,5 @@ _Generated: 2026-08-02T13:24:50.690Z_
 | `ai.how-to-navigate` | [How to navigate NEvo artifacts](ai/how-to-navigate.md) | current |  |
 | `ai.specification-workflow` | [NEvo specification workflow](ai/specification-workflow.md) | current |  |
 | `ai.task-execution-policy` | [Task execution policy](ai/task-execution-policy.md) | current |  |
+| `ai.workflow-overview` | [NEvo AI workflow — end-to-end flow](ai/workflow-overview.md) | current |  |
 

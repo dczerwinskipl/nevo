@@ -22,10 +22,13 @@ intentionally decoupled from the messaging layer. This is a deliberate architect
 
 ## Core abstractions (`NEvo.Orchestrating`)
 
+Signatures below are copied directly from source (`src/NEvo.Orchestrating/*.cs`), not
+paraphrased — verified 2026-08-02.
+
 ### Orchestrator definition
 
 ```csharp
-interface IOrchestrator<TData>
+interface IOrchestrator<TData> where TData : new()
 {
     IEnumerable<IOrchestratorStep<TData>> Steps { get; }
 }
@@ -33,8 +36,8 @@ interface IOrchestrator<TData>
 interface IOrchestratorStep<TData>
 {
     string Name { get; }
-    Task<TData> ExecuteAsync(TData data, CancellationToken ct);
-    Task<TData> CompensateAsync(TData data, CancellationToken ct);
+    Task<Either<Exception, Unit>> ExecuteAsync(TData data, CancellationToken ct);
+    Task<Either<Exception, Unit>> CompensateAsync(TData data, CancellationToken ct);
 }
 ```
 
@@ -43,27 +46,54 @@ interface IOrchestratorStep<TData>
 ```csharp
 interface IOrchestrationManager
 {
-    Task<Either<Exception, Unit>> RunAsync<TData>(IOrchestrator<TData>, TData, CancellationToken);
+    Task<Either<Exception, Unit>> RunAsync<TData>(IOrchestrator<TData>, TData, CancellationToken) where TData : new();
     Task<Either<Exception, Unit>> CompleteAsync(Guid orchestrationId, CancellationToken);
 }
 ```
 
 ### State machine
 
+Real `OrchestratorStatus` enum values (`src/NEvo.Orchestrating/OrchestratorStatus.cs`):
+`New`, `Running`, `Completed`, `Failed`, `CompensationCompleted`, `CompensationFailed`.
+There is no `Compensating` in-progress status — compensation happens while `Status` is
+still `Failed`.
+
 ```
-New → Running → Completed
-             ↘ Failed → Compensating → Compensated
+New/Running ──(all steps succeed)──────────────► Completed
+     │
+     └──(a step fails)──► Failed ──(compensation succeeds)──► CompensationCompleted
+                                └──(compensation fails)──────► CompensationFailed
 ```
 
-`OrchestratorStatus` enum: `New`, `Running`, `Failed`, `Compensating`, `Compensated`, `Completed`.
+`Completed`, `CompensationCompleted`, and `CompensationFailed` are the terminal states
+(`OrchestrationRunner.FinalStates`). Re-running an orchestration whose state is
+`CompensationFailed` resets it to `Failed`, retrying compensation.
 
 ### Execution model
 
-`IOrchestrationRunner` executes steps sequentially. On step failure, compensation runs
-in reverse order for all previously completed steps (`CompensateAsync`).
+`IOrchestrationRunner` executes steps sequentially via an injected `IStepExecutor`. On
+step failure, compensation runs in reverse order for all previously completed steps
+(`CompensateAsync`), tracked via `OrchestratorState.LastStep`/`LastCompensatedStep`.
 
-`PersistentStepExecutor` persists step state via `IOrchestratorStateRepository` before
-and after each step, enabling resumability.
+`PersistentStepExecutor` decorates `IStepExecutor`, persisting state via
+`IOrchestratorStateRepository` (`LockAsync` → inner execute/compensate → `SaveAsync`,
+wrapped in a `TransactionScope`) before and after each step — this is what makes
+per-step progress resumable, *if* `PersistentStepExecutor` is the `IStepExecutor`
+supplied to `OrchestrationRunner`.
+
+`OrchestrationManager` (the `IOrchestrationManager` implementation) does not itself wire
+up persistence: `RunAsync` constructs the initial `OrchestratorState` but its call to
+save it is commented out in source
+(`OrchestrationManager.cs`: `// save state in db` /
+`// await _stateRepository.SaveAsync(orchestrationState);`), and `CompleteAsync` — meant
+to resume a previously-persisted orchestration — assigns `orchestrationState` from a
+literal `null!` with a `// get from DB` comment, which would throw at runtime if called
+as written. The reflection-based resumption mechanism this depends on
+(`OrchestrationRunnerReflectionHelper.RunAsync(this IOrchestrationRunner,
+OrchestratorState, CancellationToken)`, which resolves the concrete `IOrchestrator<TData>`
+type from `OrchestratorState.OrchestratorType` via `Activator.CreateInstance` and
+invokes the generic `RunAsync<TData>` via reflection) is implemented and real — only the
+DB-fetch it needs is not wired in yet.
 
 ## EF persistence (`NEvo.Orchestrating.EntityFramework`)
 
@@ -78,3 +108,6 @@ current data) using Entity Framework Core / SQL Server.
 - Whether orchestration integrates with the inbox/outbox pattern
 - Idempotency for step execution
 - How orchestrations are discovered and registered
+- How `OrchestrationManager` is meant to wire up `IOrchestratorStateRepository` for
+  initial-state persistence and resumption — both paths are present in source but not
+  connected yet (see "Execution model" above)

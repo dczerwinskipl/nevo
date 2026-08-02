@@ -1,6 +1,200 @@
 {
-  "generated": "2026-08-02T13:24:50.690Z",
+  "generated": "2026-08-02T20:51:42.517Z",
   "docs": [
+    {
+      "file": "docs/README.md",
+      "id": "docs.readme",
+      "type": "hub",
+      "title": "NEvo documentation",
+      "status": "current",
+      "summary": "Curated, human-facing navigation hub linking architecture docs, package docs, guides, and ADRs by relationship — distinct from the auto-generated docs/index.generated.md."
+    },
+    {
+      "file": "docs/guides/example-app-walkthrough.md",
+      "id": "guides.example-app-walkthrough",
+      "type": "guide",
+      "title": "ExampleApp walkthrough",
+      "status": "current",
+      "summary": "End-to-end guide to examples/ExampleApp's 5 projects: auth, a permission-checked command that also publishes an event to two independent handlers, the Document event-sourcing flow (and why it doesn't actually persist anything by default), and cross-service dispatch."
+    },
+    {
+      "file": "docs/guides/extending-nevo.md",
+      "id": "guides.extending-nevo",
+      "type": "guide",
+      "title": "Extending NEvo",
+      "status": "current",
+      "summary": "How to add a new transport, persistence mechanism, handler, or event type, each grounded in an existing package that already does it. Process only — see coding-conventions.md for standing coding rules this guide doesn't repeat."
+    },
+    {
+      "file": "docs/guides/installation.md",
+      "id": "guides.installation",
+      "type": "guide",
+      "title": "Installation",
+      "status": "current",
+      "summary": "How to reference NEvo packages in a new project today, and the open question around NuGet publishing this guide does not paper over."
+    },
+    {
+      "file": "docs/guides/quick-start.md",
+      "id": "guides.quick-start",
+      "type": "guide",
+      "title": "Quick start",
+      "status": "current",
+      "summary": "Minimal working setup using NEvo.Core and NEvo.Messaging: register the pipeline, add NEvo.Messaging.Cqrs for a first real handler, expose it over HTTP via NEvo.Messaging.Web, then publish and react to an event — the same end-to-end \"request → command → event → independent handler\" shape examples/ExampleApp runs for real."
+    },
+    {
+      "file": "docs/packages/classification.md",
+      "id": "packages.classification",
+      "type": "package",
+      "title": "Package classification",
+      "status": "current",
+      "dependencies": [],
+      "summary": "Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into functional categories, as the entry point for the per-package documentation under docs/packages/."
+    },
+    {
+      "file": "docs/packages/NEvo.Authorization.md",
+      "id": "packages.nevo-authorization",
+      "type": "package",
+      "title": "NEvo.Authorization",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Core authorization abstractions: user/role/permission provider contracts and a data-scope-aware role/permission model. Transport-agnostic — consumed by both NEvo.Messaging.Authorization and NEvo.Web.Authorization."
+    },
+    {
+      "file": "docs/packages/NEvo.Core.md",
+      "id": "packages.nevo-core",
+      "type": "package",
+      "title": "NEvo.Core",
+      "status": "current",
+      "dependencies": [],
+      "summary": "Root of the dependency graph: functional primitives (Either-based error handling, argument checks) and the generic middleware-pipeline abstraction every processing pipeline in NEvo (messaging, and by extension its extensions) is built on."
+    },
+    {
+      "file": "docs/packages/NEvo.Ddd.EventSourcing.md",
+      "id": "packages.nevo-ddd-eventsourcing",
+      "type": "package",
+      "title": "NEvo.Ddd.EventSourcing",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Messaging.Cqrs",
+        "NEvo.Messaging"
+      ],
+      "summary": "Event-sourced aggregates: decide (command -> events) and evolve (events -> state) building blocks, wired into the NEvo.Messaging.Cqrs command pipeline. The default IEventStore registered by this package is a non-functional stub — see Limitations."
+    },
+    {
+      "file": "docs/packages/NEvo.EntityFramework.md",
+      "id": "packages.nevo-entityframework",
+      "type": "package",
+      "title": "NEvo.EntityFramework",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Shared EF Core infrastructure: startup migrations with retry, and a telemetry activity-source name. Not a dependency of NEvo.Messaging.EntityFramework or NEvo.Orchestrating.EntityFramework — see Related packages."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.md",
+      "id": "packages.nevo-messaging",
+      "type": "package",
+      "title": "NEvo.Messaging",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Message processing pipeline: dispatch, middleware chain, handler resolution, context propagation, and opt-in inbox/outbox abstractions. The foundation every NEvo.Messaging.* extension package builds on."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.Authorization.md",
+      "id": "packages.nevo-messaging-authorization",
+      "type": "package",
+      "title": "NEvo.Messaging.Authorization",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Messaging",
+        "NEvo.Authorization"
+      ],
+      "summary": "Auth hooks for the message pipeline: populates a per-request UserContext from NEvo.Authorization providers and validates per-handler permissions via an attribute. No DI registration helper exists yet — see Configuration."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.Cqrs.md",
+      "id": "packages.nevo-messaging-cqrs",
+      "type": "package",
+      "title": "NEvo.Messaging.Cqrs",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Messaging"
+      ],
+      "summary": "CQRS command side on top of NEvo.Messaging: Command base type, ICommandHandler, ICommandDispatcher. Query-side support is not implemented — see Limitations."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.EntityFramework.md",
+      "id": "packages.nevo-messaging-entityframework",
+      "type": "package",
+      "title": "NEvo.Messaging.EntityFramework",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Messaging"
+      ],
+      "summary": "EF Core-backed implementations of NEvo.Messaging's inbox (idempotency) and outbox (transactional publishing) abstractions. Only inbox has a DI registration helper — see Limitations."
+    },
+    {
+      "file": "docs/packages/NEvo.Messaging.Web.md",
+      "id": "packages.nevo-messaging-web",
+      "type": "package",
+      "title": "NEvo.Messaging.Web",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Messaging",
+        "NEvo.Messaging.Cqrs",
+        "NEvo.Web"
+      ],
+      "summary": "HTTP transport for messaging: REST dispatch to external services and ASP.NET Core route mapping for commands and generic message envelopes."
+    },
+    {
+      "file": "docs/packages/NEvo.Orchestrating.md",
+      "id": "packages.nevo-orchestrating",
+      "type": "package",
+      "title": "NEvo.Orchestrating",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "Saga-style orchestration: sequential step execution with automatic reverse-order compensation on failure. Experimental and in progress — deliberately decoupled from the messaging pipeline (depends only on NEvo.Core)."
+    },
+    {
+      "file": "docs/packages/NEvo.Orchestrating.EntityFramework.md",
+      "id": "packages.nevo-orchestrating-entityframework",
+      "type": "package",
+      "title": "NEvo.Orchestrating.EntityFramework",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Orchestrating"
+      ],
+      "summary": "EF entity shape and table configuration for orchestrator state. Does not itself implement IOrchestratorStateRepository — see Limitations."
+    },
+    {
+      "file": "docs/packages/NEvo.Web.md",
+      "id": "packages.nevo-web",
+      "type": "package",
+      "title": "NEvo.Web",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "HTTP client wrapper: named/configured HttpClient instances with pluggable authentication (OAuth client-credentials or none) and a REST client base. Not ASP.NET Core middleware or routing, despite the name."
+    },
+    {
+      "file": "docs/packages/NEvo.Web.Authorization.md",
+      "id": "packages.nevo-web-authorization",
+      "type": "package",
+      "title": "NEvo.Web.Authorization",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Authorization"
+      ],
+      "summary": "Adapts ASP.NET Core's ClaimsPrincipal into NEvo.Authorization's IUserProvider/ IRoleProvider abstractions. Despite the name, does not depend on NEvo.Web."
+    },
     {
       "file": "docs/architecture/event-sourcing.md",
       "id": "architecture.event-sourcing",
@@ -196,6 +390,22 @@
       ]
     },
     {
+      "file": "docs/development/coding-conventions.md",
+      "id": "development.coding-conventions",
+      "type": "development",
+      "title": "Coding conventions",
+      "status": "current",
+      "read_when": [
+        "writing new code in any NEvo package",
+        "reviewing a pull request",
+        "deciding how to signal a failure"
+      ],
+      "summary": "Standing rules a contributor follows regardless of what they're building: the Either<Exception, T> error convention, dependency-direction, DI registration shape, and constructor null-checking. Cross-links the extension workflow rather than duplicating it.",
+      "related": [
+        "development.testing"
+      ]
+    },
+    {
       "file": "docs/development/commit-conventions.md",
       "id": "development.commit-conventions",
       "type": "development",
@@ -375,6 +585,22 @@
       ],
       "summary": "Rules for how agents execute tasks: what they may decide independently, what requires owner approval, and when to stop.",
       "related": [
+        "ai.how-to-navigate"
+      ]
+    },
+    {
+      "file": "docs/ai/workflow-overview.md",
+      "id": "ai.workflow-overview",
+      "type": "ai",
+      "title": "NEvo AI workflow — end-to-end flow",
+      "status": "current",
+      "read_when": [
+        "orienting to the full spec-to-merge flow for the first time",
+        "unsure which /nevo-ai:* command comes next"
+      ],
+      "summary": "The full chain of /nevo-ai:* commands from a new idea to an archived change, in order, with what each step actually gates. Companion to docs/ai/specification-workflow.md (the detailed policy) — this page is the map, that page is the rulebook.",
+      "related": [
+        "ai.specification-workflow",
         "ai.how-to-navigate"
       ]
     }

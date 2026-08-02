@@ -46,8 +46,15 @@ describe('tools/specs.mjs CLI smoke tests', () => {
     assert.match(r.stdout, /current/);
   });
 
-  test('fingerprint <real-change> prints a 64-char hex digest and exits 0', () => {
-    const r = run(SPECS_CLI, ['fingerprint', 'nevo-documentation-foundation']);
+  test('fingerprint <real-change> prints a 64-char hex digest and exits 0', (t) => {
+    // Deliberately discovers whatever change is currently active rather than
+    // hardcoding a slug — specs/active/ legitimately empties out once every in-flight
+    // change is archived/finalized, which is a normal, expected repository state, not
+    // a fixture bug to work around.
+    const list = run(SPECS_CLI, ['list']);
+    const match = list.stdout.match(/^\[[a-z-]+\] (\S+) —/m);
+    if (!match) { t.skip('no active change to fingerprint right now'); return; }
+    const r = run(SPECS_CLI, ['fingerprint', match[1]]);
     assert.equal(r.code, 0);
     assert.match(r.stdout.trim(), /^[0-9a-f]{64}$/);
   });
@@ -70,8 +77,15 @@ describe('tools/specs.mjs CLI smoke tests', () => {
     assert.match(r.stderr, /missing required argument/);
   });
 
-  test('approve on an unknown task fails cleanly on stderr (no partial write)', () => {
-    const r = run(SPECS_CLI, ['approve', 'nevo-documentation-foundation', 'does-not-exist']);
+  test('approve on an unknown task fails cleanly on stderr (no partial write)', (t) => {
+    // Needs a change that exists but a task id that doesn't, specifically to hit
+    // requireTask's error rather than requireChange's — so this discovers a real
+    // active change rather than hardcoding a slug (see the fingerprint test above for
+    // why specs/active/ can legitimately be empty).
+    const list = run(SPECS_CLI, ['list']);
+    const match = list.stdout.match(/^\[[a-z-]+\] (\S+) —/m);
+    if (!match) { t.skip('no active change to test against right now'); return; }
+    const r = run(SPECS_CLI, ['approve', match[1], 'does-not-exist']);
     assert.equal(r.code, 1);
     assert.match(r.stderr, /not found/);
   });

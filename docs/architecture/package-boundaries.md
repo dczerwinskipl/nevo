@@ -22,6 +22,9 @@ related:
 
 ## Dependency graph
 
+Re-verified directly against every `src/*/*.csproj`'s `ProjectReference` entries (not
+inferred) on 2026-08-02.
+
 ```
 NEvo.Core                       (no project dependencies)
   │
@@ -29,20 +32,24 @@ NEvo.Core                       (no project dependencies)
   │     ├── NEvo.Messaging.Cqrs
   │     │     └── NEvo.Ddd.EventSourcing  [experimental]
   │     ├── NEvo.Messaging.Authorization  ──── NEvo.Authorization
-  │     ├── NEvo.Messaging.Web            ──── NEvo.Web
-  │     └── NEvo.Messaging.EntityFramework ─── NEvo.EntityFramework
+  │     ├── NEvo.Messaging.Web            ──── NEvo.Web, NEvo.Messaging.Cqrs
+  │     └── NEvo.Messaging.EntityFramework
   │
   ├── NEvo.Authorization
   │     ├── NEvo.Messaging.Authorization
-  │     └── NEvo.Web.Authorization        ──── NEvo.Web
+  │     └── NEvo.Web.Authorization
   │
   ├── NEvo.Web
   │
-  └── NEvo.EntityFramework
-        └── NEvo.Orchestrating.EntityFramework ─── NEvo.Orchestrating
-
-NEvo.Orchestrating              (depends only on NEvo.Core)
+  ├── NEvo.EntityFramework
+  │
+  └── NEvo.Orchestrating
+        └── NEvo.Orchestrating.EntityFramework
 ```
+
+`NEvo.Messaging.Web` also holds a direct `ProjectReference` to `NEvo.Core` — redundant
+for reachability (already transitively reached via `NEvo.Messaging`), so not drawn as a
+separate edge above.
 
 ## Rules
 
@@ -50,7 +57,10 @@ NEvo.Orchestrating              (depends only on NEvo.Core)
 2. `NEvo.Core` must remain independent of all other NEvo packages.
 3. `NEvo.Orchestrating` depends only on `NEvo.Core` — orchestration does not require messaging.
 4. `NEvo.Messaging` extension packages (`*.Cqrs`, `*.Web`, `*.EntityFramework`) depend on
-   `NEvo.Messaging` but not on each other.
+   `NEvo.Messaging` but not on each other — **except** `NEvo.Messaging.Web`, which also
+   depends on `NEvo.Messaging.Cqrs` (for CQRS-based HTTP dispatch) and `NEvo.Web` (for
+   ASP.NET Core integration). This is the one documented exception to the "not on each
+   other" clause.
 5. A consuming application must be able to include only `NEvo.Messaging.Cqrs` without
    pulling in EF, web, or auth.
 

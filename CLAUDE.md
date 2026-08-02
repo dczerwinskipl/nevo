@@ -91,6 +91,24 @@ shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
 | `/nevo-ai:task-next [filters]` | Return the next approved, ready task |
 | `/nevo-ai:task-start <change-id> <task-id>` | Safely start one task and prepare its context |
 | `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |
+| `/nevo-ai:task-apply-review <change-id> <task-id>` | Apply a review's AUTO_FIX findings, then auto re-review |
+| `/nevo-ai:spec-audit <change-id> <focus>` | Read-only, cross-task thematic audit of an already-implemented change |
+| `/nevo-ai:spec-resolve-comments <change-id>` | Fix and resolve clear PR review comments in one batch; flag the rest for you |
+| `/nevo-ai:spec-finalize <change-id>` | Gate on PR/review/verification state, then merge + archive |
+| `/nevo-ai:spec-status <change-id>` | Read-only: where the change sits in the whole chain, and the one next action |
 
 Do not use unqualified `/spec-*` or `/task-*` commands — this repository only defines
 the `nevo-ai` namespace.
+
+**Use these instead of ad hoc `gh`/`git` calls — always, not only when the owner types
+the literal slash command.** When a request matches one of the purposes above
+(opening a PR, checking or resolving PR review comments, merging, checking what's
+next), read that command's file under `.claude/commands/nevo-ai/` and follow its
+instructions directly, even mid-conversation. Concretely: "sprawdź komentarze PR" /
+"check PR comments" means read `spec-resolve-comments.md` and follow it — not `gh pr
+view --comments` typed ad hoc. "What's next for this change" means run
+`node tools/specs.mjs status <change-id>`, not reasoning through `list`/`git log`/`gh pr
+view` by hand. These commands exist specifically because ad hoc equivalents have
+already caused real problems this repository hit once (archiving a change before its PR
+was even pushed — see `docs/ai/workflow-overview.md`) — improvising the same operation
+a different way reopens exactly that risk.

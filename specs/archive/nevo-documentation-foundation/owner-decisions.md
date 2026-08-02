@@ -1,0 +1,318 @@
+# Owner decisions — nevo-documentation-foundation
+
+## D1: Documentation taxonomy and tooling
+
+- **Question:** How should package docs and use-case guides be typed, validated, and
+  located, given `tools/docs.mjs` only recognizes 5 doc types (`architecture`,
+  `development`, `adr`, `ai`, `change`) today?
+- **Options considered:** (1) Minimal — reuse `architecture`/`development` types with no
+  tooling change | (2) Balanced — extend `tools/docs.mjs` with new `package` and `guide`
+  types plus `docs/packages/` and `docs/guides/` directories | (3) Target — same as (2)
+  plus a `docs/reference/` scope and automated staleness/cross-link enforcement in
+  `docs.mjs check`
+- **Decision:** Option 2 (Balanced).
+- **Rationale:** Owner accepted the recommendation as presented.
+- **Consequences:** `tools/docs.mjs` gains `REQUIRED_FIELDS.package` and
+  `REQUIRED_FIELDS.guide` entries (additive only — no existing type's required fields
+  change). `docs/packages/` and `docs/guides/` become the canonical locations for the new
+  content. No automated drift/staleness enforcement is added (that's Option 3, not
+  chosen).
+- **Date:** 2026-08-02
+- **Affected artifacts:** `tools/docs.mjs`, `docs/packages/**`, `docs/guides/**`, task
+  `doc-taxonomy-and-tooling`.
+
+## D2: Package doc location
+
+- **Question:** Do package docs live in a central `docs/packages/<Name>.md` tree or as a
+  `README.md` inside each `src/<Name>/` package?
+- **Options considered:** `docs/packages/<Name>.md` (central) | per-package
+  `src/<Name>/README.md` (co-located, but implies `<PackageReadmeFile>` packaging config
+  changes to surface on NuGet)
+- **Decision:** `docs/packages/<Name>.md` (central).
+- **Rationale:** Owner accepted the recommendation — avoids touching any `.csproj`, which
+  is out of scope per the original request ("do not change... package structure").
+- **Consequences:** No `src/**` files are created or modified by this change. All package
+  docs are discoverable through `docs/packages/` and the navigation hub, not through
+  NuGet-rendered READMEs.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/packages/**`, all per-package-doc tasks.
+
+## D3: Handling of discovered doc/code inconsistencies
+
+- **Question:** Discovery found the `package-boundaries.md` dependency diagram doesn't
+  match actual `.csproj` references (3 concrete errors), `NEvo.Web`'s description doesn't
+  match its actual contents, and `README.md`/`overview.md` maturity tables disagree for 5
+  packages. Should this change fix these, flag them for a separate change, or fix only
+  what would otherwise get copied as wrong facts into the new package docs?
+- **Options considered:** (a) fix all inconsistencies now | (b) flag all, fix none, defer
+  entirely to a follow-up change | (c) fix only the dependency-diagram errors and the
+  `NEvo.Web` description (both would otherwise be copied as wrong facts into new package
+  docs); leave the maturity-table conflict as a flagged, deferred item
+- **Decision:** Option (c).
+- **Rationale:** Owner accepted the recommendation.
+- **Consequences:** Task `architecture-corrections` fixes
+  `docs/architecture/package-boundaries.md`'s dependency diagram (remove the false
+  `NEvo.EntityFramework` dependency edges for `NEvo.Messaging.EntityFramework` and
+  `NEvo.Orchestrating.EntityFramework`; remove the false `NEvo.Web.Authorization` →
+  `NEvo.Web` edge; document the real `NEvo.Messaging.Web` → `NEvo.Messaging.Cqrs`
+  dependency and reconcile it with stated rule 4) and `README.md`'s one-line description
+  of `NEvo.Web`. The `README.md` vs. `overview.md` package-maturity conflict is
+  **explicitly out of scope** for this change and is recorded as a follow-up candidate,
+  not silently left undocumented.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/architecture/package-boundaries.md`, `README.md`, task
+  `architecture-corrections`.
+
+## D4: Example scope
+
+- **Question:** Should `examples/Gdpr` be treated as in-scope for use-case documentation,
+  given it isn't in git HEAD and its one surviving fragment references an API that no
+  longer exists?
+- **Options considered:** include `examples/Gdpr` | exclude it, use `examples/ExampleApp`
+  only
+- **Decision:** Exclude `examples/Gdpr`.
+- **Rationale:** Owner accepted the recommendation — the directory isn't tracked in git
+  and is API-incompatible with current `NEvo.Ddd.EventSourcing`.
+- **Consequences:** All use-case/end-to-end documentation (tasks
+  `exampleapp-walkthrough-guide`, `quickstart-and-installation-guide`) is grounded solely
+  in `examples/ExampleApp`'s 5 projects (`Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
+  `Orchestration.AppHost`, `Orchestration.ServiceDefaults`).
+- **Date:** 2026-08-02
+- **Affected artifacts:** tasks `quickstart-and-installation-guide`,
+  `exampleapp-walkthrough-guide`.
+
+## D5: Representative edge packages for the phased pilot
+
+- **Question:** Which two packages should be documented first to validate the package-doc
+  template before scaling to the rest?
+- **Options considered:** `NEvo.Orchestrating` + `NEvo.Web.Authorization` (recommended —
+  opposite corners of the dependency graph: experimental/decoupled vs. minimal/stable) |
+  owner-specified alternative packages
+- **Decision:** `NEvo.Orchestrating` and `NEvo.Web.Authorization`.
+- **Rationale:** Owner accepted the recommendation.
+- **Consequences:** Tasks `package-doc-orchestrating` and `package-doc-web-authorization`
+  are the first package-doc tasks in the sequence; the template used by every later
+  package-doc task is validated against these two first.
+- **Date:** 2026-08-02
+- **Affected artifacts:** tasks `package-doc-orchestrating`,
+  `package-doc-web-authorization`, and (as consumers of the validated template) every
+  later package-doc task.
+
+## D6: ADR necessity for D1
+
+- **Question:** Does D1's `tools/docs.mjs` taxonomy/tooling extension require a new ADR
+  under `references/artifact-policy.md`'s "When an ADR is needed"?
+- **Options considered:** (a) write a new ADR for the taxonomy extension | (b) no
+  separate ADR is required
+- **Decision:** Option (b) — no separate ADR is required.
+- **Rationale:** The decision is already durably recorded in `owner-decisions.md` (D1
+  above) and concerns repository documentation taxonomy and tooling, not application or
+  product architecture.
+- **Consequences:** No `docs/adr/ADR-000x-*.md` is created by this change. D1 remains the
+  sole durable record of this decision.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `owner-decisions.md` (this entry), `overview.md` § "ADR
+  impact" (none).
+
+## D7: Conventions document target file (task `developer-and-extension-guides`)
+
+- **Question:** Which file should hold the coding-conventions content described in task
+  `developer-and-extension-guides`, given no existing `docs/development/*.md` file
+  topically fits and the task originally left this as "implementer's choice"?
+- **Options considered:** (1) `docs/development/conventions.md` | (2)
+  `docs/development/coding-conventions.md` | (3) add a "Conventions" section to an
+  existing file
+- **Decision:** Option (2) — `docs/development/coding-conventions.md`.
+- **Rationale:** Owner selected this over option 1 to avoid a naming clash with
+  `commit-conventions.md` in directory listings.
+- **Consequences:** Task `developer-and-extension-guides`'s `allowed_paths` grants write
+  access to exactly `docs/guides/extending-nevo.md` and
+  `docs/development/coding-conventions.md` — not the rest of `docs/development/**`. The
+  task's blocking open question is resolved.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `tasks/12-developer-and-extension-guides.md`.
+
+## D8: `.gitignore` collision with `docs/packages/`
+
+- **Question:** `docs/packages/` (the D2 central location) is silently caught by the
+  legacy Visual Studio NuGet-restore ignore rule `**/[Pp]ackages/*` in `.gitignore:190`
+  — every file written there by tasks `package-doc-orchestrating`,
+  `package-doc-web-authorization`, `package-docs-core-and-messaging`,
+  `package-docs-messaging-extensions`, `package-docs-auth-and-persistence`, and
+  `package-docs-web-and-experimental` would silently never be tracked by git. `.gitignore`
+  is outside every task's `allowed_paths`. How should this be fixed?
+- **Options considered:** (1) narrow negation `!docs/packages/**` right after the NuGet
+  block | (2) broader negation `!docs/**` in the same spot, covering the whole docs tree
+  against this and any future legacy build-artifact pattern collision (repo uses
+  `Directory.Packages.props` central package management — confirmed via
+  `git status --porcelain --ignored=matching` that no real NuGet `packages/` restore
+  folder exists anywhere in the repo today, so the rule is legacy/dead weight outside
+  `docs/`) | (3) narrow the NuGet rule itself to `src/**/[Pp]ackages/*`
+- **Decision:** Option (2) — `!docs/**` added at `.gitignore` (after the existing
+  `!**/[Pp]ackages/build/` line).
+- **Rationale:** Owner asked for the most universal fix. Scoping the negation to the
+  whole `docs/` tree (not just `docs/packages/`) prevents the same silent-ignore failure
+  for any future documentation directory, without touching the NuGet rule's behavior for
+  actual code under `src/`.
+- **Consequences:** Task `doc-taxonomy-and-tooling`'s `allowed_paths` is amended to
+  include `.gitignore` (repo-wide file, outside the change's normal `docs/**`/
+  `specs/active/**` scope) so this fix is in-scope rather than a silent violation.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `.gitignore`, task `doc-taxonomy-and-tooling`.
+
+## D9: Sequencing gap — `classification.md` copied the `NEvo.Web` fact D3 corrects
+
+- **Question:** Task `package-classification-and-navigation-hub` (task 2) ran before
+  `architecture-corrections` (task 3) and copied the same stale `NEvo.Web` one-liner
+  ("ASP.NET Core integration, HTTP client") that D3 identifies as wrong — exactly the
+  "wrong facts copied into new package docs" failure mode D3 exists to prevent, just one
+  task earlier in the sequence than the dependency graph anticipated.
+  `docs/packages/classification.md` is outside task 3's `allowed_paths`. Fix it now or
+  leave it for a later task?
+- **Options considered:** (1) fix it now as part of task 3, widening `allowed_paths` by
+  one file (same pattern as D1/D8) | (2) leave it stale and flag it as a follow-up
+- **Decision:** Option (1) — fix now.
+- **Rationale:** Consistent with D3's own purpose; the fix is a one-line, low-risk
+  correction in a file this change already owns, and leaving it stale defeats the point
+  of running `architecture-corrections` at all.
+- **Consequences:** Task `architecture-corrections`'s `allowed_paths` is amended to
+  include `docs/packages/classification.md`.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/packages/classification.md`, task
+  `architecture-corrections`.
+
+## D10: `docs/architecture/orchestration.md` pseudocode is stale against real source
+
+- **Question:** Writing `docs/packages/NEvo.Orchestrating.md` (task 4) required reading
+  the real `src/NEvo.Orchestrating/*.cs` source directly (per this task's own
+  instruction not to present the package as more stable/complete than the code
+  supports). That reading found `docs/architecture/orchestration.md`'s illustrative
+  pseudocode has drifted from the real code: `IOrchestratorStep.ExecuteAsync`/
+  `CompensateAsync` actually return `Task<Either<Exception, Unit>>`, not `Task<TData>`
+  as shown; the real `OrchestratorStatus` enum values are `New, Running, Completed,
+  Failed, CompensationCompleted, CompensationFailed` — the doc's state-machine diagram
+  names states `Compensating`/`Compensated` that don't exist in the enum at all. This is
+  the same "wrong facts get copied into new package docs" risk D3 addressed for
+  `package-boundaries.md`/`README.md`, discovered one layer deeper. `docs/architecture/
+  orchestration.md` is outside task 4's `allowed_paths`. Fix it now or leave it stale?
+- **Options considered:** (1) fix it now as part of task 4, widening `allowed_paths` by
+  one file (same pattern as D1/D8/D9) — ground the correction directly in the source
+  files already read for the package doc | (2) leave it stale, write the package doc
+  from real source anyway (so at least the new doc is correct), flag the architecture
+  doc as a follow-up
+- **Decision:** Option (1) — fix now.
+- **Rationale:** Same rationale as D9: this change's entire purpose is documentation
+  accuracy, the correction is descriptive only (no code/behavior change), and the
+  evidence was already gathered while writing the package doc — deferring it would mean
+  two different documents disagreeing about the same package's behavior the moment both
+  exist.
+- **Consequences:** Task `package-doc-orchestrating`'s `allowed_paths` is amended to
+  include `docs/architecture/orchestration.md`. The correction is purely descriptive
+  (interface signatures, enum values, state-machine diagram) — no architectural claim or
+  recommendation is added.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/architecture/orchestration.md`, task
+  `package-doc-orchestrating`.
+
+## D11: Standing policy — architecture-doc drift found while writing package docs
+
+- **Question:** D9 and D10 each hit the same situation (a source-code read for a
+  package doc revealing an existing architecture doc had drifted from real code) and
+  each went through a full owner-decision write-up to fix it. Task 6 hit a third
+  instance (`messaging-pipeline.md`'s `IMiddleware` pseudocode names the method
+  `RunAsync`; the real method is `ExecuteAsync`. `message-context.md`'s
+  `IMessageContext.GetFeature<T>()`/`SetFeature<T>()` pseudocode omits the real
+  `where T : new()` constraint and shows a nullable return the real signature doesn't
+  have). Repeating the full D9/D10 ceremony for every future instance in this change
+  (tasks 7, 8, 9 remain, each touching more architecture docs) adds overhead without
+  changing the outcome. Should this become a standing, pre-authorized policy for the
+  rest of this change instead of a fresh decision each time?
+- **Options considered:** (1) standing policy: for the remainder of this change, when
+  writing a package doc surfaces a descriptive-only drift (signatures, enum values,
+  state diagrams — never a new architectural claim or recommendation) between an
+  architecture doc and real source, fix it in the same task, widen that task's
+  `allowed_paths` to the specific file, and record it as a one-line entry under this
+  decision rather than a new full D-entry | (2) keep requiring a full new D-entry every
+  time
+- **Decision:** Option (1).
+- **Rationale:** D9 and D10 already established the fix is correct and low-risk
+  (descriptive only, reversible, no behavior change) — re-litigating the same judgment
+  call repeatedly is process overhead, not additional safety.
+- **Consequences:** Every subsequent task's `allowed_paths` may be widened to a specific
+  drifted architecture-doc file without a dedicated new D-entry; each instance is logged
+  as a bullet below instead. The task's own review report still records the finding in
+  full (per `references/review-policy.md`), so nothing is silently fixed —
+  `owner-decisions.md` just stops repeating the same justification.
+- **Instances applied (logged, not separately decided):**
+  - Task 6: `docs/architecture/messaging-pipeline.md` (`IMiddleware.ExecuteAsync`, not
+    `RunAsync`) and `docs/architecture/message-context.md`
+    (`GetFeature`/`SetFeature`'s `where T : new()` constraint, non-nullable return).
+  - Task 9 (extends D11 from architecture docs to a **previously-written package
+    doc**, same rationale): `docs/packages/NEvo.Orchestrating.md` (task 4) claimed
+    `NEvo.Orchestrating.EntityFramework` "provides the EF-based
+    `IOrchestratorStateRepository` implementation" — false. That package contains only
+    an EF entity shape (`OrchestratorStateEf`) and table configuration; no class in the
+    repository implements `IOrchestratorStateRepository` (confirmed: `grep -rn "class.*
+    IOrchestratorStateRepository" src/` — zero matches). Corrected in
+    `NEvo.Orchestrating.md`; `NEvo.Orchestrating.EntityFramework.md` documents the real,
+    narrower scope.
+- **Date:** 2026-08-02
+- **Affected artifacts:** all remaining tasks in this change.
+
+## D12: Task 13's own scope — quality audit vs. "no new content"
+
+- **Question:** Task `navigation-and-validation`'s own file states "Out of scope:
+  Writing any new content — this task only links and validates what prior tasks
+  produced." Mid-session, the owner reviewed `NEvo.Messaging.Authorization.md` and
+  found real gaps (wiring completeness, failure-mode clarity), fixed there and in
+  `NEvo.Messaging.Web.md` immediately (before task 8), and explicitly agreed to defer
+  auditing the remaining already-committed package docs to this task rather than
+  stopping forward progress each time. Does that verbal agreement extend this task's
+  written scope to include fixing content gaps discovered during the audit, or does
+  the task file's "no new content" line override it?
+- **Options considered:** (1) the owner's real-time agreement extends this task's
+  scope for this specific, already-agreed audit — fix what the audit finds | (2) honor
+  the task file literally, do only linking/validation, and open a follow-up task for
+  any audit findings
+- **Decision:** Option (1).
+- **Rationale:** The owner's in-conversation agreement is the more specific and more
+  recent instruction, made with full knowledge of the task file's "no new content"
+  line (the audit-deferral conversation happened after task 8's own gap was found and
+  fixed). Re-litigating it here as a blocker would contradict what was already agreed.
+- **Consequences:** This task's diff includes one content fix beyond pure
+  linking/validation: `docs/packages/NEvo.Messaging.md` was missing any mention of
+  `NEvo.Messaging`'s own `Events` namespace (`Event`, `IEventHandler<T>`,
+  `IEventPublisher`, `AddEvents()`) — found via a structural audit of all 13 package
+  docs' section presence and `Configuration`-section code-sample presence, not a
+  fresh re-read of every doc from scratch. No other content gap was found in the
+  audit; the other 12 package docs' `Configuration` sections either had a wiring code
+  sample or accurately stated no DI registration exists.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `docs/packages/NEvo.Messaging.md`, task
+  `navigation-and-validation`.
+
+## D13: Follow-up task for the examples-and-wire-up audit
+
+- **Question:** `/nevo-ai:spec-audit`'s `reviews/audit-examples-and-wireup.md` (all 13
+  tasks already `implemented`) found 3 unresolved `AUTO_FIX` findings (F1, F2, F8) —
+  `quick-start.md` and `example-app-walkthrough.md` don't tell one connected,
+  domain-named "HTTP request → command → event → second handler" story, even though
+  every API needed already exists and is already documented. The audit itself cannot
+  apply fixes (read-only) and recommended one new task rather than three separate edits.
+  Add that task now via `spec-refine`, or leave it as an open, undated follow-up?
+- **Options considered:** (1) add task `quickstart-end-to-end-narrative` now, scoped
+  exactly to `docs/guides/quick-start.md` and `docs/guides/example-app-walkthrough.md`,
+  per the audit's own handoff | (2) leave `audit_status: open` with no task added,
+  revisit later
+- **Decision:** Option (1) — add the task now.
+- **Rationale:** Owner accepted the recommendation as presented — the audit already did
+  the analysis and named the exact scope; deferring adds no new information.
+- **Consequences:** `change.yaml` gains task 14, `quickstart-end-to-end-narrative`,
+  `depends_on: quickstart-and-installation-guide, exampleapp-walkthrough-guide`. This
+  decision does not itself set `audit_status: actioned` on the audit report — that field
+  is only set by `/nevo-ai:spec-audit`'s own closed-menu confirmation, not by
+  `spec-refine`.
+- **Date:** 2026-08-02
+- **Affected artifacts:** `change.yaml`, `overview.md`, `areas/06-use-case-guides.md`,
+  task `quickstart-end-to-end-narrative`
+  (`tasks/14-quickstart-end-to-end-narrative.md`).

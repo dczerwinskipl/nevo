@@ -460,9 +460,81 @@ findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <chang
 --from-review`.) After any such pass, re-review rather than trusting the pre-fix
 verdict — a stale review file describing the old state is worse than no file.
 
-A task review has no equivalent auto-apply step: fixing code is implementation, and
-implementation always needs an explicit owner go-ahead, even for an `AUTO_FIX`-tagged
-finding. The natural next step there is fixing the named issues, then re-reviewing.
+A task review's equivalent is a single batch confirmation, not per-finding: every
+`AUTO_FIX` finding is already pre-authorized by its category ("the agent may make this
+fix without further deliberation once told to proceed"), so the one thing still needed
+is being told to proceed — once, for the whole batch, not fixing code silently on the
+strength of the category alone. (In Claude Code: `/nevo-ai:task-apply-review
+<change-id> <task-id>`.) It then re-runs the task review itself against the changed
+diff, so "fix, then remember to re-review" is one command instead of a manual two-step
+the owner has to drive. `OWNER_DECISION`/`NEEDS_CLARIFICATION`/`NON_BLOCKING` findings
+are never auto-applied — they're shown, not silently dropped, but still need the owner
+directly.
+
+### Change-wide audits are a third, distinct review shape
+
+A spec review gates approval readiness; a task review gates one task's diff against its
+own acceptance criteria. Neither fits "look across an already-`implemented` change
+through one named lens" (e.g. "are the examples genuinely useful and wired end-to-end?")
+— that request touches many tasks at once and gates nothing. Without a defined shape for
+it, an agent asked to do this has nothing to reuse and will improvise a non-standard
+verdict value or an invented task field — a real failure this document exists to
+prevent, not a hypothetical one.
+
+The fix is the same pattern as everywhere else in this document: give it its own,
+smaller, explicitly-defined shape rather than leaving it to improvisation. A change-wide
+audit:
+
+- never re-evaluates any task's own acceptance criteria (already gated by that task's
+  own review),
+- writes to `specs/active/<change-id>/reviews/audit-<slug>.md` — never
+  `reviews/<task-id>.md`, which would make it indistinguishable from a task review,
+- uses its own three-value verdict — `owner-decision-required` \|
+  `changes-recommended` \| `no-findings` — computed from a table the same way every
+  other verdict in this document is, never composed as prose,
+- carries a second, independent, manually-set field, `audit_status`
+  (`open` \| `actioned` \| `dismissed`), tracking whether its recommendations were acted
+  on since — separate from `verdict`, which only describes the findings as of that write,
+- hands off a recommended follow-up (usually a new task, added via the normal
+  specification-and-implementation-are-separate-steps rule above) rather than ever
+  applying a fix itself.
+
+In Claude Code this is `/nevo-ai:spec-audit <change-id> <focus>`. Cursor, Copilot, and
+any terminal-driven use follow the same shape directly: write the report by hand using
+the fields above, under the same `reviews/audit-<slug>.md` path, so the artifact means
+the same thing regardless of which tool produced it.
+
+### Finalizing: the step after every task is verified
+
+Archiving a change (`node tools/specs.mjs archive <change>`) only ever checks local task
+status — it has no knowledge of git or GitHub, so a change can be archived while its
+commits sit on a branch that was never pushed, never opened as a PR, or never merged.
+`node tools/specs.mjs finalize <change>` closes that gap with the same "deterministic
+gate, then an explicit owner confirmation" pattern used for approval: `validateFinalize`
+(pure, in `tools/specs/lifecycle.mjs`) checks, in order —
+
+1. every task is in a terminal status,
+2. the working tree is clean and the branch is fully pushed (not behind, not ahead of
+   its remote),
+3. a pull request exists for the branch, is not a draft, and is `OPEN` (or already
+   `MERGED` — idempotent no-op, same convention as the other lifecycle transitions),
+4. every PR review thread is resolved — from any reviewer, including bot reviewers like
+   GitHub Copilot; nothing distinguishes a bot's unresolved comment from a human's,
+5. verification commands are green: `specs.mjs`/`docs.mjs` validate and check, plus
+   `dotnet build`/`dotnet test` when the branch actually touches `src/**`/`tests/**`
+   (skipped, and said so, for a docs-only or tooling-only change).
+
+`node tools/specs.mjs finalize <change> --check` reports this gate's result with no
+side effects at all. Without `--check`, once the gate passes, `finalize` archives the
+change locally, commits and pushes that archive commit, then squash-merges the PR
+(matching this repository's documented merge strategy — see `git-workflow.md` §
+"Merge strategy") and deletes the branch: **verify → archive locally → commit → push →
+merge**, all inside one command, but never run without the owner's explicit go-ahead —
+in Claude Code, `/nevo-ai:spec-finalize <change-id>` is that confirmation layer, the
+same split used everywhere else in this document (CLI enforces the gate, conversation
+captures the human decision). Merging is this workflow's highest-consequence
+transition — shared state, hard to fully undo — so this is the one place a favorable
+gate result is *never* enough by itself; see `AGENTS.md`'s git-safety rules.
 
 ## Architecture documentation and ADRs
 
@@ -482,6 +554,18 @@ Archived specs are not loaded by default — only when a task explicitly referen
 when historical reasoning is requested, or when an ADR or active spec requires it. Never
 start a task from `specs/archive/`.
 
+Every task reaching a terminal status does not archive a change by itself — that would
+silently foreclose follow-up work (another review pass, a task someone still means to
+add) without ever asking. Whichever tool-adapter action marks a change's last task
+terminal is responsible for offering to archive it right then, as an explicit,
+interactive confirmation — not a standing instruction to run later. In Claude Code, that
+is `/nevo-ai:task-review`; `/nevo-ai:task-next` is a read-only backstop that surfaces
+(never archives) a fully-terminal change still sitting in `specs/active/`. Cursor,
+Copilot, and any terminal-driven use of `tools/specs.mjs` follow the same rule directly:
+after `verify`/`complete` leaves every task in a change terminal, ask the owner whether
+to run `node tools/specs.mjs archive <change>` before moving on, rather than leaving the
+change active indefinitely.
+
 ## Git safety
 
 - No commit, push, or pull request without explicit owner instruction.
@@ -498,11 +582,15 @@ Full detail: `docs/development/git-workflow.md` and `docs/development/commit-con
 This document is the shared policy. Tool-specific layers are thin:
 
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
-  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:task-next`,
-  `/nevo-ai:task-start`, and `/nevo-ai:task-review` (see `.claude/commands/nevo-ai/`),
-  backed by the shared skill `.claude/skills/nevo-ai-spec-workflow/`. These commands
-  call the same `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not
-  implement a parallel workflow.
+  `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:spec-audit`,
+  `/nevo-ai:spec-resolve-comments`, `/nevo-ai:spec-finalize`, `/nevo-ai:spec-status`,
+  `/nevo-ai:task-next`, `/nevo-ai:task-start`, `/nevo-ai:task-review`, and
+  `/nevo-ai:task-apply-review` (see `.claude/commands/nevo-ai/`), backed by the shared
+  skill `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
+  `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
+  parallel workflow. `/nevo-ai:spec-status <change-id>` is the one command that spans
+  the whole chain read-only — reach for it any time the next step isn't obvious, instead
+  of reasoning through every other command's own narrower "Next command" field.
 - **Cursor** and **Copilot** have no namespaced commands. They follow this document and
   `AGENTS.md` directly, driving `tools/specs.mjs` / `tools/docs.mjs` from the terminal.
 

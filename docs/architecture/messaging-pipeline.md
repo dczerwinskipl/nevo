@@ -70,7 +70,7 @@ Middleware is defined in `src/NEvo.Core/Middlewares/`:
 ```csharp
 interface IMiddleware<TInput, TResult>
 {
-    Task<TResult> RunAsync(TInput input, Func<Task<TResult>> next, CancellationToken ct);
+    Task<TResult> ExecuteAsync(TInput input, Func<Task<TResult>> next, CancellationToken ct);
 }
 ```
 

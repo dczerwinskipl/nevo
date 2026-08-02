@@ -49,3 +49,9 @@ Specs must be updated in the same PR if the implementation deviates from the app
 
 Squash merge only. PR title must follow Conventional Commits format.
 Delete the branch after merge.
+
+`node tools/specs.mjs finalize <change>` performs the merge (and the archive that
+should accompany it) once its gate passes: branch fully pushed, PR open and not a
+draft, zero unresolved review threads (any reviewer, including bot reviewers), and
+verification green. `--check` reports the gate without merging. See
+`development/git-workflow.md` § "Branch lifecycle via specs CLI".

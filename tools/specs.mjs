@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // tools/specs.mjs — specification lifecycle CLI
-// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive>
+// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status|comments|resolve-comment>
 
 import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { CliError } from './lib/cli-errors.mjs';
 import { ensureDir, moveDir } from './lib/fs.mjs';
 import * as git from './lib/git.mjs';
+import * as github from './lib/github.mjs';
 import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
   computeSpecFingerprint, loadReview,
@@ -16,7 +18,11 @@ import {
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs } from './specs/validation.mjs';
-import { TERMINAL_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval } from './specs/lifecycle.mjs';
+import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
+import {
+  TERMINAL_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval, validateFinalize,
+  deriveStage,
+} from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -32,6 +38,18 @@ function requireChange(slug, baseDir = ACTIVE_DIR) {
   const change = loadChange(slug, baseDir);
   if (!change) throw new CliError(`Change '${slug}' not found in specs/active/`);
   return change;
+}
+
+// Looks in specs/active/ first, then specs/archive/ — for commands that need to reason
+// about a change's PR/merge state regardless of whether it was (possibly prematurely)
+// archived already. A change archived before its PR was pushed/merged is exactly the
+// scenario status/finalize/comments need to keep working for, not error out on.
+function requireChangeAnywhere(slug) {
+  const active = loadChange(slug, ACTIVE_DIR);
+  if (active) return { change: active, location: 'active' };
+  const archived = loadChange(slug, ARCHIVE_DIR);
+  if (archived) return { change: archived, location: 'archive' };
+  throw new CliError(`Change '${slug}' not found in specs/active/ or specs/archive/`);
 }
 
 function requireTask(change, taskId) {
@@ -184,6 +202,160 @@ export function handleArchive(changeSlug) {
   console.log(`Change '${changeSlug}' archived to specs/archive/.`);
 }
 
+function runDotnetCheck(name, args) {
+  try {
+    execFileSync('dotnet', args, { cwd: ROOT, encoding: 'utf8' });
+    return { name, passed: true };
+  } catch (error) {
+    const tail = String(error?.stdout || error?.message || '').trim().split('\n').slice(-5).join(' | ');
+    return { name, passed: false, detail: tail };
+  }
+}
+
+// Gathers every fact validateFinalize needs, doing no writes itself. Split out from
+// handleFinalize so `--check` (read-only) and the real run share exactly one code path
+// for "what does the current state look like" — the only difference between them is
+// whether the result is acted on.
+function gatherFinalizeFacts(branch) {
+  const verification = [];
+
+  const specErrors = validateSpecs();
+  verification.push({ name: 'specs validate', passed: specErrors.length === 0, detail: specErrors[0] });
+  const specCheckProblems = checkSpecsIndexes();
+  verification.push({ name: 'specs check', passed: specCheckProblems.length === 0, detail: specCheckProblems[0] });
+
+  const docs = scanDocs();
+  const docErrors = validateDocs(docs);
+  verification.push({ name: 'docs validate', passed: docErrors.length === 0, detail: docErrors[0] });
+  const docCheckProblems = checkDocsIndexes(docs);
+  verification.push({ name: 'docs check', passed: docCheckProblems.length === 0, detail: docCheckProblems[0] });
+
+  let pr = null;
+  const ghAvailable = github.isGhAvailable();
+  if (!ghAvailable) {
+    verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
+  } else {
+    pr = github.getPrForBranch(ROOT, branch);
+    if (pr) {
+      pr.unresolvedThreads = pr.state === 'MERGED' ? 0 : github.getUnresolvedReviewThreadCount(ROOT, pr.number);
+    }
+  }
+
+  if (pr?.baseRefName) {
+    if (git.touchesPaths(ROOT, `origin/${pr.baseRefName}`, branch, ['src', 'tests'])) {
+      verification.push(runDotnetCheck('dotnet build', ['build']));
+      verification.push(runDotnetCheck('dotnet test', ['test']));
+    } else {
+      verification.push({ name: 'dotnet build/test', passed: true, detail: 'skipped — no src/**/tests/** changes on this branch' });
+    }
+  }
+
+  return {
+    gitClean: git.isWorkingTreeClean(ROOT),
+    branch: git.getAheadBehind(ROOT, branch),
+    ghAvailable,
+    // null means "checked, genuinely none" ONLY when ghAvailable is true — when
+    // ghAvailable is false this is "unknown," never treat it as "confirmed absent."
+    pr: pr ? { number: pr.number, state: pr.state, isDraft: pr.isDraft, unresolvedThreads: pr.unresolvedThreads } : null,
+    verification,
+  };
+}
+
+// Finalize gate: every task terminal, working tree clean and pushed, an open (or
+// already-merged, idempotently) PR with zero unresolved review threads, and every
+// verification command green. `--check` only reports the gate result — no side
+// effects. Without it, once the gate passes: archive locally (skipped if the change was
+// already archived — e.g. someone ran bare `archive` before finalizing, which this
+// command still needs to recover from, not just refuse) → commit → push → squash-merge
+// the PR. Never merges or archives on a failing gate, and the interactive "are you
+// sure" for this whole action lives one layer up, in /nevo-ai:spec-finalize — this
+// command does exactly what it's told, deterministically, the same split as
+// `approve`/`archive`.
+export function handleFinalize(changeSlug, options = {}) {
+  const { change, location } = requireChangeAnywhere(changeSlug);
+  const branch = git.getCurrentBranch(ROOT);
+  const facts = gatherFinalizeFacts(branch);
+  const result = validateFinalize(change, facts);
+
+  if (options.check) {
+    console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
+    return;
+  }
+
+  if (!result.ok) throw new CliError(result.reason);
+
+  if (location === 'active') {
+    handleArchive(changeSlug);
+    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
+  } else {
+    console.log(`Change '${changeSlug}' is already archived.`);
+    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): finalize ${changeSlug}`);
+  }
+
+  if (result.idempotent) {
+    console.log('PR was already merged. Any pending local changes were committed — push manually if the remote branch still exists.');
+    return;
+  }
+
+  git.push(ROOT, branch);
+  github.mergePr(ROOT, facts.pr.number);
+  console.log(`Pushed and merged PR #${facts.pr.number} (squash, branch deleted).`);
+}
+
+// Read-only lifecycle navigator: where does this change sit right now, across the
+// whole spec → task → PR → merge chain, and what is the single next action. Never
+// writes anything. Skips the git/gh/verification calls entirely while any task is
+// still non-terminal, since deriveStage's task-status checks always win first in that
+// case — no need to pay for a PR lookup or a dotnet build just to report "task X is
+// still in-implementation." Checks specs/archive/ too — a change archived before its
+// PR was pushed/merged (the exact incident this command exists to prevent recurring)
+// must still be reportable, not just error out with "not found."
+export function handleStatus(changeSlug) {
+  const { change, location } = requireChangeAnywhere(changeSlug);
+  const branch = git.getCurrentBranch(ROOT);
+  const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
+  const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, ghAvailable: true, verification: [] };
+  const result = deriveStage(change, facts);
+  console.log(JSON.stringify({ change: changeSlug, branch, location, ...result }, null, 2));
+}
+
+function requirePrForChange(changeSlug) {
+  requireChangeAnywhere(changeSlug); // only for the usual "not found" error on a bad slug
+  const branch = git.getCurrentBranch(ROOT);
+  const pr = github.getPrForBranch(ROOT, branch);
+  if (!pr) throw new CliError(`No pull request found for branch '${branch}'.`);
+  return pr;
+}
+
+// Read-only: every review thread on this change's PR, unresolved ones first, with full
+// comment text and each comment's databaseId (needed by `resolve-comment --reply`).
+// Never filters out bot reviewers (e.g. GitHub Copilot) — a thread is a thread
+// regardless of who opened it.
+export function handleComments(changeSlug) {
+  const pr = requirePrForChange(changeSlug);
+  const threads = github.getReviewThreads(ROOT, pr.number);
+  threads.sort((a, b) => Number(a.isResolved) - Number(b.isResolved));
+  console.log(JSON.stringify({ change: changeSlug, pr: pr.number, threads }, null, 2));
+}
+
+// Resolves one review thread (its GraphQL `id`, from `comments`' output — not a
+// comment's databaseId). `--reply` posts a reply on the thread's first comment before
+// resolving, so the reviewer sees why it was closed instead of a silent resolution.
+export function handleResolveComment(changeSlug, threadId, options = {}) {
+  const pr = requirePrForChange(changeSlug);
+  if (options.reply) {
+    const threads = github.getReviewThreads(ROOT, pr.number);
+    const thread = threads.find(t => t.id === threadId);
+    if (!thread) throw new CliError(`Thread '${threadId}' not found on PR #${pr.number}.`);
+    const firstComment = thread.comments[0];
+    if (!firstComment) throw new CliError(`Thread '${threadId}' has no comments to reply to.`);
+    github.replyToReviewComment(ROOT, pr.number, firstComment.databaseId, options.reply);
+    console.log(`Replied on thread '${threadId}'.`);
+  }
+  const result = github.resolveReviewThread(ROOT, threadId);
+  console.log(`Thread '${threadId}' resolved: ${result.isResolved}`);
+}
+
 // ── CLI wiring ───────────────────────────────────────────────────────────────
 
 export function buildProgram() {
@@ -238,6 +410,29 @@ export function buildProgram() {
     .description('Move a fully terminal change to specs/archive/')
     .argument('<change>')
     .action(handleArchive);
+
+  program.command('finalize')
+    .description('Gate on PR/review/verification state, then merge + archive (--check for a dry-run report)')
+    .argument('<change>')
+    .option('--check', 'Report the gate result only — no merge, no archive, no writes')
+    .action((changeSlug, opts) => handleFinalize(changeSlug, opts));
+
+  program.command('status')
+    .description('Read-only: where this change sits in the spec→task→PR→merge chain, and the one next action')
+    .argument('<change>')
+    .action(handleStatus);
+
+  program.command('comments')
+    .description("Read-only: this change's PR review threads, unresolved first, with full comment text")
+    .argument('<change>')
+    .action(handleComments);
+
+  program.command('resolve-comment')
+    .description('Resolve one PR review thread (--reply to post a reply first)')
+    .argument('<change>')
+    .argument('<thread-id>')
+    .option('--reply <text>', 'Reply on the thread before resolving it')
+    .action((changeSlug, threadId, opts) => handleResolveComment(changeSlug, threadId, opts));
 
   return program;
 }

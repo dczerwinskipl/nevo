@@ -68,6 +68,20 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
+9a. If option 1 or 2 was chosen, run `node tools/specs.mjs status <change-id>`. This
+    command is never asked to *decide* anything here — it's read-only, and its job is to
+    say correctly whether the rest of the change is done or whether a PR/review/merge
+    story is still pending. Do **not** ask about or run `node tools/specs.mjs archive`
+    directly from this step — archiving a change before its PR is pushed, reviewed, and
+    merged is exactly the mistake `spec-status`/`spec-finalize` exist to prevent (see
+    `docs/ai/workflow-overview.md`), and this command has no way to know on its own
+    whether a bare local archive is actually safe. Its `stage` becomes this response's
+    `Next command` in step 10 below, verbatim, whatever it is (`ready-to-start` /
+    `in-progress` if other tasks in the change aren't terminal yet — same as today;
+    `cannot-verify-pr` / `needs-pr` / `pr-draft` / `needs-comment-resolution` /
+    `needs-verification-fixes` / `ready-to-finalize` / `done` once every task is
+    terminal). Report it, do not act on
+    it — same rule `/nevo-ai:spec-status` itself follows.
 10. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
     — adapted shape". `Verdict` is the value from step 7 (`pass` stays `pass`
     regardless of which menu option was chosen — the status-transition outcome goes in
@@ -77,13 +91,20 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
     - `blocked` → the specific manual fix needed,
     - `changes-required` → what to fix, then re-run
       `/nevo-ai:task-review <change-id> <task-id>`,
-    - `pass` + option 1 or 2 → `/nevo-ai:task-next`,
+    - `pass` + option 1 or 2 → step 9a's `node tools/specs.mjs status <change-id>`
+      result, verbatim: its `nextCommand` (e.g. `/nevo-ai:task-next`, the
+      `nevo-ai-github` skill's "Create a PR" flow, "resolve N review threads",
+      `/nevo-ai:spec-finalize <change-id>`, or "None"
+      when `done`),
     - `pass` + option 3 → `No further action required.`
 
 ## Rules
 
 - Status changes only happen after the explicit menu answer in step 9 — never before
   it, and never inferred from the verdict alone.
+- The archive offer in step 9a fires only immediately after this run's own status
+  transition made `<change-id>` fully terminal — never for an already-terminal change
+  found incidentally, and never without the explicit menu answer.
 - Do not fix the code yourself as part of this command, even for an `AUTO_FIX`-tagged
   finding — review stays read-only with respect to the code under review; writing its
   own `reviews/<task-id>.md` (step 8) and applying the status transition the owner just

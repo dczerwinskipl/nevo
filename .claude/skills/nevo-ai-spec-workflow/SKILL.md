@@ -39,6 +39,7 @@ Load only the reference file(s) for the phase you are in — not all of them.
 | Choosing artifact shape | `references/artifact-policy.md` | `spec-create` (initial structure), `spec-refine` (detecting oversized/undersized artifacts) |
 | Loading context | `references/context-policy.md` | `task-next`, `task-start` |
 | Judging readiness / diffs | `references/review-policy.md` | `spec-review`, `task-review` |
+| Judging a cross-task theme in an already-implemented change | `references/review-policy.md` § "Change-wide audits" | `spec-audit` |
 
 Templates in `templates/` are guides for artifact shape, not mandatory boilerplate —
 each template states which of its sections may be omitted. Use them when creating or
@@ -103,10 +104,11 @@ structurally separate:
 ## Preventing premature implementation
 
 `spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs
-start`, and never mark a task `approved`. `spec-review` and `task-review` never edit
-files unless the owner explicitly asked for fixes to be applied — writing their own
-`reviews/*.md` artifact is the one exception, and it is never the change/task/spec
-files under review. `spec-approve` is the single place a task's `approved` status gets
+start`, and never mark a task `approved`. `spec-review`, `task-review`, and
+`spec-audit` never edit files unless the owner explicitly asked for fixes to be
+applied — writing their own `reviews/*.md` artifact (and, for `spec-audit`, setting
+`audit_status` after its own closed-menu confirmation) is the one exception, and it is
+never the change/task/spec files under review. `spec-approve` is the single place a task's `approved` status gets
 written, and even there only after an explicit, interactive answer in the same turn,
 and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, requires a
 current, ready, fully-resolved review) is what actually enforces it, not the agent's
@@ -153,8 +155,10 @@ so the shape stays predictable across every command.
 `spec-review` does not use the general shape above — its richer field set (verdict
 booleans, three separate unresolved-item counts) gets its own exact template, defined
 in `references/review-policy.md` § "Chat output shape" (not duplicated here). Every
-other review-like command (`task-review`) follows the same spirit — headed sections,
-bold labels, a fenced `Next command` block — adapted to its own, smaller field set.
+other review-like command (`task-review`, `spec-audit`) follows the same spirit —
+headed sections, bold labels, a fenced `Next command` block — adapted to its own,
+smaller field set; `spec-audit`'s exact shape is defined in
+`references/review-policy.md` § "Change-wide audits" → "Chat output shape".
 
 ### Status vocabulary per command
 
@@ -169,6 +173,11 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-next` | `task-ready` \| `no-tasks-ready` |
 | `task-start` | `prepared` \| `blocked` |
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
+| `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
+| `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
+| `spec-finalize` | `finalized` \| `pushed` \| `gate-passed` \| `blocked` |
+| `spec-resolve-comments` | `resolved` \| `needs-owner-input` \| `none-unresolved` |
+| `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |
 
 **Precise wording rule**: never use a more optimistic word than the `Status`/`Verdict`
 value justifies. Do not say "ready for implementation" when fixes, owner decisions, or

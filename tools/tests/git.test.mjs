@@ -3,25 +3,30 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
+  getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
 } from '../lib/git.mjs';
 
-let repo;
+let repo, remote;
 
 function git(args) {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
 }
 
 before(() => {
+  remote = mkdtempSync(join(tmpdir(), 'nevo-git-remote-'));
+  execFileSync('git', ['-C', remote, 'init', '--bare', '--initial-branch=main'], { encoding: 'utf8' });
+
   repo = mkdtempSync(join(tmpdir(), 'nevo-git-test-'));
   git(['init', '--initial-branch=main']);
   git(['config', 'user.email', 'test@example.com']);
   git(['config', 'user.name', 'Test']);
+  git(['remote', 'add', 'origin', remote]);
   writeFileSync(join(repo, 'a.txt'), 'hello\n');
   git(['add', 'a.txt']);
   git(['commit', '-m', 'initial']);
@@ -29,6 +34,7 @@ before(() => {
 
 after(() => {
   rmSync(repo, { recursive: true, force: true });
+  rmSync(remote, { recursive: true, force: true });
 });
 
 describe('lib/git.mjs against a disposable temp repo', () => {
@@ -67,4 +73,58 @@ describe('lib/git.mjs against a disposable temp repo', () => {
     assert.throws(() => createAndCheckoutBranch(repo, 'feature/$(touch pwned)'));
     checkoutBranch(repo, 'main');
   });
+
+  test('getCurrentBranch reports the active branch', () => {
+    assert.equal(getCurrentBranch(repo), 'main');
+  });
+
+  test('hasUpstream is false before the branch is ever pushed', () => {
+    assert.equal(hasUpstream(repo, 'main'), false);
+  });
+
+  test('getAheadBehind reports hasUpstream: false with null counts for an unpushed branch', () => {
+    const state = getAheadBehind(repo, 'main');
+    assert.deepEqual(state, { hasUpstream: false, ahead: null, behind: null });
+  });
+
+  test('push creates the upstream; getAheadBehind then reports 0/0', () => {
+    push(repo, 'main');
+    assert.equal(hasUpstream(repo, 'main'), true);
+    assert.deepEqual(getAheadBehind(repo, 'main'), { hasUpstream: true, ahead: 0, behind: 0 });
+  });
+
+  test('getAheadBehind counts local commits made after the last push as "ahead"', () => {
+    writeFileSync(join(repo, 'b.txt'), 'second\n');
+    git(['add', 'b.txt']);
+    git(['commit', '-m', 'second commit']);
+    assert.deepEqual(getAheadBehind(repo, 'main'), { hasUpstream: true, ahead: 1, behind: 0 });
+    push(repo, 'main');
+    assert.deepEqual(getAheadBehind(repo, 'main'), { hasUpstream: true, ahead: 0, behind: 0 });
+  });
+
+  test('commitAll stages and commits every pending change, including untracked files', () => {
+    writeFileSync(join(repo, 'c.txt'), 'third\n');
+    commitAll(repo, 'chore: add c.txt');
+    assert.equal(isWorkingTreeClean(repo), true);
+    assert.match(git(['log', '-1', '--format=%s']), /chore: add c\.txt/);
+    push(repo, 'main');
+  });
+
+  test('touchesPaths is true when a path filter matches changed files, false otherwise', () => {
+    createAndCheckoutBranch(repo, 'feature/paths-test');
+    ensureDirAndFile(join(repo, 'src', 'x.txt'), 'code\n');
+    git(['add', '-A']);
+    git(['commit', '-m', 'touch src/x.txt']);
+
+    assert.equal(touchesPaths(repo, 'main', 'feature/paths-test', ['src']), true);
+    assert.equal(touchesPaths(repo, 'main', 'feature/paths-test', ['tests']), false);
+
+    checkoutBranch(repo, 'main');
+  });
 });
+
+function ensureDirAndFile(filePath, content) {
+  const dir = dirname(filePath);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, content);
+}
