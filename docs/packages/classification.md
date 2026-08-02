@@ -21,59 +21,58 @@ these groups are drawn from.
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Core` | Middleware pipeline primitives, functional types. No dependencies on other NEvo packages. |
+| [`NEvo.Core`](NEvo.Core.md) | Middleware pipeline primitives, functional types. No dependencies on other NEvo packages. |
 
 ## Messaging core
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Messaging` | Message processing pipeline, context, inbox/outbox abstractions. |
+| [`NEvo.Messaging`](NEvo.Messaging.md) | Message processing pipeline, context, inbox/outbox abstractions. |
 
 ## Messaging extensions
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Messaging.Cqrs` | CQRS commands and queries on top of messaging. |
-| `NEvo.Messaging.Authorization` | Auth hooks in message processing. |
-| `NEvo.Messaging.Web` | HTTP transport / REST dispatch. |
-| `NEvo.Messaging.EntityFramework` | EF-based inbox and outbox implementation. |
+| [`NEvo.Messaging.Cqrs`](NEvo.Messaging.Cqrs.md) | CQRS command side on top of messaging. Query-side is not implemented (empty `Queries/` placeholder only). |
+| [`NEvo.Messaging.Authorization`](NEvo.Messaging.Authorization.md) | Auth hooks in message processing. |
+| [`NEvo.Messaging.Web`](NEvo.Messaging.Web.md) | HTTP transport / REST dispatch. |
+| [`NEvo.Messaging.EntityFramework`](NEvo.Messaging.EntityFramework.md) | EF-based inbox and outbox implementation. |
 
 ## Authorization
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Authorization` | Core auth abstractions. |
-| `NEvo.Web.Authorization` | Claims-based auth middleware. |
+| [`NEvo.Authorization`](NEvo.Authorization.md) | Core auth abstractions. |
+| [`NEvo.Web.Authorization`](NEvo.Web.Authorization.md) | Claims adapter for `NEvo.Authorization`'s providers (not middleware — no `IMiddleware`/pipeline registration). |
 
 ## Persistence
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.EntityFramework` | Shared EF base (migrations, resilience). |
+| [`NEvo.EntityFramework`](NEvo.EntityFramework.md) | Shared EF base (migrations, resilience). |
 
 ## Web
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Web` | HTTP client wrapper with pluggable authentication strategies (OAuth, none) and a REST client base (`NEvo.Web.Client`). |
+| [`NEvo.Web`](NEvo.Web.md) | HTTP client wrapper with pluggable authentication strategies (OAuth, none) and a REST client base (`NEvo.Web.Client`). |
 
 ## Event sourcing (experimental)
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Ddd.EventSourcing` | Event-sourced aggregates. |
+| [`NEvo.Ddd.EventSourcing`](NEvo.Ddd.EventSourcing.md) | Event-sourced aggregates. |
 
 ## Orchestration (experimental)
 
 | Package | Responsibility |
 |---|---|
-| `NEvo.Orchestrating` | Saga orchestration. Depends only on `NEvo.Core`. |
-| `NEvo.Orchestrating.EntityFramework` | EF persistence for orchestration state. |
+| [`NEvo.Orchestrating`](NEvo.Orchestrating.md) | Saga orchestration. Depends only on `NEvo.Core`. |
+| [`NEvo.Orchestrating.EntityFramework`](NEvo.Orchestrating.EntityFramework.md) | EF entity shape and table config for orchestration state — not a working persistence implementation (no `IOrchestratorStateRepository` yet). |
 
 ## Individual package docs
 
-Per-package docs (using the `package` doc type and
-[the package-doc template](../templates/package-doc-template.md)) are added
-incrementally by later tasks in this change. Until a package has its own doc, this
-classification and [Package boundaries](../architecture/package-boundaries.md) are the
-canonical references.
+Every package listed above has its own doc under `docs/packages/` (using the `package`
+doc type and [the package-doc template](../templates/package-doc-template.md)) — click
+through from the tables above, or see [the navigation hub](../README.md#packages) for
+the full list with one-line descriptions.

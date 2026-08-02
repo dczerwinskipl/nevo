@@ -34,8 +34,9 @@ state machine, not a messaging pattern.
 - Track orchestration status and per-step progress (`OrchestratorStatus`,
   `OrchestratorState<TData>`).
 - Provide a persistence seam for step-level resumability (`IOrchestratorStateRepository`,
-  `PersistentStepExecutor`) — the concrete (e.g. EF) implementation lives in
-  `NEvo.Orchestrating.EntityFramework`.
+  `PersistentStepExecutor`) — intended to be backed by a concrete (e.g. EF)
+  implementation, but no such implementation exists yet anywhere in this repository,
+  including in `NEvo.Orchestrating.EntityFramework` — see "Limitations" below.
 
 ## Dependencies
 
