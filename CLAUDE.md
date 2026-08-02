@@ -39,6 +39,7 @@ dotnet build
 dotnet test
 node tools/specs.mjs validate
 node tools/docs.mjs validate
+node --test tools/tests/*.test.mjs   # tests for tools/*.mjs and .claude/hooks/*.mjs themselves
 ```
 
 ## `/nevo-ai:*` commands

@@ -2,10 +2,10 @@
 
 This is the file written to disk — `specs/active/<change>/reviews/spec.md` (spec
 review) or `specs/active/<change>/reviews/<task-id>.md` (task review). It's the full
-report; the conversation only gets the short closing summary from `SKILL.md` § "Ending
-every command's response" plus a pointer to this file. A guide, not mandatory
-boilerplate — omit any section with nothing to say, but never omit "Findings" or
-"Verdict".
+report; the conversation only gets the short structured summary from
+`references/review-policy.md` § "Chat output shape" plus a pointer to this file. A
+guide, not mandatory boilerplate — omit any section with nothing to say, but never omit
+"Findings" or "Verdict".
 
 ```markdown
 ---
@@ -17,8 +17,10 @@ verdict: blocked | owner-decision-required | changes-required | ready-for-approv
          # task review: blocked | changes-required | pass
 ready_for_approval: true | false        # spec review only
 implementation_allowed: true | false
-unresolved_required_fixes: <count>       # unresolved AUTO_FIX findings
-unresolved_owner_decisions: <count>      # unresolved OWNER_DECISION + NEEDS_CLARIFICATION findings
+unresolved_required_fixes: <count>          # unresolved AUTO_FIX findings
+unresolved_owner_decisions: <count>         # unresolved OWNER_DECISION findings only
+unresolved_needs_clarification: <count>     # unresolved NEEDS_CLARIFICATION findings only — counted separately, not merged with owner decisions
+spec_fingerprint: <hex string>          # spec review only — verbatim output of `node tools/specs.mjs fingerprint <change>`, never estimated
 ---
 
 # Review: <change-id>[/<task-id>]
@@ -36,10 +38,12 @@ unresolved_owner_decisions: <count>      # unresolved OWNER_DECISION + NEEDS_CLA
 
 These fields, and the verdict itself, are the output of the decision table in
 `references/review-policy.md` § "The decision table" — never composed independently of
-the findings below. If `unresolved_owner_decisions > 0`, `ready_for_approval` must be
-`false`; if any task isn't `approved`, `implementation_allowed` must be `false` — the
-report's own consistency-validation step (same reference) catches a mismatch before
-this file is written.
+the findings below. If `unresolved_owner_decisions > 0` or
+`unresolved_needs_clarification > 0`, `ready_for_approval` must be `false`; if any task
+isn't `approved`, `implementation_allowed` must be `false` — the report's own
+consistency-validation step (same reference) catches a mismatch before this file is
+written. `spec_fingerprint` is what `node tools/specs.mjs approve` checks for staleness
+before allowing an approval — never hand-write or guess this value.
 
 ## Findings
 

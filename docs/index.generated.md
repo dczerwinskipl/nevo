@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T11:47:11.636Z_
+_Generated: 2026-08-02T12:18:20.565Z_
 
 ## Architecture
 
@@ -36,6 +36,7 @@ _Generated: 2026-08-02T11:47:11.636Z_
 | `adr.0002-lightweight-markdown-workflow` | [Use lightweight custom Markdown workflow for AI-assisted SDLC](adr/ADR-0002-lightweight-markdown-workflow.md) | accepted |  |
 | `adr.0003-technical-decision-triage-and-option-analysis` | [Adopt signal-based triage and mandatory solution-option analysis, without DDD apparatus](adr/ADR-0003-technical-decision-triage-and-option-analysis.md) | accepted |  |
 | `adr.0004-review-artifacts-and-handoff` | [Persist review output as an artifact with actor-classified findings and a fixed closing shape](adr/ADR-0004-review-artifacts-and-handoff.md) | accepted |  |
+| `adr.0005-deterministic-approval-and-hardened-guard` | [Make task approval deterministic and CLI-enforced; replace the Bash guard's regex allowlist with an explicit, whitelist-only validator](adr/ADR-0005-deterministic-approval-and-hardened-guard.md) | accepted |  |
 
 ## Ai
 

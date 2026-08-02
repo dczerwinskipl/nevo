@@ -18,6 +18,7 @@ related:
   - adr.0002-lightweight-markdown-workflow
   - adr.0003-technical-decision-triage-and-option-analysis
   - adr.0004-review-artifacts-and-handoff
+  - adr.0005-deterministic-approval-and-hardened-guard
 ---
 
 # NEvo specification workflow
@@ -273,7 +274,8 @@ node tools/specs.mjs check                     # validate + verify indexes are c
 node tools/specs.mjs list                      # list active changes and task statuses
 node tools/specs.mjs next                      # next approved, dependency-ready task → JSON
 node tools/specs.mjs context <change> <task>   # context packet for one task → JSON
-node tools/specs.mjs approve <change> <task>   # mark task approved (ready for start)
+node tools/specs.mjs fingerprint <change>      # deterministic hash of the spec inputs (for review freshness)
+node tools/specs.mjs approve <change> <task>   # mark task approved — requires draft status and a current, ready, fully-resolved review
 node tools/specs.mjs start <change> <task>     # create/switch branch, set task in-implementation
 node tools/specs.mjs complete <change> <task>  # mark task implemented
 node tools/specs.mjs verify <change> <task>    # mark task verified (owner-reviewed)
@@ -389,6 +391,18 @@ A specification review additionally answers, explicitly: may implementation star
 (literally `implementation_allowed`). Are the relevant tasks actually `approved`
 (checked in `change.yaml`, not assumed)? What concretely has to happen first?
 
+### Review freshness is verified deterministically, not inferred
+
+Time passes between a review being written and an owner acting on it, and the spec can
+change in between. Approval must not proceed against a review that no longer matches
+the current specification — and whether it matches must be a **computed fact**, not a
+model's impression of recency. `tools/specs.mjs fingerprint <change>` prints a sha256
+hash over the specification's approval-relevant inputs (manifest, overview, owner
+decisions, every area/task file — sorted, deterministic), deliberately excluding the
+review artifact itself so writing the review never invalidates its own fingerprint. A
+review embeds this exact printed value; approval recomputes it and refuses if the two
+don't match, naming both values so the mismatch is verifiable.
+
 ### A re-review reads current files, never infers "unchanged" from git
 
 A real failure: a re-review saw `git status` report an untracked directory, treated
@@ -423,14 +437,18 @@ reader never has to guess why one failure mattered and the other didn't.
 Reaching `ready-for-approval` doesn't end the process with an instruction to hand-edit
 `change.yaml` — the next step is an explicit, interactive confirmation (in Claude Code:
 `/nevo-ai:spec-approve`) that asks the owner directly and only writes `approved` after
-an answer. Approving a task and starting its implementation stay two separate
-decisions, confirmed separately, unless the owner's single answer explicitly
-authorizes both at once.
+an answer, and whose gate (review exists, verdict ready, nothing unresolved, fingerprint
+current) is enforced by the CLI, not by an agent's judgment call. Approving a task and
+starting its implementation are always two separate, separately-confirmed actions —
+there is no combined "approve and start" shortcut, even when both are what the owner
+ultimately wants; each step is invoked on its own.
 
-### The response ends with a short summary, not the full report
+### The response ends with a short, structured summary, not the full report
 
-The conversation gets a short block — verdict, a count per finding category, the
-artifact's path, and one exact next command to run or paste — not a restatement of the
+The conversation gets a short, clearly formatted block — verdict, the relevant
+booleans/counts as a short bulleted list (not a single dense `Key: value · Key: value`
+line, which is hard to scan and renders poorly in Markdown-capable tools), the
+artifact's path, and one exact next command in its own block — not a restatement of the
 full report. The full analysis lives in the file from the previous section.
 
 ### Review feeds refinement without manual copying

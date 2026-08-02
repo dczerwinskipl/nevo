@@ -62,34 +62,37 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
 7. Compute the verdict and the `ready_for_approval`/`implementation_allowed` booleans
    **by running the decision table** in `references/review-policy.md` § "The decision
    table," using only this run's unresolved findings (never a carried-forward previous
-   verdict) — do not compose the verdict as a sentence. Run the consistency validation
-   in that same section, including the re-review checks, before continuing; if it
-   fails, a classification or a file read upstream is wrong — fix it and recompute,
-   don't emit a report that fails its own check. Answer the three
+   verdict) — do not compose the verdict as a sentence. Row 2 of that table covers both
+   `OWNER_DECISION` and `NEEDS_CLARIFICATION` findings together, but count them
+   **separately** for the report (three distinct counts: required fixes, owner
+   decisions, needs-clarification — never merged into one number). Run the consistency
+   validation in that same section, including the re-review checks, before continuing;
+   if it fails, a classification or a file read upstream is wrong — fix it and
+   recompute, don't emit a report that fails its own check. Answer the three
    implementation-readiness questions from § "Implementation readiness declaration."
-8. Write the full report to `specs/active/<change-id>/reviews/spec.md` using
+8. Run `node tools/specs.mjs fingerprint <change-id>` and use its exact printed output
+   as the `spec_fingerprint` value in the report's frontmatter — never estimate or
+   recompute this by reasoning (see `references/review-policy.md` § "Deterministic
+   review freshness"). Run this *after* step 3's re-read, immediately before writing
+   the report, so it reflects exactly what was reviewed.
+9. Write the full report to `specs/active/<change-id>/reviews/spec.md` using
    `templates/review-report.md`'s shape (create the `reviews/` directory if needed),
-   including the frontmatter `verdict`, `ready_for_approval`, and
-   `implementation_allowed` fields, and — per finding — its predicate, lifecycle, and
-   evidence. This overwrites the file read in step 2; that's expected, it's the one
-   file this command writes — everything else about the change stays untouched.
-9. End the response with the closing shape from `SKILL.md` § "Ending every command's
-   response": `Status` is the verdict from step 7 (one of `blocked` /
-   `owner-decision-required` / `changes-required` / `ready-for-approval` /
-   `approved-for-implementation` — never "ready for implementation" or "pending", see
-   `references/review-policy.md` § "Forbidden phrasing"); the facts line states
-   `ready_for_approval`, `implementation_allowed`, and counts of unresolved required
-   fixes (`AUTO_FIX`) and owner decisions (`OWNER_DECISION` + `NEEDS_CLARIFICATION`);
-   `Artifact` is the path from step 8; `Next` is:
-   - `blocked` → the specific manual fix needed before any command can proceed,
-   - `owner-decision-required` → the exact decision(s) needed, one per finding ID, not
-     `/nevo-ai:spec-refine --from-review` (that command stops at these findings too —
-     don't send the owner in a circle),
-   - `changes-required` → `/nevo-ai:spec-refine <change-id> --from-review`,
-   - `ready-for-approval` → `/nevo-ai:spec-approve <change-id> <task-id>` — do not tell
-     the owner to hand-edit `change.yaml`; that command is the interactive approval
-     gate,
-   - `approved-for-implementation` → `/nevo-ai:task-next`.
+   including the frontmatter `verdict`, `ready_for_approval`, `implementation_allowed`,
+   `spec_fingerprint`, and the three separate unresolved counts, and — per finding —
+   its predicate, lifecycle, and evidence. This overwrites the file read in step 2;
+   that's expected, it's the one file this command writes — everything else about the
+   change stays untouched.
+10. End the response using `references/review-policy.md` § "Chat output shape" →
+    `/nevo-ai:spec-review`'s exact required shape. `Next command` is:
+    - `blocked` → the specific manual fix needed before any command can proceed,
+    - `owner-decision-required` → the exact decision(s) needed, one per finding ID, not
+      `/nevo-ai:spec-refine --from-review` (that command stops at these findings too —
+      don't send the owner in a circle),
+    - `changes-required` → `/nevo-ai:spec-refine <change-id> --from-review`,
+    - `ready-for-approval` → `/nevo-ai:spec-approve <change-id> <task-id>` — do not tell
+      the owner to hand-edit `change.yaml`; that command is the interactive approval
+      gate,
+    - `approved-for-implementation` → `/nevo-ai:task-next`.
 
 ## Rules
 

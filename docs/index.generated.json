@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T11:47:11.636Z",
+  "generated": "2026-08-02T12:18:20.564Z",
   "docs": [
     {
       "file": "docs/architecture/event-sourcing.md",
@@ -318,6 +318,16 @@
       "superseded_by": null
     },
     {
+      "file": "docs/adr/ADR-0005-deterministic-approval-and-hardened-guard.md",
+      "id": "adr.0005-deterministic-approval-and-hardened-guard",
+      "type": "adr",
+      "title": "Make task approval deterministic and CLI-enforced; replace the Bash guard's regex allowlist with an explicit, whitelist-only validator",
+      "status": "accepted",
+      "date": "2026-08-02",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
       "file": "docs/ai/how-to-navigate.md",
       "id": "ai.how-to-navigate",
       "type": "ai",
@@ -349,7 +359,8 @@
         "ai.task-execution-policy",
         "adr.0002-lightweight-markdown-workflow",
         "adr.0003-technical-decision-triage-and-option-analysis",
-        "adr.0004-review-artifacts-and-handoff"
+        "adr.0004-review-artifacts-and-handoff",
+        "adr.0005-deterministic-approval-and-hardened-guard"
       ]
     },
     {

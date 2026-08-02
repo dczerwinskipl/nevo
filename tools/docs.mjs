@@ -21,14 +21,18 @@ const REQUIRED_FIELDS = {
 };
 
 // ── YAML front matter parser (subset: flat keys, string lists, multiline >) ──
+//
+// Inline `{}` is deliberately NOT supported — nothing in this repository's
+// documentation schema uses an inline empty mapping. See the matching note
+// in tools/specs.mjs.
 
-function parseFrontMatter(content) {
+export function parseFrontMatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
   return parseYamlSubset(match[1]);
 }
 
-function parseYamlSubset(text) {
+export function parseYamlSubset(text) {
   const obj = {};
   const lines = text.split(/\r?\n/);
   let i = 0;
@@ -92,13 +96,12 @@ function parseYamlSubset(text) {
   return obj;
 }
 
-function parseScalar(s) {
+export function parseScalar(s) {
   s = s.trim();
   if (s === 'true') return true;
   if (s === 'false') return false;
   if (s === 'null' || s === '~') return null;
   if (s === '[]') return [];
-  if (s === '{}') return {};
   if (/^-?\d+$/.test(s)) return Number(s);
   if (/^['"].*['"]$/.test(s)) return s.slice(1, -1);
   return s;
@@ -135,7 +138,7 @@ function scanDocs() {
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
-function validateDocs(docs) {
+export function validateDocs(docs) {
   const errors = [];
   const ids = new Map();
 
@@ -254,38 +257,46 @@ function checkIndexes(docs) {
 
 // ── CLI ────────────────────────────────────────────────────────────────────
 
-const [,, cmd, ...args] = process.argv;
+function runCli() {
+  const [, , cmd, ...args] = process.argv;
+  const docs = scanDocs();
 
-const docs = scanDocs();
+  switch (cmd) {
+    case 'generate': {
+      const errors = validateDocs(docs);
+      if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
+      generateIndexes(docs);
+      break;
+    }
+    case 'validate': {
+      const errors = validateDocs(docs);
+      if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
+      console.log(`Validated ${docs.length} documents — no errors.`);
+      break;
+    }
+    case 'check': {
+      const errors = validateDocs(docs);
+      if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
+      checkIndexes(docs);
+      break;
+    }
+    case 'find': {
+      const flagValue = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
+      const scope = flagValue('--scope');
+      const type = flagValue('--type');
+      const format = flagValue('--format') || 'text';
+      findDocs(docs, { scope, type, format });
+      break;
+    }
+    default:
+      console.log('Usage: node tools/docs.mjs <generate|validate|check|find [--scope <scope>] [--type <type>] [--format json]>');
+      process.exit(1);
+  }
+}
 
-switch (cmd) {
-  case 'generate': {
-    const errors = validateDocs(docs);
-    if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
-    generateIndexes(docs);
-    break;
-  }
-  case 'validate': {
-    const errors = validateDocs(docs);
-    if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
-    console.log(`Validated ${docs.length} documents — no errors.`);
-    break;
-  }
-  case 'check': {
-    const errors = validateDocs(docs);
-    if (errors.length) { errors.forEach(e => console.error(e)); process.exit(1); }
-    checkIndexes(docs);
-    break;
-  }
-  case 'find': {
-    const flagValue = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
-    const scope = flagValue('--scope');
-    const type = flagValue('--type');
-    const format = flagValue('--format') || 'text';
-    findDocs(docs, { scope, type, format });
-    break;
-  }
-  default:
-    console.log('Usage: node tools/docs.mjs <generate|validate|check|find [--scope <scope>] [--type <type>] [--format json]>');
-    process.exit(1);
+// Only run the CLI when this file is executed directly, not when imported by
+// tests — see the matching note in tools/specs.mjs.
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMainModule) {
+  runCli();
 }

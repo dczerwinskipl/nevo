@@ -107,30 +107,58 @@ start`, and never mark a task `approved`. `spec-review` and `task-review` never 
 files unless the owner explicitly asked for fixes to be applied — writing their own
 `reviews/*.md` artifact is the one exception, and it is never the change/task/spec
 files under review. `spec-approve` is the single place a task's `approved` status gets
-written, and even there only after an explicit, interactive answer in the same turn —
-never as a side effect of `spec-review` reaching a favorable verdict. The transition
-from "specification" to "implementation" is always a separate, explicit owner-invoked
-step (`/nevo-ai:task-start`, then the owner's explicit go-ahead to write code) — unless
-the owner's answer to `spec-approve`'s menu explicitly authorized both in one shot.
+written, and even there only after an explicit, interactive answer in the same turn,
+and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, requires a
+current, ready, fully-resolved review) is what actually enforces it, not the agent's
+judgment. `spec-approve` offers exactly three outcomes — approve, keep as draft, show
+the report — and **never** starts implementation itself, even when the owner approves;
+it prints `/nevo-ai:task-start <change> <task>` as the next command and stops there.
+Approving a task and starting it are always two separate, separately-confirmed actions.
 
 ## Ending every command's response
 
-Every `/nevo-ai:*` command ends its response with the same four-line shape, so the owner
-never has to parse prose to find the outcome or figure out what to run next. Define the
-shape once here — commands and `references/*.md` point to this section instead of
-restating it.
+Every `/nevo-ai:*` command ends its response with a short, structured Markdown summary
+— headings, bold labels, bullet points, a fenced code block for the next command —
+never a single dense line of `Key: value · Key: value` pairs. Dense one-line summaries
+read poorly in the Claude Code extension and VS Code's Markdown rendering and are easy
+to skim past the one field that mattered. Define the shape once here — commands and
+`references/*.md` point to this section instead of restating it.
 
-```
----
-Status: <value from the command's status vocabulary below>
-<2-5 short facts relevant to this command — counts, not prose>
-Artifact: <file path(s) written this run, and/or repo state changed (branch created,
-          task status transitioned) — or "none">
-Next: <one exact, copy-pasteable /nevo-ai:* command — or "none — <why>">
----
+### General shape (all commands)
+
+```markdown
+## <Command> result
+
+**Status:** `<value from the command's status vocabulary below>`
+
+- <fact label>: **<value>**
+- <fact label>: **<value>**
+
+**Artifact:** `<file path(s) written and/or repo state changed this run — or "none">`
+
+**Next command:**
+
+​```text
+<exact, copy-pasteable /nevo-ai:* command>
+​```
 ```
 
-Status vocabulary per command — fixed, no free-form synonyms in this line:
+When there is nothing further to run, the fenced block reads exactly `No further action
+required.` instead of a command. Never omit the `Artifact` or `Next command` part —
+write `none`/`No further action required.` explicitly rather than dropping the section,
+so the shape stays predictable across every command.
+
+### `/nevo-ai:spec-review`'s exact shape
+
+`spec-review` does not use the general shape above — its richer field set (verdict
+booleans, three separate unresolved-item counts) gets its own exact template, defined
+in `references/review-policy.md` § "Chat output shape" (not duplicated here). Every
+other review-like command (`task-review`) follows the same spirit — headed sections,
+bold labels, a fenced `Next command` block — adapted to its own, smaller field set.
+
+### Status vocabulary per command
+
+Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 
 | Command | Status values |
 |---|---|
@@ -142,23 +170,19 @@ Status vocabulary per command — fixed, no free-form synonyms in this line:
 | `task-start` | `prepared` \| `blocked` |
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
 
-**Precise wording rule**: never use a more optimistic word than the Status value
-justifies. Do not say "ready for implementation" when fixes, owner decisions, or task
-approval are still pending — say `changes-required` and, in the facts line, spell out
-what's pending (e.g. "2 auto-fix · 1 owner decision"). A verdict that overstates
-readiness is worse than a blunt one; the owner acts on this line without reading the
-full artifact.
+**Precise wording rule**: never use a more optimistic word than the `Status`/`Verdict`
+value justifies. Do not say "ready for implementation" when fixes, owner decisions, or
+task approval are still pending — use the exact value (`changes-required`,
+`owner-decision-required`, ...) and let the bullet list spell out what's pending. A
+summary that overstates readiness is worse than a blunt one; the owner acts on this
+block without reading the full artifact.
 
-`Artifact` and `Next` are never omitted even when there's nothing to report — write
-`none` explicitly rather than dropping the line, so the shape stays predictable across
-every command.
-
-**`Status` is derived, never composed as a sentence.** A command whose outcome depends
-on more than one condition (validation state, finding categories, task statuses...)
-must evaluate those conditions against an explicit table with a fixed evaluation order,
-and the table's output *is* the `Status` value — not an input the agent paraphrases.
-`references/review-policy.md` § "Spec-review verdicts are derived, never chosen
-narratively" is the worked example: it exists because a review once reported an
+**`Status`/`Verdict` is derived, never composed as a sentence.** A command whose outcome
+depends on more than one condition (validation state, finding categories, task
+statuses...) must evaluate those conditions against an explicit table with a fixed
+evaluation order, and the table's output *is* the value — not an input the agent
+paraphrases. `references/review-policy.md` § "Spec-review verdicts are derived, never
+chosen narratively" is the worked example: it exists because a review once reported an
 unresolved owner decision and "ready for owner approval" in the same response — two
 locally-plausible sentences that were never checked against each other. Any command
 with more than two possible `Status` values should have (or point to) a table with the

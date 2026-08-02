@@ -99,6 +99,27 @@ the current file — that justifies the current classification. This is what mak
 review artifact itself a real baseline for the *next* re-review, independent of git
 tracking status.
 
+## Deterministic review freshness — the spec fingerprint
+
+A review answers "is the spec ready right now" — but time passes between writing the
+review and the owner acting on it, and the spec can change in between. `/nevo-ai:
+spec-approve` (backed by `node tools/specs.mjs approve`) refuses to approve a task
+against a review that no longer matches the current specification state. That
+freshness check must be **deterministic**, never inferred by a model reasoning about
+"does this look recent" — an LLM cannot reliably compute or verify a hash by reasoning,
+so the mechanism has to be a real, run tool, not a judgment call.
+
+Concretely: `node tools/specs.mjs fingerprint <change>` prints a sha256 hash over the
+specification's approval-relevant inputs (`change.yaml`, `overview.md`,
+`owner-decisions.md`, every file under `areas/` and `tasks/`, sorted for determinism) —
+**excluding `reviews/**` entirely**, so writing the review file never invalidates its
+own fingerprint. `/nevo-ai:spec-review` must run this command and copy its exact
+printed output, verbatim, into the review's `spec_fingerprint` frontmatter field —
+never estimate, paraphrase, or recompute it by hand. `tools/specs.mjs approve`
+independently re-runs the same computation at approval time and rejects the approval if
+the two hashes don't match, naming both values in the error so the mismatch is
+verifiable, not just asserted.
+
 ## Persistent artifact and handoff
 
 A review is not just conversation output — it produces a file, so the next command
@@ -115,11 +136,144 @@ in-repo versioning scheme on top of that (see ADR-0004). Writing this one file i
 single exception to "review is read-only" — a review command never edits the change,
 task, or spec files it is reviewing.
 
-Every review ends with the shared closing shape from `SKILL.md` § "Ending every
-command's response" — not just the full report (which lives in the file). See
-`templates/review-report.md` for how the full report itself is laid out, and
-`docs/ai/specification-workflow.md` § "Review artifacts and handoff" for the
-vendor-neutral version of this policy.
+Every review ends with the structured chat summary defined below — not just the full
+report (which lives in the file). See `templates/review-report.md` for how the full
+report itself is laid out, and `docs/ai/specification-workflow.md` § "Review artifacts
+and handoff" for the vendor-neutral version of this policy.
+
+## Chat output shape
+
+The detailed review stays in the artifact file. The chat response is a short,
+structured operational handoff — never a single dense line of `Key: value · Key:
+value` pairs, which is hard to scan and renders poorly in the Claude Code extension.
+At most one short explanatory paragraph may precede the structured block below; never
+repeat the full report in the chat response.
+
+### `/nevo-ai:spec-review` — exact required shape
+
+```markdown
+## Review result
+
+**Verdict:** `<verdict>`
+
+- Ready for approval: **Yes/No**
+- Implementation allowed: **Yes/No**
+- Unresolved required fixes: **<count>**
+- Unresolved owner decisions: **<count>**
+- Needs clarification: **<count>**
+
+### Required action
+
+<One concise description of the remaining action. Omit this section entirely when no
+action remains — do not write "none" in its place.>
+
+**Report:** `<artifact path>`
+
+**Next command:**
+
+​```text
+<exact command>
+​```
+```
+
+When there is no next command, the fenced block reads exactly:
+
+```text
+No further action required.
+```
+
+Formatting rules:
+
+1. Never place all status fields on one line.
+2. Do not use middle-dot- or pipe-separated status summaries.
+3. Use inline code (backticks) only for identifiers, file paths, verdict values,
+   finding IDs, and commands.
+4. Use bold text for **Yes** and **No**.
+5. Keep detailed evidence, validation logs, and finding analysis in the persistent
+   review artifact — not the chat response.
+6. At most one short explanatory paragraph before the structured block.
+7. Keep the summary compact enough to fit on one screen.
+8. Do not repeat the full report in the chat response.
+9. Put the exact next command in a fenced ` ```text ` block.
+10. When there is no next command, use the literal sentence above — not `none`, not a
+    dash, not an empty block.
+
+**Example — changes required:**
+
+```markdown
+## Review result
+
+**Verdict:** `changes-required`
+
+- Ready for approval: **No**
+- Implementation allowed: **No**
+- Unresolved required fixes: **1**
+- Unresolved owner decisions: **0**
+- Needs clarification: **0**
+
+### Required action
+
+Update `areas/07-developer-and-validation.md` so it reflects owner decision `D7`.
+
+**Report:** `specs/active/nevo-documentation-foundation/reviews/spec.md`
+
+**Next command:**
+
+​```text
+/nevo-ai:spec-refine nevo-documentation-foundation --from-review
+​```
+```
+
+**Example — ready for approval:**
+
+```markdown
+## Review result
+
+**Verdict:** `ready-for-approval`
+
+- Ready for approval: **Yes**
+- Implementation allowed: **No**
+- Unresolved required fixes: **0**
+- Unresolved owner decisions: **0**
+- Needs clarification: **0**
+
+**Report:** `specs/active/nevo-documentation-foundation/reviews/spec.md`
+
+**Next command:**
+
+​```text
+/nevo-ai:spec-approve nevo-documentation-foundation doc-taxonomy-and-tooling
+​```
+```
+
+### `/nevo-ai:task-review` — adapted shape
+
+Same spirit, this command's own fields (no `ready_for_approval`/`implementation_allowed`
+booleans — those are spec-level concepts):
+
+```markdown
+## Task review result
+
+**Verdict:** `<pass|changes-required|blocked>`
+
+- Blocking findings: **<count>**
+- Non-blocking findings: **<count>**
+
+### Required action
+
+<omit if none>
+
+**Report:** `<artifact path>`
+
+**Next command:**
+
+​```text
+<exact command, or "No further action required.">
+​```
+```
+
+Do not duplicate this formatting contract in any command file — `spec-review.md` and
+`task-review.md` reference this section instead of restating the template.
 
 ## Spec-review verdicts are derived, never chosen narratively
 
@@ -145,7 +299,11 @@ Evaluate top to bottom. The **first** row whose condition holds determines the v
 | 5 | No unresolved blocking findings remain, and the relevant task(s) **are** `status: approved` in `change.yaml` (checked directly, not assumed) | `approved-for-implementation` | `true` | `true` |
 
 `NON_BLOCKING` and `INFORMATIONAL` findings never appear in this table — they cannot
-change the verdict, by construction, not by discipline.
+change the verdict, by construction, not by discipline. Row 2 covers `OWNER_DECISION`
+and `NEEDS_CLARIFICATION` findings together for the *verdict* (both produce
+`owner-decision-required`), but the report and the chat summary count them
+**separately** (`unresolved_owner_decisions` vs. `unresolved_needs_clarification`) —
+they block the same way, but they're different things for the owner to act on.
 
 Row 5's task-status check is a file read, not an inference from the rest of the
 review's tone — a spec that "feels ready" is not the same fact as `change.yaml` saying
@@ -158,9 +316,11 @@ violated, the verdict computed above is wrong (almost always because a finding's
 category or a task's actual status was misread) — fix it and recompute; never emit a
 report that fails its own check:
 
-1. An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding cannot coexist with
+1. An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding (`unresolved_owner_
+   decisions > 0` or `unresolved_needs_clarification > 0`) cannot coexist with
    `ready_for_approval: true`.
-2. An unresolved `AUTO_FIX` finding cannot coexist with `ready_for_approval: true`.
+2. An unresolved `AUTO_FIX` finding (`unresolved_required_fixes > 0`) cannot coexist
+   with `ready_for_approval: true`.
 3. A task with a non-`approved` status cannot coexist with `implementation_allowed:
    true`.
 4. `approved-for-implementation` requires the relevant task(s) to actually carry

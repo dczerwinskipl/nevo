@@ -55,21 +55,35 @@ any command containing a chaining, substitution, redirection, or pipe character
 (`; & |` `` ` `` `$( < > newline`), then checks the remaining single command against a
 fixed allowlist. Anything that doesn't match is blocked with exit code 2 before it runs.
 
-The enforced allowlist:
+The guard is **whitelist-only**, not a blacklist of known-dangerous options — a flag has
+to be explicitly recognized to be allowed, so `--output`, `-o`, `--output=<path>`, or
+any other file-writing option is rejected simply by not being on the list, without the
+guard needing to specifically know about it. The exact allowlist:
 
-- `git status`, `git log`, `git show`, `git diff`, `git branch --show-current`,
-  `git rev-parse` (with arguments)
-- `dotnet sln [<file>] list`
-- `node tools/docs.mjs find|validate|check` (with arguments)
-- `node tools/specs.mjs list|validate|check` (with arguments)
+| Command | Allowed flags | Positional args |
+|---|---|---|
+| `git status` | `--porcelain`, `-s`, `--short`, `-b`, `--branch` | none |
+| `git log` | `--oneline`, `--stat`, `--name-only`, `--name-status`, `-p`, `--graph`, `--all`, `--decorate`, `--no-color` | up to 3 refs |
+| `git show` | `--stat`, `--name-only`, `--name-status`, `--no-color` | up to 2 refs |
+| `git diff` | `--stat`, `--name-only`, `--name-status`, `--cached`, `--no-color` | up to 2 refs |
+| `git branch` | `--show-current` only | none |
+| `git rev-parse` | `--abbrev-ref`, `--verify`, `--short` | up to 2 refs |
+| `dotnet sln` | — | `[<file>.sln] list` only |
+| `node tools/docs.mjs` | `find` with `--scope`/`--type`/`--format` value pairs only; `validate`/`check` with no extra args | see flags |
+| `node tools/specs.mjs` | `list`/`validate`/`check`, no extra args | none |
+
+A positional argument (a ref/path, never a flag) must match a safe pattern
+(alphanumeric plus `. _ / ~ ^ : @ -`) — nothing starting with `-` is ever treated as a
+positional argument, so a disguised flag like a mistyped `-output` can't slip through
+as if it were a ref.
 
 Everything else is denied by the hook, including chained or composed commands (e.g.
 `git status && git push`) even when one part alone would be allowed — the guard rejects
-the whole string before checking individual segments. Listing/search needs are covered
-by the `Glob`/`Grep` tools instead of shelling out, which also closes off
-argument-injection patterns like `find ... -exec`. If a legitimate read-only command you
-need isn't on the list, don't try to work around the guard — report that the allowlist
-needs an addition instead.
+the whole string before tokenizing it, so a mutating command can never be smuggled
+alongside an allowed one. Listing/search needs are covered by the `Glob`/`Grep` tools
+instead of shelling out, which also closes off argument-injection patterns like
+`find ... -exec`. If a legitimate read-only command you need isn't on the list, don't
+try to work around the guard — report that the allowlist needs an addition instead.
 
 ## Output shape
 

@@ -18,8 +18,10 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    current file contents are the source of truth, not git status or memory." If it
    doesn't exist, there is no baseline; the final response must include, verbatim, "No
    reliable previous-file baseline is available. Performing a fresh review of the
-   current specification." The absence of this file, or a clean `git status` on it, is
-   never itself evidence that a prior review's findings are still accurate.
+   current task implementation." (Note: adapted for task scope — this command reviews
+   an implementation diff, not a specification; do not say "specification" here.) The
+   absence of this file, or a clean `git status` on it, is never itself evidence that a
+   prior review's findings are still accurate.
 3. Inspect `git diff` / `git status` for the code changes under review — this *is* the
    right tool for seeing what the implementation changed (unlike using git status as a
    proxy for whether the *review itself* is stale, which step 2 already covers
@@ -66,16 +68,17 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
-10. End with the closing shape from `SKILL.md` § "Ending every command's response":
-    `Status` is the verdict from step 7 (`pass` stays `pass` regardless of which menu
-    option was chosen — the status-transition outcome goes in the facts line, e.g.
-    "marked implemented" / "marked verified" / "left as-is"); the facts line also gives
-    finding counts by category; `Artifact` is the path from step 8; `Next` is:
+10. End with `references/review-policy.md` § "Chat output shape" → "`/nevo-ai:task-review`
+    — adapted shape". `Verdict` is the value from step 7 (`pass` stays `pass`
+    regardless of which menu option was chosen — the status-transition outcome goes in
+    a bullet, e.g. "Status change: marked implemented" / "marked verified" / "left
+    as-is"); bullets give blocking/non-blocking finding counts; `Report` is the path
+    from step 8; `Next command` is:
     - `blocked` → the specific manual fix needed,
     - `changes-required` → what to fix, then re-run
       `/nevo-ai:task-review <change-id> <task-id>`,
     - `pass` + option 1 or 2 → `/nevo-ai:task-next`,
-    - `pass` + option 3 → `none — status left unchanged at your request`.
+    - `pass` + option 3 → `No further action required.`
 
 ## Rules
 
