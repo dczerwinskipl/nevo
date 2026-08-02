@@ -87,6 +87,57 @@ sequence.
     confirmation.
 ```
 
+## Walkthrough: one task to a merged PR, concretely
+
+Step by step, with the exact command at each point — this is the part that's easy to
+get wrong because half of it (opening the PR, Copilot's review) happens outside any
+`/nevo-ai:*` command:
+
+1. `/nevo-ai:task-start <change-id> <task-id>` — branch created/switched.
+2. Implement.
+3. `/nevo-ai:task-review <change-id> <task-id>`. If `changes-required`, run
+   `/nevo-ai:task-apply-review <change-id> <task-id>` (applies `AUTO_FIX` findings, then
+   re-runs the review itself) and loop until `pass`. On `pass`, choose `verified` (or
+   `implemented`) in its menu.
+4. Repeat 1–3 for every task in the change (per-change branch mode: same branch every
+   time; per-task mode: one branch and, typically, one PR per task).
+5. Open the PR: the `pr-create` skill ("stwórz PR" / "open a pull request"). This is
+   deliberately **not** a `/nevo-ai:*` command — opening a PR isn't gated by anything in
+   the spec workflow itself, it's the natural point where implementation work becomes
+   visible outside the branch. It pushes (if needed) and runs `gh pr create`, after its
+   own confirmation.
+6. **GitHub Copilot's automated PR review runs on its own**, asynchronously, once the PR
+   exists (if Copilot review is enabled on this repository) — nothing in this workflow
+   triggers it, and nothing needs to. It posts inline comments as its own review, exactly
+   like a human reviewer would.
+7. **Resolving those comments (Copilot's or a human's) — today, this is the one step
+   that happens outside this workflow entirely:**
+   - Read them: `gh pr view <pr> --comments`, or the GitHub PR page.
+   - Fix what's real; push the fix as a new commit on the same branch.
+   - Click **"Resolve conversation"** on GitHub for each thread once addressed.
+     `tools/lib/github.mjs` can only *read* whether a thread is resolved
+     (`getUnresolvedReviewThreadCount`, which step 8 uses) — it has no way to resolve one
+     itself yet. See "The one gap this doesn't close" below.
+8. `/nevo-ai:spec-finalize <change-id>` — run with `--check` first: it reports
+   `unresolvedThreads` from step 7 directly, and refuses to proceed while it's above
+   zero. Once the gate passes, the closed-menu confirmation, then the real run: archive
+   locally → commit → push → squash-merge the PR → delete the branch.
+
+### The one gap this doesn't close
+
+Step 7's "resolve on GitHub" is a manual click today. Closing it fully would mean adding
+a `resolveReviewThread` GraphQL mutation to `tools/lib/github.mjs` (the write-side
+counterpart to the existing read-only `getUnresolvedReviewThreadCount`), plus a command
+that fetches each unresolved comment, fixes or discusses it, and calls the mutation once
+addressed — the same "apply, then verify" shape `/nevo-ai:task-apply-review` already
+uses, but for GitHub's PR comments instead of this repo's own review file. Deliberately
+not built yet: mutating a reviewer's comment thread is exactly the kind of hard-to-
+reverse, shared-state action this repository's git-safety rules require an explicit
+go-ahead for, and — separately — there are signs another concurrent process may already
+be building something similar (an unrelated `gh-query-temp.graphql` file with its own
+review-thread GraphQL query has appeared in the repo root this session) worth checking
+before a second implementation gets built.
+
 ## Where this chain used to end, and what closed the gap
 
 Until `/nevo-ai:spec-finalize` existed, step 10 (`archive`) was the end of the chain,
