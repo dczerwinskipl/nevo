@@ -205,6 +205,13 @@ usable as shipped — see "Limitations".
   orchestrations are triggered, and how they're discovered/registered are all
   unspecified — see `docs/architecture/orchestration.md` § "What is not yet specified"
   for the full list.
+- **No `IOrchestratorStateRepository` implementation exists anywhere in this
+  repository** — not in this package, not in `NEvo.Orchestrating.EntityFramework`
+  (confirmed: no class implements the interface; that package provides only an EF
+  entity shape and table configuration — see
+  [`NEvo.Orchestrating.EntityFramework.md`](NEvo.Orchestrating.EntityFramework.md)).
+  `PersistentStepExecutor` cannot be used for real persistence today without writing
+  this implementation yourself.
 - `IOrchestrator<TData>`, `OrchestratorState<TData>`, and `IOrchestrationManager.RunAsync`
   all constrain `TData : new()` — a parameterless constructor is required (needed for
   `Activator.CreateInstance` during reflection-based resumption).
@@ -212,8 +219,9 @@ usable as shipped — see "Limitations".
 ## Related packages
 
 - [`NEvo.Orchestrating.EntityFramework`](NEvo.Orchestrating.EntityFramework.md) —
-  provides the EF-based `IOrchestratorStateRepository` implementation that
-  `PersistentStepExecutor` needs for real persistence.
+  provides an EF entity shape and table configuration for orchestrator state, but
+  **not** a working `IOrchestratorStateRepository` implementation — see its own doc
+  and "Limitations" above.
 
 ## Examples and tests
 

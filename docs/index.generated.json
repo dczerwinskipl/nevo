@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-02T18:25:54.087Z",
+  "generated": "2026-08-02T18:32:11.232Z",
   "docs": [
     {
       "file": "docs/README.md",
@@ -37,6 +37,18 @@
       "status": "current",
       "dependencies": [],
       "summary": "Root of the dependency graph: functional primitives (Either-based error handling, argument checks) and the generic middleware-pipeline abstraction every processing pipeline in NEvo (messaging, and by extension its extensions) is built on."
+    },
+    {
+      "file": "docs/packages/NEvo.Ddd.EventSourcing.md",
+      "id": "packages.nevo-ddd-eventsourcing",
+      "type": "package",
+      "title": "NEvo.Ddd.EventSourcing",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Messaging.Cqrs",
+        "NEvo.Messaging"
+      ],
+      "summary": "Event-sourced aggregates: decide (command -> events) and evolve (events -> state) building blocks, wired into the NEvo.Messaging.Cqrs command pipeline. The default IEventStore registered by this package is a non-functional stub — see Limitations."
     },
     {
       "file": "docs/packages/NEvo.EntityFramework.md",
@@ -117,6 +129,28 @@
         "NEvo.Core"
       ],
       "summary": "Saga-style orchestration: sequential step execution with automatic reverse-order compensation on failure. Experimental and in progress — deliberately decoupled from the messaging pipeline (depends only on NEvo.Core)."
+    },
+    {
+      "file": "docs/packages/NEvo.Orchestrating.EntityFramework.md",
+      "id": "packages.nevo-orchestrating-entityframework",
+      "type": "package",
+      "title": "NEvo.Orchestrating.EntityFramework",
+      "status": "experimental",
+      "dependencies": [
+        "NEvo.Orchestrating"
+      ],
+      "summary": "EF entity shape and table configuration for orchestrator state. Does not itself implement IOrchestratorStateRepository — see Limitations."
+    },
+    {
+      "file": "docs/packages/NEvo.Web.md",
+      "id": "packages.nevo-web",
+      "type": "package",
+      "title": "NEvo.Web",
+      "status": "current",
+      "dependencies": [
+        "NEvo.Core"
+      ],
+      "summary": "HTTP client wrapper: named/configured HttpClient instances with pluggable authentication (OAuth client-credentials or none) and a REST client base. Not ASP.NET Core middleware or routing, despite the name."
     },
     {
       "file": "docs/packages/NEvo.Web.Authorization.md",

@@ -247,5 +247,14 @@
   - Task 6: `docs/architecture/messaging-pipeline.md` (`IMiddleware.ExecuteAsync`, not
     `RunAsync`) and `docs/architecture/message-context.md`
     (`GetFeature`/`SetFeature`'s `where T : new()` constraint, non-nullable return).
+  - Task 9 (extends D11 from architecture docs to a **previously-written package
+    doc**, same rationale): `docs/packages/NEvo.Orchestrating.md` (task 4) claimed
+    `NEvo.Orchestrating.EntityFramework` "provides the EF-based
+    `IOrchestratorStateRepository` implementation" — false. That package contains only
+    an EF entity shape (`OrchestratorStateEf`) and table configuration; no class in the
+    repository implements `IOrchestratorStateRepository` (confirmed: `grep -rn "class.*
+    IOrchestratorStateRepository" src/` — zero matches). Corrected in
+    `NEvo.Orchestrating.md`; `NEvo.Orchestrating.EntityFramework.md` documents the real,
+    narrower scope.
 - **Date:** 2026-08-02
 - **Affected artifacts:** all remaining tasks in this change.

@@ -12,6 +12,7 @@ allowed_paths:
   - docs/packages/NEvo.Web.md
   - docs/packages/NEvo.Ddd.EventSourcing.md
   - docs/packages/NEvo.Orchestrating.EntityFramework.md
+  - docs/packages/NEvo.Orchestrating.md
   - specs/active/nevo-documentation-foundation/**
 forbidden_paths:
   - src/**

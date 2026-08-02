@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-02T18:25:54.087Z_
+_Generated: 2026-08-02T18:32:11.232Z_
 
 ## Hub
 
@@ -17,6 +17,7 @@ _Generated: 2026-08-02T18:25:54.087Z_
 | `packages.classification` | [Package classification](packages/classification.md) | current |  |
 | `packages.nevo-authorization` | [NEvo.Authorization](packages/NEvo.Authorization.md) | current |  |
 | `packages.nevo-core` | [NEvo.Core](packages/NEvo.Core.md) | current |  |
+| `packages.nevo-ddd-eventsourcing` | [NEvo.Ddd.EventSourcing](packages/NEvo.Ddd.EventSourcing.md) | experimental |  |
 | `packages.nevo-entityframework` | [NEvo.EntityFramework](packages/NEvo.EntityFramework.md) | current |  |
 | `packages.nevo-messaging` | [NEvo.Messaging](packages/NEvo.Messaging.md) | current |  |
 | `packages.nevo-messaging-authorization` | [NEvo.Messaging.Authorization](packages/NEvo.Messaging.Authorization.md) | current |  |
@@ -24,6 +25,8 @@ _Generated: 2026-08-02T18:25:54.087Z_
 | `packages.nevo-messaging-entityframework` | [NEvo.Messaging.EntityFramework](packages/NEvo.Messaging.EntityFramework.md) | current |  |
 | `packages.nevo-messaging-web` | [NEvo.Messaging.Web](packages/NEvo.Messaging.Web.md) | current |  |
 | `packages.nevo-orchestrating` | [NEvo.Orchestrating](packages/NEvo.Orchestrating.md) | experimental |  |
+| `packages.nevo-orchestrating-entityframework` | [NEvo.Orchestrating.EntityFramework](packages/NEvo.Orchestrating.EntityFramework.md) | experimental |  |
+| `packages.nevo-web` | [NEvo.Web](packages/NEvo.Web.md) | current |  |
 | `packages.nevo-web-authorization` | [NEvo.Web.Authorization](packages/NEvo.Web.Authorization.md) | current |  |
 
 ## Architecture

@@ -60,7 +60,7 @@ tasks:
   - id: package-docs-web-and-experimental
     order: 9
     file: tasks/09-package-docs-web-and-experimental.md
-    status: approved
+    status: implemented
     depends_on:
       - package-docs-messaging-extensions
   - id: quickstart-and-installation-guide
