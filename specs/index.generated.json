@@ -1,21 +1,6 @@
 {
-  "generated": "2026-08-02T17:51:31.004Z",
+  "generated": "2026-08-02T17:55:13.601Z",
   "changes": [
-    {
-      "id": "nevo-ai-review-hardening",
-      "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-02",
-      "tasks": [
-        {
-          "id": "harden-approval-and-guard",
-          "order": 1,
-          "file": "tasks/01-harden-approval-and-guard.md",
-          "status": "implemented"
-        }
-      ]
-    },
     {
       "id": "nevo-documentation-foundation",
       "title": "NEvo documentation foundation",
@@ -33,7 +18,7 @@
           "id": "package-classification-and-navigation-hub",
           "order": 2,
           "file": "tasks/02-package-classification-and-navigation-hub.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "doc-taxonomy-and-tooling"
           ]
@@ -42,7 +27,7 @@
           "id": "architecture-corrections",
           "order": 3,
           "file": "tasks/03-architecture-corrections.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "package-classification-and-navigation-hub"
           ]
@@ -189,6 +174,21 @@
           "depends_on": [
             "add-operational-layer"
           ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-review-hardening",
+      "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-02",
+      "tasks": [
+        {
+          "id": "harden-approval-and-guard",
+          "order": 1,
+          "file": "tasks/01-harden-approval-and-guard.md",
+          "status": "verified"
         }
       ]
     }

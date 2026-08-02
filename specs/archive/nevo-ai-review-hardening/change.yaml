@@ -13,4 +13,4 @@ tasks:
   - id: harden-approval-and-guard
     order: 1
     file: tasks/01-harden-approval-and-guard.md
-    status: implemented
+    status: verified
