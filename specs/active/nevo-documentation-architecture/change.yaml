@@ -35,7 +35,7 @@ tasks:
   - id: development-inbox-outbox-eventsourcing-orchestration
     order: 5
     file: tasks/05-development-inbox-outbox-eventsourcing-orchestration.md
-    status: approved
+    status: implemented
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-testing-strategy-and-contributing

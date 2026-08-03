@@ -1,12 +1,8 @@
 ---
-id: architecture.event-sourcing
-type: architecture
+id: development.event-sourcing
+type: development
 title: Event sourcing
 status: experimental
-scope:
-  - event-sourcing
-  - aggregates
-  - ddd
 read_when:
   - working on NEvo.Ddd.EventSourcing
   - reviewing the event sourcing branch
@@ -14,11 +10,13 @@ summary: >
   Experimental event sourcing implementation. In progress. Do not use as the basis
   for refactoring other modules. Characterization tests are needed before changes.
 related:
-  - architecture.messaging-pipeline
-  - architecture.package-boundaries
+  - development.messaging-pipeline
+  - development.package-boundaries
 ---
 
 # Event sourcing
+
+## Subsystem responsibility
 
 **Status: experimental and in progress.** This module should not drive refactoring of
 other modules. The current implementation should be protected with characterization tests
@@ -63,7 +61,7 @@ interface IEventStore
 - `ICreateAggregateCommand<TAggregate, TId>` — creation commands
 - `IAggregateEvent<TAggregate, TId>` — domain events emitted by an aggregate
 
-## Decidable pattern
+## Control and data flow
 
 The implementation uses a decidable pattern: a command produces a list of events,
 which are then folded into the aggregate state. The aggregate itself is reconstructed
@@ -73,7 +71,8 @@ from events rather than loaded from a state store.
 
 `NEvo.Ddd.EventSourcing` depends on `NEvo.Messaging.Cqrs`. This ties event sourcing
 to the CQRS/messaging layer. Whether this dependency is intentional or should be removed
-to allow event sourcing without messaging is an open question for the specification.
+to allow event sourcing without messaging is an open question for the specification —
+see `docs/development/package-boundaries.md` § "Known unresolved decisions".
 
 ## Example usage
 
@@ -81,7 +80,7 @@ to allow event sourcing without messaging is an open question for the specificat
 handled by the decidable, events are appended to the event store, and the aggregate
 is reconstructed from events on load.
 
-## What is not yet specified
+## Known unresolved decisions
 
 - Concurrency control (optimistic locking / version checking)
 - Snapshot support

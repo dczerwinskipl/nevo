@@ -1,13 +1,8 @@
 ---
-id: architecture.inbox-outbox
-type: architecture
+id: development.inbox-outbox
+type: development
 title: Inbox and outbox
 status: current
-scope:
-  - messaging
-  - inbox
-  - outbox
-  - idempotency
 read_when:
   - working with inbox or outbox
   - implementing idempotency
@@ -16,11 +11,17 @@ summary: >
   Inbox (idempotency) and outbox (transactional message publishing) abstractions.
   Both are opt-in — not required for basic messaging scenarios.
 related:
-  - architecture.persistence
-  - architecture.messaging-pipeline
+  - development.transaction-model
+  - development.messaging-pipeline
 ---
 
 # Inbox and outbox
+
+This is the maintainer-level document for the inbox/outbox mechanism internals — the
+consumer-facing "how do I enable this in my own handler" guide lives at
+`docs/usage/inbox-outbox.md`.
+
+## Subsystem responsibility
 
 Both patterns are **opt-in**. Not every message handler requires idempotency or transactional
 publishing. A service that can tolerate duplicate processing or has no outgoing messages
@@ -46,7 +47,9 @@ Idempotency can be tracked at:
   one message triggers multiple handlers and only some need idempotency)
 
 `InboxMessageProcessingMiddleware` checks `IsAlreadyProcessed` before dispatching and
-calls `RegisterProcessedAsync` after successful handling.
+calls `RegisterProcessedAsync` after successful handling. See
+`docs/development/transaction-model.md` question 3 for how this interacts with the
+ambient transaction.
 
 EF implementation: `NEvo.Messaging.EntityFramework` (SQL Server table).
 
@@ -62,8 +65,9 @@ interface IMessageOutbox
 }
 ```
 
-The outbox supports **partitioning** via the `partition` parameter on `GetMessagesToPublishAsync`.
-The semantics of partition assignment are not yet formally specified.
+The outbox supports **partitioning** via the `partition` parameter on
+`GetMessagesToPublishAsync`. Partition assignment itself is not yet implemented — see
+`docs/development/failure-semantics.md` § "Outbox partition-assignment semantics".
 
 A background process (not part of this package) is expected to poll the outbox and publish
 messages via the configured transport.
@@ -73,6 +77,11 @@ messages via the configured transport.
 `MessageEnvelopeDto` carries the serialized message, type name, and context headers.
 `IMessageTypeMapper` maps between `Type` and string name. The default implementation
 (`DefaultMessageTypeMapper`) uses the full type name with assembly.
+
+## Ordering constraints
+
+See `docs/development/transaction-model.md` question 4 for whether an outbox save
+shares the handler's transaction — it is conditional on the call site, not guaranteed.
 
 ## When to use
 

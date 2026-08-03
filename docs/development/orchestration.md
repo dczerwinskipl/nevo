@@ -1,29 +1,27 @@
 ---
-id: architecture.orchestration
-type: architecture
+id: development.orchestration
+type: development
 title: Orchestration
 status: experimental
-scope:
-  - orchestration
-  - sagas
 read_when:
   - working on NEvo.Orchestrating
 summary: >
   Experimental saga orchestration implementation. In progress. Decoupled from messaging.
   Do not use as basis for refactoring other modules.
 related:
-  - architecture.package-boundaries
+  - development.package-boundaries
 ---
 
 # Orchestration
+
+## Subsystem responsibility
 
 **Status: experimental and in progress.** `NEvo.Orchestrating` depends only on `NEvo.Core`,
 intentionally decoupled from the messaging layer. This is a deliberate architectural choice.
 
 ## Core abstractions (`NEvo.Orchestrating`)
 
-Signatures below are copied directly from source (`src/NEvo.Orchestrating/*.cs`), not
-paraphrased — verified 2026-08-02.
+Signatures below are grounded directly in source (`src/NEvo.Orchestrating/*.cs`).
 
 ### Orchestrator definition
 
@@ -69,7 +67,7 @@ New/Running ──(all steps succeed)──────────────�
 (`OrchestrationRunner.FinalStates`). Re-running an orchestration whose state is
 `CompensationFailed` resets it to `Failed`, retrying compensation.
 
-### Execution model
+## Control and data flow
 
 `IOrchestrationRunner` executes steps sequentially via an injected `IStepExecutor`. On
 step failure, compensation runs in reverse order for all previously completed steps
@@ -79,7 +77,8 @@ step failure, compensation runs in reverse order for all previously completed st
 `IOrchestratorStateRepository` (`LockAsync` → inner execute/compensate → `SaveAsync`,
 wrapped in a `TransactionScope`) before and after each step — this is what makes
 per-step progress resumable, *if* `PersistentStepExecutor` is the `IStepExecutor`
-supplied to `OrchestrationRunner`.
+supplied to `OrchestrationRunner` **and** a real `IOrchestratorStateRepository`
+implementation is supplied — see "Persistence" below, neither exists today.
 
 `OrchestrationManager` (the `IOrchestrationManager` implementation) does not itself wire
 up persistence: `RunAsync` constructs the initial `OrchestratorState` but its call to
@@ -95,12 +94,27 @@ type from `OrchestratorState.OrchestratorType` via `Activator.CreateInstance` an
 invokes the generic `RunAsync<TData>` via reflection) is implemented and real — only the
 DB-fetch it needs is not wired in yet.
 
-## EF persistence (`NEvo.Orchestrating.EntityFramework`)
+## Persistence (`NEvo.Orchestrating.EntityFramework`)
 
-`IOrchestratorStateRepository` stores `OrchestratorState<TData>` (status, completed steps,
-current data) using Entity Framework Core / SQL Server.
+**No `IOrchestratorStateRepository` implementation exists anywhere in this
+repository** — not in `NEvo.Orchestrating`, not in `NEvo.Orchestrating.EntityFramework`.
+`NEvo.Orchestrating.EntityFramework` provides only: an EF entity shape
+(`OrchestratorStateEf`) and a table configuration
+(`OrchestratorStateTypeConfiguration`) — and that configuration itself targets the wrong
+type (`IEntityTypeConfiguration<OrchestratorState>`, `NEvo.Orchestrating`'s own
+non-generic base class, not `IEntityTypeConfiguration<OrchestratorStateEf>`); nothing in
+the package maps between the two shapes. `PersistentStepExecutor` cannot be used for real
+persistence today without writing an `IOrchestratorStateRepository` implementation and
+reconciling this entity mismatch yourself. See
+`docs/reference/packages/NEvo.Orchestrating.EntityFramework.md` for the full detail.
 
-## What is not yet specified
+## Forbidden or unsafe extension approaches
+
+Do not supply `PersistentStepExecutor` to `OrchestrationRunner` expecting working
+persistence — see "Persistence" above and
+`docs/development/extension-points.md` § "Forbidden or unsafe extension approaches".
+
+## Known unresolved decisions
 
 - How orchestrations are triggered (directly or via messaging)
 - Retry policy for failed steps
@@ -110,4 +124,4 @@ current data) using Entity Framework Core / SQL Server.
 - How orchestrations are discovered and registered
 - How `OrchestrationManager` is meant to wire up `IOrchestratorStateRepository` for
   initial-state persistence and resumption — both paths are present in source but not
-  connected yet (see "Execution model" above)
+  connected yet (see "Control and data flow" above)
