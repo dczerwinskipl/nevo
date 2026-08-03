@@ -4,7 +4,7 @@
 
 - Current behavior of the affected area: code, tests, examples — not assumptions about
   what the code "probably" does.
-- Existing documentation: `docs/architecture/`, `docs/development/`, relevant `docs/adr/`
+- Existing documentation: `docs/development/`, relevant `docs/decisions/`
   entries (use `node tools/docs.mjs find --scope <scope>` rather than reading everything).
 - Whether an active or archived change already covers this ground
   (`node tools/specs.mjs list`, and `specs/archive/` only if there's reason to believe
@@ -41,7 +41,7 @@ picking one.
 
 ## Reporting stale docs
 
-If `docs/architecture/*` describes behavior that the code no longer matches, report it as
+If `docs/development/*` describes behavior that the code no longer matches, report it as
 an inconsistency with both citations (doc line, code line). Do not silently trust the
 doc, and do not silently trust the code — the owner decides which is authoritative going
 forward (this may itself require an ADR update).

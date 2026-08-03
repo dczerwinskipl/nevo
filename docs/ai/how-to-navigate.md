@@ -65,7 +65,7 @@ Common scopes: `messaging`, `middleware`, `handlers`, `persistence`, `inbox`, `o
 
 ## Finding ADRs
 
-`docs/adr/` — sorted by number. ADRs with `status: superseded` point to their replacement.
+`docs/decisions/` — sorted by number. ADRs with `status: superseded` point to their replacement.
 Read ADRs when the task touches an area where a durable decision has been made.
 
 ## Archived specs

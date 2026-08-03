@@ -66,8 +66,8 @@ this.
 
 ## Outbox partition-assignment semantics
 
-**Still open — not yet formally specified**, consistent with the original
-`docs/architecture/inbox-outbox.md`'s own framing. `EntityFrameworkMessageOutbox.SaveMessageAsync`
+**Still open — not yet formally specified**, consistent with
+`docs/development/inbox-outbox.md`'s own framing. `EntityFrameworkMessageOutbox.SaveMessageAsync`
 (`src/NEvo.Messaging.EntityFramework/EntityFrameworkMessageOutbox.cs`) carries a
 `//TODO partitioning` comment and does not assign or use a partition value when saving a
 message; `GetMessagesToPublishAsync`'s `partition` parameter is honored for filtering

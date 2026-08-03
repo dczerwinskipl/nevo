@@ -1,6 +1,6 @@
 # Guide doc template
 
-Copy this file to `docs/guides/<slug>.md`, remove this notice, and fill in the front
+Copy this file to `docs/usage/<slug>.md`, remove this notice, and fill in the front
 matter and sections below. This template intentionally has no `---`-delimited front
 matter block of its own, so `tools/docs.mjs`'s scanner skips it — do not add one here.
 

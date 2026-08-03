@@ -31,7 +31,7 @@ of duplicating it.
 
 The process itself — and the decision to build a lightweight custom workflow instead of
 adopting an external framework — is recorded in
-[ADR-0002](../adr/ADR-0002-lightweight-markdown-workflow.md).
+[ADR-0002](../decisions/ADR-0002-lightweight-markdown-workflow.md).
 
 ## Principles
 
@@ -72,7 +72,7 @@ contested):
 |---|---|
 | Behavioral clarity | Is the expected behavior fully determined by existing tests, docs, or an established pattern already used elsewhere in the codebase? |
 | Public surface impact | Does the change avoid altering any public API, contract, or a package's exported surface? |
-| Package boundary impact | Is the change contained within one package/project, introducing no new inter-package dependency (see `docs/architecture/package-boundaries.md`)? |
+| Package boundary impact | Is the change contained within one package/project, introducing no new inter-package dependency (see `docs/development/package-boundaries.md`)? |
 | Blast radius | Does the change affect only the named file(s)/type(s), without touching shared infrastructure (messaging pipeline, persistence base types, middleware pipeline)? |
 | Reversibility | Can the change be reverted without a migration, a breaking-change release, or renegotiating a contract? |
 
@@ -112,7 +112,7 @@ Before proposing a specification, an agent must ground itself in the current rep
 state:
 
 - current behavior of the affected area (code, tests, examples),
-- existing documentation (`docs/architecture/`, `docs/development/`, `docs/adr/`),
+- existing documentation (`docs/development/`, `docs/decisions/`),
 - whether an active or archived change already covers the same ground,
 - constraints implied by accepted ADRs.
 
@@ -196,7 +196,7 @@ estimate:
 ### Coupling and package-boundary checks
 
 Run these whenever an option introduces or changes a cross-package relationship (see
-`docs/architecture/package-boundaries.md` for the current boundaries):
+`docs/development/package-boundaries.md` for the current boundaries):
 
 - **Structural coupling** — does the option add a new dependency between packages? Is
   its direction consistent with the documented boundaries? A new dependency against the
@@ -538,11 +538,11 @@ gate result is *never* enough by itself; see `AGENTS.md`'s git-safety rules.
 
 ## Architecture documentation and ADRs
 
-`docs/architecture/` describes **current** behavior, not desired future state.
+`docs/development/` describes **current** behavior, not desired future state.
 Experimental or incomplete modules must be marked as such rather than presented as
 stable. A specification that changes durable architectural decisions must say so
 explicitly and call out the ADR(s) it affects; new durable decisions are recorded as new
-ADRs in `docs/adr/` (see `ADR-0001` for the commit-message convention this repository
+ADRs in `docs/decisions/` (see `ADR-0001` for the commit-message convention this repository
 follows, and `ADR-0002` for the workflow itself). Superseding an ADR is an owner
 decision, not an inference.
 

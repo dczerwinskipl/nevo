@@ -40,5 +40,5 @@ itself.
   [`docs/reference/packages/`](reference/packages/).
 - [Known issues](project/known-issues.md) — confirmed defects and gaps across NEvo
   packages, consolidated in one place.
-- [`docs/adr/`](adr/) — architecture decision records. Indexed automatically in
-  [`docs/index.generated.md`](index.generated.md) under "Adr".
+- [`docs/decisions/`](decisions/) — architecture decision records. Indexed
+  automatically in [`docs/index.generated.md`](index.generated.md) under "Adr".

@@ -33,7 +33,7 @@ do not do it unilaterally.
 
 ## When architecture documentation must be updated
 
-If a change alters *current* behavior that `docs/architecture/` describes, the same
+If a change alters *current* behavior that `docs/development/` describes, the same
 change updates that document in the same branch — architecture docs describe current
 behavior, not a future aspiration, so they cannot be left stale after merge.
 

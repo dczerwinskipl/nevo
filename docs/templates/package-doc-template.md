@@ -1,6 +1,6 @@
 # Package doc template
 
-Copy this file to `docs/packages/<Name>.md`, remove this notice, and fill in the front
+Copy this file to `docs/reference/packages/<Name>.md`, remove this notice, and fill in the front
 matter and sections below. This template intentionally has no `---`-delimited front
 matter block of its own, so `tools/docs.mjs`'s scanner skips it — do not add one here.
 
@@ -19,8 +19,8 @@ summary: >
 ```
 
 Use `experimental` (not `current`) for any package that carries `status: experimental`
-in its corresponding `docs/architecture/*.md` doc — never present a package as more
-stable than the architecture doc backing it supports.
+in its corresponding `docs/development/*.md` doc — never present a package as more
+stable than the maintainer doc backing it supports.
 
 ## Sections
 
@@ -73,7 +73,7 @@ maintainer doc's own gap list under `docs/development/`, if any.
 
 Links to other package docs this package composes with or is composed with (e.g. the
 package providing this one's persistence/EF implementation). If a related package
-doesn't have its own doc yet, name it and link `docs/packages/<Name>.md` anyway (the
+doesn't have its own doc yet, name it and link `docs/reference/packages/<Name>.md` anyway (the
 link becomes live once that doc is written) — don't explain the absence, don't
 reference task IDs, spec files, or this change's own planning artifacts. Nothing about
 how or when this documentation set was built belongs in the documentation itself.
