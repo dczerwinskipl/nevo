@@ -47,7 +47,7 @@ tasks:
   - id: known-issues-consolidation
     order: 7
     file: tasks/07-known-issues-consolidation.md
-    status: draft
+    status: approved
     depends_on:
       - doc-taxonomy-and-templates
   - id: package-reference-migration-and-trim

@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 98748c9b1bef500f0c0410339e1c0a72eacf21d0cb5b37040e8b6c47e98163e1
+spec_fingerprint: a4efc62e7c74d2d693121aa97f81caa26b08f8879524fffa0b6545a10ec83164
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,10 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `development-inbox-outbox-eventsourcing-orchestration` was
-approved, started, implemented, and marked `implemented` in `change.yaml` since the last
-refresh — same mechanical cause as before. No task/area/overview/owner-decisions
-*content* changed.
+Refreshed again: task `development-testing-strategy-and-contributing` was approved,
+started, implemented, and marked `implemented` in `change.yaml` since the last refresh —
+same mechanical cause as before. No task/area/overview/owner-decisions *content*
+changed. Area `maintainer-documentation` (tasks 2-6) is now fully implemented.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same
