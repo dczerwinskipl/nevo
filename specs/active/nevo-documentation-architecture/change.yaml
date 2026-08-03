@@ -13,7 +13,7 @@ tasks:
   - id: doc-taxonomy-and-templates
     order: 1
     file: tasks/01-doc-taxonomy-and-templates.md
-    status: in-implementation
+    status: implemented
   - id: development-core-pipeline-docs
     order: 2
     file: tasks/02-development-core-pipeline-docs.md
