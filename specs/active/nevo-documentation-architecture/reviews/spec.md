@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 2c9a9ffabcd4f835b5f307fb8ad760923a8c2f217f190009b62c9c37b96ce373
+spec_fingerprint: 98748c9b1bef500f0c0410339e1c0a72eacf21d0cb5b37040e8b6c47e98163e1
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,14 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `development-extension-points-and-transport-persistence` was
+Refreshed again: task `development-inbox-outbox-eventsourcing-orchestration` was
 approved, started, implemented, and marked `implemented` in `change.yaml` since the last
 refresh — same mechanical cause as before. No task/area/overview/owner-decisions
 *content* changed.
+
+Prior refresh: task `development-extension-points-and-transport-persistence` was
+approved, started, implemented, and marked `implemented` in `change.yaml` — same
+mechanical cause. No task/area/overview/owner-decisions *content* changed.
 
 Prior refresh: task `development-transactions-and-failure-semantics` was approved,
 started, implemented, and marked `implemented` in `change.yaml` — same mechanical cause.
