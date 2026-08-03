@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: dcedac7a3d8e09402f2b53f09ac08e72d79dddc464694e6c6a94edafb845af96
+spec_fingerprint: 51fdf9e049dc0c92e3d3591ad0fceb81fd2585e1d6b30cc7087bf915a21d94ad
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,7 +20,7 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `usage-cross-service-and-inbox-outbox` was approved, started,
+Refreshed again: task `usage-authorization-and-troubleshooting` was approved, started,
 implemented, and marked `implemented` in `change.yaml` since the last refresh — same
 mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
 
