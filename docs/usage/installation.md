@@ -12,19 +12,17 @@ summary: >
 
 This guide is for **consumers** — adding NEvo to a new project of your own. If you're
 setting up this repository itself to build, test, or contribute to NEvo, see
-[Local setup](../development/local-setup.md) instead; that page covers prerequisites,
-build/test commands, and running the example applications, which this guide does not
-repeat.
+`docs/development/local-setup.md` instead; that page covers prerequisites, build/test
+commands, and running the example applications, which this guide does not repeat.
 
 ## Prerequisites
 
-Cross-link, not duplicated: [Local setup](../development/local-setup.md) § Prerequisites
-covers the .NET SDK version (pinned in `global.json`) you need installed.
+See `docs/development/local-setup.md` § Prerequisites for the .NET SDK version (pinned
+in `global.json`) you need installed — not duplicated here.
 
-## No NuGet feed exists yet
+## Constraints and failure modes
 
-**Open question, not resolved by this guide:** this repository has no NuGet publishing
-configured. Checked directly:
+**No NuGet feed exists yet.** This repository has no NuGet publishing configured:
 
 - No `.nuspec` file and no `NuGet.config` anywhere in the repository.
 - `Directory.Build.props` sets no packaging properties (`IsPackable`, `PackageId`,
@@ -36,10 +34,10 @@ There is currently no `dotnet add package NEvo.Core` (or similar) that pulls fro
 real, published feed. Do not treat any such command as available until this is
 resolved.
 
-## What works today: project reference
+## Steps
 
-The only verified path, confirmed by how this repository builds itself: clone the
-repository and reference the specific package project(s) you need directly.
+The only path this repository's own build supports today: clone the repository and
+reference the specific package project(s) you need directly.
 
 ```bash
 git clone <this-repository-url>
@@ -53,10 +51,10 @@ git clone <this-repository-url>
 ```
 
 Adjust the relative path to wherever you cloned the repository. See
-[Package classification](../packages/classification.md) for which package provides
-what, and each package's own doc (linked from there) for its exact dependencies —
-reference only what you need; e.g. a minimal service needs just `NEvo.Core`, add
-`NEvo.Messaging` when you need message dispatch.
+[Choosing packages](choosing-packages.md) for which package provides what, and each
+package's own doc for its exact dependencies — reference only what you need; e.g. a
+minimal service needs just `NEvo.Core`, add `NEvo.Messaging` when you need message
+dispatch.
 
 ## Verification
 

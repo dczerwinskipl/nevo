@@ -16,8 +16,9 @@ summary: >
 ## Goal
 
 Get a message dispatched through NEvo's processing pipeline in a new project, starting
-from the two packages every consumer builds on: [`NEvo.Core`](../packages/NEvo.Core.md)
-and [`NEvo.Messaging`](../packages/NEvo.Messaging.md).
+from the two packages every consumer builds on:
+[`NEvo.Core`](../reference/packages/NEvo.Core.md) and
+[`NEvo.Messaging`](../reference/packages/NEvo.Messaging.md).
 
 ## Prerequisites
 
@@ -39,8 +40,8 @@ from the start because step 5 below exposes the handler over HTTP — this match
 `examples/ExampleApp`'s services are actually bootstrapped (`Program.cs`).
 `AddMessages()` (from `NEvo.Messaging`) registers `IMessageProcessor`, the handler
 registry, context accessor, and the default correlation/causation/telemetry middleware
-— see [`NEvo.Messaging`](../packages/NEvo.Messaging.md) § Configuration for the full
-list of what this registers.
+— see [`NEvo.Messaging`](../reference/packages/NEvo.Messaging.md) § Configuration for
+the full list of what this registers.
 
 ### 2. Define a message
 
@@ -53,7 +54,8 @@ public record SayHello(string Name) : IMessage
 ```
 
 `IMessage` (from `NEvo.Messaging`) is the base contract every dispatchable message
-implements — see [`NEvo.Messaging`](../packages/NEvo.Messaging.md) § Public surface.
+implements — see [`NEvo.Messaging`](../reference/packages/NEvo.Messaging.md) § Public
+surface.
 
 ### 3. Dispatch it manually — and see why that's not the real path
 
@@ -67,20 +69,18 @@ This runs `SayHello` through the full middleware chain. **It will fail** at this
 with "no handler found" — `NEvo.Core`/`NEvo.Messaging` alone define the pipeline and the
 `IMessage`/`IMessageHandler` contracts, but writing a raw `IMessageHandler` by hand
 requires manually constructing a `MessageHandlerDescription` and registering it into
-`MessageHandlerExtractorConfiguration` yourself — there is no ergonomic handler-authoring
-story in these two packages alone (verified directly against
-`src/NEvo.Messaging/Handling/MessageHandlerExtractor.cs`: handler discovery is
-driven entirely by `IMessageHandlerFactory` implementations keyed by handler interface,
-and none ships in `NEvo.Messaging` itself). Manually resolving `IMessageProcessor` like
-this is also not how any real service serves a request — steps 4-5 below replace it
-with the actual mechanism `examples/ExampleApp` uses.
+`MessageHandlerExtractorConfiguration` yourself. There is no ergonomic handler-authoring
+story in these two packages alone — handler discovery is driven entirely by
+`IMessageHandlerFactory` implementations keyed by handler interface
+(`src/NEvo.Messaging/Handling/MessageHandlerExtractor.cs`), and none ships in
+`NEvo.Messaging` itself. Manually resolving `IMessageProcessor` like this is also not
+how any real service serves a request — steps 4-5 below replace it with the actual
+mechanism `examples/ExampleApp` uses.
 
 ### 4. Add `NEvo.Messaging.Cqrs` for a first real handler
 
-This is why, per `README.md`'s own framing ("start with minimal infrastructure...add
-CQRS when read/write scaling becomes essential"), `NEvo.Messaging.Cqrs` is almost always
-the very next package a consumer adds — it's the thin, ergonomic layer that makes
-writing and registering a handler practical:
+`NEvo.Messaging.Cqrs` is almost always the next package a consumer adds — it's the
+thin, ergonomic layer that makes writing and registering a handler practical:
 
 ```csharp
 builder.Services.AddCommands(); // NEvo.Messaging.Cqrs
@@ -97,17 +97,17 @@ public class SayHelloHandler : ICommandHandler<SayHello>
 }
 ```
 
-See [`NEvo.Messaging.Cqrs`](../packages/NEvo.Messaging.Cqrs.md) for how commands are
-registered and dispatched (`ICommandDispatcher`), and note its own limitation: only the
-command side is implemented, there is no query-side support.
+See [`NEvo.Messaging.Cqrs`](../reference/packages/NEvo.Messaging.Cqrs.md) for how
+commands are registered and dispatched (`ICommandDispatcher`), and note its own
+limitation: only the command side is implemented, there is no query-side support.
 
 ### 5. Expose it over HTTP
 
 Resolving `IMessageProcessor`/`ICommandDispatcher` by hand (step 3) is not how a real
 request reaches a handler. Every endpoint in `examples/ExampleApp` instead uses
-[`NEvo.Messaging.Web`](../packages/NEvo.Messaging.Web.md)'s `MapCommandEndpoint<TCommand>`,
-which maps an HTTP `POST` straight to `ICommandDispatcher.DispatchAsync`
-(`src/NEvo.Messaging.Web/RoutesExtensions.cs`):
+[`NEvo.Messaging.Web`](../reference/packages/NEvo.Messaging.Web.md)'s
+`MapCommandEndpoint<TCommand>`, which maps an HTTP `POST` straight to
+`ICommandDispatcher.DispatchAsync` (`src/NEvo.Messaging.Web/RoutesExtensions.cs`):
 
 ```csharp
 app.MapCommandEndpoint<SayHello>("/api/say-hello");
@@ -155,13 +155,21 @@ public class GreetedAuditHandler : IEventHandler<Greeted>
 ```
 
 Calling `POST /api/say-hello` now prints both the handler's own line and the audit
-handler's line — two independent handlers reacting to one published event. **This is
-the exact shape already running in `examples/ExampleApp`:** `POST /api/hello` maps to
+handler's line — two independent handlers reacting to one published event. This is the
+same shape running in `examples/ExampleApp`: `POST /api/hello` maps to
 `SayHelloCommand` → `SayHelloCommandHandler`, which publishes `MyEvent`, fanned out to
 two independent handlers, `MyEventHandlerA` and `MyEventHandlerB` — see [ExampleApp
 walkthrough § Scenario
 2](example-app-walkthrough.md#scenario-2-a-permission-checked-command) for the real,
-running code, so you recognize this as the same pattern, not an unrelated example.
+running code.
+
+## Constraints and failure modes
+
+- Step 3's manual dispatch will fail with "no handler found" until a handler is
+  registered — this is expected, not a bug; see step 3's explanation.
+- Both handlers in step 6 run inside the same event dispatch — if you extend this
+  pattern to more handlers, see `docs/development/failure-semantics.md` for what
+  happens when one of several handlers for the same event fails.
 
 ## Verification
 
@@ -176,8 +184,7 @@ running code, so you recognize this as the same pattern, not an unrelated exampl
 
 ## Next steps
 
-- [Package classification](../packages/classification.md) — see what else is
-  available (authorization, persistence, HTTP transport, orchestration) as your
-  service grows.
+- [Choosing packages](choosing-packages.md) — which packages to add next based on what
+  your service needs (authorization, persistence, HTTP transport, orchestration).
 - [ExampleApp walkthrough](example-app-walkthrough.md) — a full, working multi-service
   example combining several of these packages.
