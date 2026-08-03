@@ -134,3 +134,34 @@
   are synthetic in-memory fixture labels, not real paths read from disk.
 - **Date:** 2026-08-03
 - **Affected artifacts:** task `final-cross-link-and-validation`.
+
+## D6: Fixing `docs/ai/how-to-navigate.md`'s broken `find --scope` routing
+
+- **Question:** Migrating `docs/architecture/*.md` into `docs/development/*.md`
+  changed those files' `type` from `architecture` (requires a `scope` field) to
+  `development` (does not) — matching the pre-existing `docs/development/*.md`
+  convention (D1). `docs/ai/how-to-navigate.md` § "Finding architecture documentation"
+  still instructs `node tools/docs.mjs find --scope <scope>`, which now returns nothing
+  for these docs. Fix by restoring a `scope` field on the migrated files (keeps the old
+  discovery mechanism working as originally documented), or by rewriting that section
+  to route through `docs/ai/task-routing.md`/`change-impact-map.md` instead (the two
+  files task `ai-task-routing` built specifically to answer "which docs are relevant"
+  for a framework change)?
+- **Options considered:** (1) Rewrite to route via `task-routing.md`/
+  `change-impact-map.md` (recommended) — forward-looking, uses the purpose-built
+  mechanism this same change already created instead of resurrecting the old one | (2)
+  Restore `scope` as an (optional, not `REQUIRED_FIELDS`-mandated) field on the
+  migrated `docs/development/*.md` files — keeps `find --scope` working, but keeps two
+  parallel discovery mechanisms alive for the same content instead of consolidating on
+  one.
+- **Decision:** Option 1 — rewrite to route via `task-routing.md`/`change-impact-map.md`.
+- **Rationale:** Owner accepted the recommendation as presented.
+- **Consequences:** `docs/ai/how-to-navigate.md` § "Finding architecture documentation"
+  no longer mentions `find --scope`; no `docs/development/*.md` file gains a `scope`
+  field. `docs/development/transaction-model.md`'s historical mention of the
+  pre-migration `docs/architecture/persistence.md` path (which has no 1:1 renamed
+  successor — its content split across `transaction-model.md` and
+  `failure-semantics.md`) is also clarified in the same task, as a related small
+  accuracy fix surfaced at the same time, not a new decision of its own.
+- **Date:** 2026-08-03
+- **Affected artifacts:** task `post-implementation-doc-fixes`.

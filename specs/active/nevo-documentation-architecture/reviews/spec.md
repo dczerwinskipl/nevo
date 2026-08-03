@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 8ec674f6eec2810f2b06a727df2226cea6bc122c3b74d8e155497b7c8f328af8
+spec_fingerprint: a79b4845d171319f2f5af456488b37dad94d64834143a9994f331d9d01d69652
 ---
 
 # Review: nevo-documentation-architecture
@@ -16,90 +16,71 @@ spec_fingerprint: 8ec674f6eec2810f2b06a727df2226cea6bc122c3b74d8e155497b7c8f328a
 Baseline: `specs/active/nevo-documentation-architecture/reviews/spec.md`, as it existed
 before this run (read in full before being overwritten). Its verdict was already
 `ready-for-approval`, with F1 resolved and F2 the only outstanding (`NON_BLOCKING`)
-finding.
+finding, at a point where all 16 original tasks were `implemented`.
 
-## Fingerprint refresh note
+## What changed since the baseline
 
-Refreshed again: task `ai-task-routing` was approved, started, implemented, and marked
-`implemented` in `change.yaml` since the last refresh — same mechanical cause as
-before. No task/area/overview/owner-decisions *content* changed. This is the last
-refresh before the final task, `final-cross-link-and-validation`.
+This is a real content change, not a mechanical fingerprint refresh: a 17th task,
+`post-implementation-doc-fixes`, was added to `change.yaml` and
+`tasks/17-post-implementation-doc-fixes.md` was created, to fix two accuracy gaps the
+owner found after reviewing the first 16 tasks' implementation:
 
-Prior refresh: task `development-extension-points-and-transport-persistence` was
-approved, started, implemented, and marked `implemented` in `change.yaml` — same
-mechanical cause. No task/area/overview/owner-decisions *content* changed.
+1. `docs/ai/how-to-navigate.md` § "Finding architecture documentation" instructs
+   `find --scope <scope>`, which no longer returns any migrated `docs/development/*.md`
+   file (their `type` changed from `architecture`, which requires `scope`, to
+   `development`, which doesn't — a real side effect of task
+   `development-core-pipeline-docs` and its siblings, not previously caught).
+2. `docs/development/transaction-model.md`'s opening line mentions
+   `docs/architecture/persistence.md` in a way that reads like a live link, though the
+   path no longer resolves to anything (that file's content was split, not renamed
+   1:1).
 
-Prior refresh: task `development-transactions-and-failure-semantics` was approved,
-started, implemented, and marked `implemented` in `change.yaml` — same mechanical cause.
-No task/area/overview/owner-decisions *content* changed.
-
-Prior refresh: task `development-core-pipeline-docs` was approved, started,
-implemented, and marked `implemented` in `change.yaml` — same mechanical cause. No
-task/area/overview/owner-decisions *content* changed.
-
-Prior refresh note, still applicable: task `doc-taxonomy-and-templates` was approved,
-started, implemented, and marked `implemented` in `change.yaml` — each of those
-transitions edits `change.yaml`, which is one of the fingerprint's hashed inputs (see
-`references/review-policy.md` § "Deterministic review freshness"), so the stored
-fingerprint went stale even though no task/area/overview *content* changed.
-`overview.md`, `owner-decisions.md`, every file under `areas/`, and every file under
-`tasks/` were re-read in full this run and are byte-for-byte unchanged from the
-baseline. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` both still
-pass. F1 remains `resolved`, F2 remains `still-present` (`NON_BLOCKING`, does not gate).
+`owner-decisions.md` gained D6, recording the owner's choice (via an explicit
+in-conversation menu) between two options for fixing (1): route through
+`docs/ai/task-routing.md`/`change-impact-map.md` (chosen) versus restoring a `scope`
+field on the migrated docs. This is not one of `AGENTS.md`'s owner-approval-gated
+categories (it doesn't touch public API, package dependencies, transaction semantics,
+etc.), so the fuller `references/solution-option-analysis.md` procedure wasn't
+required — D6 still records it for the same traceability D1–D5 provide.
 
 ## Verdict
 
-`ready-for-approval` — the prior run's only unresolved finding (F1, a missing task
-dependency edge) is now resolved; no `AUTO_FIX`, `OWNER_DECISION`, or
-`NEEDS_CLARIFICATION` finding remains. Tasks are not yet `approved` in `change.yaml`, so
-implementation is not yet allowed.
+`ready-for-approval` — task 17 is well-formed (see findings below) and no unresolved
+`AUTO_FIX`/`OWNER_DECISION`/`NEEDS_CLARIFICATION` finding remains. Tasks 1–16 remain
+`implemented`; task 17 is `draft`, so implementation is not yet allowed for it.
 
 ## Implementation readiness *(spec review only)*
 
 - May implementation start now? no
-- Are the relevant tasks `approved` in `change.yaml`? no, all 16 tasks are currently
-  `status: draft`
-- What has to happen first? Nothing blocking remains — run `/nevo-ai:spec-approve` for
-  the first ready task.
+- Are the relevant tasks `approved` in `change.yaml`? no — tasks 1–16 are `implemented`
+  (terminal), task 17 is `draft`.
+- What has to happen first? Nothing blocking remains for task 17 — run
+  `/nevo-ai:spec-approve nevo-documentation-architecture post-implementation-doc-fixes`.
 
 ## Findings
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | resolved | Task `entry-points-and-navigation-hub`'s `depends_on` list transitively includes every task that produces a file the task must link | Now true — `change.yaml` was edited since the baseline review: `entry-points-and-navigation-hub`'s `depends_on` now explicitly lists `development-testing-strategy-and-contributing` alongside the 5 usage tasks | Re-read `change.yaml` this run: task `entry-points-and-navigation-hub` (order 14) `depends_on` is now `[development-testing-strategy-and-contributing, usage-quickstart-and-choosing-packages, usage-commands-and-events, usage-cross-service-and-inbox-outbox, usage-authorization-and-troubleshooting, usage-example-app-walkthrough-migration]` — task 6 is present, closing the gap the baseline review flagged | `specs/active/nevo-documentation-architecture/change.yaml` (task `entry-points-and-navigation-hub`'s `depends_on`) |
-| F2 | NON_BLOCKING | still-present | Task `usage-example-app-walkthrough-migration`'s `depends_on` entries are each load-bearing for its own required context or acceptance criteria | Its `depends_on: [package-reference-migration-and-trim]` still doesn't correspond to anything in its required context or implementation constraints — the task neither reads nor links `docs/reference/packages/**` | Re-read `tasks/13-usage-example-app-walkthrough-migration.md` in full this run: unchanged from the baseline review — required context is only `docs/guides/example-app-walkthrough.md` and `areas/05-usage-guides.md`; no package-reference file is referenced anywhere in the task body | `specs/active/nevo-documentation-architecture/tasks/13-usage-example-app-walkthrough-migration.md` |
-| F3 | INFORMATIONAL | — | — | Gating validation: passed — `node tools/specs.mjs validate` reports "Validated 5 changes — no errors," `node tools/docs.mjs validate` reports "Validated 43 documents — no errors" | Command output, this run | — |
-| F4 | INFORMATIONAL | — | — | Non-gating repository check: failed, expected — `node tools/specs.mjs check` and `node tools/docs.mjs check` both report stale generated indexes (`specs/active.generated.md`, `specs/archive.generated.md`, `specs/index.generated.json`, `docs/index.generated.md`); this change's directory is newly created and untracked and `generate` has not yet been run for it — unrelated to this spec's readiness, does not affect the verdict | Command output, this run | — |
-| F5 | INFORMATIONAL | — | — | All 5 owner-approval-gated decisions (D1–D5 in `owner-decisions.md`) contain a real option analysis — at least two meaningfully different options with trade-offs, not a single proposed approach | Re-read `owner-decisions.md` in full this run: unchanged from baseline, each of D1–D5 has an "Options considered" list with 2–3 entries and a stated rationale/consequence | `specs/active/nevo-documentation-architecture/owner-decisions.md` |
-| F6 | INFORMATIONAL | — | — | Task write-scope (`allowed_paths`) does not overlap between any two tasks eligible to run in parallel (tasks 2–7 sharing only dependency on task 1; tasks 9–13 sharing only dependency on task 8) | Re-checked each task's `allowed_paths`/`forbidden_paths` pairwise within both parallel groups this run — unchanged, no two tasks in the same group claim the same file | `specs/active/nevo-documentation-architecture/tasks/02-*.md` through `07-*.md`, `09-*.md` through `13-*.md` |
-
-No baseline finding was reported as `resolved` here while still feeding the verdict
-table — F1's `resolved` lifecycle is reflected in `unresolved_required_fixes: 0` above.
+| F1 | AUTO_FIX | resolved | (baseline finding, task 14 `depends_on`) | Still resolved — `change.yaml` unchanged in the relevant task's `depends_on` since the prior review | Re-read `change.yaml` this run: `entry-points-and-navigation-hub`'s `depends_on` still includes `development-testing-strategy-and-contributing` | `specs/active/nevo-documentation-architecture/change.yaml` |
+| F2 | NON_BLOCKING | still-present | Task `usage-example-app-walkthrough-migration`'s `depends_on` entries are each load-bearing | Unchanged — still depends on `package-reference-migration-and-trim` without referencing `docs/reference/packages/**` anywhere in its body | Re-read `tasks/13-usage-example-app-walkthrough-migration.md` this run: unchanged from prior review | `specs/active/nevo-documentation-architecture/tasks/13-usage-example-app-walkthrough-migration.md` |
+| F7 | INFORMATIONAL | first-review | — | Task 17's `depends_on: [final-cross-link-and-validation]` is satisfied — that task's status is `implemented` (terminal), so task 17 is dependency-ready for approval | Read `change.yaml`: `final-cross-link-and-validation` status is `implemented` | `specs/active/nevo-documentation-architecture/change.yaml` |
+| F8 | INFORMATIONAL | first-review | — | Task 17's `allowed_paths`/`forbidden_paths` are precise: exactly the 2 files it's meant to touch (`docs/ai/how-to-navigate.md`, `docs/development/transaction-model.md`) are allowed; every sibling `docs/development/*.md`, `docs/reference/packages/**`, `docs/usage/**`, `docs/project/**`, `docs/decisions/**`, the other 4 `docs/ai/*.md` files, `AGENTS.md`, and `README.md` are explicitly forbidden | Read `tasks/17-post-implementation-doc-fixes.md` in full this run | `specs/active/nevo-documentation-architecture/tasks/17-post-implementation-doc-fixes.md` |
+| F9 | INFORMATIONAL | first-review | — | D6 in `owner-decisions.md` records a real two-option choice with a stated rationale, consistent with D1–D5's shape, for a decision that isn't actually gated by `AGENTS.md` | Read `owner-decisions.md` D6 in full this run | `specs/active/nevo-documentation-architecture/owner-decisions.md` |
+| F10 | INFORMATIONAL | — | — | Gating validation: passed — `node tools/specs.mjs validate` reports "Validated 5 changes — no errors," `node tools/docs.mjs validate` reports "Validated 59 documents — no errors" | Command output, this run | — |
 
 ## Acceptance-criteria coverage
 
-- All 16 tasks state acceptance criteria that resolve to a mechanical check
-  (`node tools/docs.mjs validate`/`find`) plus a small number of explicitly
-  spot-checked textual criteria (e.g. absence of process-narration phrasing) — the
-  spot-check nature is stated openly in `areas/04-package-reference.md`'s own
-  acceptance criteria, not hidden as if fully mechanical. Testable as written.
-- Task dependency correctness: now fully met. Tracing `change.yaml`'s `depends_on`
-  graph confirms every task's stated required-context files are produced by a
-  transitive dependency before that task runs, including `entry-points-and-navigation-hub`
-  needing all of `docs/development/*` (now reachable via task 6) before linking it.
+Task 17's 3 acceptance criteria are testable: 2 are textual/behavioral (no longer
+instructs `find --scope`; no longer reads as a live link) in the same spot-checked
+style already used throughout this spec (e.g. "no process-narration phrasing"), and 1
+is fully mechanical (`node tools/docs.mjs validate`).
 
 ## Architecture and documentation
 
-- No conflict found between this spec and `docs/architecture/`'s current content —
-  unchanged from the baseline review's assessment.
-- No new ADR is introduced or required — this change relocates and consolidates
-  documentation content and corrects factual drift; D1–D5 in `owner-decisions.md`
-  remain this repository's decision-record mechanism for the relevant choices.
-- Every significant concept this change touches is still assigned exactly one
-  authoritative home in `overview.md`'s target tree, unchanged from the baseline
-  review.
+No new ADR needed — this is a documentation-accuracy fix within the same change, not a
+new architectural decision. D6 is recorded per the same convention as D1–D5.
 
 ## Documents reviewed
 
-`change.yaml`, `overview.md`, `owner-decisions.md`, all 6 files under `areas/`, all 16
-files under `tasks/`.
+`change.yaml`, `overview.md`, `owner-decisions.md` (including new D6), all 6 files
+under `areas/`, all 17 files under `tasks/` (including new task 17).
