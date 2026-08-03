@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: a4efc62e7c74d2d693121aa97f81caa26b08f8879524fffa0b6545a10ec83164
+spec_fingerprint: 8635cffe08ffbcdd4ccd7169f58febbf1548e5e5d91d6b8320a5fab3649a49cc
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,10 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `development-testing-strategy-and-contributing` was approved,
-started, implemented, and marked `implemented` in `change.yaml` since the last refresh —
-same mechanical cause as before. No task/area/overview/owner-decisions *content*
-changed. Area `maintainer-documentation` (tasks 2-6) is now fully implemented.
+Refreshed again: task `known-issues-consolidation` was approved, started, implemented,
+and marked `implemented` in `change.yaml` since the last refresh — same mechanical cause
+as before. No task/area/overview/owner-decisions *content* changed. Areas
+`maintainer-documentation` and `known-issues` are now fully implemented.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same
