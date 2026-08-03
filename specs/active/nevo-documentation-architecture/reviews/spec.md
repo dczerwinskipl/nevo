@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 16d809d8baeac66cc8a13ccb6f6db5966e310c89b496a26afe34dfa347be517a
+spec_fingerprint: 2c9a9ffabcd4f835b5f307fb8ad760923a8c2f217f190009b62c9c37b96ce373
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,14 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `development-transactions-and-failure-semantics` was approved,
-started, implemented, and marked `implemented` in `change.yaml` since the last refresh —
-same mechanical cause as before. No task/area/overview/owner-decisions *content*
-changed.
+Refreshed again: task `development-extension-points-and-transport-persistence` was
+approved, started, implemented, and marked `implemented` in `change.yaml` since the last
+refresh — same mechanical cause as before. No task/area/overview/owner-decisions
+*content* changed.
+
+Prior refresh: task `development-transactions-and-failure-semantics` was approved,
+started, implemented, and marked `implemented` in `change.yaml` — same mechanical cause.
+No task/area/overview/owner-decisions *content* changed.
 
 Prior refresh: task `development-core-pipeline-docs` was approved, started,
 implemented, and marked `implemented` in `change.yaml` — same mechanical cause. No
