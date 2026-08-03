@@ -75,7 +75,7 @@ tasks:
   - id: usage-cross-service-and-inbox-outbox
     order: 11
     file: tasks/11-usage-cross-service-and-inbox-outbox.md
-    status: draft
+    status: approved
     depends_on:
       - package-reference-migration-and-trim
       - development-inbox-outbox-eventsourcing-orchestration

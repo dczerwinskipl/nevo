@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: bb8cbe1fc8496a5517a40997fc0b891a2257446972729aa7c5f6851eb42782f7
+spec_fingerprint: d92497b284869d91d50a0925873685a7ae2975c846c27dddb8a693c7b95f6402
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,9 +20,9 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `usage-quickstart-and-choosing-packages` was approved, started,
-implemented, and marked `implemented` in `change.yaml` since the last refresh — same
-mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
+Refreshed again: task `usage-commands-and-events` was approved, started, implemented,
+and marked `implemented` in `change.yaml` since the last refresh — same mechanical
+cause as before. No task/area/overview/owner-decisions *content* changed.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same
