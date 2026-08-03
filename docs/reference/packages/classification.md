@@ -5,17 +5,15 @@ title: Package classification
 status: current
 dependencies: []
 summary: >
-  Groups all 13 real src/ packages (confirmed via `dotnet sln NEvo.sln list`) into
-  functional categories, as the entry point for the per-package documentation under
-  docs/packages/.
+  Groups all 13 real src/ packages into functional categories, as the entry point for
+  the per-package documentation under docs/reference/packages/.
 ---
 
 # Package classification
 
-Confirmed against `dotnet sln NEvo.sln list` — the 13 packages under `src/`, not the
-`examples/ExampleApp/*` projects. See
-[Package boundaries](../architecture/package-boundaries.md) for the dependency graph
-these groups are drawn from.
+The 13 packages under `src/` (not the `examples/ExampleApp/*` projects). See
+`docs/development/package-boundaries.md` for the dependency graph these groups are
+drawn from.
 
 ## Core primitives
 
@@ -72,7 +70,6 @@ these groups are drawn from.
 
 ## Individual package docs
 
-Every package listed above has its own doc under `docs/packages/` (using the `package`
-doc type and [the package-doc template](../templates/package-doc-template.md)) — click
-through from the tables above, or see [the navigation hub](../README.md#packages) for
-the full list with one-line descriptions.
+Every package listed above has its own doc under `docs/reference/packages/` (using the
+`package` doc type and `docs/templates/package-doc-template.md`) — click through from
+the tables above, or see `docs/README.md` for the full navigation hub.

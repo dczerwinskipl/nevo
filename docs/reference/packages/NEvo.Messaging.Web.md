@@ -21,6 +21,17 @@ directions: dispatching messages to *other* services over REST
 (`RestExternalMessageDispatchStrategy`), and exposing HTTP endpoints so *this* service
 can receive messages/commands (`RoutesExtensions`).
 
+## When to use
+
+Whenever a service needs to dispatch commands to another NEvo-based service over HTTP,
+or expose its own message/command endpoints. See `docs/usage/cross-service-messaging.md`
+for the task-oriented walkthrough.
+
+## When not to use
+
+For purely internal (in-process) messaging with no cross-service HTTP dispatch, this
+package isn't needed — use `NEvo.Messaging`/`NEvo.Messaging.Cqrs` directly.
+
 ## Responsibilities
 
 - Dispatch a message externally over REST when configured to do so
@@ -34,10 +45,11 @@ can receive messages/commands (`RoutesExtensions`).
 
 ## Dependencies
 
-Depends on `NEvo.Messaging`, `NEvo.Messaging.Cqrs`, and `NEvo.Web` — confirmed against
-`src/NEvo.Messaging.Web/NEvo.Messaging.Web.csproj`'s 4 `ProjectReference` entries (the
-4th, `NEvo.Core`, is redundant/already reachable via `NEvo.Messaging` — not drawn as a
-separate edge in `docs/architecture/package-boundaries.md`).
+Depends on `NEvo.Messaging`, `NEvo.Messaging.Cqrs`, and `NEvo.Web` — see
+`src/NEvo.Messaging.Web/NEvo.Messaging.Web.csproj`'s `ProjectReference` entries (a
+redundant direct reference to `NEvo.Core` is also present but not drawn as a separate
+edge in `docs/development/package-boundaries.md` since it's already transitively
+reachable via `NEvo.Messaging`).
 
 **This is the one documented exception to `package-boundaries.md` rule 4** ("messaging
 extension packages depend on `NEvo.Messaging` but not on each other") — this package
@@ -94,33 +106,19 @@ app.MapMessagesEndpoints();
 app.MapCommandEndpoint<CreateOrder>("/api/orders");
 ```
 
-## Basic usage
-
-See "Configuration" — registration and route mapping are this package's primary usage
-surface; there is no additional runtime API a handler author interacts with directly.
-
-## Advanced usage
-
-No advanced usage beyond configuring which message types are externally routed (via the
-`messages` parameter to `AddRestMessageDispatcher`) is documented yet.
+See `docs/usage/cross-service-messaging.md` for the full end-to-end walkthrough.
 
 ## Limitations
 
-- `AddRestMessageDispatcher`'s single-argument overload has a `// TODO: make it more
-  like builder` comment in source — the configuration API may change shape in a future
-  change.
-- `MapMessagesEndpoints`'s dispatch handler has a `// TODO - read headers from envelope`
-  comment — header propagation from the incoming envelope into the message context is
-  incomplete.
+- `AddRestMessageDispatcher`'s single-argument overload's configuration API may change
+  shape in a future revision (currently a delegate, may move to a builder pattern).
+- `MapMessagesEndpoints`'s dispatch handler does not yet propagate headers from the
+  incoming envelope into the message context.
 - `MapCommandEndpoint`'s success/failure branches currently write to `Console.WriteLine`
   — no structured logging.
-- Both `MapMessagesEndpoints` and `MapCommandEndpoint` map **every** `Either.Left`
-  (any exception, including a permission-denied failure from
-  `NEvo.Messaging.Authorization`) to the same generic `Results.Problem(statusCode:
-  500)` — there is no error-type-aware status mapping (e.g. `403` for authorization
-  failures, `400` for validation). See
-  [`NEvo.Messaging.Authorization.md`](NEvo.Messaging.Authorization.md) § "What happens
-  when validation fails" for a concrete case.
+- Both `MapMessagesEndpoints` and `MapCommandEndpoint` map **every** `Either.Left` to
+  the same generic HTTP 500 — see `docs/project/known-issues.md` § "Authorization
+  surfaces a generic HTTP 500, not 403" for the concrete authorization-failure case.
 
 ## Related packages
 

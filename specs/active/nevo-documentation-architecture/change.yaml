@@ -53,7 +53,7 @@ tasks:
   - id: package-reference-migration-and-trim
     order: 8
     file: tasks/08-package-reference-migration-and-trim.md
-    status: approved
+    status: implemented
     depends_on:
       - development-core-pipeline-docs
       - development-transactions-and-failure-semantics

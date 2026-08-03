@@ -19,8 +19,20 @@ summary: >
 (`IUserProvider<TId>`, `IRoleProvider<TRoleDataScope>`, `IPermissionProvider
 <TRoleDataScope>`). It is a claims-adapter, not middleware — it contains no
 `IMiddleware`/`RequestDelegate`/pipeline registration; every real class here is a
-DI-registered provider (confirmed by `grep -r "IMiddleware\|RequestDelegate"
-src/NEvo.Web.Authorization/` — no matches).
+DI-registered provider.
+
+## When to use
+
+Whenever a service authenticates users via ASP.NET Core claims (cookies, JWT bearer,
+etc.) and needs those claims adapted into `NEvo.Authorization`'s provider
+abstractions — typically alongside `NEvo.Messaging.Authorization`. See
+`docs/usage/authorization.md` for the full end-to-end walkthrough.
+
+## When not to use
+
+If your user/role/permission source isn't ASP.NET Core claims (e.g. a custom identity
+store), implement `NEvo.Authorization`'s provider interfaces directly instead of
+adapting through this package.
 
 ## Responsibilities
 
@@ -34,10 +46,10 @@ src/NEvo.Web.Authorization/` — no matches).
 
 ## Dependencies
 
-Depends only on `NEvo.Authorization` — confirmed directly against
+Depends only on `NEvo.Authorization` — see
 `src/NEvo.Web.Authorization/NEvo.Web.Authorization.csproj`'s single `ProjectReference`
-and against `docs/architecture/package-boundaries.md`. **This package does not depend
-on `NEvo.Web`, despite the name.**
+and `docs/development/package-boundaries.md`. **This package does not depend on
+`NEvo.Web`, despite the name.**
 
 ## Public surface
 
@@ -80,9 +92,9 @@ there's no authenticated user — never throws for the unauthenticated case.
 
 `ClaimUserProvider<TId>.GetUser()` reads the `sub` (id) and `name` claims and builds a
 `User<TId>`; `ToUser` is `protected virtual` — override it to change the claim-to-user
-mapping (see "Advanced usage"). `ClaimRoleProvider<T>.GetRoles()` reads `role` claims and
-JSON-deserializes each into a `Role<T>` (invalid/unparsable role claims are silently
-skipped, not thrown).
+mapping. `ClaimRoleProvider<T>.GetRoles()` reads `role` claims and JSON-deserializes
+each into a `Role<T>` (invalid/unparsable role claims are silently skipped, not
+thrown).
 
 ## Configuration
 
@@ -96,44 +108,10 @@ must register it separately (`UserClaimsProvider` takes a constructor-injected
 `IHttpContextAccessor`; without it registered, DI resolution fails at first use, not at
 registration time).
 
-## Basic usage
-
-```csharp
-builder.Services.AddAuthorization();
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddClaimsAuthorization<Guid, RoleDataScope>();
-```
-
-Consuming a registered provider:
-
-```csharp
-public class MyEndpoint(IUserProvider<Guid> userProvider)
-{
-    public IResult Handle()
-        => userProvider.GetUser().Match(
-            Some: user => Results.Ok(user),
-            None: () => Results.Unauthorized()
-        );
-}
-```
-
-## Advanced usage
-
-Override `ClaimUserProvider<TId>.ToUser` to change how a `User<TId>` is built from
-claims (e.g. a different id/name claim type):
-
-```csharp
-public class MyUserProvider(IUserClaimsProvider claimsProvider) : ClaimUserProvider<Guid>(claimsProvider)
-{
-    protected override Option<User<Guid>> ToUser(IEnumerable<Claim> claims)
-        => claims.GetClaimValue<Guid>("custom_id")
-            .Map(id => new User<Guid>(id, "unknown"));
-}
-```
-
-Register the override in place of the default with `services.AddScoped<IUserProvider
-<Guid>, MyUserProvider>()` after calling `AddClaimsAuthorization` (the default
-registration uses `TryAddScoped`, so an explicit `AddScoped` call after it wins).
+Overriding the default user-mapping (`ClaimUserProvider<TId>.ToUser`) requires
+registering your own subclass in place of the default (the default registration uses
+`TryAddScoped`, so an explicit `AddScoped` call after `AddClaimsAuthorization` wins) —
+see `docs/usage/authorization.md` for a worked example.
 
 ## Limitations
 

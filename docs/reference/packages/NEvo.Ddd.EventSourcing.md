@@ -15,9 +15,9 @@ summary: >
 # NEvo.Ddd.EventSourcing
 
 **Status: experimental and in progress.** Carried from
-[Event sourcing](../architecture/event-sourcing.md)'s (`architecture.event-sourcing`)
-front matter — this module should not drive refactoring of other modules, and its
-current implementation should be protected with characterization tests before changes.
+`docs/development/event-sourcing.md`'s front matter — this module should not drive
+refactoring of other modules, and its current implementation should be protected with
+characterization tests before changes.
 
 ## Purpose
 
@@ -27,6 +27,16 @@ of domain events; an **evolver** folds events into aggregate state. Commands are
 adapted into the standard `NEvo.Messaging` handler pipeline, so dispatch goes through
 the same `ICommandDispatcher`/`IMessageProcessor` path as any other command (see
 [`NEvo.Messaging.Cqrs.md`](NEvo.Messaging.Cqrs.md)).
+
+## When to use
+
+Experimental — only for exploratory work on event-sourced aggregates, not production
+use. See `docs/development/event-sourcing.md` before starting any change here.
+
+## When not to use
+
+For any production or stable use case. The default event store is non-functional (see
+"Limitations") and this module is explicitly not meant to drive refactoring elsewhere.
 
 ## Responsibilities
 
@@ -46,11 +56,12 @@ the same `ICommandDispatcher`/`IMessageProcessor` path as any other command (see
 
 ## Dependencies
 
-Depends on `NEvo.Messaging.Cqrs` (and transitively `NEvo.Messaging`) — confirmed
-against `src/NEvo.Ddd.EventSourcing/NEvo.Ddd.EventSourcing.csproj`'s 2
-`ProjectReference` entries. This ties event sourcing to the CQRS/messaging layer; per
-[Event sourcing](../architecture/event-sourcing.md), whether this dependency should
-be removable is an open question for a future specification, not decided.
+Depends on `NEvo.Messaging.Cqrs` (and transitively `NEvo.Messaging`) — see
+`src/NEvo.Ddd.EventSourcing/NEvo.Ddd.EventSourcing.csproj`'s `ProjectReference` entries.
+This ties event sourcing to the CQRS/messaging layer; per
+`docs/development/package-boundaries.md` § "Known unresolved decisions", whether this
+dependency should be removable is an open question for a future specification, not
+decided.
 
 ## Public surface
 
@@ -125,71 +136,27 @@ builder.Services.AddEventSourcing(typeof(MyAggregate), typeof(MyOtherAggregate))
 default `IEventStore`. See "Limitations" before relying on that default for anything
 real.
 
-**`IEvolver`/`AggregateEvolver` is not registered by `AddEventSourcing` at all** —
-source has a bare `// evolvers?` comment where that wiring would go. If your own event
-store implementation needs evolving (most will, to rebuild aggregate state from a
-stored event stream), you must register `IEvolver` yourself.
-
-## Basic usage
-
-Adapted from `tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs` — a real fixture
-in this repository's own test suite, not a hypothetical:
-
-```csharp
-public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
-{
-    public Guid Id { get; set; } = id;
-    public string Data { get; set; } = data;
-
-    public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
-        => new[] { new DocumentCreated(command.DocumentId, command.Data) };
-
-    public static Document Apply(DocumentCreated @event)
-        => new EditableDocument(@event.DocumentId, @event.Data);
-}
-
-public class EditableDocument(Guid id, string data) : Document(id, data)
-{
-    public Either<Exception, IEnumerable<DocumentDomainEvent>> Change(ChangeDocument command)
-        => new[] { new DocumentChanged(Id, command.Data) };
-
-    public Document Apply(DocumentChanged @event) => new EditableDocument(Id, @event.Data);
-}
-```
-
-Note that evolving can change the aggregate's runtime type (`Document` →
-`EditableDocument` on creation) — the state machine is expressed through the type
-hierarchy, not just field mutation.
-
-## Advanced usage
-
-No advanced usage beyond the above is documented yet.
+**`IEvolver`/`AggregateEvolver` is not registered by `AddEventSourcing` at all.** If
+your own event store implementation needs evolving (most will, to rebuild aggregate
+state from a stored event stream), you must register `IEvolver` yourself.
 
 ## Limitations
 
 - **The default `IEventStore` registered by `AddEventSourcing` is a non-functional
-  stub.** `ServiceCollectionExtensions.cs` defines and registers `FakeEventStore`:
-  `AppendEventsAsync` does nothing and reports success; `LoadAggregateAsync` and
-  `LoadProjectionAsync` always return "not found" (`None`). Nothing is actually
-  persisted. This is registered via `TryAddScoped`, so a consumer *can* override it by
-  registering a real `IEventStore` implementation first — but no real implementation
-  ships anywhere in this repository today (confirmed: no other class implements
-  `IEventStore` in `src/`). Using `AddEventSourcing()` as-is silently discards every
-  event.
+  stub** that silently discards every event — see `docs/project/known-issues.md` § "The
+  default event store is a non-functional stub". Registered via `TryAddScoped`, so a
+  consumer *can* override it, but no real implementation ships anywhere in this
+  repository today.
 - **`IEvolver` is not wired up by `AddEventSourcing`** — see "Configuration". The
-  "decidable pattern" (decide → evolve) described in the architecture doc is not fully
-  wired end-to-end by this package's own DI helper.
-- **`AggregateEvolver`'s evolver map is a `static` field**, lazily built via `??=` from
-  whichever instance is constructed first with its `aggregateTypes` array. Constructing
-  a second `AggregateEvolver` with a *different* set of aggregate types does **not**
-  rebuild the map — it silently keeps the first instance's set (source even has a
-  `// TODO: add DI with some registry?` comment acknowledging this). Only construct one
-  `AggregateEvolver` per process, covering every aggregate type you need.
-- Per [Event sourcing](../architecture/event-sourcing.md) § "What is not yet
-  specified": concurrency control, snapshot support, event schema versioning,
-  projection rebuild strategy, and whether an EF-backed event store is even intended
-  are all open questions — this doc doesn't resolve them, consistent with that
-  architecture doc.
+  "decidable pattern" (decide → evolve) is not fully wired end-to-end by this package's
+  own DI helper.
+- **`AggregateEvolver`'s evolver map does not rebuild across instances** — see
+  `docs/project/known-issues.md` § "`AggregateEvolver`'s evolver map does not rebuild
+  across instances". Only construct one `AggregateEvolver` per process.
+- Per `docs/development/event-sourcing.md` § "Known unresolved decisions": concurrency
+  control, snapshot support, event schema versioning, projection rebuild strategy, and
+  whether an EF-backed event store is even intended are all open questions this doc
+  doesn't resolve.
 
 ## Related packages
 
@@ -200,7 +167,9 @@ No advanced usage beyond the above is documented yet.
 ## Examples and tests
 
 - `tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs`,
-  `DocumentCommands.cs`, `DocumentEvents.cs` — the decide/evolve example used above.
+  `DocumentCommands.cs`, `DocumentEvents.cs` — a decide/evolve example, used as the
+  domain fixture for this package's own test suite (and reused directly by the example
+  app — see `docs/usage/example-app-walkthrough.md`).
 - `tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderTests.cs`,
   `Deciding/DeciderCommandHandlerTests.cs`, `Evolving/AggregateEvolverTests.cs`,
   `AggregateDeciderEvolverIntegrationTests.cs` — the primary coverage for this

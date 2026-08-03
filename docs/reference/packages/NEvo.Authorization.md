@@ -19,8 +19,19 @@ summary: >
 `IRoleProvider<T>`, `IPermissionProvider<T>`) and data model (`User<T>`, `Role<T>`,
 `Permission<T>`, `AuthDataScope`) that concrete, transport-specific packages implement.
 It has no knowledge of HTTP or messaging — those concerns live in
-[`NEvo.Web.Authorization`](NEvo.Web.Authorization.md) and `NEvo.Messaging.Authorization`
-respectively.
+[`NEvo.Web.Authorization`](NEvo.Web.Authorization.md) and
+[`NEvo.Messaging.Authorization`](NEvo.Messaging.Authorization.md) respectively.
+
+## When to use
+
+As the shared abstraction layer whenever you need role/permission modeling independent
+of transport — most consumers reach it indirectly through `NEvo.Web.Authorization` or
+`NEvo.Messaging.Authorization` rather than implementing its interfaces directly.
+
+## When not to use
+
+If you don't need authorization at all, skip this package and its dependents entirely
+— nothing else in NEvo requires it.
 
 ## Responsibilities
 
@@ -36,8 +47,8 @@ respectively.
 
 ## Dependencies
 
-Depends only on `NEvo.Core` — confirmed against
-`src/NEvo.Authorization/NEvo.Authorization.csproj`'s single `ProjectReference`.
+Depends only on `NEvo.Core` — see `src/NEvo.Authorization/NEvo.Authorization.csproj`'s
+single `ProjectReference`.
 
 ## Public surface
 
@@ -83,7 +94,8 @@ public interface IPermissionMapper<T> where T : AuthDataScope
 `PermissionProvider<T>` (the default `IPermissionProvider<T>`) takes an
 `IEnumerable<IPermissionMapper<T>>` and, for each role, applies every mapper whose
 `CanMapRole` returns true — a consumer's own domain defines the actual role→permission
-rules by implementing `IPermissionMapper<T>`, not this package.
+rules by implementing `IPermissionMapper<T>`, not this package. Multiple mappers can be
+registered together and combined for a single role.
 
 `PermissionExtensions` provides wildcard-aware data-scope string matching
 (`"*".AllowedForAll()`, `value.AllowedFor(other)`) — a convention for `AuthDataScope`
@@ -96,28 +108,6 @@ implementations of the three provider interfaces — most commonly via
 [`NEvo.Web.Authorization`](NEvo.Web.Authorization.md)'s `AddClaimsAuthorization<TId,
 TRoleDataScope>()`, which registers `PermissionProvider<TRoleDataScope>` (this
 package's own implementation) alongside its own `IUserProvider`/`IRoleProvider`.
-
-## Basic usage
-
-```csharp
-public record TenantDataScope(string TenantId) : AuthDataScope;
-
-public class OrderPermissionMapper : IPermissionMapper<TenantDataScope>
-{
-    public bool CanMapRole(Role<TenantDataScope> role) => role.Name == "OrderManager";
-    public IEnumerable<IPermission> MapRole(Role<TenantDataScope> role)
-        => [new Permission<TenantDataScope>("orders:manage", role.DataScope)];
-}
-
-builder.Services.AddSingleton<IPermissionMapper<TenantDataScope>, OrderPermissionMapper>();
-```
-
-## Advanced usage
-
-Multiple `IPermissionMapper<T>` implementations can be registered together —
-`PermissionProvider<T>` applies every mapper whose `CanMapRole` matches a given role, so
-a single role can contribute permissions from more than one mapper (e.g. a shared
-"read-only" mapper plus a role-specific mapper).
 
 ## Limitations
 

@@ -17,8 +17,18 @@ summary: >
 
 `NEvo.Messaging.EntityFramework` provides `IMessageInbox`/`IMessageOutbox`
 implementations backed by EF Core, for the opt-in idempotency/transactional-publishing
-patterns described in
-[Inbox and outbox](../architecture/inbox-outbox.md) (`architecture.inbox-outbox`).
+patterns described in `docs/development/inbox-outbox.md`.
+
+## When to use
+
+Whenever you need EF-Core-backed inbox idempotency or outbox transactional publishing.
+See `docs/usage/inbox-outbox.md` for the task-oriented walkthrough, including the
+manual outbox wiring step this package requires.
+
+## When not to use
+
+If your service doesn't need idempotent processing or transactional publish (see
+`docs/development/inbox-outbox.md` § "When to use"), skip this package.
 
 ## Responsibilities
 
@@ -26,13 +36,13 @@ patterns described in
   `IInboxDbContext` (`InboxProcessedMessages`, `InboxProcessedHandlers` tables).
 - `EntityFrameworkMessageOutbox` — implements `IMessageOutbox` against
   `IOutboxDbContext` (`OutboxMessages` table), including the partition-filtered query
-  path described in [Inbox and outbox](../architecture/inbox-outbox.md) § "Outbox".
+  path described in `docs/development/inbox-outbox.md` § "Outbox".
 - EF model configuration helpers (`ApplyInboxConfiguration`, `ApplyOutboxConfiguration`)
   for a consumer's `DbContext.OnModelCreating`.
 
 ## Dependencies
 
-Depends only on `NEvo.Messaging` — confirmed against
+Depends only on `NEvo.Messaging` — see
 `src/NEvo.Messaging.EntityFramework/NEvo.Messaging.EntityFramework.csproj`.
 
 ## Public surface
@@ -62,8 +72,7 @@ public static class ModelBuilderExtensions // in Configurations namespace
 
 `EntityFrameworkMessageOutbox.GetMessagesToPublishAsync` orders by `Status` then either
 `Partition`+`Order` (when a partition is specified) or just `Order` — matching
-`IMessageOutbox`'s partition parameter from
-[Inbox and outbox](../architecture/inbox-outbox.md).
+`IMessageOutbox`'s partition parameter from `docs/development/inbox-outbox.md`.
 
 ## Configuration
 
@@ -72,10 +81,9 @@ services.AddEntityFrameworkInbox<MyDbContext>(); // requires MyDbContext : IInbo
 ```
 
 **There is no `AddEntityFrameworkOutbox<TDbContext>()` counterpart** — see
-"Limitations". `ApplyInboxConfiguration`/`ApplyOutboxConfiguration` are called from your
+"Limitations" and `docs/usage/inbox-outbox.md` for the manual registration steps.
+`ApplyInboxConfiguration`/`ApplyOutboxConfiguration` are called from your
 `DbContext.OnModelCreating(ModelBuilder)`, independent of the DI registration above.
-
-## Basic usage
 
 ```csharp
 public class MyDbContext(DbContextOptions options) : DbContext(options), IInboxDbContext, IOutboxDbContext
@@ -91,34 +99,21 @@ public class MyDbContext(DbContextOptions options) : DbContext(options), IInboxD
 }
 ```
 
-## Advanced usage
-
-No advanced usage beyond the above is documented yet.
-
 ## Limitations
 
-- **No `AddEntityFrameworkOutbox<TDbContext>()` DI helper exists** — only inbox has one
-  (`ServiceCollectionExtensions.cs` defines exactly one method,
-  `AddEntityFrameworkInbox<TDbContext>`). A consumer wanting `EntityFrameworkMessageOutbox`
-  registered as `IMessageOutbox` must do so manually:
-  `services.AddScoped<IMessageOutbox, EntityFrameworkMessageOutbox>();
-  services.AddScoped<IOutboxDbContext>(sp => sp.GetRequiredService<MyDbContext>());`
-- `EntityFrameworkMessageOutbox.GetMessagesToPublishAsync` and `SaveMessageAsync` both
-  carry `// TODO` comments in source for locking (concurrent readers could race for the
-  same messages) and partitioning (`SaveMessageAsync` hardcodes partition `0`) — neither
-  is fully implemented.
-- Context-header serialization for outbox messages is marked `/* ToDo - serialize? */`
-  in source — `GetMessagesToPublishAsync` currently returns an empty
-  `MessageContextHeaders` for every message, not the headers that were present when the
-  message was saved.
+No `AddEntityFrameworkOutbox<TDbContext>()` DI helper, no locking against concurrent
+outbox readers, no real partition assignment, and no context-header preservation across
+an outbox round-trip — see `docs/project/known-issues.md` § "Outbox is missing locking,
+partitioning, and a DI helper" for the full detail and the manual registration
+workaround.
 
 ## Related packages
 
 - [`NEvo.Messaging`](NEvo.Messaging.md) — the package this one extends; provides the
   `IMessageInbox`/`IMessageOutbox` contracts implemented here.
 - [`NEvo.EntityFramework`](NEvo.EntityFramework.md) — the shared EF base package
-  (migrations, resilience). Not a direct dependency of this package (confirmed: not in
-  its `.csproj`), but thematically related.
+  (migrations, resilience). Not a direct dependency of this package (not present in its
+  `.csproj`), but thematically related.
 
 ## Examples and tests
 

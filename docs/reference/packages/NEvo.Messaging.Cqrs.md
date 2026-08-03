@@ -19,6 +19,18 @@ summary: >
 record, `ICommandHandler<TMessage>`, and `ICommandDispatcher` for explicit
 (non-reflection-triggered) dispatch.
 
+## When to use
+
+Whenever you're dispatching commands (single-handler, result-returning operations) —
+this is the standard way to add command support to a NEvo-based service. See
+`docs/usage/commands.md` for the task-oriented walkthrough.
+
+## When not to use
+
+If you only need events (multi-handler, no result), `NEvo.Messaging`'s own event
+support (`AddEvents()`) doesn't require this package. If you need query/read-side
+dispatch, this package does not provide it — see "Limitations".
+
 ## Responsibilities
 
 - Define the `Command` message type (a `Message` subclass, per
@@ -32,7 +44,7 @@ record, `ICommandHandler<TMessage>`, and `ICommandDispatcher` for explicit
 
 ## Dependencies
 
-Depends only on `NEvo.Messaging` — confirmed against
+Depends only on `NEvo.Messaging` — see
 `src/NEvo.Messaging.Cqrs/NEvo.Messaging.Cqrs.csproj`'s single `ProjectReference`.
 
 ## Public surface
@@ -74,35 +86,14 @@ builder.Services.AddCommands();   // this package
 `CommandDispatcher`, and `IMessageDispatchStrategyFactory<Command>` →
 `DefaultCommandDispatchStrategyFactory`.
 
-## Basic usage
-
-```csharp
-public record CreateOrder(string CustomerId) : Command;
-
-public class CreateOrderHandler : ICommandHandler<CreateOrder>
-{
-    public Task<Either<Exception, Unit>> HandleAsync(CreateOrder message, IMessageContext context, CancellationToken cancellationToken)
-        => UnitExt.DefaultEitherTask; // NEvo.Core
-}
-
-// dispatch:
-await commandDispatcher.DispatchAsync(new CreateOrder("customer-1"), cancellationToken);
-```
-
-## Advanced usage
-
-No advanced usage beyond the above is documented yet — dispatch-strategy customization
-(`IMessageDispatchStrategyFactory<Command>`) is possible but not covered here.
-
 ## Limitations
 
 - **Query-side support is not implemented.** The `.csproj` declares an empty
   `<Folder Include="Queries\" />` placeholder with no corresponding source under a
-  `Queries/` directory — confirmed via `find src/NEvo.Messaging.Cqrs -name "*.cs"`
-  (only `Commands/*.cs` and `GlobalUsings.cs` exist). Do not treat this package as
-  providing query dispatch, a `Query`/`IQueryHandler` type, or any read-side
-  abstraction — none exist yet.
-- Command handler resolution still follows `NEvo.Messaging`'s single-handler rule for
+  `Queries/` directory — only `Commands/*.cs` and `GlobalUsings.cs` exist. Do not treat
+  this package as providing query dispatch, a `Query`/`IQueryHandler` type, or any
+  read-side abstraction — none exist yet.
+- Command handler resolution follows `NEvo.Messaging`'s single-handler rule for
   commands (see [`NEvo.Messaging.md`](NEvo.Messaging.md) § Limitations).
 
 ## Related packages

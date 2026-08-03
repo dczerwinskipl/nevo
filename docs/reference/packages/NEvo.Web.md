@@ -20,6 +20,17 @@ configured client instances, pluggable authentication, and a REST convenience ba
 class. It is an **outbound HTTP client library**, not ASP.NET Core middleware or
 routing — every real source file is under `Client/`.
 
+## When to use
+
+Whenever a service needs to make outbound HTTP calls with named/configured clients,
+optionally with OAuth client-credentials authentication.
+
+## When not to use
+
+For inbound HTTP (exposing your own endpoints), this package is not relevant — see
+[`NEvo.Messaging.Web`](NEvo.Messaging.Web.md) for message/command endpoint mapping, or
+plain ASP.NET Core routing for anything outside NEvo's messaging pipeline.
+
 ## Responsibilities
 
 - Register and configure named `HttpClient` instances (`AddHttpClientServices`,
@@ -33,8 +44,8 @@ routing — every real source file is under `Client/`.
 
 ## Dependencies
 
-Depends only on `NEvo.Core` — confirmed against
-`src/NEvo.Web/NEvo.Web.csproj`'s single `ProjectReference`.
+Depends only on `NEvo.Core` — see `src/NEvo.Web/NEvo.Web.csproj`'s single
+`ProjectReference`.
 
 ## Public surface
 
@@ -67,8 +78,7 @@ public abstract class RestClientServiceBase : HttpClientServiceBase
 `HttpClientServiceBase.SendAsync` wraps `HttpClient.SendAsync`, converting a
 non-success status code into a `Left(HttpRequestException)` and any thrown exception
 (network failure, etc.) into `Left(ex)` — a caller never needs a `try`/`catch` around
-it, per NEvo's `Either<Exception, T>` convention (see
-[`NEvo.Core.md`](NEvo.Core.md)).
+it, per NEvo's `Either<Exception, T>` convention (see [`NEvo.Core.md`](NEvo.Core.md)).
 
 ## Configuration
 
@@ -89,38 +99,23 @@ additional DI-resolved constructor parameters beyond the required
 `AddHttpClientService<TService, TClient>(name, baseAddress)` overload defaults to
 `NoAuthenticationStrategy`.
 
-## Basic usage
-
-```csharp
-public interface IMyApiClient { Task<Either<Exception, MyDto>> GetThingAsync(string id); }
-
-public class MyApiClient(IHttpClientServiceFactory factory, IOptions<HttpClientServiceConfiguration> options)
-    : RestClientServiceBase(factory, options), IMyApiClient
-{
-    public Task<Either<Exception, MyDto>> GetThingAsync(string id) => GetAsync<MyDto>($"/things/{id}");
-}
-```
-
-## Advanced usage
-
 `OAuthAuthenticationStrategy` fetches a bearer token via the OAuth2 client-credentials
 grant (`grant_type=client_credentials`) against a configured token endpoint, then sets
 it as the outbound `Authorization` header. It is itself an `HttpClientServiceBase`
 subclass — token-fetching goes through the same `SendAsync`/error-wrapping as any other
-request.
+request. It only supports the client-credentials grant — no authorization-code,
+refresh-token, or token-caching support; a token is fetched fresh on every
+`AuthenticateHttpClientAsync` call.
 
 ## Limitations
 
-- `OAuthAuthenticationStrategy` only supports the client-credentials grant — no
-  authorization-code, refresh-token, or token-caching support. A token is fetched fresh
-  on every `AuthenticateHttpClientAsync` call (no caching between requests).
-- `HttpClientServiceBase.SendAsync`'s error branch has a `// TOOD: add some extractor
-  for details of error` comment — a non-success response's body is discarded; only the
-  status code reaches the resulting `HttpRequestException` message.
-- `RestClientServiceBase.GetAsync` puts `queryParams` in the request body via
-  `FormUrlEncodedContent`, not the URL query string — this is likely unintentional
-  (`PostAsync` correctly uses `QueryHelpers.AddQueryString` for the same parameter);
-  confirm this is what you want before relying on `GetAsync` with query parameters.
+- `OAuthAuthenticationStrategy` only supports the client-credentials grant, with no
+  token caching between requests.
+- A failed response's body is discarded — see `docs/project/known-issues.md` § "A
+  failed HTTP response's body is discarded".
+- `RestClientServiceBase.GetAsync` puts `queryParams` in the request body rather than
+  the URL query string — see `docs/project/known-issues.md` § "`RestClientServiceBase.GetAsync`
+  puts query parameters in the request body" before relying on it.
 
 ## Related packages
 

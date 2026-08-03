@@ -13,9 +13,8 @@ summary: >
 
 # NEvo.Orchestrating
 
-**Status: experimental.** Carried from `docs/architecture/orchestration.md`'s front
-matter — do not treat this package as more stable or complete than that doc (and this
-one) document.
+**Status: experimental.** Carried from `docs/development/orchestration.md`'s front
+matter — do not treat this package as more stable or complete than that document.
 
 ## Purpose
 
@@ -23,6 +22,20 @@ one) document.
 compensation (undo, in reverse order) of already-completed steps if a later step fails.
 It is deliberately independent of `NEvo.Messaging` — orchestration here is a standalone
 state machine, not a messaging pattern.
+
+## When to use
+
+Experimental — only for exploratory work on multi-step, compensable workflows, not
+production use. See `docs/development/orchestration.md` before starting any change
+here. No state persistence exists today (see "Limitations"), so anything beyond an
+in-process, single-run orchestration isn't usable as shipped.
+
+## When not to use
+
+For any production or resumable-across-restarts use case — no working
+`IOrchestratorStateRepository` implementation exists (see "Limitations"). For simple
+sequential operations without compensation semantics, plain code is simpler than
+adopting this package.
 
 ## Responsibilities
 
@@ -40,20 +53,18 @@ state machine, not a messaging pattern.
 
 ## Dependencies
 
-Depends only on `NEvo.Core` (verified directly against
-`src/NEvo.Orchestrating/NEvo.Orchestrating.csproj`'s `ProjectReference`, and against
-`docs/architecture/package-boundaries.md`). No dependency on `NEvo.Messaging` or any
-other NEvo package — this is rule 3 of
-`package-boundaries.md`: *"`NEvo.Orchestrating` depends only on `NEvo.Core` —
-orchestration does not require messaging."*
+Depends only on `NEvo.Core` — see `src/NEvo.Orchestrating/NEvo.Orchestrating.csproj`'s
+`ProjectReference` and `docs/development/package-boundaries.md`. No dependency on
+`NEvo.Messaging` or any other NEvo package — this is rule 3 of `package-boundaries.md`:
+*"`NEvo.Orchestrating` depends only on `NEvo.Core` — orchestration does not require
+messaging."*
 
 `NEvo.Orchestrating.EntityFramework` depends on `NEvo.Orchestrating` (not the reverse) —
 see "Related packages" below.
 
 ## Public surface
 
-Signatures below are copied directly from `src/NEvo.Orchestrating/*.cs`, not
-paraphrased.
+Grounded directly in `src/NEvo.Orchestrating/*.cs`.
 
 ### Defining an orchestration
 
@@ -72,7 +83,7 @@ public interface IOrchestratorStep<TData>
 ```
 
 `Either<Exception, Unit>` is `LanguageExt`'s functional error type — the same convention
-used throughout NEvo (see `docs/architecture/overview.md` § "Design philosophy").
+used throughout NEvo (see [`NEvo.Core.md`](NEvo.Core.md)).
 
 ### Running an orchestration
 
@@ -142,7 +153,8 @@ runs `CompensateAsync` for previously-executed steps in reverse order.
 `LockAsync`s the state via `IOrchestratorStateRepository`, runs the inner executor, then
 `SaveAsync`s the result — wrapped in a `TransactionScope`. Supplying
 `PersistentStepExecutor` (instead of the plain `StepExecutor`) to `OrchestrationRunner`
-is what makes per-step progress resumable.
+is what makes per-step progress resumable, **if** a real `IOrchestratorStateRepository`
+implementation is supplied — see "Limitations".
 
 ## Configuration
 
@@ -151,68 +163,17 @@ No DI/`IServiceCollection` registration extension exists in this package (unlike
 `OrchestrationManager`/`OrchestrationRunner`/`StepExecutor` (or `PersistentStepExecutor`
 + an `IOrchestratorStateRepository` implementation) manually.
 
-## Basic usage
-
-```csharp
-public record OrderData();
-
-public class OrderOrchestrator : IOrchestrator<OrderData>
-{
-    public IEnumerable<IOrchestratorStep<OrderData>> Steps { get; } =
-    [
-        new ReserveInventoryStep(),
-        new ChargePaymentStep(),
-        new ShipOrderStep(),
-    ];
-}
-
-var state = new OrchestratorState<OrderData>
-{
-    OrchestratorType = typeof(OrderOrchestrator).AssemblyQualifiedName!,
-    Status = OrchestratorStatus.New,
-    Data = new OrderData(),
-};
-
-var runner = new OrchestrationRunner(new StepExecutor());
-await runner.RunAsync(new OrderOrchestrator(), state, cancellationToken);
-
-// state.Status is now Completed, or CompensationCompleted/CompensationFailed
-// if a step failed and compensation ran.
-```
-
-## Advanced usage
-
-No advanced usage beyond the above is documented yet. In particular, resuming a
-previously-persisted orchestration through `IOrchestrationManager.CompleteAsync` is not
-usable as shipped — see "Limitations".
-
 ## Limitations
 
-- **`OrchestrationManager.CompleteAsync` is not wired to persistence.**
-  `OrchestrationManager.cs` assigns its `OrchestratorState` from a literal `null!` with
-  a `// get from DB` comment; calling `CompleteAsync` as written throws a
-  `NullReferenceException`. The reflection-based resumption mechanism it's meant to use
-  (`OrchestrationRunnerReflectionHelper.RunAsync`, which resolves the concrete
-  `IOrchestrator<TData>` type from `OrchestratorState.OrchestratorType` and invokes the
-  generic `RunAsync<TData>` via reflection) is itself implemented and real — only the
-  DB fetch is missing.
-- **`OrchestrationManager.RunAsync` does not persist the initial state.** The call to
-  save the freshly-created `OrchestratorState` is commented out in source
-  (`// save state in db` / `// await _stateRepository.SaveAsync(orchestrationState);`).
-  Only `PersistentStepExecutor` (see "Execution and persistence") actually calls
-  `IOrchestratorStateRepository`, and only if a caller supplies it in place of the plain
-  `StepExecutor`.
+- **`OrchestrationManager.CompleteAsync` and `RunAsync` are not wired to persistence,
+  and no `IOrchestratorStateRepository` implementation exists anywhere in this
+  repository** — see `docs/project/known-issues.md` § "No orchestration-state
+  persistence implementation exists". The reflection-based resumption mechanism
+  (`OrchestrationRunnerReflectionHelper.RunAsync`) is itself implemented and real —
+  only the persistence wiring is missing.
 - Retry policy, timeout/deadline handling, idempotency for step execution, how
   orchestrations are triggered, and how they're discovered/registered are all
-  unspecified — see `docs/architecture/orchestration.md` § "What is not yet specified"
-  for the full list.
-- **No `IOrchestratorStateRepository` implementation exists anywhere in this
-  repository** — not in this package, not in `NEvo.Orchestrating.EntityFramework`
-  (confirmed: no class implements the interface; that package provides only an EF
-  entity shape and table configuration — see
-  [`NEvo.Orchestrating.EntityFramework.md`](NEvo.Orchestrating.EntityFramework.md)).
-  `PersistentStepExecutor` cannot be used for real persistence today without writing
-  this implementation yourself.
+  unspecified — see `docs/development/orchestration.md` § "Known unresolved decisions".
 - `IOrchestrator<TData>`, `OrchestratorState<TData>`, and `IOrchestrationManager.RunAsync`
   all constrain `TData : new()` — a parameterless constructor is required (needed for
   `Activator.CreateInstance` during reflection-based resumption).

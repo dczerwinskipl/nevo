@@ -21,6 +21,17 @@ providers into the message pipeline as two opt-in middleware:
 `UserContextMiddleware<TId, TRoleDataScope>` (message-level, populates context) and
 `ValidatePermissionMiddleware<TId>` (handler-level, enforces `[AllowPermission]`).
 
+## When to use
+
+Whenever handlers need permission checks based on the current user's roles. See
+`docs/usage/authorization.md` for the complete end-to-end wiring walkthrough — there is
+no DI registration helper, so manual setup is required either way.
+
+## When not to use
+
+If you don't need per-handler permission checks — e.g. a service with no user-facing
+authorization concerns — skip this package entirely; `NEvo.Messaging` works without it.
+
 ## Responsibilities
 
 - Populate a `UserContext<TId>` message-context feature from either an incoming
@@ -36,7 +47,7 @@ providers into the message pipeline as two opt-in middleware:
 
 ## Dependencies
 
-Depends on `NEvo.Messaging` and `NEvo.Authorization` — confirmed against
+Depends on `NEvo.Messaging` and `NEvo.Authorization` — see
 `src/NEvo.Messaging.Authorization/NEvo.Messaging.Authorization.csproj`.
 
 ## Public surface
@@ -87,14 +98,9 @@ run.
 3. Access is granted the moment **any** permission validates successfully; if none do
    (including when the user has zero permissions), access is denied.
 
-**`AllowPermissionAttribute.PermissionName` is not checked against the user's
-permission names anywhere in this flow** — matching is defined entirely by the
-validator you provide (`IDataScopeMessageValidator<TDataScope, TMessage>`'s default
-`Validate(IPermission, IMessage)` only checks that the permission's runtime type is
-`Permission<TDataScope>` and the message's type is `TMessage`, then calls your
-`Validate(TDataScope, TMessage)`). Treat `PermissionName` as documentation/metadata for
-the attribute, not as part of the enforcement logic, unless your own validator
-implementation chooses to check `permission.Name` itself.
+`AllowPermissionAttribute.PermissionName` is not checked against the user's permission
+names in this flow — see `docs/project/known-issues.md` § "`AllowPermissionAttribute.PermissionName`
+is not checked" before relying on it.
 
 ### What happens when validation fails
 
@@ -103,17 +109,9 @@ returns `Either<Exception, object>.Left(new Exception("Permission denied"))` —
 handler itself never runs. This propagates unchanged through
 `IMessageProcessor.ProcessMessageAsync` (no exception is thrown; it's the `Left` side of
 the returned `Either`, per NEvo's repository-wide error convention — see
-[`NEvo.Core.md`](NEvo.Core.md)).
-
-**If you're exposing this over HTTP via `NEvo.Messaging.Web`'s
-`MapCommandEndpoint`/`MapMessagesEndpoints`, a permission-denied failure currently comes
-back as HTTP `500` with `detail: "Permission denied"`** — those route helpers map every
-`Left` the same way (`Results.Problem(statusCode: 500)`), with no special case for
-authorization failures (see [`NEvo.Messaging.Web.md`](NEvo.Messaging.Web.md) §
-Limitations). If your API needs a `403 Forbidden` instead, you need your own
-result-handling layer that inspects the exception message/type before it reaches
-`NEvo.Messaging.Web`'s default mapping — there is no built-in way to distinguish a
-permission-denied `Left` from any other failure `Left` today.
+[`NEvo.Core.md`](NEvo.Core.md)). If you're exposing this over HTTP via
+`NEvo.Messaging.Web`, see `docs/project/known-issues.md` § "Authorization surfaces a
+generic HTTP 500, not 403" for what a client actually sees.
 
 ## Configuration
 
@@ -138,54 +136,28 @@ builder.Services.AddMessageProcessingHandlerMiddleware<ValidatePermissionMiddlew
 
 `UserContextMiddleware` must run (as message-level middleware) before
 `ValidatePermissionMiddleware` (handler-level middleware) gets a chance to read
-`UserPermissions` — this is guaranteed by the pipeline's two separate middleware stages
-(see [`NEvo.Messaging.md`](NEvo.Messaging.md) § Advanced usage), not by registration
-order within either stage.
+`UserPermissions` — this is guaranteed by the pipeline's two separate middleware stages,
+not by registration order within either stage.
 
-## Basic usage
-
-```csharp
-public class MyHandler : ICommandHandler<MyCommand>
-{
-    [AllowPermission("orders:create", typeof(OrderScopeValidator))]
-    public Task<Either<Exception, Unit>> HandleAsync(MyCommand message, IMessageContext context, CancellationToken cancellationToken)
-        => UnitExt.DefaultEitherTask;
-}
-
-public class OrderScopeValidator : IDataScopeMessageValidator<OrderDataScope, MyCommand>
-{
-    // Called once per permission the current user has, of type Permission<OrderDataScope>.
-    // Return true to grant access for that permission.
-    public bool Validate(OrderDataScope dataScope, MyCommand message) => true;
-}
-```
-
-## Advanced usage
-
-Propagating user context across a service boundary: `UserContextMiddleware` checks for
-a `user-context` header (JSON-serialized `UserWithRoles`) before falling back to the
-local providers — a calling service can pre-populate this header so the receiving
-service doesn't need to re-resolve the user from its own identity source.
+See `docs/usage/authorization.md` for the full end-to-end walkthrough with a worked
+example.
 
 ## Limitations
 
 - No DI registration helper — see "Configuration". Both middleware must be wired up
   manually, in the right stage (message-level vs. handler-level).
 - Permission-denied failures surface as a generic HTTP `500` when using
-  `NEvo.Messaging.Web`'s default endpoint mapping, not `403` — see "What happens when
-  validation fails" above.
+  `NEvo.Messaging.Web`'s default endpoint mapping, not `403` — see
+  `docs/project/known-issues.md`.
 - `AllowPermissionAttribute.PermissionName` is not matched against the user's
-  permissions by this middleware — see "How permission validation actually works".
-  Don't assume declaring a name is sufficient; the validator's own logic is what
-  actually gates access.
-- `AllowPermissionAttribute`'s constructor has its `validatorType`-implements-
-  `IDataScopeMessageValidator<,>` check commented out in source, with `// TODO fix that,
-  something from with generics` — an incorrect `validatorType` is not caught until the
-  handler actually runs (`ValidatePermissionMiddleware` casts it via
-  `ActivatorUtilities.CreateInstance`, which throws at that point instead).
+  permissions by this middleware — see `docs/project/known-issues.md`. Don't assume
+  declaring a name is sufficient; the validator's own logic is what actually gates
+  access.
+- `AllowPermissionAttribute`'s constructor-time check that `validatorType` implements
+  `IDataScopeMessageValidator<,>` is disabled — see `docs/project/known-issues.md`.
 - `UserContextMiddleware`'s header-name (`"user-context"`) and whether to trust header
-  data at all are both marked `// todo` in source — no constant, no configurable
-  trust policy yet.
+  data at all are both unresolved design questions in source — no constant, no
+  configurable trust policy yet.
 
 ## Related packages
 

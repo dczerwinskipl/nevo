@@ -22,6 +22,18 @@ own `experimental` status, since this package exists purely to support it.
 relational database. **It is small and incomplete** — see "Limitations" before assuming
 it's a drop-in persistence solution.
 
+## When to use
+
+Not usable as shipped for real persistence — see "Limitations". Only relevant today as
+a starting point/reference if you're writing a real `IOrchestratorStateRepository`
+implementation yourself.
+
+## When not to use
+
+Do not use this package expecting working orchestration-state persistence — it
+currently amounts to scaffolding, not a usable EF persistence layer. See
+`docs/development/persistence-development.md` if you're building a real replacement.
+
 ## Responsibilities
 
 - Define the EF-mapped entity `OrchestratorStateEf` (a flattened, EF-friendly shape:
@@ -31,7 +43,7 @@ it's a drop-in persistence solution.
 
 ## Dependencies
 
-Depends only on `NEvo.Orchestrating` — confirmed against
+Depends only on `NEvo.Orchestrating` — see
 `src/NEvo.Orchestrating.EntityFramework/NEvo.Orchestrating.EntityFramework.csproj`'s
 single `ProjectReference`. **Not** a dependency of `NEvo.EntityFramework` — this is one
 of three parallel EF integrations in the repository (see
@@ -70,12 +82,8 @@ source. See "Limitations".
 
 **No DI registration helper exists.**
 `src/NEvo.Orchestrating.EntityFramework/ServiceCollectionExtensions.cs` is an empty
-`public static class ServiceCollectionExtensions { }`.
-
-## Basic usage
-
-There is no complete, working usage to show — see "Limitations". At most, a consumer
-could apply the table configuration in their own `DbContext`:
+`public static class ServiceCollectionExtensions { }`. At most, a consumer could apply
+the table configuration in their own `DbContext`:
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -84,29 +92,17 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 }
 ```
 
-## Advanced usage
-
-Not applicable — this package has no registered services or documented extension
-points beyond the EF configuration above.
-
 ## Limitations
 
 - **No `IOrchestratorStateRepository` implementation exists in this package, or
-  anywhere in this repository.** Confirmed: no class in `src/` implements the
-  interface (`grep -rn "class.*IOrchestratorStateRepository" src/` — zero matches
-  outside compiled binaries). `NEvo.Orchestrating`'s `PersistentStepExecutor` (see
-  [`NEvo.Orchestrating.md`](NEvo.Orchestrating.md)) needs an
-  `IOrchestratorStateRepository` to do anything — this package does not supply one.
+  anywhere in this repository** — see `docs/project/known-issues.md` § "No
+  orchestration-state persistence implementation exists".
 - **`OrchestratorStateTypeConfiguration` configures the wrong type for this package's
-  own `OrchestratorStateEf` entity** — it implements `IEntityTypeConfiguration
-  <OrchestratorState>` (from `NEvo.Orchestrating`), not `IEntityTypeConfiguration
-  <OrchestratorStateEf>`. `OrchestratorStateEf` has no EF configuration of its own in
-  this package, and nothing here maps between the two shapes.
+  own `OrchestratorStateEf` entity** — see `docs/project/known-issues.md` §
+  "`OrchestratorStateTypeConfiguration` configures the wrong entity type".
 - In short: this package currently amounts to scaffolding — an entity class and a table
   configuration for a *different* type — not a usable EF persistence layer for
-  orchestration state. Building real persistence requires writing an
-  `IOrchestratorStateRepository` implementation and reconciling the entity mismatch
-  above yourself.
+  orchestration state.
 
 ## Related packages
 

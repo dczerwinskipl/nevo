@@ -20,6 +20,16 @@ conventions, and a generic, reusable middleware-pipeline abstraction. It has no
 dependencies of its own — every other package in this repository depends on it directly
 or transitively.
 
+## When to use
+
+Always present, transitively — every NEvo package depends on it. Reach for its types
+directly when you need the `Either<Exception, T>` convention, constructor
+null-checking, or a standalone middleware chain outside the messaging pipeline.
+
+## When not to use
+
+Not applicable — this is the foundation package, not an optional add-on.
+
 ## Responsibilities
 
 - Argument/precondition checking (`Check`).
@@ -28,15 +38,15 @@ or transitively.
 - A generic middleware-chain abstraction (`IMiddleware<TInput, TResult>`,
   `IMiddlewareHandler<TInput, TResult>`, `MiddlewareHandler<TInput, TResult>`) —
   consumed by `NEvo.Messaging`'s processing pipeline (see
-  [`docs/architecture/messaging-pipeline.md`](../architecture/messaging-pipeline.md)),
-  but defined here as a repository-wide, messaging-independent primitive.
+  `docs/development/messaging-pipeline.md`), but defined here as a repository-wide,
+  messaging-independent primitive.
 
 ## Dependencies
 
 None — `NEvo.Core` is the root of the dependency graph
-(`docs/architecture/package-boundaries.md` rule 2: *"`NEvo.Core` must remain independent
-of all other NEvo packages"*), confirmed directly against
-`src/NEvo.Core/NEvo.Core.csproj` (no `ProjectReference` entries).
+(`docs/development/package-boundaries.md` rule 2: *"`NEvo.Core` must remain independent
+of all other NEvo packages"*). See `src/NEvo.Core/NEvo.Core.csproj` — no
+`ProjectReference` entries.
 
 ## Public surface
 
@@ -108,13 +118,13 @@ Each middleware can be paired with a `ShouldApply(TInput) -> bool` predicate
 `LanguageExt.Core` is a required dependency of `NEvo.Core` (and therefore everything
 downstream). Every fallible operation across the messaging pipeline returns
 `Either<Exception, T>` rather than throwing — this is a deliberate, repository-wide
-architectural choice (see
-[`docs/architecture/overview.md`](../architecture/overview.md) § "Design philosophy" and
-[`docs/architecture/messaging-pipeline.md`](../architecture/messaging-pipeline.md) §
-"Error model"). `NEvo.Core` itself doesn't enforce this convention mechanically — `Check`
-still throws `ArgumentNullException` for precondition failures, which is the accepted
-exception to the pattern (invalid arguments are a programmer error, not a runtime
-`Either`-modeled failure).
+architectural choice (see `docs/development/architecture-overview.md` § "Design
+philosophy" and `docs/development/messaging-pipeline.md` § "Stable guarantees").
+`NEvo.Core` itself doesn't enforce this convention mechanically — `Check` still throws
+`ArgumentNullException` for precondition failures, which is the accepted exception to
+the pattern (invalid arguments are a programmer error, not a runtime `Either`-modeled
+failure). This is the authoritative explanation of the convention — other package docs
+link here rather than restating it.
 
 ## Configuration
 
@@ -122,48 +132,21 @@ No DI registration extension exists in this package — every type here is eithe
 (`Check`, `EitherExtensions`, `UnitExt`) or instantiated directly by a consumer/downstream
 package (`MiddlewareHandler`).
 
-## Basic usage
-
-```csharp
-public class MyService(ISomeDependency dependency)
-{
-    private readonly ISomeDependency _dependency = Check.Null(dependency);
-}
-```
-
-## Advanced usage
-
-Composing a middleware chain directly (as `NEvo.Messaging`'s processing pipeline does
-internally):
-
-```csharp
-IEnumerable<IMiddleware<MyInput, MyResult>> middlewares = [new LoggingMiddleware(), new TimingMiddleware()];
-var handler = new MiddlewareHandler<MyInput, MyResult>(middlewares);
-
-MyResult result = await handler.ExecuteAsync(
-    baseDelegate: (input, ct) => DoWorkAsync(input, ct),
-    input: myInput,
-    cancellationToken: ct
-);
-```
-
 ## Limitations
 
 - `IMiddleware<TInput, TResult>.ExecuteAsync`'s `next` parameter is `Func<Task<TResult>>`
   (no input/cancellation token forwarded through `next` itself) — a middleware that needs
   to alter the input or cancellation token for downstream middleware must do so via
   closure state before calling `next`, not by re-invoking with different arguments.
-- `MiddlewareConfig` carries a `// TODO: better naming, maybe just options or something
-  like that?` comment in source — the type may be renamed in a future change.
+- `MiddlewareConfig`'s name may change in a future revision — not yet finalized in
+  source.
 
 ## Related packages
 
 Every other package in this repository depends on `NEvo.Core`, directly or
-transitively — see [Package classification](classification.md) and
-[Package boundaries](../architecture/package-boundaries.md) for the full graph. Its
-middleware abstraction is consumed most directly by `NEvo.Messaging`
-([`NEvo.Messaging.md`](NEvo.Messaging.md)), which builds its processing pipeline on top
-of it.
+transitively — see `classification.md` and `docs/development/package-boundaries.md` for
+the full graph. Its middleware abstraction is consumed most directly by
+[`NEvo.Messaging`](NEvo.Messaging.md), which builds its processing pipeline on top of it.
 
 ## Examples and tests
 
