@@ -23,7 +23,7 @@ tasks:
   - id: development-transactions-and-failure-semantics
     order: 3
     file: tasks/03-development-transactions-and-failure-semantics.md
-    status: approved
+    status: implemented
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-extension-points-and-transport-persistence
