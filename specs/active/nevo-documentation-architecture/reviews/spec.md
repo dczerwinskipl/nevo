@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: a1dfc25f0db82dcca6498dd9afbfb4b35a0d31462956865981a92a5cb35ae321
+spec_fingerprint: 8ec674f6eec2810f2b06a727df2226cea6bc122c3b74d8e155497b7c8f328af8
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,9 +20,10 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `entry-points-and-navigation-hub` was approved, started,
-implemented, and marked `implemented` in `change.yaml` since the last refresh — same
-mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
+Refreshed again: task `ai-task-routing` was approved, started, implemented, and marked
+`implemented` in `change.yaml` since the last refresh — same mechanical cause as
+before. No task/area/overview/owner-decisions *content* changed. This is the last
+refresh before the final task, `final-cross-link-and-validation`.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same

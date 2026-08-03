@@ -112,6 +112,6 @@ tasks:
   - id: final-cross-link-and-validation
     order: 16
     file: tasks/16-final-cross-link-and-validation.md
-    status: draft
+    status: approved
     depends_on:
       - ai-task-routing
