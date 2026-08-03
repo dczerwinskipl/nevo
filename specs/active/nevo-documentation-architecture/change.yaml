@@ -106,7 +106,7 @@ tasks:
   - id: ai-task-routing
     order: 15
     file: tasks/15-ai-task-routing.md
-    status: approved
+    status: implemented
     depends_on:
       - entry-points-and-navigation-hub
   - id: final-cross-link-and-validation
