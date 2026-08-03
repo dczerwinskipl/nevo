@@ -8,14 +8,28 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: a01384400a6eec94bd9480f8d7de19ccb216826b78a740bf1561179f4b38503a
+spec_fingerprint: a6c4068d086db64c2f463048764fdcb6df980e126f390e87e2c0996b8400bf03
 ---
 
 # Review: nevo-documentation-architecture
 
 Baseline: `specs/active/nevo-documentation-architecture/reviews/spec.md`, as it existed
-before this run (read in full before being overwritten). Its verdict was
-`changes-required` with one unresolved `AUTO_FIX` finding (F1).
+before this run (read in full before being overwritten). Its verdict was already
+`ready-for-approval`, with F1 resolved and F2 the only outstanding (`NON_BLOCKING`)
+finding.
+
+## Fingerprint refresh note
+
+This run's only change from the baseline is a fingerprint refresh: task
+`doc-taxonomy-and-templates` was approved, started, implemented, and marked
+`implemented` in `change.yaml` since the baseline review — each of those transitions
+edits `change.yaml`, which is one of the fingerprint's hashed inputs (see
+`references/review-policy.md` § "Deterministic review freshness"), so the stored
+fingerprint went stale even though no task/area/overview *content* changed.
+`overview.md`, `owner-decisions.md`, every file under `areas/`, and every file under
+`tasks/` were re-read in full this run and are byte-for-byte unchanged from the
+baseline. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` both still
+pass. F1 remains `resolved`, F2 remains `still-present` (`NON_BLOCKING`, does not gate).
 
 ## Verdict
 
