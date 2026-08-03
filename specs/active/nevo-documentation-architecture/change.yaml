@@ -118,6 +118,6 @@ tasks:
   - id: post-implementation-doc-fixes
     order: 17
     file: tasks/17-post-implementation-doc-fixes.md
-    status: approved
+    status: implemented
     depends_on:
       - final-cross-link-and-validation

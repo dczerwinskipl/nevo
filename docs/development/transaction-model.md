@@ -38,8 +38,11 @@ Each module owns its own EF configuration and migrations. There is no shared `Db
 
 ## Transaction ownership
 
-The 5 questions below were previously listed in `docs/architecture/persistence.md` as
-entirely unresolved, "currently determined by the example application." Re-examined
+The 5 questions below were entirely unresolved, "currently determined by the example
+application," in this repository's pre-2026-08-03 documentation layout, in a file
+(`docs/architecture/persistence.md`) that no longer exists — its content was split
+between this document and `docs/development/failure-semantics.md`, not renamed
+1:1. Re-examined
 against the real source for this change — each is now either answered by the code's
 actual structure, or confirmed to remain genuinely open (never invented).
 
