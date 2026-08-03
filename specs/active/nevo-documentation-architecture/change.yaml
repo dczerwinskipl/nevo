@@ -29,7 +29,7 @@ tasks:
   - id: development-extension-points-and-transport-persistence
     order: 4
     file: tasks/04-development-extension-points-and-transport-persistence.md
-    status: draft
+    status: approved
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-inbox-outbox-eventsourcing-orchestration

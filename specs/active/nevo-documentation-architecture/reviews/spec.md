@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 188d7d3cd16a17eac5b552abe8aa6c4693c568698ee5eedfe0e4f6db214ce1cf
+spec_fingerprint: 16d809d8baeac66cc8a13ccb6f6db5966e310c89b496a26afe34dfa347be517a
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,14 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `development-core-pipeline-docs` was approved, started,
-implemented, and marked `implemented` in `change.yaml` since the last refresh — same
-mechanical cause as before (status transitions edit `change.yaml`, a fingerprint input).
-No task/area/overview/owner-decisions *content* changed.
+Refreshed again: task `development-transactions-and-failure-semantics` was approved,
+started, implemented, and marked `implemented` in `change.yaml` since the last refresh —
+same mechanical cause as before. No task/area/overview/owner-decisions *content*
+changed.
+
+Prior refresh: task `development-core-pipeline-docs` was approved, started,
+implemented, and marked `implemented` in `change.yaml` — same mechanical cause. No
+task/area/overview/owner-decisions *content* changed.
 
 Prior refresh note, still applicable: task `doc-taxonomy-and-templates` was approved,
 started, implemented, and marked `implemented` in `change.yaml` — each of those
