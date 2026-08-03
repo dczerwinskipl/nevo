@@ -95,7 +95,7 @@ tasks:
   - id: entry-points-and-navigation-hub
     order: 14
     file: tasks/14-entry-points-and-navigation-hub.md
-    status: approved
+    status: implemented
     depends_on:
       - development-testing-strategy-and-contributing
       - usage-quickstart-and-choosing-packages
