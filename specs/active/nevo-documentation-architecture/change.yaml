@@ -82,7 +82,7 @@ tasks:
   - id: usage-authorization-and-troubleshooting
     order: 12
     file: tasks/12-usage-authorization-and-troubleshooting.md
-    status: approved
+    status: implemented
     depends_on:
       - package-reference-migration-and-trim
       - known-issues-consolidation
