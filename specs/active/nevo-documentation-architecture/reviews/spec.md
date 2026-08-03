@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 8635cffe08ffbcdd4ccd7169f58febbf1548e5e5d91d6b8320a5fab3649a49cc
+spec_fingerprint: 248aeef2e3c1d4a3c5f8bc999893c3ee16001c0f8a933c1534e4abdf82a7b34f
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,11 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `known-issues-consolidation` was approved, started, implemented,
-and marked `implemented` in `change.yaml` since the last refresh — same mechanical cause
-as before. No task/area/overview/owner-decisions *content* changed. Areas
-`maintainer-documentation` and `known-issues` are now fully implemented.
+Refreshed again: task `package-reference-migration-and-trim` was approved, started,
+implemented, and marked `implemented` in `change.yaml` since the last refresh — same
+mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
+Areas `maintainer-documentation`, `known-issues`, and `package-reference` are now fully
+implemented.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same

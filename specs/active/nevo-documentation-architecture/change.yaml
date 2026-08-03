@@ -63,7 +63,7 @@ tasks:
   - id: usage-quickstart-and-choosing-packages
     order: 9
     file: tasks/09-usage-quickstart-and-choosing-packages.md
-    status: draft
+    status: approved
     depends_on:
       - package-reference-migration-and-trim
   - id: usage-commands-and-events
