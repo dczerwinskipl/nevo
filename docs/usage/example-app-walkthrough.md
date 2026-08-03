@@ -25,8 +25,8 @@ cross-service message dispatch.
 
 ## Prerequisites
 
-See [Local setup](../development/local-setup.md) — SQL Server (or LocalDB) and the
-.NET Aspire workload are both required; this guide doesn't repeat those steps.
+See `docs/development/local-setup.md` — SQL Server (or LocalDB) and the .NET Aspire
+workload are both required; this guide doesn't repeat those steps.
 
 ## The 5 projects
 
@@ -40,9 +40,9 @@ See [Local setup](../development/local-setup.md) — SQL Server (or LocalDB) and
 
 **Naming note:** "Orchestration" here is .NET Aspire's service-topology orchestration
 (running multiple services together for local dev) — unrelated to
-[`NEvo.Orchestrating`](../packages/NEvo.Orchestrating.md)'s saga orchestration. Neither
+`docs/reference/packages/NEvo.Orchestrating.md`'s saga orchestration. Neither
 `NEvo.Orchestrating` nor `NEvo.Orchestrating.EntityFramework` is used anywhere in
-`examples/ExampleApp` (confirmed: no reference to either in any of the 5 projects).
+`examples/ExampleApp`.
 
 ## Running the full set
 
@@ -57,11 +57,10 @@ at the Identity service's HTTPS endpoint.
 dotnet run --project examples/ExampleApp/NEvo.ExampleApp.Orchestration/NEvo.ExampleApp.Orchestration.AppHost
 ```
 
-**Open question, not resolved by this guide:** the exact Aspire dashboard URL/port and
-whether any additional local configuration (connection strings, certificates) is
-needed beyond what Aspire provisions automatically could not be verified from static
-source alone — this depends on your local Aspire/Docker setup. Watch the console
-output when running the command above; Aspire prints the dashboard URL there.
+The exact Aspire dashboard URL/port, and whether any additional local configuration
+(connection strings, certificates) is needed beyond what Aspire provisions
+automatically, depends on your local Aspire/Docker setup — watch the console output
+when running the command above; Aspire prints the dashboard URL there.
 
 The SQL Server admin password is hardcoded in `Program.cs`
 (`ParameterResource("sqlServerPassword", ...)`) — fine for local dev, not something to
@@ -97,17 +96,16 @@ authenticated (`Routes.cs`, marked `// hardcoded for testing`):
 { "name": "Invalid", "dataScope": { "companyId": "C1" } }
 ```
 
-This is why the rest of this guide can talk about "the Admin role" or "the Manager
-role" without you doing any role-assignment step — every registered user already has
-all 3.
+This is an intentional simplification for this walkthrough, not a defect — it lets
+this guide talk about "the Admin role" or "the Manager role" without a separate
+role-assignment step, since every registered user already has all 3.
 
 ## Scenario 2: a permission-checked command
 
 `ServiceA.Api` maps `POST /api/hello` (requires authorization) and
 `/api/hello_noAuth` (does not) to `SayHelloCommand`
 (`ExampleDomain/SayHelloCommand.cs`, `Routes.cs`). The authorized path exercises the
-full [`NEvo.Messaging.Authorization`](../packages/NEvo.Messaging.Authorization.md)
-chain:
+full `docs/reference/packages/NEvo.Messaging.Authorization.md` chain:
 
 - `SayHelloCommandHandler` is annotated `[AllowPermission(Permissions.SayHello,
   typeof(SayDataScopeValidator<SayHelloCommand>))]`.
@@ -125,9 +123,8 @@ curl -X POST https://localhost:<servicea-port>/api/hello \
 ```
 
 A `companyId` other than `"C1"` gets a permission-denied failure — per
-[`NEvo.Messaging.Authorization.md`](../packages/NEvo.Messaging.Authorization.md) §
-"What happens when validation fails", that currently surfaces as a generic HTTP `500`,
-not `403`.
+`docs/reference/packages/NEvo.Messaging.Authorization.md` § "What happens when
+validation fails", that currently surfaces as a generic HTTP `500`, not `403`.
 
 **On success, the handler also publishes an event, fanned out to two independent
 handlers.** `SayHelloCommandHandler` doesn't just return success — it publishes
@@ -148,9 +145,8 @@ independently](quick-start.md#6-publish-an-event-and-react-to-it-independently).
 
 `POST /api/document/create` (`Routes.cs`) maps to `CreateDocument`
 (`ExampleDomain/Documents/DocumentCommands.cs`), handled through
-[`NEvo.Ddd.EventSourcing`](../packages/NEvo.Ddd.EventSourcing.md)'s decider/evolver
-flow, matching `docs/architecture/event-sourcing.md`'s description of this exact
-aggregate.
+`docs/reference/packages/NEvo.Ddd.EventSourcing.md`'s decider/evolver flow, matching
+`docs/development/event-sourcing.md`'s description of this exact aggregate.
 
 **The `Document` aggregate used here is imported directly from
 `NEvo.Ddd.EventSourcing.Tests.Mocks`** (`using NEvo.Ddd.EventSourcing.Tests.Mocks;` in
@@ -165,12 +161,12 @@ curl -X POST https://localhost:<servicea-port>/api/document/create \
 
 **This will report success but persist nothing.** `Program.cs` calls
 `AddEventSourcing(typeof(Document))` and registers no other `IEventStore` — per
-[`NEvo.Ddd.EventSourcing.md`](../packages/NEvo.Ddd.EventSourcing.md) § Limitations,
-the default `IEventStore` is `FakeEventStore`, whose `AppendEventsAsync` is a no-op
-that reports success and whose load methods always return "not found." The command
-completes without error; there is no working way to load the document back afterward
-through this example as configured. Treat this scenario as "the decide step runs and
-produces the expected event," not as a real persistence demo.
+`docs/reference/packages/NEvo.Ddd.EventSourcing.md` § Limitations, the default
+`IEventStore` is `FakeEventStore`, whose `AppendEventsAsync` is a no-op that reports
+success and whose load methods always return "not found." The command completes
+without error; there is no working way to load the document back afterward through
+this example as configured. Treat this scenario as "the decide step runs and produces
+the expected event," not as a real persistence demo.
 
 ## Scenario 4: cross-service dispatch
 
@@ -192,7 +188,9 @@ Watch `ServiceB`'s console output for the printed value, not `ServiceA`'s — th
 you confirm the dispatch actually crossed the service boundary. Note also that
 `ServiceB`'s `/api/messages/dispatch` endpoint (the receiving side) has no
 `.RequireAuthorization()` call — unlike `ServiceA`'s equivalent — so this internal
-dispatch path is unauthenticated in this example.
+dispatch path is unauthenticated in this example (see
+`docs/project/known-issues.md` § "Example app: ServiceB's internal dispatch endpoint
+is unauthenticated").
 
 ## Troubleshooting
 
@@ -203,14 +201,13 @@ dispatch path is unauthenticated in this example.
 - **Document creation "succeeds" but you can't find any trace of it:** expected — see
   Scenario 3, nothing is actually persisted by default.
 - **SQL Server connection details, whether Identity needs additional seed data beyond
-  self-registration, and exact Aspire dashboard access** could not be verified from
-  static source and are left as open questions per this guide's own scope — see
+  self-registration, and exact Aspire dashboard access:** depend on your local
+  Aspire/Docker environment, not something this guide can state generically — see
   "Running the full set" above.
 
 ## Next steps
 
-- [Package classification](../packages/classification.md) — the packages this example
-  combines.
-- [NEvo.Messaging.Authorization](../packages/NEvo.Messaging.Authorization.md),
-  [NEvo.Ddd.EventSourcing](../packages/NEvo.Ddd.EventSourcing.md) — the two packages
-  with the most notable gaps surfaced in this walkthrough.
+- `docs/reference/packages/classification.md` — the packages this example combines.
+- `docs/reference/packages/NEvo.Messaging.Authorization.md`,
+  `docs/reference/packages/NEvo.Ddd.EventSourcing.md` — the two packages with the most
+  notable gaps surfaced in this walkthrough.

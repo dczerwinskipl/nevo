@@ -89,7 +89,7 @@ tasks:
   - id: usage-example-app-walkthrough-migration
     order: 13
     file: tasks/13-usage-example-app-walkthrough-migration.md
-    status: approved
+    status: implemented
     depends_on:
       - package-reference-migration-and-trim
   - id: entry-points-and-navigation-hub
