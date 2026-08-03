@@ -17,7 +17,7 @@ tasks:
   - id: development-core-pipeline-docs
     order: 2
     file: tasks/02-development-core-pipeline-docs.md
-    status: approved
+    status: implemented
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-transactions-and-failure-semantics

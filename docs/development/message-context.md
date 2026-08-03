@@ -1,12 +1,8 @@
 ---
-id: architecture.message-context
-type: architecture
+id: development.message-context
+type: development
 title: Message context
 status: current
-scope:
-  - messaging
-  - context
-  - correlation
 read_when:
   - modifying context propagation
   - adding context features
@@ -15,12 +11,12 @@ summary: >
   Describes IMessageContext, its propagation via AsyncLocal, header management,
   and the feature storage mechanism.
 related:
-  - architecture.messaging-pipeline
+  - development.messaging-pipeline
 ---
 
 # Message context
 
-## Purpose
+## Subsystem responsibility
 
 `IMessageContext` carries cross-cutting information through message processing without
 requiring every handler to declare it as a parameter.
@@ -43,7 +39,7 @@ interface IMessageContext
 
 `MessageContextHeaders` is a `Dictionary<string, string>` wrapper with typed accessors.
 
-## Propagation
+## Control and data flow
 
 `IMessageContextAccessor` uses `AsyncLocal<IMessageContext>` for thread-safe async propagation:
 
@@ -61,7 +57,8 @@ logical call chain without explicit passing.
 
 ## Built-in context population
 
-The following middleware populate context automatically (see messaging-pipeline.md):
+The following middleware populate context automatically (see
+`docs/development/messaging-pipeline.md`):
 
 | Middleware | What it sets |
 |---|---|

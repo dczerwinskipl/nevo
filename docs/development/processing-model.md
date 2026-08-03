@@ -1,12 +1,8 @@
 ---
-id: architecture.processing-model
-type: architecture
+id: development.processing-model
+type: development
 title: Processing model
 status: current
-scope:
-  - messaging
-  - strategies
-  - handlers
 read_when:
   - adding a new message type
   - changing dispatch strategy
@@ -15,7 +11,7 @@ summary: >
   Describes how NEvo selects a processing strategy for a given message and how handlers
   are resolved. Strategy pattern with factory, predicate-filtered selection.
 related:
-  - architecture.messaging-pipeline
+  - development.messaging-pipeline
 ---
 
 # Processing model
@@ -45,11 +41,15 @@ The first strategy whose `ShouldApply` returns `true` is used.
 
 | Strategy | Applies to | Behavior |
 |---|---|---|
-| `CommandProcessingStrategy` | `ICommand` / `ICommand<TResult>` | Resolves one handler, expects one result |
+| `CommandProcessingStrategy` | `Command` (the CQRS base record, from `NEvo.Messaging.Cqrs`) | Resolves one handler, expects one result |
 | `SequentialEventProcessingStrategy` | Events (default) | Resolves all handlers, runs them in sequence |
 | `ParallelEventProcessingStrategy` | Events (opt-in) | Resolves all handlers, runs them in parallel |
 
 The parallel vs sequential choice for events is controlled by `ThreadingOptions` registered in DI.
+
+There is no `ICommand`/`ICommand<TResult>` interface in NEvo — commands are modeled as
+the concrete `Command` record type (a `Message` subclass) provided by
+`NEvo.Messaging.Cqrs`, not an interface.
 
 ## Handler resolution
 
@@ -65,12 +65,15 @@ Errors:
 - `MoreThanOneHandlerFoundException` — multiple handlers found when only one is allowed
 
 Handler adapters (`IMessageHandlerFactory`) create typed wrappers from registered DI types,
-normalizing `ICommandHandler<T>`, `IQueryHandler<T, R>`, `IEventHandler<T>` etc. into
-the common `IMessageHandler` interface.
+normalizing `ICommandHandler<T>`, `IEventHandler<T>` etc. into the common
+`IMessageHandler` interface. There is no `IQueryHandler<T, R>` adapter today — query-side
+dispatch is not implemented (see "Built-in strategies" above).
 
-## Extension points
+## Intended extension points
 
 New strategies can be registered by implementing `IMessageProcessingStrategy` and adding
 to the factory. The factory selection is ordered — strategy registration order matters.
 
-New handler types require a corresponding `IMessageHandlerFactory` adapter.
+New handler types require a corresponding `IMessageHandlerFactory` adapter — see
+`docs/development/extension-points.md` for the contract a third-party handler-type
+author must implement.

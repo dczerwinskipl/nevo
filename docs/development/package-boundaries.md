@@ -1,12 +1,8 @@
 ---
-id: architecture.package-boundaries
-type: architecture
+id: development.package-boundaries
+type: development
 title: Package boundaries
 status: current
-scope:
-  - packages
-  - dependencies
-  - modularity
 read_when:
   - adding a new project reference
   - evaluating whether a new package is needed
@@ -15,15 +11,14 @@ summary: >
   Dependency graph, allowed reference directions, and modularity rules.
   Core rule: dependencies flow downward only. No upward references.
 related:
-  - architecture.overview
+  - development.architecture-overview
 ---
 
 # Package boundaries
 
 ## Dependency graph
 
-Re-verified directly against every `src/*/*.csproj`'s `ProjectReference` entries (not
-inferred) on 2026-08-02.
+Derived from each `src/*/*.csproj`'s `ProjectReference` entries.
 
 ```
 NEvo.Core                       (no project dependencies)
@@ -59,12 +54,12 @@ separate edge above.
 4. `NEvo.Messaging` extension packages (`*.Cqrs`, `*.Web`, `*.EntityFramework`) depend on
    `NEvo.Messaging` but not on each other — **except** `NEvo.Messaging.Web`, which also
    depends on `NEvo.Messaging.Cqrs` (for CQRS-based HTTP dispatch) and `NEvo.Web` (for
-   ASP.NET Core integration). This is the one documented exception to the "not on each
-   other" clause.
+   its outbound HTTP client wrapper). This is the one documented exception to the "not on
+   each other" clause.
 5. A consuming application must be able to include only `NEvo.Messaging.Cqrs` without
    pulling in EF, web, or auth.
 
-## Potential concern
+## Known unresolved decisions
 
 `NEvo.Ddd.EventSourcing` depends on `NEvo.Messaging.Cqrs`. If event sourcing is later
 made transport-agnostic, this dependency may need revisiting. Noted as an open question
