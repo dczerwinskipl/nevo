@@ -41,7 +41,7 @@ tasks:
   - id: development-testing-strategy-and-contributing
     order: 6
     file: tasks/06-development-testing-strategy-and-contributing.md
-    status: approved
+    status: implemented
     depends_on:
       - doc-taxonomy-and-templates
   - id: known-issues-consolidation
