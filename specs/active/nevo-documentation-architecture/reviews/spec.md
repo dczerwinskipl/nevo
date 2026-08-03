@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: d92497b284869d91d50a0925873685a7ae2975c846c27dddb8a693c7b95f6402
+spec_fingerprint: dcedac7a3d8e09402f2b53f09ac08e72d79dddc464694e6c6a94edafb845af96
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,9 +20,9 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `usage-commands-and-events` was approved, started, implemented,
-and marked `implemented` in `change.yaml` since the last refresh — same mechanical
-cause as before. No task/area/overview/owner-decisions *content* changed.
+Refreshed again: task `usage-cross-service-and-inbox-outbox` was approved, started,
+implemented, and marked `implemented` in `change.yaml` since the last refresh — same
+mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same
