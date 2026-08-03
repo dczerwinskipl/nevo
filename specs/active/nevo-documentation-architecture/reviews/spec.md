@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: a6c4068d086db64c2f463048764fdcb6df980e126f390e87e2c0996b8400bf03
+spec_fingerprint: 188d7d3cd16a17eac5b552abe8aa6c4693c568698ee5eedfe0e4f6db214ce1cf
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,10 +20,14 @@ finding.
 
 ## Fingerprint refresh note
 
-This run's only change from the baseline is a fingerprint refresh: task
-`doc-taxonomy-and-templates` was approved, started, implemented, and marked
-`implemented` in `change.yaml` since the baseline review — each of those transitions
-edits `change.yaml`, which is one of the fingerprint's hashed inputs (see
+Refreshed again: task `development-core-pipeline-docs` was approved, started,
+implemented, and marked `implemented` in `change.yaml` since the last refresh — same
+mechanical cause as before (status transitions edit `change.yaml`, a fingerprint input).
+No task/area/overview/owner-decisions *content* changed.
+
+Prior refresh note, still applicable: task `doc-taxonomy-and-templates` was approved,
+started, implemented, and marked `implemented` in `change.yaml` — each of those
+transitions edits `change.yaml`, which is one of the fingerprint's hashed inputs (see
 `references/review-policy.md` § "Deterministic review freshness"), so the stored
 fingerprint went stale even though no task/area/overview *content* changed.
 `overview.md`, `owner-decisions.md`, every file under `areas/`, and every file under
