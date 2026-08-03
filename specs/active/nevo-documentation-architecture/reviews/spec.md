@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 96df88b513f63f5666b47374f13d5a6f9007a135be4a049a6b75abae7a83dcd0
+spec_fingerprint: a1dfc25f0db82dcca6498dd9afbfb4b35a0d31462956865981a92a5cb35ae321
 ---
 
 # Review: nevo-documentation-architecture
@@ -20,11 +20,9 @@ finding.
 
 ## Fingerprint refresh note
 
-Refreshed again: task `usage-example-app-walkthrough-migration` was approved, started,
+Refreshed again: task `entry-points-and-navigation-hub` was approved, started,
 implemented, and marked `implemented` in `change.yaml` since the last refresh — same
 mechanical cause as before. No task/area/overview/owner-decisions *content* changed.
-Area `usage-guides` is now fully implemented; only `navigation-and-ai-routing`
-remains.
 
 Prior refresh: task `development-extension-points-and-transport-persistence` was
 approved, started, implemented, and marked `implemented` in `change.yaml` — same
