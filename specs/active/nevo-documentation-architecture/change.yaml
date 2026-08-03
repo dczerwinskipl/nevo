@@ -69,7 +69,7 @@ tasks:
   - id: usage-commands-and-events
     order: 10
     file: tasks/10-usage-commands-and-events.md
-    status: draft
+    status: approved
     depends_on:
       - package-reference-migration-and-trim
   - id: usage-cross-service-and-inbox-outbox
