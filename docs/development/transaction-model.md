@@ -32,7 +32,7 @@ exists at the framework level — code works directly with `DbContext` subclasse
 |---|---|
 | `NEvo.EntityFramework` | Shared EF infrastructure (migrations, resilience) |
 | `NEvo.Messaging.EntityFramework` | EF inbox and outbox implementations |
-| `NEvo.Orchestrating.EntityFramework` | EF orchestration state repository — see `docs/development/orchestration.md` for whether a real implementation exists |
+| `NEvo.Orchestrating.EntityFramework` | No `IOrchestratorStateRepository` implementation — provides only an EF entity shape (`OrchestratorStateEf`) and a (mismatched) table configuration; see `docs/development/orchestration.md` |
 
 Each module owns its own EF configuration and migrations. There is no shared `DbContext`.
 
@@ -41,10 +41,9 @@ Each module owns its own EF configuration and migrations. There is no shared `Db
 The 5 questions below were entirely unresolved, "currently determined by the example
 application," in this repository's pre-2026-08-03 documentation layout, in a file
 (`docs/architecture/persistence.md`) that no longer exists — its content was split
-between this document and `docs/development/failure-semantics.md`, not renamed
-1:1. Re-examined
-against the real source for this change — each is now either answered by the code's
-actual structure, or confirmed to remain genuinely open (never invented).
+between this document and `docs/development/failure-semantics.md`, not renamed 1:1.
+Each of the 5 questions below is now either answered by the code's structure, or
+confirmed to remain genuinely open (never invented).
 
 1. **Who is responsible for committing the transaction?** — **Answered.**
    `TransactionScopeMessageProcessingMiddleware`

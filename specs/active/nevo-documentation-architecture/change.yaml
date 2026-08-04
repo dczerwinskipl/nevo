@@ -13,47 +13,47 @@ tasks:
   - id: doc-taxonomy-and-templates
     order: 1
     file: tasks/01-doc-taxonomy-and-templates.md
-    status: implemented
+    status: verified
   - id: development-core-pipeline-docs
     order: 2
     file: tasks/02-development-core-pipeline-docs.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-transactions-and-failure-semantics
     order: 3
     file: tasks/03-development-transactions-and-failure-semantics.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-extension-points-and-transport-persistence
     order: 4
     file: tasks/04-development-extension-points-and-transport-persistence.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-inbox-outbox-eventsourcing-orchestration
     order: 5
     file: tasks/05-development-inbox-outbox-eventsourcing-orchestration.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: development-testing-strategy-and-contributing
     order: 6
     file: tasks/06-development-testing-strategy-and-contributing.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: known-issues-consolidation
     order: 7
     file: tasks/07-known-issues-consolidation.md
-    status: implemented
+    status: verified
     depends_on:
       - doc-taxonomy-and-templates
   - id: package-reference-migration-and-trim
     order: 8
     file: tasks/08-package-reference-migration-and-trim.md
-    status: implemented
+    status: verified
     depends_on:
       - development-core-pipeline-docs
       - development-transactions-and-failure-semantics
@@ -63,39 +63,39 @@ tasks:
   - id: usage-quickstart-and-choosing-packages
     order: 9
     file: tasks/09-usage-quickstart-and-choosing-packages.md
-    status: implemented
+    status: verified
     depends_on:
       - package-reference-migration-and-trim
   - id: usage-commands-and-events
     order: 10
     file: tasks/10-usage-commands-and-events.md
-    status: implemented
+    status: verified
     depends_on:
       - package-reference-migration-and-trim
   - id: usage-cross-service-and-inbox-outbox
     order: 11
     file: tasks/11-usage-cross-service-and-inbox-outbox.md
-    status: implemented
+    status: verified
     depends_on:
       - package-reference-migration-and-trim
       - development-inbox-outbox-eventsourcing-orchestration
   - id: usage-authorization-and-troubleshooting
     order: 12
     file: tasks/12-usage-authorization-and-troubleshooting.md
-    status: implemented
+    status: verified
     depends_on:
       - package-reference-migration-and-trim
       - known-issues-consolidation
   - id: usage-example-app-walkthrough-migration
     order: 13
     file: tasks/13-usage-example-app-walkthrough-migration.md
-    status: implemented
+    status: verified
     depends_on:
       - package-reference-migration-and-trim
   - id: entry-points-and-navigation-hub
     order: 14
     file: tasks/14-entry-points-and-navigation-hub.md
-    status: implemented
+    status: verified
     depends_on:
       - development-testing-strategy-and-contributing
       - usage-quickstart-and-choosing-packages
@@ -106,18 +106,18 @@ tasks:
   - id: ai-task-routing
     order: 15
     file: tasks/15-ai-task-routing.md
-    status: implemented
+    status: verified
     depends_on:
       - entry-points-and-navigation-hub
   - id: final-cross-link-and-validation
     order: 16
     file: tasks/16-final-cross-link-and-validation.md
-    status: implemented
+    status: verified
     depends_on:
       - ai-task-routing
   - id: post-implementation-doc-fixes
     order: 17
     file: tasks/17-post-implementation-doc-fixes.md
-    status: implemented
+    status: verified
     depends_on:
       - final-cross-link-and-validation
