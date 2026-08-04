@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import {
   validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS,
   depsSatisfied, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
+  scopeOf, isEndOfScope, nextInScope, planContinuation, stopReasonForSuspension,
+  resolveAfterConfirmedRepair, inspectStartPostconditions, inspectApprovePostconditions,
+  classifyDirtyWorktree, CONTINUATION_STOP_REASONS,
 } from '../specs/lifecycle.mjs';
 import { validateStatusValue } from '../specs/validation.mjs';
 
@@ -426,5 +429,256 @@ describe('status vocabulary — blocked/needs-decision removed outright (D16)', 
     const errors = [];
     validateStatusValue(undefined, TASK_STATUSES, errors, 'task t1.status');
     assert.deepEqual(errors, []);
+  });
+});
+
+describe('deriveStage — suspension-aware reporting (D8, AC2)', () => {
+  test('an approved task with a confirm-required suspension reports it instead of the default nextCommand', () => {
+    const suspension = { kind: 'confirm-required', code: 'REC-07', previous_action: 'approve', created_at: '2026-08-04T00:00:00Z' };
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'approved', execution: { suspension } }] };
+    const r = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
+    assert.equal(r.stage, 'ready-to-start');
+    assert.match(r.detail, /Suspended: REC-07 \(confirm-required\)/);
+    assert.match(r.nextCommand, /Confirm\/resolve REC-07/);
+    assert.match(r.nextCommand, /retry approve/);
+    assert.equal(r.suspension, suspension);
+  });
+
+  test('an in-implementation task with an owner-decision suspension reports "owner must resolve", not the default nextCommand', () => {
+    const suspension = { kind: 'owner-decision', code: 'REC-06', previous_action: 'start', created_at: '2026-08-04T00:00:00Z' };
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'in-implementation', execution: { suspension } }] };
+    const r = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
+    assert.equal(r.stage, 'in-progress');
+    assert.doesNotMatch(r.nextCommand, /task-review/);
+    assert.match(r.nextCommand, /Owner must resolve REC-06/);
+  });
+
+  test('an unsafe-manual suspension also reports "owner must resolve"', () => {
+    const suspension = { kind: 'unsafe-manual', code: 'REC-09', previous_action: null, created_at: '2026-08-04T00:00:00Z' };
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'approved', execution: { suspension } }] };
+    const r = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
+    assert.match(r.nextCommand, /Owner must resolve REC-09/);
+  });
+
+  test('a task with no suspension reports the stage default nextCommand, unaffected', () => {
+    const change = { _slug: 'c1', tasks: [{ id: 't1', status: 'approved' }] };
+    const r = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
+    assert.match(r.nextCommand, /task-start c1 t1/);
+    assert.equal(r.suspension, undefined);
+  });
+});
+
+describe('deriveStage — self-check-aware reporting (D28, AC7)', () => {
+  const inProgressChange = selfCheck => ({
+    _slug: 'c1',
+    tasks: [{ id: 't1', status: 'in-implementation', ...(selfCheck ? { self_check: selfCheck } : {}) }],
+  });
+
+  test('not-run: no self_check block', () => {
+    const r = deriveStage(inProgressChange(null), { pr: null, ghAvailable: true, verification: [] });
+    assert.deepEqual(r.selfCheck, { state: 'not-run' });
+  });
+
+  test('failed: status failed surfaces failed_criteria', () => {
+    const selfCheck = { status: 'failed', failed_criteria: ['AC2', 'AC5'] };
+    const r = deriveStage(inProgressChange(selfCheck), { pr: null, ghAvailable: true, verification: [] });
+    assert.deepEqual(r.selfCheck, { state: 'failed', failedCriteria: ['AC2', 'AC5'] });
+  });
+
+  test('passed-and-fresh: status passed and fingerprint/revision match the current state', () => {
+    const selfCheck = { status: 'passed', fingerprint: 'fp1', revision: 'rev1' };
+    const facts = { pr: null, ghAvailable: true, verification: [], currentTaskState: { fingerprint: 'fp1', revision: 'rev1' } };
+    const r = deriveStage(inProgressChange(selfCheck), facts);
+    assert.deepEqual(r.selfCheck, { state: 'passed-and-fresh' });
+  });
+
+  test('passed-but-stale: status passed but fingerprint no longer matches the current state', () => {
+    const selfCheck = { status: 'passed', fingerprint: 'fp1', revision: 'rev1' };
+    const facts = { pr: null, ghAvailable: true, verification: [], currentTaskState: { fingerprint: 'fp2', revision: 'rev1' } };
+    const r = deriveStage(inProgressChange(selfCheck), facts);
+    assert.deepEqual(r.selfCheck, { state: 'passed-but-stale' });
+  });
+
+  test('passed-but-stale: status passed but current state is unknown (cannot confirm freshness)', () => {
+    const selfCheck = { status: 'passed', fingerprint: 'fp1', revision: 'rev1' };
+    const r = deriveStage(inProgressChange(selfCheck), { pr: null, ghAvailable: true, verification: [] });
+    assert.deepEqual(r.selfCheck, { state: 'passed-but-stale' });
+  });
+});
+
+describe('scopeOf/isEndOfScope/nextInScope — authorized scope (AC4)', () => {
+  test('a single-task scope is its own end', () => {
+    const scope = scopeOf('t1');
+    assert.equal(isEndOfScope(scope, 't1'), true);
+    assert.equal(nextInScope(scope, 't1'), null);
+  });
+
+  test('a batch scope reports the next task until its last one', () => {
+    const scope = scopeOf(['t1', 't2', 't3']);
+    assert.equal(isEndOfScope(scope, 't1'), false);
+    assert.equal(nextInScope(scope, 't1'), 't2');
+    assert.equal(isEndOfScope(scope, 't2'), false);
+    assert.equal(nextInScope(scope, 't2'), 't3');
+    assert.equal(isEndOfScope(scope, 't3'), true);
+    assert.equal(nextInScope(scope, 't3'), null);
+  });
+
+  test('a task outside the scope is treated as its end (never continues past it)', () => {
+    const scope = scopeOf(['t1', 't2']);
+    assert.equal(isEndOfScope(scope, 't9'), true);
+    assert.equal(nextInScope(scope, 't9'), null);
+  });
+});
+
+describe('planContinuation — the resume-and-continue controller (AC3, AC4)', () => {
+  test('completed inside a multi-task scope continues to the next task', () => {
+    const scope = scopeOf(['t1', 't2']);
+    const r = planContinuation('completed', scope, 't1');
+    assert.deepEqual(r, { action: 'continue', next: 't2' });
+  });
+
+  test('safe_to_retry inside a multi-task scope continues to the next task', () => {
+    const scope = scopeOf(['t1', 't2']);
+    const r = planContinuation('safe_to_retry', scope, 't1');
+    assert.deepEqual(r, { action: 'continue', next: 't2' });
+  });
+
+  test('completed at the end of the scope stops — never continues past the authorized boundary', () => {
+    const scope = scopeOf(['t1', 't2']);
+    const r = planContinuation('completed', scope, 't2');
+    assert.deepEqual(r, { action: 'stop', reason: 'end-of-scope' });
+  });
+
+  test('completed for a single-task scope stops at end-of-scope', () => {
+    const r = planContinuation('completed', scopeOf('t1'), 't1');
+    assert.deepEqual(r, { action: 'stop', reason: 'end-of-scope' });
+  });
+
+  for (const [result, reason] of [
+    ['partially_completed', 'partially-completed'],
+    ['not_retryable', 'not-retryable'],
+    ['unsafe_manual', 'unsafe-manual'],
+  ]) {
+    test(`${result} always stops, even mid-scope with more tasks remaining`, () => {
+      const scope = scopeOf(['t1', 't2', 't3']);
+      const r = planContinuation(result, scope, 't1');
+      assert.deepEqual(r, { action: 'stop', reason });
+    });
+  }
+
+  test('an externalStopReason forces a stop regardless of the postcondition result', () => {
+    const scope = scopeOf(['t1', 't2']);
+    const r = planContinuation('completed', scope, 't1', { externalStopReason: 'failed-acceptance-criterion' });
+    assert.deepEqual(r, { action: 'stop', reason: 'failed-acceptance-criterion' });
+  });
+
+  test('an unknown externalStopReason throws rather than silently continuing', () => {
+    assert.throws(() => planContinuation('completed', scopeOf(['t1']), 't1', { externalStopReason: 'bogus' }));
+  });
+
+  test('an unknown postcondition result throws', () => {
+    assert.throws(() => planContinuation('bogus', scopeOf(['t1']), 't1'));
+  });
+});
+
+describe('stopReasonForSuspension', () => {
+  test('REC-08 maps to scope-expansion', () => {
+    assert.equal(stopReasonForSuspension({ code: 'REC-08', kind: 'owner-decision' }), 'scope-expansion');
+  });
+
+  test('REC-06 maps to unrelated-dirty-files', () => {
+    assert.equal(stopReasonForSuspension({ code: 'REC-06', kind: 'owner-decision' }), 'unrelated-dirty-files');
+  });
+
+  test('an unsafe-manual suspension maps to unsafe-manual regardless of code', () => {
+    assert.equal(stopReasonForSuspension({ code: 'REC-09', kind: 'unsafe-manual' }), 'unsafe-manual');
+  });
+
+  test('every mapped reason is a member of CONTINUATION_STOP_REASONS', () => {
+    for (const reason of [
+      stopReasonForSuspension({ code: 'REC-08', kind: 'owner-decision' }),
+      stopReasonForSuspension({ code: 'REC-06', kind: 'owner-decision' }),
+      stopReasonForSuspension({ code: 'REC-09', kind: 'unsafe-manual' }),
+    ]) {
+      assert.equal(CONTINUATION_STOP_REASONS.has(reason), true);
+    }
+  });
+});
+
+describe('resolveAfterConfirmedRepair — D17 resume-in-place (AC5, AC6)', () => {
+  test('a repair that fully resolves the block returns the fresh completed/safe_to_retry result, resumed', () => {
+    const fresh = { result: 'safe_to_retry', missing: ['status'] };
+    const r = resolveAfterConfirmedRepair(fresh);
+    assert.equal(r.result, 'safe_to_retry');
+    assert.deepEqual(r.missing, ['status']);
+    assert.equal(r.resumed, true);
+  });
+
+  test('a repair that does not resolve the block never re-offers confirm-required — it becomes a fresh not_retryable', () => {
+    const fresh = { result: 'not_retryable', missing: [], reason: 'still dirty' };
+    const r = resolveAfterConfirmedRepair(fresh);
+    assert.equal(r.result, 'not_retryable');
+    assert.equal(r.resumed, true);
+    assert.match(r.reason, /Confirmed repair did not resolve/);
+    assert.match(r.reason, /still dirty/);
+  });
+
+  test('a repair that reveals an unsafe-manual situation passes it through as unsafe_manual, not a repeated prompt', () => {
+    const fresh = { result: 'unsafe_manual', missing: [], reason: 'ADR conflict found' };
+    const r = resolveAfterConfirmedRepair(fresh);
+    assert.equal(r.result, 'unsafe_manual');
+    assert.equal(r.resumed, true);
+  });
+
+  test('D17 end-to-end: a confirm-required REC-05 stop inside approve->start resumes in place after one confirmation', () => {
+    // Step 1 (approve) already succeeded — an authorized combined transition.
+    const approveResult = validateApproval('draft', {
+      verdict: 'ready-for-approval', unresolved_required_fixes: 0, unresolved_owner_decisions: 0,
+      unresolved_needs_clarification: 0, spec_fingerprint: 'fp1',
+    }, 'fp1');
+    const approveInspection = inspectApprovePostconditions(approveResult);
+    assert.equal(approveInspection.result, 'safe_to_retry');
+
+    // Step 2 (start) hits a REC-05 confirm-required stop: dirty worktree, but
+    // every dirty file is inside the task's own allowed_paths.
+    const allowedPaths = ['tools/specs/lifecycle.mjs'];
+    let dirtyFiles = ['tools/specs/lifecycle.mjs'];
+    const classification = classifyDirtyWorktree(dirtyFiles, allowedPaths);
+    assert.deepEqual(classification, { code: 'REC-05', class: 'confirm-required', files: dirtyFiles });
+
+    // Owner confirms once; the repair (commit the file) is applied, and the
+    // worktree is re-inspected from fresh state — this re-invocation is the
+    // resumable recovery handle.
+    dirtyFiles = []; // repair applied: the task-related file was committed
+    const reclassification = classifyDirtyWorktree(dirtyFiles, allowedPaths);
+    assert.equal(reclassification, null); // clean — normalize to a postcondition-shaped result
+    const freshStartInspection = inspectStartPostconditions({
+      taskStatus: 'approved', depsOk: true, onExpectedBranch: false,
+      localBranchExists: false, remoteBranchExists: false, unsatisfiedDeps: [],
+    });
+    const resumed = resolveAfterConfirmedRepair(freshStartInspection);
+
+    // Resolved without a second confirmation — the authorized sequence
+    // (approve -> start) continues, executing only the still-missing effects.
+    assert.equal(resumed.result, 'safe_to_retry');
+    assert.deepEqual(resumed.missing, ['branch', 'status']);
+    assert.equal(resumed.resumed, true);
+
+    const continuation = planContinuation(resumed.result, scopeOf('t1'), 't1');
+    assert.deepEqual(continuation, { action: 'stop', reason: 'end-of-scope' });
+  });
+
+  test('D17/AC6: if the confirmed repair still leaves the worktree dirty, it never re-offers the same confirm-required prompt', () => {
+    const allowedPaths = ['tools/specs/lifecycle.mjs'];
+    // Repair was supposed to commit the file but didn't fully — still dirty.
+    const stillDirty = classifyDirtyWorktree(['tools/specs/lifecycle.mjs'], allowedPaths);
+    // Normalize the still-blocked classification into a postcondition-shaped
+    // result the way REC-05/06 do outside inspectStartPostconditions, then
+    // resolve it — this must never come back out as another confirm-required.
+    const asInspection = { result: 'not_retryable', missing: [], reason: `Dirty file(s): ${stillDirty.files.join(', ')}` };
+    const resumed = resolveAfterConfirmedRepair(asInspection);
+    assert.equal(resumed.result, 'not_retryable');
+    assert.notEqual(resumed.result, 'confirm-required');
+    assert.equal(resumed.resumed, true);
   });
 });

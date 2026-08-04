@@ -250,6 +250,114 @@ export function classifyDirtyWorktree(dirtyFiles, allowedPaths) {
   return { code: 'REC-05', class: 'confirm-required', files: dirtyFiles };
 }
 
+// ── Resume-and-continue controller (D2/D3/D8/D17, task 03) ─────────────────
+//
+// An authorized scope is a single task id or an already-resolved ordered
+// list of task ids. Batch selection/ordering itself — the four D20 named
+// modes — is area batch-execution-and-gating-review's job (task 08); this
+// area only takes the resolved order and enforces the "never continue past
+// it" boundary (D2).
+export function scopeOf(taskIds) {
+  return { taskIds: Array.isArray(taskIds) ? taskIds : [taskIds] };
+}
+
+export function isEndOfScope(scope, taskId) {
+  const idx = scope.taskIds.indexOf(taskId);
+  return idx === -1 || idx === scope.taskIds.length - 1;
+}
+
+export function nextInScope(scope, taskId) {
+  const idx = scope.taskIds.indexOf(taskId);
+  if (idx === -1 || idx === scope.taskIds.length - 1) return null;
+  return scope.taskIds[idx + 1];
+}
+
+// Every named reason the expansive-continuation boundary (overview.md §
+// "Interaction model") can stop for. Not all of these are detected by this
+// area's own logic — `failed-acceptance-criterion`/`public-contract-impact`/
+// `high-risk-evidence`/`stale-batch-evidence` are area batch-execution-and-
+// gating-review's signals (task 08); `planContinuation`'s `externalStopReason`
+// lets a caller report one of those through this same decision point instead
+// of duplicating stop/continue logic elsewhere.
+export const CONTINUATION_STOP_REASONS = new Set([
+  'scope-expansion', 'architectural-decision', 'unsafe-manual', 'unrelated-dirty-files',
+  'owner-decision', 'not-retryable', 'partially-completed', 'failed-acceptance-criterion',
+  'public-contract-impact', 'high-risk-evidence', 'stale-batch-evidence', 'end-of-scope',
+]);
+
+/**
+ * The resume-and-continue controller (requirement 3, AC3/AC4): given the
+ * postcondition result of the action just performed for `taskId` and the
+ * authorized `scope`, decide whether the loop may continue to the next task
+ * automatically. Only `completed`/`safe_to_retry` are continuable —
+ * `not_retryable` and `unsafe_manual` always stop, and so does
+ * `partially_completed` reaching this decision point (it never auto-
+ * continues past an unresolved suspension). Never continues past the end of
+ * `scope`, regardless of how safe the next step looks (AC4). `externalStopReason`
+ * lets a caller (e.g. a batch controller, task 08) force a stop for a reason
+ * this area doesn't itself detect, through this same decision point —
+ * checked before the postcondition result.
+ */
+export function planContinuation(postconditionResult, scope, taskId, { externalStopReason } = {}) {
+  if (externalStopReason) {
+    if (!CONTINUATION_STOP_REASONS.has(externalStopReason)) {
+      throw new Error(`Unknown continuation stop reason '${externalStopReason}'`);
+    }
+    return { action: 'stop', reason: externalStopReason };
+  }
+  if (postconditionResult === 'not_retryable') return { action: 'stop', reason: 'not-retryable' };
+  if (postconditionResult === 'unsafe_manual') return { action: 'stop', reason: 'unsafe-manual' };
+  if (postconditionResult === 'partially_completed') return { action: 'stop', reason: 'partially-completed' };
+  if (postconditionResult !== 'completed' && postconditionResult !== 'safe_to_retry') {
+    throw new Error(`Unknown postcondition result '${postconditionResult}'`);
+  }
+  const next = nextInScope(scope, taskId);
+  if (!next) return { action: 'stop', reason: 'end-of-scope' };
+  return { action: 'continue', next };
+}
+
+/**
+ * Maps a persisted `execution.suspension` to one of the boundary's named stop
+ * reasons, so a caller reports *why* the controller stopped using the same
+ * vocabulary `planContinuation` returns rather than a suspension-specific one.
+ */
+export function stopReasonForSuspension(suspension) {
+  if (suspension.code === 'REC-08') return 'scope-expansion';
+  if (suspension.code === 'REC-06') return 'unrelated-dirty-files';
+  if (suspension.kind === 'unsafe-manual') return 'unsafe-manual';
+  return 'owner-decision';
+}
+
+/**
+ * D17 repair-and-retry resume-in-place: a `confirm-required`-class stop
+ * inside an owner-already-authorized combined transition (e.g. `approve` ->
+ * `start`) does not end the transition — once the owner confirms, the caller
+ * re-runs the recovery action's own postcondition-inspection function against
+ * fresh state (that re-invocation *is* the resumable recovery handle
+ * requirement 4a describes) and passes the fresh result here. Resolved: the
+ * combined transition continues, having executed only the still-missing
+ * effects the fresh inspection reported. Still unresolved: AC6 — a
+ * confirmation is never asked a second time for the same repair, so the
+ * result is forced to `not_retryable` (or passed through as `unsafe_manual`),
+ * a fresh stop the caller presents as new rather than repeating the old
+ * prompt.
+ */
+export function resolveAfterConfirmedRepair(freshInspection) {
+  if (freshInspection.result === 'completed' || freshInspection.result === 'safe_to_retry') {
+    return { ...freshInspection, resumed: true };
+  }
+  if (freshInspection.result === 'unsafe_manual') {
+    return { ...freshInspection, resumed: true };
+  }
+  return {
+    result: 'not_retryable',
+    missing: freshInspection.missing || [],
+    resumed: true,
+    reason: 'Confirmed repair did not resolve the blocking condition' +
+      (freshInspection.reason ? `: ${freshInspection.reason}` : '.'),
+  };
+}
+
 /**
  * Pure finalize-gate check: given a change's tasks and a bag of already-fetched facts
  * (git state, PR state, verification results), decide whether `finalize` may merge the
