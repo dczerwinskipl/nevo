@@ -4,7 +4,11 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS } from '../specs/lifecycle.mjs';
+import {
+  validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS,
+  depsSatisfied, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
+} from '../specs/lifecycle.mjs';
+import { validateStatusValue } from '../specs/validation.mjs';
 
 describe('validateTransition — valid transitions', () => {
   test('approve: draft -> approved is allowed', () => {
@@ -342,5 +346,81 @@ describe('deriveStage — the whole-lifecycle navigator', () => {
     const r = deriveStage(change, cleanPrFacts());
     assert.equal(r.stage, 'ready-to-finalize');
     assert.match(r.nextCommand, /spec-finalize c1/);
+  });
+});
+
+describe('depsSatisfied — abandoned no longer satisfies a dependency (D6/requirement 4)', () => {
+  const changeWith = depStatus => ({
+    tasks: [{ id: 'dep', status: depStatus }, { id: 't', depends_on: ['dep'] }],
+  });
+
+  for (const status of ['implemented', 'verified', 'archived']) {
+    test(`a '${status}' dependency satisfies depends_on`, () => {
+      const change = changeWith(status);
+      assert.equal(depsSatisfied(change.tasks[1], change), true);
+    });
+  }
+
+  test("an 'abandoned' dependency does NOT satisfy depends_on", () => {
+    const change = changeWith('abandoned');
+    assert.equal(depsSatisfied(change.tasks[1], change), false);
+  });
+
+  test('a task with no depends_on is trivially satisfied', () => {
+    const change = { tasks: [{ id: 't' }] };
+    assert.equal(depsSatisfied(change.tasks[0], change), true);
+  });
+});
+
+describe('status vocabulary — blocked/needs-decision removed outright (D16)', () => {
+  test('removedStatusMessage names the value and points at execution.suspension', () => {
+    assert.equal(
+      removedStatusMessage('blocked'),
+      'Status `blocked` is no longer supported. Use `execution.suspension`.'
+    );
+    assert.match(removedStatusMessage('needs-decision'), /needs-decision/);
+    assert.match(removedStatusMessage('needs-decision'), /execution\.suspension/);
+  });
+
+  test('TASK_STATUSES and CHANGE_STATUSES no longer contain blocked/needs-decision', () => {
+    assert.equal(TASK_STATUSES.has('blocked'), false);
+    assert.equal(TASK_STATUSES.has('needs-decision'), false);
+    assert.equal(CHANGE_STATUSES.has('blocked'), false);
+    assert.equal(CHANGE_STATUSES.has('needs-decision'), false);
+  });
+
+  test('validateStatusValue rejects task status blocked with the fixed migration message', () => {
+    const errors = [];
+    validateStatusValue('blocked', TASK_STATUSES, errors, 'task t1.status');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /Status `blocked` is no longer supported\. Use `execution\.suspension`\./);
+  });
+
+  test('validateStatusValue rejects change status needs-decision with the fixed migration message', () => {
+    const errors = [];
+    validateStatusValue('needs-decision', CHANGE_STATUSES, errors, 'change.status');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /Status `needs-decision` is no longer supported\. Use `execution\.suspension`\./);
+  });
+
+  test('validateStatusValue accepts every remaining valid task status', () => {
+    for (const status of TASK_STATUSES) {
+      const errors = [];
+      validateStatusValue(status, TASK_STATUSES, errors, 'task t1.status');
+      assert.deepEqual(errors, []);
+    }
+  });
+
+  test('validateStatusValue rejects an unrecognized status value that is not blocked/needs-decision either', () => {
+    const errors = [];
+    validateStatusValue('bogus-status', TASK_STATUSES, errors, 'task t1.status');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /invalid status 'bogus-status'/);
+  });
+
+  test('validateStatusValue is a no-op when the value is absent', () => {
+    const errors = [];
+    validateStatusValue(undefined, TASK_STATUSES, errors, 'task t1.status');
+    assert.deepEqual(errors, []);
   });
 });

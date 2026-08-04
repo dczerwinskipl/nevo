@@ -265,6 +265,107 @@ touching code, load `optional` only if the task text references it, and treat
 `allowed_paths`/`forbidden_paths` as a hard scope boundary — not a suggestion. This is
 what keeps large specifications from forcing every task to read the entire change.
 
+## State model: statuses, suspension, and semantic fingerprints
+
+### Status vocabulary
+
+A task's `status` (in `change.yaml`) is one of `draft` / `approved` / `in-implementation`
+/ `implemented` / `verified` / `abandoned` / `archived`; a change's own `status` is one of
+`draft` / `approved` / `in-implementation` / `implemented` / `verified` / `abandoned` /
+`archived`. `blocked` and `needs-decision` are **not valid values at either level** —
+`tools/specs.mjs validate` rejects either one with a fixed message: `` Status `blocked` is
+no longer supported. Use `execution.suspension`. `` (and the `needs-decision`
+equivalent). They were removed rather than left valid-but-unreachable, because a status
+value validation accepts but no transition can ever leave is itself a defect. A recoverable
+stop is represented by `execution.suspension` (below) instead, which never overwrites the
+task's real `status`.
+
+`depsSatisfied` treats `implemented` / `verified` / `archived` as dependency-satisfying;
+`abandoned` is terminal (it doesn't block `finalize`) but does **not** satisfy a
+dependent's `depends_on` — a dependent cannot build on work that was dropped.
+
+### `execution.suspension` — why the last action stopped, orthogonal to status
+
+An optional block on a task's `change.yaml` entry, present only while the task's last
+attempted action is stopped on something recoverable:
+
+```yaml
+execution:
+  suspension:
+    kind: automatic | confirm-required | owner-decision | unsafe-manual
+    code: <a recovery scenario identifier>
+    previous_action: <the operation to retry>
+    created_at: <ISO timestamp>
+```
+
+The task's own `status` is never overwritten by a suspension — a task that was `approved`
+and failed to `start` stays `approved` with a suspension attached. `tools/specs.mjs
+validate` checks `kind` is one of the four listed values and `code` is a non-empty string;
+it does not yet check `code` against a specific enum (the concrete recovery-scenario
+identifiers are defined by a later change). Writing and clearing suspensions is not yet
+wired into any command — this schema is currently validated but not yet produced by the
+CLI.
+
+### `semantic_references` — a task's declared dependency/decision/constraint scope
+
+An optional block in a task file's own front matter (absent, or all three lists empty, is
+valid — it means the task's fingerprint depends on nothing beyond its own content):
+
+```yaml
+semantic_references:
+  decisions: [D7, D13]              # owner-decisions.md entries this task's content depends on
+  constraints: [C2]                 # named constraints from overview.md's numbered "Constraints" section
+  dependency_contracts: [task-a]    # subset of depends_on whose scope this task actually relies on
+```
+
+`validate` checks reference *integrity*, not completeness: every `dependency_contracts`
+entry must already be in the task's own `depends_on`; every `decisions`/`constraints`
+entry must resolve (an owner decision explicitly marked superseded resolves to an error
+naming the decision to reference instead). Whether the list is *complete* — whether it
+covers everything the task's content actually depends on — is a separate, model-review
+concern, not something schema validation alone can prove.
+
+### `self_check` — a task's own last verification outcome
+
+An optional block on a task's `change.yaml` entry, structurally parallel to
+`execution.suspension`:
+
+```yaml
+self_check:
+  status: failed | passed        # absent block == "not run"
+  fingerprint: <task-level semantic fingerprint at the time this self-check ran>
+  revision: <git SHA at the time this self-check ran>
+  failed_criteria: [AC-3, AC-5]   # only when status: failed
+  commands:
+    - command: "node --test tools/tests/foo.test.mjs"
+      exit_code: 0
+```
+
+`validate` checks the shape (`status` is `failed`/`passed`; `failed_criteria` only appears
+with `status: failed`; each `commands` entry has a `command` string and an integer
+`exit_code`). Writing this after an actual self-check run, and reading it to decide
+"passed but stale" versus "passed and fresh," is not yet wired into any command.
+
+### Three-tier semantic fingerprint
+
+`tools/specs/service.mjs` exposes three canonical-projection fingerprint functions,
+alongside (not yet replacing) the single whole-spec `computeSpecFingerprint` the `approve`
+gate currently reads — see "Review freshness" below for why that distinction matters
+right now:
+
+| Function | Covers | Excludes |
+|---|---|---|
+| `computeChangeFingerprint(change)` | `overview.md`'s full content (change scope, shared constraints, change-level acceptance criteria) plus the task graph's shape — every task's id and `depends_on` edges, nothing else | Per-task `status`, `execution.suspension`, `self_check` |
+| `computeTaskFingerprint(change, taskId)` | That task's own file content (goal, constraints, acceptance criteria), `context`/`allowed_paths`/`consequential_paths`/`forbidden_paths`, its own `depends_on` edges, and its `semantic_references` — resolved, not echoed: each referenced decision's/constraint's current text, and each `dependency_contracts` entry's own task-level fingerprint (recursively) | `status`, `execution.suspension`, `self_check` |
+| `computeImplementationFingerprint(change, taskId, { revision, evidence })` | The task-level fingerprint plus a revision identifier and evidence references | Same as above |
+
+Each function extracts specific semantic fields and hashes that projection — never raw
+file bytes — so operational fields are simply never read, not excluded after the fact.
+Adding or removing any task always invalidates `computeChangeFingerprint` (the task graph's
+id set is one of its declared inputs); an unrelated task's own task-level fingerprint is
+unaffected unless its `semantic_references.dependency_contracts` names the added/removed
+task.
+
 ## Using `tools/specs.mjs`
 
 ```
@@ -402,6 +503,15 @@ decisions, every area/task file — sorted, deterministic), deliberately excludi
 review artifact itself so writing the review never invalidates its own fingerprint. A
 review embeds this exact printed value; approval recomputes it and refuses if the two
 don't match, naming both values so the mismatch is verifiable.
+
+`computeSpecFingerprint` is a single whole-spec hash — any task's status transition
+changes the hash for the entire change, which is why approving one task can invalidate
+the stored review's fingerprint for every other task in the same change. The three-tier
+semantic fingerprint (see "State model" above) is the replacement design — each of its
+three functions excludes `status` by construction and scopes invalidation per
+change/task/implementation instead of per whole spec — but `approve`'s own gate has not
+yet been switched over to it; that cutover is tracked separately from the functions'
+own definition and tests.
 
 ### A re-review reads current files, never infers "unchanged" from git
 

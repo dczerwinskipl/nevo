@@ -5,14 +5,34 @@
 // Separate status sets for separate concepts — a task being "done" for
 // dependency purposes is not the same question as a change being active.
 export const TERMINAL_STATUSES = new Set(['implemented', 'verified', 'archived', 'abandoned']);
+// `abandoned` is terminal (finalize doesn't wait on it) but must not satisfy a
+// dependent's depends_on — a dependent cannot build on work that was dropped.
+export const DEPENDENCY_SATISFYING_STATUSES = new Set(['implemented', 'verified', 'archived']);
 export const READY_STATUSES = new Set(['approved']);
-export const ACTIVE_CHANGE_STATUSES = new Set(['approved', 'in-implementation', 'needs-decision', 'draft', 'blocked']);
+export const ACTIVE_CHANGE_STATUSES = new Set(['approved', 'in-implementation', 'draft']);
+
+// `blocked`/`needs-decision` are removed from the vocabulary entirely (D16) —
+// `execution.suspension` is now the only supported temporary-blocker model, at
+// both task and change level. This is the single enum both levels validate
+// against (validation.mjs); no new status names are introduced (C7).
+export const TASK_STATUSES = new Set([
+  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
+]);
+export const CHANGE_STATUSES = new Set([
+  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
+]);
+export const REMOVED_STATUSES = new Set(['blocked', 'needs-decision']);
+
+/** The fixed migration message D16 requires for a removed status value. */
+export function removedStatusMessage(value) {
+  return `Status \`${value}\` is no longer supported. Use \`execution.suspension\`.`;
+}
 
 export function depsSatisfied(task, change) {
   const deps = task.depends_on || [];
   return deps.every(depId => {
     const dep = change.tasks.find(t => t.id === depId);
-    return Boolean(dep) && TERMINAL_STATUSES.has(dep.status);
+    return Boolean(dep) && DEPENDENCY_SATISFYING_STATUSES.has(dep.status);
   });
 }
 
