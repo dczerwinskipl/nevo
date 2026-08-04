@@ -68,6 +68,19 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
+9a0. **Batch-continuation offer (forward-compatible check only — D2/D3, area
+    `batch-execution-and-gating-review`, task 08).** Immediately after a status change in
+    step 9 (option 1 or 2), check whether an active batch record exists for
+    `<change-id>` — task 08's persisted batch-intent file (e.g.
+    `specs/active/<change-id>/batch.json`; task 08 defines its exact shape and path) —
+    and, if it exists, whether `<task-id>` was its current task. **Task 08 has not
+    landed yet, so this record never exists today and this check must always evaluate to
+    false; do not add the "continue to next batch task" offer's visible behavior in this
+    task** — only this existence check, so task 08 can wire the real offer in without
+    touching this command file again. When (in the future, once task 08 lands) the
+    record exists and names `<task-id>` as current: ask, as a closed choice, whether to
+    continue to the next batch task inline instead of stopping here. This must never fire
+    outside an active batch (AC4) and must never appear unconditionally.
 9a. If option 1 or 2 was chosen, run `node tools/specs.mjs status <change-id>`. This
     command is never asked to *decide* anything here — it's read-only, and its job is to
     say correctly whether the rest of the change is done or whether a PR/review/merge

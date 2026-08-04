@@ -112,10 +112,18 @@ never the change/task/spec files under review. `spec-approve` is the single plac
 written, and even there only after an explicit, interactive answer in the same turn,
 and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, requires a
 current, ready, fully-resolved review) is what actually enforces it, not the agent's
-judgment. `spec-approve` offers exactly three outcomes — approve, keep as draft, show
-the report — and **never** starts implementation itself, even when the owner approves;
-it prints `/nevo-ai:task-start <change> <task>` as the next command and stops there.
-Approving a task and starting it are always two separate, separately-confirmed actions.
+judgment. `spec-approve` offers exactly four outcomes — approve, approve and start, keep
+as draft, show the report. For the first, third, and fourth, it **never** starts
+implementation itself, even when the owner approves; it prints `/nevo-ai:task-start
+<change> <task>` as the next command and stops there. The fourth outcome, "approve and
+start" (D3), is the one deliberate exception: it is its own explicit menu item — never
+the default, never pre-selected, never inferred — and selecting it runs `approve` then
+re-checks and runs `start` in the same turn (task 02/03's postcondition model governs
+what happens if `start` can't complete; see `spec-approve.md` § "Approve and start").
+Every other command in this skill still never starts implementation on its own
+initiative. `spec-review` reaching `ready-for-approval` offers this same menu inline,
+in the same turn, as an additional entry point into `spec-approve`'s gate — not a
+bypass of it; the CLI call and its checks are unchanged either way.
 
 ## Ending every command's response
 

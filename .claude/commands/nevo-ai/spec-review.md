@@ -89,10 +89,22 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
       `/nevo-ai:spec-refine --from-review` (that command stops at these findings too —
       don't send the owner in a circle),
     - `changes-required` → `/nevo-ai:spec-refine <change-id> --from-review`,
-    - `ready-for-approval` → `/nevo-ai:spec-approve <change-id> <task-id>` — do not tell
-      the owner to hand-edit `change.yaml`; that command is the interactive approval
-      gate,
+    - `ready-for-approval` → see step 10a below — do not just print
+      `/nevo-ai:spec-approve <change-id> <task-id>` and stop; offer it inline, in the
+      same turn,
     - `approved-for-implementation` → `/nevo-ai:task-next`.
+10a. **Inline approval offer at `ready-for-approval` (D3, requirement 1).** This is an
+    *additional* entry point into `/nevo-ai:spec-approve`'s own unchanged gate, not a
+    bypass of it — reuse that command's own confirmation and CLI call rather than
+    re-implementing an approval prompt here. Concretely: present exactly
+    `/nevo-ai:spec-approve <change-id> <task-id>`'s own Flow step 3 menu (all four
+    options — approve / approve and start / keep as draft / show report) in this same
+    turn, and on an answer, follow that command's Flow step 4 (and, for option 2, its
+    "Approve and start" section) exactly — including `node tools/specs.mjs approve`'s own
+    fresh fingerprint/verdict re-check, which still runs and is still what actually
+    enforces the gate (AC3 — this command's own judgment never substitutes for it, even
+    though the verdict was just computed in step 7). One decision point total: this menu
+    *is* the approval confirmation, not a wrapper prompting whether to see another one.
 
 ## Rules
 
