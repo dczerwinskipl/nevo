@@ -23,7 +23,7 @@ tasks:
   - id: resume-and-continue-controller
     order: 3
     file: tasks/03-resume-and-continue-controller.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - recovery-classification-and-machine-readable-errors
   - id: conversational-approval-ergonomics
