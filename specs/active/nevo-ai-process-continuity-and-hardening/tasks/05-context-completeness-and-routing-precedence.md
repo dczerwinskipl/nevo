@@ -22,6 +22,8 @@ allowed_paths:
   - tools/tests/context.test.mjs
   - tools/tests/docs-routing.test.mjs
   - docs/ai/how-to-navigate.md
+  - docs/ai/task-routing.md
+  - docs/ai/change-impact-map.md
 consequential_paths:
   - docs/routing.generated.json
 forbidden_paths:
