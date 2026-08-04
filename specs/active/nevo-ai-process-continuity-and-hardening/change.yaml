@@ -35,7 +35,7 @@ tasks:
   - id: context-completeness-and-routing-precedence
     order: 5
     file: tasks/05-context-completeness-and-routing-precedence.md
-    status: approved
+    status: in-implementation
     depends_on:
       - state-and-fingerprint-semantics
   - id: scope-and-follow-up-mechanisms
