@@ -41,7 +41,7 @@ tasks:
   - id: scope-and-follow-up-mechanisms
     order: 6
     file: tasks/06-scope-and-follow-up-mechanisms.md
-    status: approved
+    status: in-implementation
     depends_on:
       - context-completeness-and-routing-precedence
   - id: mechanical-task-type
