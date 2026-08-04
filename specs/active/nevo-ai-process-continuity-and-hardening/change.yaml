@@ -29,7 +29,7 @@ tasks:
   - id: conversational-approval-ergonomics
     order: 4
     file: tasks/04-conversational-approval-ergonomics.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - resume-and-continue-controller
   - id: context-completeness-and-routing-precedence

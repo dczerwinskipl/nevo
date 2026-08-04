@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T20:00:44.572Z",
+  "generated": "2026-08-04T20:00:51.088Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -36,7 +36,7 @@
           "id": "conversational-approval-ergonomics",
           "order": 4,
           "file": "tasks/04-conversational-approval-ergonomics.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "resume-and-continue-controller"
           ]
