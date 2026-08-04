@@ -24,8 +24,8 @@ of truth for change classes, decision policy, and context loading rules.
 
 ## Architecture
 
-Architecture documentation is in `docs/architecture/`. Do not duplicate it here.
-ADRs are in `docs/adr/`. Development rules are in `docs/development/`.
+Architecture documentation is in `docs/development/`. Do not duplicate it here.
+ADRs are in `docs/decisions/`. Development rules are in `docs/development/`.
 
 ## Workflow
 

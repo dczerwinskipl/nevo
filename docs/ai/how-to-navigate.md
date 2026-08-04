@@ -55,17 +55,22 @@ node tools/specs.mjs start <change-slug> <task-id>
 This creates the branch and sets the task to `in-implementation`. Do not create branches
 manually.
 
-## Finding architecture documentation
+## Finding framework documentation
 
-Use `node tools/docs.mjs find --scope <scope>` to locate relevant architecture docs.
-Or read `docs/index.generated.md` if it exists (run `node tools/docs.mjs generate` first).
+For a specific kind of framework task (modifying message dispatch, adding a transport,
+adding a persistence provider, changing authorization, changing inbox/outbox behavior,
+adding a command/event type), see `docs/ai/task-routing.md` — it lists which documents
+to read, invariants to preserve, and tests to run, per task kind.
 
-Common scopes: `messaging`, `middleware`, `handlers`, `persistence`, `inbox`, `outbox`,
-`event-sourcing`, `orchestration`, `context`, `packages`
+For a specific `src/<Package>/` directory, see `docs/ai/change-impact-map.md` — it maps
+each package to its reference doc and any relevant maintainer doc(s).
+
+Both route by path only — read the specific files they point to, not the whole
+`docs/development/` or `docs/reference/packages/` tree.
 
 ## Finding ADRs
 
-`docs/adr/` — sorted by number. ADRs with `status: superseded` point to their replacement.
+`docs/decisions/` — sorted by number. ADRs with `status: superseded` point to their replacement.
 Read ADRs when the task touches an area where a durable decision has been made.
 
 ## Archived specs

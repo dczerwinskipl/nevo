@@ -5,7 +5,7 @@ lives in [`docs/ai/specification-workflow.md`](../../../../docs/ai/specification
 under "Change classification" → "Signal-based classification" and "Escalation is
 explicit and one-way". Read it there; this file does not restate it.
 
-See [ADR-0003](../../../../docs/adr/ADR-0003-technical-decision-triage-and-option-analysis.md)
+See [ADR-0003](../../../../docs/decisions/ADR-0003-technical-decision-triage-and-option-analysis.md)
 for why this exists: extracted and adapted from an external DDD-oriented example
 repository, reframed for a technical framework with no business domain to model.
 

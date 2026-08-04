@@ -1,7 +1,7 @@
 # NEvo — Agent Guide
 
 This file is the portable entry point for all AI agents. Claude, Cursor, and Copilot adapters
-point here. Architecture lives in `docs/architecture/`. Do not duplicate it in adapter files.
+point here. Architecture lives in `docs/development/`. Do not duplicate it in adapter files.
 
 ## How to start any task
 
@@ -58,10 +58,10 @@ Load only what the task context packet declares as `required`. Load `optional` c
 if the task description references it. Do not load all specs, all ADRs, or all architecture
 docs by default.
 
-Architecture documents: `docs/architecture/`
+Architecture documents: `docs/development/`
 Development rules: `docs/development/`
 AI guidance: `docs/ai/`
-ADRs: `docs/adr/`
+ADRs: `docs/decisions/`
 
 ## Git safety
 
@@ -83,8 +83,8 @@ ADRs: `docs/adr/`
 ## Source of truth precedence
 
 1. Approved specification for the current change
-2. Accepted ADRs (`docs/adr/`)
-3. Current architecture documentation (`docs/architecture/`)
+2. Accepted ADRs (`docs/decisions/`)
+3. Current architecture documentation (`docs/development/`)
 4. Development rules (`docs/development/`)
 5. Current implementation (code)
 6. Generated indexes (`*.generated.*`)

@@ -19,17 +19,18 @@ related:
 # Coding conventions
 
 This document covers **standing rules** — patterns you follow no matter what you're
-building. For the step-by-step process of adding a new transport, persistence
-mechanism, handler, or event type, see
-[Extending NEvo](../guides/extending-nevo.md) instead; this page doesn't repeat that
-content.
+building. For the step-by-step process of adding a new transport or persistence
+mechanism to NEvo itself, see [Transport development](transport-development.md) and
+[Persistence development](persistence-development.md); for writing a handler or event
+type as a consumer, see `docs/usage/commands.md` and `docs/usage/events.md` — this page
+doesn't repeat that content.
 
 ## The `Either<Exception, T>` convention
 
 Every fallible operation across the messaging pipeline returns `LanguageExt.Either
 <Exception, T>` rather than throwing — this is deliberate and repository-wide, not
-incidental (see [`docs/architecture/overview.md`](../architecture/overview.md) §
-"Design philosophy" and [`NEvo.Core`](../packages/NEvo.Core.md) § "The
+incidental (see [`docs/development/architecture-overview.md`](architecture-overview.md) §
+"Design philosophy" and [`NEvo.Core`](../reference/packages/NEvo.Core.md) § "The
 `Either<Exception, T>` convention" for the supporting helpers:
 `EitherExtensions.Do`, `UnitExt.DefaultEitherTask`).
 
@@ -70,7 +71,7 @@ ArgumentNullException(...)`.
 ## Dependency direction between packages
 
 Dependencies between NEvo packages flow **downward only** — see
-[Package boundaries](../architecture/package-boundaries.md) (`architecture.
+[Package boundaries](package-boundaries.md) (`development.
 package-boundaries`) for the full rule set and current dependency graph; this document
 doesn't restate it. If you're adding a new package or a new cross-package reference,
 read that document first — package-boundary changes are an architectural decision
@@ -91,17 +92,17 @@ Every package that registers services follows the same shape, established across
   `Add*` methods) so a consumer can override any default by registering their own
   implementation first — this is load-bearing, not stylistic: several packages'
   documented "how to override the default" instructions rely on it (e.g.
-  [`NEvo.Ddd.EventSourcing`](../packages/NEvo.Ddd.EventSourcing.md)'s `IEventStore`).
+  [`NEvo.Ddd.EventSourcing`](../reference/packages/NEvo.Ddd.EventSourcing.md)'s `IEventStore`).
 
 Not every package follows this consistently — see each package's own doc for gaps
-(e.g. [`NEvo.Messaging.Authorization`](../packages/NEvo.Messaging.Authorization.md)
-has no registration helper at all; [`NEvo.Messaging.EntityFramework`](../packages/NEvo.Messaging.EntityFramework.md)
+(e.g. [`NEvo.Messaging.Authorization`](../reference/packages/NEvo.Messaging.Authorization.md)
+has no registration helper at all; [`NEvo.Messaging.EntityFramework`](../reference/packages/NEvo.Messaging.EntityFramework.md)
 has one for inbox but not outbox). Follow the shape above for anything new regardless.
 
 ## Message, command, and event types
 
 Commands and events are `record` types — see
-[`NEvo.Messaging.Cqrs`](../packages/NEvo.Messaging.Cqrs.md)'s `Command` and
+[`NEvo.Messaging.Cqrs`](../reference/packages/NEvo.Messaging.Cqrs.md)'s `Command` and
 `NEvo.Messaging`'s `Event` (`NEvo.Messaging.Events` namespace). Prefer a `record`
 over a `class` for any new message type, consistent with every existing one in the
 codebase.

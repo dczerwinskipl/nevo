@@ -8,7 +8,7 @@ infrastructure-pattern recognition, evaluation dimensions, complexity sizing, co
 and package-boundary checks, the consequences-at-equal-cost rule, and the recommendation
 rule. Read it there; this file does not restate it.
 
-See [ADR-0003](../../../../docs/adr/ADR-0003-technical-decision-triage-and-option-analysis.md)
+See [ADR-0003](../../../../docs/decisions/ADR-0003-technical-decision-triage-and-option-analysis.md)
 for why this exists and, just as importantly, what was deliberately **not** adopted from
 the source material (DDD bounded-context modeling, the `decision.md`/`context-map.md`
 artifact-lifecycle machinery) — this is the technical-decision subset only.

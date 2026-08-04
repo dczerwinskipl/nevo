@@ -67,7 +67,7 @@ a second, independent axis, only populated when a baseline exists:
 
 Before repeating any baseline finding, verify its **exact, literal predicate** against
 the file it refers to, right now — not "I recall this was missing." Concretely: if the
-predicate is "`docs/architecture/overview.md` is present in `forbidden_paths`," open the
+predicate is "`docs/development/architecture-overview.md` is present in `forbidden_paths`," open the
 task file and check the actual `forbidden_paths` list; if it's "the ADR decision is
 recorded," open `owner-decisions.md` and check for that entry. A finding is only
 `still-present` if this direct check, performed this run, confirms it.
@@ -479,7 +479,7 @@ verification evidence (build/test output).
 
 ## Architecture drift detection
 
-If the diff changes behavior that `docs/architecture/` describes, and the same branch
+If the diff changes behavior that `docs/development/` describes, and the same branch
 does not update that document, this is a blocking finding — architecture docs must
 track current behavior.
 

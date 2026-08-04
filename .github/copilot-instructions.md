@@ -5,7 +5,7 @@ change classes, decision policy, and context loading rules for this project.
 
 ## Key rules
 
-- Architecture lives in `docs/architecture/` — do not invent architecture
+- Architecture lives in `docs/development/` — do not invent architecture
 - Specs live in `specs/active/` — do not implement unapproved work
 - Breaking changes in behavior require owner approval, even if API signature is unchanged
 - New external packages require owner approval
