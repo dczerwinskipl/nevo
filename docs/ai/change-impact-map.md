@@ -44,3 +44,28 @@ directory and is not repeated per-row above.
 Before assuming an observed behavior is a bug to fix, check
 `docs/project/known-issues.md` — many of the gaps in the packages above are already
 confirmed and documented there, not novel.
+
+## Routing table
+
+Machine-readable rules matched against a task's `allowed_paths` (D12) — one row per
+package above, its primary reference doc only (maintainer docs stay sourced from the
+table above; a partial machine-readable rule set is still valid — it only ever adds
+candidates, per `how-to-navigate.md`'s precedence rule). Consumed only via
+`docs/routing.generated.json` (`node tools/docs.mjs generate`), never re-parsed from this
+table at check time. `rule_id` is unique across this file and `task-routing.md` combined.
+
+| rule_id | path_glob | doc_ref |
+|---|---|---|
+| CIM-01 | src/NEvo.Core/** | docs/reference/packages/NEvo.Core.md |
+| CIM-02 | src/NEvo.Messaging/** | docs/reference/packages/NEvo.Messaging.md |
+| CIM-03 | src/NEvo.Messaging.Cqrs/** | docs/reference/packages/NEvo.Messaging.Cqrs.md |
+| CIM-04 | src/NEvo.Messaging.Authorization/** | docs/reference/packages/NEvo.Messaging.Authorization.md |
+| CIM-05 | src/NEvo.Messaging.Web/** | docs/reference/packages/NEvo.Messaging.Web.md |
+| CIM-06 | src/NEvo.Messaging.EntityFramework/** | docs/reference/packages/NEvo.Messaging.EntityFramework.md |
+| CIM-07 | src/NEvo.Authorization/** | docs/reference/packages/NEvo.Authorization.md |
+| CIM-08 | src/NEvo.Web.Authorization/** | docs/reference/packages/NEvo.Web.Authorization.md |
+| CIM-09 | src/NEvo.Web/** | docs/reference/packages/NEvo.Web.md |
+| CIM-10 | src/NEvo.EntityFramework/** | docs/reference/packages/NEvo.EntityFramework.md |
+| CIM-11 | src/NEvo.Ddd.EventSourcing/** | docs/reference/packages/NEvo.Ddd.EventSourcing.md |
+| CIM-12 | src/NEvo.Orchestrating/** | docs/reference/packages/NEvo.Orchestrating.md |
+| CIM-13 | src/NEvo.Orchestrating.EntityFramework/** | docs/reference/packages/NEvo.Orchestrating.EntityFramework.md |

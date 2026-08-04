@@ -17,6 +17,54 @@ export const ARCHIVE_DIR = join(ROOT, 'specs', 'archive');
 export const ACTIVE_INDEX_MD = join(ROOT, 'specs', 'active.generated.md');
 export const ARCHIVE_INDEX_MD = join(ROOT, 'specs', 'archive.generated.md');
 export const INDEX_JSON = join(ROOT, 'specs', 'index.generated.json');
+const ROUTING_INDEX_FILE = join(ROOT, 'docs', 'routing.generated.json');
+
+// ── Context-completeness / routing precedence (D12, area context-and-
+// validation-hardening, task 05) ────────────────────────────────────────────
+
+function globPrefix(pattern) {
+  return pattern.replace(/\/\*\*$/, '').replace(/\/\*$/, '').replace(/\\/g, '/');
+}
+
+// Path-glob-only overlap — no content/semantic search, no repository scan
+// (constraint, area context-and-validation-hardening): true when either
+// pattern's fixed prefix is an ancestor of (or equal to) the other's.
+function pathGlobsOverlap(a, b) {
+  const pa = globPrefix(a);
+  const pb = globPrefix(b);
+  return pa === pb || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
+}
+
+function loadRoutingIndex() {
+  if (!existsSync(ROUTING_INDEX_FILE)) return null;
+  return JSON.parse(readUtf8(ROUTING_INDEX_FILE));
+}
+
+/**
+ * Context-completeness check (requirements 2/3/6): diff routing-table
+ * suggestions — sourced only from the already-generated
+ * `docs/routing.generated.json`, never the source Markdown at check time —
+ * against a task's own declared `context.required`/`optional`. A declared
+ * entry always wins (requirement 4/precedence rule) — this only ever adds
+ * gap-check candidates, it never removes or overrides one. A warning, never
+ * a hard failure (requirement 3). Pure: `routingIndex` is the already-loaded
+ * JSON, or `null` when it hasn't been generated yet.
+ */
+export function computeRoutingWarnings(routingIndex, allowedPaths, declaredContextPaths) {
+  if (!routingIndex) {
+    return ['routing index not generated (docs/routing.generated.json) — run `node tools/docs.mjs generate`'];
+  }
+  const declared = new Set(declaredContextPaths);
+  const matched = (routingIndex.rules || []).filter(rule =>
+    (allowedPaths || []).some(ap => pathGlobsOverlap(ap, rule.path_glob))
+  );
+  if (!matched.length) {
+    return ['no routing rule matched — verify context manually'];
+  }
+  return matched
+    .filter(rule => !declared.has(rule.doc_ref))
+    .map(rule => `routing rule '${rule.rule_id}' (${rule.path_glob}) suggests '${rule.doc_ref}' — not in this task's declared context`);
+}
 
 const GENERATED_NOTICE = '<!-- GENERATED FILE — do not edit. Run: node tools/specs.mjs generate -->\n\n';
 
@@ -72,23 +120,27 @@ export function buildContextPacket(change, task) {
     ? `${prefix}/${change._slug}/${task.id}`
     : `${prefix}/${change._slug}`;
 
+  const contextRequired = (taskFm.context?.required || []).map(p =>
+    p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
+  );
+  const contextOptional = (taskFm.context?.optional || []).map(p =>
+    p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
+  );
+  const allowedPaths = taskFm.allowed_paths || [];
+
   return {
     change: { id: change.id, title: change.title },
     task: {
       id: task.id,
       file: task.file ? `specs/active/${change._slug}/${task.file}` : null,
     },
-    context: {
-      required: (taskFm.context?.required || []).map(p =>
-        p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
-      ),
-      optional: (taskFm.context?.optional || []).map(p =>
-        p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
-      ),
-    },
-    allowed_paths: taskFm.allowed_paths || [],
+    context: { required: contextRequired, optional: contextOptional },
+    allowed_paths: allowedPaths,
     forbidden_paths: taskFm.forbidden_paths || [],
     branch,
+    routingWarnings: computeRoutingWarnings(
+      loadRoutingIndex(), allowedPaths, [...contextRequired, ...contextOptional]
+    ),
   };
 }
 

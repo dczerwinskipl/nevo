@@ -3,11 +3,16 @@
 // Usage: node tools/docs.mjs <generate|validate|check|find>
 
 import { Command } from 'commander';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join, dirname, relative } from 'node:path';
 
 import {
   scanDocs, validateDocs, buildDocsIndexes, writeDocsIndexes, checkDocsIndexes, findDocs,
 } from './docs/service.mjs';
+import { readUtf8, writeUtf8 } from './lib/fs.mjs';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── Command handlers ────────────────────────────────────────────────────────
 // Plain functions, testable without touching process.argv or Commander.
@@ -17,27 +22,172 @@ function reportErrors(errors) {
   process.exitCode = 1;
 }
 
+// ── Machine-readable routing table (D12, area context-and-validation-hardening,
+// task 05) ───────────────────────────────────────────────────────────────────
+//
+// `docs/ai/task-routing.md` and `docs/ai/change-impact-map.md` each carry a
+// fixed-column `rule_id | path_glob | doc_ref` table under a `## Routing
+// table` heading, in addition to their existing free-form prose (the table is
+// a supplement for machine matching, not a replacement for the human-facing
+// content). `docs/routing.generated.json` — generated from these two tables
+// — is the only thing a context-completeness check may read; it must never
+// re-parse this Markdown at check time (that re-parse happens here, once, at
+// validate/generate/check time only).
+
+export const TASK_ROUTING_FILE = join(ROOT, 'docs', 'ai', 'task-routing.md');
+export const CHANGE_IMPACT_MAP_FILE = join(ROOT, 'docs', 'ai', 'change-impact-map.md');
+export const ROUTING_INDEX_FILE = join(ROOT, 'docs', 'routing.generated.json');
+const ROUTING_HEADING = '## Routing table';
+
+/**
+ * Parse one file's `## Routing table` section into `{rule_id, path_glob,
+ * doc_ref, source}` rows. Pure — takes already-read content, not a path, so
+ * tests can exercise it without touching disk. `source` is the file's
+ * repo-relative path, carried along for error messages and for `docs_ref`
+ * cross-file duplicate reporting.
+ */
+export function parseRoutingTable(content, source) {
+  const rules = [];
+  const errors = [];
+  const lines = content.split('\n');
+
+  const headingIdx = lines.findIndex(l => l.trim() === ROUTING_HEADING);
+  if (headingIdx === -1) {
+    errors.push(`${source}: missing '${ROUTING_HEADING}' section`);
+    return { rules, errors };
+  }
+
+  // Prose is allowed between the heading and its table (e.g. an explanatory
+  // paragraph) — but stop at the next heading rather than scanning past it,
+  // so a later, unrelated table elsewhere in the file is never mistaken for
+  // this section's own.
+  let i = headingIdx + 1;
+  while (i < lines.length && !lines[i].trim().startsWith('|')) {
+    if (lines[i].trim().startsWith('#')) {
+      errors.push(`${source}: '${ROUTING_HEADING}' section has no table before the next heading`);
+      return { rules, errors };
+    }
+    i++;
+  }
+  if (i >= lines.length) {
+    errors.push(`${source}: '${ROUTING_HEADING}' section has no table`);
+    return { rules, errors };
+  }
+
+  const header = lines[i].split('|').slice(1, -1).map(c => c.trim().toLowerCase());
+  if (header.length !== 3 || header[0] !== 'rule_id' || header[1] !== 'path_glob' || header[2] !== 'doc_ref') {
+    errors.push(`${source}: routing table header must be exactly 'rule_id | path_glob | doc_ref' (got '${lines[i].trim()}')`);
+    return { rules, errors };
+  }
+  i += 2; // header row + '|---|---|---|' separator row
+
+  for (; i < lines.length; i++) {
+    const raw = lines[i];
+    if (!raw.trim().startsWith('|')) break; // table ended
+    const cells = raw.split('|').slice(1, -1).map(c => c.trim());
+    if (cells.length !== 3 || cells.some(c => !c)) {
+      errors.push(`${source}: malformed routing table row: '${raw.trim()}'`);
+      continue;
+    }
+    const [rule_id, path_glob, doc_ref] = cells;
+    rules.push({ rule_id, path_glob, doc_ref, source });
+  }
+
+  return { rules, errors };
+}
+
+/**
+ * Validate the combined rule set from every routing-table source: each row
+ * well-formed (from `parseRoutingTable`), `rule_id` unique across every
+ * source file combined, and `doc_ref` resolves to a real file. Pure —
+ * `sources` is `[{file, content}]`, already read.
+ */
+export function validateRoutingTables(sources) {
+  const errors = [];
+  const allRules = [];
+  for (const { file, content } of sources) {
+    const { rules, errors: parseErrors } = parseRoutingTable(content, file);
+    errors.push(...parseErrors);
+    allRules.push(...rules);
+  }
+
+  const seen = new Map();
+  for (const rule of allRules) {
+    if (seen.has(rule.rule_id)) {
+      errors.push(`${rule.source}: duplicate rule_id '${rule.rule_id}' (also in ${seen.get(rule.rule_id)})`);
+    } else {
+      seen.set(rule.rule_id, rule.source);
+    }
+    if (!existsSync(join(ROOT, rule.doc_ref))) {
+      errors.push(`${rule.source}: routing rule '${rule.rule_id}' references missing doc_ref '${rule.doc_ref}'`);
+    }
+  }
+
+  return { rules: allRules, errors };
+}
+
+function readRoutingSources() {
+  return [TASK_ROUTING_FILE, CHANGE_IMPACT_MAP_FILE].map(f => ({
+    file: relative(ROOT, f).replace(/\\/g, '/'),
+    content: readUtf8(f),
+  }));
+}
+
+/** Build the expected generated routing index in memory (deterministic — no timestamp). */
+export function buildRoutingIndex(rules) {
+  const sorted = rules
+    .map(({ rule_id, path_glob, doc_ref, source }) => ({ rule_id, path_glob, doc_ref, source }))
+    .sort((a, b) => a.rule_id.localeCompare(b.rule_id));
+  return { rules: sorted };
+}
+
+function writeRoutingIndex(built) {
+  writeUtf8(ROUTING_INDEX_FILE, JSON.stringify({ generated: new Date().toISOString(), ...built }, null, 2));
+}
+
+/**
+ * Compare an on-disk generated index against the freshly-built one, ignoring
+ * the timestamp. `indexFile` defaults to the real generated file; tests pass
+ * a temp path so they never touch repository state.
+ */
+export function checkRoutingIndex(built, indexFile = ROUTING_INDEX_FILE) {
+  if (!existsSync(indexFile)) return ['missing: docs/routing.generated.json'];
+  const existing = JSON.parse(readUtf8(indexFile));
+  if (JSON.stringify(existing.rules) !== JSON.stringify(built.rules)) {
+    return ['stale: docs/routing.generated.json'];
+  }
+  return [];
+}
+
 export function handleGenerate() {
   const docs = scanDocs();
-  const errors = validateDocs(docs);
+  const docErrors = validateDocs(docs);
+  const { rules, errors: routingErrors } = validateRoutingTables(readRoutingSources());
+  const errors = [...docErrors, ...routingErrors];
   if (errors.length) { reportErrors(errors); return; }
   writeDocsIndexes(buildDocsIndexes(docs));
   console.log('Generated: docs/index.generated.json');
   console.log('Generated: docs/index.generated.md');
+  writeRoutingIndex(buildRoutingIndex(rules));
+  console.log('Generated: docs/routing.generated.json');
 }
 
 export function handleValidate() {
   const docs = scanDocs();
-  const errors = validateDocs(docs);
+  const docErrors = validateDocs(docs);
+  const { errors: routingErrors } = validateRoutingTables(readRoutingSources());
+  const errors = [...docErrors, ...routingErrors];
   if (errors.length) { reportErrors(errors); return; }
   console.log(`Validated ${docs.length} documents — no errors.`);
 }
 
 export function handleCheck() {
   const docs = scanDocs();
-  const errors = validateDocs(docs);
+  const docErrors = validateDocs(docs);
+  const { rules, errors: routingErrors } = validateRoutingTables(readRoutingSources());
+  const errors = [...docErrors, ...routingErrors];
   if (errors.length) { reportErrors(errors); return; }
-  const problems = checkDocsIndexes(docs);
+  const problems = [...checkDocsIndexes(docs), ...checkRoutingIndex(buildRoutingIndex(rules))];
   if (problems.length) {
     problems.forEach(p => console.error(p));
     console.error('Run: node tools/docs.mjs generate');
