@@ -62,7 +62,7 @@ second copy of it here, so template edits are picked up automatically.
      `Task:` — if the branch encodes a task id (per-task branch mode) or the change has
      exactly one non-terminal task in `change.yaml`, use that task's file; otherwise
      `n/a`. Read that task's `context.required`/`optional` list for any
-     `docs/adr/ADR-*.md` entry to fill `ADR:`.
+     `docs/decisions/ADR-*.md` entry to fill `ADR:`.
    - If no matching change directory exists: `Spec: none (Class S)`, `Task: n/a`,
      `ADR: none` — state plainly that this is because no matching `specs/active/` or
      `specs/archive/` directory was found, so the owner can correct it if it's wrong.
@@ -78,9 +78,8 @@ second copy of it here, so template edits are picked up automatically.
      visible earlier in the conversation, ask for it directly (e.g. "What did you run —
      `dotnet build`, `dotnet test`, `node tools/specs.mjs validate`, manual steps?")
      before writing anything in this section.
-   - **Documentation impact** — check whether the diff touches `docs/architecture/` or
-     `docs/development/`. If it doesn't, say so plainly rather than silently writing
-     "none" without checking.
+   - **Documentation impact** — check whether the diff touches `docs/development/`. If
+     it doesn't, say so plainly rather than silently writing "none" without checking.
    - **Breaking changes** — infer from the diff (public API/contract changes visible in
      it). If genuinely uncertain, ask rather than guess. This section documents a
      decision that was already made earlier when the change was scoped (per

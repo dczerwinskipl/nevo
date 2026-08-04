@@ -4,8 +4,12 @@
 
 - Current behavior of the affected area: code, tests, examples — not assumptions about
   what the code "probably" does.
-- Existing documentation: `docs/architecture/`, `docs/development/`, relevant `docs/adr/`
-  entries (use `node tools/docs.mjs find --scope <scope>` rather than reading everything).
+- Existing documentation: `docs/development/`, relevant `docs/decisions/` entries. Route
+  via `docs/ai/task-routing.md` (by task kind) or `docs/ai/change-impact-map.md` (by
+  `src/` package) rather than reading everything — `node tools/docs.mjs find --scope
+  <scope>` no longer returns migrated maintainer docs (their `type` is `development`,
+  which carries no `scope` field); use `find --type <type>` for a type-based lookup
+  instead.
 - Whether an active or archived change already covers this ground
   (`node tools/specs.mjs list`, and `specs/archive/` only if there's reason to believe
   prior work exists).
@@ -41,7 +45,7 @@ picking one.
 
 ## Reporting stale docs
 
-If `docs/architecture/*` describes behavior that the code no longer matches, report it as
+If `docs/development/*` describes behavior that the code no longer matches, report it as
 an inconsistency with both citations (doc line, code line). Do not silently trust the
 doc, and do not silently trust the code — the owner decides which is authoritative going
 forward (this may itself require an ADR update).

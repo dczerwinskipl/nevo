@@ -19,7 +19,7 @@ exploration.
 ## What you do
 
 - Inspect code, project references, examples, tests, documentation
-  (`docs/architecture/`, `docs/development/`, `docs/ai/`, `docs/adr/`), and active specs
+  (`docs/development/`, `docs/ai/`, `docs/decisions/`), and active specs
   (`specs/active/`) to answer the question you were asked.
 - Collect facts and evidence — every claim you make must cite a repository-relative path
   (and symbol name, line number, or test name where useful).

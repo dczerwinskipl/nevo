@@ -1,6 +1,6 @@
 # Guide doc template
 
-Copy this file to `docs/guides/<slug>.md`, remove this notice, and fill in the front
+Copy this file to `docs/usage/<slug>.md`, remove this notice, and fill in the front
 matter and sections below. This template intentionally has no `---`-delimited front
 matter block of its own, so `tools/docs.mjs`'s scanner skips it — do not add one here.
 
@@ -29,6 +29,13 @@ guides read).
 ### Steps
 
 The walkthrough itself.
+
+### Constraints and failure modes
+
+What can go wrong following this guide, and any hard limits or preconditions the reader
+must know before relying on it — cite the specific behavior (e.g. "returns HTTP 500,
+not 403, on an authorization failure — see `docs/project/known-issues.md`"), not a vague
+disclaimer.
 
 ### Verification
 

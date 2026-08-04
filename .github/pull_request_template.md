@@ -6,7 +6,7 @@
 
 - Spec: <!-- specs/active/<slug>/ or "none (Class S)" -->
 - Task: <!-- specs/active/<slug>/tasks/<task>.md or "n/a" -->
-- ADR: <!-- docs/adr/ADR-XXXX-*.md or "none" -->
+- ADR: <!-- docs/decisions/ADR-XXXX-*.md or "none" -->
 
 ## Changes
 
@@ -18,7 +18,7 @@
 
 ## Documentation impact
 
-<!-- Were docs/architecture/ or docs/development/ updated? If not, why not? -->
+<!-- Was docs/development/ updated? If not, why not? -->
 
 ## Breaking changes
 

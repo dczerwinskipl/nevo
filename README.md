@@ -51,4 +51,4 @@ approved work inside a declared context.
   directly via `.cursor/rules/` and `.github/copilot-instructions.md`.
 
 Specifications live in `specs/active/` (in progress) and `specs/archive/` (completed);
-durable architecture and process decisions live in `docs/architecture/` and `docs/adr/`.
+durable architecture and process decisions live in `docs/development/` and `docs/decisions/`.
