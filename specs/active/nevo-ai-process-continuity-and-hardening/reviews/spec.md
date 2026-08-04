@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 864e99db9e0a1196cc3d54c54aed9e79555ebaa1c31e9af62f2ac67a1a82b985
+spec_fingerprint: 1306ccbf63b85a9de3be2a80f02c9be1f494794cd20228e7002f541f0eb4540c
 ---
 
 # Review: nevo-ai-process-continuity-and-hardening
