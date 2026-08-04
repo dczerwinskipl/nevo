@@ -17,6 +17,12 @@
 > split into two disjoint predicate sets: hard stop conditions (requirement 4a) and
 > full-review risk signals (requirement 5, unchanged in substance minus the removed
 > self-check entry).
+>
+> Refined a fourth time 2026-08-04 — see D28. The self-check's own outcome now has a
+> concrete, persisted home: the per-task `self_check` block (area
+> `state-and-fingerprint-semantics` defines the shape; this area writes and reads it).
+> Requirement 4a's hard-stop report and requirement 5a's evidence-freshness check both
+> read/write it directly instead of relying on ambient, unstored command output.
 
 ## Responsibility
 
@@ -76,11 +82,24 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    `task-review` is never a path around a hard stop — routing a hard-stop condition to
    full review instead of fixing it is exactly the defect this requirement exists to
    prevent. After a hard stop: preserve the current task and batch state; report the
-   failed criterion or evidence; require the implementation to be corrected; rerun the
-   self-check; continue only once it passes. A hard stop does not use
-   `execution.suspension` — see `areas/recovery-and-resume.md` § "Out of scope" for why
-   this is deliberately outside that model's scope. Once the self-check passes, proceed
-   to requirement 5 to determine whether a full review is additionally required.
+   failed criterion or evidence (writing the task's `self_check` block — D28, fourth
+   refinement pass — with `status: failed`, the failing `failed_criteria` ids, and each
+   run command's exit code, so the report and any later resume both read the same
+   persisted fact instead of ambient command output); require the implementation to be
+   corrected; rerun the self-check (which overwrites `self_check` with the new
+   status/fingerprint/revision — a `passed` overwrite clears `failed_criteria`); continue
+   only once it passes. A hard stop does not use `execution.suspension` — see
+   `areas/recovery-and-resume.md` § "Out of scope" for why this is deliberately outside
+   that model's scope; `self_check` is a separate, parallel mechanism, not a variant of
+   `execution.suspension`. Once the self-check passes, proceed to requirement 5 to
+   determine whether a full review is additionally required.
+4b. **Writing `self_check` after every self-check run (D28, fourth refinement pass).**
+   Every self-check execution — pass or fail, inside or outside a batch — writes the
+   task's `self_check` block: `status`, the task's current semantic fingerprint (D7/D18)
+   and revision at that moment, `failed_criteria` (only when `status: failed`), and each
+   run command's identity/exit code. This is the single write path for the field; no
+   other operation sets it. Reading it back (requirement 5a's freshness check, and task
+   03's resume controller) never mutates it.
 5. **Risk classification is evidence-based (D11, corrected by D24 to exclude the
    self-check signal — see requirement 4a), not path-touch-based.** A task requires its
    own full `task-review` before the batch can complete it when, and only when — its
@@ -97,21 +116,27 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    of the above signals is eligible for self-check plus the end-of-batch gating review
    only.
 5a. **Evidence freshness, checked immediately before the gating review runs (D19,
-   second refinement pass).** A task passing its self-check earlier in the batch is not
-   proof its evidence is still trustworthy once a later batched task has touched the same
-   subsystem. Before the gating batch review (requirement 7) proceeds: (a) determine
-   which later-batched tasks' changes could affect an earlier task's recorded evidence;
-   (b) rerun any automated-verification command whose target files changed since it last
-   ran; (c) invalidate (and require a refresh of) any inspection-type evidence whose
-   referenced files/line ranges changed since it was recorded; (d) treat evidence for a
-   task whose own semantic fingerprint (`semantic_references`, D18) has changed since the
-   evidence was recorded as stale regardless of file-level overlap. Owner-recorded
-   evidence stays valid as long as the task's semantic fingerprint is unchanged — an
-   operational status change alone does not stale it. The gating batch review does not
-   run while any batched task carries stale, unrefreshed evidence. Evidence tracked per
-   item: a revision/content-hash identifier, referenced files/path ranges, command
-   identity (for automated evidence), and the task's semantic fingerprint at record time
-   — never full command output or full diffs.
+   second refinement pass; self-check layer's persisted home is D28, fourth refinement
+   pass).** A task passing its self-check earlier in the batch is not proof its evidence
+   is still trustworthy once a later batched task has touched the same subsystem. Before
+   the gating batch review (requirement 7) proceeds: (a) determine which later-batched
+   tasks' changes could affect an earlier task's recorded evidence; (b) for the
+   self-check layer specifically, compare each batched task's `self_check.fingerprint`/
+   `self_check.revision` against its *current* semantic fingerprint/revision — a
+   mismatch is "passed but stale" (D28) and triggers a rerun of that task's self-check
+   (which then rewrites `self_check`, requirement 4b); (c) invalidate (and require a
+   refresh of) any inspection-type evidence whose referenced files/line ranges changed
+   since it was recorded; (d) treat evidence for a task whose own semantic fingerprint
+   (`semantic_references`, D18) has changed since the evidence was recorded as stale
+   regardless of file-level overlap — for `self_check` this is exactly the comparison in
+   (b). Owner-recorded evidence stays valid as long as the task's semantic fingerprint is
+   unchanged — an operational status change alone does not stale it. The gating batch
+   review does not run while any batched task carries stale, unrefreshed evidence.
+   Evidence tracked per item stays compact — for the self-check layer this is exactly
+   `self_check`'s fields (status, fingerprint, revision, failed criteria, command exit
+   codes); other evidence kinds (inspection-type) track a revision/content-hash
+   identifier, referenced files/path ranges, and command identity the same way — never
+   full command output or full diffs.
 6. **Layer responsibilities**, kept non-overlapping:
 
    | Layer | Scope | Re-checks acceptance criteria? |
@@ -164,13 +189,14 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
 
 Exposes: batch selection/ordering (four named modes, D20), the intent-only persisted
 file, the hard-stop predicate (D24), the evidence-based risk trigger, the
-evidence-freshness check, the gating batch review shape and verdict table.
+evidence-freshness check, the gating batch review shape and verdict table, and the
+`self_check` writer (D28 — the sole write path for that field).
 
 Consumes: `conversational-continuity`'s inline "continue to next batch task" offer;
 `recovery-and-resume`'s classified errors and suspension state for failure handling and
 progress derivation; `context-and-validation-hardening`'s `follow-ups.yaml` (D22) and
 `state-and-fingerprint-semantics`' `semantic_references`/task-level fingerprint (D18,
-used by the evidence-freshness check); `state-and-fingerprint-semantics`' corrected
+used by the evidence-freshness check), validated `self_check` shape (D28), and corrected
 `depsSatisfied`.
 
 ## Area-specific acceptance criteria
@@ -205,6 +231,12 @@ used by the evidence-freshness check); `state-and-fingerprint-semantics`' correc
   signal still requires a full `task-review` (D24).
 - A test proves a passing, low-risk code task (no hard stop, no risk signal) proceeds to
   the final gating batch review without a full `task-review` (D24).
+- A test proves every self-check run (pass or fail) writes `self_check` with the
+  correct `status`/fingerprint/revision, and that a failed run's `failed_criteria`/
+  command exit codes are readable directly from it without rerunning anything (D28).
+- A test proves a task whose `self_check.fingerprint`/`revision` no longer match its
+  current values is treated as "passed but stale" and triggers a self-check rerun before
+  the gating batch review proceeds (D28).
 
 ## Dependencies
 

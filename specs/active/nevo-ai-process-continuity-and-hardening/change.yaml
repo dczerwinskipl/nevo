@@ -13,7 +13,7 @@ tasks:
   - id: state-and-fingerprint-semantics
     order: 1
     file: tasks/01-state-and-fingerprint-semantics.md
-    status: draft
+    status: approved
   - id: recovery-classification-and-machine-readable-errors
     order: 2
     file: tasks/02-recovery-classification-and-machine-readable-errors.md

@@ -35,7 +35,7 @@ forbidden_paths:
   - docs/development/**
   - docs/usage/**
   - docs/reference/**
-  - specs/active/nevo-documentation-architecture/**
+  - specs/archive/nevo-documentation-architecture/**
   - tools/**
 ---
 
@@ -60,6 +60,12 @@ forbidden_paths:
 > way this task's other doc updates are — see the implementation constraint below for why.
 > The terminology inventory gains two more entries (hard stop condition, reference
 > completeness vs. reference integrity), and the ADR now also covers D24-D26.
+>
+> Refined a fourth time 2026-08-04 — see D29. The completeness-check finding
+> categorization (below) is tightened: a missing, load-bearing reference is never
+> `NON_BLOCKING` — `AUTO_FIX` when unambiguous, `OWNER_DECISION` when ambiguous;
+> `NON_BLOCKING` is reserved for an unnecessary (not missing) reference. The ADR list
+> gains D27-D29.
 
 ## Goal
 
@@ -115,6 +121,11 @@ run first.
     the declared list covers everything the task's content actually depends on, checked
     by a model-review step inside `/nevo-ai:spec-review`. Never conflate the two — a
     task can pass integrity checks while still being incomplete.
+  - **missing vs. unnecessary reference** (D29, fourth refinement pass) — a *missing*
+    load-bearing reference blocks approval (`AUTO_FIX` if unambiguous,
+    `OWNER_DECISION` if ambiguous); an *unnecessary* (declared but not load-bearing)
+    reference may stay `NON_BLOCKING`. Never describe a missing reference as merely
+    "worth noting" — it blocks by default unless resolved.
 - For every transition state, document: the CLI operation that validates it, the command
   or controller action that invokes it, whether confirmation is required, and whether it
   can be combined conversationally with the previous transition (per D2/D3's "combined
@@ -128,22 +139,27 @@ run first.
   worktree status (derived via git), current branch (derived via git).
 - Only update docs/commands/skill files that describe a mechanism task 10 actually proved
   works — do not describe anything task 10 didn't test.
-- **Semantic-reference completeness model-review step (D26, third refinement pass).**
-  Add an explicit step to `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`
-  (and wire it into `.claude/commands/nevo-ai/spec-review.md`'s flow) reading, in
-  substance: for every task, inspect its goal, constraints, acceptance criteria, context
-  rules, and path rules; identify every owner decision, shared constraint, and
-  dependency contract the task's content actually relies on; compare that against the
-  task's declared `semantic_references`; report any missing, stale, or unnecessary
-  reference as a finding, categorized per the normal `AUTO_FIX`/`OWNER_DECISION`/
-  `NON_BLOCKING` rules (a missing reference is at minimum `NON_BLOCKING`, and
-  `OWNER_DECISION` when the missing reference is itself gated). State explicitly that
-  this is separate from, and does not replace, `validateSpecs`'s deterministic
-  reference-integrity checks (task 01) — this step exists specifically because schema
-  validation cannot detect an omission. This is a procedural/model-review instruction,
-  not a code mechanism task 10 tests automatically (see the refinement note above) — its
-  own correctness is verified by inspection (acceptance criterion below), not
-  `node --test`.
+- **Semantic-reference completeness model-review step (D26, third refinement pass;
+  categorization tightened by D29, fourth refinement pass).** Add an explicit step to
+  `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md` (and wire it into
+  `.claude/commands/nevo-ai/spec-review.md`'s flow) reading, in substance: for every
+  task, inspect its goal, constraints, acceptance criteria, context rules, and path
+  rules; identify every owner decision, shared constraint, and dependency contract the
+  task's content actually relies on; compare that against the task's declared
+  `semantic_references`; report any missing, stale, or unnecessary reference as a
+  finding. **Categorization (D29):** a missing, load-bearing reference is never
+  `NON_BLOCKING` — `AUTO_FIX` when it's unambiguous which reference is missing,
+  `OWNER_DECISION` when ambiguous which one applies; `NON_BLOCKING` is reserved for an
+  unnecessary (declared but not load-bearing) reference. A spec carrying an unresolved
+  missing-reference finding cannot reach `ready-for-approval` — state this explicitly;
+  no new verdict-table row is needed, the existing table (`docs/ai/specification-
+  workflow.md`) already stops at an unresolved `AUTO_FIX`/`OWNER_DECISION` finding, only
+  the categorization feeding into it changes. State explicitly that this whole check is
+  separate from, and does not replace, `validateSpecs`'s deterministic reference-
+  integrity checks (task 01) — this step exists specifically because schema validation
+  cannot detect an omission. This is a procedural/model-review instruction, not a code
+  mechanism task 10 tests automatically (see the refinement note above) — its own
+  correctness is verified by inspection (acceptance criterion below), not `node --test`.
 - Write the new ADR under `docs/decisions/` (next available number after ADR-0005),
   covering D7 (fingerprint tiers), D8 (execution suspension vs. new statuses), D9
   (post-merge sequencing), D10 (derived batch state), D3 (approve+start combined
@@ -151,9 +167,11 @@ run first.
   (repair-and-retry inside combined transitions), D18 (deterministic
   `semantic_references`), D19 (batch evidence freshness), D20 (four-mode batch
   selection), D21 (task 08's dependency on task 06), D22 (structured `follow-ups.yaml`),
-  D23 (diagnostic anchor with a guarded repair-branch step), and — third refinement
+  D23 (diagnostic anchor with a guarded repair-branch step), — third refinement
   pass — D24 (batch hard-stop/risk-signal split), D25 (ordered, truthful repair-branch
-  guards), and D26 (semantic-reference completeness model review).
+  guards), D26 (semantic-reference completeness model review), and — fourth refinement
+  pass — D27 (corrected task-addition/removal fingerprint invalidation), D28 (persisted
+  `self_check` schema), and D29 (missing-reference categorization tightening).
 - `AGENTS.md`/`CLAUDE.md` updates stay pointer-level, consistent with their existing
   scope — do not duplicate `docs/ai/specification-workflow.md` content into them.
 - Regenerate `docs/index.generated.*`/`specs/*.generated.*`/`docs/routing.generated.json`
@@ -168,7 +186,7 @@ run first.
    has its behavior description updated to match, using the one-term-per-concept mapping
    above (inspection, cross-checked against tasks 01-10's actual changes).
 3. A new ADR exists under `docs/decisions/` covering D3, D7, D8, D9, D10, D16, D17, D18,
-   D19, D20, D21, D22, D23, D24, D25, D26 (inspection).
+   D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29 (inspection).
 4. The terminology inventory and derived-vs-persisted state inventory both appear in
    `docs/ai/specification-workflow.md` (inspection).
 5. `node tools/specs.mjs check` and `node tools/docs.mjs check` report generated indexes
@@ -181,6 +199,11 @@ run first.
    a finding is categorized — and state explicitly that it is separate from
    `validateSpecs`'s reference-integrity checks, not a replacement for them (inspection)
    (D26).
+8. `references/review-policy.md`/`spec-review.md` state that a missing, load-bearing
+   reference is never `NON_BLOCKING` (`AUTO_FIX` when unambiguous, `OWNER_DECISION` when
+   ambiguous) and that an unnecessary reference may stay `NON_BLOCKING`, and that a spec
+   with an unresolved missing-reference finding cannot reach `ready-for-approval`
+   (inspection) (D29).
 
 ## Verification
 

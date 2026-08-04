@@ -15,6 +15,14 @@
 > this area now states the completeness requirement (requirement 8); the actual
 > model-review step is implemented and documented by task 11, since this task cannot
 > touch `.claude/commands/**`/`.claude/skills/**` under its own `forbidden_paths`.
+>
+> Refined a fourth time 2026-08-04 — see D27, D28, D29. Requirement 1's own
+> `computeChangeFingerprint` field list already included the task graph's *ids*, not
+> just `depends_on` edges — the invalidation matrix's "task added/removed" rows had
+> contradicted that and are now corrected (requirement 2). Requirement 8's finding
+> categorization is tightened: a missing load-bearing reference is never `NON_BLOCKING`
+> (D29). A new requirement 9 adds the persisted `self_check` schema (D28), structurally
+> parallel to `execution.suspension`.
 
 ## Responsibility
 
@@ -62,7 +70,15 @@ schema block.
    parsed YAML/Markdown structures and hash *that*, not raw file bytes — no exclusion
    list to maintain, because nothing operational is included in the first place.
 2. Implement the invalidation matrix from `overview.md` § "Proposed architecture" →
-   "State model" as the acceptance contract for requirement 1 — every row is a test case.
+   "State model" as the acceptance contract for requirement 1 — every row is a test case,
+   **including (D27, fourth refinement pass) the corrected task-addition/task-removal
+   rows**: adding or removing any task (mechanical/resolver or otherwise) always
+   invalidates `computeChangeFingerprint`'s output, since the task graph's id set is one
+   of its declared inputs (requirement 1) — this was a documentation defect in the
+   original matrix, not a design change, and `computeChangeFingerprint` needs no code
+   change to satisfy it, only the missing test coverage. An unrelated task's own
+   task-level fingerprint is unaffected by the addition/removal unless its own
+   `semantic_references.dependency_contracts` names the added/removed task.
 3. **`execution.suspension` (D8).** Add the optional, per-task
    `execution: { suspension: { kind, code, previous_action, created_at } }` structure to
    the schema. This task defines and validates the *shape* only — writing/clearing
@@ -113,11 +129,39 @@ schema block.
    inspect its goal/constraints/acceptance-criteria/context/path definitions; identify
    the owner decisions, shared constraints, and dependency contracts the task's content
    actually relies on; compare that against its declared `semantic_references`; and
-   report any missing, stale, or unnecessary reference as a finding (categorized per the
-   normal `AUTO_FIX`/`OWNER_DECISION`/`NON_BLOCKING` rules). Implementing this step in
+   report any missing, stale, or unnecessary reference as a finding. **Categorization is
+   tightened by D29 (fourth refinement pass):** a missing, load-bearing reference is
+   never `NON_BLOCKING` — `AUTO_FIX` when it's unambiguous which reference is missing,
+   `OWNER_DECISION` when ambiguous; `NON_BLOCKING` is reserved for an *unnecessary*
+   (declared but not actually load-bearing) reference. A spec carrying an unresolved
+   missing-reference finding cannot reach `ready-for-approval`. Implementing this step in
    `references/review-policy.md`/`.claude/commands/nevo-ai/spec-review.md` is task 11's
-   job, not this task's — this task only defines what the check must do and why schema
-   validation alone cannot do it.
+   job, not this task's — this task only defines what the check must do, how findings
+   are categorized, and why schema validation alone cannot do it.
+9. **Persisted `self_check` schema (D28, fourth refinement pass).** Add an optional,
+   per-task `self_check` block to the schema, structurally parallel to
+   `execution.suspension` (requirement 3) and `semantic_references` (requirement 7):
+
+   ```yaml
+   self_check:
+     status: failed | passed        # absent block == "not run"
+     fingerprint: <task-level semantic fingerprint at the time this self-check ran>
+     revision: <git SHA (or equivalent working-tree revision marker) at the time this self-check ran>
+     failed_criteria: [AC-3, AC-5]   # populated only when status: failed
+     commands:
+       - command: "node --test tools/tests/foo.test.mjs"
+         exit_code: 0
+   ```
+
+   This task defines and validates the *shape* only (`status` is one of
+   `failed`/`passed`; `failed_criteria` present only when `status: failed`; each
+   `commands` entry has a `command` string and an integer `exit_code`) — writing it
+   after a self-check run is area `batch-execution-and-gating-review`'s job (task 08).
+   `self_check` is excluded from all three fingerprint tiers, exactly like `status` and
+   `execution.suspension` — it is a record of an action's own result, not semantic task
+   content. "Passed but stale" vs. "passed and fresh" is never stored — it is derived by
+   comparing `self_check.fingerprint`/`self_check.revision` against the task's *current*
+   semantic fingerprint/revision at read time.
 
 ## Constraints
 
@@ -127,9 +171,12 @@ schema block.
   confirmed the refined state model does not require touching it (contrast with the
   original draft's "must no longer prohibit transition changes if genuinely required" —
   the genuine requirement turned out to be satisfiable without doing so).
-- The three fingerprint functions must not read or hash `status` or
-  `execution.suspension` under any circumstance — a test enforces this directly (change
-  either field, assert the relevant fingerprint(s) are byte-identical).
+- The three fingerprint functions must not read or hash `status`, `execution.suspension`,
+  or `self_check` under any circumstance — a test enforces this directly (change any of
+  the three, assert the relevant fingerprint(s) are byte-identical).
+- `computeChangeFingerprint` must invalidate on any task being added to or removed from
+  the change (its task-graph-ids input, requirement 1) — a test enforces this directly,
+  closing the gap D27 found in the original invalidation matrix.
 - `semantic_references` resolution (requirement 7) must not require loading any file
   outside the change's own `specs/active/<change-id>/**` — it resolves against
   `owner-decisions.md`, `overview.md`, and sibling task files' `depends_on`, never a
@@ -140,8 +187,8 @@ schema block.
 Exposes: `computeChangeFingerprint`, `computeTaskFingerprint`,
 `computeImplementationFingerprint`, the validated `execution.suspension` shape, an
 updated `depsSatisfied`, (if kept) defined `superseded` semantics, the corrected
-task-/change-level status enum with `validate`-time enforcement, and the validated
-`semantic_references` schema.
+task-/change-level status enum with `validate`-time enforcement, the validated
+`semantic_references` schema, and the validated `self_check` shape (D28).
 
 Consumes: nothing new from other areas — this is the foundation.
 
@@ -162,6 +209,13 @@ Consumes: nothing new from other areas — this is the foundation.
 - Requirement 8's completeness check itself is verified by task 11 (a model-review
   procedure, not something this task's own automated suite can exercise) — this area's
   own acceptance criteria stop at requirement 7's deterministic integrity checks.
+- A test proves adding or removing a task always invalidates `computeChangeFingerprint`'s
+  output, and does not invalidate an unrelated task's task-level fingerprint unless that
+  task's `semantic_references.dependency_contracts` names the added/removed task (D27).
+- A test proves `self_check`'s shape is validated by `validateSpecs` (a malformed
+  `status`, a `failed_criteria` entry present without `status: failed`, or a `commands`
+  entry missing `exit_code` are each `validate` errors), and that no field of
+  `self_check` ever changes any fingerprint tier's output (D28).
 
 ## Dependencies
 
@@ -175,3 +229,6 @@ None — this is the first area implemented.
 - Implementing the `semantic_references` completeness model-review step in
   `review-policy.md`/`spec-review.md` (task 11, D26) — this task only states the
   requirement and the reference-integrity checks it can validate deterministically.
+- Writing or reading `self_check` after an actual self-check run — area
+  `batch-execution-and-gating-review` (task 08, D28) — this task only defines and
+  validates its shape.

@@ -79,7 +79,10 @@
 - **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`, `overview.md`
 - **Refined by:** D18 (the task-level tier's dependency/decision/constraint inputs are
   now the explicit `semantic_references` block, not the prose "actually references"
-  rule this entry stated — the *intent* is unchanged, D18 makes it deterministic).
+  rule this entry stated — the *intent* is unchanged, D18 makes it deterministic); D27
+  (fourth refinement pass — corrects the invalidation matrix's task-addition/removal
+  rows, which had contradicted this entry's own stated change-level input set of "the
+  task graph's shape (ids + `depends_on` edges)").
 
 ## D8: Lifecycle status vs. execution suspension
 
@@ -334,6 +337,11 @@
 - **Date:** 2026-08-04 (second refinement pass)
 - **Affected artifacts:** `tasks/08-batch-execution-and-gating-review.md`,
   `areas/batch-execution-and-gating-review.md`, `overview.md`
+- **Refined by:** D28 (fourth refinement pass) — gives the "revision/content-hash
+  identifier ... command identity ... semantic fingerprint at the time the evidence was
+  recorded" this entry already described a concrete, persisted home (the per-task
+  `self_check` block) instead of leaving it as an unspecified evidence store; the
+  freshness computation itself (fingerprint/revision comparison) is unchanged.
 
 ## D20: Batch selection has four distinct modes, not one implicit list
 
@@ -519,6 +527,12 @@
 - **Affected artifacts:** `tasks/08-batch-execution-and-gating-review.md`,
   `areas/batch-execution-and-gating-review.md`, `areas/recovery-and-resume.md`,
   `overview.md`
+- **Refined by:** D28 (fourth refinement pass) — "the self-check's own failure output"
+  now has a concrete, persisted home: the per-task `self_check` block
+  (`status: failed`, `failed_criteria`, per-command exit codes), so a resumed session
+  reads structured evidence instead of relying on ambient, unstored command output.
+  Still no new suspension kind — `self_check` is a separate, parallel mechanism, not an
+  `execution.suspension` variant.
 
 ## D25: Post-merge repair-branch guards are ordered and their failure semantics are truthful
 
@@ -616,6 +630,153 @@
   check, it does not change what invalidates the fingerprint once references are
   declared.
 - **Date:** 2026-08-04 (third refinement pass)
+- **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
+  `tasks/11-workflow-docs-and-adr-migration.md`,
+  `areas/state-and-fingerprint-semantics.md`, `overview.md`
+- **Refined by:** D29 (fourth refinement pass) — tightens this entry's categorization
+  rule for a missing reference: it is no longer merely "at minimum `NON_BLOCKING`" — a
+  missing *load-bearing* reference is blocking for spec approval outright, split into
+  `AUTO_FIX` (unambiguous) or `OWNER_DECISION` (ambiguous which reference applies);
+  `NON_BLOCKING` is reserved for an *unnecessary* (extra, not missing) reference. The
+  model-review mechanism itself — what it inspects, that it's separate from
+  `validateSpecs`'s integrity checks — is unchanged.
+
+## D27: Fingerprint invalidation on task addition/removal was backwards
+
+- **Question:** The invalidation matrix's original "a new, unrelated task is added" row
+  said this does **not** invalidate the change-level fingerprint, reasoning that "the
+  task graph shape [is] unchanged for existing tasks' own `depends_on`." But
+  `computeChangeFingerprint` (D7) explicitly includes "the task graph's shape (ids +
+  `depends_on` edges only, not per-task status)" as one of its own inputs — and the
+  *id set* is exactly what changes when a task is added or removed. The matrix
+  contradicted the function's own declared inputs. A symmetric "task removed" case was
+  also simply missing. What should the corrected rows say?
+- **Decision:** Adding or removing any task (mechanical/resolver or otherwise) **always
+  invalidates the change-level fingerprint** — the task graph's id set is part of
+  `computeChangeFingerprint`'s input by construction, so this was never actually
+  optional; the original row was a documentation defect, not a considered trade-off. A
+  task-level fingerprint of an unrelated task T is **not** invalidated by another task
+  being added or removed, **unless** T's own `semantic_references.dependency_contracts`
+  names the added/removed task — in which case T's fingerprint must still invalidate
+  (a removed-but-still-referenced dependency contract is also a `validate` error,
+  independent of fingerprinting, since `dependency_contracts` must resolve against
+  `depends_on`).
+- **Rationale:** A specification must not describe a fingerprint function's inputs one
+  way (D7's own field list) and its invalidation behavior another way (the matrix) —
+  the two must agree, and the function's own declared inputs are authoritative. Fixing
+  the matrix to match the function is a correctness fix, not a design change: the
+  three-tier model's whole purpose (D7) is granular, *correct* invalidation, and an
+  under-invalidating change-level fingerprint after a task is added silently lets a
+  stale `change_fingerprint` pass `spec-review`'s freshness check against a
+  specification whose task graph has actually changed.
+- **Consequences:** `overview.md`'s invalidation matrix corrects the "task added" row's
+  change-level column to `Yes`, adds a symmetric "task removed" row, and corrects the
+  "mechanical/resolver task added" row the same way (it is a special case of "task
+  added," not a different scenario for fingerprinting purposes). `computeChangeFingerprint`
+  itself needs no code change — its input set already included the task graph's ids;
+  this decision corrects the specification's *description* of its own behavior and adds
+  the test coverage that was missing for it.
+- **Date:** 2026-08-04 (fourth refinement pass)
+- **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`, `overview.md`,
+  `areas/state-and-fingerprint-semantics.md`
+
+## D28: Self-check state is persisted, compact, and excluded from every fingerprint tier
+
+- **Question:** D19 requires the gating batch review to check evidence freshness, and
+  D24 requires a failed self-check to hard-stop the batch, but neither ever defined a
+  concrete, persisted place to record a self-check's own outcome — a resumed session
+  currently has to either blindly rerun every self-check from scratch or infer status
+  from ambient command output that isn't stored anywhere. What should actually persist,
+  and how does "stale" get computed instead of asserted?
+- **Decision:** Add an optional, per-task `self_check` block to `change.yaml`, structurally
+  parallel to `execution.suspension` (D8) and `semantic_references` (D18):
+
+  ```yaml
+  # inside a task's entry in change.yaml, optional, present once a self-check has run
+  self_check:
+    status: failed | passed        # absent block == "not run"; no separate enum value needed
+    fingerprint: <task-level semantic fingerprint (D7/D18) at the time this self-check ran>
+    revision: <git SHA (or equivalent working-tree revision marker) at the time this self-check ran>
+    failed_criteria: [AC-3, AC-5]   # populated only when status: failed
+    commands:
+      - command: "node --test tools/tests/foo.test.mjs"
+        exit_code: 0
+  ```
+
+  Only `status`, `fingerprint`, `revision`, `failed_criteria`, and each command's
+  identity/exit code are stored — never full command output, never a full diff (same
+  compactness rule D19 already established for batch evidence generally). The four
+  states the refinement requires are derived, not all stored: **not run** = no
+  `self_check` block present; **failed** = `status: failed`; **passed and fresh** =
+  `status: passed` and the task's *current* semantic fingerprint/revision match the
+  stored ones; **passed but stale** = `status: passed` but the current fingerprint or
+  revision no longer match what was recorded — the same staleness computation D19
+  already defined for batch evidence generally, now given a concrete field-level home
+  for the self-check layer specifically.
+- **Rationale:** Matches this change's own established pattern (`execution.suspension`,
+  `semantic_references`): persist the minimum fact that cannot be cheaply re-derived
+  (an action's own outcome and the state it was recorded against), derive everything
+  else (freshness) by comparison at read time. This closes the concrete gap D19/D24 left
+  open — a hard stop (D24) can now report `self_check.failed_criteria` directly instead
+  of relying on ambient, unstored command output, and a resumed batch (D19) can tell
+  "passed but stale" from "passed and fresh" without rerunning anything.
+- **Consequences:** `self_check` is excluded from all three fingerprint tiers, exactly
+  like `status`/`execution.suspension` — it is a record of an action's result, not
+  semantic task content. Task 01 defines and validates the shape (mirroring how it
+  reserved `execution.suspension`'s shape for task 02 to write). The batch controller
+  (task 08) writes it after every self-check run and reads it to implement D19's
+  freshness computation and D24's hard-stop reporting concretely, rather than each
+  re-deriving its own ad hoc notion of "stale." The resume controller (task 03) reads
+  `self_check.status` as part of `deriveStage`'s suspension-aware reporting so a resumed
+  session knows, without rerunning anything, whether a task's last self-check failed,
+  passed-but-is-now-stale, or passed-and-is-still-fresh.
+- **Date:** 2026-08-04 (fourth refinement pass)
+- **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
+  `tasks/03-resume-and-continue-controller.md`,
+  `tasks/08-batch-execution-and-gating-review.md`,
+  `areas/state-and-fingerprint-semantics.md`,
+  `areas/batch-execution-and-gating-review.md`, `areas/recovery-and-resume.md`,
+  `overview.md`
+
+## D29: A missing load-bearing semantic reference blocks approval, split by ambiguity
+
+- **Question:** D26 required a model-review completeness check but left the missing-
+  reference finding as "at minimum `NON_BLOCKING`" — meaning a specification could still
+  reach `ready-for-approval` with a task whose fingerprint provably omits a
+  load-bearing decision/constraint/dependency it actually needs, since `NON_BLOCKING`
+  never gates the verdict table (`review-policy.md`'s own rule). That defeats D26's own
+  purpose: a completeness gap the model-review step *found* but that still doesn't stop
+  approval isn't actually closed. How should a missing reference finding be categorized?
+- **Decision:** A missing *load-bearing* semantic reference is never `NON_BLOCKING` — it
+  blocks spec approval, split by whether the correction is ambiguous: **`AUTO_FIX`**
+  when the missing reference is unambiguous (the review can name exactly which
+  decision/constraint/dependency-contract entry is missing and there is only one
+  reasonable candidate); **`OWNER_DECISION`** when it's ambiguous which reference
+  applies (more than one owner decision plausibly governs the same task content, or the
+  dependency relationship itself is unclear) — the owner picks, it is not guessed.
+  `NON_BLOCKING` is reserved for the opposite direction: an **unnecessary** reference (a
+  declared entry that doesn't appear to be load-bearing after inspection) may remain
+  `NON_BLOCKING`, since an extra reference only over-invalidates the fingerprint
+  slightly — it doesn't hide a real gap the way a missing one does.
+- **Rationale:** `NON_BLOCKING` findings never affect a review's verdict
+  (`docs/ai/specification-workflow.md`'s verdict table, unchanged by this change) — so
+  a genuinely missing, load-bearing reference categorized as `NON_BLOCKING` could
+  silently reach `ready-for-approval` with a fingerprint gap the review process itself
+  already detected, which is strictly worse than not detecting it (a false sense of
+  correctness). Splitting on ambiguity — rather than always requiring an owner turn —
+  keeps the unambiguous case cheap (auto-fixed like any other mechanical correction)
+  while still routing genuine judgment calls to the owner, consistent with this
+  workflow's existing `AUTO_FIX`/`OWNER_DECISION` split everywhere else.
+- **Consequences:** `references/review-policy.md`/`spec-review.md` (task 11) state the
+  categorization rule explicitly: missing + unambiguous → `AUTO_FIX` (apply the addition
+  directly, per the standard `AUTO_FIX` handling already defined in
+  `docs/ai/specification-workflow.md`); missing + ambiguous → `OWNER_DECISION` (present
+  per `decision-policy.md`, stop and wait); unnecessary → `NON_BLOCKING`. A spec carrying
+  an unresolved missing-load-bearing-reference finding cannot reach
+  `ready-for-approval` (review-policy's existing verdict table already stops at row 2/3
+  for any unresolved `OWNER_DECISION`/`AUTO_FIX` finding — no new verdict row is needed,
+  only the corrected categorization feeding into it).
+- **Date:** 2026-08-04 (fourth refinement pass)
 - **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
   `tasks/11-workflow-docs-and-adr-migration.md`,
   `areas/state-and-fingerprint-semantics.md`, `overview.md`

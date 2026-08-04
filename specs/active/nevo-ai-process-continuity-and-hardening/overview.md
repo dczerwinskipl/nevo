@@ -30,6 +30,13 @@ change: nevo-ai-process-continuity-and-hardening
 > `semantic_references` completeness (as opposed to integrity) had no check at all —
 > recorded as D24-D26. Direction (D1-D23) is unchanged; this pass corrects the same two
 > things every prior pass has: internal consistency and determinism, not intent.
+>
+> **Fourth refinement note (2026-08-04):** a final targeted pass found three remaining
+> corrections, scoped narrowly by the owner: the invalidation matrix contradicted
+> `computeChangeFingerprint`'s own declared inputs for a task being added or removed;
+> a missing load-bearing `semantic_references` entry was categorized `NON_BLOCKING`
+> when it should block approval; and self-check state had no concrete, persisted
+> schema for resume to read — recorded as D27-D29. Direction (D1-D26) is unchanged.
 
 ## Context
 
@@ -95,12 +102,16 @@ either value with no validation error at all; after this change it cannot.
 Persisted: `change.yaml` (change/task status, `depends_on`, `branch`, task file
 pointers), task/area/overview front matter and body (including, per-task,
 `semantic_references` — D18), `reviews/*.md` (verdict, resolved counts, fingerprint(s) —
-see D7), a per-task `execution.suspension` block (D8, new), a per-batch intent file (D10,
-new — intent only, not progress), a `follow-ups.yaml` ledger (D15, D22).
+see D7), a per-task `execution.suspension` block (D8, new), a per-task `self_check`
+block (D28, new — status/fingerprint/revision/failed-criteria/command-exit-codes only),
+a per-batch intent file (D10, new — intent only, not progress), a `follow-ups.yaml`
+ledger (D15, D22).
 
 Derived, recomputed on demand, never stored: `depsSatisfied`/`isTaskReady`
-(`lifecycle.mjs:11-21`), the fingerprint tiers (D7), `validateFinalize`'s gate facts
-(`lifecycle.mjs:131-191`), `deriveStage` (`lifecycle.mjs:207-284`), and — new in this
+(`lifecycle.mjs:11-21`), the fingerprint tiers (D7), self-check freshness
+("passed but stale" vs. "passed and fresh" — D28, computed by comparing `self_check`'s
+stored fingerprint/revision against the task's current ones), `validateFinalize`'s gate
+facts (`lifecycle.mjs:131-191`), `deriveStage` (`lifecycle.mjs:207-284`), and — new in this
 change — batch progress (completed/current/next/failed tasks, derived from task status +
 suspension per D10, never persisted redundantly).
 
@@ -184,10 +195,10 @@ anywhere in the current process, and no batch-execution support at all.
 
 | Area | What it resolves | Status |
 |---|---|---|
-| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) + second-pass findings 1, 3 + third-pass finding 3 | Real, verified; refined three times |
-| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 + second-pass finding 2 + third-pass finding 1 (cross-reference only — see D24) | Real, verified; refined three times |
+| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) + second-pass findings 1, 3 + third-pass finding 3 + fourth-pass findings 1, 2, 3 | Real, verified; refined four times |
+| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 + second-pass finding 2 + third-pass finding 1 (cross-reference only — see D24) + fourth-pass finding 3 (cross-reference only — see D28) | Real, verified; refined four times |
 | Conversational continuity & approval ergonomics | Original findings #15/#16 + second-pass finding 2 | Real; deliberate reversal (D3); refined |
-| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 + third-pass finding 1 | Real, verified, absent entirely; refined three times |
+| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 + third-pass finding 1 + fourth-pass finding 3 | Real, verified, absent entirely; refined four times |
 | Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 + second-pass finding 7 | Real, verified; refined twice |
 | Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 + third-pass finding 2 | Real, verified; refined three times |
 
@@ -238,28 +249,43 @@ anywhere in the current process, and no batch-execution support at all.
 | 2 | Repair-branch guard order let `main` be switched/fast-forwarded before the SHA/branch-name guards ran, so "stops without modifying anything" was inaccurate on a late guard failure | Guards reordered to front-load every read-only/remote check before any local mutation; failure wording now reports any read-only fetch or authorized switch/fast-forward that already occurred (D25) |
 | 3 | `validateSpecs` can confirm a `semantic_references` entry exists, not that the list is *complete* — a forgotten reference leaves a task's review incorrectly fresh | Explicit model-review completeness check added to `/nevo-ai:spec-review`, alongside the unchanged deterministic integrity checks (D26) |
 
+### Findings from the fourth refinement pass — resolution summary
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | The invalidation matrix said adding/removing a task does not invalidate the change-level fingerprint, contradicting `computeChangeFingerprint`'s own declared "task graph shape (ids + `depends_on` edges)" input | Corrected to `Yes`; symmetric "task removed" row added; unrelated task-level fingerprints still correctly unaffected unless referenced via `semantic_references.dependency_contracts` (D27) |
+| 2 | A missing load-bearing `semantic_references` entry was categorized "at minimum `NON_BLOCKING`," which never gates a review's verdict — a detected completeness gap could still reach `ready-for-approval` | Split by ambiguity: `AUTO_FIX` when unambiguous, `OWNER_DECISION` when ambiguous which reference applies; `NON_BLOCKING` reserved for an unnecessary (not missing) reference (D29) |
+| 3 | Self-check state (pass/fail, freshness) had no concrete persisted schema — a resumed session could only blindly rerun or infer status from unstored command output | Optional per-task `self_check` block (`status`/`fingerprint`/`revision`/`failed_criteria`/command exit codes), excluded from every fingerprint tier; "stale" vs. "fresh" derived by comparing stored vs. current fingerprint/revision (D28) |
+
 ## Constraints
 
-- Keep the spec-anchored, human-led model (`AGENTS.md`, ADR-0002).
-- No autonomous approval of architectural/scope/API/compatibility decisions — the
+Each constraint below carries a stable identifier (`C1`-`C10`) so a task's
+`semantic_references.constraints` (D18) can reference one deterministically, resolved by
+position — this is the "named shared constraint" `validateSpecs` resolves against (task
+01 requirement 7).
+
+- **C1.** Keep the spec-anchored, human-led model (`AGENTS.md`, ADR-0002).
+- **C2.** No autonomous approval of architectural/scope/API/compatibility decisions — the
   `AGENTS.md` gate list is unchanged by this work.
-- No destructive worktree operation without explicit confirmation.
-- No implicit scope expansion — the mechanical/consequential-path allowance is narrow and
-  auditable, not a general license.
-- Parallel task execution is not introduced; "batch" means sequential, one active task at
-  a time.
-- No external infrastructure (databases, queues, workflow engines).
-- No new persisted lifecycle statuses (D8 reinforces this: recoverable stops use
+- **C3.** No destructive worktree operation without explicit confirmation.
+- **C4.** No implicit scope expansion — the mechanical/consequential-path allowance is
+  narrow and auditable, not a general license.
+- **C5.** Parallel task execution is not introduced; "batch" means sequential, one active
+  task at a time.
+- **C6.** No external infrastructure (databases, queues, workflow engines).
+- **C7.** No new persisted lifecycle statuses (D8 reinforces this: recoverable stops use
   `execution.suspension`, not new statuses); the two pre-existing, never-reachable
   statuses (`blocked`, `needs-decision`) are removed outright, not merely left
   unreachable (D16).
-- A confirmation already given for an authorized combined transition (D3) is not asked
-  for twice — a `confirm-required` recovery inside that transition resumes the same
-  authorized loop once confirmed, it does not force a fresh command invocation (D17).
-- `tools/specs.mjs approve`'s own approval gate remains the sole enforcement point for
-  `approved` — mechanical tasks still go through it (D14); combined approve+start (D3)
-  still performs it as a distinct, auditable call.
-- No implementation begins under this specification itself — this change only specifies.
+- **C8.** A confirmation already given for an authorized combined transition (D3) is not
+  asked for twice — a `confirm-required` recovery inside that transition resumes the
+  same authorized loop once confirmed, it does not force a fresh command invocation
+  (D17).
+- **C9.** `tools/specs.mjs approve`'s own approval gate remains the sole enforcement
+  point for `approved` — mechanical tasks still go through it (D14); combined
+  approve+start (D3) still performs it as a distinct, auditable call.
+- **C10.** No implementation begins under this specification itself — this change only
+  specifies.
 
 ## Affected modules
 
@@ -268,8 +294,8 @@ anywhere in the current process, and no batch-execution support at all.
 `tools/lib/github.mjs`, `tools/docs.mjs`, `tools/tests/*.test.mjs`,
 `.claude/commands/nevo-ai/*.md`, `.claude/skills/nevo-ai-spec-workflow/**`,
 `docs/ai/specification-workflow.md`, `docs/ai/task-routing.md`,
-`docs/ai/change-impact-map.md`, `AGENTS.md`, `CLAUDE.md` (pointer only). No `src/**`
-package is touched.
+`docs/ai/change-impact-map.md`, `docs/ai/how-to-navigate.md` (task 05's precedence-rule
+addition), `AGENTS.md`, `CLAUDE.md` (pointer only). No `src/**` package is touched.
 
 ## Options and trade-offs
 
@@ -285,11 +311,14 @@ post-merge repair branch is auto-created after confirmation or only reported as 
 — was presented to the owner directly in this pass and decided as D23 (auto-create, with
 four preconditions guarding the creation). The third refinement pass's corrections
 (D24-D26) were fully prescriptive with no unresolved fork — each stated its required
-behavior and wording directly — and were applied without a further owner turn.
+behavior and wording directly — and were applied without a further owner turn. The
+fourth refinement pass's corrections (D27-D29) were narrowly scoped and fully
+prescriptive by the owner's own framing ("apply only these final corrections") — no
+fork, applied directly.
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 through D26, all recorded 2026-08-04.
+See `owner-decisions.md` — D1 through D29, all recorded 2026-08-04.
 
 ## Proposed architecture
 
@@ -360,7 +389,8 @@ draft, still required):
 | Task-level | `computeTaskFingerprint(change, taskId)` | that task's own definition, acceptance criteria, `allowed_paths`/`consequential_paths`/`forbidden_paths`, `context`, `semantic_references` (D18 — `dependency_contracts`, `decisions`, `constraints`), `context_exceptions` (D13) | `reviews/<task-id>.md`'s `task_fingerprint` |
 | Implementation-review | `computeImplementationFingerprint(change, taskId)` | task-level fingerprint + reviewed diff/revision identifier + evidence references (command, exit code, file/line) | `reviews/<task-id>.md`'s `implementation_fingerprint` |
 
-None of the three ever includes `status` or `execution.suspension` for any task.
+None of the three ever includes `status`, `execution.suspension`, or `self_check` (D28,
+fourth refinement pass) for any task — all three are operational, not semantic.
 
 **Task semantic references (D18, second refinement pass) — deterministic, not
 prose-inferred.** A task's fingerprint-relevant dependency/decision/constraint inputs are
@@ -392,6 +422,43 @@ semantic_references:
   by an explicit model-review step inside `/nevo-ai:spec-review` (documented and wired by
   task 11, since task 01 cannot touch `.claude/commands/**`/`.claude/skills/**`), not by
   schema validation — see `owner-decisions.md` D26.
+- **A missing load-bearing reference blocks approval; an unnecessary one stays
+  `NON_BLOCKING` (D29, fourth refinement pass, tightens D26).** D26's completeness check
+  finds a missing, stale, or unnecessary reference; this decision fixes how each is
+  categorized. Missing and load-bearing: never `NON_BLOCKING` — `AUTO_FIX` when
+  unambiguous which reference is missing, `OWNER_DECISION` when ambiguous. Unnecessary
+  (a declared reference that isn't actually load-bearing): may remain `NON_BLOCKING`,
+  since it only over-invalidates slightly rather than hiding a gap. A spec carrying an
+  unresolved missing-reference finding cannot reach `ready-for-approval` — the existing
+  verdict table (`docs/ai/specification-workflow.md`) already stops there for any
+  unresolved `AUTO_FIX`/`OWNER_DECISION` finding; only the categorization feeding into
+  it changes.
+
+**Self-check state (D28, fourth refinement pass) — persisted, compact, excluded from
+every fingerprint tier, structurally parallel to `execution.suspension`:**
+
+```yaml
+# inside a task's entry in change.yaml, optional, present once a self-check has run
+self_check:
+  status: failed | passed        # absent block == "not run"
+  fingerprint: <task-level semantic fingerprint (D7/D18) at the time this self-check ran>
+  revision: <git SHA (or equivalent working-tree revision marker) at the time this self-check ran>
+  failed_criteria: [AC-3, AC-5]   # populated only when status: failed
+  commands:
+    - command: "node --test tools/tests/foo.test.mjs"
+      exit_code: 0
+```
+
+Only `status`, `fingerprint`, `revision`, `failed_criteria`, and each command's
+identity/exit code are stored — never full command output, never a full diff. Four
+states, only two persisted: **not run** = no `self_check` block; **failed** =
+`status: failed`; **passed and fresh** = `status: passed` and the task's *current*
+semantic fingerprint/revision match the stored ones; **passed but stale** =
+`status: passed` but the current fingerprint or revision no longer match — the same
+staleness computation D19 already defined for batch evidence generally, now given a
+concrete field-level home for the self-check layer. A resumed session (task 03's
+controller) and the batch's evidence-freshness check (task 08, D19) both read this block
+directly instead of rerunning or inferring status from unstored output.
 
 **Invalidation matrix (required by the refinement, now explicit, restated in terms of
 `semantic_references`):**
@@ -400,16 +467,18 @@ semantic_references:
 |---|---|---|
 | Task T's `status` changes | No | No |
 | Task U's `status` changes (U ≠ T) | No | No |
-| A new, unrelated task is added | No (task graph shape unchanged for existing tasks' own `depends_on`) | No, unless T's `semantic_references.dependency_contracts` includes the new task |
+| A new, unrelated task is added to the change | **Yes** (the task graph's id set — part of `computeChangeFingerprint`'s own input — changed; D27, fourth refinement pass, corrects the original "No" here) | No, unless T's `semantic_references.dependency_contracts` includes the new task |
+| An existing, unrelated task is removed from the change | **Yes** (same reason — the task graph's id set changed; D27) | No, unless T's `semantic_references.dependency_contracts` named the removed task (a dangling reference — also a `validate` error independent of fingerprinting) |
 | Shared scope/constraint text changes | Yes | Yes, only for tasks whose `semantic_references.constraints` names that constraint |
 | Task T's acceptance criteria change | No (task-scoped) | Yes |
 | Task U's acceptance criteria change (U ≠ T) | No | No, unless T's `semantic_references.dependency_contracts` includes U |
 | An owner decision referenced by task T's `semantic_references.decisions` changes | No, unless the decision is change-level | Yes, for every task referencing it |
 | An owner decision is superseded by a later one (see below) | No, unless the decision is change-level | Yes, for every task whose `semantic_references.decisions` names the superseded decision — the fingerprint is computed against the currently-active decision, not the superseded one |
-| A mechanical/resolver task is added, depending on an already-approved task | No | No, for every task not naming the new task in `semantic_references.dependency_contracts` |
+| A mechanical/resolver task is added, depending on an already-approved task | **Yes** (it is still a task being added to the graph — D27) | No, for every task not naming the new task in `semantic_references.dependency_contracts` |
 | The dependency graph changes task T's prerequisites or their ordering semantics | Yes (task graph shape) | Yes, for T |
 | Task T's `context_exceptions` changes | No | Yes (D13 — exceptions are semantic) |
 | Task T's `semantic_references` block itself changes (a reference is added/removed) | No | Yes — the fingerprint's own input set changed |
+| Task T's `self_check` block changes (status, fingerprint, revision, failed criteria, or command exit codes recorded) | No | No (D28, fourth refinement pass — `self_check` is operational evidence, excluded from every fingerprint tier exactly like `status`/`execution.suspension`) |
 
 **Owner-decision supersession.** Most "Refined by" pointers in `owner-decisions.md`
 narrow or extend an earlier decision without replacing it (e.g. D2 "Refined by: D8" —
@@ -532,8 +601,11 @@ Unchanged from the original draft in intent (D2, D3) — refined only in what st
 reads:
 
 - `deriveStage`, now suspension-aware (a task with an active `execution.suspension`
-  reports that instead of its stage's usual `nextCommand`), remains the single planning
-  input every conversational command consults.
+  reports that instead of its stage's usual `nextCommand`) and self-check-aware (D28,
+  fourth refinement pass — a task's `self_check.status`/freshness is surfaced so a
+  resumed session can distinguish not-run, failed, passed-but-stale, and passed-and-
+  fresh without rerunning anything), remains the single planning input every
+  conversational command consults.
 - `spec-review` reaching `ready-for-approval` offers approval inline.
 - `spec-approve`'s fourth outcome, "approve and start" (D3), performs `approve`, then
   re-checks `start`'s guards against *current* state, then `start` — using the postcondition
@@ -585,9 +657,12 @@ evidence (D19), or the end of the authorized scope — never past it, regardless
   refreshed (D19), missing required evidence, or an implementation error preventing
   verification all **stop the batch immediately** — a full `task-review` can never
   substitute for one of these; it is a risk judgment, not a repair mechanism. On a hard
-  stop: preserve the current task/batch state, report the failed criterion or evidence,
-  require the implementation to be corrected, rerun the self-check, and continue only
-  once it passes. Only *after* the self-check passes do the risk signals below determine
+  stop: preserve the current task/batch state, report the failed criterion or evidence
+  (a failed self-check reports directly from the task's persisted `self_check.status`/
+  `failed_criteria` — D28, fourth refinement pass — rather than ambient, unstored
+  command output), require the implementation to be corrected, rerun the self-check
+  (which overwrites `self_check` with the new outcome), and continue only once it
+  passes. Only *after* the self-check passes do the risk signals below determine
   whether a full `task-review` is additionally required.
 - **Risk classification is evidence-based, not path-touch-based (D11, corrected by D24 to
   exclude the self-check signal — see above).** See `owner-decisions.md` D11 for the full
@@ -598,15 +673,19 @@ evidence (D19), or the end of the authorized scope — never past it, regardless
   required). A small, low-risk code task meeting none of these — and with no hard-stop
   condition — is eligible for self-check plus the end-of-batch gating review only.
 - **Evidence freshness is checked before the gating review runs (D19, second refinement
-  pass).** A task passing its self-check earlier in the batch does not mean that
-  evidence is still trustworthy by the time the gating review runs if a later batched
-  task touched the same subsystem. Immediately before the gating batch review: (1)
-  determine which later-batched tasks' changes could affect an earlier task's recorded
-  evidence; (2) rerun any automated verification command whose target files changed
-  since it last ran; (3) invalidate (and require a refresh of) any inspection-type
-  evidence whose referenced files/line ranges changed since it was recorded; (4) treat
-  evidence for a task whose own semantic fingerprint (D18) has changed since the
-  evidence was recorded as stale regardless of file-level overlap. The gating review does
+  pass; self-check evidence's persisted home is D28, fourth refinement pass).** A task
+  passing its self-check earlier in the batch does not mean that evidence is still
+  trustworthy by the time the gating review runs if a later batched task touched the
+  same subsystem. Immediately before the gating batch review: (1) determine which
+  later-batched tasks' changes could affect an earlier task's recorded evidence; (2)
+  rerun any automated verification command whose target files changed since it last ran
+  (for the self-check layer specifically, this reads/rewrites the task's `self_check`
+  block — D28 — rather than an unspecified evidence store); (3) invalidate (and require
+  a refresh of) any inspection-type evidence whose referenced files/line ranges changed
+  since it was recorded; (4) treat evidence for a task whose own semantic fingerprint
+  (D18) has changed since the evidence was recorded as stale regardless of file-level
+  overlap — for `self_check` specifically, this is exactly the "passed but stale"
+  comparison D28 defines. The gating review does
   not proceed while any batched task carries stale, unrefreshed evidence. Evidence stays
   compact — a revision/content-hash identifier plus a file/path reference list plus (for
   automated evidence) the command identity — never full command output or full diffs.
@@ -675,6 +754,9 @@ evidence (D19), or the end of the authorized scope — never past it, regardless
 | Hard-stop/risk-signal split for batch self-check (D24) | Avoids the token cost of a full `task-review` being triggered for what is actually a correctness bug, not a risk judgment — the fix is cheaper (correct the code, rerun self-check) than the review it was wrongly routed to | Low — reclassifies one existing signal, no new subsystem | Yes |
 | Ordered, truthful repair-branch guards (D25) | No direct token effect — this is a correctness/honesty fix to an already-planned mechanism (D23), not a new one | Low — reordering four existing checks into a nine-step sequence, no new guard logic | Yes |
 | Semantic-reference completeness model review (D26) | Adds one model-review pass per spec review, but only for tasks declaring `semantic_references` — cheaper than the alternative (a silently-stale fingerprint causing a missed regression, caught much later at higher cost) | Low — one more inspection step inside an already-model-driven review, no new subsystem | Yes |
+| Corrected task-addition/removal invalidation (D27) | Removes a false-negative freshness check — a stale `change_fingerprint` no longer passes `spec-review` after the task graph actually changed; slightly *more* invalidation than the original (incorrect) row, but that invalidation is real, not a cost to avoid | Low — corrects a specification/test defect, no code or schema change | Yes |
+| Blocking categorization for missing load-bearing references (D29) | Trades a small amount of ceremony (an `AUTO_FIX`/`OWNER_DECISION` finding must be resolved before approval) for closing a completeness gap that was previously detected but not enforced — cheaper than the regression a silently-approved gap would eventually cause | Low — a categorization-rule correction to D26, no new mechanism | Yes |
+| Persisted `self_check` state (D28) | Removes the token cost of blindly rerunning every self-check after a resumed session, or of re-deriving status from scratch — a resumed controller reads four bytes' worth of state instead | Low — one optional block per task, structurally identical in kind to `execution.suspension`/`semantic_references`, excluded from every fingerprint tier | Yes |
 | Full workflow engine / generic state DSL | N/A — explicitly rejected | High | No |
 | Parallel task execution | N/A — explicitly rejected | High, unsafe for shared `change.yaml` | No |
 
@@ -690,13 +772,15 @@ extra implementation cost.
 
 - Existing `change.yaml` files need no structural migration for the status/transition
   model (unchanged) but do gain new optional fields (`execution.suspension`,
-  `context_exceptions`, and — D18 — `semantic_references`) — additive, absent by
-  default. A task file with no `semantic_references` block (or an empty one) is fully
-  valid: it simply means `computeTaskFingerprint` treats that task as referencing
-  nothing beyond its own content, so existing task files remain valid without edits.
-  They don't benefit from `semantic_references`' granular invalidation until reviewed
-  and annotated — task 01 documents this as a recommended, not required, follow-up
-  review pass for existing active changes once this change ships.
+  `context_exceptions`, `semantic_references` — D18, and `self_check` — D28, fourth
+  refinement pass) — additive, absent by default. A task file with no
+  `semantic_references` block (or an empty one) is fully valid: it simply means
+  `computeTaskFingerprint` treats that task as referencing nothing beyond its own
+  content, so existing task files remain valid without edits. They don't benefit from
+  `semantic_references`' granular invalidation until reviewed and annotated — task 01
+  documents this as a recommended, not required, follow-up review pass for existing
+  active changes once this change ships. A task with no `self_check` block is simply
+  "not run" — no migration action needed for any existing task file.
 - Any `reviews/*.md` with the old single `spec_fingerprint` becomes stale the moment this
   change ships (expected one-time re-review, same as the original D1 plan, now scoped
   per-tier under D7).
@@ -800,9 +884,22 @@ extra implementation cost.
     required (D24).
 21. Every task's `semantic_references` block is checked for completeness — not just
     reference integrity — as an explicit model-review step inside
-    `/nevo-ai:spec-review`; a missing reference the task's content actually relies on is
-    reported as a finding, categorized per the normal `AUTO_FIX`/`OWNER_DECISION`/
-    `NON_BLOCKING` rules (D26).
+    `/nevo-ai:spec-review`; a missing, load-bearing reference is never categorized
+    `NON_BLOCKING` — `AUTO_FIX` when unambiguous, `OWNER_DECISION` when ambiguous; an
+    unnecessary (not missing) reference may remain `NON_BLOCKING` (D26, tightened by
+    D29). A spec with an unresolved missing-reference finding cannot reach
+    `ready-for-approval`.
+22. Adding or removing a task always invalidates the change-level fingerprint; it does
+    not invalidate an unrelated task's task-level fingerprint unless that task's
+    `semantic_references.dependency_contracts` names the added/removed task — a test
+    proves both directions for at least one addition and one removal (D27).
+23. A task's `self_check` block (`status`/`fingerprint`/`revision`/`failed_criteria`/
+    per-command exit codes) is excluded from every fingerprint tier; a test proves
+    changing any `self_check` field never changes `computeTaskFingerprint`'s output. A
+    resumed session can distinguish not-run (no block), failed (`status: failed`),
+    passed-but-stale, and passed-and-fresh (the latter two derived by comparing the
+    block's stored fingerprint/revision against the task's current ones) without
+    rerunning the self-check (D28).
 
 ## Verification strategy
 
@@ -833,7 +930,13 @@ read-only/remote check before any local mutation, and why the failure contract r
 already-occurred fetches/switches instead of claiming no modification occurred (D25);
 and why `semantic_references` completeness is a model-review step inside
 `/nevo-ai:spec-review`, layered on top of — not a replacement for — `validateSpecs`'s
-deterministic reference-integrity checks (D26). No existing ADR is superseded.
+deterministic reference-integrity checks (D26). The fourth refinement pass adds: why
+adding or removing a task always invalidates the change-level fingerprint (D27); why a
+missing load-bearing semantic reference blocks approval rather than staying
+`NON_BLOCKING`, split by ambiguity into `AUTO_FIX`/`OWNER_DECISION` (D29); and why
+self-check state gets its own small persisted schema (`self_check`), structurally
+parallel to `execution.suspension`, rather than staying an unspecified evidence store
+(D28). No existing ADR is superseded.
 
 ## Out of scope
 

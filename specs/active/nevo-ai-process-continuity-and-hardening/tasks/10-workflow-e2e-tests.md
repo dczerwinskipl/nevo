@@ -47,6 +47,14 @@ forbidden_paths:
 > coverage is limited to the deterministic *integrity* checks task 01 already validates
 > (unresolvable/invalid reference IDs, superseded-decision detection, fingerprint
 > invalidation), exercised end-to-end alongside the other mechanisms.
+>
+> Refined a fourth time 2026-08-04 — the **Fingerprints** group's "adding an unrelated
+> task" scenario is corrected: it now proves the change-level fingerprint *does*
+> invalidate (D27), while the task-level fingerprint of an unrelated task still does not
+> (unchanged). Adds new scenario groups for D28 (`self_check` persisted state) and D29
+> (missing-load-bearing-reference blocking — the deterministic *integrity*-check half
+> only; the model-review categorization itself has no automated test, same rationale as
+> D26 above).
 
 ## Goal
 
@@ -67,11 +75,14 @@ the fully-assembled system tasks 01-09 built.
   file, unless a scenario genuinely spans more than two mechanisms):
 
   **Fingerprints** — changing a task's status preserves every fingerprint tier; adding an
-  unrelated task doesn't invalidate an independent task's fingerprint; changing shared
-  scope invalidates affected task fingerprints; changing a task's acceptance criteria
-  invalidates that task's fingerprint; adding a mechanical resolver task doesn't
-  invalidate unrelated task fingerprints; changing a referenced owner decision invalidates
-  only affected fingerprints.
+  unrelated task **invalidates the change-level fingerprint but not an independent
+  task's task-level fingerprint** (D27, fourth refinement pass — corrects the original
+  scenario, which had this backwards for the change-level tier); removing a task
+  produces the same split; changing shared scope invalidates affected task fingerprints;
+  changing a task's acceptance criteria invalidates that task's fingerprint; adding a
+  mechanical resolver task invalidates the change-level fingerprint but not unrelated
+  task fingerprints; changing a referenced owner decision invalidates only affected
+  fingerprints.
 
   **Recovery** — `REC-01` (wrong clean branch) can be confirmed, repaired, retried, and
   continued; `REC-02` (remote-only branch) recovers correctly; `REC-03` (stale generated
@@ -175,6 +186,28 @@ the fully-assembled system tasks 01-09 built.
   marked superseded is rejected, naming the superseding decision; changing
   `semantic_references` changes the task's fingerprint; an operational status change
   alone does not change it.
+
+  **Fourth refinement pass — fingerprint invalidation on task add/remove (D27)** —
+  adding a task to the change invalidates `computeChangeFingerprint`'s output; removing
+  a task does too; an unrelated task's task-level fingerprint is unaffected by either
+  unless its own `semantic_references.dependency_contracts` names the added/removed
+  task, in which case its task-level fingerprint invalidates as well.
+
+  **Fourth refinement pass — persisted self-check state (D28)** — a self-check run
+  writes `self_check` with the correct `status`/fingerprint/revision; a failed run's
+  `failed_criteria` and command exit codes are readable directly from `self_check`
+  without rerunning anything; a task with no `self_check` block reports "not run"; a
+  task with `status: passed` whose current fingerprint/revision still match reports
+  "passed and fresh"; a task with `status: passed` whose current fingerprint or revision
+  no longer match reports "passed but stale" and triggers a rerun; no `self_check` field
+  ever changes any fingerprint tier's output.
+
+  **Fourth refinement pass — missing-reference blocking, integrity half (D29, integrity
+  only — the `AUTO_FIX`/`OWNER_DECISION` categorization itself is a model-review
+  procedure with no automated test, same rationale as D26 above)** — the deterministic
+  reference-integrity checks this categorization sits on top of (D26's group, above)
+  continue to pass unchanged; this task adds no new automated check beyond confirming
+  D26's integrity suite still passes after task 11's review-policy wording changes.
 
 - Do not touch `docs/**`, `.claude/commands/**`, `.claude/skills/**`, `AGENTS.md`, or
   `CLAUDE.md` in this task — those are task 11's exclusive scope, kept separate precisely

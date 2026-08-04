@@ -10,7 +10,7 @@ context:
     - tools/specs.mjs
     - tools/lib/github.mjs
     - .claude/commands/nevo-ai/spec-finalize.md
-    - specs/active/nevo-documentation-architecture/reviews/spec.md
+    - specs/archive/nevo-documentation-architecture/reviews/spec.md
   optional:
     - docs/development/git-workflow.md
 allowed_paths:
@@ -25,8 +25,8 @@ forbidden_paths:
   - tests/**
   - examples/**
   - docs/development/**
-  - specs/active/nevo-documentation-architecture/tasks/**
-  - specs/active/nevo-documentation-architecture/change.yaml
+  - specs/archive/nevo-documentation-architecture/tasks/**
+  - specs/archive/nevo-documentation-architecture/change.yaml
 ---
 
 # Task: Finalization hardening and migration
@@ -110,7 +110,7 @@ behavior that must already exist.
   checks, opening the repair PR) remains manual beyond branch creation.
 - No duplicate `dotnet build`/`dotnet test` in the post-merge check — only
   `specs.mjs check`/`docs.mjs check`.
-- Do not modify `specs/active/nevo-documentation-architecture/tasks/**` or its
+- Do not modify `specs/archive/nevo-documentation-architecture/tasks/**` or its
   `change.yaml` — read-only case-study evidence; only its `reviews/spec.md` is relevant,
   and only as something this task's migration notes point to.
 - Migration notes state explicitly: no `change.yaml` structural migration is needed for
@@ -164,7 +164,7 @@ diagnostic-anchor/ordered-repair-branch-guard flow with its truthful failure sem
 
 ## Out of scope
 
-- Any modification to `specs/active/nevo-documentation-architecture/**` beyond reading
+- Any modification to `specs/archive/nevo-documentation-architecture/**` beyond reading
   its `reviews/spec.md` as evidence.
 - Writing the ADR or updating the shared vendor-neutral workflow doc broadly (task 11) —
   this task's documentation scope is `spec-finalize.md` only.

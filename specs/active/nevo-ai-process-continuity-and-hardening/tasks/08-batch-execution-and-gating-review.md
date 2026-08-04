@@ -8,6 +8,7 @@ context:
     - specs/active/nevo-ai-process-continuity-and-hardening/owner-decisions.md
     - tools/specs/lifecycle.mjs
     - tools/specs.mjs
+    - tools/specs/service.mjs
     - .claude/skills/nevo-ai-spec-workflow/references/review-policy.md
     - .claude/commands/nevo-ai/task-review.md
     - .claude/commands/nevo-ai/task-next.md
@@ -51,6 +52,12 @@ forbidden_paths:
 > batch immediately and that a full `task-review` can never substitute for; only once the
 > self-check passes do the remaining (self-check-excluding) signals determine whether a
 > full review is additionally required.
+>
+> Refined a fourth time 2026-08-04 (see D28) — this task is now the sole writer of the
+> per-task `self_check` block (task 01 defines and validates its shape). Every self-check
+> run — pass or fail — writes it; the hard-stop report (D24) and the evidence-freshness
+> check (D19) both read it directly instead of relying on ambient, unstored command
+> output or an unspecified evidence store.
 
 ## Goal
 
@@ -106,6 +113,13 @@ task cannot be implemented meaningfully before it lands.
   the implementation to be corrected and the self-check rerun before the batch
   continues — do **not** create or offer a full `task-review` as an alternative path
   around a hard stop.
+- **Writing `self_check` (D28, fourth refinement pass).** Every self-check run writes the
+  task's `self_check` block (task 01's validated shape): `status` (`failed`/`passed`),
+  the task's current semantic fingerprint and revision at that moment, `failed_criteria`
+  (only when `status: failed`), and each run command's identity/exit code. This is the
+  single write path — no other code sets this field. A hard stop's reported failure
+  (above) reads `self_check.status`/`failed_criteria` directly; it does not maintain a
+  separate, parallel record of the same fact.
 - A task requires its own full `task-review` before the batch can complete it when its
   self-check has already passed (no hard stop applies) **and**, only then, at least one
   evidence-based signal holds (see `areas/batch-execution-and-gating-review.md`
@@ -117,22 +131,25 @@ task cannot be implemented meaningfully before it lands.
   unresolved or failed" is removed from this list per D24, since it is now a hard stop).
   Touching `src/**`/`tests/**`/`consequential_paths` alone is **not** on this list.
 - **Evidence freshness, checked immediately before the gating batch review runs (D19,
-  second refinement pass).** Implement as a distinct step, not folded silently into the
-  gating review: (1) determine which later-batched tasks' changes could affect an
-  earlier task's recorded evidence (file/path overlap); (2) rerun any automated-
-  verification command whose target files changed since it last ran; (3) invalidate (and
-  require a refresh of) any inspection-type evidence whose referenced files/line ranges
-  changed since it was recorded; (4) treat evidence for a task whose own
+  second refinement pass; self-check layer's persisted comparison is D28, fourth
+  refinement pass).** Implement as a distinct step, not folded silently into the gating
+  review: (1) determine which later-batched tasks' changes could affect an earlier
+  task's recorded evidence (file/path overlap); (2) for the self-check layer, compare
+  each batched task's `self_check.fingerprint`/`self_check.revision` against its
+  *current* semantic fingerprint/revision — a mismatch means "passed but stale" (D28)
+  and the task's self-check reruns (rewriting `self_check`); (3) invalidate (and require
+  a refresh of) any inspection-type evidence whose referenced files/line ranges changed
+  since it was recorded; (4) treat evidence for a task whose own
   `semantic_references`-based task-level fingerprint (D18) has changed since the
-  evidence was recorded as stale regardless of file-level overlap. The gating batch
-  review must not run while any batched task carries stale, unrefreshed evidence —
-  evidence that cannot be refreshed is itself a hard stop condition (D24, see above),
-  not something the gating review proceeds past with a caveat.
-  Evidence tracked per item stays compact: a revision/content-hash identifier,
-  referenced files/path ranges, command identity (for automated evidence), and the
-  task's semantic fingerprint at record time — never full command output or full diffs.
-  Owner-recorded evidence stays valid as long as the task's semantic fingerprint is
-  unchanged.
+  evidence was recorded as stale regardless of file-level overlap — for `self_check`
+  this is exactly step (2)'s comparison. The gating batch review must not run while any
+  batched task carries stale, unrefreshed evidence — evidence that cannot be refreshed
+  is itself a hard stop condition (D24, see above), not something the gating review
+  proceeds past with a caveat. Evidence tracked per item stays compact — for the
+  self-check layer this is exactly `self_check`'s own fields; other evidence kinds track
+  a revision/content-hash identifier, referenced files/path ranges, and command
+  identity the same way — never full command output or full diffs. Owner-recorded
+  evidence stays valid as long as the task's semantic fingerprint is unchanged.
 - The gating batch review writes `specs/active/<change-id>/reviews/batch-<n>.md` (or
   equivalent, distinct from `reviews/<task-id>.md` and `reviews/audit-<slug>.md`), with
   verdict `changes-recommended` \| `owner-decision-required` \| `no-findings` computed
@@ -183,6 +200,12 @@ task cannot be implemented meaningfully before it lands.
     requires a full `task-review` (automated, same suite) (D24).
 16. A passing, low-risk code task (no hard stop, no risk signal) proceeds to the final
     gating batch review without a full `task-review` (automated, same suite) (D24).
+17. Every self-check run writes `self_check` with the correct `status`/fingerprint/
+    revision, and a failed run's `failed_criteria`/command exit codes are readable
+    directly from it (automated, same suite) (D28).
+18. A task whose `self_check.fingerprint`/`revision` no longer match its current values
+    is treated as "passed but stale" and its self-check reruns before the gating batch
+    review proceeds (automated, same suite) (D28).
 
 ## Verification
 

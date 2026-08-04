@@ -36,6 +36,11 @@ forbidden_paths:
 > recovery handle, rather than always stopping. The postcondition-result vocabulary this
 > task reasons about gains a fifth value, `unsafe_manual`, which — like `not_retryable`,
 > scope expansion, and unrelated dirty files — always stops the loop.
+>
+> Refined a third time 2026-08-04 (see D28) — `deriveStage`'s wrapper also reports a
+> task's persisted `self_check` state (not-run/failed/passed-but-stale/passed-and-fresh)
+> alongside its existing suspension-awareness, read-only — this task never writes
+> `self_check` (task 08, D28, is the sole writer).
 
 ## Goal
 
@@ -64,6 +69,13 @@ model and `execution.suspension` writer this task wires in.
 - `deriveStage`'s wrapper checks each task's `execution.suspension` before falling back
   to its existing stage logic — a suspended task's report names the suspension's
   `kind`/`code` and, for `confirm-required`, what confirmation is still needed.
+- **Self-check-aware (D28, fourth refinement pass).** The wrapper also reports a task's
+  `self_check` state as part of its planning output: not-run (no `self_check` block),
+  failed (`status: failed`, surfacing `failed_criteria`), passed-but-stale (`status:
+  passed` but the task's current semantic fingerprint/revision no longer match
+  `self_check.fingerprint`/`self_check.revision`), or passed-and-fresh (they match).
+  Read-only — this task never writes `self_check`, only compares it against the task's
+  current fingerprint/revision at read time.
 - After a `completed`/`safe_to_retry` recovery (task 02), the controller is called before
   deciding whether to stop or continue; a `partially_completed`, `not_retryable`, or
   `unsafe_manual` outcome always stops (never auto-continues past an unresolved
@@ -109,6 +121,9 @@ model and `execution.suspension` writer this task wires in.
 6. A confirmation is asked at most once per repair — a still-unresolved postcondition
    after the confirmed repair surfaces as a fresh `not_retryable`/`unsafe_manual`
    result, never a second confirmation prompt for the same repair (automated) (D17).
+7. `deriveStage` reports each of the four `self_check` states correctly (not-run,
+   failed, passed-but-stale, passed-and-fresh) for a task in that state, without ever
+   writing `self_check` itself (automated, extends the same suite) (D28).
 
 ## Verification
 
@@ -123,6 +138,8 @@ None in this task — consolidated in task 11.
 
 ## Out of scope
 
-- Any change to what `deriveStage` reports (`stage`/`detail`/`nextCommand` values are
-  unchanged by this task).
+- Any change to `deriveStage`'s existing `stage`/`detail`/`nextCommand` values
+  themselves — this task adds suspension- and self-check-awareness alongside them, it
+  does not change what they mean.
 - Command-file conversational changes (task 04).
+- Writing or clearing `self_check` — task 08, D28. This task only reads it.

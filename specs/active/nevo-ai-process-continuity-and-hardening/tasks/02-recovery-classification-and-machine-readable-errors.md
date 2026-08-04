@@ -9,6 +9,7 @@ context:
     - tools/lib/cli-errors.mjs
     - tools/lib/git.mjs
     - tools/specs.mjs
+    - tools/specs/lifecycle.mjs
   optional:
     - tools/tests/git.test.mjs
 allowed_paths:

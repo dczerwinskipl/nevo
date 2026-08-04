@@ -11,6 +11,13 @@
 > that transition in place once confirmed, instead of ending it and requiring a fresh
 > command invocation — see area `conversational-continuity` for the conversational side
 > of this change; this area owns the postcondition/result-class model it relies on.
+>
+> Refined a fourth time 2026-08-04 — see D28. `deriveStage`'s suspension-aware wrapper
+> (requirement 7) is now also self-check-aware (requirement 8): it reports a task's
+> persisted `self_check` state (not-run/failed/passed-but-stale/passed-and-fresh) so a
+> resumed session doesn't have to blindly rerun a self-check to know its last outcome.
+> This area only *reads* `self_check` — area `batch-execution-and-gating-review` writes
+> it.
 
 ## Responsibility
 
@@ -87,6 +94,15 @@ never acts on it.
    `execution.suspension` reports that instead of its stage's usual `nextCommand`, naming
    the suspension's `kind`/`code` and, for `confirm-required`, the confirmation still
    needed.
+8. **Self-check-aware (D28, fourth refinement pass).** `deriveStage`'s wrapper also
+   reports a task's `self_check` state as part of its planning output: not-run (no
+   `self_check` block), failed (`status: failed`, surfacing `failed_criteria`),
+   passed-but-stale (`status: passed` but the current semantic fingerprint/revision no
+   longer match `self_check.fingerprint`/`self_check.revision`), or passed-and-fresh
+   (they match) — read-only here; this area does not write `self_check` (area
+   `batch-execution-and-gating-review`, task 08, D28, is the sole writer). This lets a
+   resumed session know whether a self-check needs to be rerun without rerunning it
+   speculatively.
 
 ## Constraints
 
@@ -109,10 +125,11 @@ never acts on it.
 Exposes: the `REC-01`..`REC-09` table with codes; postcondition contracts per action
 (five-value result vocabulary, D17); the resumable recovery handle used by combined
 transitions (requirement 4a); the suspension writer/clearer; the extended `branchExists`;
-suspension-aware `deriveStage`.
+suspension-aware and self-check-aware `deriveStage` (D28).
 
-Consumes: `state-and-fingerprint-semantics`' `execution.suspension` schema and corrected
-`depsSatisfied`.
+Consumes: `state-and-fingerprint-semantics`' `execution.suspension` schema, corrected
+`depsSatisfied`, and validated `self_check` shape (D28, read-only — this area never
+writes it); `batch-execution-and-gating-review`'s `self_check` writes (task 08, D28).
 
 ## Area-specific acceptance criteria
 
@@ -130,11 +147,15 @@ Consumes: `state-and-fingerprint-semantics`' `execution.suspension` schema and c
 - A test proves the resumable recovery handle (requirement 4a) reports exactly the still-
   missing postconditions after a confirmed repair, not a full postcondition re-check that
   would re-report already-satisfied ones as new work.
+- A test proves `deriveStage` reports each of the four `self_check` states correctly
+  (not-run, failed, passed-but-stale, passed-and-fresh) for a task in that state, without
+  itself writing `self_check` (D28).
 
 ## Dependencies
 
-`state-and-fingerprint-semantics` (task 01) — needs the `execution.suspension` schema and
-corrected `depsSatisfied` before recovery can persist or reason about state meaningfully.
+`state-and-fingerprint-semantics` (task 01) — needs the `execution.suspension` schema,
+the validated `self_check` shape (D28), and corrected `depsSatisfied` before recovery can
+persist or reason about state meaningfully.
 
 ## Out of scope
 

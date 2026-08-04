@@ -9,8 +9,8 @@ context:
     - specs/active/nevo-ai-process-continuity-and-hardening/overview.md
     - tools/specs/lifecycle.mjs
     - tools/specs/service.mjs
-  optional:
     - tools/specs/validation.mjs
+  optional:
     - tools/tests/fingerprint.test.mjs
     - tools/tests/task-lifecycle.test.mjs
 allowed_paths:
@@ -51,18 +51,28 @@ forbidden_paths:
 > requirement explicitly (as a documented limitation of what it validates); the actual
 > model-review completeness check is implemented by task 11 in `review-policy.md`/
 > `spec-review.md`, which this task's `forbidden_paths` excludes it from touching.
+>
+> Refined a fourth time 2026-08-04 (see D27, D28, D29) — the invalidation matrix's
+> task-addition/removal rows are corrected: `computeChangeFingerprint`'s own field list
+> already includes the task graph's ids, so adding/removing a task must invalidate the
+> change-level fingerprint (D27) — this needed a test fix, not a code change. This task
+> adds the validated, optional `self_check` schema (D28), structurally parallel to
+> `execution.suspension`, excluded from every fingerprint tier. D29 tightens the
+> completeness-check categorization this task documents (see D26 note above) but does
+> not otherwise touch this task's own validation.
 
 ## Goal
 
 Replace `computeSpecFingerprint` with three canonical semantic-projection functions
 (change-level, task-level, implementation-review — D7) and implement the full
-invalidation matrix from `overview.md`; add the validated `execution.suspension` schema
-(D8, shape only — writers live in task 02); add the validated `semantic_references`
-schema and wire it into `computeTaskFingerprint` (D18); correct `depsSatisfied` so
-`abandoned` no longer satisfies a dependency; resolve `superseded`; remove
-`blocked`/`needs-decision` from the status vocabulary entirely and add the enum
-validation that catches them (D16). This is the foundation every other task in this
-change depends on.
+invalidation matrix from `overview.md` — including the corrected task-addition/removal
+rows (D27); add the validated `execution.suspension` schema (D8, shape only — writers
+live in task 02); add the validated `semantic_references` schema and wire it into
+`computeTaskFingerprint` (D18); add the validated `self_check` schema (D28, shape only —
+writers live in task 08); correct `depsSatisfied` so `abandoned` no longer satisfies a
+dependency; resolve `superseded`; remove `blocked`/`needs-decision` from the status
+vocabulary entirely and add the enum validation that catches them (D16). This is the
+foundation every other task in this change depends on.
 
 ## Dependencies
 
@@ -81,7 +91,12 @@ None — first task in the change.
   though task 06 is what actually populates that data — reserve the field now so task 06
   doesn't need to touch this function again.
 - Implement every row of the invalidation matrix in `overview.md` § "Proposed
-  architecture" → "State model" as a distinct test case.
+  architecture" → "State model" as a distinct test case, **including (D27, fourth
+  refinement pass) the corrected task-addition/task-removal rows**: adding or removing
+  any task always invalidates `computeChangeFingerprint`'s output (its task-graph-ids
+  input already covers this — no code change needed, only the test); an unrelated task's
+  task-level fingerprint is unaffected unless its own
+  `semantic_references.dependency_contracts` names the added/removed task.
 - Add the `execution: { suspension: { kind, code, previous_action, created_at } }` shape
   to schema validation (`validateSpecs`): when present, `kind` must be one of
   `automatic`/`confirm-required`/`owner-decision`/`unsafe-manual`, `code` must be a
@@ -105,7 +120,20 @@ None — first task in the change.
   cannot prove the list is *complete* (that it covers everything the task's content
   actually depends on); that check is a model-review step task 11 implements in
   `review-policy.md`/`spec-review.md`, not something this task's schema validation can
-  do.
+  do. **D29 (fourth refinement pass) tightens how task 11's check categorizes a missing
+  reference** — never `NON_BLOCKING`; `AUTO_FIX` when unambiguous, `OWNER_DECISION` when
+  ambiguous — this task's own deterministic integrity validation is unaffected by that
+  categorization change.
+- **`self_check` schema (D28, fourth refinement pass).** Add an optional, per-task
+  `self_check` block to schema validation, structurally parallel to
+  `execution.suspension`: `self_check: { status, fingerprint, revision, failed_criteria,
+  commands: [{ command, exit_code }] }`. `validateSpecs` rejects: a `status` other than
+  `failed`/`passed`; a `failed_criteria` entry present when `status` is not `failed`; a
+  `commands` entry missing `command` (string) or `exit_code` (integer). This task
+  defines and validates the *shape* only — writing it after a self-check run is task
+  08's job. `self_check` is excluded from all three fingerprint tiers, exactly like
+  `status` and `execution.suspension` — add it to the same "must not read or hash" test
+  that already covers those two.
 - `depsSatisfied` excludes `abandoned` from dependency-satisfying statuses.
 - Resolve `superseded`: either wire it into a real, non-dependency-satisfying terminal
   state with a documented convention, or remove it from `service.mjs`'s `STATUS_ORDER`.
@@ -148,6 +176,14 @@ None — first task in the change.
 9. `computeTaskFingerprint` changes when and only when a referenced `semantic_references`
    entry's target content changes — proven for at least one entry of each of the three
    lists (automated, same suite) (D18).
+10. Adding or removing a task always invalidates `computeChangeFingerprint`'s output; an
+    unrelated task's task-level fingerprint is unaffected unless it names the
+    added/removed task in `semantic_references.dependency_contracts` (automated:
+    `node --test tools/tests/fingerprint.test.mjs`) (D27).
+11. `self_check`'s shape is validated by `validateSpecs` (a malformed `status`, a
+    `failed_criteria` entry present without `status: failed`, or a `commands` entry
+    missing `exit_code` are each `validate` errors); changing any `self_check` field
+    never changes any fingerprint tier's output (automated, same suite) (D28).
 
 ## Verification
 
@@ -161,7 +197,7 @@ node tools/docs.mjs validate
 ## Documentation impact
 
 `docs/ai/specification-workflow.md` — fingerprint tiers, suspension schema,
-`semantic_references` schema, and the corrected status vocabulary.
+`semantic_references` schema, `self_check` schema, and the corrected status vocabulary.
 
 ## Out of scope
 
@@ -170,4 +206,6 @@ node tools/docs.mjs validate
 - Reviewing/annotating other active changes' existing task files with
   `semantic_references` — recommended follow-up, not required by this task (D18).
 - Any change to `TRANSITIONS` or the four existing lifecycle commands' behavior.
-- Implementing the `semantic_references` completeness model-review step — task 11, D26.
+- Implementing the `semantic_references` completeness model-review step — task 11, D26/D29.
+- Writing or reading `self_check` after an actual self-check run — task 08, D28 — this
+  task only defines and validates its shape.
