@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T18:59:19.602Z",
+  "generated": "2026-08-04T19:23:47.757Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -12,13 +12,13 @@
           "id": "state-and-fingerprint-semantics",
           "order": 1,
           "file": "tasks/01-state-and-fingerprint-semantics.md",
-          "status": "in-implementation"
+          "status": "implemented"
         },
         {
           "id": "recovery-classification-and-machine-readable-errors",
           "order": 2,
           "file": "tasks/02-recovery-classification-and-machine-readable-errors.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "state-and-fingerprint-semantics"
           ]
