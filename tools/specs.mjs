@@ -7,21 +7,22 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { CliError } from './lib/cli-errors.mjs';
+import { CliError, RecoveryError } from './lib/cli-errors.mjs';
 import { ensureDir, moveDir } from './lib/fs.mjs';
+import { updateYamlFile } from './lib/yaml.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
 import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
-  computeSpecFingerprint, loadReview,
+  computeSpecFingerprint, computeTaskFingerprint, loadReview,
   buildSpecsIndexes, writeSpecsIndexes, checkSpecsIndexes,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
-  TERMINAL_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval, validateFinalize,
-  deriveStage,
+  TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
+  validateFinalize, deriveStage, inspectStartPostconditions, inspectApprovePostconditions, classifyDirtyWorktree,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,6 +57,44 @@ function requireTask(change, taskId) {
   const task = change.tasks.find(t => t.id === taskId);
   if (!task) throw new CliError(`Task '${taskId}' not found in change '${change._slug}'`);
   return task;
+}
+
+// Structural writers for the operational `execution.suspension` block (D8) —
+// mirrors service.mjs's setTaskStatus, kept here since service.mjs is outside
+// this area's scope. Suspension is only ever written for a stop that must
+// survive a session boundary (confirm-required/owner-decision/unsafe-manual);
+// an `automatic`-class recovery fixes itself same-turn and never calls this.
+// Exported for direct testing (tools/tests/recovery.test.mjs) — writing this
+// block must never touch the task's own `status` field (acceptance criterion 5).
+export function setTaskSuspension(change, taskId, suspension) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('execution', { suspension });
+  });
+}
+
+export function clearTaskSuspension(change, taskId) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (item?.has('execution')) item.delete('execution');
+  });
+}
+
+// unsafe-manual never resolves itself and is never auto-retried (constraint,
+// area recovery-and-resume) — a controller that observes it must stop, the
+// same as an unresolved owner-decision, before attempting anything else.
+// Exported for direct testing (tools/tests/recovery.test.mjs).
+export function guardAgainstUnsafeManual(task, taskId, action) {
+  const suspension = task.execution?.suspension;
+  if (suspension?.kind === 'unsafe-manual') {
+    throw new CliError(
+      `Task '${taskId}' has an unresolved unsafe-manual suspension (${suspension.code}) — ` +
+      `it must be resolved manually before '${action}' can be retried.`
+    );
+  }
 }
 
 export function handleGenerate() {
@@ -120,49 +159,109 @@ export function handleFingerprint(changeSlug) {
 export function handleApprove(changeSlug, taskId) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
+  guardAgainstUnsafeManual(task, taskId, 'approve');
 
   const review = loadReview(change);
   const currentFingerprint = computeSpecFingerprint(change);
   const result = validateApproval(task.status, review, currentFingerprint);
+  const inspection = inspectApprovePostconditions(result);
 
-  if (!result.ok) throw new CliError(result.reason);
-  if (result.idempotent) { console.log(`Task '${taskId}' is already approved.`); return; }
+  if (inspection.result === 'not_retryable') {
+    // REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE — recoverable, confirm-required:
+    // re-run the review, then retry approval. Persisted so a resumed session
+    // knows a confirmation is still owed, without re-deriving it from prose.
+    if (inspection.code === 'stale-fingerprint') {
+      setTaskSuspension(change, taskId, {
+        kind: 'confirm-required', code: 'REC-07', previous_action: 'approve',
+        created_at: new Date().toISOString(),
+      });
+      throw new RecoveryError('REC-07', { detail: inspection.reason });
+    }
+    throw new CliError(inspection.reason);
+  }
+  if (inspection.result === 'completed') { console.log(`Task '${taskId}' is already approved.`); return; }
 
+  clearTaskSuspension(change, taskId);
   setTaskStatus(change, taskId, 'approved');
   console.log(`Task '${taskId}' marked as approved.`);
 }
 
+// Postcondition-based start (D8 reference example, area recovery-and-resume):
+// inspects real state, executes only the missing effects, and never repeats a
+// completed one (e.g. never re-runs `git checkout -b` on a branch that
+// already exists). A dirty tree is classified (REC-05 task-related vs. REC-06
+// unrelated) rather than a single flat refusal, since only REC-05's files are
+// ever safe to reason about touching on the task's behalf.
 export function handleStart(changeSlug, taskId) {
-  if (!git.isWorkingTreeClean(ROOT)) {
-    throw new CliError('Working tree has uncommitted changes. Stash or commit before starting a task.');
-  }
-
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
-
-  const transition = validateTransition('start', task.status);
-  if (!transition.ok) throw new CliError(transition.reason);
-  if (!transition.idempotent && !depsSatisfied(task, change)) {
-    throw new CliError(`Task '${taskId}' has unsatisfied dependencies: ${(task.depends_on || []).join(', ')}`);
-  }
-
+  guardAgainstUnsafeManual(task, taskId, 'start');
   const packet = buildContextPacket(change, task);
   const branch = packet.branch;
 
-  if (!git.branchExists(ROOT, branch)) {
-    git.createAndCheckoutBranch(ROOT, branch);
-    console.log(`Created branch: ${branch}`);
-  } else {
-    git.checkoutBranch(ROOT, branch);
-    console.log(`Switched to branch: ${branch}`);
+  const dirtyFiles = git.getDirtyFiles(ROOT);
+  if (dirtyFiles.length) {
+    const classification = classifyDirtyWorktree(dirtyFiles, packet.allowed_paths);
+    setTaskSuspension(change, taskId, {
+      kind: classification.class, code: classification.code, previous_action: 'start',
+      created_at: new Date().toISOString(),
+    });
+    throw new RecoveryError(classification.code, { detail: `Dirty file(s): ${classification.files.join(', ')}` });
   }
 
-  if (transition.idempotent) {
-    console.log(`Task '${taskId}' is already in-implementation.`);
-  } else {
+  const transition = validateTransition('start', task.status);
+  if (!transition.ok) throw new CliError(transition.reason);
+
+  const depsOk = transition.idempotent || depsSatisfied(task, change);
+  const localExists = git.branchExists(ROOT, branch);
+  const remoteOnly = !localExists && git.hasUpstream(ROOT, branch);
+  const onExpectedBranch = git.getCurrentBranch(ROOT) === branch;
+
+  const inspection = inspectStartPostconditions({
+    taskStatus: task.status, depsOk, onExpectedBranch, localBranchExists: localExists, remoteBranchExists: remoteOnly,
+    unsatisfiedDeps: (task.depends_on || []).filter(depId => {
+      const dep = change.tasks.find(t => t.id === depId);
+      return !dep || !DEPENDENCY_SATISFYING_STATUSES.has(dep.status);
+    }),
+  });
+
+  if (inspection.result === 'not_retryable') {
+    // requirement 4: when the original action's own preconditions no longer
+    // hold, resuming a prior suspension creates a *new* one describing the new
+    // situation rather than blindly retrying the stale previous_action.
+    if (task.execution?.suspension) {
+      setTaskSuspension(change, taskId, {
+        kind: 'owner-decision', code: task.execution.suspension.code, previous_action: 'start',
+        created_at: new Date().toISOString(),
+      });
+    }
+    throw new CliError(`Task '${taskId}' cannot be started: ${inspection.reason}`);
+  }
+  if (inspection.result === 'completed') {
+    console.log(`Task '${taskId}' is already in-implementation on branch '${branch}'.`);
+    return;
+  }
+
+  if (!onExpectedBranch) {
+    if (localExists) {
+      git.checkoutBranch(ROOT, branch);
+      console.log(`Switched to branch: ${branch}`);
+    } else if (remoteOnly) {
+      // REC-02, automatic class — fixes itself same-turn, no suspension.
+      git.checkoutTrackingBranch(ROOT, branch);
+      console.log(`Checked out existing remote branch: ${branch} (REC-02)`);
+    } else {
+      git.createAndCheckoutBranch(ROOT, branch);
+      console.log(`Created branch: ${branch}`);
+    }
+  }
+
+  if (task.status !== 'in-implementation') {
     setTaskStatus(change, taskId, 'in-implementation');
     console.log(`Task '${taskId}' set to in-implementation.`);
   }
+
+  clearTaskSuspension(change, taskId);
   console.log('\nContext packet:');
   console.log(JSON.stringify(packet, null, 2));
 }
@@ -315,6 +414,18 @@ export function handleStatus(changeSlug) {
   const branch = git.getCurrentBranch(ROOT);
   const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
   const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, ghAvailable: true, verification: [] };
+
+  // Self-check freshness (D28) needs the in-implementation task's *current*
+  // fingerprint/revision to compare against what self_check recorded —
+  // computed here (I/O), consumed by deriveStage as a pure comparison.
+  const inProgress = change.tasks.find(t => t.status === 'in-implementation');
+  if (inProgress) {
+    facts.currentTaskState = {
+      fingerprint: computeTaskFingerprint(change, inProgress.id),
+      revision: git.getCurrentRevision(ROOT),
+    };
+  }
+
   const result = deriveStage(change, facts);
   console.log(JSON.stringify({ change: changeSlug, branch, location, ...result }, null, 2));
 }
@@ -447,6 +558,10 @@ async function runCli() {
       return;
     }
     console.error(error instanceof Error ? error.message : String(error));
+    if (error instanceof RecoveryError) {
+      // Machine-readable, not just a human sentence — the whole point of this task.
+      console.error(JSON.stringify({ code: error.code, recovery: error.recovery }));
+    }
     process.exitCode = 1;
   }
 }

@@ -32,8 +32,28 @@ export function createAndCheckoutBranch(root, name) {
   run(root, ['checkout', '-b', name]);
 }
 
+// REC-02 fix: the branch exists on origin but not locally — fetch it and create a
+// local branch tracking it, rather than `createAndCheckoutBranch` creating a
+// second, diverging local branch of the same name.
+export function checkoutTrackingBranch(root, name) {
+  run(root, ['fetch', 'origin', name]);
+  run(root, ['checkout', '-b', name, '--track', `origin/${name}`]);
+}
+
+// Parses `git status --porcelain` output into changed file paths (renames kept as
+// "old -> new" for readability, not split into two entries).
+export function getDirtyFiles(root) {
+  const status = getWorkingTreeStatus(root);
+  if (!status) return [];
+  return status.split('\n').filter(Boolean).map(line => line.slice(3).trim());
+}
+
 export function getCurrentBranch(root) {
   return run(root, ['branch', '--show-current']);
+}
+
+export function getCurrentRevision(root) {
+  return run(root, ['rev-parse', 'HEAD']);
 }
 
 export function hasUpstream(root, branch) {

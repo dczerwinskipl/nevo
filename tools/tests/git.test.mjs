@@ -10,6 +10,7 @@ import { join, dirname } from 'node:path';
 import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
   getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
+  checkoutTrackingBranch, getDirtyFiles, getCurrentRevision,
 } from '../lib/git.mjs';
 
 let repo, remote;
@@ -118,6 +119,33 @@ describe('lib/git.mjs against a disposable temp repo', () => {
 
     assert.equal(touchesPaths(repo, 'main', 'feature/paths-test', ['src']), true);
     assert.equal(touchesPaths(repo, 'main', 'feature/paths-test', ['tests']), false);
+
+    checkoutBranch(repo, 'main');
+  });
+
+  test('getCurrentRevision matches git rev-parse HEAD', () => {
+    assert.equal(getCurrentRevision(repo), git(['rev-parse', 'HEAD']).trim());
+  });
+
+  test('getDirtyFiles is empty on a clean tree, lists changes on a dirty one', () => {
+    assert.deepEqual(getDirtyFiles(repo), []);
+    writeFileSync(join(repo, 'untracked.txt'), 'new\n');
+    assert.deepEqual(getDirtyFiles(repo), ['untracked.txt']);
+    execFileSync('git', ['-C', repo, 'clean', '-fd', 'untracked.txt'], { encoding: 'utf8' });
+  });
+
+  test('checkoutTrackingBranch (REC-02) fetches and checks out a branch that exists on origin but not locally', () => {
+    createAndCheckoutBranch(repo, 'feature/remote-only');
+    push(repo, 'feature/remote-only');
+    checkoutBranch(repo, 'main');
+    git(['branch', '-D', 'feature/remote-only']);
+    assert.equal(branchExists(repo, 'feature/remote-only'), false);
+
+    checkoutTrackingBranch(repo, 'feature/remote-only');
+
+    assert.equal(getCurrentBranch(repo), 'feature/remote-only');
+    assert.equal(branchExists(repo, 'feature/remote-only'), true);
+    assert.equal(hasUpstream(repo, 'feature/remote-only'), true);
 
     checkoutBranch(repo, 'main');
   });

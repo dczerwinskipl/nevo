@@ -113,6 +113,7 @@ export function validateApproval(taskStatus, review, currentFingerprint) {
   if (!review.spec_fingerprint) {
     return {
       ok: false,
+      code: 'missing-fingerprint',
       reason: `Review is missing 'spec_fingerprint' front matter — it predates this check. ` +
         `Re-run the review before approving.`,
     };
@@ -120,12 +121,133 @@ export function validateApproval(taskStatus, review, currentFingerprint) {
   if (review.spec_fingerprint !== currentFingerprint) {
     return {
       ok: false,
+      // Recovery classification (REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE) —
+      // handleApprove checks this code, not the message text, to decide whether
+      // to raise a classified RecoveryError.
+      code: 'stale-fingerprint',
       reason: `Review is stale: its spec_fingerprint (${review.spec_fingerprint}) does not match ` +
         `the current specification state (${currentFingerprint}). Re-run the review before approving.`,
     };
   }
 
   return { ok: true, idempotent: false };
+}
+
+// ── Postcondition-based recovery (D8, D17, area recovery-and-resume) ───────
+//
+// Five result-class values cover every postcondition-inspection outcome for a
+// state-changing controller action. "Idempotent" keeps its narrower,
+// pre-existing validateTransition meaning ("already at the target status") —
+// it is one specific case of `completed`, not a synonym for this vocabulary.
+export const POSTCONDITION_RESULTS = new Set([
+  'completed', 'safe_to_retry', 'partially_completed', 'not_retryable', 'unsafe_manual',
+]);
+
+/**
+ * Postcondition inspection for `start` — the reference contract worked out in
+ * `overview.md` § "Recovery model". Pure: takes already-observed state
+ * (`tools/specs.mjs`'s handleStart does the actual git/filesystem reads), and
+ * is safely re-invokable after a partial repair — calling it again with fresh
+ * state *is* the "resumable recovery handle" requirement 4a describes, since it
+ * re-derives from real state rather than a stored diff.
+ *
+ * `depsOk` should already account for `validateTransition`'s own idempotent
+ * case (pass `true` when the transition is idempotent, since deps no longer
+ * matter once a task is already in-implementation).
+ */
+export function inspectStartPostconditions({ taskStatus, depsOk, onExpectedBranch, localBranchExists, remoteBranchExists, unsatisfiedDeps }) {
+  if (taskStatus !== 'approved' && taskStatus !== 'in-implementation') {
+    return { result: 'not_retryable', missing: [], reason: `Task has status '${taskStatus}', expected 'approved'.` };
+  }
+  if (taskStatus === 'approved' && !depsOk) {
+    const detail = unsatisfiedDeps?.length ? `: ${unsatisfiedDeps.join(', ')}` : '.';
+    return { result: 'not_retryable', missing: [], reason: `Dependencies are no longer satisfied${detail}` };
+  }
+
+  const branchDone = onExpectedBranch;
+  const statusDone = taskStatus === 'in-implementation';
+
+  if (branchDone && statusDone) return { result: 'completed', missing: [] };
+  if (branchDone && !statusDone) return { result: 'partially_completed', missing: ['status'] };
+  if (!branchDone && statusDone) {
+    // status already says in-implementation, but the branch effect that should
+    // have produced it is gone — the original action's own precondition (a
+    // branch existing) no longer holds, so this is a fresh situation, not a
+    // safe replay of the old one.
+    return {
+      result: 'not_retryable', missing: [],
+      reason: 'Task is in-implementation but its expected branch no longer exists locally or remotely.',
+    };
+  }
+  // Neither effect has happened yet — safe to run the whole action from scratch.
+  return {
+    result: 'safe_to_retry',
+    missing: remoteBranchExists ? ['branch (checkout from origin — REC-02)', 'status'] : ['branch', 'status'],
+    remoteOnly: Boolean(remoteBranchExists),
+  };
+}
+
+/**
+ * Postcondition classification for the three single-effect transitions
+ * (`approve`/`complete`/`verify`) — each is one atomic YAML write, so there is
+ * no genuine partial-completion window the way there is for `start`.
+ */
+export function classifySimpleActionPostcondition(transitionResult) {
+  if (!transitionResult.ok) {
+    return { result: 'not_retryable', reason: transitionResult.reason };
+  }
+  return { result: transitionResult.idempotent ? 'completed' : 'safe_to_retry' };
+}
+
+/**
+ * `approve`'s own postcondition contract — the second action worked out by the
+ * `start-task` pattern (implementation constraints), since task 04 needs it
+ * for the combined approve+start path (D3). Takes `validateApproval`'s own
+ * result directly rather than re-deriving the same gate logic: `approve` is a
+ * single atomic write, so `not_retryable` covers every rejection reason
+ * (wrong status, no/stale/unresolved review) uniformly — none of them leaves
+ * a retryable partial effect behind.
+ */
+export function inspectApprovePostconditions(approvalResult) {
+  if (!approvalResult.ok) {
+    return { result: 'not_retryable', missing: [], reason: approvalResult.reason, code: approvalResult.code };
+  }
+  return {
+    result: approvalResult.idempotent ? 'completed' : 'safe_to_retry',
+    missing: approvalResult.idempotent ? [] : ['status'],
+  };
+}
+
+// Minimal glob support for `allowed_paths` entries as they actually appear in
+// this repository: an exact file path, a `dir/**` recursive prefix, or a
+// `dir/*` one-level prefix. Not a general glob engine.
+function pathMatchesAllowedPattern(filePath, pattern) {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (pattern.endsWith('/**')) {
+    const prefix = pattern.slice(0, -3);
+    return normalized === prefix || normalized.startsWith(`${prefix}/`);
+  }
+  if (pattern.endsWith('/*')) {
+    const prefix = pattern.slice(0, -2);
+    return normalized.startsWith(`${prefix}/`) && !normalized.slice(prefix.length + 1).includes('/');
+  }
+  return normalized === pattern;
+}
+
+/**
+ * Classify a dirty working tree against a task's own `allowed_paths` —
+ * REC-05 (every dirty file is task-related — confirm-required) vs. REC-06 (at
+ * least one dirty file is unrelated — owner-decision, never auto-touched).
+ * Returns `null` for a clean tree.
+ */
+export function classifyDirtyWorktree(dirtyFiles, allowedPaths) {
+  if (!dirtyFiles.length) return null;
+  const patterns = allowedPaths || [];
+  const unrelated = dirtyFiles.filter(f => !patterns.some(p => pathMatchesAllowedPattern(f, p)));
+  if (unrelated.length) {
+    return { code: 'REC-06', class: 'owner-decision', files: unrelated };
+  }
+  return { code: 'REC-05', class: 'confirm-required', files: dirtyFiles };
 }
 
 /**
@@ -211,6 +333,44 @@ export function validateFinalize(change, facts) {
 }
 
 /**
+ * Suspension-aware override for one task's stage result (D8, requirement 7): a
+ * task with an active `execution.suspension` needs to surface the stop reason
+ * and, for `confirm-required`, that a confirmation is still owed — not the
+ * stage's usual `nextCommand`, which would silently be wrong until the
+ * suspension resolves. Returns `stageResult` unchanged when there is none.
+ */
+function withSuspension(task, stageResult) {
+  const suspension = task.execution?.suspension;
+  if (!suspension) return stageResult;
+  const needsOwner = suspension.kind === 'owner-decision' || suspension.kind === 'unsafe-manual';
+  return {
+    ...stageResult,
+    detail: `${stageResult.detail} Suspended: ${suspension.code} (${suspension.kind}), ` +
+      `retry target '${suspension.previous_action}'.`,
+    nextCommand: needsOwner
+      ? `Owner must resolve ${suspension.code} before continuing.`
+      : `Confirm/resolve ${suspension.code}, then retry ${suspension.previous_action}.`,
+    suspension,
+  };
+}
+
+/**
+ * Read-only `self_check` state classifier (D28, requirement 8) — never writes
+ * `self_check` itself (area `batch-execution-and-gating-review` is the sole
+ * writer). `current` is `{ fingerprint, revision }` for the task right now, if
+ * the caller was able to compute it; omitted (or non-matching) reads as
+ * "cannot confirm freshness," which conservatively reports `passed-but-stale`
+ * rather than falsely claiming `passed-and-fresh`.
+ */
+function describeSelfCheck(task, current) {
+  const selfCheck = task.self_check;
+  if (!selfCheck) return { state: 'not-run' };
+  if (selfCheck.status === 'failed') return { state: 'failed', failedCriteria: selfCheck.failed_criteria || [] };
+  const fresh = Boolean(current) && selfCheck.fingerprint === current.fingerprint && selfCheck.revision === current.revision;
+  return { state: fresh ? 'passed-and-fresh' : 'passed-but-stale' };
+}
+
+/**
  * Pure lifecycle-stage classifier: given a change's tasks and the same `facts` bag
  * `validateFinalize` takes, name exactly where this change currently sits in the full
  * spec → task → PR → merge chain, and the single next action — never more than one, and
@@ -219,10 +379,11 @@ export function validateFinalize(change, facts) {
  * what's already true. Evaluated top to bottom, first match wins, same convention as
  * validateApproval/validateFinalize.
  *
- * Returns `{ stage, detail, nextCommand }`. `stage` is one of: `needs-approval` |
- * `ready-to-start` | `in-progress` | `cannot-verify-pr` | `needs-pr` | `pr-draft` |
- * `needs-comment-resolution` | `needs-verification-fixes` | `ready-to-finalize` |
- * `done`.
+ * Returns `{ stage, detail, nextCommand }`, plus `suspension` when the relevant task has
+ * one (D8) and `selfCheck` for the in-implementation stage (D28). `stage` is one of:
+ * `needs-approval` | `ready-to-start` | `in-progress` | `cannot-verify-pr` | `needs-pr` |
+ * `pr-draft` | `needs-comment-resolution` | `needs-verification-fixes` |
+ * `ready-to-finalize` | `done`.
  */
 export function deriveStage(change, facts) {
   const draft = change.tasks.find(t => t.status === 'draft');
@@ -236,20 +397,21 @@ export function deriveStage(change, facts) {
 
   const approved = change.tasks.find(t => t.status === 'approved');
   if (approved) {
-    return {
+    return withSuspension(approved, {
       stage: 'ready-to-start',
       detail: `Task '${approved.id}' is approved but not started.`,
       nextCommand: `/nevo-ai:task-start ${change._slug || change.id} ${approved.id}`,
-    };
+    });
   }
 
   const inProgress = change.tasks.find(t => t.status === 'in-implementation');
   if (inProgress) {
-    return {
+    const base = withSuspension(inProgress, {
       stage: 'in-progress',
       detail: `Task '${inProgress.id}' is in-implementation.`,
       nextCommand: `Implement, then /nevo-ai:task-review ${change._slug || change.id} ${inProgress.id}`,
-    };
+    });
+    return { ...base, selfCheck: describeSelfCheck(inProgress, facts.currentTaskState) };
   }
 
   // Every task is now in a terminal status (implemented/verified/archived/abandoned) —

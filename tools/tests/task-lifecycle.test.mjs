@@ -134,12 +134,16 @@ describe('validateApproval — the full approve gate', () => {
     const r = validateApproval('draft', review, 'abc123');
     assert.equal(r.ok, false);
     assert.match(r.reason, /spec_fingerprint/);
+    assert.equal(r.code, 'missing-fingerprint');
   });
 
   test('rejects approval when the review fingerprint is stale (spec changed since review)', () => {
     const r = validateApproval('draft', readyReview(), 'a-different-hash');
     assert.equal(r.ok, false);
     assert.match(r.reason, /stale/);
+    // handleApprove keys off this code (not the message text) to raise a
+    // classified REC-07 RecoveryError — see tools/lib/cli-errors.mjs.
+    assert.equal(r.code, 'stale-fingerprint');
   });
 
   test('approves successfully with a current, ready, fully-resolved review', () => {
