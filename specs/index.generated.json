@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T20:47:59.932Z",
+  "generated": "2026-08-04T20:55:06.519Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -63,7 +63,7 @@
           "id": "mechanical-task-type",
           "order": 7,
           "file": "tasks/07-mechanical-task-type.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "scope-and-follow-up-mechanisms",
             "state-and-fingerprint-semantics"

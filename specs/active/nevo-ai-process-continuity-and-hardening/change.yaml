@@ -47,7 +47,7 @@ tasks:
   - id: mechanical-task-type
     order: 7
     file: tasks/07-mechanical-task-type.md
-    status: approved
+    status: in-implementation
     depends_on:
       - scope-and-follow-up-mechanisms
       - state-and-fingerprint-semantics
