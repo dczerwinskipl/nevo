@@ -3,9 +3,12 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveWithinBase, readUtf8 } from '../lib/fs.mjs';
-import { parseFrontMatterFile } from '../lib/yaml.mjs';
+import { parseFrontMatterFile, parseYamlFile } from '../lib/yaml.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
-import { listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints } from './service.mjs';
+import {
+  listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints,
+  pathGlobsOverlap, FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES,
+} from './service.mjs';
 import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle.mjs';
 
 const SUSPENSION_KINDS = new Set(['automatic', 'confirm-required', 'owner-decision', 'unsafe-manual']);
@@ -82,6 +85,120 @@ export function validateSemanticReferences(task, fm, decisionsMap, constraintsMa
   }
 }
 
+/**
+ * D13: `context_exceptions: [{omitted, decision, reason}]` — every entry's
+ * `decision` must resolve to a real entry in the change's own
+ * `owner-decisions.md`; an unresolvable reference is a `validate` error
+ * naming the offending path (AC1).
+ */
+export function validateContextExceptions(fm, decisionsMap, errors, label) {
+  for (const entry of fm.context_exceptions || []) {
+    if (!entry.decision || !decisionsMap.has(entry.decision)) {
+      errors.push(`${label}: context_exceptions entry for '${entry.omitted}' has an unresolvable decision '${entry.decision}'`);
+    }
+  }
+}
+
+/**
+ * `consequential_paths` must never overlap `forbidden_paths` — a
+ * `consequential_paths` write is not flagged as a scope violation by
+ * `task-review`, so an overlap would silently let a task touch what its own
+ * `forbidden_paths` say it can't (AC3).
+ */
+export function validateConsequentialPaths(fm, errors, label) {
+  const consequential = fm.consequential_paths || [];
+  const forbidden = fm.forbidden_paths || [];
+  for (const c of consequential) {
+    for (const f of forbidden) {
+      if (pathGlobsOverlap(c, f)) {
+        errors.push(`${label}: consequential_paths '${c}' overlaps forbidden_paths '${f}'`);
+      }
+    }
+  }
+}
+
+/**
+ * Whether a follow-up's `resolver_task` resolves to a real task id — either
+ * in this change (`task-id`) or an explicitly named other change
+ * (`change-id/task-id`, D15 "an explicitly named change"). `null` is always
+ * valid (the field is nullable).
+ */
+function resolverTaskResolves(ref, change, allChanges) {
+  if (!ref) return true;
+  if (ref.includes('/')) {
+    const [changeId, taskId] = ref.split('/');
+    const target = allChanges.find(c => c.id === changeId);
+    return Boolean(target && target.tasks.some(t => t.id === taskId));
+  }
+  return change.tasks.some(t => t.id === ref);
+}
+
+/**
+ * Dismissing a `blocking` entry requires a recorded owner decision, referenced
+ * from `resolution` by its `D<n>` id (the same convention `semantic_references`
+ * uses to point at `owner-decisions.md`) — a `non-blocking` entry needs no such
+ * reference to be dismissed.
+ */
+function dismissalHasRecordedDecision(entry, decisionsMap) {
+  const ref = String(entry.resolution || '').match(/\bD\d+\b/)?.[0];
+  return Boolean(ref && decisionsMap.has(ref));
+}
+
+/**
+ * D15/D22: validate one change's mutable `follow-ups.yaml` ledger — malformed
+ * content (invalid YAML, missing required field, an unrecognized `status`/
+ * `severity`) fails with a specific reason (AC9); a stale `resolver_task` is
+ * detected (AC6); dismissing a `blocking` entry without a recorded owner
+ * decision is rejected (AC5). Does not require the file to exist at all — an
+ * absent ledger is not an error, just an empty one.
+ */
+export function validateFollowUps(change, decisionsMap, allChanges, errors) {
+  const file = join(change._dir, 'follow-ups.yaml');
+  if (!existsSync(file)) return;
+
+  let parsed;
+  try {
+    parsed = parseYamlFile(file);
+  } catch (err) {
+    errors.push(err instanceof CliError ? err.message : `${file}: ${err.message}`);
+    return;
+  }
+
+  const list = parsed?.follow_ups;
+  if (list === undefined) return;
+  if (!Array.isArray(list)) {
+    errors.push(`${file}: 'follow_ups' must be a list`);
+    return;
+  }
+
+  const ids = new Set();
+  for (const entry of list) {
+    const label = `${file}: entry '${entry?.id ?? '?'}'`;
+    if (!entry?.id) { errors.push(`${file}: entry missing 'id'`); continue; }
+    if (ids.has(entry.id)) { errors.push(`${label}: duplicate id`); continue; }
+    ids.add(entry.id);
+
+    if (!entry.source_task) errors.push(`${label}: missing 'source_task'`);
+    if (!entry.kind) errors.push(`${label}: missing 'kind'`);
+    if (!entry.reason) errors.push(`${label}: missing 'reason'`);
+    if (!FOLLOW_UP_SEVERITIES.has(entry.severity)) {
+      errors.push(`${label}: severity must be one of ${[...FOLLOW_UP_SEVERITIES].join('/')}, got '${entry.severity}'`);
+    }
+    if (!FOLLOW_UP_STATUSES.has(entry.status)) {
+      errors.push(`${label}: status must be one of ${[...FOLLOW_UP_STATUSES].join('/')}, got '${entry.status}'`);
+    }
+    if ((entry.status === 'resolved' || entry.status === 'dismissed') && !entry.resolution) {
+      errors.push(`${label}: status '${entry.status}' requires a 'resolution'`);
+    }
+    if (!resolverTaskResolves(entry.resolver_task, change, allChanges)) {
+      errors.push(`${label}: resolver_task '${entry.resolver_task}' does not resolve to a real task id`);
+    }
+    if (entry.status === 'dismissed' && entry.severity === 'blocking' && !dismissalHasRecordedDecision(entry, decisionsMap)) {
+      errors.push(`${label}: dismissing a blocking entry requires 'resolution' to reference a recorded owner decision (e.g. 'D12: ...')`);
+    }
+  }
+}
+
 export function validateSpecs() {
   const errors = [];
   const changes = [...listChanges(ACTIVE_DIR), ...listChanges(ARCHIVE_DIR)];
@@ -131,6 +248,8 @@ export function validateSpecs() {
           } else {
             const fm = parseFrontMatterFile(taskFile);
             validateSemanticReferences(task, fm, decisionsMap, constraintsMap, errors, label);
+            validateContextExceptions(fm, decisionsMap, errors, label);
+            validateConsequentialPaths(fm, errors, label);
           }
         } catch (err) {
           const reason = err instanceof CliError ? err.message : String(err);
@@ -138,6 +257,8 @@ export function validateSpecs() {
         }
       }
     }
+
+    validateFollowUps(change, decisionsMap, changes, errors);
 
     // Cycle detection: DFS with path tracking (handles diamond deps correctly)
     const safelyExplored = new Set();

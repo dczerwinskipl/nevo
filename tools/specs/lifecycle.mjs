@@ -372,6 +372,7 @@ export function resolveAfterConfirmedRepair(freshInspection) {
  *     branch: { hasUpstream: boolean, ahead: number|null, behind: number|null },
  *     pr: { number, state, isDraft, unresolvedThreads } | null,
  *     verification: [{ name: string, passed: boolean, detail?: string }],
+ *     openBlockingFollowUps: [{ id: string, reason: string }],
  *   }
  *
  * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
@@ -385,6 +386,17 @@ export function validateFinalize(change, facts) {
       ok: false,
       reason: `Task(s) not in a terminal status: ${notTerminal.map(t => t.id).join(', ')}. ` +
         `Every task must be implemented/verified before finalizing.`,
+    };
+  }
+
+  // Follow-up ledger gate (D15, area context-and-validation-hardening,
+  // task 06) — a still-open, blocking-severity entry blocks finalize exactly
+  // like a non-terminal task, evaluated alongside it.
+  if (facts.openBlockingFollowUps?.length) {
+    return {
+      ok: false,
+      reason: `Open blocking follow-up(s): ${facts.openBlockingFollowUps.map(f => f.id).join(', ')}. ` +
+        `Resolve, or dismiss with a recorded owner decision, before finalizing.`,
     };
   }
 

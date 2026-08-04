@@ -26,9 +26,14 @@ own transitions.
    This is read-only — no merge, no archive, no writes. It reports: whether every task
    is terminal, working-tree/push state, the PR's state/draft flag/unresolved
    review-thread count (via `gh`, including bot reviewers like GitHub Copilot — nothing
-   here distinguishes a bot's unresolved comment from a human's), and every verification
+   here distinguishes a bot's unresolved comment from a human's), every verification
    check (`specs.mjs`/`docs.mjs` validate+check, and `dotnet build`/`dotnet test` when the
-   branch actually touches `src/**`/`tests/**` — skipped, and said so, otherwise).
+   branch actually touches `src/**`/`tests/**` — skipped, and said so, otherwise), and
+   whether `follow-ups.yaml` has any still-`open`, `blocking`-severity entry (D15, area
+   context-and-validation-hardening) — the gate blocks on one exactly like a non-terminal
+   task; resolve it or dismiss it (dismissing a blocking entry requires a recorded owner
+   decision — `node tools/specs.mjs follow-up-resolve <change-id> <id> --dismiss
+   --resolution "..."` fails closed without one) before finalizing.
 
 2. Show the owner a structured summary of the result — gate outcome first, then the
    facts that produced it (git state, PR state, unresolved-thread count, each

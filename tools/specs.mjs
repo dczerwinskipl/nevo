@@ -3,12 +3,13 @@
 // Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status|comments|resolve-comment>
 
 import { Command } from 'commander';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { CliError, RecoveryError } from './lib/cli-errors.mjs';
-import { ensureDir, moveDir } from './lib/fs.mjs';
+import { ensureDir, moveDir, readUtf8 } from './lib/fs.mjs';
 import { updateYamlFile } from './lib/yaml.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
@@ -16,6 +17,8 @@ import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
   computeSpecFingerprint, computeTaskFingerprint, loadReview,
   buildSpecsIndexes, writeSpecsIndexes, checkSpecsIndexes,
+  parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
+  FOLLOW_UP_SEVERITIES,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs } from './specs/validation.mjs';
@@ -290,6 +293,54 @@ export function handleVerify(changeSlug, taskId) {
   console.log(`Task '${taskId}' marked as verified.`);
 }
 
+// Records a new follow-up entry (task-review/spec-audit's "record as follow-up"
+// action for a NON_BLOCKING finding) — always a fresh id, never mutates an
+// existing entry (that's handleFollowUpResolve's job).
+export function handleFollowUpAdd(changeSlug, id, options = {}) {
+  const change = requireChange(changeSlug);
+  if (!options.sourceTask || !options.kind || !options.severity || !options.reason) {
+    throw new CliError('follow-up-add requires --source-task, --kind, --severity, and --reason.');
+  }
+  if (!FOLLOW_UP_SEVERITIES.has(options.severity)) {
+    throw new CliError(`--severity must be one of ${[...FOLLOW_UP_SEVERITIES].join('/')}, got '${options.severity}'.`);
+  }
+  const existing = loadFollowUps(change).follow_ups || [];
+  if (existing.some(f => f.id === id)) throw new CliError(`Follow-up '${id}' already exists in change '${changeSlug}'.`);
+
+  addFollowUp(change, {
+    id, source_task: options.sourceTask, kind: options.kind, severity: options.severity,
+    reason: options.reason, resolver_task: options.resolverTask || null, status: 'open', resolution: null,
+  });
+  console.log(`Follow-up '${id}' recorded (status: open).`);
+}
+
+// Mutates an existing follow-up entry's status/resolution in place (D15 — the
+// ledger is mutable current-state, never append-only) — resolve by default,
+// --dismiss for a dismissal. Dismissing a blocking entry fails closed without
+// a --resolution that references a recorded owner decision (D-id).
+export function handleFollowUpResolve(changeSlug, id, options = {}) {
+  const change = requireChange(changeSlug);
+  const entry = (loadFollowUps(change).follow_ups || []).find(f => f.id === id);
+  if (!entry) throw new CliError(`Follow-up '${id}' not found in change '${changeSlug}'.`);
+  if (!options.resolution) throw new CliError('follow-up-resolve requires --resolution.');
+
+  const status = options.dismiss ? 'dismissed' : 'resolved';
+  if (status === 'dismissed' && entry.severity === 'blocking') {
+    const decisionsMap = parseOwnerDecisions(
+      existsSync(join(change._dir, 'owner-decisions.md')) ? readUtf8(join(change._dir, 'owner-decisions.md')) : ''
+    );
+    const ref = String(options.resolution).match(/\bD\d+\b/)?.[0];
+    if (!ref || !decisionsMap.has(ref)) {
+      throw new CliError(
+        `Dismissing blocking follow-up '${id}' requires --resolution to reference a recorded owner decision (e.g. 'D12: ...').`
+      );
+    }
+  }
+
+  resolveFollowUp(change, id, { status, resolution: options.resolution });
+  console.log(`Follow-up '${id}' marked as ${status}.`);
+}
+
 export function handleArchive(changeSlug) {
   const change = requireChange(changeSlug);
   const allDone = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
@@ -315,7 +366,7 @@ function runDotnetCheck(name, args) {
 // handleFinalize so `--check` (read-only) and the real run share exactly one code path
 // for "what does the current state look like" — the only difference between them is
 // whether the result is acted on.
-function gatherFinalizeFacts(branch) {
+function gatherFinalizeFacts(branch, change) {
   const verification = [];
 
   const specErrors = validateSpecs();
@@ -349,6 +400,11 @@ function gatherFinalizeFacts(branch) {
     }
   }
 
+  const followUps = loadFollowUps(change);
+  const openBlockingFollowUps = (followUps.follow_ups || [])
+    .filter(f => f.status === 'open' && f.severity === 'blocking')
+    .map(f => ({ id: f.id, reason: f.reason }));
+
   return {
     gitClean: git.isWorkingTreeClean(ROOT),
     branch: git.getAheadBehind(ROOT, branch),
@@ -357,6 +413,7 @@ function gatherFinalizeFacts(branch) {
     // ghAvailable is false this is "unknown," never treat it as "confirmed absent."
     pr: pr ? { number: pr.number, state: pr.state, isDraft: pr.isDraft, unresolvedThreads: pr.unresolvedThreads } : null,
     verification,
+    openBlockingFollowUps,
   };
 }
 
@@ -373,7 +430,7 @@ function gatherFinalizeFacts(branch) {
 export function handleFinalize(changeSlug, options = {}) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
-  const facts = gatherFinalizeFacts(branch);
+  const facts = gatherFinalizeFacts(branch, change);
   const result = validateFinalize(change, facts);
 
   if (options.check) {
@@ -413,7 +470,7 @@ export function handleStatus(changeSlug) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
   const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
-  const facts = allTerminal ? gatherFinalizeFacts(branch) : { pr: null, ghAvailable: true, verification: [] };
+  const facts = allTerminal ? gatherFinalizeFacts(branch, change) : { pr: null, ghAvailable: true, verification: [] };
 
   // Self-check freshness (D28) needs the in-implementation task's *current*
   // fingerprint/revision to compare against what self_check recorded —
@@ -544,6 +601,25 @@ export function buildProgram() {
     .argument('<thread-id>')
     .option('--reply <text>', 'Reply on the thread before resolving it')
     .action((changeSlug, threadId, opts) => handleResolveComment(changeSlug, threadId, opts));
+
+  program.command('follow-up-add')
+    .description('Record a new follow-ups.yaml entry (status: open)')
+    .argument('<change>')
+    .argument('<id>')
+    .requiredOption('--source-task <task-id>')
+    .requiredOption('--kind <kind>')
+    .requiredOption('--severity <blocking|non-blocking>')
+    .requiredOption('--reason <text>')
+    .option('--resolver-task <task-id>')
+    .action((changeSlug, id, opts) => handleFollowUpAdd(changeSlug, id, opts));
+
+  program.command('follow-up-resolve')
+    .description('Mutate an existing follow-ups.yaml entry in place (resolve, or --dismiss)')
+    .argument('<change>')
+    .argument('<id>')
+    .requiredOption('--resolution <text>')
+    .option('--dismiss', 'Dismiss instead of resolve (a blocking entry requires --resolution to cite a recorded owner decision)')
+    .action((changeSlug, id, opts) => handleFollowUpResolve(changeSlug, id, opts));
 
   return program;
 }

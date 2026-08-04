@@ -47,6 +47,20 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    computed from this run only), `changes-required` (fixable findings exist), or
    `blocked` (something more fundamental — e.g. scope violation outside
    `allowed_paths`, or verification evidence can't be produced at all).
+7a. **Record as follow-up (D15/D22, area context-and-validation-hardening, task 06).**
+    For each `NON_BLOCKING` finding from step 7, ask (closed choice, one per finding or
+    batched if several) whether to record it in `specs/active/<change-id>/follow-ups.yaml`
+    instead of letting it live only in this run's report:
+    ```
+    1. Record as a follow-up (severity: <blocking|non-blocking> — your call, default
+       non-blocking unless the finding itself says otherwise)
+    2. Leave it in the report only
+    ```
+    On 1 → run `node tools/specs.mjs follow-up-add <change-id> <id> --source-task
+    <task-id> --kind <short-kind> --severity <blocking|non-blocking> --reason
+    <finding summary>`. This does not change how `AUTO_FIX`/`OWNER_DECISION`/
+    `NEEDS_CLARIFICATION` findings are categorized or handled — this action exists only
+    for `NON_BLOCKING` findings, and it never fires without this explicit answer.
 8. Write the full report to `specs/active/<change-id>/reviews/<task-id>.md` using
    `templates/review-report.md`'s shape (create `reviews/` if needed), including each
    finding's predicate, lifecycle, and evidence — overwriting the file read in step 2,
