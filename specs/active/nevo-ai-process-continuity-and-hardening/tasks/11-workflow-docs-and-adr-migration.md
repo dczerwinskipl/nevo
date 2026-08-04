@@ -42,6 +42,11 @@ forbidden_paths:
 > New task, split from the original combined wrap-up task per the refinement's finding
 > 12. Runs only after task 10's cross-mechanism E2E tests are green — this task describes
 > proven behavior, it never introduces or papers over an untested mechanism.
+>
+> Refined again 2026-08-04 (second pass) — the terminology inventory gains four more
+> one-term-per-concept entries the second refinement pass introduced (semantic
+> reference, evidence freshness, batch selection mode, diagnostic anchor), and the ADR
+> now also covers D16-D23.
 
 ## Goal
 
@@ -71,6 +76,20 @@ run first.
     never called "batch status" (that phrase is reserved for a task's own `status`).
   - **retry target** — `execution.suspension.previous_action`.
   - **recommended action** — `deriveStage`'s `nextCommand` output.
+  - **semantic reference** (D18, second refinement pass) — an entry in a task's
+    `semantic_references` block (`decisions`/`constraints`/`dependency_contracts`);
+    never called a "dependency" alone, since `depends_on` can express pure ordering
+    without a semantic reference.
+  - **evidence freshness** (D19) — whether a batched task's recorded evidence (automated
+    or inspection) is still current given later batch changes; never called "evidence
+    validity" or conflated with the task's own acceptance-criteria verdict.
+  - **batch selection mode** (D20) — one of the four named modes
+    (`currently-ready`/`all-approved-reachable`/`named-subset`/`until-checkpoint`);
+    never called "batch scope" (reserved for the broader authorized-scope concept that
+    also includes a single named task).
+  - **diagnostic anchor** (D23) — the preserved merged branch after a post-merge
+    verification failure; never called a "recovery anchor" (D9's original term,
+    corrected by D23 because the branch does not itself repair `main`).
 - For every transition state, document: the CLI operation that validates it, the command
   or controller action that invokes it, whether confirmation is required, and whether it
   can be combined conversationally with the previous transition (per D2/D3's "combined
@@ -86,8 +105,12 @@ run first.
   works — do not describe anything task 10 didn't test.
 - Write the new ADR under `docs/decisions/` (next available number after ADR-0005),
   covering D7 (fingerprint tiers), D8 (execution suspension vs. new statuses), D9
-  (post-merge sequencing), D10 (derived batch state), and D3 (approve+start combined
-  confirmation).
+  (post-merge sequencing), D10 (derived batch state), D3 (approve+start combined
+  confirmation), and — second refinement pass — D16 (status vocabulary removal), D17
+  (repair-and-retry inside combined transitions), D18 (deterministic
+  `semantic_references`), D19 (batch evidence freshness), D20 (four-mode batch
+  selection), D21 (task 08's dependency on task 06), D22 (structured `follow-ups.yaml`),
+  and D23 (diagnostic anchor with a guarded repair-branch step).
 - `AGENTS.md`/`CLAUDE.md` updates stay pointer-level, consistent with their existing
   scope — do not duplicate `docs/ai/specification-workflow.md` content into them.
 - Regenerate `docs/index.generated.*`/`specs/*.generated.*`/`docs/routing.generated.json`
@@ -101,7 +124,8 @@ run first.
 2. Every `.claude/commands/nevo-ai/*.md` file touched by an earlier task in this change
    has its behavior description updated to match, using the one-term-per-concept mapping
    above (inspection, cross-checked against tasks 01-10's actual changes).
-3. A new ADR exists under `docs/decisions/` covering D3, D7, D8, D9, D10 (inspection).
+3. A new ADR exists under `docs/decisions/` covering D3, D7, D8, D9, D10, D16, D17, D18,
+   D19, D20, D21, D22, D23 (inspection).
 4. The terminology inventory and derived-vs-persisted state inventory both appear in
    `docs/ai/specification-workflow.md` (inspection).
 5. `node tools/specs.mjs check` and `node tools/docs.mjs check` report generated indexes

@@ -38,15 +38,24 @@ forbidden_paths:
 > reserves (but does not populate) the `execution.suspension` schema. It no longer
 > touches `TRANSITIONS` at all — the refined recovery model doesn't require new lifecycle
 > statuses.
+>
+> Refined again 2026-08-04 (second pass, see D16, D18) — `blocked`/`needs-decision` are
+> now actively removed from the status vocabulary (task- and change-level), with new
+> `validate`-time enum enforcement that didn't exist before. The task-level fingerprint's
+> dependency/decision/constraint inputs are now the explicit, validated
+> `semantic_references` schema block, not a prose "actually references" rule.
 
 ## Goal
 
 Replace `computeSpecFingerprint` with three canonical semantic-projection functions
 (change-level, task-level, implementation-review — D7) and implement the full
 invalidation matrix from `overview.md`; add the validated `execution.suspension` schema
-(D8, shape only — writers live in task 02); correct `depsSatisfied` so `abandoned` no
-longer satisfies a dependency; resolve `superseded`. This is the foundation every other
-task in this change depends on.
+(D8, shape only — writers live in task 02); add the validated `semantic_references`
+schema and wire it into `computeTaskFingerprint` (D18); correct `depsSatisfied` so
+`abandoned` no longer satisfies a dependency; resolve `superseded`; remove
+`blocked`/`needs-decision` from the status vocabulary entirely and add the enum
+validation that catches them (D16). This is the foundation every other task in this
+change depends on.
 
 ## Dependencies
 
@@ -72,15 +81,37 @@ None — first task in the change.
   recognized identifier (task 02 defines the actual `REC-xx` list; this task only
   validates the shape, not the specific set, since task 02 hasn't landed yet — validate
   `code` as a non-empty string here, tighten to the enum once task 02 exists).
+- **`semantic_references` schema (D18, second refinement pass).** Add an optional,
+  per-task front-matter block: `semantic_references: { decisions: [...], constraints:
+  [...], dependency_contracts: [...] }` (absent, or all three lists empty, is valid).
+  `validateSpecs` rejects: a `dependency_contracts` entry not present in the task's own
+  `depends_on`; a `decisions` entry that doesn't resolve to an entry in the change's
+  `owner-decisions.md`, or that resolves to a decision explicitly marked superseded (by
+  another entry's "Refined by"/"Refines" note using supersession language) on the exact
+  question referenced — name the superseding decision in the error; a `constraints`
+  entry that doesn't resolve to a named constraint in `overview.md` § "Constraints".
+  `computeTaskFingerprint` reads exactly `semantic_references.dependency_contracts`/
+  `decisions`/`constraints` for its dependency/decision/constraint inputs — no separate
+  prose-inference step. Both `execution.suspension` and `semantic_references` are
+  optional, additive fields; no existing task file becomes invalid without edits.
 - `depsSatisfied` excludes `abandoned` from dependency-satisfying statuses.
 - Resolve `superseded`: either wire it into a real, non-dependency-satisfying terminal
   state with a documented convention, or remove it from `service.mjs`'s `STATUS_ORDER`.
-- Do **not** modify `TRANSITIONS` (`lifecycle.mjs:29-34`) and do **not** add
-  `blocked`/`needs-decision` as writable/reachable statuses — D8 reversed this from the
-  original task scope.
-- Update `docs/ai/specification-workflow.md` to describe the three fingerprint tiers and
-  the `execution.suspension` concept (full documentation consolidation still happens in
-  task 11; this task documents the mechanism it directly introduces).
+- **Remove `blocked`/`needs-decision` from the status vocabulary entirely (D16, second
+  refinement pass)** — delete both from `service.mjs`'s task-level `STATUS_ORDER` and
+  from `lifecycle.mjs`'s change-level `ACTIVE_CHANGE_STATUSES`. Add an explicit enum
+  check to `validateSpecs` for both `change.status` and every task's `status` (neither
+  is enum-checked today) against the corrected vocabulary; a value of `blocked` or
+  `needs-decision` at either level fails with the fixed message `` Status `blocked` is
+  no longer supported. Use `execution.suspension`. `` (substitute `needs-decision` for
+  the other value). Do **not** modify `TRANSITIONS` (`lifecycle.mjs:29-34`) — this is a
+  vocabulary/validation change, not a transition change; D8's original position (leave
+  the two statuses unreachable-but-present) is superseded on this specific point by D16,
+  which removes them outright.
+- Update `docs/ai/specification-workflow.md` to describe the three fingerprint tiers,
+  the `execution.suspension` concept, the `semantic_references` schema, and the removed
+  status vocabulary (full documentation consolidation still happens in task 11; this
+  task documents the mechanisms it directly introduces).
 
 ## Acceptance criteria
 
@@ -96,6 +127,15 @@ None — first task in the change.
    a `validate` error (automated).
 6. `docs/ai/specification-workflow.md` accurately describes the tiered fingerprint model
    and the suspension concept (inspection).
+7. Setting a task's or the change's `status` to `blocked` or `needs-decision` fails
+   `validate` with the fixed migration message naming `execution.suspension` (automated:
+   `node --test tools/tests/task-lifecycle.test.mjs`) (D16).
+8. A `semantic_references.dependency_contracts` entry outside the task's own
+   `depends_on`, or an unresolvable `decisions`/`constraints` entry, fails `validate`
+   (automated: `node --test tools/tests/fingerprint.test.mjs`) (D18).
+9. `computeTaskFingerprint` changes when and only when a referenced `semantic_references`
+   entry's target content changes — proven for at least one entry of each of the three
+   lists (automated, same suite) (D18).
 
 ## Verification
 
@@ -108,10 +148,13 @@ node tools/docs.mjs validate
 
 ## Documentation impact
 
-`docs/ai/specification-workflow.md` — fingerprint tiers and suspension-schema sections.
+`docs/ai/specification-workflow.md` — fingerprint tiers, suspension schema,
+`semantic_references` schema, and the corrected status vocabulary.
 
 ## Out of scope
 
 - Writing or clearing `execution.suspension` values (task 02).
 - Populating `context_exceptions` (task 06) — this task only reserves the field.
+- Reviewing/annotating other active changes' existing task files with
+  `semantic_references` — recommended follow-up, not required by this task (D18).
 - Any change to `TRANSITIONS` or the four existing lifecycle commands' behavior.

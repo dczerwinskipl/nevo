@@ -4,6 +4,12 @@
 > validated machine-readable contract; context exceptions require a decision reference;
 > mechanical-task terminology is precise; the follow-up ledger is mutable, not
 > append-only.
+>
+> Refined again 2026-08-04 (second pass) — see D22. The follow-up ledger's storage format
+> changes from `follow-ups.md` (prose Markdown) to `follow-ups.yaml` (schema-validated
+> YAML) — same mutable current-state semantics as D15, only the format changes, since a
+> Markdown table would still need its own versioned micro-format to be reliably
+> machine-parseable.
 
 ## Responsibility
 
@@ -70,9 +76,10 @@ and validation".
 11. `consequential_paths` must not overlap `forbidden_paths` — a `validate` error names
     the overlapping glob.
 
-### Follow-up ledger — mutable, not append-only (task 06, D15)
+### Follow-up ledger — mutable YAML, not append-only Markdown (task 06, D15, D22)
 
-12. `specs/active/<change-id>/follow-ups.md` is a small, mutable, current-state list.
+12. `specs/active/<change-id>/follow-ups.yaml` (D22, second refinement pass — was
+    `follow-ups.md`) is a small, mutable, schema-validated, current-state list.
     **Not append-only** — an entry's `status` field is edited in place
     (`open`→`resolved`/`dismissed`), never superseded by a new entry. Fields: `id`,
     `source_task`, `kind`, `severity`, `reason`, `resolver_task` (nullable), `status`,
@@ -132,8 +139,8 @@ and validation".
 ## Interfaces and boundaries
 
 Exposes: `docs/routing.generated.json`, the context-completeness warning,
-`context_exceptions`, `consequential_paths`, the mutable `follow-ups.md`, per-criterion
-evidence tags, `type: mechanical` and its review-exempt approval path.
+`context_exceptions`, `consequential_paths`, the mutable `follow-ups.yaml` (D22),
+per-criterion evidence tags, `type: mechanical` and its review-exempt approval path.
 
 Consumes: `state-and-fingerprint-semantics` for status/dependency correctness and the
 task-level fingerprint's `context_exceptions` field.
@@ -151,6 +158,8 @@ task-level fingerprint's `context_exceptions` field.
   rejected.
 - A test proves a `type: mechanical` task missing even one condition fails `validate`
   with a specific, named reason and is never silently auto-approved.
+- A test proves malformed `follow-ups.yaml` (invalid YAML, missing required field, an
+  unrecognized `status`/`severity` value) fails `validate` with a specific reason (D22).
 
 ## Dependencies
 

@@ -58,6 +58,7 @@ tasks:
     depends_on:
       - conversational-approval-ergonomics
       - state-and-fingerprint-semantics
+      - scope-and-follow-up-mechanisms
   - id: finalization-hardening-and-migration
     order: 9
     file: tasks/09-finalization-hardening-and-migration.md

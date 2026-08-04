@@ -6,6 +6,14 @@
 > `workflow-docs-and-adr-migration` (task 11), per the refinement's finding that
 > concentrating E2E tests, docs, ADR work, and index regeneration in one task creates a
 > late integration sink.
+>
+> Refined again 2026-08-04 (second pass) — see D23. The preserved merged branch is
+> renamed **diagnostic anchor** (it doesn't itself repair `main`, unlike what "recovery
+> anchor" implied). On post-merge verification failure, the tool now auto-creates the
+> repair branch after one explicit owner confirmation, gated on four preconditions
+> (clean worktree, `main` fast-forwarded, failing SHA re-confirmed, target branch name
+> free both locally and on `origin`) — the repair itself (editing files, running checks,
+> opening the PR) remains manual beyond that point.
 
 ## Responsibility
 
@@ -37,19 +45,39 @@ computed under the current whole-file scheme.
    check passes** — delete the branch and finish cleanup (archive commit already pushed
    earlier in the existing flow, per `docs/development/git-workflow.md`).
 2. On post-merge check failure: report the merged PR's SHA, the failed check and its
-   output, and the exact recovery command — and stop there. Do **not** write a follow-up
-   entry into `follow-ups.md` for the now-merged/archived change (that would mutate an
-   already-finalized artifact with no commit path — exactly the contradiction D9 exists
-   to avoid) and do **not** delete the branch. The branch is the recovery anchor:
-   whoever investigates the failure still has the full change's branch to work from.
+   output, and the **diagnostic branch** name (D23, second refinement pass — renamed
+   from "recovery anchor," since preserving the branch is diagnostically useful but does
+   not itself repair `main`). Do **not** write a follow-up entry into `follow-ups.yaml`
+   for the now-merged/archived change (that would mutate an already-finalized artifact
+   with no commit path — exactly the contradiction D9 exists to avoid) and do **not**
+   delete the branch or perform any other cleanup before the failure report above is
+   complete.
+2a. **Guarded, confirm-then-create repair branch (D23, second refinement pass).** After
+   the failure report (requirement 2), present one explicit confirmation to create the
+   repair branch. On confirmation, check these four preconditions, in order, immediately
+   before creating the branch: (1) the working tree is clean; (2) `main` is checked out
+   and fast-forwarded (`git switch main && git pull --ff-only`); (3) the post-merge-
+   verified failing SHA is re-confirmed as `main`'s current SHA (guards against the
+   repair starting from a `main` that moved for an unrelated reason since the report);
+   (4) the target branch name (`fix/<change>-post-merge`) does not already exist locally
+   or on `origin`. If every precondition holds, create the branch. If any precondition
+   fails, stop without modifying anything and report which precondition failed and why —
+   never fall back to a different branch name and never force past the conflict. The
+   repair itself (editing files, running the targeted checks, opening the repair PR)
+   remains a manual, owner-driven step beyond branch creation — this requirement does not
+   extend automation past creating the starting point for that work.
 3. A successful post-merge check proceeds to branch deletion and reports success exactly
    as `finalize` does today.
 
 ### Migration (task 09)
 
 4. No `change.yaml` structural migration is required for the fingerprint tiers (D7) —
-   computational, not schema, with two small additive fields (`execution.suspension`,
-   `context_exceptions`).
+   computational, not schema, with three small additive, optional fields
+   (`execution.suspension`, `context_exceptions`, and — D18, second refinement pass —
+   `semantic_references`). An existing task file with no `semantic_references` block is
+   fully valid; it simply doesn't benefit from `semantic_references`' granular
+   invalidation until reviewed and annotated — recommend, not require, that follow-up
+   review pass for other active changes once this change ships.
 5. Every existing `reviews/*.md` with the old single `spec_fingerprint` becomes stale the
    first time this change ships. Confirm `validateApproval`'s existing "stale
    fingerprint, re-run the review" error message already surfaces this correctly once
@@ -86,7 +114,11 @@ single wrap-up task)
     `overview.md`'s refinement (lifecycle status vs. execution suspension vs. owner
     decision vs. review status vs. batch state — one term per concept, never two).
 12. Write the recommended ADR capturing D7-D10 (fingerprint tiers, execution suspension,
-    post-merge sequencing, derived batch state) alongside the original D1-D3 decisions.
+    post-merge sequencing, derived batch state) and D16-D23 (second refinement pass:
+    status vocabulary removal, repair-and-retry semantics, deterministic
+    `semantic_references`, evidence freshness, batch selection modes, the task-06
+    dependency, structured `follow-ups.yaml`, the diagnostic-anchor repair model)
+    alongside the original D1-D3 decisions.
 13. Regenerate `docs/index.generated.*`/`specs/*.generated.*`/`docs/routing.generated.json`
     (task 05's artifact) as a direct consequence of this task's own doc edits.
 
@@ -98,6 +130,11 @@ single wrap-up task)
 - Task 11's documentation must not describe a mechanism that isn't actually implemented
   and tested by task 10 — task 10 exists specifically to prove the mechanisms work before
   task 11 describes them.
+- The repair-branch creation (requirement 2a, D23) must check all four preconditions
+  immediately before creating the branch, not at report time — state can change in the
+  gap between the failure report and the owner's confirmation.
+- Repair-branch creation stops on the first failing precondition — it never proceeds
+  partially or attempts a different branch name/location on its own initiative.
 
 ## Interfaces and boundaries
 
@@ -117,6 +154,11 @@ Consumes: the finished, tested behavior of every other area.
   contradiction.
 - Every `.claude/commands/nevo-ai/*.md` file touched by an earlier task has its behavior
   description updated to match, using one consistent term per concept.
+- A test proves the repair branch is created only after confirmation and only when all
+  four preconditions hold (D23).
+- A test proves each of the four precondition failures (dirty worktree, `main` not
+  fast-forwardable, SHA mismatch, branch name collision) stops without creating the
+  branch or modifying anything else, and names which precondition failed (D23).
 
 ## Dependencies
 

@@ -13,6 +13,15 @@ change: nevo-ai-process-continuity-and-hardening
 > original draft (recorded as owner decisions D7-D15 in `owner-decisions.md`). The
 > original problem statement, scope, and direction (D1-D6) are unchanged; this revision
 > corrects internal consistency, not intent.
+>
+> **Second refinement note (2026-08-04):** a follow-up review found eight further
+> corrections — an unsafe unreachable-but-valid status vocabulary, a gap between
+> combined-transition confirmation and repair-and-retry semantics, prose-inferred
+> fingerprint dependency references, missing evidence freshness in the gating batch
+> review, an underspecified batch-selection model, a missing task dependency on the
+> follow-up mechanism, a still-prose follow-up ledger format, and an overstated
+> post-merge "recovery anchor" — recorded as D16-D23. Direction (D1-D15) is unchanged;
+> this pass, like the first, corrects internal consistency and determinism, not intent.
 
 ## Context
 
@@ -54,18 +63,24 @@ refinement pass — the defects below are still exactly as verified.
 Two more task statuses exist in the vocabulary — `blocked`, `needs-decision`
 (`service.mjs:164`, referenced by `tools/tests/task-lifecycle.test.mjs:47-53` as invalid
 `from` states for `approve`/`start`) — but **no command ever writes them**. They are
-reachable today only by hand-editing `change.yaml`. **This change does not make them
-reachable** (see D8 — reversed from the original draft, which proposed reusing them as
-landing statuses for recoverable stops; that would have created a new zombie-state class
-with no defined return path). `superseded` exists only in `service.mjs:163-166`'s
-`STATUS_ORDER`, used solely to sort the generated Markdown index; it is not in
-`TERMINAL_STATUSES`, not in `TRANSITIONS`, and no code ever sets it.
+reachable today only by hand-editing `change.yaml`. **This change removes them from the
+vocabulary entirely (D16)** — the first refinement pass (D8) had only decided not to
+make them *reachable*, leaving them valid-but-dead in `validateSpecs`/`STATUS_ORDER`; a
+second refinement pass flagged that as unsafe in its own right (a value validation
+accepts but no transition can ever leave), so this change now deletes them outright and
+makes setting either one a `validate` error, both at task level and at the
+change-level `ACTIVE_CHANGE_STATUSES` set below. `superseded` exists only in
+`service.mjs:163-166`'s `STATUS_ORDER`, used solely to sort the generated Markdown
+index; it is not in `TERMINAL_STATUSES`, not in `TRANSITIONS`, and no code ever sets it.
 
 ### States (change-level)
 
 `ACTIVE_CHANGE_STATUSES = {approved, in-implementation, needs-decision, draft, blocked}`
 (`lifecycle.mjs:9`). `validateSpecs()` (`validation.mjs:8-64`) checks only that
-`change.status` is *present* — there is no enum/allowlist check on its value.
+`change.status` is *present* — there is no enum/allowlist check on its value. **This
+change removes `needs-decision`/`blocked` from this set too and adds the enum check
+that was never there (D16)** — today `change.status` could already be hand-set to
+either value with no validation error at all; after this change it cannot.
 
 ### Persisted vs. derived state
 
@@ -93,7 +108,11 @@ is necessary but not sufficient — a single change-wide fingerprint still over-
 when the draft gains a mechanical task, a resolver task, a new dependency, a discovered
 follow-up, an unrelated task, or a task-local context correction, reproducing the same
 cost under a different trigger. D7 replaces the single-hash-with-exclusions approach with
-a three-tier canonical semantic projection — see "Proposed architecture" below.
+a three-tier canonical semantic projection — see "Proposed architecture" below. D7's
+task-level tier originally scoped its dependency/decision/constraint inputs to whatever a
+task "actually references," in prose; D18 (second refinement pass) replaces that with an
+explicit `semantic_references` schema block so which dependencies/decisions/constraints
+feed a task's fingerprint is a checkable fact, not something tooling infers.
 
 ### Recovery and errors
 
@@ -157,12 +176,12 @@ anywhere in the current process, and no batch-execution support at all.
 
 | Area | What it resolves | Status |
 |---|---|---|
-| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) | Real, verified; refined |
-| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 | Real, verified; refined |
-| Conversational continuity & approval ergonomics | Original findings #15/#16 | Real; deliberate reversal (D3) |
-| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 | Real, verified, absent entirely; refined |
-| Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 | Real, verified; refined |
-| Finalization & migration | Original finding #23 + refinement findings 8, 12 | Real, verified; refined |
+| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) + second-pass findings 1, 3 | Real, verified; refined twice |
+| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 + second-pass finding 2 | Real, verified; refined twice |
+| Conversational continuity & approval ergonomics | Original findings #15/#16 + second-pass finding 2 | Real; deliberate reversal (D3); refined |
+| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 | Real, verified, absent entirely; refined twice |
+| Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 + second-pass finding 7 | Real, verified; refined twice |
+| Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 | Real, verified; refined twice |
 
 ### Findings rejected or already resolved (unchanged from the original pass)
 
@@ -190,6 +209,19 @@ anywhere in the current process, and no batch-execution support at all.
 | 11 | "Auto-approved" ambiguous for mechanical tasks | "Review-exempt deterministic approval" (D14) |
 | 12 | Final task concentrated E2E tests + docs + ADR + index regen in one late sink | Split into task 10 (tests) → task 11 (docs/ADR/migration) |
 
+### Findings from the second refinement pass — resolution summary
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | `blocked`/`needs-decision` left valid-but-unreachable — a state validation accepts but no transition can leave | Fully removed from the status vocabulary (task- and change-level); `validate` rejects either value (D16) |
+| 2 | Combined approve+start had no defined behavior for a recoverable stop inside `start` — risked requiring a second command invocation | Repair-and-retry: a `confirm-required` stop resumes the same authorized loop after confirmation; five-value postcondition-outcome vocabulary (adds `unsafe_manual`) (D17) |
+| 3 | Task fingerprint's dependency/decision/constraint inputs were prose ("actually references"), not deterministic | Explicit `semantic_references` schema block (`decisions`/`constraints`/`dependency_contracts`) (D18) |
+| 4 | Gating batch review could pass on evidence a later batched task had already invalidated | Evidence-freshness check (staleness by file/command/fingerprint) required immediately before the gating review (D19) |
+| 5 | "All currently ready tasks" cannot express "all approved tasks reachable through the graph" for a linear chain | Four named selection modes: `currently-ready` / `all-approved-reachable` / `named-subset` / `until-checkpoint` (D20) |
+| 6 | Batch task's `change.yaml` entry never depended on the follow-up mechanism its gating review reads | `scope-and-follow-up-mechanisms` added to task 08's `depends_on`; a `mechanical-task-type` dependency was evaluated and found unnecessary (D21) |
+| 7 | Follow-up ledger was still prose Markdown, not something deterministic tooling can parse reliably | `follow-ups.yaml`, structured and schema-validated (D22) |
+| 8 | The preserved merged branch was called a "recovery anchor" but doesn't itself repair `main`; the repair path wasn't defined | Renamed "diagnostic anchor"; guarded, confirm-then-create repair-branch step with four preconditions (D23) |
+
 ## Constraints
 
 - Keep the spec-anchored, human-led model (`AGENTS.md`, ADR-0002).
@@ -202,7 +234,12 @@ anywhere in the current process, and no batch-execution support at all.
   a time.
 - No external infrastructure (databases, queues, workflow engines).
 - No new persisted lifecycle statuses (D8 reinforces this: recoverable stops use
-  `execution.suspension`, not new statuses).
+  `execution.suspension`, not new statuses); the two pre-existing, never-reachable
+  statuses (`blocked`, `needs-decision`) are removed outright, not merely left
+  unreachable (D16).
+- A confirmation already given for an authorized combined transition (D3) is not asked
+  for twice — a `confirm-required` recovery inside that transition resumes the same
+  authorized loop once confirmed, it does not force a fresh command invocation (D17).
 - `tools/specs.mjs approve`'s own approval gate remains the sole enforcement point for
   `approved` — mechanical tasks still go through it (D14); combined approve+start (D3)
   still performs it as a distinct, auditable call.
@@ -221,26 +258,36 @@ package is touched.
 ## Options and trade-offs
 
 Full option sets for the original scope were presented to and decided by the owner — see
-`owner-decisions.md` D1-D6. The refinement pass's required models (D7-D8, D10-D15) were
-supplied as explicit, prescriptive directives by the owner rather than open menus, and
-were applied directly per the refinement instructions; the one genuine three-way fork
+`owner-decisions.md` D1-D6. The first refinement pass's required models (D7-D8, D10-D15)
+were supplied as explicit, prescriptive directives by the owner rather than open menus,
+and were applied directly per the refinement instructions; the one genuine three-way fork
 (post-merge failure handling, D9) is flagged in its own entry with the rationale for the
 option chosen, since the refinement request explicitly delegated that specific choice to
-this step rather than reserving it for a fresh owner turn.
+this step rather than reserving it for a fresh owner turn. The second refinement pass's
+corrections (D16-D22) were similarly prescriptive; its one genuine fork — whether a
+post-merge repair branch is auto-created after confirmation or only reported as a command
+— was presented to the owner directly in this pass and decided as D23 (auto-create, with
+four preconditions guarding the creation).
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 through D15, all recorded 2026-08-04.
+See `owner-decisions.md` — D1 through D23, all recorded 2026-08-04.
 
 ## Proposed architecture
 
 ### State model
 
-No task status is added, removed, or newly reachable. `blocked`/`needs-decision` remain
-exactly as found — valid-but-unreachable vocabulary, untouched by this change (D8).
-`TRANSITIONS` (`lifecycle.mjs:29-34`) is not modified — the refined recovery model no
-longer needs new statuses, so the original constraint against touching it turns out to
-hold in practice, not just in intent.
+No task status is added. `blocked`/`needs-decision` are **removed** from the valid
+status vocabulary at both the task level and the change level — the first refinement
+pass (D8) had left them valid-but-unreachable; the second (D16) removes them outright,
+since a value validation accepts but no transition can ever leave is itself a defect, not
+a harmless residue. `validateSpecs` now enum-checks `change.status` (previously
+unchecked beyond presence) and task `status` against the corrected vocabulary; setting
+either removed value to either field is a `validate` error reading `` Status `blocked` is
+no longer supported. Use `execution.suspension`. `` (and the `needs-decision`
+equivalent). `TRANSITIONS` (`lifecycle.mjs:29-34`) is not modified — the refined recovery
+model no longer needs new statuses, so the original constraint against touching it turns
+out to hold in practice, not just in intent.
 
 **Execution suspension (D8, new)** — orthogonal to lifecycle status, persisted per task:
 
@@ -292,25 +339,63 @@ draft, still required):
 | Tier | Computed by | Covers | Recorded in |
 |---|---|---|---|
 | Change-level | `computeChangeFingerprint(change)` | change scope, shared constraints, owner decisions, change-level acceptance criteria, task graph (ids + `depends_on` shape), cross-task invariants, shared context rules | `reviews/spec.md`'s `change_fingerprint` |
-| Task-level | `computeTaskFingerprint(change, taskId)` | that task's own definition, acceptance criteria, `allowed_paths`/`consequential_paths`/`forbidden_paths`, `context`, the *subset* of `depends_on` whose target's own scope the task actually relies on, referenced owner decisions, `context_exceptions` (D13), any shared constraint the task explicitly uses | `reviews/<task-id>.md`'s `task_fingerprint` |
+| Task-level | `computeTaskFingerprint(change, taskId)` | that task's own definition, acceptance criteria, `allowed_paths`/`consequential_paths`/`forbidden_paths`, `context`, `semantic_references` (D18 — `dependency_contracts`, `decisions`, `constraints`), `context_exceptions` (D13) | `reviews/<task-id>.md`'s `task_fingerprint` |
 | Implementation-review | `computeImplementationFingerprint(change, taskId)` | task-level fingerprint + reviewed diff/revision identifier + evidence references (command, exit code, file/line) | `reviews/<task-id>.md`'s `implementation_fingerprint` |
 
 None of the three ever includes `status` or `execution.suspension` for any task.
 
-**Invalidation matrix (required by the refinement, now explicit):**
+**Task semantic references (D18, second refinement pass) — deterministic, not
+prose-inferred.** A task's fingerprint-relevant dependency/decision/constraint inputs are
+declared explicitly, not derived from reading the task's own text:
+
+```yaml
+# in a task's front matter, required
+semantic_references:
+  decisions: [D7, D13]              # owner-decisions.md entries this task's content depends on
+  constraints: [C2]                 # named shared constraints (see "Constraints" above, referenced by position)
+  dependency_contracts: [task-a]    # subset of depends_on whose scope this task actually relies on
+```
+
+- `dependency_contracts` must be a subset of the task's own `depends_on` — a
+  `validate` error names any entry that isn't. A task may list more entries in
+  `depends_on` than in `dependency_contracts`: `depends_on` alone can express pure
+  *ordering* ("runs after"), while `dependency_contracts` is only the subset whose scope
+  is actually load-bearing for this task's own fingerprint.
+- `decisions`/`constraints` entries must resolve (a `validate` error names an
+  unresolvable one) — same enforcement pattern as `context_exceptions[].decision` (D13).
+- This replaces "the subset of `depends_on` whose target's scope the task actually
+  relies on" (D7's original, prose phrasing) with a checkable fact — the *intent* is
+  unchanged, only how tooling determines it.
+
+**Invalidation matrix (required by the refinement, now explicit, restated in terms of
+`semantic_references`):**
 
 | Change | Invalidates change-level fingerprint? | Invalidates task-level fingerprint of task T? |
 |---|---|---|
 | Task T's `status` changes | No | No |
 | Task U's `status` changes (U ≠ T) | No | No |
-| A new, unrelated task is added | No (task graph shape unchanged for existing tasks' own `depends_on`) | No, unless T depends on the new task |
-| Shared scope/constraint text changes | Yes | Yes, only for tasks that reference that constraint |
+| A new, unrelated task is added | No (task graph shape unchanged for existing tasks' own `depends_on`) | No, unless T's `semantic_references.dependency_contracts` includes the new task |
+| Shared scope/constraint text changes | Yes | Yes, only for tasks whose `semantic_references.constraints` names that constraint |
 | Task T's acceptance criteria change | No (task-scoped) | Yes |
-| Task U's acceptance criteria change (U ≠ T) | No | No, unless T depends on U's acceptance-criteria-bearing scope |
-| An owner decision referenced by task T changes | No, unless the decision is change-level | Yes, for every task referencing it |
-| A mechanical/resolver task is added, depending on an already-approved task | No | No, for every task not depending on the new one |
+| Task U's acceptance criteria change (U ≠ T) | No | No, unless T's `semantic_references.dependency_contracts` includes U |
+| An owner decision referenced by task T's `semantic_references.decisions` changes | No, unless the decision is change-level | Yes, for every task referencing it |
+| An owner decision is superseded by a later one (see below) | No, unless the decision is change-level | Yes, for every task whose `semantic_references.decisions` names the superseded decision — the fingerprint is computed against the currently-active decision, not the superseded one |
+| A mechanical/resolver task is added, depending on an already-approved task | No | No, for every task not naming the new task in `semantic_references.dependency_contracts` |
 | The dependency graph changes task T's prerequisites or their ordering semantics | Yes (task graph shape) | Yes, for T |
 | Task T's `context_exceptions` changes | No | Yes (D13 — exceptions are semantic) |
+| Task T's `semantic_references` block itself changes (a reference is added/removed) | No | Yes — the fingerprint's own input set changed |
+
+**Owner-decision supersession.** Most "Refined by" pointers in `owner-decisions.md`
+narrow or extend an earlier decision without replacing it (e.g. D2 "Refined by: D8" —
+D2's stop-condition list is still fully in force; D8 only changed how a stop is
+represented in state) — both entries stay independently hashable and a task may
+correctly reference either. A `Refined by` note only marks **supersession** when its own
+text says so explicitly (e.g. D1: "kept for the audit trail; D7 is authoritative on
+granularity"). `validateSpecs` parses that explicit marker and rejects a
+`semantic_references.decisions` entry that names a decision superseded on the exact
+question a task cites it for, naming the superseding decision it should reference
+instead — so a task's fingerprint always hashes the currently-active decision text, and
+a superseded decision is never hashed as if it were still simultaneously binding.
 
 ### Recovery model
 
@@ -346,6 +431,53 @@ the missing effects, and explicit retry-safety terminology:
 - **`not_retryable`** — the original action's preconditions no longer hold (e.g. the task
   was un-approved, or its dependencies changed) — this becomes a *new* suspension, not a
   blind retry of the old one.
+- **`unsafe_manual`** (D17, second refinement pass) — the postcondition inspection maps
+  1:1 onto `execution.suspension.kind: unsafe-manual`: the situation cannot be resolved
+  by a closed-choice confirmation or an automatic repair, and requires the owner to act
+  manually outside the controller's retry loop (e.g. an unresolvable merge conflict in a
+  repair, or a `REC-09` ADR conflict). Distinct from `not_retryable`: a `not_retryable`
+  result means the *original action's own preconditions* changed and a **new**
+  suspension replaces the old one automatically; `unsafe_manual` means no automated or
+  confirmed path back exists at all — the controller stops and waits, it does not create
+  a follow-on suspension of a different kind on the owner's behalf.
+
+Five result-class values total —
+`completed`/`safe_to_retry`/`partially_completed`/`not_retryable`/`unsafe_manual` — cover
+every postcondition-inspection outcome; no new-code comment or doc text describes any of
+them as "idempotent" (that term keeps its narrower, pre-existing `validateTransition`
+meaning).
+
+**Repair-and-retry inside an authorized combined transition (D17).** A `confirm-required`
+stop that occurs *inside* an owner-already-authorized combined transition (D3's "approve
+and start," and any other combined transition this change introduces) does not end that
+transition's authorized loop — it resumes it. Concretely, for `approve` → `start`:
+
+```text
+approve
+  → inspect
+  → start
+  → inspect
+```
+
+If `approve` succeeds and `start`'s postcondition inspection reports
+`confirm-required` (a recoverable issue the owner must confirm, not decide), the
+controller: (1) preserves the already-succeeded `approve`; (2) presents the recovery
+action for confirmation; (3) on confirmation, performs the repair; (4) re-inspects
+`start`'s postconditions; (5) executes only the still-missing postconditions; (6)
+continues the same authorized sequence to completion. The owner is never asked to
+re-invoke `/nevo-ai:task-start` for a repair they already confirmed inside the combined
+flow. The loop stops — ending the authorized sequence rather than resuming it — for any
+of: unresolved partial completion the owner hasn't yet confirmed a repair for, an
+`unsafe_manual` result, unrelated dirty files (`REC-06`), scope expansion (`REC-08`), an
+ADR conflict (`REC-09`), a `not_retryable` result (preconditions changed — this becomes a
+fresh, separately-presented suspension, not a silent continuation), or a failed
+acceptance criterion.
+
+Regression coverage (task 04): approval succeeds, a branch-repair confirmation resumes
+`start` without repeating the approval step; approval succeeds but `start` becomes
+`not_retryable`, and the approval stays persisted while the workflow stops and reports
+why; a `partially_completed` `start` executes only its missing postconditions on resume,
+never repeating a completed effect.
 
 Example — `start-task`:
 
@@ -374,23 +506,40 @@ reads:
   model above for the re-check, not a bare boolean. On a `start` failure, the task's
   `status` stays `approved` (never rolled back, never silently re-approved); if the
   failure is `partially_completed`, an `execution.suspension` (`previous_action: start`)
-  is recorded so a later retry only performs the missing effects.
+  is recorded so a later retry only performs the missing effects; if the failure is
+  `confirm-required`, D17's repair-and-retry loop resumes `start` after one confirmation
+  instead of ending the combined flow (see "Recovery model" above).
 - `task-review` reaching a fully-terminal change offers to archive inline; under an
   active batch, it offers to continue to the next batch task inline.
 
-**Expansive continuation boundary (D2, reinforced by the refinement):** an authorized
-scope is always one of: one named task, a selected batch, all ready tasks, or "until a
-named checkpoint." Inside that scope, the controller may continue through
-`completed`/`safe_to_retry`-resolved recoveries automatically. It must stop immediately
-for: implicit scope expansion (`REC-08`), an architectural/behavioral decision, an
-`unsafe-manual`-class recovery, unrelated dirty files (`REC-06`), a failed acceptance
-criterion, an unexpected public-contract impact, unresolved high-risk evidence (D11), or
-the end of the authorized scope — never past it, regardless of how "safe" the next step
-looks.
+**Expansive continuation boundary (D2, reinforced by both refinement passes):** an
+authorized scope is always one of the four batch-selection modes (D20 —
+`currently-ready` / `all-approved-reachable` / `named-subset` / `until-checkpoint`) or a
+single named task. Inside that scope, the controller may continue through
+`completed`/`safe_to_retry`-resolved recoveries automatically, and — per D17 — through a
+`confirm-required` recovery once the owner has confirmed it in place, without ending the
+authorized loop. It must stop immediately for: implicit scope expansion (`REC-08`), an
+architectural/behavioral decision, an `unsafe_manual` result (D17), unrelated dirty files
+(`REC-06`), a `not_retryable` result (D17 — a fresh suspension is presented, the loop
+does not silently continue past it), a failed acceptance criterion, an unexpected
+public-contract impact, unresolved high-risk evidence (D11), stale unresolved batch
+evidence (D19), or the end of the authorized scope — never past it, regardless of how
+"safe" the next step looks.
 
 ### Batch execution model
 
-- Selection, ordering, single-active-task constraint: unchanged from the original draft.
+- **Selection has four named modes, no default (D20, second refinement pass):**
+
+  | Mode | Selects |
+  |---|---|
+  | `currently-ready` | Only tasks `next`-ready at planning time (the previous implicit default). |
+  | `all-approved-reachable` | Every approved task that will become ready once earlier-selected tasks complete — computed as a deterministic topological order; excludes anything blocked by an unselected prerequisite or an unresolved owner decision. This is what makes "execute all approved reachable tasks, one gating review at the end" expressible for a linear dependency chain, where `currently-ready` alone would only ever select the first task. |
+  | `named-subset` | An explicit task-id list; validated for closure over required dependencies — reports missing prerequisites rather than silently including or excluding them. |
+  | `until-checkpoint` | The reachable sequence, executed until a named checkpoint or stop condition is hit. |
+
+  Ordering within any selected mode follows the existing `depends_on`/`next` logic
+  exactly; an unsatisfiable batch is rejected before any task starts.
+- Single-active-task constraint: unchanged from the original draft.
 - **Batch state is derived, not duplicated (D10).** The only persisted batch file holds
   intent: `change`, `requestedTasks`, `orderedTasks`, `startRevision`, `reviewMode`,
   `checkpointPolicy`, `temporaryInconsistencies`. Completed/current/next/failed are
@@ -399,19 +548,41 @@ looks.
 - **Risk classification is evidence-based, not path-touch-based (D11).** See
   `owner-decisions.md` D11 for the full signal list. A small, low-risk code task is
   eligible for self-check plus the end-of-batch gating review only.
+- **Evidence freshness is checked before the gating review runs (D19, second refinement
+  pass).** A task passing its self-check earlier in the batch does not mean that
+  evidence is still trustworthy by the time the gating review runs if a later batched
+  task touched the same subsystem. Immediately before the gating batch review: (1)
+  determine which later-batched tasks' changes could affect an earlier task's recorded
+  evidence; (2) rerun any automated verification command whose target files changed
+  since it last ran; (3) invalidate (and require a refresh of) any inspection-type
+  evidence whose referenced files/line ranges changed since it was recorded; (4) treat
+  evidence for a task whose own semantic fingerprint (D18) has changed since the
+  evidence was recorded as stale regardless of file-level overlap. The gating review does
+  not proceed while any batched task carries stale, unrefreshed evidence. Evidence stays
+  compact — a revision/content-hash identifier plus a file/path reference list plus (for
+  automated evidence) the command identity — never full command output or full diffs.
+  Owner-recorded evidence stays valid as long as the task's semantic fingerprint is
+  unchanged; an operational status change alone does not stale it.
 - **Responsibility split**, made explicit per the refinement's request:
 
   | Layer | Scope | Re-checks acceptance criteria? |
   |---|---|---|
   | Task self-check | One task's own `Verification` commands | Yes, for that task only |
   | Full task review | One risky task's diff, per `review-policy.md` | Yes, in depth |
-  | Gating batch review | The whole batch's diff since `startRevision`, cross-task integration, open follow-ups | No — trusts each task's own self-check/review; checks integration, not re-litigates individual criteria |
+  | Evidence freshness check (D19) | Whether earlier-recorded evidence in the batch is still current | N/A — refreshes/reruns evidence, does not itself judge acceptance criteria |
+  | Gating batch review | The whole batch's diff since `startRevision`, cross-task integration, open follow-ups | No — trusts each task's own self-check/review (once evidence-freshness-checked); checks integration, not re-litigates individual criteria |
   | Advisory change-wide audit (`spec-audit`) | One named cross-cutting lens across an already-implemented change | No — never re-evaluates task acceptance criteria (unchanged, pre-existing rule) |
 
   No layer re-reviews the same semantic content in full twice.
 - Temporary inconsistency: unchanged from the original draft — declared between two
   named tasks, visible in the batch intent file, `validate`/`check` skipped only for that
   declared pair.
+- **Task dependency (D21, second refinement pass):** `batch-execution-and-gating-review`
+  (task 08) depends on `scope-and-follow-up-mechanisms` (task 06) — the gating batch
+  review reads open blocking follow-up entries, a mechanism task 06 introduces. A
+  dependency on `mechanical-task-type` (task 07) was evaluated and found unnecessary: a
+  `type: mechanical` task is ordinary from batch execution's perspective (D14 requirement
+  21), so task 08 has no code path that needs task 07's contract specifically.
 
 ### Validation and evidence model
 
@@ -425,9 +596,12 @@ looks.
   in `owner-decisions.md`; included in the task-level semantic fingerprint.
 - Consequential/mechanical paths and structured acceptance-criteria evidence tags:
   unchanged from the original draft.
-- **Follow-up ledger is a mutable current-state list, not append-only (D15).** See
-  `owner-decisions.md` D15 for valid statuses, dismissal rules, and severity-to-gate
-  mapping (task completion / batch review / finalization).
+- **Follow-up ledger is a mutable current-state list, stored as structured YAML (D15,
+  D22).** `follow-ups.yaml` (not `follow-ups.md` — D22, second refinement pass, replaces
+  the Markdown-prose format with a schema-validated YAML list, since a Markdown table
+  would need its own versioned micro-format to be reliably parseable and YAML already
+  does that job). See `owner-decisions.md` D15/D22 for valid statuses, dismissal rules,
+  and severity-to-gate mapping (task completion / batch review / finalization).
 - **Mechanical task approval is "review-exempt deterministic approval" (D14)** — an
   explicit `approve` transition still occurs; only the review-file requirement is
   exempted, and only when every classifier condition holds. It fails closed to the
@@ -444,6 +618,11 @@ looks.
 | Validated routing table + generated index (D12) | Avoids re-parsing prose on every context check; a JSON read replaces a Markdown interpretation | Low — reuses the existing generate/validate pattern already in `tools/docs.mjs` | Yes |
 | Postcondition-based recovery (D4/D8) | Avoids re-explaining a known partial-success state to the owner; recovery executes only missing effects instead of a human re-diagnosing from scratch | Medium — one contract per state-changing action, but each is small | Yes |
 | One controller loop vs. separate command turns (D2/D3) | Largest reduction for batch/expansive scopes: N interruptions collapse toward one authorization + inline offers | Medium — already scoped in tasks 03/04/08 | Yes |
+| Repair-and-retry inside combined transitions (D17) | Removes a second command invocation the owner would otherwise need after confirming an in-flight repair — closes a gap the second refinement pass found between D2/D3's "one confirmation" intent and D8's postcondition model | Low — reuses the existing postcondition/suspension machinery, adds one result value (`unsafe_manual`) and a resume-in-place branch | Yes |
+| Deterministic `semantic_references` (D18) | Removes prose-inference from fingerprint scope determination — avoids both under- and over-invalidation an implementation would otherwise have to guess at | Low — one required schema block per task, validated the same way `context_exceptions` already is | Yes |
+| Evidence-freshness check before gating review (D19) | Prevents the exact regression the second refinement pass identified (a later task invalidating an earlier task's trusted evidence) without falling back to full re-review of every task | Medium — a staleness computation over files/commands/fingerprints, run once per batch, not per task | Yes |
+| Four-mode batch selection (D20) | Makes "run everything approved and reachable" expressible in one authorization instead of requiring N single-task batches for a linear dependency chain | Low — a named-mode dispatch over logic the batch controller already needs | Yes |
+| Structured `follow-ups.yaml` (D22) | Avoids Markdown-table parsing/versioning risk this repository's own `references/review-policy.md` implicitly warns against — a JSON/YAML read replaces a prose-table interpretation | Low — same generate/validate-adjacent pattern already used elsewhere in this change | Yes |
 | Full workflow engine / generic state DSL | N/A — explicitly rejected | High | No |
 | Parallel task execution | N/A — explicitly rejected | High, unsafe for shared `change.yaml` | No |
 
@@ -459,13 +638,30 @@ extra implementation cost.
 
 - Existing `change.yaml` files need no structural migration for the status/transition
   model (unchanged) but do gain new optional fields (`execution.suspension`,
-  `context_exceptions`) — additive, absent by default.
+  `context_exceptions`, and — D18 — `semantic_references`) — additive, absent by
+  default. A task file with no `semantic_references` block (or an empty one) is fully
+  valid: it simply means `computeTaskFingerprint` treats that task as referencing
+  nothing beyond its own content, so existing task files remain valid without edits.
+  They don't benefit from `semantic_references`' granular invalidation until reviewed
+  and annotated — task 01 documents this as a recommended, not required, follow-up
+  review pass for existing active changes once this change ships.
 - Any `reviews/*.md` with the old single `spec_fingerprint` becomes stale the moment this
   change ships (expected one-time re-review, same as the original D1 plan, now scoped
   per-tier under D7).
 - `allowed_paths`/`context.required`/acceptance-criteria additions remain additive,
   optional front-matter fields.
-- `blocked`/`needs-decision` remain exactly as found — unreachable, untouched.
+- `blocked`/`needs-decision` are **removed outright (D16)**, not left unreachable — any
+  existing `change.yaml` (task- or change-level `status`) currently set to either value
+  fails `validate` with the fixed migration message (`` Status `blocked` is no longer
+  supported. Use `execution.suspension`. ``) the first time this change ships. This is
+  the intended one-time migration signal, not a regression — no currently-active change
+  in this repository has either status set today (verified during discovery), so this is
+  not expected to require a real fix anywhere on ship day, only to guard against it going
+  forward.
+- `follow-ups.md` becomes `follow-ups.yaml` (D22) — any change with an existing
+  `follow-ups.md` (none exists in any currently-active change, verified during
+  discovery) would need a one-time hand or scripted conversion to the new schema before
+  this change ships; task 06 documents the conversion shape.
 - Manual, single-step `tools/specs.mjs` commands and `.claude/commands/nevo-ai/*.md`
   entry points remain available throughout.
 
@@ -488,11 +684,14 @@ extra implementation cost.
    real lifecycle position; a test proves a suspended task's `status` is unchanged by
    entering or clearing a suspension.
 4. All nine `REC-01`..`REC-09` scenarios are classified with a stable code, a
-   `completed`/`safe_to_retry`/`partially_completed`/`not_retryable` postcondition
-   contract for the action involved, and a defined suspension/retry/stop behavior.
+   `completed`/`safe_to_retry`/`partially_completed`/`not_retryable`/`unsafe_manual`
+   postcondition contract for the action involved, and a defined suspension/retry/stop
+   behavior.
 5. `spec-approve`'s "approve and start" outcome re-checks `start`'s postconditions before
    running it, and a `start` failure leaves `status: approved` with, if applicable, a
-   `partially_completed` suspension — never a rollback, never a silent re-approval.
+   `partially_completed` suspension — never a rollback, never a silent re-approval; a
+   `confirm-required` `start` failure resumes the same authorized combined flow after one
+   confirmation, never forcing a second `/nevo-ai:task-start` invocation (D17).
 6. Batch execution derives all progress from `change.yaml`; a test proves an interrupted
    batch reconstructs correctly with no separate progress file to reconcile.
 7. A small, low-risk batched task (approved scope, no public-contract change, complete
@@ -506,15 +705,38 @@ extra implementation cost.
    command, and writes nothing into the archived change.
 10. The context-routing check reads only `docs/routing.generated.json`, never re-parses
     `task-routing.md`/`change-impact-map.md` prose at check time.
-11. `follow-ups.md` entries are mutated in place (no "append-only" behavior); a
+11. `follow-ups.yaml` entries are mutated in place (no "append-only" behavior); a
     `blocking`-severity entry cannot be dismissed without an owner decision.
 12. `type: mechanical` still performs an explicit `approve` transition (visible in
     `change.yaml`) and fails closed — never silently blocks with no path forward — when
     any classifier condition doesn't hold.
-13. `node --test tools/tests/` covers every regression scenario listed in the refinement
-    request's "Required regression scenarios" section (fingerprints, recovery, batch,
-    context/follow-ups, finalization — see tasks 01-02, 06, 08-10 for the per-area
-    subset each owns).
+13. `node --test tools/tests/` covers every regression scenario listed in the first
+    refinement request's "Required regression scenarios" section and the second
+    refinement request's "Required regression tests" section (fingerprints, recovery,
+    combined transitions, batch, context/follow-ups, finalization — see tasks 01-04,
+    06, 08-10 for the per-area subset each owns).
+14. Manually setting a task's or the change's `status` to `blocked` or `needs-decision`
+    fails `validate` with the fixed migration message naming `execution.suspension` as
+    the replacement (D16).
+15. Every task file's `semantic_references.dependency_contracts` is a subset of its own
+    `depends_on`, and every `semantic_references.decisions`/`constraints` entry
+    resolves; an invalid reference is a `validate` error (D18).
+16. The gating batch review does not run while any batched task carries evidence that is
+    stale under the freshness rules (file/command/fingerprint-based); a test proves a
+    later task invalidating an earlier task's evidence is detected and either refreshed
+    or blocks the review (D19).
+17. Batch selection supports all four named modes (`currently-ready` /
+    `all-approved-reachable` / `named-subset` / `until-checkpoint`); a test proves
+    `all-approved-reachable` selects a full linear approved chain that `currently-ready`
+    alone could not (D20).
+18. `spec-finalize`'s post-merge repair path creates the repair branch only after an
+    explicit owner confirmation and only once all four preconditions hold (clean
+    worktree, `main` fast-forwarded, failing SHA re-confirmed as `main`'s current SHA,
+    target branch name free both locally and on `origin`); a failed precondition stops
+    without creating the branch or modifying anything else, and names which precondition
+    failed (D23).
+19. `batch-execution-and-gating-review` (task 08) lists `scope-and-follow-up-mechanisms`
+    (task 06) in `change.yaml`'s `depends_on` (D21).
 
 ## Verification strategy
 
@@ -530,7 +752,15 @@ whole-file (D7), why recoverable stops use `execution.suspension` rather than ne
 lifecycle statuses (D8), why `approve`+`start` gained a combined-confirmation exception
 (D3), why batch execution is sequential-only with derived progress (D2/D10), and why
 post-merge failure defers branch deletion rather than mutating an archived change (D9).
-No existing ADR is superseded.
+The second refinement pass adds: why `blocked`/`needs-decision` are removed outright
+rather than left unreachable (D16), why a `confirm-required` recovery resumes an
+authorized combined transition in place instead of ending it (D17), why the task-level
+fingerprint's dependency scope is an explicit `semantic_references` block rather than
+inferred from `depends_on` (D18), why the gating batch review requires an
+evidence-freshness check (D19), why batch selection has four named modes (D20), and why
+the preserved post-merge branch is a "diagnostic anchor" with a guarded, confirm-then-
+create repair-branch step rather than either a full recovery mechanism or a report-only
+one (D23). No existing ADR is superseded.
 
 ## Out of scope
 
@@ -541,6 +771,10 @@ No existing ADR is superseded.
 - Removing or renaming any existing `/nevo-ai:*` command or `tools/specs.mjs` subcommand.
 - Making batch execution or auto-continue the default behavior for a single ad hoc task.
 - Making `blocked`/`needs-decision` reachable lifecycle statuses (explicitly reversed by
-  D8).
+  D8) — or retaining them as valid-but-unreachable vocabulary at all (explicitly removed
+  by D16).
 - An event-sourced or history-preserving follow-up ledger (explicitly reversed by D15 —
   git history is sufficient).
+- Automating any part of a post-merge repair beyond creating the guarded repair branch —
+  editing files, running the targeted checks, and opening the repair PR remain manual,
+  owner-driven steps (D23).

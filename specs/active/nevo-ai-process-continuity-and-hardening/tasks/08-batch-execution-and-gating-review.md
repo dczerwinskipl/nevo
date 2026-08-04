@@ -14,6 +14,8 @@ context:
   optional:
     - .claude/commands/nevo-ai/spec-audit.md
     - .claude/skills/nevo-ai-spec-workflow/templates/review-report.md
+    - specs/active/nevo-ai-process-continuity-and-hardening/areas/context-and-validation-hardening.md
+    - specs/active/nevo-ai-process-continuity-and-hardening/areas/state-and-fingerprint-semantics.md
 allowed_paths:
   - tools/specs/lifecycle.mjs
   - tools/specs/service.mjs
@@ -37,26 +39,44 @@ forbidden_paths:
 > reconcile; the risk trigger for a full task-review is now evidence-based, not
 > path-touch-based, so a small low-risk code task can actually use the lightweight path
 > batch mode is supposed to offer.
+>
+> Refined again 2026-08-04 (second pass, see D19, D20, D21) — the gating batch review now
+> requires an evidence-freshness check immediately before it runs. Batch selection is now
+> four named modes (`currently-ready` / `all-approved-reachable` / `named-subset` /
+> `until-checkpoint`), not one implicit list. This task now depends on
+> `scope-and-follow-up-mechanisms` (task 06), the mechanism its gating review reads.
 
 ## Goal
 
-Implement sequential batch execution of already-`approved` tasks (selection, dependency
-ordering, single-active-task constraint, evidence-based risk trigger for full review,
-derived progress, resumable intent state, declared temporary-inconsistency pairs) and the
-one gating batch review that closes a batch — exactly as specified in
-`areas/batch-execution-and-gating-review.md`.
+Implement sequential batch execution of already-`approved` tasks (four-mode selection,
+dependency ordering, single-active-task constraint, evidence-based risk trigger for full
+review, evidence-freshness check, derived progress, resumable intent state, declared
+temporary-inconsistency pairs) and the one gating batch review that closes a batch —
+exactly as specified in `areas/batch-execution-and-gating-review.md`.
 
 ## Dependencies
 
 `conversational-approval-ergonomics` — batch execution reuses the inline-offer/
 auto-continue mechanism that task already built the forward-compatible hook for.
-`state-and-fingerprint-semantics` — needs correct dependency ordering and the
-`execution.suspension` schema batch progress derivation reads.
+`state-and-fingerprint-semantics` — needs correct dependency ordering,
+`semantic_references`/the task-level fingerprint (D18, used by the evidence-freshness
+check), and the `execution.suspension` schema batch progress derivation reads.
+`scope-and-follow-up-mechanisms` (D21, second refinement pass) — the gating batch review
+reads open blocking `follow-ups.yaml` entries, a mechanism that task introduces; this
+task cannot be implemented meaningfully before it lands.
 
 ## Implementation constraints
 
-- Batch selection is always explicit at start (all-ready / named subset / until-checkpoint)
-  — no default.
+- **Batch selection is always explicit at start, one of four named modes (D20, second
+  refinement pass) — no default:** `currently-ready` (tasks `next`-ready at planning
+  time), `all-approved-reachable` (every approved task that will become ready once
+  earlier-selected tasks complete — a deterministic topological order over the approved
+  subgraph, excluding anything blocked by an unselected prerequisite or an unresolved
+  owner decision), `named-subset` (an explicit task-id list, validated for closure over
+  required dependencies — a missing prerequisite is reported, never silently included or
+  excluded), `until-checkpoint` (the reachable sequence, executed until a named
+  checkpoint or stop condition). Implement selection as a single function dispatching on
+  mode, not four independent code paths.
 - Exactly one task `in-implementation` at a time; the batch controller calls the existing
   `start`/`complete` transitions unchanged — it does not introduce a new write path to
   `change.yaml`.
@@ -75,12 +95,27 @@ auto-continue mechanism that task already built the forward-compatible hook for.
   scope expansion, a failed/unresolved self-check, missing automated verification,
   unexpected files, implementation divergence, or an owner-flagged high-risk task).
   Touching `src/**`/`tests/**`/`consequential_paths` alone is **not** on this list.
+- **Evidence freshness, checked immediately before the gating batch review runs (D19,
+  second refinement pass).** Implement as a distinct step, not folded silently into the
+  gating review: (1) determine which later-batched tasks' changes could affect an
+  earlier task's recorded evidence (file/path overlap); (2) rerun any automated-
+  verification command whose target files changed since it last ran; (3) invalidate (and
+  require a refresh of) any inspection-type evidence whose referenced files/line ranges
+  changed since it was recorded; (4) treat evidence for a task whose own
+  `semantic_references`-based task-level fingerprint (D18) has changed since the
+  evidence was recorded as stale regardless of file-level overlap. The gating batch
+  review must not run while any batched task carries stale, unrefreshed evidence.
+  Evidence tracked per item stays compact: a revision/content-hash identifier,
+  referenced files/path ranges, command identity (for automated evidence), and the
+  task's semantic fingerprint at record time — never full command output or full diffs.
+  Owner-recorded evidence stays valid as long as the task's semantic fingerprint is
+  unchanged.
 - The gating batch review writes `specs/active/<change-id>/reviews/batch-<n>.md` (or
   equivalent, distinct from `reviews/<task-id>.md` and `reviews/audit-<slug>.md`), with
   verdict `changes-recommended` \| `owner-decision-required` \| `no-findings` computed
   from an explicit table. It never re-evaluates any individual batched task's own
   acceptance criteria — it checks the whole-batch diff since `startRevision`, cross-task
-  integration, and open blocking follow-up entries only.
+  integration, and open blocking follow-up entries (`follow-ups.yaml`, D22) only.
 - A declared temporary-inconsistency pair names both tasks explicitly before the batch
   starts; `validate`/`check` is skipped between exactly that pair and enforced at every
   other boundary, including the batch's own end.
@@ -105,6 +140,16 @@ auto-continue mechanism that task already built the forward-compatible hook for.
 7. The gating batch review's verdict is computed from an explicit table and never
    contains a re-evaluation of an individual task's own acceptance criteria (inspection +
    automated verdict-table test).
+8. `all-approved-reachable` selects a full linear approved dependency chain that
+   `currently-ready` alone would only ever select the first task of (automated, same
+   suite) (D20).
+9. A `named-subset` selection missing a required prerequisite is reported, not silently
+   completed or rejected without explanation (automated, same suite) (D20).
+10. A later batched task's file/command-overlapping change invalidates an earlier task's
+    recorded evidence, and the gating batch review does not run until it's refreshed
+    (automated, same suite) (D19).
+11. An unrelated later-batched task's change does not stale an earlier task's evidence
+    (automated, same suite) (D19).
 
 ## Verification
 

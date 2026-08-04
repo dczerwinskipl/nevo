@@ -26,7 +26,7 @@ allowed_paths:
   - .claude/commands/nevo-ai/spec-finalize.md
   - .claude/commands/nevo-ai/spec-audit.md
 consequential_paths:
-  - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.md
+  - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
 forbidden_paths:
   - src/**
   - tests/**
@@ -41,11 +41,16 @@ forbidden_paths:
 > list of `{omitted, decision, reason}` entries that must resolve to a real owner
 > decision and affects the task-level fingerprint; the follow-up ledger is explicitly a
 > mutable current-state list, never described as append-only.
+>
+> Refined again 2026-08-04 (second pass, see D22) — the follow-up ledger's storage
+> format changes from `follow-ups.md` (prose Markdown) to `follow-ups.yaml`
+> (schema-validated YAML). Same fields and mutable current-state semantics as D15 —
+> only the format and its validation change.
 
 ## Goal
 
 Add `context_exceptions` (owner-decision-referenced, fingerprint-affecting) and
-`consequential_paths` to the schema, the mutable `follow-ups.md` ledger, `spec-finalize`'s
+`consequential_paths` to the schema, the mutable `follow-ups.yaml` ledger, `spec-finalize`'s
 block-on-open-blocking-follow-up check, and per-criterion acceptance-criteria
 verification tags.
 
@@ -68,10 +73,27 @@ extends further; `context_exceptions` suppresses that task's completeness warnin
   `task-review.md`'s existing step 4 instruction — update that instruction; no
   enforcement script exists today to diff `allowed_paths` against `git diff`, and this
   task does not introduce one as a prerequisite.
-- `follow-ups.md` lives at `specs/active/<change-id>/follow-ups.md`, one **mutable**
-  file per change — not append-only. Fields per entry: `id`, `source_task`, `kind`,
-  `severity` (`blocking`/`non-blocking`), `reason`, `resolver_task` (nullable), `status`
-  (`open`/`resolved`/`dismissed`), `resolution` (populated on resolve/dismiss).
+- `follow-ups.yaml` (D22, second refinement pass — was `follow-ups.md`) lives at
+  `specs/active/<change-id>/follow-ups.yaml`, one **mutable**, schema-validated YAML
+  file per change — not append-only:
+
+  ```yaml
+  follow_ups:
+    - id: FU-001
+      source_task: task-04
+      kind: mechanical
+      severity: blocking
+      reason: ...
+      resolver_task: task-07
+      status: resolved
+      resolution: ...
+  ```
+
+  Fields per entry: `id`, `source_task`, `kind`, `severity` (`blocking`/`non-blocking`),
+  `reason`, `resolver_task` (nullable), `status` (`open`/`resolved`/`dismissed`),
+  `resolution` (populated on resolve/dismiss). `validateSpecs` parses this as YAML and
+  rejects malformed content (invalid YAML, missing required field, an unrecognized
+  `status`/`severity` value) with a specific reason.
 - Dismissing a `blocking` entry requires a recorded owner decision (a new
   `owner-decisions.md` entry, referenced from the follow-up's `resolution`); a
   `non-blocking` entry may be dismissed by whoever applies the resolution.
@@ -80,7 +102,7 @@ extends further; `context_exceptions` suppresses that task's completeness warnin
 - `task-review.md` and `spec-audit.md` gain an explicit "record as follow-up" action for
   a `NON_BLOCKING` finding — this does not change how `AUTO_FIX`/`OWNER_DECISION`/
   `NEEDS_CLARIFICATION` findings are categorized or handled.
-- `validateFinalize` (`lifecycle.mjs`) gains a check: any `follow-ups.md` entry with
+- `validateFinalize` (`lifecycle.mjs`) gains a check: any `follow-ups.yaml` entry with
   `severity: blocking` and `status: open` fails finalize, naming the entry, evaluated
   alongside the existing terminal-task check.
 - `templates/task.md`'s acceptance-criteria section documents the optional per-criterion
@@ -94,7 +116,7 @@ extends further; `context_exceptions` suppresses that task's completeness warnin
    task and no other (automated, extends task 01's fingerprint suite).
 3. A `consequential_paths`/`forbidden_paths` overlap is a `validate` error naming the
    glob (automated, same suite).
-4. `follow-ups.md` entries are mutated in place — a resolve/dismiss action changes the
+4. `follow-ups.yaml` entries are mutated in place — a resolve/dismiss action changes the
    existing entry's `status`, never appends a new entry for the same follow-up
    (automated: `node --test tools/tests/follow-ups.test.mjs`).
 5. Dismissing a `blocking` entry without a referenced owner decision is rejected
@@ -104,6 +126,9 @@ extends further; `context_exceptions` suppresses that task's completeness warnin
 7. `spec-finalize` blocks on an open, `blocking`-severity follow-up entry (automated:
    extends `tools/tests/task-lifecycle.test.mjs` or a new `finalize.test.mjs`).
 8. `templates/task.md` documents the per-criterion evidence tag syntax (inspection).
+9. Malformed `follow-ups.yaml` (invalid YAML, missing required field, an unrecognized
+   `status`/`severity` value) fails `validate` with a specific reason (automated, same
+   suite) (D22).
 
 ## Verification
 

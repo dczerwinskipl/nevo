@@ -2,6 +2,14 @@
 
 > Refined 2026-08-04 — see `owner-decisions.md` D10, D11. Batch progress is now derived,
 > not duplicated; risk classification is evidence-based, not path-touch-based.
+>
+> Refined again 2026-08-04 (second pass) — see D19, D20, D21. The gating batch review now
+> requires an evidence-freshness check immediately before it runs, closing a path to
+> approving a regression a later task's changes could invalidate. Batch selection is now
+> four named modes, not one implicit list — `all-approved-reachable` is new and is what
+> makes "run every approved task the graph will let you reach" expressible for a linear
+> dependency chain. This area's own task (08) now depends on `scope-and-follow-up-mechanisms`
+> (task 06), the mechanism its gating review reads.
 
 ## Responsibility
 
@@ -17,10 +25,18 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
 
 ## Requirements
 
-1. Batch selection, chosen once at batch start: all currently `next`-ready tasks, an
-   explicit named subset, or "run until the next owner-decision checkpoint." No default.
-2. Ordering follows the existing `depends_on`/`next` logic exactly; an unsatisfiable
-   batch is rejected before any task starts.
+1. **Batch selection has four named modes, chosen explicitly at batch start — no default
+   (D20, second refinement pass):**
+
+   | Mode | Selects |
+   |---|---|
+   | `currently-ready` | Only tasks `next`-ready at planning time. |
+   | `all-approved-reachable` | Every approved task that will become ready once earlier-selected tasks complete — a deterministic topological order over the approved subgraph, excluding anything blocked by an unselected prerequisite or an unresolved owner decision. Required to express "run every approved task reachable through the graph" for a dependency chain where `currently-ready` alone would only ever select the first task. |
+   | `named-subset` | An explicit task-id list; validated for closure over required dependencies — a missing prerequisite is reported, never silently included or excluded. |
+   | `until-checkpoint` | The reachable sequence, executed until a named checkpoint or stop condition is hit. |
+
+2. Ordering follows the existing `depends_on`/`next` logic exactly, within whichever mode
+   was selected; an unsatisfiable batch is rejected before any task starts.
 3. Exactly one task `in-implementation` at a time.
 4. **Batch progress is derived, never duplicated (D10).** The only persisted batch file
    holds intent:
@@ -56,19 +72,37 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    `consequential_paths` alone is **not** sufficient — a small, low-risk code task
    meeting none of the above signals is eligible for self-check plus the end-of-batch
    gating review only.
+5a. **Evidence freshness, checked immediately before the gating review runs (D19,
+   second refinement pass).** A task passing its self-check earlier in the batch is not
+   proof its evidence is still trustworthy once a later batched task has touched the same
+   subsystem. Before the gating batch review (requirement 7) proceeds: (a) determine
+   which later-batched tasks' changes could affect an earlier task's recorded evidence;
+   (b) rerun any automated-verification command whose target files changed since it last
+   ran; (c) invalidate (and require a refresh of) any inspection-type evidence whose
+   referenced files/line ranges changed since it was recorded; (d) treat evidence for a
+   task whose own semantic fingerprint (`semantic_references`, D18) has changed since the
+   evidence was recorded as stale regardless of file-level overlap. Owner-recorded
+   evidence stays valid as long as the task's semantic fingerprint is unchanged — an
+   operational status change alone does not stale it. The gating batch review does not
+   run while any batched task carries stale, unrefreshed evidence. Evidence tracked per
+   item: a revision/content-hash identifier, referenced files/path ranges, command
+   identity (for automated evidence), and the task's semantic fingerprint at record time
+   — never full command output or full diffs.
 6. **Layer responsibilities**, kept non-overlapping:
 
    | Layer | Scope | Re-checks acceptance criteria? |
    |---|---|---|
    | Task self-check | One task's own `Verification` commands | Yes, for that task only |
    | Full task review | One risky task's diff | Yes, in depth |
+   | Evidence freshness check (D19) | Whether earlier-recorded batch evidence is still current | N/A — refreshes/reruns evidence; does not itself judge acceptance criteria |
    | Gating batch review | Whole-batch diff since `startRevision`, cross-task integration, open follow-ups | No |
    | Advisory `spec-audit` | One named cross-cutting lens | No (pre-existing rule, unchanged) |
 
-7. Gating batch review, produced once at the end of a batch: verdict
-   `changes-recommended` \| `owner-decision-required` \| `no-findings`, computed from an
-   explicit table, checking the complete diff against `startRevision`, integration
-   between batched tasks, and any open blocking follow-up entries (area
+7. Gating batch review, produced once at the end of a batch, only after the evidence-
+   freshness check (requirement 5a) reports every batched task's evidence current:
+   verdict `changes-recommended` \| `owner-decision-required` \| `no-findings`, computed
+   from an explicit table, checking the complete diff against `startRevision`,
+   integration between batched tasks, and any open blocking follow-up entries (area
    `context-and-validation-hardening`) raised during the batch. It does not re-litigate
    any individual task's own acceptance criteria (requirement 6).
 8. Interruption and resume: an interrupted batch resumes from `deriveStage` (now
@@ -90,16 +124,21 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
 - No second, duplicated progress field anywhere in the batch intent file — if a future
   change to this area proposes adding one, it must also define write order, atomicity,
   reconciliation, and crash recovery for it (the burden D10 was written to avoid).
+- The gating batch review must never run while stale evidence is unresolved (requirement
+  5a) — there is no "proceed with a caveat" path.
 
 ## Interfaces and boundaries
 
-Exposes: batch selection/ordering, the intent-only persisted file, the evidence-based
-risk trigger, the gating batch review shape and verdict table.
+Exposes: batch selection/ordering (four named modes, D20), the intent-only persisted
+file, the evidence-based risk trigger, the evidence-freshness check, the gating batch
+review shape and verdict table.
 
 Consumes: `conversational-continuity`'s inline "continue to next batch task" offer;
 `recovery-and-resume`'s classified errors and suspension state for failure handling and
-progress derivation; `context-and-validation-hardening`'s `follow-ups.md`;
-`state-and-fingerprint-semantics`' corrected `depsSatisfied`.
+progress derivation; `context-and-validation-hardening`'s `follow-ups.yaml` (D22) and
+`state-and-fingerprint-semantics`' `semantic_references`/task-level fingerprint (D18,
+used by the evidence-freshness check); `state-and-fingerprint-semantics`' corrected
+`depsSatisfied`.
 
 ## Area-specific acceptance criteria
 
@@ -114,12 +153,28 @@ progress derivation; `context-and-validation-hardening`'s `follow-ups.md`;
   `change.yaml` alone, with no second file to reconcile.
 - A test proves a declared temporary inconsistency between two named tasks does not fail
   `validate` mid-batch, but an undeclared one between any other pair still does.
+- A test proves `all-approved-reachable` selects a full linear approved dependency chain
+  that `currently-ready` alone would only ever select the first task of (D20).
+- A test proves a `named-subset` selection missing a required prerequisite is reported,
+  not silently completed or rejected without explanation (D20).
+- A test proves a later batched task's file/command-overlapping change invalidates an
+  earlier task's recorded evidence, and that the gating batch review does not run until
+  it's refreshed (D19).
+- A test proves an unrelated later-batched task's change does not stale an earlier task's
+  evidence (D19).
 
 ## Dependencies
 
 `conversational-continuity` (task 04) — batch execution reuses the same inline-offer/
 auto-continue mechanism. `state-and-fingerprint-semantics` (task 01) — needs correct
-dependency ordering and the `execution.suspension` schema batch progress derivation reads.
+dependency ordering, `semantic_references`/the task-level fingerprint (D18, used by the
+evidence-freshness check), and the `execution.suspension` schema batch progress
+derivation reads. `scope-and-follow-up-mechanisms` (task 06, D21, second refinement
+pass) — the gating batch review reads open blocking `follow-ups.yaml` entries, a
+mechanism task 06 introduces; task 08 cannot be implemented meaningfully before it. A
+dependency on `mechanical-task-type` (task 07) was evaluated and found unnecessary: a
+`type: mechanical` task is ordinary from batch execution's perspective (D14 requirement
+21) — this area has no code path that needs task 07's contract specifically.
 
 ## Out of scope
 

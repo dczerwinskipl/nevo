@@ -34,6 +34,13 @@ forbidden_paths:
 > postcondition contract instead of a bare boolean; a `partially_completed` `start`
 > failure records an `execution.suspension` (D8) so a later retry only performs the
 > missing effects, rather than only reporting the failure with nothing persisted.
+>
+> Refined again 2026-08-04 (second pass, see D17) — a `confirm-required` `start` failure
+> inside the combined "approve and start" flow no longer just gets reported and stopped:
+> it resumes the same authorized flow in place after one owner confirmation, via task
+> 03's resume-in-place mechanism and task 02's resumable recovery handle. The owner is
+> never asked to separately re-invoke `/nevo-ai:task-start` for a repair they already
+> confirmed inside the combined flow.
 
 ## Goal
 
@@ -51,11 +58,21 @@ the recovery classification before offering transitions inline responsibly.
 - `spec-approve.md`'s fourth outcome ("approve and start") is its own explicit menu item,
   never a default and never inferred. Selecting it: run `approve`, re-check `start`'s
   preconditions (task 02's `start-task` postcondition contract) against *current* state,
-  run `start` only if they still hold, and on a `start` failure classify it as
-  `partially_completed`/`not_retryable`, report it, and stop without touching the
-  `approved` status (no rollback, no silent re-approval) — per D3 exactly. A
-  `partially_completed` failure records an `execution.suspension`
-  (`previous_action: start`).
+  run `start` only if they still hold, and on a `start` failure classify it per the
+  five-value result vocabulary (D17) and branch:
+  - **`partially_completed`** — records an `execution.suspension`
+    (`previous_action: start`), reports it, and stops; `approved` status untouched.
+  - **`confirm-required` (D17, second refinement pass)** — presents the recovery action
+    for confirmation in the same turn; on confirmation, invokes task 03's resume-in-place
+    mechanism (which calls task 02's resumable recovery handle), executes only the
+    still-missing postconditions, and completes the combined flow — never a second,
+    separate `/nevo-ai:task-start` invocation. A confirmation is asked at most once per
+    repair; if postconditions still don't hold afterward, that's a fresh
+    `not_retryable`/`unsafe_manual` result on the next branch, not a repeated prompt.
+  - **`not_retryable`/`unsafe_manual`** — reports it and stops; `approved` status
+    untouched; a fresh suspension is recorded if applicable.
+
+  In every branch: no rollback of `approve`, no silent re-approval — per D3 exactly.
 - The re-guard-check must call the same postcondition-inspection logic `handleStart`
   uses standalone (task 02) — no parallel guard implementation.
 - `spec-review.md`'s `ready-for-approval` path offers approval inline as a closed-choice
@@ -82,6 +99,14 @@ the recovery classification before offering transitions inline responsibly.
 4. `task-review`'s batch-continuation offer never appears when no active batch record
    exists (inspection, until task 08 lands; re-verified as part of task 08's own
    acceptance criteria once the record is real).
+5. A `confirm-required` `start` failure inside the combined flow, once confirmed, resumes
+   and completes `start` without a second `/nevo-ai:task-start` invocation, and `approve`
+   is called exactly once (automated, extends task 02/03's coverage) (D17).
+6. An `unsafe_manual` `start` failure inside the combined flow stops and reports without
+   ever presenting a confirmation prompt for it (automated, same suite) (D17).
+7. Approval remains persisted (`status: approved`) when a `start` failure inside the
+   combined flow is `not_retryable` — the workflow stops and reports why, without
+   rolling back or repeating `approve` (automated, same suite) (D17).
 
 ## Verification
 

@@ -29,18 +29,27 @@ forbidden_paths:
 > retry rule this task wires in now follows the
 > `completed`/`safe_to_retry`/`partially_completed`/`not_retryable` postcondition model
 > from task 02, not a bare "recovered, so continue" boolean.
+>
+> Refined again 2026-08-04 (second pass, see D17) — the controller now implements
+> repair-and-retry: a `confirm-required` result inside an owner-already-authorized
+> combined transition resumes that transition in place, using task 02's resumable
+> recovery handle, rather than always stopping. The postcondition-result vocabulary this
+> task reasons about gains a fifth value, `unsafe_manual`, which — like `not_retryable`,
+> scope expansion, and unrelated dirty files — always stops the loop.
 
 ## Goal
 
 Turn `deriveStage` into the single shared, suspension-aware "what's next" entry point
 every conversational command and the batch controller call, instead of each command
 independently deciding. Wire task 02's postcondition-based recovery so it calls this
-controller after every resolved recovery, and enforce the expansive-continuation
-boundary from `overview.md` § "Proposed architecture" → "Interaction model" (stop
-immediately at scope expansion, an architectural/behavioral decision, an unsafe-manual
-recovery, unrelated dirty files, a failed acceptance criterion, an unexpected
-public-contract impact, unresolved high-risk evidence, or the end of the authorized
-scope).
+controller after every resolved recovery, implement the repair-and-retry resume-in-place
+behavior for a `confirm-required` result inside an authorized combined transition (D17),
+and enforce the expansive-continuation boundary from `overview.md` § "Proposed
+architecture" → "Interaction model" (stop immediately at scope expansion, an
+architectural/behavioral decision, an `unsafe_manual` result, unrelated dirty files, a
+`not_retryable` result, a failed acceptance criterion, an unexpected public-contract
+impact, unresolved high-risk evidence, stale unresolved batch evidence, or the end of the
+authorized scope).
 
 ## Dependencies
 
@@ -56,14 +65,29 @@ model and `execution.suspension` writer this task wires in.
   to its existing stage logic — a suspended task's report names the suspension's
   `kind`/`code` and, for `confirm-required`, what confirmation is still needed.
 - After a `completed`/`safe_to_retry` recovery (task 02), the controller is called before
-  deciding whether to stop or continue; a `partially_completed` or `not_retryable`
-  outcome always stops (never auto-continues past an unresolved suspension).
-- Implement the authorized-scope tracking (one named task / a selected batch / all ready
-  tasks / until a named checkpoint) as an explicit parameter the controller is always
-  given — "continue" is never ambiguous about how far it's allowed to go.
+  deciding whether to stop or continue; a `partially_completed`, `not_retryable`, or
+  `unsafe_manual` outcome always stops (never auto-continues past an unresolved
+  suspension).
+- **Repair-and-retry inside an authorized combined transition (D17, second refinement
+  pass).** When a `confirm-required` result occurs inside an owner-already-authorized
+  combined transition (e.g. task 04's `approve` → `start`), the controller does not
+  treat it as an unconditional stop: it exposes a resume-in-place path that (a)
+  preserves the already-succeeded step(s), (b) surfaces the recovery action for
+  confirmation, (c) on confirmation, invokes task 02's resumable recovery handle, (d)
+  executes only the still-missing postconditions the handle reports, (e) continues the
+  authorized sequence to completion. This task implements the resume-in-place mechanism
+  itself; task 04 wires the conversational confirmation into it for the `approve` →
+  `start` case specifically. A confirmation is asked at most once per repair — if the
+  re-inspected postconditions still don't hold after the confirmed repair, that is a
+  fresh `not_retryable`/`unsafe_manual` result, never a repeated prompt.
+- Implement the authorized-scope tracking (one named task / a selected batch — any of
+  the four D20 selection modes / until a named checkpoint) as an explicit parameter the
+  controller is always given — "continue" is never ambiguous about how far it's allowed
+  to go.
 - This task does not change any command's *conversational* behavior (menus, inline
-  offers) — that is task 04. It only makes the deterministic computation callable as a
-  shared entry point and wires the retry rule to it.
+  offers, the actual confirmation prompt) — that is task 04. It only makes the
+  deterministic computation and the resume-in-place mechanism callable as a shared entry
+  point and wires the retry rule to it.
 
 ## Acceptance criteria
 
@@ -74,11 +98,17 @@ model and `execution.suspension` writer this task wires in.
    stage's default `nextCommand` (automated: `node --test
    tools/tests/task-lifecycle.test.mjs`).
 3. After a `completed`/`safe_to_retry` recovery, the controller is called before the
-   operation reports success; a `partially_completed`/`not_retryable` outcome always
-   stops (automated, same suite).
+   operation reports success; a `partially_completed`/`not_retryable`/`unsafe_manual`
+   outcome always stops (automated, same suite).
 4. The controller never continues past an explicitly authorized scope's boundary
    (automated — construct a batch/single-task scope and assert continuation stops at its
    edge).
+5. A `confirm-required` result inside an authorized combined transition resumes in
+   place after one confirmation, executing only the still-missing postconditions,
+   without ending the authorized sequence (automated, extends the same suite) (D17).
+6. A confirmation is asked at most once per repair — a still-unresolved postcondition
+   after the confirmed repair surfaces as a fresh `not_retryable`/`unsafe_manual`
+   result, never a second confirmation prompt for the same repair (automated) (D17).
 
 ## Verification
 

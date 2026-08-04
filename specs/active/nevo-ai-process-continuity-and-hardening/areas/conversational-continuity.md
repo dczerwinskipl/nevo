@@ -5,6 +5,13 @@
 > `recovery-and-resume` instead of a bare boolean guard check, and a `partially_completed`
 > `start` failure now records an `execution.suspension` rather than only "reporting" the
 > failure with nothing persisted.
+>
+> Refined again 2026-08-04 (second pass) — see D17. Requirement 2's `start` failure
+> handling gains a fourth branch: a `confirm-required` result no longer just gets
+> "reported and stopped" — it resumes the combined `approve`→`start` flow in place after
+> one owner confirmation, using area `recovery-and-resume`'s resumable recovery handle.
+> The flow's stop conditions are now anchored to the five-value postcondition-result
+> vocabulary (adds `unsafe_manual`), not prose.
 
 ## Responsibility
 
@@ -33,11 +40,19 @@ computes but doesn't act on its own next-step recommendation. See `overview.md` 
    (area `recovery-and-resume`'s `start-task` contract: working-tree-clean, transition
    validity, `depsSatisfied`) against current state — not the state at the time `approve`
    was chosen, (c) runs `start` only if those preconditions still hold, (d) on a `start`
-   failure, classifies it as `partially_completed` or `not_retryable` per the
-   `start-task` contract, reports it, and stops — the task remains `approved`; `approve`
-   is not rolled back and is not silently re-run. A `partially_completed` failure records
-   an `execution.suspension` (`previous_action: start`) so a later retry performs only
-   the missing effects.
+   failure, classifies it per the five-value result vocabulary (D17) and branches:
+   - **`partially_completed`** — records an `execution.suspension`
+     (`previous_action: start`), reports it, and stops; the task remains `approved`.
+   - **`confirm-required` (D17, second refinement pass)** — presents the recovery action
+     for confirmation *in the same turn*; on confirmation, applies the repair via the
+     resumable recovery handle (area `recovery-and-resume` requirement 4a), re-inspects
+     `start`'s postconditions, executes only what's still missing, and completes the
+     combined flow — the owner is never asked to separately re-invoke
+     `/nevo-ai:task-start`.
+   - **`not_retryable`/`unsafe_manual`** — reports it and stops; the task remains
+     `approved`; a fresh, separately-presented suspension is recorded if applicable.
+
+   In every branch, `approve` is never rolled back and never silently re-run.
 3. `task-review` reaching a fully-terminal change keeps its existing archive-offer
    behavior (`artifact-policy.md`, already designed); under an active batch (area
    `batch-execution-and-gating-review`), it additionally offers "continue to next batch
@@ -58,6 +73,10 @@ computes but doesn't act on its own next-step recommendation. See `overview.md` 
   `task-start` remains its own explicit, single-purpose command.
 - The re-guard-check in requirement 2(b) must use the same guard functions `handleStart`
   already runs standalone — no parallel guard implementation.
+- The `confirm-required` resume branch (requirement 2) confirms **once** per repair — it
+  must not loop indefinitely presenting the same confirmation; if the re-inspected
+  postconditions still don't hold after one confirmed repair, that is a `not_retryable`
+  or `unsafe_manual` result on the next inspection, not a repeated confirmation prompt.
 
 ## Interfaces and boundaries
 
@@ -76,6 +95,11 @@ reads.
   at `approved`, not `in-implementation` and not reverted to `draft`.
 - A test proves the batch-aware continuation offer in `task-review` never appears outside
   an active batch.
+- A test proves a `confirm-required` `start` failure inside the combined flow, once
+  confirmed, resumes and completes `start` without a second `/nevo-ai:task-start`
+  invocation, and that `approve` is called exactly once (D17).
+- A test proves an `unsafe_manual` `start` failure inside the combined flow stops and
+  reports, and never presents a confirmation prompt for it (D17).
 
 ## Dependencies
 

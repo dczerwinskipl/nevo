@@ -3,6 +3,14 @@
 > Refined 2026-08-04 — see `owner-decisions.md` D8. Scenario count corrected from eight
 > to nine; recovery is now defined through action postconditions, not status transitions
 > alone.
+>
+> Refined again 2026-08-04 (second pass) — see D17. The postcondition-outcome vocabulary
+> gains a fifth value, `unsafe_manual`, mapped 1:1 to
+> `execution.suspension.kind: unsafe-manual`. A `confirm-required` stop inside an
+> owner-already-authorized combined transition (e.g. `approve` → `start`) now resumes
+> that transition in place once confirmed, instead of ending it and requiring a fresh
+> command invocation — see area `conversational-continuity` for the conversational side
+> of this change; this area owns the postcondition/result-class model it relies on.
 
 ## Responsibility
 
@@ -38,9 +46,19 @@ never acts on it.
    batch continuation, mechanical auto-approval), define: preconditions, intended side
    effects, a completion postcondition (a checkable predicate over real state, not "exit
    code 0"), safe partial states, a recovery procedure, and which of
-   `completed`/`safe_to_retry`/`partially_completed`/`not_retryable` applies to a given
-   observed state. `start-task`'s contract is worked out in full in `overview.md` §
-   "Recovery model" as the reference example — implement the others by the same pattern.
+   `completed`/`safe_to_retry`/`partially_completed`/`not_retryable`/`unsafe_manual`
+   (D17, second refinement pass — see requirement 2a) applies to a given observed state.
+   `start-task`'s contract is worked out in full in `overview.md` § "Recovery model" as
+   the reference example — implement the others by the same pattern.
+2a. **`unsafe_manual` result (D17).** A postcondition inspection reports `unsafe_manual`
+   exactly when the corresponding suspension would be `execution.suspension.kind:
+   unsafe-manual` — no closed-choice confirmation or automatic repair can resolve it, and
+   the owner must act manually outside the controller's retry loop (e.g. `REC-09`, or a
+   repair whose own conflict resolution is not deterministic). Distinct from
+   `not_retryable`: `not_retryable` means the *original action's own preconditions*
+   changed and the controller creates a **new** suspension automatically (requirement 4);
+   `unsafe_manual` means no automated or confirmed path exists at all, and the controller
+   stops and waits rather than creating a follow-on suspension on the owner's behalf.
 3. Recovery always inspects postconditions and executes only the missing effects — it
    never repeats a completed, externally-visible effect (e.g. never re-runs `git checkout
    -b` against a branch that already exists).
@@ -48,6 +66,16 @@ never acts on it.
    was revoked, dependencies changed since the suspension was recorded), the controller
    creates a **new** suspension describing the new situation rather than blindly retrying
    the stale `previous_action`.
+4a. **Repair-and-retry inside an authorized combined transition (D17).** When a
+   `confirm-required` postcondition result occurs *inside* an owner-already-authorized
+   combined transition (e.g. D3's `approve` → `start`), this area's recovery procedure
+   does not simply report the stop and return — it exposes a resumable recovery handle
+   that area `conversational-continuity` (task 04) uses to: present the recovery action
+   for confirmation, apply the repair once confirmed, re-inspect postconditions, and
+   report back exactly which postconditions are still missing so the calling combined
+   transition can execute only those and continue. This area does not itself decide
+   whether the wider transition resumes or stops — it provides the re-inspectable,
+   re-runnable primitive; task 04 owns the conversational resume-in-place behavior.
 5. Extend `branchExists` (`tools/lib/git.mjs:18-25`) to also check `origin/<name>` when
    the local ref is missing (`REC-02`'s concrete fix); `handleStart` uses this to check
    out the existing remote branch instead of creating a diverging one.
@@ -69,15 +97,19 @@ never acts on it.
   classification, postcondition inspection, and remote-branch detection around them.
 - The term "idempotent" keeps its existing, narrower codebase meaning
   (`validateTransition`'s "already at target status" flag) — this area's own vocabulary
-  (`completed`/`safe_to_retry`/`partially_completed`/`not_retryable`) is used for
-  action-level postcondition reasoning and must not be described as "idempotent" in any
-  new code comment or doc text, to avoid re-introducing the ambiguity the refinement
-  flagged.
+  (`completed`/`safe_to_retry`/`partially_completed`/`not_retryable`/`unsafe_manual`) is
+  used for action-level postcondition reasoning and must not be described as "idempotent"
+  in any new code comment or doc text, to avoid re-introducing the ambiguity the
+  refinement flagged.
+- `unsafe_manual` never resolves itself and is never auto-retried — a controller that
+  observes it must stop, exactly like an unresolved `owner-decision`-class suspension.
 
 ## Interfaces and boundaries
 
-Exposes: the `REC-01`..`REC-09` table with codes; postcondition contracts per action; the
-suspension writer/clearer; the extended `branchExists`; suspension-aware `deriveStage`.
+Exposes: the `REC-01`..`REC-09` table with codes; postcondition contracts per action
+(five-value result vocabulary, D17); the resumable recovery handle used by combined
+transitions (requirement 4a); the suspension writer/clearer; the extended `branchExists`;
+suspension-aware `deriveStage`.
 
 Consumes: `state-and-fingerprint-semantics`' `execution.suspension` schema and corrected
 `depsSatisfied`.
@@ -93,6 +125,11 @@ Consumes: `state-and-fingerprint-semantics`' `execution.suspension` schema and c
   recovers by writing only the missing status, never re-creating the branch.
 - A test proves a `not_retryable` case produces a new suspension rather than repeating
   the stale `previous_action`.
+- A test proves an `unsafe_manual` result never produces an automatic retry and never
+  creates a follow-on suspension of a different kind on the owner's behalf (D17).
+- A test proves the resumable recovery handle (requirement 4a) reports exactly the still-
+  missing postconditions after a confirmed repair, not a full postcondition re-check that
+  would re-report already-satisfied ones as new work.
 
 ## Dependencies
 
