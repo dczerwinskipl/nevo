@@ -30,6 +30,11 @@ forbidden_paths:
 
 # Task: Conversational approval ergonomics
 
+> Refined 2026-08-04 — the `start` guard re-check now uses task 02's `start-task`
+> postcondition contract instead of a bare boolean; a `partially_completed` `start`
+> failure records an `execution.suspension` (D8) so a later retry only performs the
+> missing effects, rather than only reporting the failure with nothing persisted.
+
 ## Goal
 
 Implement the D3 combined approve+start confirmation and the inline next-transition
@@ -45,11 +50,14 @@ the recovery classification before offering transitions inline responsibly.
 
 - `spec-approve.md`'s fourth outcome ("approve and start") is its own explicit menu item,
   never a default and never inferred. Selecting it: run `approve`, re-check `start`'s
-  guards against *current* state, run `start` only if they pass, and on a `start`
-  failure report it without touching the `approved` status (no rollback, no silent
-  re-approval) — per D3 exactly.
-- The re-guard-check must call `handleStart`'s existing guard logic (working-tree-clean,
-  transition validity, `depsSatisfied`) — no parallel guard implementation.
+  preconditions (task 02's `start-task` postcondition contract) against *current* state,
+  run `start` only if they still hold, and on a `start` failure classify it as
+  `partially_completed`/`not_retryable`, report it, and stop without touching the
+  `approved` status (no rollback, no silent re-approval) — per D3 exactly. A
+  `partially_completed` failure records an `execution.suspension`
+  (`previous_action: start`).
+- The re-guard-check must call the same postcondition-inspection logic `handleStart`
+  uses standalone (task 02) — no parallel guard implementation.
 - `spec-review.md`'s `ready-for-approval` path offers approval inline as a closed-choice
   menu item in the same turn, but still requires an explicit owner answer — this is an
   additional entry point into the unchanged `spec-approve` gate, not a bypass.
@@ -66,7 +74,8 @@ the recovery classification before offering transitions inline responsibly.
 1. `spec-approve` offers exactly four outcomes total (the original three, unchanged,
    plus "approve and start"); none is pre-selected (inspection + manual trace).
 2. A `start` failure after a successful `approve` in the combined path leaves the task's
-   status at `approved` (automated, extends task 02/03's test coverage).
+   status at `approved` and, if `partially_completed`, records an `execution.suspension`
+   with `previous_action: start` (automated, extends task 02/03's test coverage).
 3. `spec-review` reaching `ready-for-approval` offers inline approval without skipping
    `spec-approve`'s own CLI-enforced gate (manual trace: review exists, verdict ready,
    fingerprint current, still checked by the CLI, not assumed by the command file).

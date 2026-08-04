@@ -65,9 +65,15 @@ tasks:
     depends_on:
       - batch-execution-and-gating-review
       - mechanical-task-type
-  - id: workflow-tests-and-docs-migration
+  - id: workflow-e2e-tests
     order: 10
-    file: tasks/10-workflow-tests-and-docs-migration.md
+    file: tasks/10-workflow-e2e-tests.md
     status: draft
     depends_on:
       - finalization-hardening-and-migration
+  - id: workflow-docs-and-adr-migration
+    order: 11
+    file: tasks/11-workflow-docs-and-adr-migration.md
+    status: draft
+    depends_on:
+      - workflow-e2e-tests

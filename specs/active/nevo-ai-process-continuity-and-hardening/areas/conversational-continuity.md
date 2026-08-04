@@ -1,5 +1,11 @@
 # Area: Conversational continuity and approval ergonomics
 
+> Refined 2026-08-04 — terminology only (see `owner-decisions.md` D8): the guard re-check
+> in requirement 2 now uses the postcondition/retry-safety vocabulary from area
+> `recovery-and-resume` instead of a bare boolean guard check, and a `partially_completed`
+> `start` failure now records an `execution.suspension` rather than only "reporting" the
+> failure with nothing persisted.
+
 ## Responsibility
 
 Own how `/nevo-ai:*` commands offer their own next transition inline, and the
@@ -23,11 +29,15 @@ computes but doesn't act on its own next-step recommendation. See `overview.md` 
    additional entry point into the existing gate, not a bypass of it.
 2. `spec-approve` gains a fourth outcome, "approve and start" (D3), presented as its own
    explicit menu item alongside the existing three (never the default, never
-   pre-selected). Selecting it: (a) runs `approve`, (b) re-checks `start`'s guards
-   (working-tree-clean, transition validity, `depsSatisfied`) against current state — not
-   the state at the time `approve` was chosen, (c) runs `start` only if those guards
-   still pass, (d) on a `start` failure, reports it and stops — the task remains
-   `approved`; `approve` is not rolled back and is not silently re-run.
+   pre-selected). Selecting it: (a) runs `approve`, (b) re-checks `start`'s postconditions
+   (area `recovery-and-resume`'s `start-task` contract: working-tree-clean, transition
+   validity, `depsSatisfied`) against current state — not the state at the time `approve`
+   was chosen, (c) runs `start` only if those preconditions still hold, (d) on a `start`
+   failure, classifies it as `partially_completed` or `not_retryable` per the
+   `start-task` contract, reports it, and stops — the task remains `approved`; `approve`
+   is not rolled back and is not silently re-run. A `partially_completed` failure records
+   an `execution.suspension` (`previous_action: start`) so a later retry performs only
+   the missing effects.
 3. `task-review` reaching a fully-terminal change keeps its existing archive-offer
    behavior (`artifact-policy.md`, already designed); under an active batch (area
    `batch-execution-and-gating-review`), it additionally offers "continue to next batch

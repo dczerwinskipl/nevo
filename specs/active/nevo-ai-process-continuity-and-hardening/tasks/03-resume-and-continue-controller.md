@@ -24,26 +24,43 @@ forbidden_paths:
 
 # Task: Resume and continue controller
 
+> Refined 2026-08-04 — `deriveStage` is now suspension-aware (D8): a task with an active
+> `execution.suspension` reports that instead of its stage's usual `nextCommand`. The
+> retry rule this task wires in now follows the
+> `completed`/`safe_to_retry`/`partially_completed`/`not_retryable` postcondition model
+> from task 02, not a bare "recovered, so continue" boolean.
+
 ## Goal
 
-Turn `deriveStage` into the single shared "what's next" entry point every conversational
-command and the batch controller call, instead of each command independently deciding.
-No new computation logic is introduced beyond what `deriveStage` already does — this task
-is about making it the one call site, and wiring the repair-retry-continue rule from task
-02 to call it after every recovery.
+Turn `deriveStage` into the single shared, suspension-aware "what's next" entry point
+every conversational command and the batch controller call, instead of each command
+independently deciding. Wire task 02's postcondition-based recovery so it calls this
+controller after every resolved recovery, and enforce the expansive-continuation
+boundary from `overview.md` § "Proposed architecture" → "Interaction model" (stop
+immediately at scope expansion, an architectural/behavioral decision, an unsafe-manual
+recovery, unrelated dirty files, a failed acceptance criterion, an unexpected
+public-contract impact, unresolved high-risk evidence, or the end of the authorized
+scope).
 
 ## Dependencies
 
-`recovery-classification-and-machine-readable-errors` — the repair-retry-continue rule
-this task wires in.
+`recovery-classification-and-machine-readable-errors` — the postcondition-based recovery
+model and `execution.suspension` writer this task wires in.
 
 ## Implementation constraints
 
 - Do not duplicate `deriveStage`'s logic anywhere else in `tools/specs.mjs`; expose it
   (or a thin wrapper with the same contract) so that a future command-file change (task
   04) can call one function instead of re-deriving state.
-- The repair-retry-continue rule (task 02) calls this controller after every resolved
-  recovery, before deciding whether to stop or continue.
+- `deriveStage`'s wrapper checks each task's `execution.suspension` before falling back
+  to its existing stage logic — a suspended task's report names the suspension's
+  `kind`/`code` and, for `confirm-required`, what confirmation is still needed.
+- After a `completed`/`safe_to_retry` recovery (task 02), the controller is called before
+  deciding whether to stop or continue; a `partially_completed` or `not_retryable`
+  outcome always stops (never auto-continues past an unresolved suspension).
+- Implement the authorized-scope tracking (one named task / a selected batch / all ready
+  tasks / until a named checkpoint) as an explicit parameter the controller is always
+  given — "continue" is never ambiguous about how far it's allowed to go.
 - This task does not change any command's *conversational* behavior (menus, inline
   offers) — that is task 04. It only makes the deterministic computation callable as a
   shared entry point and wires the retry rule to it.
@@ -53,9 +70,15 @@ this task wires in.
 1. `deriveStage` (or its wrapper) is called from exactly one place per command that needs
    "what's next," verifiable by inspection — no command file computes an equivalent
    result independently (inspection).
-2. After a resolved recovery, the repair-retry-continue rule calls the controller before
-   the operation reports success or failure to the caller (automated: `node --test
+2. A task with an active `execution.suspension` is reported via its suspension, not its
+   stage's default `nextCommand` (automated: `node --test
    tools/tests/task-lifecycle.test.mjs`).
+3. After a `completed`/`safe_to_retry` recovery, the controller is called before the
+   operation reports success; a `partially_completed`/`not_retryable` outcome always
+   stops (automated, same suite).
+4. The controller never continues past an explicitly authorized scope's boundary
+   (automated — construct a batch/single-task scope and assert continuation stops at its
+   edge).
 
 ## Verification
 
@@ -66,7 +89,7 @@ node tools/specs.mjs validate
 
 ## Documentation impact
 
-None in this task — consolidated in task 10.
+None in this task — consolidated in task 11.
 
 ## Out of scope
 
