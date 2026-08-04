@@ -117,6 +117,120 @@ export function validateConsequentialPaths(fm, errors, label) {
   }
 }
 
+// ── Mechanical task type — review-exempt deterministic approval (D14, task 07) ─
+
+function loadTaskFmAndBody(change, task) {
+  if (!task?.file) return null;
+  try {
+    const file = resolveWithinBase(change._dir, task.file);
+    if (!existsSync(file)) return null;
+    const raw = readUtf8(file);
+    const fm = parseFrontMatterFile(file);
+    const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+    return { fm, body };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse the "## Acceptance criteria" section's numbered items into an array
+ * of item text (continuation lines folded in) — used only to check for the
+ * per-criterion `automated:`/`inspection:`/`owner-decision:` tag (D14
+ * condition 6), not as a general Markdown parser. `null` if the section
+ * can't be found at all.
+ */
+function parseAcceptanceCriteriaItems(body) {
+  const match = body.match(/##\s*Acceptance criteria\s*\r?\n([\s\S]*?)(\r?\n##\s|\r?\n?$)/i);
+  if (!match) return null;
+  const items = [];
+  let current = null;
+  for (const rawLine of match[1].split(/\r?\n/)) {
+    const m = rawLine.match(/^\s*\d+[a-z]?\.\s+(.*)$/);
+    if (m) {
+      if (current !== null) items.push(current);
+      current = m[1];
+    } else if (current !== null && rawLine.trim() !== '') {
+      current += ` ${rawLine.trim()}`;
+    }
+  }
+  if (current !== null) items.push(current);
+  return items;
+}
+
+/**
+ * D14's six conjunctive conditions for `type: mechanical`'s review-exemption
+ * — never a score/majority check, every condition must hold. Pure over
+ * already-loaded data: `deriveFm` is the `derived_from` task's own front
+ * matter, or `null` if it doesn't resolve to a real, loadable task.
+ * `failedConditions` is empty exactly when `eligible` is true.
+ */
+export function inspectMechanicalConditions(fm, body, change, deriveFm) {
+  const failed = [];
+  const derivedFromId = fm.mechanical?.derived_from;
+  const derivedFromTask = derivedFromId ? change.tasks.find(t => t.id === derivedFromId) : null;
+
+  if (!derivedFromTask) {
+    failed.push(`derived_from ('${derivedFromId ?? 'missing'}') must name a real task in this change`);
+  } else if (derivedFromTask.status === 'draft') {
+    failed.push(`derived_from task '${derivedFromId}' must already be approved (or later), not 'draft'`);
+  }
+
+  if (fm.mechanical?.deterministic !== true) failed.push("mechanical.deterministic must be explicitly 'true'");
+  if (fm.mechanical?.no_public_behavior_change !== true) failed.push("mechanical.no_public_behavior_change must be explicitly 'true'");
+  if (fm.mechanical?.no_new_design_decision !== true) failed.push("mechanical.no_new_design_decision must be explicitly 'true'");
+
+  if (derivedFromTask) {
+    if (!deriveFm) {
+      failed.push(`could not load derived_from task '${derivedFromId}' to check its own declared paths`);
+    } else {
+      const derivedAllowed = new Set([...(deriveFm.allowed_paths || []), ...(deriveFm.consequential_paths || [])]);
+      const ownPaths = [...(fm.allowed_paths || []), ...(fm.consequential_paths || [])];
+      const outside = ownPaths.filter(p => !derivedAllowed.has(p));
+      if (outside.length) {
+        failed.push(`allowed_paths/consequential_paths not already declared on derived_from task '${derivedFromId}': ${outside.join(', ')}`);
+      }
+    }
+  }
+
+  const items = parseAcceptanceCriteriaItems(body);
+  if (!items || !items.length) {
+    failed.push('acceptance criteria could not be parsed to verify per-criterion automated: tags');
+  } else {
+    items.forEach((text, i) => {
+      if (/\bowner-decision:/i.test(text)) {
+        failed.push(`acceptance criterion ${i + 1} carries an owner-decision: tag — not allowed for type: mechanical`);
+      } else if (/\binspection:/i.test(text)) {
+        failed.push(`acceptance criterion ${i + 1} carries an inspection: tag — not allowed for type: mechanical`);
+      } else if (!/\bautomated:/i.test(text)) {
+        failed.push(`acceptance criterion ${i + 1} is missing an automated: tag`);
+      }
+    });
+  }
+
+  return { eligible: failed.length === 0, failedConditions: failed };
+}
+
+/**
+ * I/O + the pure check above, combined: loads `task`'s own file and (if
+ * declared) its `mechanical.derived_from` task's file, then evaluates the six
+ * D14 conditions. `eligible` is always `false` when the task isn't declared
+ * `type: mechanical` at all — nothing to exempt. The one function both
+ * `validateSpecs` (hard `validate` error, AC2) and `tools/specs.mjs`'s
+ * `handleApprove` (the actual exemption decision, AC1) call — never a
+ * parallel re-implementation of the six conditions in either caller.
+ */
+export function computeMechanicalExemption(change, task) {
+  const own = loadTaskFmAndBody(change, task);
+  if (!own || own.fm.type !== 'mechanical') return { eligible: false, failedConditions: [] };
+
+  const derivedFromId = own.fm.mechanical?.derived_from;
+  const derivedFromTask = derivedFromId ? change.tasks.find(t => t.id === derivedFromId) : null;
+  const derived = derivedFromTask ? loadTaskFmAndBody(change, derivedFromTask) : null;
+
+  return inspectMechanicalConditions(own.fm, own.body, change, derived?.fm ?? null);
+}
+
 /**
  * Whether a follow-up's `resolver_task` resolves to a real task id — either
  * in this change (`task-id`) or an explicitly named other change
@@ -250,6 +364,16 @@ export function validateSpecs() {
             validateSemanticReferences(task, fm, decisionsMap, constraintsMap, errors, label);
             validateContextExceptions(fm, decisionsMap, errors, label);
             validateConsequentialPaths(fm, errors, label);
+
+            if (fm.type !== undefined && fm.type !== 'mechanical') {
+              errors.push(`${label}: unrecognized type '${fm.type}' (only 'mechanical' is defined)`);
+            }
+            if (fm.type === 'mechanical') {
+              const { eligible, failedConditions } = computeMechanicalExemption(change, task);
+              if (!eligible) {
+                errors.push(`${label}: type: mechanical conditions failed — ${failedConditions.join('; ')}`);
+              }
+            }
           }
         } catch (err) {
           const reason = err instanceof CliError ? err.message : String(err);

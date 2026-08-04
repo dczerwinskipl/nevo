@@ -21,7 +21,7 @@ import {
   FOLLOW_UP_SEVERITIES,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
-import { validateSpecs } from './specs/validation.mjs';
+import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
@@ -164,9 +164,14 @@ export function handleApprove(changeSlug, taskId) {
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
+  // D14, task 07 — "review-exempt deterministic approval": re-verifies all six
+  // conditions itself (defense in depth alongside `validate`'s own hard error)
+  // rather than trusting a `type: mechanical` declaration at face value.
+  const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);
+
   const review = loadReview(change);
   const currentFingerprint = computeSpecFingerprint(change);
-  const result = validateApproval(task.status, review, currentFingerprint);
+  const result = validateApproval(task.status, review, currentFingerprint, { mechanicalExempt });
   const inspection = inspectApprovePostconditions(result);
 
   if (inspection.result === 'not_retryable') {
@@ -186,7 +191,11 @@ export function handleApprove(changeSlug, taskId) {
 
   clearTaskSuspension(change, taskId);
   setTaskStatus(change, taskId, 'approved');
-  console.log(`Task '${taskId}' marked as approved.`);
+  console.log(
+    mechanicalExempt
+      ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
+      : `Task '${taskId}' marked as approved.`
+  );
 }
 
 // Postcondition-based start (D8 reference example, area recovery-and-resume):

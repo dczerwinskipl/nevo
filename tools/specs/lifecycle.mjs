@@ -81,12 +81,22 @@ export function validateTransition(command, currentStatus) {
  * touch the filesystem — see handleApprove in tools/specs.mjs for the I/O
  * around this.
  *
+ * `mechanicalExempt` (D14, task 07 — "review-exempt deterministic approval"):
+ * when true, skips only the review/verdict/fingerprint checks below — the
+ * `draft`→`approved` transition check above still applies unchanged, and the
+ * caller still performs the same explicit `approve` write either way. The
+ * caller (`tools/specs/validation.mjs`'s `computeMechanicalExemption`)
+ * already re-verified all six D14 conditions before setting this, since
+ * `validateApproval` itself stays filesystem-free.
+ *
  * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
  */
-export function validateApproval(taskStatus, review, currentFingerprint) {
+export function validateApproval(taskStatus, review, currentFingerprint, { mechanicalExempt = false } = {}) {
   const transition = validateTransition('approve', taskStatus);
   if (!transition.ok) return transition;
   if (transition.idempotent) return transition;
+
+  if (mechanicalExempt) return { ok: true, idempotent: false };
 
   if (!review) {
     return {
