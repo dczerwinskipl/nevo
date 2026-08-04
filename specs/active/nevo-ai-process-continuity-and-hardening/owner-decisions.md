@@ -131,7 +131,10 @@
 - **Refined by:** D19 (evidence recorded under these signals must also stay *fresh*
   through the rest of the batch — a later task's changes can invalidate an earlier
   task's evidence even though the risk signal that exempted it from full review hasn't
-  changed).
+  changed); D24 (third refinement pass — "an unresolved or failed self-check" is removed
+  from this list; a failed/unresolved self-check is now a hard batch stop that a full
+  review cannot substitute for, evaluated *before* any of the remaining signals here are
+  even reached — see D24 for the corrected split and its rationale).
 
 ## D12: Context routing contract — stable and machine-readable
 
@@ -294,6 +297,11 @@
 - **Date:** 2026-08-04 (second refinement pass)
 - **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
   `areas/state-and-fingerprint-semantics.md`, `overview.md`
+- **Refined by:** D26 (third refinement pass) — `validateSpecs` can confirm a declared
+  reference *exists*, but not that the task author declared *every* reference the task's
+  content actually needs; D26 adds a model-review completeness check inside
+  `/nevo-ai:spec-review` on top of this entry's deterministic integrity checks, which
+  remain exactly as decided here.
 
 ## D19: Gating batch review requires evidence freshness, not just presence
 
@@ -461,3 +469,153 @@
 - **Date:** 2026-08-04 (second refinement pass)
 - **Affected artifacts:** `tasks/09-finalization-hardening-and-migration.md`,
   `areas/finalization-and-migration.md`, `overview.md`
+- **Refined by:** D25 (third refinement pass) — the four-guard list and "stops without
+  modifying anything" wording overstated Git's actual atomicity; D25 reorders the guards
+  to minimize state-changing operations before remote-state checks pass, and replaces the
+  wording with an accurate contract that reports any read-only fetch or authorized
+  branch-switch/fast-forward that already occurred before a later guard failed. The
+  auto-create-after-one-confirmation decision itself is unchanged.
+
+## D24: Batch hard-stop conditions are separate from full-review risk signals
+
+- **Question:** D11's evidence-based risk-signal list included "self-check is unresolved
+  or failed" as one of the signals that trigger a full `task-review` before a batched
+  task can complete — a third refinement pass found this lets a full review substitute
+  for fixing a genuine verification failure (self-check fails → routed to full review →
+  batch continues), which is backwards: a review is a judgment about risk, not a repair
+  for broken code. What should actually happen when self-check, an acceptance criterion,
+  or automated verification fails inside a batch?
+- **Decision:** Split D11's list into two disjoint categories. **Hard stop conditions**
+  (batch halts immediately, full review cannot override): failed self-check, unresolved
+  self-check, a failed acceptance criterion, failed automated verification, stale
+  evidence that cannot be refreshed (D19), missing required evidence, or an
+  implementation error that prevents verification from running at all. After a hard
+  stop: preserve the current task/batch state, report the failed criterion or evidence,
+  require the implementation to be corrected, rerun the self-check, and continue only
+  once it passes. **Full-review risk signals** (D11's original list, evaluated only
+  *after* the self-check passes) are unchanged in substance, minus the removed
+  self-check entry: public-API/compatibility impact, security/authorization impact,
+  migration/destructive-persistence behavior, an `owner-decision:`-tagged criterion,
+  scope expansion, unexpected files, implementation divergence, an owner-flagged
+  high-risk task, and — newly named explicitly — inspection-only evidence where model
+  review is explicitly required. Touching `src/**`/`tests/**` alone remains insufficient
+  on its own for either category.
+- **Rationale:** A full task review is a risk judgment, not a verification mechanism —
+  routing a genuinely broken implementation through "needs full review" lets the review
+  become a bureaucratic detour around the actual defect instead of a signal that catches
+  it. Separating "must be fixed before anything continues" from "passed verification but
+  still needs a risk judgment" keeps both mechanisms doing the job they're actually for.
+- **Consequences:** `areas/batch-execution-and-gating-review.md` and
+  `tasks/08-batch-execution-and-gating-review.md` implement two disjoint predicate sets
+  instead of one risk-signal list; a task cannot be marked complete or handed to full
+  review while a hard-stop condition holds. A hard stop does **not** use
+  `execution.suspension` (area `recovery-and-resume`'s postcondition/suspension model
+  covers tool/workflow-state recoverable errors — `REC-01`..`REC-09` — not "the
+  implementation doesn't pass its own verification yet"); the task's `status` staying
+  `in-implementation` through the correction-and-rerun loop is what already tells a
+  resumed session the task isn't done, and the self-check's own failure output is the
+  report — no new suspension kind is introduced for this.
+- **Date:** 2026-08-04 (third refinement pass)
+- **Affected artifacts:** `tasks/08-batch-execution-and-gating-review.md`,
+  `areas/batch-execution-and-gating-review.md`, `areas/recovery-and-resume.md`,
+  `overview.md`
+
+## D25: Post-merge repair-branch guards are ordered and their failure semantics are truthful
+
+- **Question:** D23's four-guard list was presented in an order (clean worktree → switch
+  to `main` and fast-forward → SHA re-confirm → branch-name check) and with the wording
+  "stops without modifying anything" — but by the time the SHA and branch-name guards
+  run, the tool has already switched branches and fast-forwarded local `main`. Claiming
+  "no modification" at that point is inaccurate, and Git provides no atomic multi-step
+  rollback across those operations. What is the actual, honest guard sequence and
+  failure contract?
+- **Decision:** Reorder guards to check every *read-only or remote* fact before any
+  *local, state-changing* operation, and state failure semantics precisely instead of
+  claiming blanket non-modification:
+
+  ```text
+  1. verify the worktree is clean
+  2. verify the repair branch does not exist locally
+  3. git fetch origin
+  4. verify the repair branch does not exist remotely
+  5. verify origin/main still points to the recorded failing SHA
+  6. switch to local main
+  7. git pull --ff-only
+  8. verify local main equals the recorded failing SHA
+  9. create fix/<change>-post-merge
+  ```
+
+  If a guard fails at step 1, 2, 4, or 5 (before step 6): no repair branch is created, no
+  local branch is switched, no destructive operation occurs — a read-only `fetch` (step
+  3) may already have happened and is reported as such, not hidden. If a guard fails at
+  step 8 (after switching/fast-forwarding at steps 6-7): no repair branch is created, no
+  destructive operation occurs, but the report explicitly states that the local branch
+  was switched to `main` and/or fast-forwarded — the controller never reports the
+  repository as unchanged when it isn't. Replace any "stops without modifying anything"
+  wording with: "If a guard fails, no repair branch is created and no destructive
+  operation is performed. Read-only fetches and explicitly authorized branch switching
+  or fast-forwarding may already have occurred and must be reported." `reset`, `clean`,
+  force-checkout, and automatic stash are never used at any step; an existing local or
+  remote repair branch is never overwritten; only `git pull --ff-only` is used for the
+  fast-forward. Branch-creation approval covers exactly branch creation — it does not
+  authorize repair implementation, commits, pushes, or PR creation, all of which remain
+  separate, manual, owner-driven steps.
+- **Rationale:** A specification must not claim stronger atomicity than the underlying
+  tool (Git) actually provides — reordering guards to front-load every check that
+  doesn't require a local mutation minimizes the window in which a failure leaves local
+  state changed, and the corrected wording keeps the failure report honest in the
+  remaining window rather than pretending it doesn't exist.
+- **Consequences:** `tasks/09-finalization-hardening-and-migration.md` and
+  `areas/finalization-and-migration.md` implement the nine-step ordering above in place
+  of D23's four-guard list (same four checks, reordered and given two explicit
+  sub-branches by failure position); a guard failure's report always names which local
+  state changes, if any, already occurred. `switch`/`pull --ff-only` remain the only
+  branch-changing operations; `origin/main`'s own SHA is now checked (step 5) in
+  addition to local `main`'s (step 8), since local `main` alone cannot detect a remote
+  that has moved before the local fetch/pull runs.
+- **Date:** 2026-08-04 (third refinement pass)
+- **Affected artifacts:** `tasks/09-finalization-hardening-and-migration.md`,
+  `areas/finalization-and-migration.md`, `overview.md`
+
+## D26: Semantic-reference completeness is checked by model review, not schema alone
+
+- **Question:** D18's `semantic_references` schema makes fingerprint *invalidation*
+  deterministic once a task's references are declared, but declaring them correctly in
+  the first place is still up to the task author — `validateSpecs` can confirm a
+  referenced decision/constraint/dependency-contract *exists*, but it cannot detect that
+  a task's goal, constraints, acceptance criteria, context, or path rules rely on a
+  decision/constraint/dependency the author simply forgot to list. A missing reference
+  leaves a task's review incorrectly "fresh" after a semantic change the fingerprint
+  never saw. Schema validation alone cannot close this gap — what closes it?
+- **Decision:** Split the two concerns explicitly, each owned by a different mechanism:
+  **reference integrity** (does a referenced ID exist, is it active rather than
+  superseded, are there duplicates) stays deterministic — `validateSpecs`, unchanged in
+  kind from D18. **Reference completeness** (does the list actually cover everything the
+  task's content depends on) becomes an explicit model-review step inside
+  `/nevo-ai:spec-review`: for every task, inspect its goal, constraints, acceptance
+  criteria, context rules, and path rules; identify every owner decision, shared
+  constraint, and dependency contract the task's content actually relies on; compare
+  that against its declared `semantic_references`; report any missing, stale, or
+  unnecessary reference as a finding (categorized per the normal `AUTO_FIX`/
+  `OWNER_DECISION`/`NON_BLOCKING` rules — a missing reference is a fingerprinting-
+  correctness gap, not free-form prose, so it is at minimum `NON_BLOCKING` and becomes
+  `OWNER_DECISION` when the missing reference is itself gated).
+- **Rationale:** This mirrors how every other "did the agent correctly capture intent"
+  problem in this workflow is handled — the CLI enforces what's mechanically checkable
+  (existence, activeness, no duplicates), and a model-review step handles what requires
+  reading and understanding the task's actual content, exactly the same split already
+  used for e.g. solution-option-analysis and decision-policy checks elsewhere in
+  `review-policy.md`.
+- **Consequences:** `references/review-policy.md` and `.claude/commands/nevo-ai/spec-review.md`
+  gain the semantic-reference-completeness check as an explicit step (documented and
+  wired by task 11, since task 01 cannot touch `.claude/skills/**`/`.claude/commands/**`
+  under its own `forbidden_paths`); `areas/state-and-fingerprint-semantics.md` states the
+  requirement task 11 implements. Changing a task's `semantic_references` (whether by the
+  author or as a correction from this review step) invalidates that task's semantic
+  review fingerprint, unchanged from D18 — this decision adds a review-time completeness
+  check, it does not change what invalidates the fingerprint once references are
+  declared.
+- **Date:** 2026-08-04 (third refinement pass)
+- **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
+  `tasks/11-workflow-docs-and-adr-migration.md`,
+  `areas/state-and-fingerprint-semantics.md`, `overview.md`

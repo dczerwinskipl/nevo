@@ -38,12 +38,22 @@ forbidden_paths:
 > repair branch), covering D16-D23. Most of these scenarios are already required as
 > area-specific acceptance criteria on tasks 01-04, 06, 08-09; this task's job is proving
 > them together, end-to-end, against the assembled system — not re-deriving them.
+>
+> Refined a third time 2026-08-04 — adds the third refinement request's regression
+> scenarios for D24 (batch hard stop) and D25 (repair-branch guard order/failure
+> semantics), covering everything `node --test` can exercise automatically. D26's
+> `semantic_references` **completeness** check is a model-review procedure implemented
+> by task 11, not a code mechanism — it has no automated test here; this task's own D26
+> coverage is limited to the deterministic *integrity* checks task 01 already validates
+> (unresolvable/invalid reference IDs, superseded-decision detection, fingerprint
+> invalidation), exercised end-to-end alongside the other mechanisms.
 
 ## Goal
 
 Implement and pass cross-mechanism end-to-end tests proving tasks 01-09's mechanisms work
-together correctly — every regression scenario the first and second refinement requests
-enumerated — before any documentation, ADR, or index-regeneration work (task 11) begins.
+together correctly — every automatable regression scenario the first, second, and third
+refinement requests enumerated — before any documentation, ADR, or index-regeneration
+work (task 11) begins.
 
 ## Dependencies
 
@@ -132,12 +142,39 @@ the fully-assembled system tasks 01-09 built.
   (finalization); a `resolved` follow-up entry without a `resolution` fails validation of
   the resolved-state requirement.
 
-  **Second refinement pass — post-merge repair (D23)** — a post-merge failure report
-  correctly identifies the diagnostic branch and the exact four-precondition repair flow;
-  the repair branch is created only after confirmation and only once all four
-  preconditions hold; each individual precondition failure (dirty worktree, `main` not
-  fast-forwardable, SHA mismatch, branch name collision) stops without creating the
-  branch; a successful post-merge verification proceeds to cleanup exactly as before.
+  **Second refinement pass — post-merge repair (D23, superseded in detail by D25 —
+  see below)** — a post-merge failure report correctly identifies the diagnostic branch;
+  the repair branch is created only after confirmation; a successful post-merge
+  verification proceeds to cleanup exactly as before.
+
+  **Third refinement pass — batch hard stop (D24)** — a failed self-check stops the
+  batch immediately without ever routing to a full `task-review`; a full `task-review`
+  cannot mark a hard-stopped task complete while its self-check still fails; correcting
+  the implementation and rerunning the self-check resumes the batch; a task whose
+  self-check now passes but that meets an independent risk signal still requires a full
+  `task-review`; a passing low-risk task with no hard stop and no risk signal proceeds to
+  the gating batch review without a full `task-review`.
+
+  **Third refinement pass — post-merge repair-branch guard order (D25)** — the guard
+  sequence runs in the documented nine-step order (worktree clean → local repair branch
+  absent → fetch → remote repair branch absent → `origin/main` SHA match → switch to
+  `main` → `pull --ff-only` → local `main` SHA match → create branch); each guard-failure
+  mode (local repair branch exists, remote repair branch exists, `origin/main` moved,
+  local `main` cannot fast-forward) stops without creating the branch and names the
+  failed guard; a guard failure occurring after the local `main` switch/fast-forward
+  reports that the switch/fast-forward already happened rather than claiming no
+  modification occurred; a guard failure before the switch reports at most a completed
+  read-only fetch; no `reset`/`clean`/force-checkout/automatic-stash occurs under any
+  guard-failure scenario; branch creation succeeds only once every guard passes.
+
+  **Third refinement pass — semantic-reference integrity end-to-end (D26, integrity
+  only — completeness is a task-11 model-review procedure with no automated test)** — an
+  invalid decision ID in `semantic_references.decisions` fails `validate`; an invalid
+  constraint ID fails `validate`; an invalid `dependency_contracts` entry fails
+  `validate`; a `semantic_references.decisions` entry naming a decision explicitly
+  marked superseded is rejected, naming the superseding decision; changing
+  `semantic_references` changes the task's fingerprint; an operational status change
+  alone does not change it.
 
 - Do not touch `docs/**`, `.claude/commands/**`, `.claude/skills/**`, `AGENTS.md`, or
   `CLAUDE.md` in this task — those are task 11's exclusive scope, kept separate precisely

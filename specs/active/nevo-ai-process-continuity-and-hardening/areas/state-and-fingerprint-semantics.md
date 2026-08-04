@@ -8,6 +8,13 @@
 > `validate`-time enum enforcement at both task and change level. The task-level
 > fingerprint's dependency/decision/constraint inputs are now the explicit
 > `semantic_references` schema block, not the prose "actually references" rule.
+>
+> Refined a third time 2026-08-04 — see D26. `validateSpecs` can confirm a declared
+> `semantic_references` entry exists (reference *integrity*), but not that the list
+> actually covers everything the task's content depends on (reference *completeness*) —
+> this area now states the completeness requirement (requirement 8); the actual
+> model-review step is implemented and documented by task 11, since this task cannot
+> touch `.claude/commands/**`/`.claude/skills/**` under its own `forbidden_paths`.
 
 ## Responsibility
 
@@ -97,6 +104,20 @@ schema block.
    for its dependency/decision/constraint inputs — no separate inference step exists. A
    task with an empty `semantic_references` block (all three lists empty) is valid — it
    means the task's fingerprint depends on nothing beyond its own content.
+8. **Reference completeness requires a model-review step, not just schema validation
+   (D26, third refinement pass).** Requirement 7's validation proves a declared
+   reference *exists*; it cannot prove the list is *complete* — that every owner
+   decision, shared constraint, and dependency contract the task's goal, constraints,
+   acceptance criteria, context rules, or path rules actually rely on is listed. This
+   task **states** the requirement: `/nevo-ai:spec-review` must, for every task,
+   inspect its goal/constraints/acceptance-criteria/context/path definitions; identify
+   the owner decisions, shared constraints, and dependency contracts the task's content
+   actually relies on; compare that against its declared `semantic_references`; and
+   report any missing, stale, or unnecessary reference as a finding (categorized per the
+   normal `AUTO_FIX`/`OWNER_DECISION`/`NON_BLOCKING` rules). Implementing this step in
+   `references/review-policy.md`/`.claude/commands/nevo-ai/spec-review.md` is task 11's
+   job, not this task's — this task only defines what the check must do and why schema
+   validation alone cannot do it.
 
 ## Constraints
 
@@ -138,6 +159,9 @@ Consumes: nothing new from other areas — this is the foundation.
   (D18).
 - A test proves `computeTaskFingerprint` changes when and only when a referenced
   `semantic_references` entry's target content changes (D18).
+- Requirement 8's completeness check itself is verified by task 11 (a model-review
+  procedure, not something this task's own automated suite can exercise) — this area's
+  own acceptance criteria stop at requirement 7's deterministic integrity checks.
 
 ## Dependencies
 
@@ -148,3 +172,6 @@ None — this is the first area implemented.
 - Writing or clearing `execution.suspension` values (area `recovery-and-resume`).
 - `context_exceptions`' actual population (area `context-and-validation-hardening`) —
   this task only reserves the field in the task-level fingerprint's input set.
+- Implementing the `semantic_references` completeness model-review step in
+  `review-policy.md`/`spec-review.md` (task 11, D26) — this task only states the
+  requirement and the reference-integrity checks it can validate deterministically.

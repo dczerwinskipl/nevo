@@ -9,6 +9,8 @@ context:
     - docs/ai/specification-workflow.md
     - AGENTS.md
     - CLAUDE.md
+    - .claude/skills/nevo-ai-spec-workflow/references/review-policy.md
+    - .claude/commands/nevo-ai/spec-review.md
   optional:
     - docs/decisions/ADR-0002-lightweight-markdown-workflow.md
     - docs/decisions/ADR-0003-technical-decision-triage-and-option-analysis.md
@@ -47,6 +49,17 @@ forbidden_paths:
 > one-term-per-concept entries the second refinement pass introduced (semantic
 > reference, evidence freshness, batch selection mode, diagnostic anchor), and the ADR
 > now also covers D16-D23.
+>
+> Refined a third time 2026-08-04 — see D24, D25, D26. This task gains a new
+> implementation-bearing requirement it did not have before (every earlier requirement
+> was pure documentation of already-tested code): adding the `semantic_references`
+> completeness model-review step to `references/review-policy.md`/
+> `.claude/commands/nevo-ai/spec-review.md`, since task 01 cannot touch those files under
+> its own `forbidden_paths`. This is a procedural addition (a model-review instruction),
+> not a code mechanism, so it is not gated behind task 10's automated-test-first rule the
+> way this task's other doc updates are — see the implementation constraint below for why.
+> The terminology inventory gains two more entries (hard stop condition, reference
+> completeness vs. reference integrity), and the ADR now also covers D24-D26.
 
 ## Goal
 
@@ -90,6 +103,18 @@ run first.
   - **diagnostic anchor** (D23) — the preserved merged branch after a post-merge
     verification failure; never called a "recovery anchor" (D9's original term,
     corrected by D23 because the branch does not itself repair `main`).
+  - **hard stop condition** (D24, third refinement pass) — a batch failure (failed/
+    unresolved self-check, failed acceptance criterion, failed automated verification,
+    unrefreshable stale evidence, missing required evidence, or a verification-blocking
+    implementation error) that halts the batch immediately and that a full
+    `task-review` can never substitute for; distinct from a **full-review risk signal**
+    (D11), which is evaluated only after a task's self-check has already passed.
+  - **reference integrity vs. reference completeness** (D26, third refinement pass) —
+    integrity is whether a declared `semantic_references` entry exists/is active/is not
+    duplicated, checked deterministically by `validateSpecs`; completeness is whether
+    the declared list covers everything the task's content actually depends on, checked
+    by a model-review step inside `/nevo-ai:spec-review`. Never conflate the two — a
+    task can pass integrity checks while still being incomplete.
 - For every transition state, document: the CLI operation that validates it, the command
   or controller action that invokes it, whether confirmation is required, and whether it
   can be combined conversationally with the previous transition (per D2/D3's "combined
@@ -103,14 +128,32 @@ run first.
   worktree status (derived via git), current branch (derived via git).
 - Only update docs/commands/skill files that describe a mechanism task 10 actually proved
   works — do not describe anything task 10 didn't test.
+- **Semantic-reference completeness model-review step (D26, third refinement pass).**
+  Add an explicit step to `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`
+  (and wire it into `.claude/commands/nevo-ai/spec-review.md`'s flow) reading, in
+  substance: for every task, inspect its goal, constraints, acceptance criteria, context
+  rules, and path rules; identify every owner decision, shared constraint, and
+  dependency contract the task's content actually relies on; compare that against the
+  task's declared `semantic_references`; report any missing, stale, or unnecessary
+  reference as a finding, categorized per the normal `AUTO_FIX`/`OWNER_DECISION`/
+  `NON_BLOCKING` rules (a missing reference is at minimum `NON_BLOCKING`, and
+  `OWNER_DECISION` when the missing reference is itself gated). State explicitly that
+  this is separate from, and does not replace, `validateSpecs`'s deterministic
+  reference-integrity checks (task 01) — this step exists specifically because schema
+  validation cannot detect an omission. This is a procedural/model-review instruction,
+  not a code mechanism task 10 tests automatically (see the refinement note above) — its
+  own correctness is verified by inspection (acceptance criterion below), not
+  `node --test`.
 - Write the new ADR under `docs/decisions/` (next available number after ADR-0005),
   covering D7 (fingerprint tiers), D8 (execution suspension vs. new statuses), D9
   (post-merge sequencing), D10 (derived batch state), D3 (approve+start combined
-  confirmation), and — second refinement pass — D16 (status vocabulary removal), D17
+  confirmation), — second refinement pass — D16 (status vocabulary removal), D17
   (repair-and-retry inside combined transitions), D18 (deterministic
   `semantic_references`), D19 (batch evidence freshness), D20 (four-mode batch
   selection), D21 (task 08's dependency on task 06), D22 (structured `follow-ups.yaml`),
-  and D23 (diagnostic anchor with a guarded repair-branch step).
+  D23 (diagnostic anchor with a guarded repair-branch step), and — third refinement
+  pass — D24 (batch hard-stop/risk-signal split), D25 (ordered, truthful repair-branch
+  guards), and D26 (semantic-reference completeness model review).
 - `AGENTS.md`/`CLAUDE.md` updates stay pointer-level, consistent with their existing
   scope — do not duplicate `docs/ai/specification-workflow.md` content into them.
 - Regenerate `docs/index.generated.*`/`specs/*.generated.*`/`docs/routing.generated.json`
@@ -125,7 +168,7 @@ run first.
    has its behavior description updated to match, using the one-term-per-concept mapping
    above (inspection, cross-checked against tasks 01-10's actual changes).
 3. A new ADR exists under `docs/decisions/` covering D3, D7, D8, D9, D10, D16, D17, D18,
-   D19, D20, D21, D22, D23 (inspection).
+   D19, D20, D21, D22, D23, D24, D25, D26 (inspection).
 4. The terminology inventory and derived-vs-persisted state inventory both appear in
    `docs/ai/specification-workflow.md` (inspection).
 5. `node tools/specs.mjs check` and `node tools/docs.mjs check` report generated indexes
@@ -133,6 +176,11 @@ run first.
 6. `node --test tools/tests/` (the full suite, including task 10's) still passes after
    this task's doc-only edits (automated — proves nothing was accidentally broken by a
    doc change touching a code comment or similar).
+7. `references/review-policy.md` and `spec-review.md` state the `semantic_references`
+   completeness check explicitly — what it inspects, what it compares against, and how
+   a finding is categorized — and state explicitly that it is separate from
+   `validateSpecs`'s reference-integrity checks, not a replacement for them (inspection)
+   (D26).
 
 ## Verification
 
@@ -155,3 +203,6 @@ node tools/docs.mjs check
 - Any change to `nevo-documentation-architecture`'s own artifacts.
 - New runtime mechanisms or new tests beyond what regenerating indexes requires — this
   task is documentation, ADR, and index regeneration only.
+- Building automated tooling that detects a missing `semantic_references` entry — D26's
+  completeness check is a documented model-review instruction for `/nevo-ai:spec-review`
+  to follow, not a code mechanism this task implements.

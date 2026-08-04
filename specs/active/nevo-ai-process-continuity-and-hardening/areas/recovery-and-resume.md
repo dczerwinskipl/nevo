@@ -141,3 +141,14 @@ corrected `depsSatisfied` before recovery can persist or reason about state mean
 - Any conversational/menu behavior for presenting a suspension to the owner (area
   `conversational-continuity`, task 04).
 - Reusing `blocked`/`needs-decision` as landing statuses — explicitly reversed by D8.
+- **A batch hard stop (D24, third refinement pass — area
+  `batch-execution-and-gating-review`, requirement 4a).** A failed/unresolved self-check,
+  a failed acceptance criterion, failed automated verification, or an implementation
+  error preventing verification are not `REC-xx` scenarios and do not produce an
+  `execution.suspension` — this area's postcondition/suspension model reasons about
+  tool/workflow-state errors (a wrong branch, a stale generated file, an ADR conflict,
+  and the like), not "the implementation doesn't pass its own verification yet." The
+  task's `status` staying `in-implementation` through the correct-and-rerun loop, plus
+  the self-check's own failure output, is sufficient — no new suspension kind is
+  introduced for this, and this area's controller is not involved in a batch hard stop
+  or its resolution.

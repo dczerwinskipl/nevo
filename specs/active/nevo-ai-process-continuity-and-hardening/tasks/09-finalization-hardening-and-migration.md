@@ -45,14 +45,21 @@ forbidden_paths:
 > free both locally and on `origin`); a failed guard stops without modifying anything.
 > The repair itself (editing files, running checks, opening the PR) stays manual beyond
 > branch creation.
+>
+> Refined a third time 2026-08-04 (see D25) — the four preconditions are unchanged in
+> substance but reordered into a nine-step sequence that front-loads every read-only/
+> remote check before switching or fast-forwarding local `main`. "Stops without
+> modifying anything" was inaccurate for a guard failing after the switch; the failure
+> report now states precisely what, if anything, already happened.
 
 ## Goal
 
 Reorder `finalize`'s merge sequence to verify before destructive cleanup (D9); add the
-cheap post-merge check; implement the guarded, confirm-then-create repair-branch step
-(D23); document the fingerprint-tier migration for existing active changes (using
-`nevo-documentation-architecture`'s `reviews/spec.md` as the concrete case study);
-document rollout order and the per-task fallback guarantee.
+cheap post-merge check; implement the ordered, confirm-then-create repair-branch step
+with truthful failure semantics (D23, corrected by D25); document the fingerprint-tier
+migration for existing active changes (using `nevo-documentation-architecture`'s
+`reviews/spec.md` as the concrete case study); document rollout order and the per-task
+fallback guarantee.
 
 ## Dependencies
 
@@ -71,18 +78,36 @@ behavior that must already exist.
   "recovery anchor," since preserving the branch is diagnostically useful but does not
   itself repair `main`). Do **not** delete the branch. Do **not** write a follow-up
   entry into `follow-ups.yaml` for the now-merged/archived change.
-- **Guarded, confirm-then-create repair branch (D23, second refinement pass).** After the
-  failure report, present one explicit confirmation to create the repair branch. On
-  confirmation, check these four preconditions, in order, immediately before creating the
-  branch: (1) the working tree is clean; (2) `main` is checked out and fast-forwarded
-  (`git switch main && git pull --ff-only`); (3) the post-merge-verified failing SHA is
-  re-confirmed as `main`'s current SHA; (4) the target branch name
-  (`fix/<change>-post-merge`) does not already exist locally or on `origin`. If every
-  precondition holds, create the branch and report it created. If any precondition fails,
-  stop without creating the branch or modifying anything else, and report which
-  precondition failed and why — never fall back to a different name and never force past
-  the conflict. The repair itself (editing files, running the targeted checks, opening
-  the repair PR) remains manual beyond branch creation.
+- **Ordered, confirm-then-create repair branch with truthful failure semantics (D23,
+  corrected by D25 in the third refinement pass).** After the failure report, present
+  one explicit confirmation to create the repair branch. On confirmation, execute this
+  nine-step sequence in order — every read-only/remote check runs before any local,
+  state-changing operation:
+
+  ```text
+  1. verify the worktree is clean
+  2. verify the repair branch does not exist locally
+  3. git fetch origin
+  4. verify the repair branch does not exist remotely
+  5. verify origin/main still points to the recorded failing SHA
+  6. switch to local main
+  7. git pull --ff-only
+  8. verify local main equals the recorded failing SHA
+  9. create fix/<change>-post-merge
+  ```
+
+  A guard failing at step 1, 2, 4, or 5 (before the `main` switch at step 6): no repair
+  branch is created, no local branch is switched, no destructive operation occurs — a
+  read-only `fetch` (step 3) may already have run and is reported as having run. A guard
+  failing at step 8 (after the switch/fast-forward at steps 6-7): no repair branch is
+  created, no destructive operation occurs, but the report explicitly states that `main`
+  was switched to and/or fast-forwarded — never report the repository as unchanged when
+  it isn't. If every guard passes, create the branch and report it created. Never use
+  `reset`, `clean`, force-checkout, or automatic stash at any step; never overwrite an
+  existing local or remote repair branch; the fast-forward is always `git pull
+  --ff-only`, never a merge or rebase; never fall back to a different branch name and
+  never force past a conflict. The repair itself (editing files, running the targeted
+  checks, opening the repair PR) remains manual beyond branch creation.
 - No duplicate `dotnet build`/`dotnet test` in the post-merge check — only
   `specs.mjs check`/`docs.mjs check`.
 - Do not modify `specs/active/nevo-documentation-architecture/tasks/**` or its
@@ -108,11 +133,19 @@ behavior that must already exist.
 4. Migration notes correctly identify that no `change.yaml` schema change is needed and
    that exactly one re-review per stale fingerprint tier is the expected one-time cost
    (inspection, cross-checked against `nevo-documentation-architecture/reviews/spec.md`).
-5. The repair branch is created only after confirmation and only when all four
-   preconditions hold (automated, same suite) (D23).
-6. Each of the four precondition failures (dirty worktree, `main` not fast-forwardable,
-   SHA mismatch, branch name collision) stops without creating the branch or modifying
-   anything else, and names which precondition failed (automated, same suite) (D23).
+5. The repair branch is created only after confirmation and only when the full
+   nine-step guard sequence passes, in the documented order (automated, same suite)
+   (D23, D25).
+6. Each guard failure mode (local repair branch exists, remote repair branch exists,
+   `origin/main` moved beyond the failing SHA, local `main` cannot fast-forward) stops
+   without creating the branch, and names which guard failed (automated, same suite)
+   (D25).
+7. A guard failure occurring after the local `main` switch/fast-forward (step 8) reports
+   that the switch/fast-forward already happened, rather than claiming the repository is
+   unchanged; a guard failure before the switch (steps 1/2/4/5) reports at most a
+   completed read-only `fetch` (automated, same suite) (D25).
+8. No `reset`, `clean`, force-checkout, or automatic stash is ever executed by the
+   repair-branch flow, under any guard-failure scenario (automated, same suite) (D25).
 
 ## Verification
 
@@ -125,9 +158,9 @@ node tools/docs.mjs validate
 ## Documentation impact
 
 `spec-finalize.md` — reordered merge sequence, post-merge check section, and the
-diagnostic-anchor/guarded-repair-branch flow (D23). Migration notes recorded in this
-task file's own body plus `overview.md` § "Compatibility and migration" (already
-present, no edit needed here).
+diagnostic-anchor/ordered-repair-branch-guard flow with its truthful failure semantics
+(D23, D25). Migration notes recorded in this task file's own body plus `overview.md` §
+"Compatibility and migration" (already present, no edit needed here).
 
 ## Out of scope
 

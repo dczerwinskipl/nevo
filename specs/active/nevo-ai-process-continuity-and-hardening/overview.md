@@ -22,6 +22,14 @@ change: nevo-ai-process-continuity-and-hardening
 > follow-up mechanism, a still-prose follow-up ledger format, and an overstated
 > post-merge "recovery anchor" — recorded as D16-D23. Direction (D1-D15) is unchanged;
 > this pass, like the first, corrects internal consistency and determinism, not intent.
+>
+> **Third refinement note (2026-08-04):** a final review found three remaining
+> corrections — a full task review could substitute for a failed self-check instead of
+> the batch hard-stopping, the post-merge repair-branch guard order and "stops without
+> modifying anything" wording claimed stronger atomicity than Git provides, and
+> `semantic_references` completeness (as opposed to integrity) had no check at all —
+> recorded as D24-D26. Direction (D1-D23) is unchanged; this pass corrects the same two
+> things every prior pass has: internal consistency and determinism, not intent.
 
 ## Context
 
@@ -85,10 +93,10 @@ either value with no validation error at all; after this change it cannot.
 ### Persisted vs. derived state
 
 Persisted: `change.yaml` (change/task status, `depends_on`, `branch`, task file
-pointers), task/area/overview front matter and body, `reviews/*.md` (verdict, resolved
-counts, fingerprint(s) — see D7), a per-task `execution.suspension` block (D8, new),
-a per-batch intent file (D10, new — intent only, not progress), a `follow-ups.md` ledger
-(D15).
+pointers), task/area/overview front matter and body (including, per-task,
+`semantic_references` — D18), `reviews/*.md` (verdict, resolved counts, fingerprint(s) —
+see D7), a per-task `execution.suspension` block (D8, new), a per-batch intent file (D10,
+new — intent only, not progress), a `follow-ups.yaml` ledger (D15, D22).
 
 Derived, recomputed on demand, never stored: `depsSatisfied`/`isTaskReady`
 (`lifecycle.mjs:11-21`), the fingerprint tiers (D7), `validateFinalize`'s gate facts
@@ -176,12 +184,12 @@ anywhere in the current process, and no batch-execution support at all.
 
 | Area | What it resolves | Status |
 |---|---|---|
-| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) + second-pass findings 1, 3 | Real, verified; refined twice |
-| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 + second-pass finding 2 | Real, verified; refined twice |
+| State & fingerprint semantics | Original findings #7/#17 + refinement findings 1, 2, 3 (partially — canonical scenario IDs live in area `recovery-and-resume`) + second-pass findings 1, 3 + third-pass finding 3 | Real, verified; refined three times |
+| Recovery & resume | Original findings #13/#14 + refinement findings 3, 4 + second-pass finding 2 + third-pass finding 1 (cross-reference only — see D24) | Real, verified; refined three times |
 | Conversational continuity & approval ergonomics | Original findings #15/#16 + second-pass finding 2 | Real; deliberate reversal (D3); refined |
-| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 | Real, verified, absent entirely; refined twice |
+| Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 + third-pass finding 1 | Real, verified, absent entirely; refined three times |
 | Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 + second-pass finding 7 | Real, verified; refined twice |
-| Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 | Real, verified; refined twice |
+| Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 + third-pass finding 2 | Real, verified; refined three times |
 
 ### Findings rejected or already resolved (unchanged from the original pass)
 
@@ -221,6 +229,14 @@ anywhere in the current process, and no batch-execution support at all.
 | 6 | Batch task's `change.yaml` entry never depended on the follow-up mechanism its gating review reads | `scope-and-follow-up-mechanisms` added to task 08's `depends_on`; a `mechanical-task-type` dependency was evaluated and found unnecessary (D21) |
 | 7 | Follow-up ledger was still prose Markdown, not something deterministic tooling can parse reliably | `follow-ups.yaml`, structured and schema-validated (D22) |
 | 8 | The preserved merged branch was called a "recovery anchor" but doesn't itself repair `main`; the repair path wasn't defined | Renamed "diagnostic anchor"; guarded, confirm-then-create repair-branch step with four preconditions (D23) |
+
+### Findings from the third refinement pass — resolution summary
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | A failed/unresolved self-check was one of D11's risk signals — routed to full review instead of stopping the batch, letting a review substitute for a real fix | Split into disjoint hard-stop conditions (batch halts, correct-then-rerun) vs. full-review risk signals (evaluated only after self-check passes) (D24) |
+| 2 | Repair-branch guard order let `main` be switched/fast-forwarded before the SHA/branch-name guards ran, so "stops without modifying anything" was inaccurate on a late guard failure | Guards reordered to front-load every read-only/remote check before any local mutation; failure wording now reports any read-only fetch or authorized switch/fast-forward that already occurred (D25) |
+| 3 | `validateSpecs` can confirm a `semantic_references` entry exists, not that the list is *complete* — a forgotten reference leaves a task's review incorrectly fresh | Explicit model-review completeness check added to `/nevo-ai:spec-review`, alongside the unchanged deterministic integrity checks (D26) |
 
 ## Constraints
 
@@ -267,11 +283,13 @@ this step rather than reserving it for a fresh owner turn. The second refinement
 corrections (D16-D22) were similarly prescriptive; its one genuine fork — whether a
 post-merge repair branch is auto-created after confirmation or only reported as a command
 — was presented to the owner directly in this pass and decided as D23 (auto-create, with
-four preconditions guarding the creation).
+four preconditions guarding the creation). The third refinement pass's corrections
+(D24-D26) were fully prescriptive with no unresolved fork — each stated its required
+behavior and wording directly — and were applied without a further owner turn.
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 through D23, all recorded 2026-08-04.
+See `owner-decisions.md` — D1 through D26, all recorded 2026-08-04.
 
 ## Proposed architecture
 
@@ -349,7 +367,7 @@ prose-inferred.** A task's fingerprint-relevant dependency/decision/constraint i
 declared explicitly, not derived from reading the task's own text:
 
 ```yaml
-# in a task's front matter, required
+# in a task's front matter, optional (absent, or all three lists empty, is valid)
 semantic_references:
   decisions: [D7, D13]              # owner-decisions.md entries this task's content depends on
   constraints: [C2]                 # named shared constraints (see "Constraints" above, referenced by position)
@@ -366,6 +384,14 @@ semantic_references:
 - This replaces "the subset of `depends_on` whose target's scope the task actually
   relies on" (D7's original, prose phrasing) with a checkable fact — the *intent* is
   unchanged, only how tooling determines it.
+- **Integrity vs. completeness (D26, third refinement pass).** The checks above are
+  reference *integrity* — does a listed entry exist, is it active rather than superseded,
+  are there duplicates — and stay fully deterministic (`validateSpecs`). They cannot
+  detect *completeness* — whether the list actually covers everything the task's goal,
+  constraints, acceptance criteria, context, and path rules depend on. That gap is closed
+  by an explicit model-review step inside `/nevo-ai:spec-review` (documented and wired by
+  task 11, since task 01 cannot touch `.claude/commands/**`/`.claude/skills/**`), not by
+  schema validation — see `owner-decisions.md` D26.
 
 **Invalidation matrix (required by the refinement, now explicit, restated in terms of
 `semantic_references`):**
@@ -446,6 +472,14 @@ Five result-class values total —
 every postcondition-inspection outcome; no new-code comment or doc text describes any of
 them as "idempotent" (that term keeps its narrower, pre-existing `validateTransition`
 meaning).
+
+**Batch hard stops are not part of this model (D24, third refinement pass).** A failed or
+unresolved self-check, a failed acceptance criterion, failed automated verification, or
+an implementation error preventing verification are not `REC-xx` scenarios and do not
+produce an `execution.suspension` — they are the implementation not yet satisfying its
+own verification, not a tool/workflow-state error this postcondition model reasons about.
+See "Batch execution model" below for the hard-stop-vs-risk-signal split this
+distinction feeds.
 
 **Repair-and-retry inside an authorized combined transition (D17).** A `confirm-required`
 stop that occurs *inside* an owner-already-authorized combined transition (D3's "approve
@@ -545,9 +579,24 @@ evidence (D19), or the end of the authorized scope — never past it, regardless
   `checkpointPolicy`, `temporaryInconsistencies`. Completed/current/next/failed are
   always computed from `change.yaml` task status plus `execution.suspension` — there is
   no second copy of progress to reconcile after a crash.
-- **Risk classification is evidence-based, not path-touch-based (D11).** See
-  `owner-decisions.md` D11 for the full signal list. A small, low-risk code task is
-  eligible for self-check plus the end-of-batch gating review only.
+- **Hard stop conditions are separate from full-review risk signals, and evaluated first
+  (D24, third refinement pass).** A failed self-check, an unresolved self-check, a failed
+  acceptance criterion, failed automated verification, stale evidence that cannot be
+  refreshed (D19), missing required evidence, or an implementation error preventing
+  verification all **stop the batch immediately** — a full `task-review` can never
+  substitute for one of these; it is a risk judgment, not a repair mechanism. On a hard
+  stop: preserve the current task/batch state, report the failed criterion or evidence,
+  require the implementation to be corrected, rerun the self-check, and continue only
+  once it passes. Only *after* the self-check passes do the risk signals below determine
+  whether a full `task-review` is additionally required.
+- **Risk classification is evidence-based, not path-touch-based (D11, corrected by D24 to
+  exclude the self-check signal — see above).** See `owner-decisions.md` D11 for the full
+  signal list (public-API/compatibility impact, security/authorization impact,
+  migration/destructive-persistence behavior, an `owner-decision:`-tagged criterion,
+  scope expansion, unexpected files, implementation divergence, an owner-flagged
+  high-risk task, or inspection-only evidence where model review is explicitly
+  required). A small, low-risk code task meeting none of these — and with no hard-stop
+  condition — is eligible for self-check plus the end-of-batch gating review only.
 - **Evidence freshness is checked before the gating review runs (D19, second refinement
   pass).** A task passing its self-check earlier in the batch does not mean that
   evidence is still trustworthy by the time the gating review runs if a later batched
@@ -619,10 +668,13 @@ evidence (D19), or the end of the authorized scope — never past it, regardless
 | Postcondition-based recovery (D4/D8) | Avoids re-explaining a known partial-success state to the owner; recovery executes only missing effects instead of a human re-diagnosing from scratch | Medium — one contract per state-changing action, but each is small | Yes |
 | One controller loop vs. separate command turns (D2/D3) | Largest reduction for batch/expansive scopes: N interruptions collapse toward one authorization + inline offers | Medium — already scoped in tasks 03/04/08 | Yes |
 | Repair-and-retry inside combined transitions (D17) | Removes a second command invocation the owner would otherwise need after confirming an in-flight repair — closes a gap the second refinement pass found between D2/D3's "one confirmation" intent and D8's postcondition model | Low — reuses the existing postcondition/suspension machinery, adds one result value (`unsafe_manual`) and a resume-in-place branch | Yes |
-| Deterministic `semantic_references` (D18) | Removes prose-inference from fingerprint scope determination — avoids both under- and over-invalidation an implementation would otherwise have to guess at | Low — one required schema block per task, validated the same way `context_exceptions` already is | Yes |
+| Deterministic `semantic_references` (D18) | Removes prose-inference from fingerprint scope determination — avoids both under- and over-invalidation an implementation would otherwise have to guess at | Low — one optional schema block per task, validated the same way `context_exceptions` already is | Yes |
 | Evidence-freshness check before gating review (D19) | Prevents the exact regression the second refinement pass identified (a later task invalidating an earlier task's trusted evidence) without falling back to full re-review of every task | Medium — a staleness computation over files/commands/fingerprints, run once per batch, not per task | Yes |
 | Four-mode batch selection (D20) | Makes "run everything approved and reachable" expressible in one authorization instead of requiring N single-task batches for a linear dependency chain | Low — a named-mode dispatch over logic the batch controller already needs | Yes |
 | Structured `follow-ups.yaml` (D22) | Avoids Markdown-table parsing/versioning risk this repository's own `references/review-policy.md` implicitly warns against — a JSON/YAML read replaces a prose-table interpretation | Low — same generate/validate-adjacent pattern already used elsewhere in this change | Yes |
+| Hard-stop/risk-signal split for batch self-check (D24) | Avoids the token cost of a full `task-review` being triggered for what is actually a correctness bug, not a risk judgment — the fix is cheaper (correct the code, rerun self-check) than the review it was wrongly routed to | Low — reclassifies one existing signal, no new subsystem | Yes |
+| Ordered, truthful repair-branch guards (D25) | No direct token effect — this is a correctness/honesty fix to an already-planned mechanism (D23), not a new one | Low — reordering four existing checks into a nine-step sequence, no new guard logic | Yes |
+| Semantic-reference completeness model review (D26) | Adds one model-review pass per spec review, but only for tasks declaring `semantic_references` — cheaper than the alternative (a silently-stale fingerprint causing a missed regression, caught much later at higher cost) | Low — one more inspection step inside an already-model-driven review, no new subsystem | Yes |
 | Full workflow engine / generic state DSL | N/A — explicitly rejected | High | No |
 | Parallel task execution | N/A — explicitly rejected | High, unsafe for shared `change.yaml` | No |
 
@@ -730,13 +782,27 @@ extra implementation cost.
     `all-approved-reachable` selects a full linear approved chain that `currently-ready`
     alone could not (D20).
 18. `spec-finalize`'s post-merge repair path creates the repair branch only after an
-    explicit owner confirmation and only once all four preconditions hold (clean
-    worktree, `main` fast-forwarded, failing SHA re-confirmed as `main`'s current SHA,
-    target branch name free both locally and on `origin`); a failed precondition stops
-    without creating the branch or modifying anything else, and names which precondition
-    failed (D23).
+    explicit owner confirmation and only once the ordered nine-step guard sequence
+    (D25) passes: worktree clean → local repair branch absent → `git fetch origin` →
+    remote repair branch absent → `origin/main` matches the recorded failing SHA →
+    switch to local `main` → `git pull --ff-only` → local `main` matches the recorded
+    failing SHA → create the branch. A guard failure before the `main` switch (steps
+    1/2/4/5) leaves no local state changed except a possible read-only fetch, reported
+    as such; a guard failure after the switch (step 8) leaves no repair branch created
+    but explicitly reports that `main` was switched to and/or fast-forwarded — the
+    report never claims the repository is unchanged when it isn't (D23).
 19. `batch-execution-and-gating-review` (task 08) lists `scope-and-follow-up-mechanisms`
     (task 06) in `change.yaml`'s `depends_on` (D21).
+20. A failed or unresolved self-check stops the batch immediately and cannot be
+    completed by routing to a full `task-review` instead; the batch resumes only after
+    the implementation is corrected and the self-check passes, at which point the
+    (self-check-excluding) risk signals determine whether a full `task-review` is still
+    required (D24).
+21. Every task's `semantic_references` block is checked for completeness — not just
+    reference integrity — as an explicit model-review step inside
+    `/nevo-ai:spec-review`; a missing reference the task's content actually relies on is
+    reported as a finding, categorized per the normal `AUTO_FIX`/`OWNER_DECISION`/
+    `NON_BLOCKING` rules (D26).
 
 ## Verification strategy
 
@@ -760,7 +826,14 @@ inferred from `depends_on` (D18), why the gating batch review requires an
 evidence-freshness check (D19), why batch selection has four named modes (D20), and why
 the preserved post-merge branch is a "diagnostic anchor" with a guarded, confirm-then-
 create repair-branch step rather than either a full recovery mechanism or a report-only
-one (D23). No existing ADR is superseded.
+one (D23). The third refinement pass adds: why a failed self-check is a hard batch stop
+that a full `task-review` cannot substitute for, rather than one more risk signal that
+routes to review (D24); why the repair-branch guards are ordered to front-load every
+read-only/remote check before any local mutation, and why the failure contract reports
+already-occurred fetches/switches instead of claiming no modification occurred (D25);
+and why `semantic_references` completeness is a model-review step inside
+`/nevo-ai:spec-review`, layered on top of — not a replacement for — `validateSpecs`'s
+deterministic reference-integrity checks (D26). No existing ADR is superseded.
 
 ## Out of scope
 
@@ -778,3 +851,10 @@ one (D23). No existing ADR is superseded.
 - Automating any part of a post-merge repair beyond creating the guarded repair branch —
   editing files, running the targeted checks, and opening the repair PR remain manual,
   owner-driven steps (D23).
+- Letting a full `task-review` substitute for a failed or unresolved self-check inside a
+  batch — a hard stop always requires the implementation to be corrected first
+  (explicitly closed by D24).
+- Any `git reset`, `git clean`, force-checkout, or automatic stash inside the post-merge
+  repair-branch flow (explicitly excluded by D25).
+- Treating `semantic_references` reference-integrity validation as sufficient proof of
+  completeness — a model-review step is required in addition, not instead (D26).

@@ -45,6 +45,12 @@ forbidden_paths:
 > four named modes (`currently-ready` / `all-approved-reachable` / `named-subset` /
 > `until-checkpoint`), not one implicit list. This task now depends on
 > `scope-and-follow-up-mechanisms` (task 06), the mechanism its gating review reads.
+>
+> Refined a third time 2026-08-04 (see D24) — a failed or unresolved self-check is no
+> longer one of the evidence-based full-review signals. It is a hard stop that halts the
+> batch immediately and that a full `task-review` can never substitute for; only once the
+> self-check passes do the remaining (self-check-excluding) signals determine whether a
+> full review is additionally required.
 
 ## Goal
 
@@ -87,13 +93,28 @@ task cannot be implemented meaningfully before it lands.
   by reading each `orderedTasks` entry's `status` and `execution.suspension` directly —
   implement this as one pure function (`deriveBatchProgress(change, intent)`), not
   inlined ad hoc at each call site.
-- A task requires its own full `task-review` before the batch can complete it when, and
-  only when, at least one evidence-based signal holds (see
-  `areas/batch-execution-and-gating-review.md` requirement 5 for the full list —
-  declared `review: required`, public-API/compat impact, security/data-safety impact,
-  migration/destructive-persistence behavior, an `owner-decision:`-tagged criterion,
-  scope expansion, a failed/unresolved self-check, missing automated verification,
-  unexpected files, implementation divergence, or an owner-flagged high-risk task).
+- **Hard stop conditions, checked before any risk signal and never bypassable by a full
+  review (D24, third refinement pass).** The batch stops immediately when the current
+  task has: a failed self-check; an unresolved self-check; a failed acceptance
+  criterion; failed automated verification; stale evidence that cannot be refreshed (see
+  the evidence-freshness constraint below); missing required evidence; or an
+  implementation error preventing verification from running. Implement as a single
+  predicate function (e.g. `hardStopReason(task)` returning the specific condition or
+  `null`), checked before the risk-signal predicate below — never as a fallthrough case
+  inside the risk-signal logic. On a hard stop: preserve the current task/batch state,
+  surface the failed criterion or evidence in the batch's reported status, and require
+  the implementation to be corrected and the self-check rerun before the batch
+  continues — do **not** create or offer a full `task-review` as an alternative path
+  around a hard stop.
+- A task requires its own full `task-review` before the batch can complete it when its
+  self-check has already passed (no hard stop applies) **and**, only then, at least one
+  evidence-based signal holds (see `areas/batch-execution-and-gating-review.md`
+  requirement 5 for the full list — declared `review: required`, public-API/compat
+  impact, security/data-safety impact, migration/destructive-persistence behavior, an
+  `owner-decision:`-tagged criterion, scope expansion, missing automated verification,
+  unexpected files, implementation divergence, an owner-flagged high-risk task, or
+  inspection-only evidence where model review is explicitly required — "self-check
+  unresolved or failed" is removed from this list per D24, since it is now a hard stop).
   Touching `src/**`/`tests/**`/`consequential_paths` alone is **not** on this list.
 - **Evidence freshness, checked immediately before the gating batch review runs (D19,
   second refinement pass).** Implement as a distinct step, not folded silently into the
@@ -104,7 +125,9 @@ task cannot be implemented meaningfully before it lands.
   changed since it was recorded; (4) treat evidence for a task whose own
   `semantic_references`-based task-level fingerprint (D18) has changed since the
   evidence was recorded as stale regardless of file-level overlap. The gating batch
-  review must not run while any batched task carries stale, unrefreshed evidence.
+  review must not run while any batched task carries stale, unrefreshed evidence —
+  evidence that cannot be refreshed is itself a hard stop condition (D24, see above),
+  not something the gating review proceeds past with a caveat.
   Evidence tracked per item stays compact: a revision/content-hash identifier,
   referenced files/path ranges, command identity (for automated evidence), and the
   task's semantic fingerprint at record time — never full command output or full diffs.
@@ -150,6 +173,16 @@ task cannot be implemented meaningfully before it lands.
     (automated, same suite) (D19).
 11. An unrelated later-batched task's change does not stale an earlier task's evidence
     (automated, same suite) (D19).
+12. A failed self-check stops the batch immediately, without ever offering or creating a
+    full `task-review` as a substitute (automated, same suite) (D24).
+13. A full `task-review` cannot mark a hard-stopped task complete while its self-check is
+    still failing (automated, same suite) (D24).
+14. Correcting the implementation and rerunning a previously-failing self-check resumes
+    the batch (automated, same suite) (D24).
+15. A task whose self-check now passes but that meets an independent risk signal still
+    requires a full `task-review` (automated, same suite) (D24).
+16. A passing, low-risk code task (no hard stop, no risk signal) proceeds to the final
+    gating batch review without a full `task-review` (automated, same suite) (D24).
 
 ## Verification
 

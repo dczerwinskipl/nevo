@@ -44,6 +44,13 @@ forbidden_paths:
 > `validate`-time enum enforcement that didn't exist before. The task-level fingerprint's
 > dependency/decision/constraint inputs are now the explicit, validated
 > `semantic_references` schema block, not a prose "actually references" rule.
+>
+> Refined a third time 2026-08-04 (see D26) — this task's `semantic_references`
+> validation proves reference *integrity* only (existence, activeness, no duplicates);
+> it does not and cannot prove *completeness*. This task now states the completeness
+> requirement explicitly (as a documented limitation of what it validates); the actual
+> model-review completeness check is implemented by task 11 in `review-policy.md`/
+> `spec-review.md`, which this task's `forbidden_paths` excludes it from touching.
 
 ## Goal
 
@@ -94,6 +101,11 @@ None — first task in the change.
   `decisions`/`constraints` for its dependency/decision/constraint inputs — no separate
   prose-inference step. Both `execution.suspension` and `semantic_references` are
   optional, additive fields; no existing task file becomes invalid without edits.
+  **This validation proves reference integrity only (D26, third refinement pass)** — it
+  cannot prove the list is *complete* (that it covers everything the task's content
+  actually depends on); that check is a model-review step task 11 implements in
+  `review-policy.md`/`spec-review.md`, not something this task's schema validation can
+  do.
 - `depsSatisfied` excludes `abandoned` from dependency-satisfying statuses.
 - Resolve `superseded`: either wire it into a real, non-dependency-satisfying terminal
   state with a documented convention, or remove it from `service.mjs`'s `STATUS_ORDER`.
@@ -158,3 +170,4 @@ node tools/docs.mjs validate
 - Reviewing/annotating other active changes' existing task files with
   `semantic_references` — recommended follow-up, not required by this task (D18).
 - Any change to `TRANSITIONS` or the four existing lifecycle commands' behavior.
+- Implementing the `semantic_references` completeness model-review step — task 11, D26.

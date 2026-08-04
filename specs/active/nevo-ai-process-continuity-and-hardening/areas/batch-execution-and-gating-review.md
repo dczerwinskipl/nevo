@@ -10,6 +10,13 @@
 > makes "run every approved task the graph will let you reach" expressible for a linear
 > dependency chain. This area's own task (08) now depends on `scope-and-follow-up-mechanisms`
 > (task 06), the mechanism its gating review reads.
+>
+> Refined a third time 2026-08-04 — see D24. A failed or unresolved self-check is no
+> longer one of D11's full-review risk signals — it is a **hard stop** that halts the
+> batch immediately and that no full `task-review` can substitute for. Requirement 5 is
+> split into two disjoint predicate sets: hard stop conditions (requirement 4a) and
+> full-review risk signals (requirement 5, unchanged in substance minus the removed
+> self-check entry).
 
 ## Responsibility
 
@@ -60,18 +67,35 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    interrupted write, because there is only one write location for progress
    (`change.yaml`'s own task status, already covered by area `recovery-and-resume`'s
    postcondition model).
-5. **Risk classification is evidence-based (D11), not path-touch-based.** A task
-   requires its own full `task-review` before the batch can complete it when, and only
-   when, at least one holds: it declares `review: required`; it has public-API or
-   compatibility impact; it has security/authorization/data-safety impact; it involves
-   migration or destructive persistence behavior; it has an `owner-decision:`-tagged
-   acceptance criterion; its scope expanded during implementation (`REC-08`); its
-   self-check is unresolved or failed; it's missing automated verification; it touched
-   files outside its approved path model; its implementation diverges from the approved
-   design; or the owner flagged it high-risk explicitly. Touching `src/**`/`tests/**`/
-   `consequential_paths` alone is **not** sufficient — a small, low-risk code task
-   meeting none of the above signals is eligible for self-check plus the end-of-batch
-   gating review only.
+4a. **Hard stop conditions, evaluated before any risk signal and never overridable by a
+   full review (D24, third refinement pass).** The batch stops immediately when any of
+   the following holds for the current task: a failed self-check; an unresolved
+   self-check; a failed acceptance criterion; failed automated verification; stale
+   evidence that cannot be refreshed (requirement 5a); missing required evidence; or an
+   implementation error that prevents verification from running at all. A full
+   `task-review` is never a path around a hard stop — routing a hard-stop condition to
+   full review instead of fixing it is exactly the defect this requirement exists to
+   prevent. After a hard stop: preserve the current task and batch state; report the
+   failed criterion or evidence; require the implementation to be corrected; rerun the
+   self-check; continue only once it passes. A hard stop does not use
+   `execution.suspension` — see `areas/recovery-and-resume.md` § "Out of scope" for why
+   this is deliberately outside that model's scope. Once the self-check passes, proceed
+   to requirement 5 to determine whether a full review is additionally required.
+5. **Risk classification is evidence-based (D11, corrected by D24 to exclude the
+   self-check signal — see requirement 4a), not path-touch-based.** A task requires its
+   own full `task-review` before the batch can complete it when, and only when — its
+   self-check has already passed (requirement 4a) **and** — at least one of the
+   following holds: it declares `review: required`; it has public-API or compatibility
+   impact; it has security/authorization/data-safety impact; it involves migration or
+   destructive persistence behavior; it has an `owner-decision:`-tagged acceptance
+   criterion; its scope expanded during implementation (`REC-08`); it's missing
+   automated verification; it touched files outside its approved path model; its
+   implementation diverges from the approved design; the owner flagged it high-risk
+   explicitly; or it carries inspection-only evidence where model review is explicitly
+   required. Touching `src/**`/`tests/**`/`consequential_paths` alone is **not**
+   sufficient — a small, low-risk code task whose self-check passed and that meets none
+   of the above signals is eligible for self-check plus the end-of-batch gating review
+   only.
 5a. **Evidence freshness, checked immediately before the gating review runs (D19,
    second refinement pass).** A task passing its self-check earlier in the batch is not
    proof its evidence is still trustworthy once a later batched task has touched the same
@@ -113,25 +137,34 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    `temporaryInconsistencies`, `validate`/`check` skipped only for that declared pair.
 10. Failure behavior: a real blocker (`owner-decision` or `unsafe-manual` class, area
     `recovery-and-resume`) stops the batch at the failing task; completed tasks keep
-    their terminal status; resume picks up from `deriveStage` plus the intent file.
+    their terminal status; resume picks up from `deriveStage` plus the intent file. A
+    hard stop (requirement 4a) is a distinct, more common failure mode — the failing
+    task's `status` stays `in-implementation` (not suspended), and resume is simply
+    "correct the implementation, rerun the self-check" — no `deriveStage`/suspension
+    involvement is needed for this case specifically.
 
 ## Constraints
 
 - Never make batch mode the default.
 - Never let the gating batch review substitute for a risky task's own required
   `task-review` (requirement 5).
+- **Never let a full `task-review` substitute for a hard stop (D24, third refinement
+  pass)** — a hard stop condition (requirement 4a) always requires the implementation to
+  be corrected and the self-check rerun; it is never resolved by routing to full review
+  instead.
 - No parallel writes to `change.yaml`.
 - No second, duplicated progress field anywhere in the batch intent file — if a future
   change to this area proposes adding one, it must also define write order, atomicity,
   reconciliation, and crash recovery for it (the burden D10 was written to avoid).
 - The gating batch review must never run while stale evidence is unresolved (requirement
-  5a) — there is no "proceed with a caveat" path.
+  5a) — there is no "proceed with a caveat" path; unrefreshable stale evidence is itself
+  a hard stop (requirement 4a).
 
 ## Interfaces and boundaries
 
 Exposes: batch selection/ordering (four named modes, D20), the intent-only persisted
-file, the evidence-based risk trigger, the evidence-freshness check, the gating batch
-review shape and verdict table.
+file, the hard-stop predicate (D24), the evidence-based risk trigger, the
+evidence-freshness check, the gating batch review shape and verdict table.
 
 Consumes: `conversational-continuity`'s inline "continue to next batch task" offer;
 `recovery-and-resume`'s classified errors and suspension state for failure handling and
@@ -162,6 +195,16 @@ used by the evidence-freshness check); `state-and-fingerprint-semantics`' correc
   it's refreshed (D19).
 - A test proves an unrelated later-batched task's change does not stale an earlier task's
   evidence (D19).
+- A test proves a failed self-check stops the batch immediately, without routing to full
+  `task-review` (D24).
+- A test proves a full `task-review` cannot mark a hard-stopped task complete while its
+  self-check is still failing (D24).
+- A test proves correcting the implementation and rerunning a previously-failing
+  self-check resumes the batch (D24).
+- A test proves a task whose self-check now passes but that meets an independent risk
+  signal still requires a full `task-review` (D24).
+- A test proves a passing, low-risk code task (no hard stop, no risk signal) proceeds to
+  the final gating batch review without a full `task-review` (D24).
 
 ## Dependencies
 

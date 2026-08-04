@@ -14,6 +14,13 @@
 > (clean worktree, `main` fast-forwarded, failing SHA re-confirmed, target branch name
 > free both locally and on `origin`) — the repair itself (editing files, running checks,
 > opening the PR) remains manual beyond that point.
+>
+> Refined a third time 2026-08-04 — see D25. The four preconditions are unchanged in
+> substance but reordered into a nine-step sequence that checks every read-only/remote
+> fact before switching or fast-forwarding local `main`, and the failure wording no
+> longer claims "stops without modifying anything" — it reports any read-only fetch or
+> authorized branch switch/fast-forward that already occurred before a later guard
+> failed, since Git provides no atomic rollback across those steps.
 
 ## Responsibility
 
@@ -52,20 +59,37 @@ computed under the current whole-file scheme.
    with no commit path — exactly the contradiction D9 exists to avoid) and do **not**
    delete the branch or perform any other cleanup before the failure report above is
    complete.
-2a. **Guarded, confirm-then-create repair branch (D23, second refinement pass).** After
-   the failure report (requirement 2), present one explicit confirmation to create the
-   repair branch. On confirmation, check these four preconditions, in order, immediately
-   before creating the branch: (1) the working tree is clean; (2) `main` is checked out
-   and fast-forwarded (`git switch main && git pull --ff-only`); (3) the post-merge-
-   verified failing SHA is re-confirmed as `main`'s current SHA (guards against the
-   repair starting from a `main` that moved for an unrelated reason since the report);
-   (4) the target branch name (`fix/<change>-post-merge`) does not already exist locally
-   or on `origin`. If every precondition holds, create the branch. If any precondition
-   fails, stop without modifying anything and report which precondition failed and why —
-   never fall back to a different branch name and never force past the conflict. The
-   repair itself (editing files, running the targeted checks, opening the repair PR)
-   remains a manual, owner-driven step beyond branch creation — this requirement does not
-   extend automation past creating the starting point for that work.
+2a. **Guarded, confirm-then-create repair branch, ordered to minimize state mutation
+   before remote-state guards pass (D23, corrected by D25 in the third refinement
+   pass).** After the failure report (requirement 2), present one explicit confirmation
+   to create the repair branch. On confirmation, execute this nine-step sequence in
+   order:
+
+   ```text
+   1. verify the worktree is clean
+   2. verify the repair branch does not exist locally
+   3. git fetch origin
+   4. verify the repair branch does not exist remotely
+   5. verify origin/main still points to the recorded failing SHA
+   6. switch to local main
+   7. git pull --ff-only
+   8. verify local main equals the recorded failing SHA
+   9. create fix/<change>-post-merge
+   ```
+
+   **Failure semantics are precise, not blanket:** a guard failing at step 1, 2, 4, or 5
+   (before the `main` switch at step 6) means no repair branch is created, no local
+   branch is switched, no destructive operation occurs — a read-only `fetch` (step 3) may
+   already have happened and is reported as such. A guard failing at step 8 (after the
+   switch/fast-forward at steps 6-7) means no repair branch is created and no destructive
+   operation occurs, but the report explicitly states that the local branch was switched
+   to `main` and/or fast-forwarded — never claim the repository is unchanged when it
+   isn't. Never use `reset`, `clean`, force-checkout, or automatic stash at any step;
+   never overwrite an existing local or remote repair branch; the fast-forward is always
+   `git pull --ff-only`, never a merge or rebase. The repair itself (editing files,
+   running the targeted checks, opening the repair PR) remains a manual, owner-driven
+   step beyond branch creation — this requirement does not extend automation past
+   creating the starting point for that work.
 3. A successful post-merge check proceeds to branch deletion and reports success exactly
    as `finalize` does today.
 
@@ -114,10 +138,12 @@ single wrap-up task)
     `overview.md`'s refinement (lifecycle status vs. execution suspension vs. owner
     decision vs. review status vs. batch state — one term per concept, never two).
 12. Write the recommended ADR capturing D7-D10 (fingerprint tiers, execution suspension,
-    post-merge sequencing, derived batch state) and D16-D23 (second refinement pass:
+    post-merge sequencing, derived batch state), D16-D23 (second refinement pass:
     status vocabulary removal, repair-and-retry semantics, deterministic
     `semantic_references`, evidence freshness, batch selection modes, the task-06
-    dependency, structured `follow-ups.yaml`, the diagnostic-anchor repair model)
+    dependency, structured `follow-ups.yaml`, the diagnostic-anchor repair model), and
+    D24-D26 (third refinement pass: hard-stop/risk-signal split for batch self-check,
+    ordered/truthful repair-branch guards, semantic-reference completeness review)
     alongside the original D1-D3 decisions.
 13. Regenerate `docs/index.generated.*`/`specs/*.generated.*`/`docs/routing.generated.json`
     (task 05's artifact) as a direct consequence of this task's own doc edits.
@@ -130,11 +156,15 @@ single wrap-up task)
 - Task 11's documentation must not describe a mechanism that isn't actually implemented
   and tested by task 10 — task 10 exists specifically to prove the mechanisms work before
   task 11 describes them.
-- The repair-branch creation (requirement 2a, D23) must check all four preconditions
+- The repair-branch creation (requirement 2a, D25) must run the nine-step guard sequence
   immediately before creating the branch, not at report time — state can change in the
   gap between the failure report and the owner's confirmation.
-- Repair-branch creation stops on the first failing precondition — it never proceeds
-  partially or attempts a different branch name/location on its own initiative.
+- Repair-branch creation stops on the first failing guard — it never proceeds partially
+  or attempts a different branch name/location on its own initiative.
+- The specification must never claim an operation "stops without modifying anything"
+  when a preceding step in the same sequence already performed a read-only fetch or an
+  authorized local mutation (D25) — the failure report always states precisely what, if
+  anything, already happened.
 
 ## Interfaces and boundaries
 
@@ -154,11 +184,18 @@ Consumes: the finished, tested behavior of every other area.
   contradiction.
 - Every `.claude/commands/nevo-ai/*.md` file touched by an earlier task has its behavior
   description updated to match, using one consistent term per concept.
-- A test proves the repair branch is created only after confirmation and only when all
-  four preconditions hold (D23).
-- A test proves each of the four precondition failures (dirty worktree, `main` not
-  fast-forwardable, SHA mismatch, branch name collision) stops without creating the
-  branch or modifying anything else, and names which precondition failed (D23).
+- A test proves the repair branch is created only after confirmation and only when the
+  full nine-step guard sequence passes (D23, D25).
+- A test proves each guard failure mode (local repair branch exists, remote repair
+  branch exists, `origin/main` moved beyond the failing SHA, local `main` cannot
+  fast-forward) stops without creating the branch, and names which guard failed (D25).
+- A test proves branch creation succeeds only after all guards pass, in the documented
+  order (D25).
+- A test proves a guard failure's report correctly identifies any local state change
+  that already occurred (e.g. a completed `fetch`, or a completed switch/fast-forward to
+  `main`) rather than claiming nothing was modified (D25).
+- A test proves no `reset`, `clean`, force-checkout, or automatic stash is ever executed
+  by the repair-branch flow (D25).
 
 ## Dependencies
 
