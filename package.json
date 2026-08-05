@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "test": "node --test tools/tests/",
+    "test": "node --test tools/tests/*.test.mjs",
     "specs:check": "node tools/specs.mjs check",
     "docs:check": "node tools/docs.mjs check"
   },
