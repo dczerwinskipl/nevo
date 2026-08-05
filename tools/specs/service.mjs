@@ -268,10 +268,41 @@ export function resolveFollowUp(change, id, { status, resolution }) {
 // raw file bytes — so `status`, `execution.suspension`, and `self_check` are
 // simply never read here, not excluded after the fact.
 
+// Fields whose *membership*, not order, is the semantic fact — YAML authors
+// reordering one of these must never change the fingerprint. Object-valued
+// entries (e.g. context_exceptions' {omitted, decision, reason} tuples) sort
+// by their own canonical JSON form, which is itself key-order-independent
+// (stableStringify is applied recursively before the sort).
+const SET_LIKE_KEYS = new Set([
+  'allowed_paths', 'consequential_paths', 'forbidden_paths', 'required', 'optional',
+  'decisions', 'constraints', 'dependency_contracts', 'context_exceptions',
+]);
+
+/**
+ * Deterministic, key-order-independent serialization: object keys are
+ * sorted recursively, and any array reached via a `SET_LIKE_KEYS` key is
+ * sorted too (by each element's own canonical form) — so semantically
+ * equivalent YAML (reordered mapping keys, reordered set-like lists)
+ * produces byte-identical output before hashing. `keyHint` is the property
+ * name the caller is about to serialize `value` under, if any.
+ */
+function stableStringify(value, keyHint) {
+  if (Array.isArray(value)) {
+    const items = value.map(v => stableStringify(v));
+    if (SET_LIKE_KEYS.has(keyHint)) items.sort();
+    return `[${items.join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(value[k], k)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function hashProjection(parts) {
   const hash = createHash('sha256');
   for (const part of parts) {
-    hash.update(typeof part === 'string' ? part : JSON.stringify(part));
+    hash.update(typeof part === 'string' ? part : stableStringify(part));
     hash.update('\n\x00\n');
   }
   return hash.digest('hex');
@@ -374,6 +405,15 @@ export function computeTaskFingerprint(change, taskId, seen = new Set()) {
   const { fm, body } = loadTaskFileParts(change, task);
   const sr = fm.semantic_references || {};
 
+  // `semantic_references` itself is deliberately not included here: its
+  // resolved content (decisionTexts/constraintTexts/dependencyFingerprints,
+  // below — each already sorted) fully represents what it contributes to
+  // this fingerprint. Including the raw block too would hash the same
+  // semantic data twice — once raw (order-sensitive), once resolved
+  // (order-independent) — so reordering a set-like semantic_references list
+  // would falsely invalidate the fingerprint despite `stableStringify`'s own
+  // set-like handling below already covering `context_exceptions`/
+  // `allowed_paths`/etc.
   const ownProjection = {
     id: task.id,
     depends_on: [...(task.depends_on || [])].sort(),
@@ -382,7 +422,6 @@ export function computeTaskFingerprint(change, taskId, seen = new Set()) {
     consequential_paths: [...(fm.consequential_paths || [])].sort(),
     forbidden_paths: [...(fm.forbidden_paths || [])].sort(),
     context_exceptions: fm.context_exceptions || [],
-    semantic_references: sr,
   };
 
   const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));

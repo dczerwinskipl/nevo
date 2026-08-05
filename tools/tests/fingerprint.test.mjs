@@ -226,6 +226,17 @@ describe('computeChangeFingerprint — change scope, constraints, and task graph
     ].join('\n'));
     assert.notEqual(computeChangeFingerprint(load()), before);
   });
+
+  test('reordering tasks in change.yaml (same graph shape) does not change the change-level fingerprint', () => {
+    const load = writeTierFixture('change-reorder-tasks');
+    const before = computeChangeFingerprint(load());
+    writeFileSync(join(root, 'change-reorder-tasks', 'change.yaml'), [
+      'id: fixture', 'title: Fixture', 'status: draft', 'tasks:',
+      '  - id: t2', '    order: 2', '    file: tasks/02-t2.md', '    status: draft', '    depends_on: [t1]',
+      '  - id: t1', '    order: 1', '    file: tasks/01-t1.md', '    status: draft', '',
+    ].join('\n'));
+    assert.equal(computeChangeFingerprint(load()), before);
+  });
 });
 
 describe('computeTaskFingerprint — task definition + resolved semantic_references (D18)', () => {
@@ -358,6 +369,70 @@ describe('computeTaskFingerprint — task definition + resolved semantic_referen
       '  - id: t3', '    order: 3', '    file: tasks/03-t3.md', '    status: draft', '',
     ].join('\n'));
     assert.equal(computeTaskFingerprint(load(), 't2'), before);
+  });
+
+  test('reordering a set-like list (allowed_paths) does not change the fingerprint', () => {
+    const slug = 'task-reorder-allowed-paths';
+    const dir = join(root, slug);
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'change.yaml'), 'id: fixture\ntitle: Fixture\nstatus: draft\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: draft\n');
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nallowed_paths:\n  - a.mjs\n  - b.mjs\n  - c.mjs\n---\n# T1\n');
+    const before = computeTaskFingerprint(loadChange(slug, root), 't1');
+
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nallowed_paths:\n  - c.mjs\n  - a.mjs\n  - b.mjs\n---\n# T1\n');
+    assert.equal(computeTaskFingerprint(loadChange(slug, root), 't1'), before);
+  });
+
+  test('reordering semantic_references.decisions does not change the fingerprint (resolved content is what matters, not declaration order)', () => {
+    const slug = 'task-reorder-sr-decisions';
+    const dir = join(root, slug);
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'change.yaml'), 'id: fixture\ntitle: Fixture\nstatus: draft\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: draft\n');
+    writeFileSync(join(dir, 'owner-decisions.md'), OWNER_DECISIONS);
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nsemantic_references:\n  decisions: [D2, D3]\n---\n# T1\n');
+    const before = computeTaskFingerprint(loadChange(slug, root), 't1');
+
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nsemantic_references:\n  decisions: [D3, D2]\n---\n# T1\n');
+    assert.equal(computeTaskFingerprint(loadChange(slug, root), 't1'), before);
+  });
+
+  test('reordering context.required/context.optional does not change the fingerprint', () => {
+    const slug = 'task-reorder-context';
+    const dir = join(root, slug);
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'change.yaml'), 'id: fixture\ntitle: Fixture\nstatus: draft\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: draft\n');
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\ncontext:\n  required:\n    - a.md\n    - b.md\n  optional: []\n---\n# T1\n');
+    const before = computeTaskFingerprint(loadChange(slug, root), 't1');
+
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\ncontext:\n  optional: []\n  required:\n    - b.md\n    - a.md\n---\n# T1\n');
+    assert.equal(computeTaskFingerprint(loadChange(slug, root), 't1'), before);
+  });
+
+  test('reordering context_exceptions entries does not change the fingerprint', () => {
+    const slug = 'task-reorder-context-exceptions';
+    const dir = join(root, slug);
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'change.yaml'), 'id: fixture\ntitle: Fixture\nstatus: draft\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: draft\n');
+    writeFileSync(join(dir, 'owner-decisions.md'), OWNER_DECISIONS);
+    const excA = '  - omitted: a.md\n    decision: D2\n    reason: not relevant\n';
+    const excB = '  - omitted: b.md\n    decision: D3\n    reason: not relevant\n';
+    writeFileSync(join(dir, 'tasks', 't1.md'), `---\nid: fixture.t1\ncontext_exceptions:\n${excA}${excB}---\n# T1\n`);
+    const before = computeTaskFingerprint(loadChange(slug, root), 't1');
+
+    writeFileSync(join(dir, 'tasks', 't1.md'), `---\nid: fixture.t1\ncontext_exceptions:\n${excB}${excA}---\n# T1\n`);
+    assert.equal(computeTaskFingerprint(loadChange(slug, root), 't1'), before);
+  });
+
+  test('a real content change to a set-like list still invalidates the fingerprint (canonicalization does not mask real changes)', () => {
+    const slug = 'task-real-change-allowed-paths';
+    const dir = join(root, slug);
+    mkdirSync(join(dir, 'tasks'), { recursive: true });
+    writeFileSync(join(dir, 'change.yaml'), 'id: fixture\ntitle: Fixture\nstatus: draft\ntasks:\n  - id: t1\n    file: tasks/t1.md\n    status: draft\n');
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nallowed_paths:\n  - a.mjs\n  - b.mjs\n---\n# T1\n');
+    const before = computeTaskFingerprint(loadChange(slug, root), 't1');
+
+    writeFileSync(join(dir, 'tasks', 't1.md'), '---\nid: fixture.t1\nallowed_paths:\n  - a.mjs\n  - c.mjs\n---\n# T1\n');
+    assert.notEqual(computeTaskFingerprint(loadChange(slug, root), 't1'), before);
   });
 });
 
