@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveWithinBase, readUtf8 } from '../lib/fs.mjs';
 import { parseFrontMatterFile, parseYamlFile } from '../lib/yaml.mjs';
-import { CliError } from '../lib/cli-errors.mjs';
+import { CliError, RECOVERY_SCENARIOS } from '../lib/cli-errors.mjs';
 import {
   listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints,
   pathGlobsOverlap, FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES,
@@ -12,6 +12,10 @@ import {
 import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle.mjs';
 
 const SUSPENSION_KINDS = new Set(['automatic', 'confirm-required', 'owner-decision', 'unsafe-manual']);
+// The lifecycle actions a suspension can name as its retry target — matches
+// `RECOVERY_SCENARIOS`' own `previousAction` values (a real transition name,
+// or `null` for a scenario with no automated retry target, e.g. REC-08/09).
+const SUSPENSION_PREVIOUS_ACTIONS = new Set(['approve', 'start', 'complete', 'verify', 'validate', 'generate']);
 
 export function validateStatusValue(value, allowed, errors, label) {
   if (value === undefined) return;
@@ -22,34 +26,96 @@ export function validateStatusValue(value, allowed, errors, label) {
   }
 }
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Full `execution.suspension` schema (PR review packet 04, Problem 3 —
+ * previously checked only `kind`/`code`). `code` must be a recognized
+ * `REC-xx` scenario (`tools/lib/cli-errors.mjs`'s canonical catalog, not an
+ * arbitrary string); `previous_action` must be `null` or a real lifecycle
+ * transition name; `created_at` must be a non-empty, parseable timestamp.
+ */
 export function validateSuspension(task, errors, label) {
-  const suspension = task.execution?.suspension;
-  if (!suspension) return;
+  if (task.execution === undefined) return;
+  if (!isPlainObject(task.execution)) {
+    errors.push(`${label}: execution must be an object`);
+    return;
+  }
+  const suspension = task.execution.suspension;
+  if (suspension === undefined) return;
+  if (!isPlainObject(suspension)) {
+    errors.push(`${label}: execution.suspension must be an object`);
+    return;
+  }
+
   if (!SUSPENSION_KINDS.has(suspension.kind)) {
     errors.push(`${label}: execution.suspension.kind must be one of ${[...SUSPENSION_KINDS].join('/')}, got '${suspension.kind}'`);
   }
   if (typeof suspension.code !== 'string' || !suspension.code) {
     errors.push(`${label}: execution.suspension.code must be a non-empty string`);
+  } else if (!RECOVERY_SCENARIOS[suspension.code]) {
+    errors.push(
+      `${label}: execution.suspension.code '${suspension.code}' is not a recognized recovery scenario ` +
+      `(expected one of ${Object.keys(RECOVERY_SCENARIOS).join('/')})`
+    );
+  }
+  if (suspension.previous_action !== null && !SUSPENSION_PREVIOUS_ACTIONS.has(suspension.previous_action)) {
+    errors.push(
+      `${label}: execution.suspension.previous_action must be null or one of ` +
+      `${[...SUSPENSION_PREVIOUS_ACTIONS].join('/')}, got '${suspension.previous_action}'`
+    );
+  }
+  if (typeof suspension.created_at !== 'string' || !suspension.created_at || Number.isNaN(Date.parse(suspension.created_at))) {
+    errors.push(`${label}: execution.suspension.created_at must be a non-empty, parseable ISO timestamp`);
   }
 }
 
+/**
+ * Full `self_check` schema (PR review packet 04, Problem 4 — previously
+ * permissive: a non-array `commands` could throw uncontrolled, a missing
+ * `commands` silently read as empty, `fingerprint`/`revision` were never
+ * required, and `failed_criteria` was never required when `status: failed`).
+ */
 export function validateSelfCheck(task, errors, label) {
   const selfCheck = task.self_check;
-  if (!selfCheck) return;
+  if (selfCheck === undefined) return;
+  if (!isPlainObject(selfCheck)) {
+    errors.push(`${label}: self_check must be an object`);
+    return;
+  }
+
   if (selfCheck.status !== 'failed' && selfCheck.status !== 'passed') {
     errors.push(`${label}: self_check.status must be 'failed' or 'passed', got '${selfCheck.status}'`);
   }
-  if (selfCheck.failed_criteria !== undefined && selfCheck.status !== 'failed') {
+  if (typeof selfCheck.fingerprint !== 'string' || !selfCheck.fingerprint) {
+    errors.push(`${label}: self_check.fingerprint must be a non-empty string`);
+  }
+  if (typeof selfCheck.revision !== 'string' || !selfCheck.revision) {
+    errors.push(`${label}: self_check.revision must be a non-empty string`);
+  }
+
+  if (selfCheck.status === 'failed') {
+    if (!Array.isArray(selfCheck.failed_criteria) || selfCheck.failed_criteria.length === 0) {
+      errors.push(`${label}: self_check.failed_criteria must be a non-empty array when status is 'failed'`);
+    }
+  } else if (selfCheck.failed_criteria !== undefined) {
     errors.push(`${label}: self_check.failed_criteria is only valid when status is 'failed'`);
   }
-  (selfCheck.commands || []).forEach((cmd, i) => {
-    if (typeof cmd.command !== 'string' || !cmd.command) {
-      errors.push(`${label}: self_check.commands[${i}].command must be a non-empty string`);
-    }
-    if (!Number.isInteger(cmd.exit_code)) {
-      errors.push(`${label}: self_check.commands[${i}].exit_code must be an integer`);
-    }
-  });
+
+  if (selfCheck.commands === undefined || !Array.isArray(selfCheck.commands) || selfCheck.commands.length === 0) {
+    errors.push(`${label}: self_check.commands must be a non-empty array`);
+  } else {
+    selfCheck.commands.forEach((cmd, i) => {
+      if (typeof cmd.command !== 'string' || !cmd.command) {
+        errors.push(`${label}: self_check.commands[${i}].command must be a non-empty string`);
+      }
+      if (!Number.isInteger(cmd.exit_code)) {
+        errors.push(`${label}: self_check.commands[${i}].exit_code must be an integer`);
+      }
+    });
+  }
 }
 
 /** Follow a decision's `supersededBy` chain to the id a reference to it should use instead. */
@@ -87,14 +153,28 @@ export function validateSemanticReferences(task, fm, decisionsMap, constraintsMa
 
 /**
  * D13: `context_exceptions: [{omitted, decision, reason}]` — every entry's
- * `decision` must resolve to a real entry in the change's own
- * `owner-decisions.md`; an unresolvable reference is a `validate` error
- * naming the offending path (AC1).
+ * `decision` must resolve to a real, currently-*active* entry in the
+ * change's own `owner-decisions.md`; an unresolvable reference is a
+ * `validate` error naming the offending path (AC1). A decision explicitly
+ * marked superseded is rejected too (PR review packet 04, Problem 5), naming
+ * the authoritative replacement — the same supersession-aware rule
+ * `validateSemanticReferences` already applies to `semantic_references.decisions`,
+ * since a context omission justified by a decision that's no longer active
+ * is exactly as unsound as a semantic reference to one.
  */
 export function validateContextExceptions(fm, decisionsMap, errors, label) {
   for (const entry of fm.context_exceptions || []) {
     if (!entry.decision || !decisionsMap.has(entry.decision)) {
       errors.push(`${label}: context_exceptions entry for '${entry.omitted}' has an unresolvable decision '${entry.decision}'`);
+      continue;
+    }
+    const decisionEntry = decisionsMap.get(entry.decision);
+    if (decisionEntry.supersededBy) {
+      const replacement = resolveSupersedingId(decisionsMap, entry.decision);
+      errors.push(
+        `${label}: context_exceptions entry for '${entry.omitted}' cites superseded decision '${entry.decision}' — ` +
+        `reference '${replacement}' instead`
+      );
     }
   }
 }

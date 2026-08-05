@@ -41,6 +41,24 @@ describe('validateContextExceptions (D13, AC1)', () => {
     validateContextExceptions({}, decisionsMap, errors, 'label');
     assert.deepEqual(errors, []);
   });
+
+  test('rejects an entry citing a decision explicitly marked superseded, naming the replacement (PR review packet 04, Problem 5)', () => {
+    const supersession = parseOwnerDecisions('## D1: First\n\nText.\n\nRefined by: D2 is authoritative on this question.\n\n## D2: Second\n\nText.\n');
+    const errors = [];
+    const fm = { context_exceptions: [{ omitted: 'docs/x.md', decision: 'D1', reason: 'not relevant' }] };
+    validateContextExceptions(fm, supersession, errors, 'label');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /cites superseded decision 'D1'/);
+    assert.match(errors[0], /reference 'D2' instead/);
+  });
+
+  test('accepts an entry citing the currently-active decision at the end of a supersession chain', () => {
+    const supersession = parseOwnerDecisions('## D1: First\n\nText.\n\nRefined by: D2 is authoritative on this question.\n\n## D2: Second\n\nText.\n');
+    const errors = [];
+    const fm = { context_exceptions: [{ omitted: 'docs/x.md', decision: 'D2', reason: 'not relevant' }] };
+    validateContextExceptions(fm, supersession, errors, 'label');
+    assert.deepEqual(errors, []);
+  });
 });
 
 describe('validateConsequentialPaths (AC3)', () => {

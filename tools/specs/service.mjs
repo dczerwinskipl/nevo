@@ -40,21 +40,41 @@ function loadRoutingIndex() {
   return JSON.parse(readUtf8(ROUTING_INDEX_FILE));
 }
 
+// A context_exceptions entry validly suppresses its warning (PR review
+// packet 04, Problem 1) only when: its `decision` resolves to a currently
+// *active* (non-superseded) owner decision, and `reason` is a non-empty
+// string. Exact `omitted` matching only, never substring/approximate — the
+// caller compares this entry's `omitted` against a rule's `doc_ref` by
+// strict equality.
+function isActiveContextException(entry, decisionsMap) {
+  if (!entry?.omitted || !entry?.decision || !String(entry?.reason || '').trim()) return false;
+  const decision = decisionsMap.get(entry.decision);
+  return Boolean(decision && !decision.supersededBy);
+}
+
 /**
  * Context-completeness check (requirements 2/3/6): diff routing-table
  * suggestions — sourced only from the already-generated
  * `docs/routing.generated.json`, never the source Markdown at check time —
  * against a task's own declared `context.required`/`optional`. A declared
  * entry always wins (requirement 4/precedence rule) — this only ever adds
- * gap-check candidates, it never removes or overrides one. A warning, never
- * a hard failure (requirement 3). Pure: `routingIndex` is the already-loaded
- * JSON, or `null` when it hasn't been generated yet.
+ * gap-check candidates, it never removes or overrides one. A *valid*
+ * `context_exceptions` entry (see `isActiveContextException`) also suppresses
+ * its own specific warning — an invalid one (unresolved/superseded decision,
+ * blank reason, or naming a different document) suppresses nothing. A
+ * warning, never a hard failure (requirement 3). Pure: `routingIndex` is the
+ * already-loaded JSON, or `null` when it hasn't been generated yet.
  */
-export function computeRoutingWarnings(routingIndex, allowedPaths, declaredContextPaths) {
+export function computeRoutingWarnings(
+  routingIndex, allowedPaths, declaredContextPaths, contextExceptions = [], decisionsMap = new Map()
+) {
   if (!routingIndex) {
     return ['routing index not generated (docs/routing.generated.json) — run `node tools/docs.mjs generate`'];
   }
   const declared = new Set(declaredContextPaths);
+  const exempted = new Set(
+    contextExceptions.filter(e => isActiveContextException(e, decisionsMap)).map(e => e.omitted)
+  );
   const matched = (routingIndex.rules || []).filter(rule =>
     (allowedPaths || []).some(ap => pathGlobsOverlap(ap, rule.path_glob))
   );
@@ -62,7 +82,7 @@ export function computeRoutingWarnings(routingIndex, allowedPaths, declaredConte
     return ['no routing rule matched — verify context manually'];
   }
   return matched
-    .filter(rule => !declared.has(rule.doc_ref))
+    .filter(rule => !declared.has(rule.doc_ref) && !exempted.has(rule.doc_ref))
     .map(rule => `routing rule '${rule.rule_id}' (${rule.path_glob}) suggests '${rule.doc_ref}' — not in this task's declared context`);
 }
 
@@ -127,6 +147,9 @@ export function buildContextPacket(change, task) {
     p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
   );
   const allowedPaths = taskFm.allowed_paths || [];
+  const consequentialPaths = taskFm.consequential_paths || [];
+  const contextExceptions = taskFm.context_exceptions || [];
+  const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));
 
   return {
     change: { id: change.id, title: change.title },
@@ -136,10 +159,20 @@ export function buildContextPacket(change, task) {
     },
     context: { required: contextRequired, optional: contextOptional },
     allowed_paths: allowedPaths,
+    // Kept as its own field, not merged into allowed_paths (PR review packet
+    // 04, Problem 2) — the two carry different review semantics (a
+    // consequential write is never a scope violation at task-review time;
+    // an allowed_paths write is the task's primary declared scope).
+    consequential_paths: consequentialPaths,
+    context_exceptions: contextExceptions,
     forbidden_paths: taskFm.forbidden_paths || [],
     branch,
     routingWarnings: computeRoutingWarnings(
-      loadRoutingIndex(), allowedPaths, [...contextRequired, ...contextOptional]
+      loadRoutingIndex(),
+      [...allowedPaths, ...consequentialPaths], // a doc may be relevant via a consequential write too
+      [...contextRequired, ...contextOptional],
+      contextExceptions,
+      decisionsMap
     ),
   };
 }

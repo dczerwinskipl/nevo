@@ -462,10 +462,14 @@ describe('computeImplementationFingerprint — task fingerprint + revision/evide
   });
 });
 
-describe('execution.suspension shape validation (D8/requirement 3)', () => {
+describe('execution.suspension shape validation (D8/requirement 3, hardened by PR review packet 04 Problem 3)', () => {
+  const validSuspension = (overrides = {}) => ({
+    kind: 'confirm-required', code: 'REC-05', previous_action: 'start', created_at: '2026-08-04T00:00:00Z', ...overrides,
+  });
+
   test('a valid suspension produces no errors', () => {
     const errors = [];
-    validateSuspension({ execution: { suspension: { kind: 'confirm-required', code: 'REC-05' } } }, errors, 'task t1');
+    validateSuspension({ execution: { suspension: validSuspension() } }, errors, 'task t1');
     assert.deepEqual(errors, []);
   });
 
@@ -475,39 +479,81 @@ describe('execution.suspension shape validation (D8/requirement 3)', () => {
     assert.deepEqual(errors, []);
   });
 
+  test('execution present but not an object is a validate error', () => {
+    const errors = [];
+    validateSuspension({ execution: 'nope' }, errors, 'task t1');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /execution must be an object/);
+  });
+
+  test('execution.suspension present but not an object is a validate error', () => {
+    const errors = [];
+    validateSuspension({ execution: { suspension: 'nope' } }, errors, 'task t1');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /execution\.suspension must be an object/);
+  });
+
   test('an invalid kind is a validate error', () => {
     const errors = [];
-    validateSuspension({ execution: { suspension: { kind: 'bogus', code: 'REC-05' } } }, errors, 'task t1');
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /execution\.suspension\.kind/);
+    validateSuspension({ execution: { suspension: validSuspension({ kind: 'bogus' }) } }, errors, 'task t1');
+    assert.ok(errors.some(e => /execution\.suspension\.kind/.test(e)));
   });
 
   test('a missing/empty code is a validate error', () => {
     const errors = [];
-    validateSuspension({ execution: { suspension: { kind: 'automatic', code: '' } } }, errors, 'task t1');
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /execution\.suspension\.code/);
+    validateSuspension({ execution: { suspension: validSuspension({ code: '' }) } }, errors, 'task t1');
+    assert.ok(errors.some(e => /execution\.suspension\.code must be a non-empty string/.test(e)));
+  });
+
+  test('a code that is not a recognized REC-xx scenario is a validate error', () => {
+    const errors = [];
+    validateSuspension({ execution: { suspension: validSuspension({ code: 'REC-99' }) } }, errors, 'task t1');
+    assert.ok(errors.some(e => /not a recognized recovery scenario/.test(e)));
   });
 
   test('every documented kind is accepted', () => {
     for (const kind of ['automatic', 'confirm-required', 'owner-decision', 'unsafe-manual']) {
       const errors = [];
-      validateSuspension({ execution: { suspension: { kind, code: 'REC-01' } } }, errors, 'task t1');
+      validateSuspension({ execution: { suspension: validSuspension({ kind, code: 'REC-01' }) } }, errors, 'task t1');
       assert.deepEqual(errors, []);
     }
   });
+
+  test('previous_action must be null or a real lifecycle action', () => {
+    const errors = [];
+    validateSuspension({ execution: { suspension: validSuspension({ previous_action: 'not-a-real-action' }) } }, errors, 'task t1');
+    assert.ok(errors.some(e => /execution\.suspension\.previous_action/.test(e)));
+  });
+
+  test('previous_action: null is accepted (REC-08/REC-09 have no automated retry target)', () => {
+    const errors = [];
+    validateSuspension({ execution: { suspension: validSuspension({ code: 'REC-08', previous_action: null }) } }, errors, 'task t1');
+    assert.deepEqual(errors, []);
+  });
+
+  test('a missing/unparseable created_at is a validate error', () => {
+    const errors = [];
+    validateSuspension({ execution: { suspension: validSuspension({ created_at: 'not-a-date' }) } }, errors, 'task t1');
+    assert.ok(errors.some(e => /created_at/.test(e)));
+  });
 });
 
-describe('self_check shape validation (D28/requirement 9)', () => {
+describe('self_check shape validation (D28/requirement 9, hardened by PR review packet 04 Problem 4)', () => {
+  const validPassed = (overrides = {}) => ({
+    status: 'passed', fingerprint: 'fp1', revision: 'rev1', commands: [{ command: 'x', exit_code: 0 }], ...overrides,
+  });
+
   test('a valid passed self_check produces no errors', () => {
     const errors = [];
-    validateSelfCheck({ self_check: { status: 'passed', commands: [{ command: 'x', exit_code: 0 }] } }, errors, 'task t1');
+    validateSelfCheck({ self_check: validPassed() }, errors, 'task t1');
     assert.deepEqual(errors, []);
   });
 
   test('a valid failed self_check with failed_criteria produces no errors', () => {
     const errors = [];
-    validateSelfCheck({ self_check: { status: 'failed', failed_criteria: ['AC-3'], commands: [] } }, errors, 'task t1');
+    validateSelfCheck({
+      self_check: validPassed({ status: 'failed', failed_criteria: ['AC-3'], commands: [{ command: 'x', exit_code: 1 }] }),
+    }, errors, 'task t1');
     assert.deepEqual(errors, []);
   });
 
@@ -517,25 +563,59 @@ describe('self_check shape validation (D28/requirement 9)', () => {
     assert.deepEqual(errors, []);
   });
 
+  test('self_check present but not an object is a validate error', () => {
+    const errors = [];
+    validateSelfCheck({ self_check: 'nope' }, errors, 'task t1');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /self_check must be an object/);
+  });
+
   test('a malformed status is a validate error', () => {
     const errors = [];
-    validateSelfCheck({ self_check: { status: 'bogus' } }, errors, 'task t1');
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /self_check\.status/);
+    validateSelfCheck({ self_check: validPassed({ status: 'bogus' }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /self_check\.status/.test(e)));
+  });
+
+  test('a missing fingerprint is a validate error', () => {
+    const errors = [];
+    validateSelfCheck({ self_check: validPassed({ fingerprint: undefined }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /self_check\.fingerprint/.test(e)));
+  });
+
+  test('a missing revision is a validate error', () => {
+    const errors = [];
+    validateSelfCheck({ self_check: validPassed({ revision: undefined }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /self_check\.revision/.test(e)));
   });
 
   test('failed_criteria present without status: failed is a validate error', () => {
     const errors = [];
-    validateSelfCheck({ self_check: { status: 'passed', failed_criteria: ['AC-3'] } }, errors, 'task t1');
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /failed_criteria/);
+    validateSelfCheck({ self_check: validPassed({ failed_criteria: ['AC-3'] }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /failed_criteria/.test(e)));
+  });
+
+  test('status: failed without failed_criteria is a validate error', () => {
+    const errors = [];
+    validateSelfCheck({ self_check: validPassed({ status: 'failed', failed_criteria: undefined }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /failed_criteria must be a non-empty array/.test(e)));
+  });
+
+  test('a missing/empty commands array is a validate error', () => {
+    const errors = [];
+    validateSelfCheck({ self_check: validPassed({ commands: [] }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /self_check\.commands must be a non-empty array/.test(e)));
+  });
+
+  test('a non-array commands value is a validate error, not a crash', () => {
+    const errors = [];
+    assert.doesNotThrow(() => validateSelfCheck({ self_check: validPassed({ commands: 'not-an-array' }) }, errors, 'task t1'));
+    assert.ok(errors.some(e => /self_check\.commands must be a non-empty array/.test(e)));
   });
 
   test('a commands entry missing exit_code is a validate error', () => {
     const errors = [];
-    validateSelfCheck({ self_check: { status: 'passed', commands: [{ command: 'x' }] } }, errors, 'task t1');
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /exit_code/);
+    validateSelfCheck({ self_check: validPassed({ commands: [{ command: 'x' }] }) }, errors, 'task t1');
+    assert.ok(errors.some(e => /exit_code/.test(e)));
   });
 });
 
