@@ -192,13 +192,18 @@ export function replyToReviewComment(root, prNumber, commentDatabaseId, body) {
   return JSON.parse(json);
 }
 
-// Squash-merges and deletes the branch — matches this repository's documented merge
-// strategy (docs/development/git-workflow.md § "Merge strategy",
-// docs/development/pull-requests.md § "Merge"). No confirmation flag is passed: `gh`
-// only prompts interactively when attached to a TTY, and this always runs non-
-// interactively from specs.mjs; the interactive confirmation this action actually
-// needs happens one layer up, in /nevo-ai:spec-finalize's closed-menu step, before
-// this function is ever called.
+// Squash-merges — matches this repository's documented merge strategy
+// (docs/development/git-workflow.md § "Merge strategy",
+// docs/development/pull-requests.md § "Merge"). Deliberately **no**
+// `--delete-branch` (D9, area finalization-and-migration, task 09): branch
+// deletion is a separate, later step, gated on a post-merge verification
+// check passing — never in the same call as the merge itself, so a failed
+// post-merge check still has the branch as a diagnostic anchor. No
+// confirmation flag is passed: `gh` only prompts interactively when attached
+// to a TTY, and this always runs non-interactively from specs.mjs; the
+// interactive confirmation this action actually needs happens one layer up,
+// in /nevo-ai:spec-finalize's closed-menu step, before this function is ever
+// called.
 export function mergePr(root, prNumber) {
-  run(root, ['pr', 'merge', String(prNumber), '--squash', '--delete-branch']);
+  run(root, ['pr', 'merge', String(prNumber), '--squash']);
 }

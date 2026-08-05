@@ -1,0 +1,15 @@
+follow_ups:
+  - id: FU-001
+    source_task: finalization-hardening-and-migration
+    kind: correctness
+    severity: non-blocking
+    reason: computeChangeFingerprint (tools/specs/service.mjs) only hashes
+      overview.md + task graph shape; D7's Consequences text says
+      change_fingerprint should also cover shared constraints, owner decisions,
+      change-level acceptance criteria, and cross-task invariants.
+      owner-decisions.md changes currently do not invalidate a spec review's
+      fingerprint. tools/specs/service.mjs is outside task 09's allowed_paths so
+      this could not be fixed here.
+    resolver_task: null
+    status: open
+    resolution: null

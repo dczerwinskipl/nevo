@@ -15,7 +15,7 @@ import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
 import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
-  computeSpecFingerprint, computeTaskFingerprint, loadReview,
+  computeChangeFingerprint, computeTaskFingerprint, loadReview,
   buildSpecsIndexes, writeSpecsIndexes, checkSpecsIndexes,
   parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
   FOLLOW_UP_SEVERITIES,
@@ -158,9 +158,15 @@ export function handleContext(changeSlug, taskId) {
   console.log(JSON.stringify(buildContextPacket(change, task), null, 2));
 }
 
+// D7/D9 migration (task 09) — this now prints the change-level tier
+// (`computeChangeFingerprint`), not the old whole-file `computeSpecFingerprint`
+// (still exported from service.mjs, but no longer read by any command here).
+// `/nevo-ai:spec-review` records this exact output as a spec review's
+// `spec_fingerprint`; a status-only or unrelated-task edit no longer
+// invalidates it, closing the gap D7 exists to fix.
 export function handleFingerprint(changeSlug) {
   const change = requireChange(changeSlug);
-  console.log(computeSpecFingerprint(change));
+  console.log(computeChangeFingerprint(change));
 }
 
 export function handleApprove(changeSlug, taskId) {
@@ -174,7 +180,11 @@ export function handleApprove(changeSlug, taskId) {
   const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);
 
   const review = loadReview(change);
-  const currentFingerprint = computeSpecFingerprint(change);
+  // D7/D9 migration (task 09): compares against the change-level tier — a
+  // spec review's own scope — instead of the old whole-file hash, which
+  // invalidated on any status write, execution.suspension change, or
+  // unrelated task edit (exactly the cost D7 exists to remove).
+  const currentFingerprint = computeChangeFingerprint(change);
   const result = validateApproval(task.status, review, currentFingerprint, { mechanicalExempt });
   const inspection = inspectApprovePostconditions(result);
 
@@ -625,16 +635,154 @@ function gatherFinalizeFacts(branch, change) {
   };
 }
 
+// ── Post-merge verify-before-destructive-cleanup (D9, task 09) ─────────────
+//
+// git operations not already exported by tools/lib/git.mjs (fetch, an
+// arbitrary ref's revision, `pull --ff-only`, branch deletion) — that module
+// is outside this task's allowed_paths, so these live here as small, local,
+// same-pattern helpers instead of growing it.
+
+function runGit(args, root = ROOT) {
+  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+}
+
+function tryRevParse(root, ref) {
+  try { return runGit(['rev-parse', ref], root); } catch { return null; }
+}
+
+function remoteBranchExists(root, name) {
+  return tryRevParse(root, `refs/remotes/origin/${name}`) !== null;
+}
+
+/**
+ * Verify-before-destructive-cleanup (D9): fetches and fast-forwards local
+ * `main`, then invokes `computeCheckFailures()` — deliberately a callback,
+ * not a precomputed value, so it only ever runs against the *post-merge*
+ * tree, never a stale pre-fetch snapshot. Branch deletion (local + remote)
+ * happens only when it returns no failures; on failure, nothing is deleted
+ * and no `follow-ups.yaml` entry is written (that mutates an
+ * already-archived change with no commit path — exactly the contradiction
+ * D9 exists to avoid; the caller must not do it either). `root` defaults to
+ * this process's `ROOT`; tests pass a temp repo.
+ */
+export function runPostMergeCheck(root, branch, computeCheckFailures) {
+  runGit(['fetch', 'origin'], root);
+  git.checkoutBranch(root, 'main');
+  runGit(['pull', '--ff-only'], root);
+  const mergedSha = git.getCurrentRevision(root);
+
+  const failed = computeCheckFailures();
+  if (failed.length) {
+    return { ok: false, mergedSha, diagnosticBranch: branch, failed };
+  }
+
+  runGit(['push', 'origin', '--delete', branch], root);
+  runGit(['branch', '-D', branch], root);
+  return { ok: true, mergedSha, deletedBranch: branch };
+}
+
+function gatherPostMergeCheckFailures() {
+  const failed = [];
+  const specErrors = validateSpecs();
+  if (specErrors.length) failed.push({ name: 'specs validate', detail: specErrors[0] });
+  const specCheckProblems = checkSpecsIndexes();
+  if (specCheckProblems.length) failed.push({ name: 'specs check', detail: specCheckProblems[0] });
+  const docs = scanDocs();
+  const docErrors = validateDocs(docs);
+  if (docErrors.length) failed.push({ name: 'docs validate', detail: docErrors[0] });
+  const docCheckProblems = checkDocsIndexes(docs);
+  if (docCheckProblems.length) failed.push({ name: 'docs check', detail: docCheckProblems[0] });
+  return failed;
+}
+
+/**
+ * The nine-step guarded repair-branch creation (D23, corrected by D25) —
+ * exported for direct testing against a real temp git repo, decoupled from
+ * `gh`/PR concerns. Every read-only/remote guard (worktree clean, local
+ * branch absent, remote branch absent, `origin/main` still at the recorded
+ * failing SHA) is checked *before* switching/fast-forwarding local `main`;
+ * only after all of those pass does it touch `main`, and only then checks
+ * the final guard (local `main` now equals the failing SHA) before creating
+ * the branch. Never `reset`/`clean`/force-checkout/stash at any step — every
+ * git call here is `status`/`rev-parse` (read-only), `fetch` (read-only),
+ * `checkout <branch>` (no `-f`), `pull --ff-only`, or `checkout -b` (create).
+ * Returns `{ ok, failedGuard, mainSwitched, fetchRan, branchCreated }` —
+ * never throws for a guard failure, since that's an expected, reported
+ * outcome, not a programmer error. `root` defaults to this process's `ROOT`.
+ */
+export function createRepairBranch(root, { branchName, failingSha }) {
+  if (!git.isWorkingTreeClean(root)) {
+    return { ok: false, failedGuard: 'clean-worktree', mainSwitched: false, fetchRan: false, branchCreated: false };
+  }
+  if (git.branchExists(root, branchName)) {
+    return { ok: false, failedGuard: 'local-branch-absent', mainSwitched: false, fetchRan: false, branchCreated: false };
+  }
+
+  runGit(['fetch', 'origin'], root);
+  const fetchRan = true;
+
+  if (remoteBranchExists(root, branchName)) {
+    return { ok: false, failedGuard: 'remote-branch-absent', mainSwitched: false, fetchRan, branchCreated: false };
+  }
+  if (tryRevParse(root, 'origin/main') !== failingSha) {
+    return { ok: false, failedGuard: 'origin-main-unchanged', mainSwitched: false, fetchRan, branchCreated: false };
+  }
+
+  git.checkoutBranch(root, 'main');
+  const mainSwitched = true;
+  try {
+    runGit(['pull', '--ff-only'], root);
+  } catch {
+    // A genuine non-fast-forward (local main has diverged) — the literal
+    // "local main cannot fast-forward" failure mode (AC6). Falls through to
+    // the same SHA-comparison guard below rather than a second failedGuard
+    // code: either way, local main not landing on `failingSha` is the one
+    // observable fact that matters.
+  }
+
+  if (git.getCurrentRevision(root) !== failingSha) {
+    return { ok: false, failedGuard: 'local-main-matches-failing-sha', mainSwitched, fetchRan, branchCreated: false };
+  }
+
+  git.createAndCheckoutBranch(root, branchName);
+  return { ok: true, mainSwitched, fetchRan, branchCreated: true };
+}
+
+// Confirm-then-create entry point (D23) — spec-finalize.md's prose runs this
+// only after the owner's explicit confirmation, following a reported
+// post-merge check failure. The nine-step guard sequence itself
+// (createRepairBranch) runs immediately before creating the branch, not at
+// report time — state can change in the gap between the failure report and
+// the confirmation.
+export function handleFinalizeRepairBranch(changeSlug, options = {}) {
+  requireChangeAnywhere(changeSlug); // only for the usual "not found" error on a bad slug
+  if (!options.failingSha) {
+    throw new CliError('finalize-repair-branch requires --failing-sha (the merged SHA the failed post-merge check reported).');
+  }
+  const branchName = `fix/${changeSlug}-post-merge`;
+  const result = createRepairBranch(ROOT, { branchName, failingSha: options.failingSha });
+
+  if (!result.ok) {
+    const stateNote = result.mainSwitched
+      ? 'local main was already switched to and/or fast-forwarded.'
+      : result.fetchRan
+        ? 'a read-only fetch already ran; nothing else was modified.'
+        : 'nothing was modified.';
+    throw new CliError(`Repair branch not created — guard '${result.failedGuard}' failed (${stateNote})`);
+  }
+  console.log(`Repair branch '${branchName}' created and checked out.`);
+}
+
 // Finalize gate: every task terminal, working tree clean and pushed, an open (or
 // already-merged, idempotently) PR with zero unresolved review threads, and every
 // verification command green. `--check` only reports the gate result — no side
 // effects. Without it, once the gate passes: archive locally (skipped if the change was
 // already archived — e.g. someone ran bare `archive` before finalizing, which this
 // command still needs to recover from, not just refuse) → commit → push → squash-merge
-// the PR. Never merges or archives on a failing gate, and the interactive "are you
-// sure" for this whole action lives one layer up, in /nevo-ai:spec-finalize — this
-// command does exactly what it's told, deterministically, the same split as
-// `approve`/`archive`.
+// the PR → verify-before-destructive-cleanup (D9). Never merges or archives on a
+// failing gate, and the interactive "are you sure" for this whole action lives one layer
+// up, in /nevo-ai:spec-finalize — this command does exactly what it's told,
+// deterministically, the same split as `approve`/`archive`.
 export function handleFinalize(changeSlug, options = {}) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
@@ -663,7 +811,27 @@ export function handleFinalize(changeSlug, options = {}) {
 
   git.push(ROOT, branch);
   github.mergePr(ROOT, facts.pr.number);
-  console.log(`Pushed and merged PR #${facts.pr.number} (squash, branch deleted).`);
+
+  const postMerge = runPostMergeCheck(ROOT, branch, gatherPostMergeCheckFailures);
+  if (!postMerge.ok) {
+    console.error(`Post-merge check FAILED after merging PR #${facts.pr.number} (merged SHA: ${postMerge.mergedSha}).`);
+    for (const f of postMerge.failed) console.error(`  - ${f.name}${f.detail ? `: ${f.detail}` : ''}`);
+    console.error(
+      `Branch '${postMerge.diagnosticBranch}' preserved as a diagnostic anchor (not deleted). ` +
+      `No follow-up entry was written for this already-archived change.`
+    );
+    console.error(
+      `To create a repair branch once confirmed: node tools/specs.mjs finalize-repair-branch ` +
+      `${changeSlug} --failing-sha ${postMerge.mergedSha}`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(
+    `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed — ` +
+    `branch '${postMerge.deletedBranch}' deleted.`
+  );
 }
 
 // Read-only lifecycle navigator: where does this change sit right now, across the
@@ -853,6 +1021,12 @@ export function buildProgram() {
     .description('Run the evidence-freshness check, then the one gating batch review that closes a batch')
     .argument('<change>')
     .action(handleBatchReview);
+
+  program.command('finalize-repair-branch')
+    .description('D23/D25: confirm-then-create repair branch after a failed post-merge check (nine-step guarded sequence)')
+    .argument('<change>')
+    .requiredOption('--failing-sha <sha>', 'The merged SHA the failed post-merge check reported')
+    .action((changeSlug, opts) => handleFinalizeRepairBranch(changeSlug, opts));
 
   return program;
 }

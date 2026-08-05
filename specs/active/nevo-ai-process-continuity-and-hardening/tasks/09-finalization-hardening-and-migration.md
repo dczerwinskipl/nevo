@@ -147,6 +147,55 @@ behavior that must already exist.
 8. No `reset`, `clean`, force-checkout, or automatic stash is ever executed by the
    repair-branch flow, under any guard-failure scenario (automated, same suite) (D25).
 
+## Migration notes (D7/D9, AC4)
+
+**No `change.yaml` structural migration is required.** The fingerprint-tier change (D7)
+is computational, not schema — `change.yaml` gains no new required field for it (the
+three small additive, optional fields task 01/06 already introduced —
+`execution.suspension`, `context_exceptions`, `semantic_references` — are unrelated to
+this migration and already backward-compatible on their own). An existing task file with
+none of those blocks remains fully valid.
+
+**What actually changed:** `node tools/specs.mjs fingerprint <change-id>` and
+`handleApprove`'s staleness comparison now use `computeChangeFingerprint` (change scope:
+`overview.md` + the task graph's shape) instead of the old `computeSpecFingerprint`
+(a whole-file hash over `change.yaml`/`overview.md`/`owner-decisions.md`/every
+`areas/*.md`/`tasks/*.md`). `computeSpecFingerprint` itself is untouched and still
+exported (task 09's `allowed_paths` does not cover `tools/specs/service.mjs`, where it
+lives) — simply no longer read by any command.
+
+**One-time cost, concrete example:** every existing `reviews/spec.md` with the old
+single `spec_fingerprint` becomes stale the moment this change ships, since it was
+computed under the retired whole-file scheme. `specs/archive/nevo-documentation-architecture/reviews/spec.md`
+is the concrete case study named in this task's context — its recorded
+`spec_fingerprint: 3ab09624e4f09309c251bac9918ef4ab8492d70114e496997f777f562be43a87` was
+computed via the old scheme; a fresh `node tools/specs.mjs fingerprint
+nevo-documentation-architecture` after this change ships would print a different hash
+under the new tier. That change is already archived (`verdict:
+approved-for-implementation`, fully implemented), so this is moot for it in practice —
+it illustrates the pattern, not a live blocker. For any *active* change with an existing
+`reviews/spec.md` at the time this ships, the expected, one-time cost is exactly one
+fresh `/nevo-ai:spec-review` pass before its next `/nevo-ai:spec-approve` — the same
+"stale fingerprint, re-run the review" `REC-07` recovery path (area recovery-and-resume,
+task 02) already surfaces this correctly once the comparison target changed; no new
+recovery mechanism is needed.
+
+## Rollout order and per-task fallback guarantee
+
+Rollout order (unchanged in shape from the original draft — cross-checked against
+`change.yaml`'s actual `depends_on` edges): `state-and-fingerprint-semantics` (01) →
+`recovery-classification-and-machine-readable-errors` (02) →
+`resume-and-continue-controller` (03) → `conversational-approval-ergonomics` (04) →
+`context-completeness-and-routing-precedence` (05) → `scope-and-follow-up-mechanisms`
+(06) → `mechanical-task-type` (07) → `batch-execution-and-gating-review` (08) → this
+task (09) → `workflow-e2e-tests` (10) → `workflow-docs-and-adr-migration` (11).
+
+Fallback guarantee (unchanged from the original draft): every earlier-landed task leaves
+the workflow fully working on its own — `node tools/specs.mjs`/`tools/docs.mjs`'s
+existing commands keep functioning after each task lands, independent of whether later
+tasks in this rollout have shipped yet. No task in this list depends on a later task's
+code to remain usable; each only adds to what already worked.
+
 ## Verification
 
 ```
