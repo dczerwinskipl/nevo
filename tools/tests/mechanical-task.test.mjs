@@ -29,9 +29,11 @@ function writeFixture(slug, {
   mechanicalAllowed = ['tools/specs/foo.mjs'],
   mechanical = { derived_from: 'task-a', deterministic: true, no_public_behavior_change: true, no_new_design_decision: true },
   acceptanceCriteria = GOOD_AC,
+  dependsOn = ['task-a'],
 } = {}) {
   const dir = join(root, slug);
   mkdirSync(join(dir, 'tasks'), { recursive: true });
+  const dependsOnYaml = dependsOn.length ? `    depends_on: [${dependsOn.join(', ')}]` : '';
   writeFileSync(join(dir, 'change.yaml'), [
     'id: fixture',
     'title: Fixture',
@@ -43,8 +45,9 @@ function writeFixture(slug, {
     '  - id: task-b',
     '    status: draft',
     '    file: tasks/b.md',
+    dependsOnYaml,
     '',
-  ].join('\n'));
+  ].filter(Boolean).join('\n'));
   writeFileSync(join(dir, 'tasks', 'a.md'), [
     '---',
     'id: fixture.task-a',
@@ -136,7 +139,7 @@ describe('inspectMechanicalConditions — missing exactly one condition fails cl
     const { eligible, failedConditions } = computeMechanicalExemption(change, task);
     assert.equal(eligible, false);
     assert.equal(failedConditions.length, 1);
-    assert.match(failedConditions[0], /must already be approved \(or later\), not 'draft'/);
+    assert.match(failedConditions[0], /has status 'draft' — must be one of approved\/in-implementation\/implemented\/verified\/archived/);
   });
 
   test('deterministic not explicitly true fails, naming that condition', () => {
@@ -170,6 +173,24 @@ describe('inspectMechanicalConditions — missing exactly one condition fails cl
     assert.match(failedConditions[0], /acceptance criterion 1 is missing an automated: tag/);
   });
 
+  test('derived_from task is abandoned fails, naming that condition (PR review packet 05A — abandoned previously passed the "not draft" check by omission)', () => {
+    const change = writeFixture('derived-abandoned', { derivedStatus: 'abandoned' });
+    const task = change.tasks.find(t => t.id === 'task-b');
+    const { eligible, failedConditions } = computeMechanicalExemption(change, task);
+    assert.equal(eligible, false);
+    assert.equal(failedConditions.length, 1);
+    assert.match(failedConditions[0], /has status 'abandoned' — must be one of approved\/in-implementation\/implemented\/verified\/archived/);
+  });
+
+  test('derived_from not listed in this task\'s own depends_on fails, naming that condition (PR review packet 05A)', () => {
+    const change = writeFixture('derived-not-in-depends-on', { dependsOn: [] });
+    const task = change.tasks.find(t => t.id === 'task-b');
+    const { eligible, failedConditions } = computeMechanicalExemption(change, task);
+    assert.equal(eligible, false);
+    assert.equal(failedConditions.length, 1);
+    assert.match(failedConditions[0], /derived_from \('task-a'\) must also be listed in this task's own depends_on/);
+  });
+
   test('failing two conditions at once reports both, not just the first', () => {
     const change = writeFixture('two-failures', {
       derivedStatus: 'draft',
@@ -201,6 +222,28 @@ describe('inspectMechanicalConditions — acceptance-criteria tag exclusivity (A
     const { eligible, failedConditions } = computeMechanicalExemption(change, task);
     assert.equal(eligible, false);
     assert.match(failedConditions[0], /carries an inspection: tag — not allowed for type: mechanical/);
+  });
+});
+
+describe('inspectMechanicalConditions — acceptance-criteria parser is fence-aware (PR review packet 05A)', () => {
+  test('a numbered line inside a fenced code example is never mistaken for an acceptance criterion', () => {
+    const change = writeFixture('fenced-example', {
+      acceptanceCriteria: [
+        '## Acceptance criteria',
+        '',
+        '1. Does the thing correctly (automated: node --test tools/tests/foo.test.mjs).',
+        '',
+        'Example output:',
+        '```text',
+        '1. first step',
+        '2. second step, no tag at all',
+        '```',
+        '',
+      ].join('\n'),
+    });
+    const task = change.tasks.find(t => t.id === 'task-b');
+    const { eligible, failedConditions } = computeMechanicalExemption(change, task);
+    assert.equal(eligible, true, `expected no failures, got: ${failedConditions.join('; ')}`);
   });
 });
 

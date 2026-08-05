@@ -218,14 +218,19 @@ function loadTaskFmAndBody(change, task) {
  * of item text (continuation lines folded in) — used only to check for the
  * per-criterion `automated:`/`inspection:`/`owner-decision:` tag (D14
  * condition 6), not as a general Markdown parser. `null` if the section
- * can't be found at all.
+ * can't be found at all. Fence-aware (PR review packet 05A, "Lower-priority
+ * parser issue") — a numbered line inside a fenced code block (a worked
+ * example, a nested command list) is never mistaken for a new criterion.
  */
 function parseAcceptanceCriteriaItems(body) {
   const match = body.match(/##\s*Acceptance criteria\s*\r?\n([\s\S]*?)(\r?\n##\s|\r?\n?$)/i);
   if (!match) return null;
   const items = [];
   let current = null;
+  let inFence = false;
   for (const rawLine of match[1].split(/\r?\n/)) {
+    if (/^\s*```/.test(rawLine)) { inFence = !inFence; continue; }
+    if (inFence) continue;
     const m = rawLine.match(/^\s*\d+[a-z]?\.\s+(.*)$/);
     if (m) {
       if (current !== null) items.push(current);
@@ -238,6 +243,13 @@ function parseAcceptanceCriteriaItems(body) {
   return items;
 }
 
+// Explicit allow-list (PR review packet 05A) — the derivation source must
+// already be `approved` or further along in the normal lifecycle; `draft`
+// (not yet approved) and `abandoned` (dropped work) are both rejected
+// explicitly, never merely "not draft" (which let `abandoned` through by
+// omission).
+const MECHANICAL_DERIVED_FROM_STATUSES = new Set(['approved', 'in-implementation', 'implemented', 'verified', 'archived']);
+
 /**
  * D14's six conjunctive conditions for `type: mechanical`'s review-exemption
  * — never a score/majority check, every condition must hold. Pure over
@@ -245,15 +257,26 @@ function parseAcceptanceCriteriaItems(body) {
  * matter, or `null` if it doesn't resolve to a real, loadable task.
  * `failedConditions` is empty exactly when `eligible` is true.
  */
-export function inspectMechanicalConditions(fm, body, change, deriveFm) {
+export function inspectMechanicalConditions(fm, body, change, deriveFm, ownTask) {
   const failed = [];
   const derivedFromId = fm.mechanical?.derived_from;
   const derivedFromTask = derivedFromId ? change.tasks.find(t => t.id === derivedFromId) : null;
 
   if (!derivedFromTask) {
     failed.push(`derived_from ('${derivedFromId ?? 'missing'}') must name a real task in this change`);
-  } else if (derivedFromTask.status === 'draft') {
-    failed.push(`derived_from task '${derivedFromId}' must already be approved (or later), not 'draft'`);
+  } else {
+    if (!MECHANICAL_DERIVED_FROM_STATUSES.has(derivedFromTask.status)) {
+      failed.push(
+        `derived_from task '${derivedFromId}' has status '${derivedFromTask.status}' — must be one of ` +
+        `${[...MECHANICAL_DERIVED_FROM_STATUSES].join('/')}`
+      );
+    }
+    // The derivation relationship must also be a real depends_on edge (PR
+    // review packet 05A) — otherwise it carries semantic derivation without
+    // enforcing that the mechanical task actually executes after its source.
+    if (!(ownTask?.depends_on || []).includes(derivedFromId)) {
+      failed.push(`derived_from ('${derivedFromId}') must also be listed in this task's own depends_on`);
+    }
   }
 
   if (fm.mechanical?.deterministic !== true) failed.push("mechanical.deterministic must be explicitly 'true'");
@@ -308,7 +331,7 @@ export function computeMechanicalExemption(change, task) {
   const derivedFromTask = derivedFromId ? change.tasks.find(t => t.id === derivedFromId) : null;
   const derived = derivedFromTask ? loadTaskFmAndBody(change, derivedFromTask) : null;
 
-  return inspectMechanicalConditions(own.fm, own.body, change, derived?.fm ?? null);
+  return inspectMechanicalConditions(own.fm, own.body, change, derived?.fm ?? null, task);
 }
 
 /**
