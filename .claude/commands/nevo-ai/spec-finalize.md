@@ -33,9 +33,11 @@ their own transitions.
    branch actually touches `src/**`/`tests/**` — skipped, and said so, otherwise), and
    whether `follow-ups.yaml` has any still-`open`, `blocking`-severity entry (D15, area
    context-and-validation-hardening) — the gate blocks on one exactly like a non-terminal
-   task; resolve it or dismiss it (dismissing a blocking entry requires a recorded owner
-   decision — `node tools/specs.mjs follow-up-resolve <change-id> <id> --dismiss
-   --resolution "..."` fails closed without one) before finalizing.
+   task; resolve it or dismiss it (dismissing a blocking entry requires a structured
+   `--decision-ref` citing a recorded, currently-active owner decision — `node
+   tools/specs.mjs follow-up-resolve <change-id> <id> --dismiss --resolution "..."
+   --decision-ref D<n>` fails closed without one; a decision mentioned only in
+   `--resolution`'s free-form text does not count) before finalizing.
 
 2. Show the owner a structured summary of the result — gate outcome first, then the
    facts that produced it (git state, PR state, unresolved-thread count, each

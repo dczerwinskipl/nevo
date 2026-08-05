@@ -437,7 +437,7 @@ node tools/specs.mjs status <change>           # read-only: where this change si
 node tools/specs.mjs finalize <change> [--check]   # gate, then merge + archive (see "Finalizing" below)
 node tools/specs.mjs self-check <change> <task>    # run the task's own "## Verification" commands, write self_check
 node tools/specs.mjs follow-up-add <change> <id> --source-task <t> --kind <k> --severity <blocking|non-blocking> --reason <r>
-node tools/specs.mjs follow-up-resolve <change> <id> --resolution <r> [--dismiss]
+node tools/specs.mjs follow-up-resolve <change> <id> --resolution <r> [--dismiss] [--decision-ref <D-id>]
 node tools/specs.mjs batch-start <change> <mode> [--tasks <id,id,...>]   # select and start a batch (see "Batch execution")
 node tools/specs.mjs batch-status <change>     # read-only: derived batch progress, hard-stop/risk-signal state
 node tools/specs.mjs batch-review <change>     # evidence-freshness check, then the gating batch review
@@ -544,13 +544,16 @@ block batch progress — every other boundary in the batch still enforces it.
 `specs/active/<change>/follow-ups.yaml` is a small, mutable, schema-validated,
 current-state list — **not** append-only: `node tools/specs.mjs follow-up-resolve`
 mutates an existing entry's `status` in place, it never appends a duplicate. Fields per
-entry: `id`, `source_task`, `kind`, `severity` (`blocking`/`non-blocking`), `reason`,
-`resolver_task` (nullable — a real task id, in this change or an explicitly named one),
-`status` (`open`/`resolved`/`dismissed`), `resolution` (populated on resolve/dismiss).
-`task-review`/`spec-audit` offer "record as follow-up" for a `NON_BLOCKING` finding — an
-explicit, separately-confirmed action, never automatic. Dismissing a `blocking` entry
-requires `resolution` to cite a recorded owner decision (`D<n>`); a `non-blocking` entry
-needs no such reference. An open, `blocking`-severity entry blocks `spec-finalize`
+entry: `id`, `source_task` (must resolve to a real task id), `kind`, `severity`
+(`blocking`/`non-blocking`), `reason`, `resolver_task` (nullable — a real task id, in
+this change or an explicitly named one), `status` (`open`/`resolved`/`dismissed`),
+`resolution` (populated on resolve/dismiss), `decision_ref` (nullable — a structured
+`D<n>` reference, distinct from `resolution`'s free-form text). `task-review`/
+`spec-audit` offer "record as follow-up" for a `NON_BLOCKING` finding — an explicit,
+separately-confirmed action, never automatic. Dismissing a `blocking` entry requires
+`decision_ref` to cite a recorded, currently-active (non-superseded) owner decision — a
+decision mentioned only inside `resolution`'s prose does not count; a `non-blocking`
+entry needs no such reference. An open, `blocking`-severity entry blocks `spec-finalize`
 exactly like a non-terminal task.
 
 ### Mechanical tasks — review-exempt deterministic approval

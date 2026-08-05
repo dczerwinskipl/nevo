@@ -350,16 +350,6 @@ function resolverTaskResolves(ref, change, allChanges) {
   return change.tasks.some(t => t.id === ref);
 }
 
-/**
- * Dismissing a `blocking` entry requires a recorded owner decision, referenced
- * from `resolution` by its `D<n>` id (the same convention `semantic_references`
- * uses to point at `owner-decisions.md`) — a `non-blocking` entry needs no such
- * reference to be dismissed.
- */
-function dismissalHasRecordedDecision(entry, decisionsMap) {
-  const ref = String(entry.resolution || '').match(/\bD\d+\b/)?.[0];
-  return Boolean(ref && decisionsMap.has(ref));
-}
 
 /**
  * D15/D22: validate one change's mutable `follow-ups.yaml` ledger — malformed
@@ -381,8 +371,14 @@ export function validateFollowUps(change, decisionsMap, allChanges, errors) {
     return;
   }
 
+  // A present file with no 'follow_ups' key at all is malformed, not an
+  // empty-but-valid ledger (PR review packet 05B, Problem 2) — the file
+  // should either not exist, or actually contain the required list.
   const list = parsed?.follow_ups;
-  if (list === undefined) return;
+  if (list === undefined) {
+    errors.push(`${file}: missing required 'follow_ups' key`);
+    return;
+  }
   if (!Array.isArray(list)) {
     errors.push(`${file}: 'follow_ups' must be a list`);
     return;
@@ -396,6 +392,11 @@ export function validateFollowUps(change, decisionsMap, allChanges, errors) {
     ids.add(entry.id);
 
     if (!entry.source_task) errors.push(`${label}: missing 'source_task'`);
+    else if (!resolverTaskResolves(entry.source_task, change, allChanges)) {
+      // (PR review packet 05B, Problem 3) — source_task is required, unlike
+      // resolver_task, so an unresolved reference is always an error here.
+      errors.push(`${label}: source_task '${entry.source_task}' does not resolve to a real task id`);
+    }
     if (!entry.kind) errors.push(`${label}: missing 'kind'`);
     if (!entry.reason) errors.push(`${label}: missing 'reason'`);
     if (!FOLLOW_UP_SEVERITIES.has(entry.severity)) {
@@ -410,8 +411,25 @@ export function validateFollowUps(change, decisionsMap, allChanges, errors) {
     if (!resolverTaskResolves(entry.resolver_task, change, allChanges)) {
       errors.push(`${label}: resolver_task '${entry.resolver_task}' does not resolve to a real task id`);
     }
-    if (entry.status === 'dismissed' && entry.severity === 'blocking' && !dismissalHasRecordedDecision(entry, decisionsMap)) {
-      errors.push(`${label}: dismissing a blocking entry requires 'resolution' to reference a recorded owner decision (e.g. 'D12: ...')`);
+    if (entry.status === 'dismissed' && entry.severity === 'blocking') {
+      // (PR review packet 05B, Problem 1) — a structured decision_ref field,
+      // not a regex scan over free-form 'resolution' prose for an
+      // incidental 'D<n>' mention; superseded decisions are rejected too,
+      // naming the authoritative replacement.
+      if (!entry.decision_ref) {
+        errors.push(
+          `${label}: dismissing a blocking entry requires a structured 'decision_ref' (e.g. 'D12') — ` +
+          `a decision mentioned only in 'resolution' prose does not count`
+        );
+      } else if (!decisionsMap.has(entry.decision_ref)) {
+        errors.push(`${label}: decision_ref '${entry.decision_ref}' does not resolve in owner-decisions.md`);
+      } else {
+        const decisionEntry = decisionsMap.get(entry.decision_ref);
+        if (decisionEntry.supersededBy) {
+          const replacement = resolveSupersedingId(decisionsMap, entry.decision_ref);
+          errors.push(`${label}: decision_ref '${entry.decision_ref}' is superseded — reference '${replacement}' instead`);
+        }
+      }
     }
   }
 }

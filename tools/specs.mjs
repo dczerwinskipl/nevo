@@ -574,7 +574,9 @@ export function handleFollowUpAdd(changeSlug, id, options = {}) {
 // Mutates an existing follow-up entry's status/resolution in place (D15 — the
 // ledger is mutable current-state, never append-only) — resolve by default,
 // --dismiss for a dismissal. Dismissing a blocking entry fails closed without
-// a --resolution that references a recorded owner decision (D-id).
+// a --decision-ref citing a recorded, currently-active owner decision (PR
+// review packet 05B, Problem 1) — never a regex scan over --resolution's
+// free-form text for an incidental 'D<n>' mention.
 export function handleFollowUpResolve(changeSlug, id, options = {}) {
   const change = requireChange(changeSlug);
   const entry = (loadFollowUps(change).follow_ups || []).find(f => f.id === id);
@@ -583,18 +585,24 @@ export function handleFollowUpResolve(changeSlug, id, options = {}) {
 
   const status = options.dismiss ? 'dismissed' : 'resolved';
   if (status === 'dismissed' && entry.severity === 'blocking') {
+    if (!options.decisionRef) {
+      throw new CliError(
+        `Dismissing blocking follow-up '${id}' requires --decision-ref citing a recorded owner decision (e.g. --decision-ref D12).`
+      );
+    }
     const decisionsMap = parseOwnerDecisions(
       existsSync(join(change._dir, 'owner-decisions.md')) ? readUtf8(join(change._dir, 'owner-decisions.md')) : ''
     );
-    const ref = String(options.resolution).match(/\bD\d+\b/)?.[0];
-    if (!ref || !decisionsMap.has(ref)) {
-      throw new CliError(
-        `Dismissing blocking follow-up '${id}' requires --resolution to reference a recorded owner decision (e.g. 'D12: ...').`
-      );
+    const decision = decisionsMap.get(options.decisionRef);
+    if (!decision) {
+      throw new CliError(`--decision-ref '${options.decisionRef}' does not resolve in owner-decisions.md.`);
+    }
+    if (decision.supersededBy) {
+      throw new CliError(`--decision-ref '${options.decisionRef}' is superseded — cite '${decision.supersededBy}' instead.`);
     }
   }
 
-  resolveFollowUp(change, id, { status, resolution: options.resolution });
+  resolveFollowUp(change, id, { status, resolution: options.resolution, decisionRef: options.decisionRef || null });
   console.log(`Follow-up '${id}' marked as ${status}.`);
 }
 
@@ -1033,7 +1041,8 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<id>')
     .requiredOption('--resolution <text>')
-    .option('--dismiss', 'Dismiss instead of resolve (a blocking entry requires --resolution to cite a recorded owner decision)')
+    .option('--dismiss', 'Dismiss instead of resolve')
+    .option('--decision-ref <D-id>', 'Required when dismissing a blocking entry — the recorded owner decision that justifies it')
     .action((changeSlug, id, opts) => handleFollowUpResolve(changeSlug, id, opts));
 
   program.command('self-check')

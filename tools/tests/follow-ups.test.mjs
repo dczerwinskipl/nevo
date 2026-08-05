@@ -107,6 +107,14 @@ describe('validateFollowUps — malformed content (AC9)', () => {
     assert.match(errors[0], /must be a list/);
   });
 
+  test('rejects a present file with no follow_ups key at all (PR review packet 05B, Problem 2)', () => {
+    const change = writeFixture('missing-top-level-key', { followUpsYaml: 'something_else: true\n' });
+    const errors = [];
+    validateFollowUps(change, new Map(), [change], errors);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /missing required 'follow_ups' key/);
+  });
+
   test('rejects an entry missing a required field', () => {
     const change = writeFixture('missing-field', {
       followUpsYaml: 'follow_ups:\n  - id: FU-001\n    kind: risk\n    severity: non-blocking\n' +
@@ -115,6 +123,26 @@ describe('validateFollowUps — malformed content (AC9)', () => {
     const errors = [];
     validateFollowUps(change, new Map(), [change], errors);
     assert.ok(errors.some(e => /missing 'source_task'/.test(e)));
+  });
+
+  test('rejects a source_task that does not resolve to a real task id (PR review packet 05B, Problem 3)', () => {
+    const change = writeFixture('unknown-source-task', {
+      followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: does-not-exist\n    kind: risk\n    severity: non-blocking\n' +
+        '    reason: r\n    status: open\n',
+    });
+    const errors = [];
+    validateFollowUps(change, new Map(), [change], errors);
+    assert.ok(errors.some(e => /source_task 'does-not-exist' does not resolve/.test(e)));
+  });
+
+  test('accepts a source_task that resolves to a real task in this change', () => {
+    const change = writeFixture('known-source-task', {
+      followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: non-blocking\n' +
+        '    reason: r\n    status: open\n',
+    });
+    const errors = [];
+    validateFollowUps(change, new Map(), [change], errors);
+    assert.deepEqual(errors, []);
   });
 
   test('rejects an unrecognized severity value', () => {
@@ -197,33 +225,56 @@ describe('validateFollowUps — stale resolver_task (AC6)', () => {
   });
 });
 
-describe('validateFollowUps — dismissing a blocking entry requires a recorded owner decision (AC5)', () => {
+describe('validateFollowUps — dismissing a blocking entry requires a recorded owner decision (AC5, structured decision_ref per PR review packet 05B)', () => {
   const decisionsMap = () => parseOwnerDecisions('## D1: First\n\nText of D1.\n');
+  const supersededDecisionsMap = () => parseOwnerDecisions(
+    '## D1: First\n\nText.\n\nRefined by: D2 is authoritative on this question.\n\n## D2: Second\n\nText.\n'
+  );
 
-  test('rejects a dismissed blocking entry whose resolution does not cite a recorded decision', () => {
+  test('rejects a dismissed blocking entry with no decision_ref at all', () => {
     const change = writeFixture('dismiss-blocking-no-decision', {
       followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: blocking\n' +
         '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "not important"\n',
     });
     const errors = [];
     validateFollowUps(change, decisionsMap(), [change], errors);
-    assert.ok(errors.some(e => /requires 'resolution' to reference a recorded owner decision/.test(e)));
+    assert.ok(errors.some(e => /requires a structured 'decision_ref'/.test(e)));
   });
 
-  test('rejects citing a decision id that itself does not resolve in owner-decisions.md', () => {
-    const change = writeFixture('dismiss-blocking-bad-decision-ref', {
+  test('a decision mentioned only in free-form resolution prose (no structured decision_ref) does not count', () => {
+    const change = writeFixture('dismiss-blocking-prose-only', {
       followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: blocking\n' +
-        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "per D99"\n',
+        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "per D1: owner accepted the risk"\n',
     });
     const errors = [];
     validateFollowUps(change, decisionsMap(), [change], errors);
-    assert.ok(errors.some(e => /requires 'resolution' to reference a recorded owner decision/.test(e)));
+    assert.ok(errors.some(e => /requires a structured 'decision_ref'/.test(e)));
   });
 
-  test('accepts a dismissed blocking entry whose resolution cites a real recorded decision', () => {
+  test('rejects citing a decision_ref that itself does not resolve in owner-decisions.md', () => {
+    const change = writeFixture('dismiss-blocking-bad-decision-ref', {
+      followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: blocking\n' +
+        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "not important"\n    decision_ref: D99\n',
+    });
+    const errors = [];
+    validateFollowUps(change, decisionsMap(), [change], errors);
+    assert.ok(errors.some(e => /decision_ref 'D99' does not resolve/.test(e)));
+  });
+
+  test('rejects citing a decision_ref that is superseded, naming the replacement', () => {
+    const change = writeFixture('dismiss-blocking-superseded-decision-ref', {
+      followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: blocking\n' +
+        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "not important"\n    decision_ref: D1\n',
+    });
+    const errors = [];
+    validateFollowUps(change, supersededDecisionsMap(), [change], errors);
+    assert.ok(errors.some(e => /decision_ref 'D1' is superseded — reference 'D2' instead/.test(e)));
+  });
+
+  test('accepts a dismissed blocking entry with a valid, structured decision_ref', () => {
     const change = writeFixture('dismiss-blocking-ok', {
       followUpsYaml: 'follow_ups:\n  - id: FU-001\n    source_task: task-a\n    kind: risk\n    severity: blocking\n' +
-        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "per D1: owner accepted the risk"\n',
+        '    reason: r\n    resolver_task: null\n    status: dismissed\n    resolution: "owner accepted the risk"\n    decision_ref: D1\n',
     });
     const errors = [];
     validateFollowUps(change, decisionsMap(), [change], errors);

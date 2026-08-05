@@ -280,7 +280,7 @@ export function addFollowUp(change, entry) {
  * changes the existing entry, it never appends a duplicate for the same
  * follow-up (AC4).
  */
-export function resolveFollowUp(change, id, { status, resolution }) {
+export function resolveFollowUp(change, id, { status, resolution, decisionRef = null }) {
   const file = followUpsFile(change);
   updateYamlFile(file, doc => {
     const list = doc.get('follow_ups', true);
@@ -288,6 +288,11 @@ export function resolveFollowUp(change, id, { status, resolution }) {
     if (!item) throw new CliError(`Follow-up '${id}' not found in ${file}`);
     item.set('status', status);
     item.set('resolution', resolution);
+    // A structured reference (PR review packet 05B, Problem 1) — never a
+    // regex scan over `resolution`'s free-form prose for an incidental
+    // 'D<n>' mention. Only set when given; a non-blocking dismissal or a
+    // plain resolve has no decision to record.
+    if (decisionRef) item.set('decision_ref', decisionRef);
   });
 }
 
