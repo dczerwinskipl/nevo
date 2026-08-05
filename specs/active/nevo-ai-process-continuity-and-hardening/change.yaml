@@ -54,7 +54,7 @@ tasks:
   - id: batch-execution-and-gating-review
     order: 8
     file: tasks/08-batch-execution-and-gating-review.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - conversational-approval-ergonomics
       - state-and-fingerprint-semantics
