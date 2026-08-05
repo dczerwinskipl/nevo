@@ -28,8 +28,7 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
 4. Run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if the change
    touches docs) — these are the **gating** checks; do not re-derive them by hand. If
    either fails, the verdict is `blocked` — stop there, don't continue evaluating
-   readiness on top of a structurally broken spec. Also run `node tools/specs.mjs
-   check` and `node tools/docs.mjs check` — these are **non-gating**: they check
+   readiness on top of a structurally broken spec. Also run `node tools/specs.mjs check` and `node tools/docs.mjs check` — these are **non-gating**: they check
    whether *repository-wide* generated indexes are current, which can fail because of
    an unrelated active change, not this one. Record the result as an `INFORMATIONAL`
    finding either way, explicitly labeled "Gating validation: passed/failed" vs.
@@ -48,8 +47,7 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    `NEEDS_CLARIFICATION` finding (whichever fits — see below).
 5a. **Semantic-reference completeness (D26, D29).** For every task, run the model-review
    check in `references/review-policy.md` § "Semantic-reference completeness (model
-   review)" — this is separate from, and in addition to, `node tools/specs.mjs
-   validate`'s own deterministic reference-*integrity* checks (step 4); neither
+   review)" — this is separate from, and in addition to, `node tools/specs.mjs validate`'s own deterministic reference-*integrity* checks (step 4); neither
    substitutes for the other. Categorize a missing, load-bearing reference as `AUTO_FIX`
    (unambiguous which one) or `OWNER_DECISION` (ambiguous) — never `NON_BLOCKING`; an
    unnecessary (declared but not load-bearing) reference may stay `NON_BLOCKING`. An

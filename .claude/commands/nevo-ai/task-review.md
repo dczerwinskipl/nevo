@@ -32,8 +32,7 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    requirements (if any), change-wide constraints, applicable ADRs, and architecture
    documentation.
 6. Check behavior, tests, documentation impact, breaking changes, unrelated edits,
-   generated artifacts (`*.generated.*` should only change via `tools/docs.mjs
-   generate` / `tools/specs.mjs generate`), and verification evidence (build/test
+   generated artifacts (`*.generated.*` should only change via `tools/docs.mjs generate` / `tools/specs.mjs generate`), and verification evidence (build/test
    output — ask for it if not shown, do not assume it passed).
 7. Classify every current finding per `references/review-policy.md` § "Findings must be
    actor-classified". For a task review, `AUTO_FIX` means "the agent may make this code
@@ -56,9 +55,7 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
        non-blocking unless the finding itself says otherwise)
     2. Leave it in the report only
     ```
-    On 1 → run `node tools/specs.mjs follow-up-add <change-id> <id> --source-task
-    <task-id> --kind <short-kind> --severity <blocking|non-blocking> --reason
-    <finding summary>`. This does not change how `AUTO_FIX`/`OWNER_DECISION`/
+    On 1 → run `node tools/specs.mjs follow-up-add <change-id> <id> --source-task <task-id> --kind <short-kind> --severity <blocking|non-blocking> --reason <finding summary>`. This does not change how `AUTO_FIX`/`OWNER_DECISION`/
     `NEEDS_CLARIFICATION` findings are categorized or handled — this action exists only
     for `NON_BLOCKING` findings, and it never fires without this explicit answer.
 8. Write the full report to `specs/active/<change-id>/reviews/<task-id>.md` using
@@ -83,8 +80,7 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
 9a0. **Batch-continuation offer (D2/D3, area batch-execution-and-gating-review, task
-    08).** Immediately after a status change in step 9 (option 1 or 2), run `node
-    tools/specs.mjs batch-status <change-id>`. If `active` is `false`, or `<task-id>`
+    08).** Immediately after a status change in step 9 (option 1 or 2), run `node tools/specs.mjs batch-status <change-id>`. If `active` is `false`, or `<task-id>`
     isn't among `intent.orderedTasks`, this task isn't part of an active batch — skip
     the rest of this step entirely (never fires outside an active batch). Otherwise:
     - If `hardStop` is non-null for the new `progress.current` — impossible immediately

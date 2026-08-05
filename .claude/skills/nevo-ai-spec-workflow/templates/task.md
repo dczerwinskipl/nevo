@@ -42,10 +42,8 @@ introduce) beyond what's already in `allowed_paths`/`forbidden_paths`.
 Testable statements specific to this task. Each criterion may optionally carry a
 verification tag naming how it's checked — additive, not mandatory for every criterion:
 
-- `automated: <command>` — a command whose pass/fail is the check (e.g. `automated: node
-  --test tools/tests/foo.test.mjs`).
-- `inspection: <what to check>` — a manual read/trace confirms it (e.g. `inspection:
-  confirm the menu never pre-selects an option`).
+- `automated: <command>` — a command whose pass/fail is the check (e.g. `automated: node --test tools/tests/foo.test.mjs`).
+- `inspection: <what to check>` — a manual read/trace confirms it (e.g. `inspection: confirm the menu never pre-selects an option`).
 - `owner-decision: <what was decided>` — the criterion records a decision the owner made,
   not something re-derived by inspection or a command.
 

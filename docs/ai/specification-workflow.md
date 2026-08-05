@@ -261,8 +261,7 @@ A specification should be no larger than it needs to be:
 ## Task context packets
 
 Every implementable task carries `context.required`, `context.optional`,
-`allowed_paths`, and `forbidden_paths` in its front matter. `tools/specs.mjs context
-<change> <task>` resolves this into a JSON packet. Agents load `required` context before
+`allowed_paths`, and `forbidden_paths` in its front matter. `tools/specs.mjs context <change> <task>` resolves this into a JSON packet. Agents load `required` context before
 touching code, load `optional` only if the task text references it, and treat
 `allowed_paths`/`forbidden_paths` as a hard scope boundary — not a suggestion. This is
 what keeps large specifications from forcing every task to read the entire change.
@@ -301,8 +300,7 @@ execution:
 ```
 
 The task's own `status` is never overwritten by a suspension — a task that was `approved`
-and failed to `start` stays `approved` with a suspension attached. `tools/specs.mjs
-validate` checks `kind` is one of the four listed values and `code` is a non-empty string;
+and failed to `start` stays `approved` with a suspension attached. `tools/specs.mjs validate` checks `kind` is one of the four listed values and `code` is a non-empty string;
 it does not check `code` against a specific enum, but the canonical scenario set
 (`REC-01`..`REC-09`, area recovery-and-resume) is fixed and documented in
 `tools/lib/cli-errors.mjs`. `approve`/`start` write and clear `execution.suspension`
@@ -756,16 +754,14 @@ full report. The full analysis lives in the file from the previous section.
 A `changes-required` specification review's natural next step applies its own
 `AUTO_FIX` findings directly and stops only at `OWNER_DECISION`/`NEEDS_CLARIFICATION`
 ones — reading the review file itself rather than requiring anyone to retype or paste
-findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <change-id>
---from-review`.) After any such pass, re-review rather than trusting the pre-fix
+findings into a follow-up request. (In Claude Code: `/nevo-ai:spec-refine <change-id> --from-review`.) After any such pass, re-review rather than trusting the pre-fix
 verdict — a stale review file describing the old state is worse than no file.
 
 A task review's equivalent is a single batch confirmation, not per-finding: every
 `AUTO_FIX` finding is already pre-authorized by its category ("the agent may make this
 fix without further deliberation once told to proceed"), so the one thing still needed
 is being told to proceed — once, for the whole batch, not fixing code silently on the
-strength of the category alone. (In Claude Code: `/nevo-ai:task-apply-review
-<change-id> <task-id>`.) It then re-runs the task review itself against the changed
+strength of the category alone. (In Claude Code: `/nevo-ai:task-apply-review <change-id> <task-id>`.) It then re-runs the task review itself against the changed
 diff, so "fix, then remember to re-review" is one command instead of a manual two-step
 the owner has to drive. `OWNER_DECISION`/`NEEDS_CLARIFICATION`/`NON_BLOCKING` findings
 are never auto-applied — they're shown, not silently dropped, but still need the owner
@@ -838,8 +834,7 @@ git-safety rules.
 **Verify-before-destructive-cleanup (D9).** The squash-merge itself no longer deletes
 the branch in the same call — branch deletion is gated on a *second*, post-merge check.
 After merging: `finalize` fetches and fast-forwards local `main`, runs the cheap
-post-merge check (`specs.mjs`/`docs.mjs` `check` only — no duplicate `dotnet
-build`/`dotnet test`), and only if it passes deletes the branch (local + remote). On
+post-merge check (`specs.mjs`/`docs.mjs` `check` only — no duplicate `dotnet build`/`dotnet test`), and only if it passes deletes the branch (local + remote). On
 failure: it reports the merged SHA, the failed check, and preserves the branch as a
 **diagnostic anchor** (D23 — it doesn't itself repair `main`, it's just not deleted);
 no `follow-ups.yaml` entry is written for the now-archived change, since that would

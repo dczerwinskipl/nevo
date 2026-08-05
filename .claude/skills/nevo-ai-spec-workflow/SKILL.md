@@ -103,8 +103,7 @@ structurally separate:
 
 ## Preventing premature implementation
 
-`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs
-start`, and never mark a task `approved`. `spec-review`, `task-review`, and
+`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs start`, and never mark a task `approved`. `spec-review`, `task-review`, and
 `spec-audit` never edit files unless the owner explicitly asked for fixes to be
 applied — writing their own `reviews/*.md` artifact (and, for `spec-audit`, setting
 `audit_status` after its own closed-menu confirmation) is the one exception, and it is
@@ -114,8 +113,7 @@ and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, r
 current, ready, fully-resolved review) is what actually enforces it, not the agent's
 judgment. `spec-approve` offers exactly four outcomes — approve, approve and start, keep
 as draft, show the report. For the first, third, and fourth, it **never** starts
-implementation itself, even when the owner approves; it prints `/nevo-ai:task-start
-<change> <task>` as the next command and stops there. The fourth outcome, "approve and
+implementation itself, even when the owner approves; it prints `/nevo-ai:task-start <change> <task>` as the next command and stops there. The fourth outcome, "approve and
 start" (D3), is the one deliberate exception: it is its own explicit menu item — never
 the default, never pre-selected, never inferred — and selecting it runs `approve` then
 re-checks and runs `start` in the same turn (task 02/03's postcondition model governs
@@ -153,8 +151,7 @@ to skim past the one field that mattered. Define the shape once here — command
 ​```
 ```
 
-When there is nothing further to run, the fenced block reads exactly `No further action
-required.` instead of a command. Never omit the `Artifact` or `Next command` part —
+When there is nothing further to run, the fenced block reads exactly `No further action required.` instead of a command. Never omit the `Artifact` or `Next command` part —
 write `none`/`No further action required.` explicitly rather than dropping the section,
 so the shape stays predictable across every command.
 

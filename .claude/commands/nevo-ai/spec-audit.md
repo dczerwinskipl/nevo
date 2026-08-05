@@ -49,10 +49,7 @@ been made, do not invoke this proactively.
     For each `NON_BLOCKING` finding from step 5, ask (closed choice, one per finding or
     batched if several) whether to record it in `specs/active/<change-id>/follow-ups.yaml`
     instead of letting it live only in this run's report — same mechanism and menu shape
-    as `/nevo-ai:task-review` step 7a: `1. Record as a follow-up (severity: ...)` / `2.
-    Leave it in the report only`. On 1 → `node tools/specs.mjs follow-up-add <change-id>
-    <id> --source-task <the task the finding traces to> --kind <short-kind> --severity
-    <blocking|non-blocking> --reason <finding summary>`. This never fires without this
+    as `/nevo-ai:task-review` step 7a: `1. Record as a follow-up (severity: ...)` / `2. Leave it in the report only`. On 1 → `node tools/specs.mjs follow-up-add <change-id> <id> --source-task <the task the finding traces to> --kind <short-kind> --severity <blocking|non-blocking> --reason <finding summary>`. This never fires without this
     explicit answer, and never changes how `AUTO_FIX`/`OWNER_DECISION`/
     `NEEDS_CLARIFICATION` findings are categorized or handled.
 7. Write the full report to `specs/active/<change-id>/reviews/audit-<slug>.md` using

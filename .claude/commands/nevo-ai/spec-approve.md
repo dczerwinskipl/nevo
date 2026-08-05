@@ -15,8 +15,7 @@ This command exists so that reaching `ready-for-approval` doesn't end in an inst
 to hand-edit `change.yaml` — the owner confirms once, in conversation, and the status
 change happens in the same turn. The actual approval gate — review must exist, verdict
 must be `ready-for-approval`, no unresolved findings, review must match the current
-spec state (fingerprint) — is enforced deterministically by `node tools/specs.mjs
-approve`, not by this command's own judgment; this command's job is to ask, then run
+spec state (fingerprint) — is enforced deterministically by `node tools/specs.mjs approve`, not by this command's own judgment; this command's job is to ask, then run
 that CLI command, then relay exactly what it did.
 
 **This command offers exactly four outcomes and no others: approve the selected task,
@@ -33,8 +32,7 @@ inferred from context. Every other outcome never starts implementation.**
 2. If no review file exists, or its verdict isn't `ready-for-approval`, do not present
    the approval menu at all — state what's missing (no review / `blocked` /
    `owner-decision-required` / `changes-required`, per the review's own verdict) and
-   recommend `/nevo-ai:spec-review <change-id>` or `/nevo-ai:spec-refine <change-id>
-   --from-review` as appropriate.
+   recommend `/nevo-ai:spec-review <change-id>` or `/nevo-ai:spec-refine <change-id> --from-review` as appropriate.
 3. Otherwise, ask using a closed, four-option menu — do not proceed on assumption, and
    never pre-select or default to option 2:
 
@@ -90,8 +88,7 @@ sequence is even offered.
      ```
      On "stop here": relay the recovery detail and stop; `approved` status is untouched.
      On "do it": perform exactly the confirmed repair (nothing broader — e.g. for `REC-05`,
-     commit only the listed task-related files) and re-run `node tools/specs.mjs start
-     <change-id> <task-id>` — this re-invocation, over the now-repaired state, *is* task
+     commit only the listed task-related files) and re-run `node tools/specs.mjs start <change-id> <task-id>` — this re-invocation, over the now-repaired state, *is* task
      03's resumable recovery handle; it is what completes the combined flow, not a second
      `/nevo-ai:task-start` invocation. **Ask for confirmation at most once for this
      repair** — if this retry still doesn't succeed, do not present another confirmation

@@ -34,9 +34,7 @@ their own transitions.
    whether `follow-ups.yaml` has any still-`open`, `blocking`-severity entry (D15, area
    context-and-validation-hardening) — the gate blocks on one exactly like a non-terminal
    task; resolve it or dismiss it (dismissing a blocking entry requires a structured
-   `--decision-ref` citing a recorded, currently-active owner decision — `node
-   tools/specs.mjs follow-up-resolve <change-id> <id> --dismiss --resolution "..."
-   --decision-ref D<n>` fails closed without one; a decision mentioned only in
+   `--decision-ref` citing a recorded, currently-active owner decision — `node tools/specs.mjs follow-up-resolve <change-id> <id> --dismiss --resolution "..." --decision-ref D<n>` fails closed without one; a decision mentioned only in
    `--resolution`'s free-form text does not count) before finalizing.
 
 2. Show the owner a structured summary of the result — gate outcome first, then the
@@ -65,8 +63,7 @@ their own transitions.
      ```
 
      On 1 → `git push` (or `git push -u origin <branch>` if there's no upstream yet).
-     Report that it pushed, and end this response there — do not re-run `finalize
-     --check` or ask about merging in the same turn; the whole point is a pause for
+     Report that it pushed, and end this response there — do not re-run `finalize --check` or ask about merging in the same turn; the whole point is a pause for
      review to happen. On 2 → make no changes.
    - **For every other blocking reason** (unresolved PR comments, failing verification,
      draft PR, `gh` unavailable, PR not found): report it and stop. Do not suggest
@@ -111,8 +108,7 @@ their own transitions.
    2. No — I'll handle it myself
    ```
 
-   On 1 → run `node tools/specs.mjs finalize-repair-branch <change-id> --failing-sha
-   <sha>` (the exact SHA `finalize` just reported). Relay its result verbatim: on success,
+   On 1 → run `node tools/specs.mjs finalize-repair-branch <change-id> --failing-sha <sha>` (the exact SHA `finalize` just reported). Relay its result verbatim: on success,
    the branch was created and checked out; on a guard failure, it names which of the
    nine-step sequence's guards failed and states precisely what (if anything) already
    happened (a completed read-only fetch, or a completed switch/fast-forward to `main`) —
@@ -134,8 +130,7 @@ their own transitions.
    `post-merge-check-failed`, the specific check(s) to fix (on the repair branch, if
    created, else the still-existing diagnostic branch), then re-running
    `node tools/specs.mjs check`/`node tools/docs.mjs check` before opening a repair PR
-   manually; `wait for review on the newly-pushed commits, then re-run
-   /nevo-ai:spec-finalize <change-id>` for `pushed`; the specific fix needed when
+   manually; `wait for review on the newly-pushed commits, then re-run /nevo-ai:spec-finalize <change-id>` for `pushed`; the specific fix needed when
    `blocked`; `none — re-run /nevo-ai:spec-finalize <change-id> when ready` for
    `gate-passed`.
 

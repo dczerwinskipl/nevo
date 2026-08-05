@@ -102,8 +102,7 @@ tracking status.
 ## Deterministic review freshness — the spec fingerprint
 
 A review answers "is the spec ready right now" — but time passes between writing the
-review and the owner acting on it, and the spec can change in between. `/nevo-ai:
-spec-approve` (backed by `node tools/specs.mjs approve`) refuses to approve a task
+review and the owner acting on it, and the spec can change in between. `/nevo-ai:spec-approve` (backed by `node tools/specs.mjs approve`) refuses to approve a task
 against a review that no longer matches the current specification state. That
 freshness check must be **deterministic**, never inferred by a model reasoning about
 "does this look recent" — an LLM cannot reliably compute or verify a hash by reasoning,
@@ -145,8 +144,7 @@ and handoff" for the vendor-neutral version of this policy.
 ## Chat output shape
 
 The detailed review stays in the artifact file. The chat response is a short,
-structured operational handoff — never a single dense line of `Key: value · Key:
-value` pairs, which is hard to scan and renders poorly in the Claude Code extension.
+structured operational handoff — never a single dense line of `Key: value · Key: value` pairs, which is hard to scan and renders poorly in the Claude Code extension.
 At most one short explanatory paragraph may precede the structured block below; never
 repeat the full report in the chat response.
 
@@ -457,13 +455,11 @@ violated, the verdict computed above is wrong (almost always because a finding's
 category or a task's actual status was misread) — fix it and recompute; never emit a
 report that fails its own check:
 
-1. An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding (`unresolved_owner_
-   decisions > 0` or `unresolved_needs_clarification > 0`) cannot coexist with
+1. An unresolved `OWNER_DECISION` or `NEEDS_CLARIFICATION` finding (`unresolved_owner_decisions > 0` or `unresolved_needs_clarification > 0`) cannot coexist with
    `ready_for_approval: true`.
 2. An unresolved `AUTO_FIX` finding (`unresolved_required_fixes > 0`) cannot coexist
    with `ready_for_approval: true`.
-3. A task with a non-`approved` status cannot coexist with `implementation_allowed:
-   true`.
+3. A task with a non-`approved` status cannot coexist with `implementation_allowed: true`.
 4. `approved-for-implementation` requires the relevant task(s) to actually carry
    `status: approved` in `change.yaml` right now.
 
@@ -642,8 +638,7 @@ elapsed time.
 Merging a PR is the highest-consequence transition in this workflow — shared, hard to
 fully undo, and explicitly named in `AGENTS.md`'s git-safety rules as needing explicit
 instruction every time. `/nevo-ai:spec-finalize` never merges on the strength of its
-own `--check` gate alone: the deterministic gate (`node tools/specs.mjs finalize
---check`, backed by `validateFinalize`) only establishes that merging *would* be safe —
+own `--check` gate alone: the deterministic gate (`node tools/specs.mjs finalize --check`, backed by `validateFinalize`) only establishes that merging *would* be safe —
 whether it happens is still the owner's explicit answer to that command's own closed
 menu, the same split used everywhere else in this section (CLI enforces the gate,
 conversation captures the human decision).
