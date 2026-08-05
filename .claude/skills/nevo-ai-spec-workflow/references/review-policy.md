@@ -358,6 +358,63 @@ as marking a task `verified` or archiving a change (see "Owner-only transitions"
 Do not duplicate this formatting contract in any command file — `spec-audit.md`
 references this section instead of restating it.
 
+## Batch review
+
+Area `batch-execution-and-gating-review` (task 08)'s gating batch review is a fourth,
+distinct review shape — closer in spirit to `spec-audit` than to `task-review` (it
+recommends rather than gates a single diff), but scoped to exactly one batch run rather
+than a named cross-cutting lens. `node tools/specs.mjs batch-review <change-id>` computes
+it; there is no separate slash command — `/nevo-ai:task-review`'s batch-continuation
+offer (step 9a0) is what invokes it, once every batched task is terminal.
+
+A batch review **never** re-evaluates any individual batched task's own acceptance
+criteria — those were already gated by that task's own self-check (and, for a task
+meeting a risk signal, its own `task-review`). It checks only the whole-batch diff since
+`startRevision`, cross-task integration, and open `blocking`-severity `follow-ups.yaml`
+entries (D22).
+
+### File naming
+
+`specs/active/<change-id>/reviews/batch-<id>.md`, where `<id>` is the batch's
+`startRevision` in short form. Never `reviews/<task-id>.md` or `reviews/audit-<slug>.md`
+— both name a different review shape.
+
+### Verdict decision table
+
+Computed by `computeBatchReviewVerdict` (`tools/specs/lifecycle.mjs`) — never composed as
+prose. Reuses the same three-value shape as a spec-audit's table, for the same reason (a
+batch review recommends, it doesn't gate a diff):
+
+| # | Condition | Verdict |
+|---|---|---|
+| 1 | Any open, `blocking`-severity `follow-ups.yaml` entry | `owner-decision-required` |
+| 2 | No blocking open follow-up, but at least one other whole-batch finding | `changes-recommended` |
+| 3 | No unresolved whole-batch findings | `no-findings` |
+
+This table runs only once every batched task is already terminal and evidence-fresh
+(D19) — `batch-review` refuses to run otherwise (a hard-stopped or still-in-progress
+current task, or stale unrefreshed evidence, all reject the command outright rather than
+producing a report against an incomplete or untrustworthy batch state).
+
+### Chat output shape
+
+```markdown
+## Batch review result
+
+**Verdict:** `<no-findings|changes-recommended|owner-decision-required>`
+
+- Batched tasks: **<comma-separated task ids>**
+- Open blocking follow-up(s): **<count>**
+
+**Report:** `<artifact path>`
+
+**Next command:**
+
+​```text
+<exact command, or "No further action required.">
+​```
+```
+
 ## Spec-review verdicts are derived, never chosen narratively
 
 The single biggest failure mode of a review command is a *locally* correct finding

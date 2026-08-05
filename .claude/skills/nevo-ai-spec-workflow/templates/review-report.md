@@ -1,9 +1,12 @@
 # Review report template
 
 This is the file written to disk — `specs/active/<change>/reviews/spec.md` (spec
-review), `specs/active/<change>/reviews/<task-id>.md` (task review), or
+review), `specs/active/<change>/reviews/<task-id>.md` (task review),
 `specs/active/<change>/reviews/audit-<slug>.md` (spec-audit — see
-`references/review-policy.md` § "Change-wide audits"). It's the full
+`references/review-policy.md` § "Change-wide audits"), or
+`specs/active/<change>/reviews/batch-<id>.md` (the gating batch review, area
+batch-execution-and-gating-review — `<id>` is the batch's `startRevision`, short form).
+It's the full
 report; the conversation only gets the short structured summary from
 `references/review-policy.md` § "Chat output shape" plus a pointer to this file. A
 guide, not mandatory boilerplate — omit any section with nothing to say, but never omit
@@ -11,14 +14,17 @@ guide, not mandatory boilerplate — omit any section with nothing to say, but n
 
 ```markdown
 ---
-review-of: spec | task | spec-audit
+review-of: spec | task | spec-audit | batch
 change: <change-id>
 task: <task-id>              # task review only
 audit-focus: <owner's focus, verbatim, short>   # spec-audit only — never invent a task field instead
+batch: <startRevision, short form>              # batch review only — matches the filename's <id>
+batched-tasks: [<task-id>, ...]                 # batch review only — the batch's orderedTasks, verbatim
 generated: <ISO date>
 verdict: blocked | owner-decision-required | changes-required | ready-for-approval | approved-for-implementation
          # task review: blocked | changes-required | pass
          # spec-audit: owner-decision-required | changes-recommended | no-findings
+         # batch review: owner-decision-required | changes-recommended | no-findings (same three-value table as spec-audit — see computeBatchReviewVerdict)
 audit_status: open | actioned | dismissed   # spec-audit only — see references/review-policy.md § "audit_status"; starts `open`, never anything else on first write
 ready_for_approval: true | false        # spec review only
 implementation_allowed: true | false
@@ -90,6 +96,16 @@ required documentation updates actually landed in the diff.
 ## Tests *(task review)*
 
 Whether behavior changes have corresponding test coverage.
+
+## Batch integration *(batch review only)*
+
+The whole-batch diff since `startRevision`, cross-task integration, and open
+`blocking`-severity `follow-ups.yaml` entries only — **never** a re-evaluation of any
+individual batched task's own acceptance criteria (those were already gated by that
+task's own self-check, and — for a task meeting a risk signal — its own `task-review`;
+see area `batch-execution-and-gating-review`'s "Responsibility split" table). State which
+batched tasks required their own full `task-review` and why (the risk signal(s) that
+triggered it), and which completed via self-check plus this review alone.
 ```
 
 `review-of`, `change`, `verdict` are required frontmatter. `task` is required only for a

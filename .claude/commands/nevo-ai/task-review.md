@@ -82,19 +82,41 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    `node tools/specs.mjs verify <change-id> <task-id>`. On 3 → make no changes. **No
    status is changed without this explicit answer.** For `blocked` or
    `changes-required`, skip this step — there's nothing to confirm yet.
-9a0. **Batch-continuation offer (forward-compatible check only — D2/D3, area
-    `batch-execution-and-gating-review`, task 08).** Immediately after a status change in
-    step 9 (option 1 or 2), check whether an active batch record exists for
-    `<change-id>` — task 08's persisted batch-intent file (e.g.
-    `specs/active/<change-id>/batch.json`; task 08 defines its exact shape and path) —
-    and, if it exists, whether `<task-id>` was its current task. **Task 08 has not
-    landed yet, so this record never exists today and this check must always evaluate to
-    false; do not add the "continue to next batch task" offer's visible behavior in this
-    task** — only this existence check, so task 08 can wire the real offer in without
-    touching this command file again. When (in the future, once task 08 lands) the
-    record exists and names `<task-id>` as current: ask, as a closed choice, whether to
-    continue to the next batch task inline instead of stopping here. This must never fire
-    outside an active batch (AC4) and must never appear unconditionally.
+9a0. **Batch-continuation offer (D2/D3, area batch-execution-and-gating-review, task
+    08).** Immediately after a status change in step 9 (option 1 or 2), run `node
+    tools/specs.mjs batch-status <change-id>`. If `active` is `false`, or `<task-id>`
+    isn't among `intent.orderedTasks`, this task isn't part of an active batch — skip
+    the rest of this step entirely (never fires outside an active batch). Otherwise:
+    - If `hardStop` is non-null for the new `progress.current` — impossible immediately
+      after a passing review, but if this task's own self-check regresses between this
+      review and the next invocation, it will show up here — do not offer continuation;
+      report the hard stop and stop (D24: a full review is never a substitute for it).
+    - If `progress.current` names another task: ask, as a closed choice, whether to
+      continue to it now (`/nevo-ai:task-next` already knows how to resolve it — this
+      offer is "keep going in this same batch," not a second, separate command
+      invocation):
+      ```
+      Batch continues with `<progress.current>` next.
+      1. Continue now
+      2. Stop here for now
+      ```
+      On 1 → proceed exactly as `/nevo-ai:task-start <change-id> <progress.current>`
+      would, in this same turn. On 2 → make no changes; the batch intent is untouched and
+      resumable later via `node tools/specs.mjs batch-status <change-id>`.
+    - If `progress.current` is `null` (every batched task is now terminal): ask whether
+      to run the gating batch review now:
+      ```
+      Every task in this batch is now terminal.
+      1. Run the gating batch review now
+      2. Not yet
+      ```
+      On 1 → run `node tools/specs.mjs batch-review <change-id>` and relay its verdict
+      and report path verbatim (this also clears the batch intent on success — do not
+      re-run `batch-status` afterward and act on stale intent). On 2 → make no changes.
+    - `validationBlocksContinuation` in the `batch-status` output governs whether a
+      `validate`/`check` failure blocks continuing to `progress.next` — it is already
+      `false` when that exact boundary is a declared temporary-inconsistency pair (AC6);
+      do not re-derive this by hand.
 9a. If option 1 or 2 was chosen, run `node tools/specs.mjs status <change-id>`. This
     command is never asked to *decide* anything here — it's read-only, and its job is to
     say correctly whether the rest of the change is done or whether a PR/review/merge
@@ -132,6 +154,9 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
 - The archive offer in step 9a fires only immediately after this run's own status
   transition made `<change-id>` fully terminal — never for an already-terminal change
   found incidentally, and never without the explicit menu answer.
+- The batch-continuation offer in step 9a0 fires only when `batch-status` reports an
+  active batch that actually includes `<task-id>` — never inferred, never offered
+  speculatively when no batch is active.
 - Do not fix the code yourself as part of this command, even for an `AUTO_FIX`-tagged
   finding — review stays read-only with respect to the code under review; writing its
   own `reviews/<task-id>.md` (step 8) and applying the status transition the owner just

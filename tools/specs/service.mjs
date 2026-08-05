@@ -346,7 +346,7 @@ export function computeChangeFingerprint(change) {
   return hashProjection(['change-fingerprint-v1', overview, taskGraph]);
 }
 
-function loadTaskFileParts(change, task) {
+export function loadTaskFileParts(change, task) {
   const filePath = resolveWithinBase(change._dir, task.file);
   const raw = readUtf8(filePath);
   const fm = parseFrontMatterFile(filePath);
@@ -412,6 +412,63 @@ export function computeTaskFingerprint(change, taskId, seen = new Set()) {
 export function computeImplementationFingerprint(change, taskId, { revision = null, evidence = [] } = {}) {
   const taskFingerprint = computeTaskFingerprint(change, taskId);
   return hashProjection(['implementation-fingerprint-v1', taskFingerprint, revision, evidence]);
+}
+
+// ── Self-check writer (D28, task 08) ────────────────────────────────────────
+//
+// The single write path for `self_check` — no other code sets this field
+// (constraint, area batch-execution-and-gating-review).
+
+/** Parse a task's "## Verification" fenced code block into one command string per line. */
+export function parseVerificationCommands(body) {
+  const match = body.match(/##\s*Verification\s*\r?\n+```[a-zA-Z]*\r?\n([\s\S]*?)```/i);
+  if (!match) return [];
+  return match[1].split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+}
+
+/** Write `task`'s `self_check` block (task 01's validated shape) — overwrites any prior value. */
+export function writeSelfCheck(change, taskId, selfCheck) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('self_check', selfCheck);
+  });
+}
+
+// ── Batch intent — persisted intent only, progress is always derived (D10) ─
+
+function batchIntentFile(change) {
+  return join(change._dir, 'batch.json');
+}
+
+/** Load a change's active batch intent, or `null` if none is in progress. */
+export function loadBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (!existsSync(file)) return null;
+  const raw = readUtf8(file);
+  if (!raw.trim()) return null; // cleared (clearBatchIntent's empty-file convention)
+  return JSON.parse(raw);
+}
+
+/**
+ * Persist a new batch's intent — `change`, `requestedTasks`, `orderedTasks`,
+ * `startRevision`, `reviewMode`, `checkpointPolicy`, `temporaryInconsistencies`
+ * only (requirement — no `completed`/`current`/`next`/`failed` field; those
+ * are always `deriveBatchProgress`'s job).
+ */
+export function writeBatchIntent(change, intent) {
+  writeUtf8(batchIntentFile(change), JSON.stringify(intent, null, 2));
+}
+
+/** Clear a change's batch intent file once the batch is done (or abandoned). */
+export function clearBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (existsSync(file)) writeUtf8(file, '');
+  // An empty file, not a deleted one — this module never deletes files
+  // (mirrors the rest of tools/lib/fs.mjs's usage in this codebase); loadBatchIntent
+  // treats an empty file the same as a missing one (JSON.parse('') fails, so
+  // check emptiness first here, not there).
 }
 
 // ── Index generation: build (pure, deterministic) + write (I/O) ────────────

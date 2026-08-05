@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { CliError, RecoveryError } from './lib/cli-errors.mjs';
-import { ensureDir, moveDir, readUtf8 } from './lib/fs.mjs';
+import { ensureDir, moveDir, readUtf8, writeUtf8 } from './lib/fs.mjs';
 import { updateYamlFile } from './lib/yaml.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
@@ -19,6 +19,8 @@ import {
   buildSpecsIndexes, writeSpecsIndexes, checkSpecsIndexes,
   parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
   FOLLOW_UP_SEVERITIES,
+  loadTaskFileParts, parseVerificationCommands, writeSelfCheck,
+  loadBatchIntent, writeBatchIntent, clearBatchIntent,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
@@ -26,6 +28,8 @@ import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
   validateFinalize, deriveStage, inspectStartPostconditions, inspectApprovePostconditions, classifyDirtyWorktree,
+  BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
+  buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -286,6 +290,19 @@ export function handleComplete(changeSlug, taskId) {
   if (!transition.ok) throw new CliError(transition.reason);
   if (transition.idempotent) { console.log(`Task '${taskId}' is already implemented.`); return; }
 
+  // D24, task 08 — a hard-stopped task (a recorded, still-failing self-check)
+  // can never be marked complete; a full task-review is never a substitute
+  // for correcting the implementation and rerunning the self-check (the only
+  // path that clears this). A task with no self_check at all is unaffected —
+  // self-check is optional outside batch mode.
+  const stop = hardStopReason(task);
+  if (task.self_check && stop) {
+    throw new CliError(
+      `Task '${taskId}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — ` +
+      `correct the implementation and rerun 'node tools/specs.mjs self-check ${changeSlug} ${taskId}' before marking it complete.`
+    );
+  }
+
   setTaskStatus(change, taskId, 'implemented');
   console.log(`Task '${taskId}' marked as implemented. Present results to owner for verification.`);
 }
@@ -300,6 +317,188 @@ export function handleVerify(changeSlug, taskId) {
 
   setTaskStatus(change, taskId, 'verified');
   console.log(`Task '${taskId}' marked as verified.`);
+}
+
+// ── Self-check (D28) — the single write path for self_check ────────────────
+
+function runVerificationCommand(commandString) {
+  const [program, ...args] = commandString.split(/\s+/);
+  try {
+    execFileSync(program, args, { cwd: ROOT, encoding: 'utf8' });
+    return { command: commandString, exit_code: 0 };
+  } catch (error) {
+    return { command: commandString, exit_code: typeof error.status === 'number' ? error.status : 1 };
+  }
+}
+
+// Runs every command the task's own "## Verification" section names and
+// records pass/fail, the task's current semantic fingerprint, and git
+// revision — exactly what deriveStage's self-check-freshness comparison
+// (D28) reads back. No other code writes `self_check` (constraint, area
+// batch-execution-and-gating-review).
+export function handleSelfCheck(changeSlug, taskId) {
+  const change = requireChange(changeSlug);
+  const task = requireTask(change, taskId);
+  const { body } = loadTaskFileParts(change, task);
+  const commands = parseVerificationCommands(body);
+  if (!commands.length) throw new CliError(`Task '${taskId}' has no "## Verification" commands to run.`);
+
+  const commandResults = commands.map(runVerificationCommand);
+  const selfCheck = buildSelfCheckResult({
+    commandResults,
+    fingerprint: computeTaskFingerprint(change, taskId),
+    revision: git.getCurrentRevision(ROOT),
+  });
+  writeSelfCheck(change, taskId, selfCheck);
+
+  if (selfCheck.status === 'failed') {
+    console.log(`Self-check FAILED for '${taskId}': ${selfCheck.failed_criteria.join(', ')}`);
+    process.exitCode = 1;
+  } else {
+    console.log(`Self-check passed for '${taskId}'.`);
+  }
+}
+
+// ── Batch execution and gating review (D10, D19, D20, D24, D28, task 08) ───
+
+// Batch selection/ordering only — the batch controller calls the existing
+// `start`/`complete` transitions unchanged (constraint), never a new write
+// path to change.yaml. handleStart is a function declaration, hoisted, so
+// this forward reference (it's defined later in this file) is safe.
+export function handleBatchStart(changeSlug, mode, options = {}) {
+  const change = requireChange(changeSlug);
+  if (loadBatchIntent(change)) {
+    throw new CliError(`Change '${changeSlug}' already has an active batch. Finish it (or clear batch.json) before starting another.`);
+  }
+
+  const taskIds = options.tasks ? options.tasks.split(',').map(s => s.trim()) : undefined;
+  const selection = selectBatch(mode, change, { taskIds });
+  if (!selection.ok) throw new CliError(selection.reason);
+  if (!selection.orderedTasks.length) throw new CliError(`No tasks selected for mode '${mode}'.`);
+
+  const intent = {
+    change: changeSlug,
+    requestedTasks: taskIds || selection.orderedTasks,
+    orderedTasks: selection.orderedTasks,
+    startRevision: git.getCurrentRevision(ROOT),
+    reviewMode: 'batch',
+    checkpointPolicy: mode === 'until-checkpoint' ? (options.checkpoint || null) : null,
+    temporaryInconsistencies: options.tempInconsistentPair
+      ? [options.tempInconsistentPair.split(',').map(s => s.trim())]
+      : [],
+  };
+  writeBatchIntent(change, intent);
+  console.log(`Batch started for '${changeSlug}' (mode: ${mode}): ${selection.orderedTasks.join(' -> ')}`);
+
+  handleStart(changeSlug, selection.orderedTasks[0]);
+}
+
+// Read-only: batch progress is always derived (D10), never a second copy —
+// this command computes it fresh every call, safe after any interruption.
+export function handleBatchStatus(changeSlug) {
+  const change = requireChange(changeSlug);
+  const intent = loadBatchIntent(change);
+  if (!intent) { console.log(JSON.stringify({ change: changeSlug, active: false }, null, 2)); return; }
+
+  const progress = deriveBatchProgress(change, intent);
+  const currentTask = progress.current ? requireTask(change, progress.current) : null;
+  const hardStop = currentTask ? hardStopReason(currentTask) : null;
+  const riskSignals = currentTask && !hardStop
+    ? detectRiskSignals(currentTask, loadTaskFileParts(change, currentTask).fm, {})
+    : [];
+  const needsFullReview = currentTask ? requiresFullReview(currentTask, riskSignals) : false;
+
+  // Temporary-inconsistency exemption (unchanged from the original draft):
+  // a `validate` failure right at the declared pair's own boundary doesn't
+  // block the batch continuing from `current` into `next` — every other
+  // boundary still enforces it normally.
+  const hasValidationErrors = validateSpecs().length > 0;
+  const validationBlocksContinuation = batchValidationBlocks(intent, progress.current, progress.next, hasValidationErrors);
+
+  console.log(JSON.stringify({
+    change: changeSlug, active: true, intent, progress, hardStop, riskSignals, needsFullReview,
+    validationBlocksContinuation,
+  }, null, 2));
+}
+
+// The one gating batch review that closes a batch (requirement) — never
+// re-evaluates any individual batched task's own acceptance criteria; checks
+// the whole-batch diff since startRevision, cross-task integration, and open
+// blocking follow-up entries only. Evidence freshness (D19) is a distinct
+// step run immediately before, never folded silently into the review.
+export function handleBatchReview(changeSlug) {
+  const change = requireChange(changeSlug);
+  const intent = loadBatchIntent(change);
+  if (!intent) throw new CliError(`Change '${changeSlug}' has no active batch.`);
+
+  const progress = deriveBatchProgress(change, intent);
+  if (progress.failed) {
+    const failedTask = requireTask(change, progress.failed);
+    const stop = hardStopReason(failedTask);
+    throw new CliError(
+      `Batch has a hard stop at '${progress.failed}'${stop ? ` (${stop.code}: ${stop.detail})` : ''} — ` +
+      `cannot run the gating review until it's resolved. A full task-review is never a substitute for this.`
+    );
+  }
+  if (progress.current) {
+    throw new CliError(`Task '${progress.current}' is not yet complete — the gating review runs only once every batched task is terminal.`);
+  }
+
+  const currentFingerprints = {};
+  for (const id of intent.orderedTasks) currentFingerprints[id] = computeTaskFingerprint(change, id);
+  const stale = staleEvidenceTasks(change, intent.orderedTasks, {}, currentFingerprints);
+  if (stale.length) {
+    throw new CliError(
+      `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
+      `before the gating review — the review never proceeds past stale, unrefreshed evidence.`
+    );
+  }
+
+  const followUps = loadFollowUps(change);
+  const openBlocking = (followUps.follow_ups || []).filter(f => f.status === 'open' && f.severity === 'blocking');
+  const verdict = computeBatchReviewVerdict({ ownerDecisionFindings: openBlocking.length });
+
+  const batchId = intent.startRevision.slice(0, 8);
+  const reviewsDir = join(change._dir, 'reviews');
+  ensureDir(reviewsDir);
+  const reportFile = join(reviewsDir, `batch-${batchId}.md`);
+  const generated = new Date().toISOString();
+  const findingsRows = openBlocking.length
+    ? openBlocking.map(f => `| ${f.id} | OWNER_DECISION | open blocking follow-up | ${f.reason} |`).join('\n')
+    : '| — | — | No findings | — |';
+
+  const report = [
+    '---',
+    'review-of: batch',
+    `change: ${changeSlug}`,
+    `batch: ${batchId}`,
+    `batched-tasks: [${intent.orderedTasks.join(', ')}]`,
+    `generated: ${generated}`,
+    `verdict: ${verdict}`,
+    '---',
+    '',
+    `# Batch review: ${changeSlug} (${batchId})`,
+    '',
+    '## Verdict',
+    '',
+    `${verdict}`,
+    '',
+    '## Findings',
+    '',
+    '| ID | Category | Finding | Detail |',
+    '|---|---|---|---|',
+    findingsRows,
+    '',
+    '## Batch integration',
+    '',
+    `Batched tasks (in order): ${intent.orderedTasks.join(', ')}.`,
+    '',
+  ].join('\n');
+
+  writeUtf8(reportFile, report);
+  clearBatchIntent(change);
+  console.log(`Batch review written: specs/active/${changeSlug}/reviews/batch-${batchId}.md`);
+  console.log(`Verdict: ${verdict}`);
 }
 
 // Records a new follow-up entry (task-review/spec-audit's "record as follow-up"
@@ -629,6 +828,31 @@ export function buildProgram() {
     .requiredOption('--resolution <text>')
     .option('--dismiss', 'Dismiss instead of resolve (a blocking entry requires --resolution to cite a recorded owner decision)')
     .action((changeSlug, id, opts) => handleFollowUpResolve(changeSlug, id, opts));
+
+  program.command('self-check')
+    .description('Run a task\'s own "## Verification" commands and write self_check (D28)')
+    .argument('<change>')
+    .argument('<task>')
+    .action(handleSelfCheck);
+
+  program.command('batch-start')
+    .description(`Select a batch (${[...BATCH_SELECTION_MODES].join('/')}) and start its first task`)
+    .argument('<change>')
+    .argument('<mode>')
+    .option('--tasks <id,id,...>', 'Explicit task-id list — required for named-subset')
+    .option('--checkpoint <task-id>', 'Named checkpoint — until-checkpoint only')
+    .option('--temp-inconsistent-pair <task-id,task-id>', 'Declare exactly one temporary-inconsistency pair')
+    .action((changeSlug, mode, opts) => handleBatchStart(changeSlug, mode, opts));
+
+  program.command('batch-status')
+    .description('Read-only: derived batch progress (completed/current/next/failed), hard-stop and risk-signal state')
+    .argument('<change>')
+    .action(handleBatchStatus);
+
+  program.command('batch-review')
+    .description('Run the evidence-freshness check, then the one gating batch review that closes a batch')
+    .argument('<change>')
+    .action(handleBatchReview);
 
   return program;
 }

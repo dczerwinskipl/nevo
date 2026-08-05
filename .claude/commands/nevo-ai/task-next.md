@@ -29,6 +29,16 @@ the CLI.
    <change-id>` (backing `/nevo-ai:spec-status`) determines, not this command. Run it
    for each such change and surface its `stage`/`nextCommand` as a fact in the closing
    summary (see below). This is read-only throughout: report it, never act on it.
+5. **Mention batch mode when more than one task is ready (area
+   batch-execution-and-gating-review, task 08) — report only, never start it from here.**
+   If the returned task has other `approved` tasks in the same change that could run in
+   the same batch (visible from `node tools/specs.mjs list`'s output), name `node
+   tools/specs.mjs batch-start <change-id> <mode> [--tasks id,id,...]` as an available
+   alternative to a single `/nevo-ai:task-start`, one of the four named modes
+   (`currently-ready`/`all-approved-reachable`/`named-subset`/`until-checkpoint` — no
+   default, the owner picks one explicitly). This command never runs `batch-start`
+   itself; `/nevo-ai:task-review`'s batch-continuation offer (step 9a0) is what carries
+   an already-started batch forward afterward.
 
 ## Ending the response
 
@@ -49,3 +59,5 @@ noisy.
 - Do not start or implement the task from this command.
 - Do not read the task file's full body here beyond what's needed to state a concise
   goal — full context loading belongs to `/nevo-ai:task-start`.
+- Do not run `batch-start` from this command — step 5 only names it as an available
+  option; starting a batch is always a separate, explicit, owner-directed action.
