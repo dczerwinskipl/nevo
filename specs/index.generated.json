@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T06:22:24.998Z",
+  "generated": "2026-08-05T06:51:44.179Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -94,7 +94,7 @@
           "id": "workflow-e2e-tests",
           "order": 10,
           "file": "tasks/10-workflow-e2e-tests.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "finalization-hardening-and-migration"
           ]

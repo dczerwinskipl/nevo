@@ -69,7 +69,7 @@ tasks:
   - id: workflow-e2e-tests
     order: 10
     file: tasks/10-workflow-e2e-tests.md
-    status: approved
+    status: in-implementation
     depends_on:
       - finalization-hardening-and-migration
   - id: workflow-docs-and-adr-migration
