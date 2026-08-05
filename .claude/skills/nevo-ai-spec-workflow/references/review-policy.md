@@ -109,16 +109,17 @@ freshness check must be **deterministic**, never inferred by a model reasoning a
 "does this look recent" — an LLM cannot reliably compute or verify a hash by reasoning,
 so the mechanism has to be a real, run tool, not a judgment call.
 
-Concretely: `node tools/specs.mjs fingerprint <change>` prints a sha256 hash over the
-specification's approval-relevant inputs (`change.yaml`, `overview.md`,
-`owner-decisions.md`, every file under `areas/` and `tasks/`, sorted for determinism) —
-**excluding `reviews/**` entirely**, so writing the review file never invalidates its
-own fingerprint. `/nevo-ai:spec-review` must run this command and copy its exact
-printed output, verbatim, into the review's `spec_fingerprint` frontmatter field —
-never estimate, paraphrase, or recompute it by hand. `tools/specs.mjs approve`
-independently re-runs the same computation at approval time and rejects the approval if
-the two hashes don't match, naming both values in the error so the mismatch is
-verifiable, not just asserted.
+Concretely: `node tools/specs.mjs fingerprint <change>` prints the change-level tier's
+sha256 hash (`computeChangeFingerprint` — `overview.md`'s content plus the task graph's
+shape: every task's id and `depends_on` edges; excludes each task's own `status`,
+`execution.suspension`, and `self_check` by construction, and excludes `reviews/**`
+entirely, so writing the review file never invalidates its own fingerprint, and a
+status-only or unrelated-task edit never invalidates it either). `/nevo-ai:spec-review`
+must run this command and copy its exact printed output, verbatim, into the review's
+`spec_fingerprint` frontmatter field — never estimate, paraphrase, or recompute it by
+hand. `tools/specs.mjs approve` independently re-runs the same computation at approval
+time and rejects the approval if the two hashes don't match, naming both values in the
+error so the mismatch is verifiable, not just asserted.
 
 ## Persistent artifact and handoff
 
@@ -517,6 +518,41 @@ A spec is ready for implementation when:
   single proposed approach — see `references/solution-option-analysis.md`. A spec that
   jumped straight to one recommendation for a gated decision is not ready; flag it as
   blocking.
+- every task's declared `semantic_references` is *complete* — see "Semantic-reference
+  completeness (model review)" below; this is separate from, and in addition to,
+  `validateSpecs`'s own reference-*integrity* checks.
+
+## Semantic-reference completeness (model review) (D26, D29)
+
+`validateSpecs` already checks reference **integrity** deterministically: every
+`dependency_contracts` entry is in the task's own `depends_on`, every
+`decisions`/`constraints` entry resolves (and isn't superseded). It cannot detect an
+**omission** — a task whose content actually relies on an owner decision, a shared
+constraint, or another task's contract, but whose `semantic_references` block doesn't
+declare it. Schema validation has no way to know what a task's prose *should* reference;
+only a model review reading the task's own content can. This check is separate from,
+and does not replace, `validateSpecs`'s integrity checks — run both, never one instead
+of the other.
+
+For every task in the spec being reviewed: read its goal, constraints, acceptance
+criteria, context rules, and path rules. Identify every owner decision, shared
+constraint, and dependency contract the task's content actually relies on — not just
+what it happens to mention in passing. Compare that against the task's declared
+`semantic_references`. Report a finding for anything missing, stale (references
+something that no longer applies), or unnecessary (declared but not actually
+load-bearing).
+
+**Categorization (D29 — tightened from an earlier draft that allowed `NON_BLOCKING` for
+a missing reference):**
+- A **missing**, load-bearing reference is never `NON_BLOCKING` — it is `AUTO_FIX` when
+  it's unambiguous which reference is missing (e.g. the task's own prose names the
+  decision by number but `semantic_references.decisions` omits it), or `OWNER_DECISION`
+  when it's ambiguous which one applies.
+- An **unnecessary** reference (declared but not load-bearing) may stay `NON_BLOCKING`.
+- A spec carrying an unresolved missing-reference finding cannot reach
+  `ready-for-approval` — it participates in "The decision table" below exactly like any
+  other unresolved `AUTO_FIX`/`OWNER_DECISION` finding; no new verdict-table row exists
+  for it, only this categorization rule feeding into the existing one.
 
 ## Implementation review criteria
 

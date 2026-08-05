@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-04T20:30:37.853Z_
+_Generated: 2026-08-05T07:08:34.602Z_
 
 ## Hub
 
@@ -86,6 +86,7 @@ _Generated: 2026-08-04T20:30:37.853Z_
 | `adr.0003-technical-decision-triage-and-option-analysis` | [Adopt signal-based triage and mandatory solution-option analysis, without DDD apparatus](decisions/ADR-0003-technical-decision-triage-and-option-analysis.md) | accepted |  |
 | `adr.0004-review-artifacts-and-handoff` | [Persist review output as an artifact with actor-classified findings and a fixed closing shape](decisions/ADR-0004-review-artifacts-and-handoff.md) | accepted |  |
 | `adr.0005-deterministic-approval-and-hardened-guard` | [Make task approval deterministic and CLI-enforced; replace the Bash guard's regex allowlist with an explicit, whitelist-only validator](decisions/ADR-0005-deterministic-approval-and-hardened-guard.md) | accepted |  |
+| `adr.0006-process-continuity-and-hardening` | [Process continuity and hardening — suspension-based recovery, derived batch state, tiered fingerprints, and verify-before-destructive-cleanup finalization](decisions/ADR-0006-process-continuity-and-hardening.md) | accepted |  |
 
 ## Ai
 

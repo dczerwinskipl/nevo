@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T20:30:37.853Z",
+  "generated": "2026-08-05T07:08:34.602Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -647,6 +647,16 @@
       "superseded_by": null
     },
     {
+      "file": "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+      "id": "adr.0006-process-continuity-and-hardening",
+      "type": "adr",
+      "title": "Process continuity and hardening — suspension-based recovery, derived batch state, tiered fingerprints, and verify-before-destructive-cleanup finalization",
+      "status": "accepted",
+      "date": "2026-08-05",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
       "file": "docs/ai/change-impact-map.md",
       "id": "ai.change-impact-map",
       "type": "ai",
@@ -690,7 +700,8 @@
         "adr.0002-lightweight-markdown-workflow",
         "adr.0003-technical-decision-triage-and-option-analysis",
         "adr.0004-review-artifacts-and-handoff",
-        "adr.0005-deterministic-approval-and-hardened-guard"
+        "adr.0005-deterministic-approval-and-hardened-guard",
+        "adr.0006-process-continuity-and-hardening"
       ]
     },
     {

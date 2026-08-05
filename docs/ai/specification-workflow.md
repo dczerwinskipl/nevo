@@ -19,6 +19,7 @@ related:
   - adr.0003-technical-decision-triage-and-option-analysis
   - adr.0004-review-artifacts-and-handoff
   - adr.0005-deterministic-approval-and-hardened-guard
+  - adr.0006-process-continuity-and-hardening
 ---
 
 # NEvo specification workflow
@@ -58,8 +59,9 @@ authoritative table; in summary:
 | **A — Architectural** | Full change directory: `change.yaml`, `overview.md`, optional `areas/`, `tasks/` |
 | **E — Exploratory** | `specs/active/<slug>/discovery.md`, owner decides the next class |
 
-When in doubt between two classes, prefer the smaller one and let refinement upgrade it
-if the owner's decisions turn out to require more structure.
+When in doubt between two classes, evaluate the signal-based classification below rather
+than guessing — ambiguity routes to **E** (discovery first), never to a blanket
+preference for the smaller class.
 
 ### Signal-based classification
 
@@ -301,10 +303,14 @@ execution:
 The task's own `status` is never overwritten by a suspension — a task that was `approved`
 and failed to `start` stays `approved` with a suspension attached. `tools/specs.mjs
 validate` checks `kind` is one of the four listed values and `code` is a non-empty string;
-it does not yet check `code` against a specific enum (the concrete recovery-scenario
-identifiers are defined by a later change). Writing and clearing suspensions is not yet
-wired into any command — this schema is currently validated but not yet produced by the
-CLI.
+it does not check `code` against a specific enum, but the canonical scenario set
+(`REC-01`..`REC-09`, area recovery-and-resume) is fixed and documented in
+`tools/lib/cli-errors.mjs`. `approve`/`start` write and clear `execution.suspension`
+directly — a `RecoveryError` (its `class`/`code`/`recovery.suggestedFix` fields
+machine-readable, not just a human sentence) is what a caller branches on. `deriveStage`
+(`tools/specs/lifecycle.mjs`) is suspension-aware: a task with an active suspension
+reports its `kind`/`code` and, for `confirm-required`, what's still needed, instead of
+the stage's usual recommended action.
 
 ### `semantic_references` — a task's declared dependency/decision/constraint scope
 
@@ -343,15 +349,19 @@ self_check:
 
 `validate` checks the shape (`status` is `failed`/`passed`; `failed_criteria` only appears
 with `status: failed`; each `commands` entry has a `command` string and an integer
-`exit_code`). Writing this after an actual self-check run, and reading it to decide
-"passed but stale" versus "passed and fresh," is not yet wired into any command.
+`exit_code`). `node tools/specs.mjs self-check <change> <task>` is the single write
+path (area batch-execution-and-gating-review, D28) — it runs every command the task's
+own "## Verification" section names and records the outcome; no other code writes this
+field. `deriveStage` reads it back (read-only) to report one of four self-check states —
+see "Self-check state" in the derived-vs-persisted inventory below.
 
 ### Three-tier semantic fingerprint
 
-`tools/specs/service.mjs` exposes three canonical-projection fingerprint functions,
-alongside (not yet replacing) the single whole-spec `computeSpecFingerprint` the `approve`
-gate currently reads — see "Review freshness" below for why that distinction matters
-right now:
+`tools/specs/service.mjs` exposes three canonical-projection fingerprint functions. The
+`approve` gate and `node tools/specs.mjs fingerprint <change>` both read
+`computeChangeFingerprint` — the change-level tier, not the retired single whole-spec
+`computeSpecFingerprint` (still exported, no longer read by any command — see "Review
+freshness" below):
 
 | Function | Covers | Excludes |
 |---|---|---|
@@ -366,6 +376,48 @@ id set is one of its declared inputs); an unrelated task's own task-level finger
 unaffected unless its `semantic_references.dependency_contracts` names the added/removed
 task.
 
+## Terminology — one term per concept
+
+The same underlying fact must never be called two different things across this document,
+the command files, and the shared skill. Use exactly these terms:
+
+| Term | Meaning | Never call it |
+|---|---|---|
+| **Lifecycle status** | The stable `status` field (`draft`/`approved`/.../terminal) on a task or change. | A "state," a "blocker," or conflated with a suspension. |
+| **Execution suspension** | The orthogonal `execution.suspension` block (D8) — why the *last attempted action* stopped, independent of lifecycle status. | A status, a lifecycle state, or "blocker" alone. |
+| **Owner decision** | A recorded entry in a change's `owner-decisions.md` (`D<n>`). | A "note" or "comment." |
+| **Review status** | A review file's `verdict` (spec / task / batch / audit review). | A lifecycle status. |
+| **Batch state** | The persisted batch-intent file's contents (D10, `batch.json`) plus the progress *derived* from `change.yaml` at read time. | "Batch status" — that phrase means a task's own `status` field. |
+| **Retry target** | `execution.suspension.previous_action` — the operation a resumed session retries. | A "next step" (that's `deriveStage`'s `nextCommand`, a different concept). |
+| **Recommended action** | `deriveStage`'s `nextCommand` output — the single next command a caller should run or offer. | A "suggestion" (it's derived, not guessed). |
+| **Semantic reference** (D18) | An entry in a task's `semantic_references` block (`decisions`/`constraints`/`dependency_contracts`) — declares what the task's *content* actually depends on. | A "dependency" alone — `depends_on` can express pure ordering with no semantic reference. |
+| **Evidence freshness** (D19) | Whether a batched task's recorded evidence (self-check or inspection) is still current given later batch changes. | "Evidence validity," or conflated with the task's own acceptance-criteria verdict. |
+| **Batch selection mode** (D20) | One of the four named modes (`currently-ready`/`all-approved-reachable`/`named-subset`/`until-checkpoint`). | "Batch scope" — that's the broader authorized-scope concept, which also covers a single named task. |
+| **Diagnostic anchor** (D23) | The preserved merged branch after a post-merge verification failure. | A "recovery anchor" — the branch doesn't itself repair `main`. |
+| **Hard stop condition** (D24) | A batch failure (failed/unresolved self-check, failed acceptance criterion, failed automated verification, unrefreshable stale evidence, missing required evidence, or a verification-blocking implementation error) that halts a batch immediately — a full `task-review` is never a substitute. | Conflated with a full-review risk signal (D11), which is only evaluated *after* a task's self-check has already passed. |
+| **Reference integrity vs. reference completeness** (D26) | *Integrity*: a declared `semantic_references` entry exists/is active/isn't duplicated — checked deterministically by `validateSpecs`. *Completeness*: the declared list covers everything the task's content actually depends on — checked by a model-review step inside `/nevo-ai:spec-review`. | Conflated — a task can pass integrity checks while still being incomplete. |
+| **Missing vs. unnecessary reference** (D29) | *Missing*: a load-bearing reference the task needs but doesn't declare — blocks approval (`AUTO_FIX` if unambiguous which one, `OWNER_DECISION` if ambiguous). *Unnecessary*: a declared reference that isn't actually load-bearing — may stay `NON_BLOCKING`. | A missing reference described as merely "worth noting" — it blocks by default until resolved. |
+
+## Derived versus persisted state
+
+Knowing which facts are *stored* and which are *computed fresh every time they're needed*
+is what makes "resume after an interruption" safe — there is nothing to reconcile for a
+derived fact, since it's never written twice.
+
+| Fact | Persisted or derived | Where |
+|---|---|---|
+| Task lifecycle status | Persisted | `change.yaml` task entry's `status` |
+| Active execution suspension | Persisted | `change.yaml` task entry's `execution.suspension` |
+| Active batch intent | Persisted (intent only — no progress fields) | `specs/active/<change>/batch.json` |
+| Self-check outcome | Persisted | `change.yaml` task entry's `self_check` |
+| Follow-up ledger | Persisted (mutable current-state, not append-only) | `specs/active/<change>/follow-ups.yaml` |
+| Current / completed / next / failed batch task | Derived, every call | `deriveBatchProgress(change, intent)` reads task `status`/`execution.suspension`/`self_check` |
+| Review freshness | Derived | Recomputing the relevant fingerprint tier and comparing to the review's stored value |
+| Self-check freshness (not-run / failed / passed-and-fresh / passed-but-stale) | Derived | `deriveStage` compares `self_check.fingerprint`/`revision` against the task's *current* values |
+| Available/recommended action | Derived | `deriveStage`'s `nextCommand` |
+| Worktree status (clean/dirty) | Derived | `git status --porcelain` at read time |
+| Current branch | Derived | `git branch --show-current` at read time |
+
 ## Using `tools/specs.mjs`
 
 ```
@@ -375,18 +427,147 @@ node tools/specs.mjs check                     # validate + verify indexes are c
 node tools/specs.mjs list                      # list active changes and task statuses
 node tools/specs.mjs next                      # next approved, dependency-ready task → JSON
 node tools/specs.mjs context <change> <task>   # context packet for one task → JSON
-node tools/specs.mjs fingerprint <change>      # deterministic hash of the spec inputs (for review freshness)
-node tools/specs.mjs approve <change> <task>   # mark task approved — requires draft status and a current, ready, fully-resolved review
+node tools/specs.mjs fingerprint <change>      # change-level fingerprint (for review freshness)
+node tools/specs.mjs approve <change> <task>   # mark task approved — requires draft status and a current, ready, fully-resolved review (or the type: mechanical exemption)
 node tools/specs.mjs start <change> <task>     # create/switch branch, set task in-implementation
 node tools/specs.mjs complete <change> <task>  # mark task implemented
 node tools/specs.mjs verify <change> <task>    # mark task verified (owner-reviewed)
 node tools/specs.mjs archive <change>          # move a fully terminal change to specs/archive/
+node tools/specs.mjs status <change>           # read-only: where this change sits in the spec → task → PR → merge chain
+node tools/specs.mjs finalize <change> [--check]   # gate, then merge + archive (see "Finalizing" below)
+node tools/specs.mjs self-check <change> <task>    # run the task's own "## Verification" commands, write self_check
+node tools/specs.mjs follow-up-add <change> <id> --source-task <t> --kind <k> --severity <blocking|non-blocking> --reason <r>
+node tools/specs.mjs follow-up-resolve <change> <id> --resolution <r> [--dismiss]
+node tools/specs.mjs batch-start <change> <mode> [--tasks <id,id,...>]   # select and start a batch (see "Batch execution")
+node tools/specs.mjs batch-status <change>     # read-only: derived batch progress, hard-stop/risk-signal state
+node tools/specs.mjs batch-review <change>     # evidence-freshness check, then the gating batch review
+node tools/specs.mjs finalize-repair-branch <change> --failing-sha <sha>   # guarded repair-branch creation (see "Finalizing")
 ```
 
-`start` refuses to run on a dirty working tree. `next` only ever returns a task whose
-status is `approved` and whose dependencies are all in a terminal status
-(`implemented`, `verified`, `archived`, `abandoned`) — task selection is never a manual
-scan of spec files.
+`start` refuses to run on a dirty working tree, classifying it as `REC-05`
+(task-related files — confirm-required) or `REC-06` (an unrelated file — owner-decision,
+never auto-touched). `next` only ever returns a task whose status is `approved` and
+whose dependencies are all in a terminal status (`implemented`, `verified`, `archived`,
+`abandoned`) — task selection is never a manual scan of spec files.
+
+### Recovery and the resume-and-continue controller
+
+Every state-changing action's precondition failure is classified against a canonical set
+of nine recovery scenarios (`REC-01`..`REC-09`, `tools/lib/cli-errors.mjs`), each with a
+fixed `class` — `automatic` (fixes itself same-turn, no suspension needed),
+`confirm-required` (one closed-choice confirmation clears it), `owner-decision` (the
+owner decides, not the controller), or `unsafe-manual` (no automated or confirmed path
+exists — the controller stops and waits). Recovery always inspects real state and
+executes only the missing effects — it never repeats a completed, externally-visible
+effect (e.g. never re-creates a branch that already exists). This is a five-value
+postcondition-result vocabulary (`completed` / `safe_to_retry` / `partially_completed` /
+`not_retryable` / `unsafe_manual`), not a boolean — `not_retryable` means the original
+action's own preconditions changed since the suspension was recorded (a fresh suspension
+replaces the stale one); `unsafe_manual` never resolves itself and is never auto-retried.
+
+An authorized combined transition (e.g. `spec-approve`'s "approve and start") that hits a
+`confirm-required` stop does not end there: once the owner confirms, the same
+postcondition-inspection function re-runs against fresh state — that re-invocation *is*
+the resumable recovery handle — and only the still-missing effects execute, completing
+the authorized sequence. A confirmation is asked **at most once per repair**; if the
+re-inspected postconditions still don't hold afterward, that's a fresh
+`not_retryable`/`unsafe_manual` result, never a repeated prompt.
+
+An authorized scope — a single named task, or one of the four batch-selection modes
+below — bounds how far the controller may continue automatically. Inside it, the
+controller continues through `completed`/`safe_to_retry`-resolved recoveries and, once
+confirmed, through a `confirm-required` recovery, without ending the loop. It stops
+immediately for: implicit scope expansion (`REC-08`), an `unsafe_manual` result,
+unrelated dirty files (`REC-06`), a `not_retryable` result, a failed acceptance
+criterion, unresolved high-risk evidence, stale unresolved batch evidence, or the end of
+the authorized scope — never past it, regardless of how safe the next step looks.
+
+### Batch execution
+
+`node tools/specs.mjs batch-start <change> <mode>` runs a sequence of already-`approved`
+tasks under one authorization, one of four named selection modes — **no default**:
+
+| Mode | Selects |
+|---|---|
+| `currently-ready` | Only tasks `next`-ready at planning time. |
+| `all-approved-reachable` | Every approved task that becomes ready once earlier-selected tasks complete — a deterministic topological order over the approved subgraph. Expresses "run every approved task reachable through the graph" for a linear dependency chain, which `currently-ready` alone could only ever select the first task of. |
+| `named-subset` | An explicit task-id list, validated for closure over required dependencies — a missing prerequisite is reported, never silently included or excluded. |
+| `until-checkpoint` | The same reachable sequence as `all-approved-reachable`, executed until a named checkpoint. |
+
+Exactly one task is ever `in-implementation` during a batch; the batch controller calls
+the existing `start`/`complete` transitions unchanged. The persisted intent file
+(`specs/active/<change>/batch.json`) holds only intent — `change`, `requestedTasks`,
+`orderedTasks`, `startRevision`, `reviewMode`, `checkpointPolicy`,
+`temporaryInconsistencies` — **never** a `completed`/`current`/`next`/`failed` field;
+`node tools/specs.mjs batch-status <change>` derives those, every time, from each
+`orderedTasks` entry's current `status`/`execution.suspension`/`self_check` in
+`change.yaml` — there is nothing to reconcile after an interrupted write.
+
+**Hard stop conditions are evaluated before any risk signal, and a full `task-review` is
+never a substitute for one.** The batch stops immediately when the current task has: a
+failed self-check, an unresolved self-check, a failed acceptance criterion, failed
+automated verification, stale unrefreshable evidence, missing required evidence, or an
+implementation error preventing verification. Only once a hard stop is cleared (the
+implementation corrected, the self-check rerun and passing) do **risk signals** decide
+whether a full `task-review` is additionally required before the task can be
+batch-completed: a declared `review: required`, public-API/compatibility impact,
+security/data-safety impact, migration/destructive-persistence behavior, an
+`owner-decision:`-tagged acceptance criterion, scope expansion, missing automated
+verification, unexpected files, implementation divergence, or an owner-flagged
+high-risk task. Touching `src/**`/`tests/**`/`consequential_paths` alone is **not** a
+risk signal — a small, low-risk task completes via self-check plus the final gating
+batch review only.
+
+**Evidence freshness** is checked immediately before the gating batch review runs, as
+its own distinct step, never folded silently into the review: a later-batched task's
+file/path overlap with an earlier task's recorded evidence, or a mismatch between
+`self_check.fingerprint`/`revision` and the task's *current* semantic fingerprint/git
+revision (D28's "passed but stale"), invalidates that evidence and triggers a self-check
+rerun before the review may proceed. Evidence that cannot be refreshed is itself a hard
+stop, never a caveat the review proceeds past.
+
+`node tools/specs.mjs batch-review <change>` is the one gating review that closes a
+batch — it never re-evaluates any individual batched task's own acceptance criteria
+(those were already gated by that task's own self-check, and, for a risky task, its own
+`task-review`). It checks only the whole-batch diff since `startRevision`, cross-task
+integration, and open `blocking`-severity `follow-ups.yaml` entries, computing its
+`no-findings`/`changes-recommended`/`owner-decision-required` verdict from an explicit
+table (same shape as a change-wide audit's) and writing
+`specs/active/<change>/reviews/batch-<id>.md`.
+
+A declared temporary-inconsistency pair (named up front in the batch intent) is the one
+exception: `validate`/`check` failing *between* those two tasks' implementations doesn't
+block batch progress — every other boundary in the batch still enforces it.
+
+### The follow-up ledger
+
+`specs/active/<change>/follow-ups.yaml` is a small, mutable, schema-validated,
+current-state list — **not** append-only: `node tools/specs.mjs follow-up-resolve`
+mutates an existing entry's `status` in place, it never appends a duplicate. Fields per
+entry: `id`, `source_task`, `kind`, `severity` (`blocking`/`non-blocking`), `reason`,
+`resolver_task` (nullable — a real task id, in this change or an explicitly named one),
+`status` (`open`/`resolved`/`dismissed`), `resolution` (populated on resolve/dismiss).
+`task-review`/`spec-audit` offer "record as follow-up" for a `NON_BLOCKING` finding — an
+explicit, separately-confirmed action, never automatic. Dismissing a `blocking` entry
+requires `resolution` to cite a recorded owner decision (`D<n>`); a `non-blocking` entry
+needs no such reference. An open, `blocking`-severity entry blocks `spec-finalize`
+exactly like a non-terminal task.
+
+### Mechanical tasks — review-exempt deterministic approval
+
+`type: mechanical` lets `approve` skip only the review-file/verdict/fingerprint
+requirement — it is **not** auto-approval: `approve` still performs the same explicit,
+auditable `draft`→`approved` write, either way. The exemption is granted only when all
+six conditions hold, conjunctively (never a score/majority check), re-verified by both
+`validate` (hard error naming the failed condition) and `approve` itself (defense in
+depth): derived from an already-approved-or-later task in the same change
+(`mechanical.derived_from`); `mechanical.deterministic: true`;
+`mechanical.no_public_behavior_change: true`; `mechanical.no_new_design_decision: true`;
+`allowed_paths`/`consequential_paths` already declared on the `derived_from` task; every
+acceptance criterion carries an `automated:` tag (no `inspection:`/`owner-decision:`
+tag allowed). Any condition failing falls back to the normal review-then-approve cycle —
+it never silently blocks with no path forward, and never silently approves with a
+missing condition.
 
 ## Using `tools/docs.mjs`
 
@@ -504,14 +685,14 @@ review artifact itself so writing the review never invalidates its own fingerpri
 review embeds this exact printed value; approval recomputes it and refuses if the two
 don't match, naming both values so the mismatch is verifiable.
 
-`computeSpecFingerprint` is a single whole-spec hash — any task's status transition
-changes the hash for the entire change, which is why approving one task can invalidate
-the stored review's fingerprint for every other task in the same change. The three-tier
-semantic fingerprint (see "State model" above) is the replacement design — each of its
-three functions excludes `status` by construction and scopes invalidation per
-change/task/implementation instead of per whole spec — but `approve`'s own gate has not
-yet been switched over to it; that cutover is tracked separately from the functions'
-own definition and tests.
+The retired `computeSpecFingerprint` was a single whole-spec hash — any task's status
+transition changed the hash for the entire change, invalidating the stored review's
+fingerprint for every other task in the same change too. `approve` now reads
+`computeChangeFingerprint` (see "State model" above) instead — it excludes `status`,
+`execution.suspension`, and `self_check` by construction, so a status-only or
+unrelated-task edit no longer invalidates a spec review. Every `reviews/spec.md` written
+under the old scheme became stale the first time this cutover shipped — a one-time,
+expected re-review, not a recurring cost (see ADR-0006).
 
 ### A re-review reads current files, never infers "unchanged" from git
 
@@ -549,9 +730,15 @@ Reaching `ready-for-approval` doesn't end the process with an instruction to han
 `/nevo-ai:spec-approve`) that asks the owner directly and only writes `approved` after
 an answer, and whose gate (review exists, verdict ready, nothing unresolved, fingerprint
 current) is enforced by the CLI, not by an agent's judgment call. Approving a task and
-starting its implementation are always two separate, separately-confirmed actions —
-there is no combined "approve and start" shortcut, even when both are what the owner
-ultimately wants; each step is invoked on its own.
+starting its implementation are always two separate, separately-confirmed *underlying
+transitions* — `approve` and `start` are never combined into one operation, and a
+successful `approve` is never rolled back if `start` then fails (D3). `spec-approve`'s
+fourth outcome, "approve and start," is the one place a single owner confirmation runs
+both in sequence: its own explicit, separately-labeled menu item (never the default,
+never inferred), re-checking `start`'s postconditions against *current* state before
+running it. A `confirm-required` stop inside that sequence resumes in place after one
+confirmation rather than ending the flow (D17) — see "Recovery and the resume-and-continue
+controller" below.
 
 ### The response ends with a short, structured summary, not the full report
 
@@ -635,16 +822,39 @@ gate, then an explicit owner confirmation" pattern used for approval: `validateF
    (skipped, and said so, for a docs-only or tooling-only change).
 
 `node tools/specs.mjs finalize <change> --check` reports this gate's result with no
-side effects at all. Without `--check`, once the gate passes, `finalize` archives the
-change locally, commits and pushes that archive commit, then squash-merges the PR
-(matching this repository's documented merge strategy — see `git-workflow.md` §
-"Merge strategy") and deletes the branch: **verify → archive locally → commit → push →
-merge**, all inside one command, but never run without the owner's explicit go-ahead —
-in Claude Code, `/nevo-ai:spec-finalize <change-id>` is that confirmation layer, the
-same split used everywhere else in this document (CLI enforces the gate, conversation
-captures the human decision). Merging is this workflow's highest-consequence
-transition — shared state, hard to fully undo — so this is the one place a favorable
-gate result is *never* enough by itself; see `AGENTS.md`'s git-safety rules.
+side effects at all. The gate also blocks on any open, `blocking`-severity
+`follow-ups.yaml` entry, exactly like a non-terminal task. Without `--check`, once the
+gate passes, `finalize` runs: **verify → archive locally → commit → push → merge →
+verify-before-cleanup → delete branch**, never run without the owner's explicit
+go-ahead — in Claude Code, `/nevo-ai:spec-finalize <change-id>` is that confirmation
+layer (CLI enforces the gate, conversation captures the human decision). Merging is this
+workflow's highest-consequence transition — shared state, hard to fully undo — so this
+is the one place a favorable gate result is *never* enough by itself; see `AGENTS.md`'s
+git-safety rules.
+
+**Verify-before-destructive-cleanup (D9).** The squash-merge itself no longer deletes
+the branch in the same call — branch deletion is gated on a *second*, post-merge check.
+After merging: `finalize` fetches and fast-forwards local `main`, runs the cheap
+post-merge check (`specs.mjs`/`docs.mjs` `check` only — no duplicate `dotnet
+build`/`dotnet test`), and only if it passes deletes the branch (local + remote). On
+failure: it reports the merged SHA, the failed check, and preserves the branch as a
+**diagnostic anchor** (D23 — it doesn't itself repair `main`, it's just not deleted);
+no `follow-ups.yaml` entry is written for the now-archived change, since that would
+mutate an already-finalized artifact with no commit path.
+
+**Guarded repair branch (D23, ordered by D25).** After a post-merge failure, one
+explicit owner confirmation offers to create `fix/<change>-post-merge`
+(`node tools/specs.mjs finalize-repair-branch <change> --failing-sha <sha>`). On
+confirmation, a nine-step sequence runs immediately before creating the branch — every
+read-only/remote check (worktree clean, local/remote repair-branch absence,
+`origin/main` still at the recorded failing SHA) completes *before* switching or
+fast-forwarding local `main`; only then does it check that local `main` actually landed
+on the failing SHA, and only then create the branch. A guard failing before the `main`
+switch reports at most a completed read-only `fetch`; a guard failing after it states
+precisely that the switch/fast-forward already happened — never "nothing was modified"
+when something was. Never `reset`/`clean`/force-checkout/automatic-stash at any step;
+never overwrite an existing repair branch. The repair itself (editing files, running
+the targeted checks, opening the repair PR) stays manual beyond branch creation.
 
 ## Architecture documentation and ADRs
 

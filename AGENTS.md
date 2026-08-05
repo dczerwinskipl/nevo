@@ -112,8 +112,12 @@ specs/archive/         ← completed and abandoned changes (do not load by defau
 ## Tool-specific operational layers
 
 Claude Code users may invoke the namespaced `/nevo-ai:*` commands (`spec-create`,
-`spec-refine`, `spec-review`, `spec-approve`, `task-next`, `task-start`, `task-review`)
-— see `CLAUDE.md`. Other agents (Cursor, Copilot, or anything else) follow this file and
-`docs/ai/specification-workflow.md` directly, driving `tools/specs.mjs` and
-`tools/docs.mjs` from the terminal. No agent, in any tool, may invent an owner decision
-that these documents require to be asked explicitly.
+`spec-refine`, `spec-review`, `spec-approve`, `spec-audit`, `spec-resolve-comments`,
+`spec-finalize`, `spec-status`, `task-next`, `task-start`, `task-review`,
+`task-apply-review`) — see `CLAUDE.md`. Other agents (Cursor, Copilot, or anything else)
+follow this file and `docs/ai/specification-workflow.md` directly, driving
+`tools/specs.mjs` and `tools/docs.mjs` from the terminal — including batch execution,
+self-checks, and follow-ups (`batch-start`/`batch-status`/`batch-review`, `self-check`,
+`follow-up-add`/`follow-up-resolve`); see `docs/ai/specification-workflow.md` § "Using
+`tools/specs.mjs`" for the full command list. No agent, in any tool, may invent an owner
+decision that these documents require to be asked explicitly.

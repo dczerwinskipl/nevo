@@ -46,6 +46,16 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    option analysis exists — `references/solution-option-analysis.md` — not just a
    single proposed approach; record its absence as an `OWNER_DECISION` or
    `NEEDS_CLARIFICATION` finding (whichever fits — see below).
+5a. **Semantic-reference completeness (D26, D29).** For every task, run the model-review
+   check in `references/review-policy.md` § "Semantic-reference completeness (model
+   review)" — this is separate from, and in addition to, `node tools/specs.mjs
+   validate`'s own deterministic reference-*integrity* checks (step 4); neither
+   substitutes for the other. Categorize a missing, load-bearing reference as `AUTO_FIX`
+   (unambiguous which one) or `OWNER_DECISION` (ambiguous) — never `NON_BLOCKING`; an
+   unnecessary (declared but not load-bearing) reference may stay `NON_BLOCKING`. An
+   unresolved missing-reference finding blocks `ready-for-approval` exactly like any
+   other unresolved `AUTO_FIX`/`OWNER_DECISION` finding in the decision table below —
+   no separate mechanism, just this categorization feeding the existing one.
 6. Classify every current finding per `references/review-policy.md` § "Findings must be
    actor-classified" (`AUTO_FIX` / `OWNER_DECISION` / `NEEDS_CLARIFICATION` /
    `NON_BLOCKING` / `INFORMATIONAL`). If step 2 found a baseline, additionally verify
