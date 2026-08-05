@@ -3,10 +3,13 @@
 This is the file written to disk — `specs/active/<change>/reviews/spec.md` (spec
 review), `specs/active/<change>/reviews/<task-id>.md` (task review),
 `specs/active/<change>/reviews/audit-<slug>.md` (spec-audit — see
-`references/review-policy.md` § "Change-wide audits"), or
+`references/review-policy.md` § "Change-wide audits"),
 `specs/active/<change>/reviews/batch-<id>.md` (the gating batch review, area
-batch-execution-and-gating-review — `<id>` is the batch's `startRevision`, short form).
-It's the full
+batch-execution-and-gating-review — `<id>` is the batch's `startRevision`, short form), or
+`specs/active/<change>/reviews/implementation-review-<scope>.md` (the multi-task
+implementation review orchestrator, area implementation-review-orchestration — see
+`references/review-policy.md` § "Multi-task implementation review"; `<scope>` is `all`
+or the resolved, sorted, dash-joined order list, e.g. `01-03-07`). It's the full
 report; the conversation only gets the short structured summary from
 `references/review-policy.md` § "Chat output shape" plus a pointer to this file. A
 guide, not mandatory boilerplate — omit any section with nothing to say, but never omit
@@ -14,17 +17,22 @@ guide, not mandatory boilerplate — omit any section with nothing to say, but n
 
 ```markdown
 ---
-review-of: spec | task | spec-audit | batch
+review-of: spec | task | spec-audit | batch | implementation-review
 change: <change-id>
 task: <task-id>              # task review only
 audit-focus: <owner's focus, verbatim, short>   # spec-audit only — never invent a task field instead
 batch: <startRevision, short form>              # batch review only — matches the filename's <id>
 batched-tasks: [<task-id>, ...]                 # batch review only — the batch's orderedTasks, verbatim
+scope: all | <sorted-dash-joined-orders>        # implementation-review only — matches the filename's <scope>, e.g. 01-03-07
+reviewed-tasks: [<task-id>, ...]                # implementation-review only — the resolved scope, in order
+eligible-for-verification: [<task-id>, ...]     # implementation-review only — selectEligibleForVerification's output
+must-remain-unchanged: [<task-id>, ...]         # implementation-review only — every other reviewed task
 generated: <ISO date>
 verdict: blocked | owner-decision-required | changes-required | ready-for-approval | approved-for-implementation
          # task review: blocked | changes-required | pass
          # spec-audit: owner-decision-required | changes-recommended | no-findings
          # batch review: owner-decision-required | changes-recommended | no-findings (same three-value table as spec-audit — see computeBatchReviewVerdict)
+         # implementation-review: pass | changes-required | owner-decision-required | blocked (see computeMultiTaskReviewVerdict)
 audit_status: open | actioned | dismissed   # spec-audit only — see references/review-policy.md § "audit_status"; starts `open`, never anything else on first write
 ready_for_approval: true | false        # spec review only
 implementation_allowed: true | false
@@ -110,6 +118,32 @@ task's own self-check, and — for a task meeting a risk signal — its own `tas
 see area `batch-execution-and-gating-review`'s "Responsibility split" table). State which
 batched tasks required their own full `task-review` and why (the risk signal(s) that
 triggered it), and which completed via self-check plus this review alone.
+
+## Task sections *(implementation-review only)*
+
+One subsection per reviewed task, each naming: that task's own verdict
+(`pass`/`changes-required`/`blocked`), a link/reference to its own
+`reviews/<task-id>.md`, and its unresolved findings (ID, category, one-line summary —
+never the full per-task report re-embedded here). Never re-evaluates any individual
+task's own acceptance criteria — that already happened in that task's own
+`task-review`-equivalent pass.
+
+## Cross-task integration *(implementation-review only)*
+
+The real diff across the resolved scope, cross-task path overlap (per
+`attributeTouchedPaths`/`detectBatchIntegrationFindings`, reused from area
+batch-execution-and-gating-review), and open `blocking`-severity `follow-ups.yaml`
+entries whose `source_task` falls inside the resolved scope — same shape as "Batch
+integration" above, scoped to this run's selected tasks instead of a batch's
+`orderedTasks`.
+
+## Eligibility *(implementation-review only)*
+
+The eligible-for-verification list and the must-remain-unchanged list (with, for each
+must-remain-unchanged task, the specific reason: its own verdict, or an unresolved
+cross-task finding) — restates the frontmatter's `eligible-for-verification`/
+`must-remain-unchanged` fields in prose, so the reader doesn't have to parse YAML to see
+who's not moving and why.
 ```
 
 `review-of`, `change`, `verdict` are required frontmatter. `task` is required only for a

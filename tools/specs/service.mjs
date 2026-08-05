@@ -128,6 +128,28 @@ export function setChangeStatus(change, status) {
   updateYamlFile(change._file, doc => doc.set('status', status));
 }
 
+/**
+ * The single write path for `/nevo-ai:implementation-review`'s bulk status
+ * transition (D30, task 12, area implementation-review-orchestration
+ * requirement 12) — one read-modify-write of `change.yaml` covering every
+ * eligible task's transition together, never one write per task.
+ * `transitions` is `validateBulkTransition`'s own output (`tools/specs/lifecycle.mjs`) — already validated for every task before this is ever
+ * called; this function performs no validation of its own, only the write.
+ * A `noop` entry (already at or past the target status) is skipped — its
+ * `status` field is never rewritten to the same value.
+ */
+export function writeBulkTransition(change, transitions) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    for (const t of transitions) {
+      if (t.noop) continue;
+      const item = tasks?.items?.find(it => it.get('id') === t.id);
+      if (!item) throw new CliError(`Task '${t.id}' not found in ${change._file}`);
+      item.set('status', t.to);
+    }
+  });
+}
+
 // ── Context packet ─────────────────────────────────────────────────────────
 
 export function buildContextPacket(change, task) {

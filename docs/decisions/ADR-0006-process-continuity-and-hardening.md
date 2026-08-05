@@ -48,6 +48,14 @@ related set of process-continuity mechanisms, built and landed as eleven ordered
 (01–11), each proven by its own test suite and, cumulatively, by task 10's
 cross-mechanism end-to-end suite before this documentation task ran.
 
+A twelfth task, `implementation-review-orchestration` (D30), was added after tasks 01–11
+already shipped: real usage surfaced a seventh gap the original six didn't cover — no way
+to review an owner-selected range or list of already-implemented tasks together, each at
+`task-review`'s own depth, with one cross-task integration pass and one bulk status
+decision, short of either N single-task `task-review` round trips or the deliberately
+non-gating `spec-audit`. See "Multi-task implementation review orchestration (D30)"
+below.
+
 ## Decision
 
 ### State model and fingerprints (D1, D6, D7, D16, D18, D27)
@@ -195,6 +203,48 @@ cross-mechanism end-to-end suite before this documentation task ran.
     across those steps, so the report must never claim "nothing was modified" when
     something was. Never `reset`/`clean`/force-checkout/automatic-stash at any step.
 
+### Multi-task implementation review orchestration (D30)
+
+25. **`/nevo-ai:implementation-review <change-id> --all|--tasks <range-or-list>`** is a
+    fifth, distinct review shape alongside task review, spec review, change-wide audits,
+    and the gating batch review — none of which fit "review a selected range/list of
+    already-implemented tasks together, then decide what's safe to mark verified."
+    `--tasks` selects by each task's own `order` field (a dash range like `01-03`, or a
+    comma list like `01,03,07`), resolved deterministically by `node tools/specs.mjs review-scope`, never agent-parsed.
+26. **The per-task review depth is `task-review`'s own flow, reused verbatim, not
+    reimplemented.** For each task in the resolved scope, sequentially: run
+    `task-review`'s own steps 1-8 (context, baseline, diff, path checks, acceptance-
+    criteria/area/constraint/ADR comparison, finding classification) — never its status-
+    decision step. In Claude Code, each task's review runs in a fresh subagent invocation
+    so a completed task's full diff/file reads never remain loaded while the next task's
+    review runs — only its finished review artifact and a compact summary do.
+27. **One cross-task integration pass, once, reusing the gating batch review's own
+    diff-attribution/integration-finding functions** (`attributeTouchedPaths`/
+    `detectBatchIntegrationFindings`, D19/D24) rather than a second implementation of the
+    same mechanism — never re-evaluating any individual task's own acceptance criteria.
+28. **The overall verdict is a fourth vocabulary** — `pass` \| `changes-required` \|
+    `owner-decision-required` \| `blocked` — computed by `computeMultiTaskReviewVerdict`
+    from an explicit table, the same convention as every other verdict in this workflow;
+    distinct from `task-review`'s own three-value per-task verdict, which this
+    orchestration reuses unchanged for each individual task.
+29. **Exactly one bulk status confirmation, only over the eligible subset.** A task is
+    eligible only when its own verdict is `pass` **and** it carries zero unresolved
+    blocking findings at either the per-task or the cross-task level
+    (`selectEligibleForVerification`) — every other reviewed task must remain unchanged,
+    regardless of which of the three closed-menu options (verified /
+    implemented-self-verified / leave unchanged) the owner picks.
+30. **The confirmed transition is applied through one atomic bulk CLI operation
+    (`node tools/specs.mjs bulk-transition`), never one status write per task.**
+    `computeBulkTransitionTarget`/`validateBulkTransition` compute and validate every
+    named task's transition — including the same hard-stop check `complete` already
+    performs standalone for a task hopping through `implemented` — *before* anything is
+    written; the write itself is exactly one `change.yaml` read-modify-write covering
+    every eligible task together. An invalid computed transition for any one task
+    rejects the whole operation, naming it — all-or-nothing, never best-effort.
+31. **`task-review` and `spec-audit` are unchanged** — this orchestrates the former's
+    own depth across a range; it does not fold it in or duplicate the latter's
+    thematic, non-gating shape.
+
 ## What was deliberately not adopted / not changed
 
 - A full workflow engine or generic state DSL — explicitly rejected as unjustified
@@ -237,3 +287,7 @@ cross-mechanism end-to-end suite before this documentation task ran.
   task 10's dedicated cross-mechanism end-to-end coverage — judged proportionate given
   each mechanism closes a concretely identified continuity or safety gap, not
   speculative hardening.
+- An owner can review and verify N already-implemented tasks in one invocation and one
+  bulk confirmation instead of N separate `/nevo-ai:task-review` round trips, without
+  weakening any individual task's own review depth or ever moving a task that still
+  carries an unresolved blocking finding.

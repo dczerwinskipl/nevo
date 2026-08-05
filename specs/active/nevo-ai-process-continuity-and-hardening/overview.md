@@ -37,6 +37,17 @@ change: nevo-ai-process-continuity-and-hardening
 > a missing load-bearing `semantic_references` entry was categorized `NON_BLOCKING`
 > when it should block approval; and self-check state had no concrete, persisted
 > schema for resume to read — recorded as D27-D29. Direction (D1-D26) is unchanged.
+>
+> **Fifth refinement note (2026-08-05):** after every task in this change (01-11)
+> reached `status: implemented`, the owner requested one additional task — a
+> multi-task implementation review orchestrator (`/nevo-ai:implementation-review`)
+> reviewing an owner-selected range or list of tasks against `task-review`'s own
+> per-task depth, with bounded per-task context, one cross-task integration pass, one
+> aggregate artifact, and one atomic bulk status transition — recorded as D30, added as
+> task 12 (`implementation-review-orchestration`) and a new area
+> (`areas/implementation-review-orchestration.md`). This is new scope, not a
+> consistency correction like the first four passes; it does not reopen or rewrite
+> tasks 01-11.
 
 ## Context
 
@@ -201,6 +212,7 @@ anywhere in the current process, and no batch-execution support at all.
 | Batch execution & gating review | Original findings #10/#18/#19 + refinement findings 5, 6 + second-pass findings 4, 5, 6 + third-pass finding 1 + fourth-pass finding 3 | Real, verified, absent entirely; refined four times |
 | Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 + second-pass finding 7 | Real, verified; refined twice |
 | Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 + third-pass finding 2 | Real, verified; refined three times |
+| Implementation review orchestration | New scope, requested after tasks 01-11 shipped — see D30 (fifth refinement pass) | New; not a correction to any earlier finding |
 
 ### Findings rejected or already resolved (unchanged from the original pass)
 
@@ -256,6 +268,14 @@ anywhere in the current process, and no batch-execution support at all.
 | 1 | The invalidation matrix said adding/removing a task does not invalidate the change-level fingerprint, contradicting `computeChangeFingerprint`'s own declared "task graph shape (ids + `depends_on` edges)" input | Corrected to `Yes`; symmetric "task removed" row added; unrelated task-level fingerprints still correctly unaffected unless referenced via `semantic_references.dependency_contracts` (D27) |
 | 2 | A missing load-bearing `semantic_references` entry was categorized "at minimum `NON_BLOCKING`," which never gates a review's verdict — a detected completeness gap could still reach `ready-for-approval` | Split by ambiguity: `AUTO_FIX` when unambiguous, `OWNER_DECISION` when ambiguous which reference applies; `NON_BLOCKING` reserved for an unnecessary (not missing) reference (D29) |
 | 3 | Self-check state (pass/fail, freshness) had no concrete persisted schema — a resumed session could only blindly rerun or infer status from unstored command output | Optional per-task `self_check` block (`status`/`fingerprint`/`revision`/`failed_criteria`/command exit codes), excluded from every fingerprint tier; "stale" vs. "fresh" derived by comparing stored vs. current fingerprint/revision (D28) |
+
+### The fifth refinement pass — new scope, not a correction
+
+Unlike the first four passes, this pass did not find a defect in the existing
+specification — it added owner-requested scope on top of an already-implemented change.
+D30 records the request and the decision to build it as task 12 in this same
+specification (see `areas/implementation-review-orchestration.md` for the full
+requirement set).
 
 ## Constraints
 
@@ -809,6 +829,7 @@ extra implementation cost.
 - `areas/context-and-validation-hardening.md` — tasks 05, 06, 07
 - `areas/batch-execution-and-gating-review.md` — task 08
 - `areas/finalization-and-migration.md` — tasks 09, 10, 11
+- `areas/implementation-review-orchestration.md` — task 12 (D30, fifth refinement pass)
 
 ## Change-wide acceptance criteria
 
@@ -900,6 +921,14 @@ extra implementation cost.
     passed-but-stale, and passed-and-fresh (the latter two derived by comparing the
     block's stored fingerprint/revision against the task's current ones) without
     rerunning the self-check (D28).
+24. `/nevo-ai:implementation-review` reviews an owner-selected `--all`/`--tasks` scope by
+    running `task-review`'s own per-task depth once per task, sequentially, with bounded
+    per-task context; asks no per-task status question; runs one cross-task integration
+    pass reusing `batch-execution-and-gating-review`'s diff-attribution/integration-
+    finding functions; produces one aggregate artifact; and applies at most one bulk
+    status transition, through one atomic `change.yaml` write, only to tasks with zero
+    unresolved blocking findings — never to a task with an unresolved blocking finding,
+    regardless of which bulk-confirmation option is chosen (D30).
 
 ## Verification strategy
 
@@ -937,6 +966,15 @@ missing load-bearing semantic reference blocks approval rather than staying
 self-check state gets its own small persisted schema (`self_check`), structurally
 parallel to `execution.suspension`, rather than staying an unspecified evidence store
 (D28). No existing ADR is superseded.
+
+The fifth refinement pass adds: why the multi-task implementation review orchestrator
+(D30) extends this same ADR with a new subsection — covering the new
+`/nevo-ai:implementation-review` command, its reuse of `task-review`'s own per-task
+depth and `batch-execution-and-gating-review`'s integration-finding functions, and its
+one atomic bulk-transition operation — instead of superseding it or writing a separate
+ADR, since D30 is new scope within this same change, not a correction to an accepted
+decision; task 12 also updates the ADR's "Context" paragraph to name itself alongside
+tasks 01-11.
 
 ## Out of scope
 

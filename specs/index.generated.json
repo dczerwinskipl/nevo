@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T07:11:18.082Z",
+  "generated": "2026-08-05T16:33:13.597Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -106,6 +106,18 @@
           "status": "implemented",
           "depends_on": [
             "workflow-e2e-tests"
+          ]
+        },
+        {
+          "id": "implementation-review-orchestration",
+          "order": 12,
+          "file": "tasks/12-implementation-review-orchestration.md",
+          "status": "in-implementation",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "scope-and-follow-up-mechanisms",
+            "batch-execution-and-gating-review",
+            "workflow-docs-and-adr-migration"
           ]
         }
       ]

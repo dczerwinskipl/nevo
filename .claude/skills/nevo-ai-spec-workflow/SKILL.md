@@ -40,6 +40,7 @@ Load only the reference file(s) for the phase you are in — not all of them.
 | Loading context | `references/context-policy.md` | `task-next`, `task-start` |
 | Judging readiness / diffs | `references/review-policy.md` | `spec-review`, `task-review` |
 | Judging a cross-task theme in an already-implemented change | `references/review-policy.md` § "Change-wide audits" | `spec-audit` |
+| Orchestrating task-review depth across a range/list of tasks | `references/review-policy.md` § "Multi-task implementation review" | `implementation-review` |
 
 Templates in `templates/` are guides for artifact shape, not mandatory boilerplate —
 each template states which of its sections may be omitted. Use them when creating or
@@ -103,11 +104,16 @@ structurally separate:
 
 ## Preventing premature implementation
 
-`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs start`, and never mark a task `approved`. `spec-review`, `task-review`, and
-`spec-audit` never edit files unless the owner explicitly asked for fixes to be
-applied — writing their own `reviews/*.md` artifact (and, for `spec-audit`, setting
-`audit_status` after its own closed-menu confirmation) is the one exception, and it is
-never the change/task/spec files under review. `spec-approve` is the single place a task's `approved` status gets
+`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs start`, and never mark a task `approved`. `spec-review`, `task-review`,
+`spec-audit`, and `implementation-review` never edit files unless the owner explicitly
+asked for fixes to be applied — writing their own `reviews/*.md` artifact (and, for
+`spec-audit`, setting `audit_status` after its own closed-menu confirmation) is the one
+exception, and it is never the change/task/spec files under review.
+`implementation-review`'s own exception is narrower still: writing
+`reviews/implementation-review-<scope>.md` and applying the one bulk status transition
+the owner just confirmed (never a per-task status write, and never without that
+confirmation) — it does not otherwise edit the tasks it reviews, and it never replaces
+or weakens `task-review`/`spec-audit`. `spec-approve` is the single place a task's `approved` status gets
 written, and even there only after an explicit, interactive answer in the same turn,
 and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, requires a
 current, ready, fully-resolved review) is what actually enforces it, not the agent's
@@ -180,6 +186,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
 | `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
+| `implementation-review` | `pass` \| `changes-required` \| `owner-decision-required` \| `blocked` |
 | `spec-finalize` | `finalized` \| `pushed` \| `gate-passed` \| `blocked` |
 | `spec-resolve-comments` | `resolved` \| `needs-owner-input` \| `none-unresolved` |
 | `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |

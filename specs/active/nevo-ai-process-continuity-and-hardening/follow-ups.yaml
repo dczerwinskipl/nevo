@@ -13,3 +13,17 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: FU-002
+    source_task: conversational-approval-ergonomics
+    kind: design-gap
+    severity: non-blocking
+    reason: "spec-approve.md D3 'Approve and start implementation' only performs the
+      approve+start lifecycle transitions, then asks a second confirmation
+      before actually implementing -- contradicts the option's own label and the
+      'no repeated confirmation for an already-authorized action' principle
+      (C8/D17). Fix: after start succeeds, the flow should continue directly
+      into implementation in the same turn, without a further ask; 'Approve'
+      alone (no start) should remain a hard stop with no implementation prompt."
+    resolver_task: null
+    status: open
+    resolution: null

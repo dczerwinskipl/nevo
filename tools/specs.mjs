@@ -21,7 +21,7 @@ import {
   parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
   FOLLOW_UP_SEVERITIES,
   loadTaskFileParts, parseVerificationCommands, writeSelfCheck,
-  loadBatchIntent, writeBatchIntent, clearBatchIntent,
+  loadBatchIntent, writeBatchIntent, clearBatchIntent, writeBulkTransition,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
@@ -32,6 +32,7 @@ import {
   BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict, validateBatchCheckpoint,
   completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
+  resolveReviewScope, validateBulkTransition,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -904,6 +905,45 @@ export function handleFinalizeRepairBranch(changeSlug, options = {}) {
   console.log(`Repair branch '${branchName}' created and checked out.`);
 }
 
+// ── Multi-task implementation review orchestration (D30, task 12) ──────────
+
+// Deterministic scope resolution for `/nevo-ai:implementation-review` — read-only,
+// never parsed ad hoc by the command's own conversational flow (area
+// implementation-review-orchestration, requirement 2).
+export function handleReviewScope(changeSlug, options = {}) {
+  const change = requireChange(changeSlug);
+  const result = resolveReviewScope(change, { all: Boolean(options.all), tasks: options.tasks });
+  if (!result.ok) throw new CliError(result.reason);
+  console.log(JSON.stringify({ change: changeSlug, orderedTasks: result.orderedTasks }, null, 2));
+}
+
+// The single write path for the bulk-transition operation (requirement 12) —
+// validates every named task's computed transition before writing any of
+// them (all-or-nothing), then performs exactly one change.yaml read-modify-
+// write covering all of them together.
+export function handleBulkTransition(changeSlug, options = {}) {
+  const change = requireChange(changeSlug);
+  if (!options.tasks) throw new CliError('bulk-transition requires --tasks <id,id,...>.');
+  if (!options.outcome) throw new CliError('bulk-transition requires --outcome <self-verified|verified>.');
+
+  const taskIds = options.tasks.split(',').map(s => s.trim()).filter(Boolean);
+  const unknown = taskIds.filter(id => !change.tasks.some(t => t.id === id));
+  if (unknown.length) throw new CliError(`Unknown task id(s): ${unknown.join(', ')}`);
+
+  const result = validateBulkTransition(change, taskIds, options.outcome);
+  if (!result.ok) throw new CliError(result.reason);
+
+  writeBulkTransition(change, result.transitions);
+
+  const changed = result.transitions.filter(t => !t.noop);
+  if (!changed.length) {
+    console.log('No task needed a status change (every selected task was already at or past the target).');
+    return;
+  }
+  console.log(`Bulk transition applied (outcome: ${options.outcome}):`);
+  for (const t of changed) console.log(`  '${t.id}': ${t.from} -> ${t.to}`);
+}
+
 // Finalize gate: every task terminal, working tree clean and pushed, an open (or
 // already-merged, idempotently) PR with zero unresolved review threads, and every
 // verification command green. `--check` only reports the gate result — no side
@@ -1154,6 +1194,20 @@ export function buildProgram() {
     .description('Run the evidence-freshness check, then the one gating batch review that closes a batch')
     .argument('<change>')
     .action(handleBatchReview);
+
+  program.command('review-scope')
+    .description('Resolve --all/--tasks (order range or list) into an ordered, eligibility-checked task id list (D30)')
+    .argument('<change>')
+    .option('--all', 'Every eligible task in the change')
+    .option('--tasks <spec>', "Order range ('01-03') or comma list ('01,03,07')")
+    .action((changeSlug, opts) => handleReviewScope(changeSlug, opts));
+
+  program.command('bulk-transition')
+    .description('Apply one status transition to multiple eligible tasks in a single atomic change.yaml write (D30)')
+    .argument('<change>')
+    .requiredOption('--tasks <id,id,...>')
+    .requiredOption('--outcome <self-verified|verified>')
+    .action((changeSlug, opts) => handleBulkTransition(changeSlug, opts));
 
   program.command('finalize-repair-branch')
     .description('D23/D25: confirm-then-create repair branch after a failed post-merge check (nine-step guarded sequence)')

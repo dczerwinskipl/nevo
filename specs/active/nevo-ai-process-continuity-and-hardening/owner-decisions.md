@@ -780,3 +780,58 @@
 - **Affected artifacts:** `tasks/01-state-and-fingerprint-semantics.md`,
   `tasks/11-workflow-docs-and-adr-migration.md`,
   `areas/state-and-fingerprint-semantics.md`, `overview.md`
+
+## D30: New task 12 — owner-facing multi-task implementation review orchestration
+
+- **Question:** All eleven tasks in this change (01-11) reached `status: implemented`
+  with no cross-task review mechanism the owner can drive directly: `/nevo-ai:task-review`
+  reviews exactly one task per invocation, and `/nevo-ai:spec-audit` is deliberately
+  non-gating and never applies a status transition. The owner requested one command that
+  reviews either every implemented task or an explicitly selected range/list
+  (`/nevo-ai:implementation-review <change-id> --all` \|
+  `--tasks 01-03` \| `--tasks 01,03,07`), orchestrating — not replacing or weakening —
+  `task-review`'s own per-task depth, with bounded per-task context, one cross-task
+  integration pass, one aggregate artifact, and one bulk status confirmation applied
+  through a single atomic `change.yaml` write. Should this be built as a new task in this
+  same specification, and to the fourteen requirements the owner specified directly?
+- **Options considered:** Presented by the owner as a fully specified, required model,
+  not a menu — fourteen numbered requirements covering command surface, bounded
+  sequential per-task review reusing `task-review`'s own semantics, no per-task status
+  prompt, one cross-task integration pass, one aggregate artifact (overall verdict,
+  per-task sections, unresolved findings per task, cross-task findings, eligible-for-
+  verification list, must-remain-unchanged list), one closed three-option end-of-run
+  confirmation, one deterministic bulk CLI transition with one atomic `change.yaml`
+  write, never touching a task with unresolved blocking findings, re-review against the
+  previous aggregate report as baseline, `task-review`/`spec-audit` left unchanged, doc/
+  policy/test updates, added as a task in this change (not a new change), and no
+  reopening of tasks 01-11's own artifacts.
+- **Decision:** Build exactly as specified — new task 12,
+  `implementation-review-orchestration` (`tasks/12-implementation-review-orchestration.md`,
+  `areas/implementation-review-orchestration.md`), depending on
+  `state-and-fingerprint-semantics`, `scope-and-follow-up-mechanisms`,
+  `batch-execution-and-gating-review`, and `workflow-docs-and-adr-migration`.
+- **Rationale:** Owner-specified directly, with the explicit instruction to record the
+  decision and apply the refinement without a further owner turn on the fourteen
+  requirements themselves. The remaining implementation-shaped choices the owner's
+  requirements didn't pin down exactly (the CLI subcommand names `review-scope`/
+  `bulk-transition`, the `reviews/implementation-review-<scope>.md` naming convention,
+  and the five-row overall verdict table) are recorded here as this decision's
+  consequences, flagged clearly for the owner to override in the next
+  `/nevo-ai:spec-review` pass if a different shape is wanted.
+- **Consequences:** Task 12 reuses `task-review.md`'s own flow (steps 1-8) verbatim per
+  selected task rather than reimplementing comparison logic in a second place; reuses
+  `batch-execution-and-gating-review`'s `attributeTouchedPaths`/
+  `detectBatchIntegrationFindings` for the cross-task integration pass rather than
+  building a parallel mechanism; introduces exactly two new `tools/specs.mjs`
+  subcommands (deterministic scope resolution, atomic bulk transition); adds one new
+  `references/review-policy.md` section, one new command file
+  (`.claude/commands/nevo-ai/implementation-review.md`), and one new
+  `docs/ai/specification-workflow.md` subsection alongside the existing "Change-wide
+  audits"/"Batch review" ones. `/nevo-ai:task-review` and `/nevo-ai:spec-audit` are not
+  modified in behavior by this task. No implementation begins under this refinement
+  itself — task 12 starts `draft`, subject to the same `/nevo-ai:spec-review` →
+  `/nevo-ai:spec-approve` → `/nevo-ai:task-start` gate as every other task.
+- **Date:** 2026-08-05 (fifth refinement pass)
+- **Affected artifacts:** `change.yaml`,
+  `tasks/12-implementation-review-orchestration.md`,
+  `areas/implementation-review-orchestration.md`, `overview.md`

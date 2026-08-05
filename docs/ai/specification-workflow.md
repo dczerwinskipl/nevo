@@ -440,6 +440,8 @@ node tools/specs.mjs batch-start <change> <mode> [--tasks <id,id,...>]   # selec
 node tools/specs.mjs batch-status <change>     # read-only: derived batch progress, hard-stop/risk-signal state
 node tools/specs.mjs batch-review <change>     # evidence-freshness check, then the gating batch review
 node tools/specs.mjs finalize-repair-branch <change> --failing-sha <sha>   # guarded repair-branch creation (see "Finalizing")
+node tools/specs.mjs review-scope <change> --all|--tasks <range-or-list>   # resolve a multi-task review scope (see "Multi-task implementation review")
+node tools/specs.mjs bulk-transition <change> --tasks <id,id,...> --outcome <self-verified|verified>   # one atomic bulk status transition
 ```
 
 `start` refuses to run on a dirty working tree, classifying it as `REC-05`
@@ -800,6 +802,59 @@ any terminal-driven use follow the same shape directly: write the report by hand
 the fields above, under the same `reviews/audit-<slug>.md` path, so the artifact means
 the same thing regardless of which tool produced it.
 
+### Multi-task implementation review orchestration is a fifth, distinct review shape
+
+A change-wide audit looks across an already-implemented change through one named,
+advisory lens; a gating batch review closes one batch run. Neither fits a real, distinct
+request: "review this owner-selected range or list of already-implemented tasks, each
+against its own acceptance criteria, then tell me what's safe to mark verified" — that
+request needs `task-review`'s own per-task depth, applied across a scope, plus one
+cross-task integration pass and one bulk status decision, none of which any of the other
+four review shapes provide together (D30).
+
+A multi-task implementation review:
+
+- resolves its scope deterministically — an owner-selected `--all` or `--tasks
+  <range-or-list>` (an order range like `01-03`, or a comma list like `01,03,07`,
+  resolved against each task's own `order` field), never agent-parsed,
+- reviews each task in the resolved scope sequentially, at `task-review`'s own depth,
+  with bounded per-task context — a completed task's full diff/file reads do not remain
+  loaded while the next task's review runs, only its finished review artifact and a
+  compact summary do,
+- never asks a per-task status question — that happens exactly once, at the end, over
+  the whole eligible subset,
+- runs one cross-task integration pass, once, after every per-task review completes —
+  reusing the gating batch review's own diff-attribution/integration-finding mechanism
+  rather than a second implementation of the same idea, and never re-evaluating any
+  individual task's own acceptance criteria,
+- computes one overall verdict — `pass` \| `changes-required` \|
+  `owner-decision-required` \| `blocked` — from an explicit table, the same convention as
+  every other verdict in this document,
+- writes one aggregate artifact (overall verdict, one section per task, unresolved
+  findings per task, cross-task integration findings, the eligible-for-verification list,
+  the must-remain-unchanged list) to
+  `specs/active/<change-id>/reviews/implementation-review-<scope>.md` (`<scope>` is `all`
+  or the resolved, sorted, dash-joined order list, e.g. `01-03-07`) — distinct from every
+  other review shape's own file naming,
+- offers exactly one closed, three-option bulk confirmation (mark every passing task
+  verified; mark every passing task implemented/self-verified; leave every status
+  unchanged) — never touching a task that carries any unresolved blocking finding,
+  regardless of which option is chosen,
+- applies the confirmed transition through one deterministic bulk CLI operation and one
+  atomic `change.yaml` write covering every eligible task together — never one status
+  write per task,
+- supports re-review using the previous aggregate report (at the same `<scope>`) as its
+  baseline, same rule as every other review shape in this document.
+
+It never replaces or weakens `task-review` (still the command for one task's own diff)
+or `spec-audit` (still the command for a single named, non-gating cross-cutting lens) —
+it orchestrates the former's own depth across a range, it does not fold it in.
+
+In Claude Code this is `/nevo-ai:implementation-review <change-id> --all|--tasks
+<range-or-list>`. Cursor, Copilot, and any terminal-driven use follow the same shape
+directly, using `node tools/specs.mjs review-scope`/`bulk-transition` for the
+deterministic parts and running `task-review`'s own flow per task for the review depth.
+
 ### Finalizing: the step after every task is verified
 
 Archiving a change (`node tools/specs.mjs archive <change>`) only ever checks local task
@@ -902,8 +957,9 @@ This document is the shared policy. Tool-specific layers are thin:
 - **Claude Code** exposes `/nevo-ai:spec-create`, `/nevo-ai:spec-refine`,
   `/nevo-ai:spec-review`, `/nevo-ai:spec-approve`, `/nevo-ai:spec-audit`,
   `/nevo-ai:spec-resolve-comments`, `/nevo-ai:spec-finalize`, `/nevo-ai:spec-status`,
-  `/nevo-ai:task-next`, `/nevo-ai:task-start`, `/nevo-ai:task-review`, and
-  `/nevo-ai:task-apply-review` (see `.claude/commands/nevo-ai/`), backed by the shared
+  `/nevo-ai:task-next`, `/nevo-ai:task-start`, `/nevo-ai:task-review`,
+  `/nevo-ai:task-apply-review`, and `/nevo-ai:implementation-review` (see
+  `.claude/commands/nevo-ai/`), backed by the shared
   skill `.claude/skills/nevo-ai-spec-workflow/`. These commands call the same
   `tools/specs.mjs` / `tools/docs.mjs` CLIs described above — they do not implement a
   parallel workflow. `/nevo-ai:spec-status <change-id>` is the one command that spans

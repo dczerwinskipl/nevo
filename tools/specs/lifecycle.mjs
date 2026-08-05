@@ -1052,3 +1052,207 @@ export function deriveStage(change, facts) {
     nextCommand: `/nevo-ai:spec-finalize ${change._slug || change.id}`,
   };
 }
+
+// ── Multi-task implementation review orchestration (D30, task 12) ──────────
+//
+// `/nevo-ai:implementation-review`'s deterministic surface: resolving
+// `--all`/`--tasks` into an eligibility-checked scope, the overall verdict
+// table, which tasks are eligible for the bulk-verification offer, and the
+// atomic bulk status transition. The per-task review depth itself is
+// `task-review`'s own flow, reused, not reimplemented here (area
+// implementation-review-orchestration, requirement 3) — nothing in this
+// section re-evaluates an individual task's own acceptance criteria.
+
+// A task has something real to review only once it has entered
+// implementation — `draft`/`approved` have no diff yet, `abandoned` was
+// explicitly dropped. `archived` is included (a task can be individually
+// archived independently of its whole change) but never needs a further
+// bulk-transition hop — see computeBulkTransitionTarget below.
+export const MULTI_REVIEW_ELIGIBLE_STATUSES = new Set(['in-implementation', 'implemented', 'verified', 'archived']);
+
+/**
+ * Parse a `--tasks` spec into the requested `order` numbers — a dash range
+ * (`01-03`, inclusive, both bounds required and non-decreasing) or a
+ * comma-separated list (`01,03,07`, deduplicated) — never both forms mixed
+ * in one spec. Returns `{ ok: true, orders: [number, ...] }` or
+ * `{ ok: false, reason }`.
+ */
+export function parseTaskOrderSpec(spec) {
+  const trimmed = String(spec ?? '').trim();
+  if (/^\d+-\d+$/.test(trimmed)) {
+    const [start, end] = trimmed.split('-').map(Number);
+    if (start > end) {
+      return { ok: false, reason: `Invalid range '${trimmed}' — start (${start}) is after end (${end}).` };
+    }
+    const orders = [];
+    for (let o = start; o <= end; o++) orders.push(o);
+    return { ok: true, orders };
+  }
+  if (/^\d+(,\d+)*$/.test(trimmed)) {
+    return { ok: true, orders: [...new Set(trimmed.split(',').map(Number))] };
+  }
+  return {
+    ok: false,
+    reason: `Invalid --tasks spec '${trimmed}' — expected a dash range (e.g. '01-03') or a comma list (e.g. '01,03,07').`,
+  };
+}
+
+/**
+ * Resolve `--all`/`--tasks` into an ordered, deduplicated, eligibility-
+ * checked task id list (area implementation-review-orchestration,
+ * requirement 2) — deterministic, CLI-backed, never agent-parsed. Exactly
+ * one of `all`/`tasks` is required (no default, same "no implicit default"
+ * principle as batch selection, D20). Order numbers are resolved against
+ * each task's own `order` field. Rejects, naming the specific problem: an
+ * order number that doesn't resolve to a real task; an invalid `--tasks`
+ * spec; or any resolved task whose `status` isn't in
+ * `MULTI_REVIEW_ELIGIBLE_STATUSES`.
+ */
+export function resolveReviewScope(change, { all = false, tasks: tasksSpec } = {}) {
+  if (Boolean(all) === Boolean(tasksSpec)) {
+    return { ok: false, reason: 'Exactly one of --all or --tasks is required.' };
+  }
+
+  let orderedIds;
+  if (all) {
+    orderedIds = [...change.tasks]
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map(t => t.id);
+  } else {
+    const parsed = parseTaskOrderSpec(tasksSpec);
+    if (!parsed.ok) return parsed;
+
+    const byOrder = new Map(change.tasks.map(t => [t.order, t]));
+    const unresolved = parsed.orders.filter(o => !byOrder.has(o));
+    if (unresolved.length) {
+      return { ok: false, reason: `Order number(s) not found in this change: ${unresolved.join(', ')}.` };
+    }
+    orderedIds = [...parsed.orders].sort((a, b) => a - b).map(o => byOrder.get(o).id);
+  }
+
+  const ineligible = orderedIds
+    .map(id => change.tasks.find(t => t.id === id))
+    .filter(t => !MULTI_REVIEW_ELIGIBLE_STATUSES.has(t.status));
+  if (ineligible.length) {
+    return {
+      ok: false,
+      reason: `Task(s) not eligible for review (status must be one of ${[...MULTI_REVIEW_ELIGIBLE_STATUSES].join('/')}): ` +
+        ineligible.map(t => `'${t.id}' (${t.status})`).join(', '),
+    };
+  }
+
+  return { ok: true, orderedTasks: orderedIds };
+}
+
+export const MULTI_TASK_REVIEW_VERDICTS = new Set(['pass', 'changes-required', 'owner-decision-required', 'blocked']);
+
+/**
+ * Overall verdict for `/nevo-ai:implementation-review` (D30, task 12,
+ * area implementation-review-orchestration requirement 10) — computed from
+ * an explicit table, never composed as prose, same convention as every other
+ * verdict in this workflow. `taskVerdicts` are each selected task's own
+ * `task-review`-equivalent verdict (`pass`/`changes-required`/`blocked`),
+ * gathered by the caller — this function never re-evaluates any individual
+ * task's own acceptance criteria itself. `ownerDecisionFindings`/
+ * `autoFixFindings` count unresolved findings at either the per-task or the
+ * cross-task-integration level, already merged by the caller.
+ * `NON_BLOCKING`/`INFORMATIONAL` findings never participate, by construction
+ * (the caller never passes them in).
+ */
+export function computeMultiTaskReviewVerdict({
+  validationFailed = false,
+  taskVerdicts = [],
+  ownerDecisionFindings = 0,
+  autoFixFindings = 0,
+} = {}) {
+  if (validationFailed) return 'blocked';
+  if (taskVerdicts.includes('blocked')) return 'blocked';
+  if (ownerDecisionFindings > 0) return 'owner-decision-required';
+  if (taskVerdicts.includes('changes-required') || autoFixFindings > 0) return 'changes-required';
+  return 'pass';
+}
+
+/**
+ * Tasks eligible for the bulk-verification offer (area
+ * implementation-review-orchestration, requirement 9): a task's own verdict
+ * is `pass` **and** it carries zero unresolved blocking findings at either
+ * the per-task or the cross-task-integration level. Every other selected
+ * task must remain unchanged, regardless of which bulk-confirmation option
+ * is chosen — this is a hard rule, not a per-run judgment call.
+ * `taskResults` is `[{ id, verdict, blockingFindings }]`, gathered by the
+ * caller from each task's own review and the cross-task integration pass.
+ */
+export function selectEligibleForVerification(taskResults) {
+  return (taskResults || [])
+    .filter(t => t.verdict === 'pass' && (t.blockingFindings || 0) === 0)
+    .map(t => t.id);
+}
+
+export const MULTI_REVIEW_OUTCOMES = new Set(['self-verified', 'verified']);
+
+/**
+ * Compute one task's target status under a chosen bulk-transition outcome
+ * (area implementation-review-orchestration, requirement 12). `self-verified`
+ * never goes past `implemented`; `verified` always ends at `verified`,
+ * hopping through `implemented` first for a task still `in-implementation`.
+ * Never regresses an already-`verified` (or `archived`) task — those are
+ * always a no-op regardless of outcome. Returns `{ ok: true, to, noop }` or
+ * `{ ok: false, reason }` — the caller (`validateBulkTransition`) must
+ * validate every selected task this way *before* writing any of them
+ * (all-or-nothing).
+ */
+export function computeBulkTransitionTarget(currentStatus, outcome) {
+  if (!MULTI_REVIEW_OUTCOMES.has(outcome)) {
+    return { ok: false, reason: `Unknown outcome '${outcome}' — must be one of ${[...MULTI_REVIEW_OUTCOMES].join('/')}.` };
+  }
+  if (currentStatus === 'archived') return { ok: true, to: 'archived', noop: true };
+
+  if (outcome === 'self-verified') {
+    if (currentStatus === 'in-implementation') return { ok: true, to: 'implemented', noop: false };
+    if (currentStatus === 'implemented' || currentStatus === 'verified') return { ok: true, to: currentStatus, noop: true };
+    return { ok: false, reason: `Cannot apply outcome 'self-verified' to a task with status '${currentStatus}'.` };
+  }
+
+  // outcome === 'verified'
+  if (currentStatus === 'in-implementation' || currentStatus === 'implemented') return { ok: true, to: 'verified', noop: false };
+  if (currentStatus === 'verified') return { ok: true, to: 'verified', noop: true };
+  return { ok: false, reason: `Cannot apply outcome 'verified' to a task with status '${currentStatus}'.` };
+}
+
+/**
+ * Validate every eligible task's computed bulk-transition target *before*
+ * anything is written (area implementation-review-orchestration, requirement
+ * 12) — all-or-nothing: the first invalid task rejects the whole operation,
+ * naming it. A task hopping through `implemented` (currentStatus ===
+ * 'in-implementation' and the target isn't a no-op) is also checked against
+ * the same hard-stop `complete` already performs standalone
+ * (`completionHardStop` with `inActiveBatch: false` — this bulk operation is
+ * not part of the D10/D20 batch-intent mechanism, so only an *existing,
+ * failed* self-check blocks it, matching `complete`'s own out-of-batch
+ * behavior). Returns `{ ok: true, transitions: [{ id, from, to, noop }] }` or
+ * `{ ok: false, reason }`.
+ */
+export function validateBulkTransition(change, taskIds, outcome) {
+  const transitions = [];
+  for (const id of taskIds) {
+    const task = change.tasks.find(t => t.id === id);
+    if (!task) return { ok: false, reason: `Task '${id}' not found.` };
+
+    const target = computeBulkTransitionTarget(task.status, outcome);
+    if (!target.ok) return { ok: false, reason: `'${id}': ${target.reason}` };
+
+    if (task.status === 'in-implementation' && !target.noop) {
+      const stop = completionHardStop(task, { inActiveBatch: false });
+      if (stop) {
+        return {
+          ok: false,
+          reason: `'${id}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — correct the ` +
+            `implementation and rerun its self-check before it can be marked complete.`,
+        };
+      }
+    }
+
+    transitions.push({ id, from: task.status, to: target.to, noop: target.noop });
+  }
+  return { ok: true, transitions };
+}

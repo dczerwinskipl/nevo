@@ -78,3 +78,29 @@ tasks:
     status: implemented
     depends_on:
       - workflow-e2e-tests
+  - id: implementation-review-orchestration
+    order: 12
+    file: tasks/12-implementation-review-orchestration.md
+    status: in-implementation
+    depends_on:
+      - state-and-fingerprint-semantics
+      - scope-and-follow-up-mechanisms
+      - batch-execution-and-gating-review
+      - workflow-docs-and-adr-migration
+    self_check:
+      fingerprint: e1900fcc9f63734fb6c8a519a95a431052d2def1181d0f268e49aed59c76d3b6
+      revision: 2b956327fc44e3d0880e9dcdd5ff88ee37d9a7d1
+      commands:
+        - command: node --test tools/tests/implementation-review.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
