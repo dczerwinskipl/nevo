@@ -10,7 +10,7 @@ import { join, dirname, relative } from 'node:path';
 import {
   scanDocs, validateDocs, buildDocsIndexes, writeDocsIndexes, checkDocsIndexes, findDocs,
 } from './docs/service.mjs';
-import { readUtf8, writeUtf8 } from './lib/fs.mjs';
+import { readUtf8, writeUtf8, resolveWithinBase } from './lib/fs.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -79,7 +79,22 @@ export function parseRoutingTable(content, source) {
     errors.push(`${source}: routing table header must be exactly 'rule_id | path_glob | doc_ref' (got '${lines[i].trim()}')`);
     return { rules, errors };
   }
-  i += 2; // header row + '|---|---|---|' separator row
+
+  // The separator row is validated explicitly, not assumed present (PR
+  // review packet 05C, Problem 1) — a missing/malformed one would otherwise
+  // silently skip the table's first real data row (mistaken for the
+  // separator) or accept malformed input.
+  const separatorLine = lines[i + 1];
+  const separatorCells = (separatorLine || '').split('|').slice(1, -1).map(c => c.trim());
+  const isValidSeparator = separatorCells.length === 3 && separatorCells.every(c => /^:?-+:?$/.test(c));
+  if (!isValidSeparator) {
+    errors.push(
+      `${source}: routing table header must be followed by a valid separator row ` +
+      `(e.g. '|---|---|---|'), got '${(separatorLine || '').trim()}'`
+    );
+    return { rules, errors };
+  }
+  i += 2; // header row + validated separator row
 
   for (; i < lines.length; i++) {
     const raw = lines[i];
@@ -118,7 +133,17 @@ export function validateRoutingTables(sources) {
     } else {
       seen.set(rule.rule_id, rule.source);
     }
-    if (!existsSync(join(ROOT, rule.doc_ref))) {
+    // Contained and normalized before checking existence (PR review packet
+    // 05C, Problem 2) — a bare `join` would follow `../` traversal or an
+    // absolute path outside the repository; resolveWithinBase rejects both.
+    let resolvedDocRef;
+    try {
+      resolvedDocRef = resolveWithinBase(ROOT, rule.doc_ref);
+    } catch {
+      errors.push(`${rule.source}: routing rule '${rule.rule_id}' has a doc_ref '${rule.doc_ref}' that escapes the repository`);
+      continue;
+    }
+    if (!existsSync(resolvedDocRef)) {
       errors.push(`${rule.source}: routing rule '${rule.rule_id}' references missing doc_ref '${rule.doc_ref}'`);
     }
   }

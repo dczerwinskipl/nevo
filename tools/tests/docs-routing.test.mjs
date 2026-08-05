@@ -80,6 +80,39 @@ describe('parseRoutingTable', () => {
     assert.deepEqual(errors, []);
     assert.equal(rules.length, 1);
   });
+
+  test('errors when the separator row is missing entirely — the first data row is not silently swallowed (PR review packet 05C, Problem 1)', () => {
+    const content = '## Routing table\n\n| rule_id | path_glob | doc_ref |\n' +
+      '| RT-01 | src/A/** | docs/development/architecture-overview.md |\n';
+    const { rules, errors } = parseRoutingTable(content, 'a.md');
+    assert.deepEqual(rules, []);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /must be followed by a valid separator row/);
+  });
+
+  test('errors when the separator row is malformed (wrong cell count)', () => {
+    const content = '## Routing table\n\n| rule_id | path_glob | doc_ref |\n|---|---|\n' +
+      '| RT-01 | src/A/** | docs/development/architecture-overview.md |\n';
+    const { rules, errors } = parseRoutingTable(content, 'a.md');
+    assert.deepEqual(rules, []);
+    assert.match(errors[0], /must be followed by a valid separator row/);
+  });
+
+  test('errors when the separator row contains non-dash content (not actually a separator)', () => {
+    const content = '## Routing table\n\n| rule_id | path_glob | doc_ref |\n| RT-01 | src/A/** | docs/x.md |\n' +
+      '| RT-02 | src/B/** | docs/y.md |\n';
+    const { rules, errors } = parseRoutingTable(content, 'a.md');
+    assert.deepEqual(rules, []);
+    assert.match(errors[0], /must be followed by a valid separator row/);
+  });
+
+  test('accepts a separator row using Markdown alignment colons', () => {
+    const content = '## Routing table\n\n| rule_id | path_glob | doc_ref |\n|:---|:---:|---:|\n' +
+      '| RT-01 | src/A/** | docs/development/architecture-overview.md |\n';
+    const { rules, errors } = parseRoutingTable(content, 'a.md');
+    assert.deepEqual(errors, []);
+    assert.equal(rules.length, 1);
+  });
 });
 
 describe('validateRoutingTables', () => {
@@ -127,6 +160,22 @@ describe('validateRoutingTables', () => {
     const { errors } = validateRoutingTables([{ file: 'a.md', content }]);
     assert.equal(errors.length, 1);
     assert.match(errors[0], /malformed routing table row/);
+  });
+
+  test('rejects a doc_ref that traverses outside the repository (PR review packet 05C, Problem 2)', () => {
+    const content = '## Routing table\n\n| rule_id | path_glob | doc_ref |\n|---|---|---|\n' +
+      '| RT-01 | src/A/** | ../../../../etc/passwd |\n';
+    const { errors } = validateRoutingTables([{ file: 'a.md', content }]);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /escapes the repository/);
+  });
+
+  test('rejects an absolute doc_ref path outside the repository', () => {
+    const outside = process.platform === 'win32' ? 'C:\\Windows\\System32\\config' : '/etc/passwd';
+    const content = `## Routing table\n\n| rule_id | path_glob | doc_ref |\n|---|---|---|\n| RT-01 | src/A/** | ${outside} |\n`;
+    const { errors } = validateRoutingTables([{ file: 'a.md', content }]);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /escapes the repository/);
   });
 });
 
