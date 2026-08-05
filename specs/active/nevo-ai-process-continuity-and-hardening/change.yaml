@@ -62,7 +62,7 @@ tasks:
   - id: finalization-hardening-and-migration
     order: 9
     file: tasks/09-finalization-hardening-and-migration.md
-    status: approved
+    status: in-implementation
     depends_on:
       - batch-execution-and-gating-review
       - mechanical-task-type
