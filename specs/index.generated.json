@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T20:55:09.864Z",
+  "generated": "2026-08-05T06:07:35.127Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -73,7 +73,7 @@
           "id": "batch-execution-and-gating-review",
           "order": 8,
           "file": "tasks/08-batch-execution-and-gating-review.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "conversational-approval-ergonomics",
             "state-and-fingerprint-semantics",
