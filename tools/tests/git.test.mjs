@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path';
 import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
   getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
-  checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getCurrentRevision,
+  checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getCurrentRevision, getChangedFiles,
 } from '../lib/git.mjs';
 
 let repo, remote;
@@ -125,6 +125,28 @@ describe('lib/git.mjs against a disposable temp repo', () => {
 
   test('getCurrentRevision matches git rev-parse HEAD', () => {
     assert.equal(getCurrentRevision(repo), git(['rev-parse', 'HEAD']).trim());
+  });
+
+  test('getChangedFiles lists every file changed since a base revision, committed and uncommitted (PR re-review packet 03)', () => {
+    checkoutBranch(repo, 'main');
+    const base = getCurrentRevision(repo);
+    createAndCheckoutBranch(repo, 'feature/changed-files-test');
+    ensureDirAndFile(join(repo, 'batch', 'one.txt'), 'one\n');
+    git(['add', '-A']);
+    git(['commit', '-m', 'batch: add one.txt']);
+    ensureDirAndFile(join(repo, 'batch', 'two.txt'), 'two\n'); // uncommitted
+
+    const changed = getChangedFiles(repo, base).sort();
+    assert.deepEqual(changed, ['batch/one.txt', 'batch/two.txt']);
+
+    execFileSync('git', ['-C', repo, 'clean', '-fd', 'batch'], { encoding: 'utf8' });
+    checkoutBranch(repo, 'main');
+    execFileSync('git', ['-C', repo, 'branch', '-D', 'feature/changed-files-test'], { encoding: 'utf8' });
+  });
+
+  test('getChangedFiles is empty when nothing changed since base', () => {
+    const base = getCurrentRevision(repo);
+    assert.deepEqual(getChangedFiles(repo, base), []);
   });
 
   test('getDirtyFiles is empty on a clean tree, lists changes on a dirty one', () => {

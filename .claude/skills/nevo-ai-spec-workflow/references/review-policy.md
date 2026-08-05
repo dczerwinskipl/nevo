@@ -120,6 +120,30 @@ hand. `tools/specs.mjs approve` independently re-runs the same computation at ap
 time and rejects the approval if the two hashes don't match, naming both values in the
 error so the mismatch is verifiable, not just asserted.
 
+### Task-level freshness — closing the gap change_fingerprint leaves open by design
+
+`change_fingerprint` deliberately excludes each task's own body, acceptance criteria,
+and context declarations (D7) — including them would invalidate *every* task's approval
+readiness whenever *any* task file changed, exactly the over-invalidation D7 exists to
+remove. But `/nevo-ai:spec-review`'s own "Semantic-reference completeness" step (below)
+reads exactly that per-task content for every task in the spec — so a task's own body
+changing after review, with `overview.md` and the task graph's shape both untouched,
+must still invalidate *that task's* approval even though it never moves
+`change_fingerprint`.
+
+`node tools/specs.mjs fingerprint <change> --task <task-id>` prints that task's own
+semantic-fingerprint tier (`computeTaskFingerprint`). `/nevo-ai:spec-review` records one
+entry per task it evaluated in step 5a, verbatim, under the review's `task_fingerprints`
+frontmatter map (`{<task-id>: <hex string>, ...}`) — never estimated, same rule as
+`spec_fingerprint` itself. `tools/specs.mjs approve <change> <task>` re-runs
+`computeTaskFingerprint` for that one task at approval time and rejects the approval —
+naming the task and both values — when `task_fingerprints[<task-id>]` is missing (the
+review predates this check, or reviewed a different task set) or no longer matches. Both
+checks run independently: a stale `spec_fingerprint` and a stale/missing
+`task_fingerprints` entry are reported with distinct error codes
+(`stale-fingerprint` vs. `missing-task-fingerprint`/`stale-task-fingerprint`), never
+merged into one ambiguous "fingerprint mismatch" message.
+
 ## Persistent artifact and handoff
 
 A review is not just conversation output — it produces a file, so the next command
@@ -371,6 +395,20 @@ criteria — those were already gated by that task's own self-check (and, for a 
 meeting a risk signal, its own `task-review`). It checks only the whole-batch diff since
 `startRevision`, cross-task integration, and open `blocking`-severity `follow-ups.yaml`
 entries (D22).
+
+Both the diff and the integration check are real, not placeholders (PR re-review packet
+03): `git.getChangedFiles(root, startRevision)` computes the actual complete diff since
+batch start (committed and not-yet-`git add`ed changes alike), `attributeTouchedPaths`
+assigns each changed file to every batched task whose own `allowed_paths`/
+`consequential_paths` match it (a file matching more than one task is attributed to all
+of them — see that function's own doc comment for why), and `staleEvidenceTasks` runs
+against that real attribution instead of an empty map. `detectBatchIntegrationFindings`
+then reports a structured, deterministic finding for every pair of batched tasks whose
+attributed touched-paths actually share a file (a declared temporary-inconsistency pair
+is exempt — that overlap is already owner-sanctioned) — this is the "other whole-batch
+finding" row 2 of the verdict table below reads from; a `no-findings` verdict is
+therefore attributable to this explicit check having found nothing, not merely to no
+follow-up happening to be open.
 
 ### File naming
 

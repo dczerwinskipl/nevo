@@ -91,7 +91,10 @@ export function validateTransition(command, currentStatus) {
  *
  * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
  */
-export function validateApproval(taskStatus, review, currentFingerprint, { mechanicalExempt = false } = {}) {
+export function validateApproval(
+  taskStatus, review, currentFingerprint,
+  { mechanicalExempt = false, taskId = null, currentTaskFingerprint = null } = {}
+) {
   const transition = validateTransition('approve', taskStatus);
   if (!transition.ok) return transition;
   if (transition.idempotent) return transition;
@@ -138,6 +141,36 @@ export function validateApproval(taskStatus, review, currentFingerprint, { mecha
       reason: `Review is stale: its spec_fingerprint (${review.spec_fingerprint}) does not match ` +
         `the current specification state (${currentFingerprint}). Re-run the review before approving.`,
     };
+  }
+
+  // Task-level fingerprint (PR re-review packet 01): change_fingerprint
+  // deliberately excludes each task's own body/acceptance-criteria/context
+  // (D7 — otherwise any task edit would invalidate every other task's
+  // approval readiness). But a spec review's own "Semantic-reference
+  // completeness" step reads exactly that per-task content, so the reviewed
+  // task's own body changing after review must invalidate *this* task's
+  // approval even though it never touches change_fingerprint. Only checked
+  // when the caller passes `taskId` (handleApprove always does) — a review
+  // predating this check, or one that reviewed a different task set, is
+  // reported by name rather than silently skipped.
+  if (taskId) {
+    const recorded = review.task_fingerprints?.[taskId];
+    if (!recorded) {
+      return {
+        ok: false,
+        code: 'missing-task-fingerprint',
+        reason: `Review is missing a task_fingerprints entry for '${taskId}' — it predates this check, or reviewed ` +
+          `a different task set. Re-run the review before approving.`,
+      };
+    }
+    if (recorded !== currentTaskFingerprint) {
+      return {
+        ok: false,
+        code: 'stale-task-fingerprint',
+        reason: `Review is stale for task '${taskId}': its recorded task_fingerprints entry (${recorded}) does not ` +
+          `match the task's current content (${currentTaskFingerprint}). Re-run the review before approving.`,
+      };
+    }
   }
 
   return { ok: true, idempotent: false };
@@ -230,8 +263,11 @@ export function inspectApprovePostconditions(approvalResult) {
 
 // Minimal glob support for `allowed_paths` entries as they actually appear in
 // this repository: an exact file path, a `dir/**` recursive prefix, or a
-// `dir/*` one-level prefix. Not a general glob engine.
-function pathMatchesAllowedPattern(filePath, pattern) {
+// `dir/*` one-level prefix. Not a general glob engine. Exported (PR re-review
+// packet 03) — `attributeTouchedPaths` reuses the exact same matching rule
+// `classifyDirtyWorktree` already applies, rather than a second
+// reimplementation of "does this concrete path match this declared pattern."
+export function pathMatchesAllowedPattern(filePath, pattern) {
   const normalized = filePath.replace(/\\/g, '/');
   if (pattern.endsWith('/**')) {
     const prefix = pattern.slice(0, -3);
@@ -468,12 +504,55 @@ export function selectBatch(mode, change, { taskIds } = {}) {
 }
 
 /**
+ * Pure validation for D20's `until-checkpoint` mode's `--checkpoint`
+ * argument (PR re-review packet 04) — no filesystem/CLI-parsing concerns,
+ * called by `handleBatchStart` after `selectBatch` has already computed
+ * `orderedTasks`. `taskStatus` is the checkpoint task id's current `status`
+ * in `change.yaml`, or `undefined` when no task with that id exists in the
+ * change at all (an unknown checkpoint). Returns `{ ok: true }` or
+ * `{ ok: false, reason }`.
+ */
+export function validateBatchCheckpoint(mode, checkpointId, orderedTasks, taskStatus) {
+  if (mode !== 'until-checkpoint') {
+    if (checkpointId) return { ok: false, reason: "--checkpoint is only valid with mode 'until-checkpoint'." };
+    return { ok: true };
+  }
+  if (!checkpointId) return { ok: false, reason: "mode 'until-checkpoint' requires --checkpoint <task-id>." };
+  if (taskStatus === undefined) return { ok: false, reason: `Checkpoint task '${checkpointId}' does not exist.` };
+  if (!orderedTasks.includes(checkpointId)) {
+    return {
+      ok: false,
+      reason: `Checkpoint task '${checkpointId}' is not part of the selected batch (${orderedTasks.join(', ')}).`,
+    };
+  }
+  if (DEPENDENCY_SATISFYING_STATUSES.has(taskStatus)) {
+    return {
+      ok: false,
+      reason: `Checkpoint task '${checkpointId}' already has status '${taskStatus}' — the checkpoint is already passed.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Batch progress, derived — never a second persisted copy (D10). `intent` is
  * the persisted batch-intent file's parsed content (`{ orderedTasks, ... }`
  * only — no progress fields). Reconstructs `completed`/`current`/`next`/
  * `failed` purely from each `orderedTasks` entry's current `status` and
  * `execution.suspension`/`self_check` in `change.yaml` — safe to call after
  * an interruption between writes, since there is nothing else to reconcile.
+ *
+ * `checkpointReached` (D20's `until-checkpoint` mode, PR re-review packet
+ * 04): true once `intent.checkpointPolicy` names a task that is itself
+ * terminal. Deliberately does **not** null out `current`/`next` — the
+ * checkpoint only bounds *execution* (whether continuation is offered),
+ * never *selection* (`orderedTasks` already holds the full reachable set,
+ * same as `all-approved-reachable` — D20's own wording), and
+ * `handleBatchReview` still needs a real `current` to correctly refuse
+ * running the gating review while unstarted tasks remain beyond the
+ * checkpoint. The caller offering continuation (`/nevo-ai:task-review`'s
+ * step 9a0) is what must stop at this boundary instead of auto-continuing
+ * into `current`.
  */
 export function deriveBatchProgress(change, intent) {
   const completed = [];
@@ -493,7 +572,10 @@ export function deriveBatchProgress(change, intent) {
   const currentIdx = current ? intent.orderedTasks.indexOf(current) : -1;
   const next = currentIdx >= 0 && currentIdx + 1 < intent.orderedTasks.length ? intent.orderedTasks[currentIdx + 1] : null;
 
-  return { completed, current, next, failed };
+  const checkpointTask = intent.checkpointPolicy || null;
+  const checkpointReached = Boolean(checkpointTask) && completed.includes(checkpointTask);
+
+  return { completed, current, next, failed, checkpointTask, checkpointReached };
 }
 
 /**
@@ -514,6 +596,24 @@ export function hardStopReason(task) {
     };
   }
   return null;
+}
+
+/**
+ * Whether `complete` must refuse this task (D24/D28, PR re-review packet
+ * 02). Outside an active batch, only an *existing, failed* self-check blocks
+ * completion — self-check stays optional there, unchanged from the original
+ * behavior. Inside an active batch that includes this task, a *missing*
+ * self-check blocks it too: the area doc's hard-stop list names "an
+ * unresolved self-check" unconditionally (same predicate `hardStopReason`
+ * already reports for `batch-status`), so a task must never reach
+ * `implemented` inside a batch without ever having been self-checked, not
+ * only when a self-check exists and failed. Returns the same
+ * `hardStopReason` shape, or `null`.
+ */
+export function completionHardStop(task, { inActiveBatch = false } = {}) {
+  const stop = hardStopReason(task);
+  if (!stop) return null;
+  return (task.self_check || inActiveBatch) ? stop : null;
 }
 
 // Every evidence-based full-review risk signal (D11, corrected by D24 to
@@ -650,6 +750,64 @@ export function staleEvidenceTasks(change, orderedTaskIds, taskTouchedPaths, cur
     if (overlapsLaterTask) stale.push(id);
   }
   return stale;
+}
+
+/**
+ * Attribute a whole-batch diff's changed files to the batched tasks whose
+ * own declared paths (`allowed_paths` + `consequential_paths`, already
+ * merged by the caller) match them (D19, gating batch review — PR re-review
+ * packet 03) — real diff data, never the empty map `handleBatchReview` used
+ * to pass in place of it. `taskDeclaredPaths` is `{[taskId]: string[]}`,
+ * gathered by the caller (I/O — reads each task's own file). A file matching
+ * more than one task's declared paths is attributed to *every* matching
+ * task: the ambiguous-shared-file case is resolved by inclusion, not by
+ * picking one arbitrary "real" owner — `staleEvidenceTasks` and
+ * `detectBatchIntegrationFindings` below only care whether two tasks'
+ * touched-path sets intersect, not which one alone owns a file. A changed
+ * file matching no batched task's declared paths is simply attributed to
+ * none of them (real, but not this review's evidence-staleness/integration
+ * concern — e.g. a repository-wide generated index neither task declared).
+ */
+export function attributeTouchedPaths(orderedTaskIds, taskDeclaredPaths, changedFiles) {
+  const result = {};
+  for (const id of orderedTaskIds) {
+    const patterns = taskDeclaredPaths[id] || [];
+    result[id] = changedFiles.filter(f => patterns.some(p => pathMatchesAllowedPattern(f, p)));
+  }
+  return result;
+}
+
+/**
+ * Deterministic whole-batch structural findings (D19/D24, gating batch
+ * review Phase 3 — PR re-review packet 03) — computed here, never composed
+ * as review prose, same convention as `computeBatchReviewVerdict` itself.
+ * Currently detects one real, structural signal: two different batched
+ * tasks whose attributed touched-paths (`attributeTouchedPaths`) share an
+ * actually-changed file — real diff overlap, not merely overlapping
+ * declared-path *patterns* (two tasks can validly declare adjacent paths
+ * without ever touching the same file). A pair the batch already declared a
+ * temporary inconsistency for (`isTemporaryInconsistency`) is skipped — that
+ * overlap is already owner-sanctioned, not a fresh finding. `touchedPaths`
+ * is `{[taskId]: string[]}`.
+ */
+export function detectBatchIntegrationFindings(intent, orderedTaskIds, touchedPaths) {
+  const findings = [];
+  for (let i = 0; i < orderedTaskIds.length; i++) {
+    for (let j = i + 1; j < orderedTaskIds.length; j++) {
+      const a = orderedTaskIds[i];
+      const b = orderedTaskIds[j];
+      if (isTemporaryInconsistency(intent, a, b)) continue;
+      const aPaths = new Set(touchedPaths[a] || []);
+      const shared = (touchedPaths[b] || []).filter(p => aPaths.has(p));
+      if (shared.length) {
+        findings.push({
+          category: 'integration', tasks: [a, b], paths: shared,
+          summary: `Tasks '${a}' and '${b}' both touched: ${shared.join(', ')}`,
+        });
+      }
+    }
+  }
+  return findings;
 }
 
 export const BATCH_REVIEW_VERDICTS = new Set(['no-findings', 'changes-recommended', 'owner-decision-required']);

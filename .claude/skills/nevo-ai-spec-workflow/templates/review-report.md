@@ -32,6 +32,10 @@ unresolved_required_fixes: <count>          # unresolved AUTO_FIX findings
 unresolved_owner_decisions: <count>         # unresolved OWNER_DECISION findings only
 unresolved_needs_clarification: <count>     # unresolved NEEDS_CLARIFICATION findings only — counted separately, not merged with owner decisions
 spec_fingerprint: <hex string>          # spec review only — verbatim output of `node tools/specs.mjs fingerprint <change>`, never estimated
+task_fingerprints:                      # spec review only — one entry per task actually evaluated in step 5a
+  <task-id>: <hex string>                #   (semantic-reference completeness), verbatim output of
+  <task-id>: <hex string>                #   `node tools/specs.mjs fingerprint <change> --task <task-id>`, never estimated —
+                                          #   see references/review-policy.md § "Deterministic review freshness"
 ---
 
 # Review: <change-id>[/<task-id>]

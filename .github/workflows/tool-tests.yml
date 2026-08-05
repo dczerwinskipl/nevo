@@ -1,0 +1,45 @@
+# Runs the AI-tool test suite (tools/tests/**) as its own check, distinct
+# from the .NET build/test job in dotnet.yml — a change to fingerprints,
+# lifecycle transitions, batch execution, recovery, follow-up validation,
+# routing, or Markdown tooling must be able to fail CI even when the .NET
+# build stays green. Scoped to only run when tools/ (or a directly related
+# root file) actually changed — a change with no such paths never needed
+# this job's result, so it never blocks on it.
+
+name: AI tool tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "tools/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/tool-tests.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "tools/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/tool-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Check generated specs indexes are current
+        run: npm run specs:check
+      - name: Check generated docs indexes are current
+        run: npm run docs:check

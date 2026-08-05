@@ -81,15 +81,19 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
 8. Run `node tools/specs.mjs fingerprint <change-id>` and use its exact printed output
    as the `spec_fingerprint` value in the report's frontmatter — never estimate or
    recompute this by reasoning (see `references/review-policy.md` § "Deterministic
-   review freshness"). Run this *after* step 3's re-read, immediately before writing
-   the report, so it reflects exactly what was reviewed.
+   review freshness"). Then, for every task evaluated in step 5a, run
+   `node tools/specs.mjs fingerprint <change-id> --task <task-id>` and record its exact
+   printed output under `task_fingerprints.<task-id>` — same rule, never estimated (see
+   that section's "Task-level freshness" subsection for why this is separate from
+   `spec_fingerprint`). Run both *after* step 3's re-read, immediately before writing
+   the report, so they reflect exactly what was reviewed.
 9. Write the full report to `specs/active/<change-id>/reviews/spec.md` using
    `templates/review-report.md`'s shape (create the `reviews/` directory if needed),
    including the frontmatter `verdict`, `ready_for_approval`, `implementation_allowed`,
-   `spec_fingerprint`, and the three separate unresolved counts, and — per finding —
-   its predicate, lifecycle, and evidence. This overwrites the file read in step 2;
-   that's expected, it's the one file this command writes — everything else about the
-   change stays untouched.
+   `spec_fingerprint`, `task_fingerprints`, and the three separate unresolved counts, and
+   — per finding — its predicate, lifecycle, and evidence. This overwrites the file read
+   in step 2; that's expected, it's the one file this command writes — everything else
+   about the change stays untouched.
 10. End the response using `references/review-policy.md` § "Chat output shape" →
     `/nevo-ai:spec-review`'s exact required shape. `Next command` is:
     - `blocked` → the specific manual fix needed before any command can proceed,

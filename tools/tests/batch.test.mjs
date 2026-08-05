@@ -8,9 +8,10 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
+  selectBatch, deriveBatchProgress, hardStopReason, completionHardStop, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, isTemporaryInconsistency, batchValidationBlocks, staleEvidenceTasks,
-  computeBatchReviewVerdict, BATCH_REVIEW_VERDICTS,
+  computeBatchReviewVerdict, BATCH_REVIEW_VERDICTS, validateBatchCheckpoint,
+  attributeTouchedPaths, detectBatchIntegrationFindings,
 } from '../specs/lifecycle.mjs';
 
 // A linear approved chain a -> b -> c (b depends on a, c depends on b), plus
@@ -94,6 +95,47 @@ describe('selectBatch — dispatches on mode, never four independent code paths 
   });
 });
 
+describe('validateBatchCheckpoint — D20 until-checkpoint argument validation (PR re-review packet 04)', () => {
+  test('--checkpoint with a non-until-checkpoint mode is rejected (contradictory mode/checkpoint syntax)', () => {
+    const r = validateBatchCheckpoint('all-approved-reachable', 'b', ['a', 'b'], 'approved');
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /only valid with mode 'until-checkpoint'/);
+  });
+
+  test('a non-until-checkpoint mode with no --checkpoint at all is fine', () => {
+    assert.equal(validateBatchCheckpoint('all-approved-reachable', null, ['a', 'b'], undefined).ok, true);
+  });
+
+  test('until-checkpoint with no --checkpoint is rejected (missing checkpoint)', () => {
+    const r = validateBatchCheckpoint('until-checkpoint', null, ['a', 'b'], undefined);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /requires --checkpoint/);
+  });
+
+  test('an unknown checkpoint task (no status — does not exist in the change) is rejected', () => {
+    const r = validateBatchCheckpoint('until-checkpoint', 'ghost', ['a', 'b'], undefined);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /does not exist/);
+  });
+
+  test('a checkpoint task not part of the selected batch is rejected', () => {
+    const r = validateBatchCheckpoint('until-checkpoint', 'z-done', ['a', 'b'], 'verified');
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /not part of the selected batch/);
+  });
+
+  test('a checkpoint task that is already terminal (the checkpoint is already passed) is rejected', () => {
+    const r = validateBatchCheckpoint('until-checkpoint', 'a', ['a', 'b'], 'implemented');
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /already passed/);
+  });
+
+  test('a valid, not-yet-terminal checkpoint within the selected batch is accepted', () => {
+    const r = validateBatchCheckpoint('until-checkpoint', 'b', ['a', 'b', 'c'], 'approved');
+    assert.equal(r.ok, true);
+  });
+});
+
 describe('deriveBatchProgress — always derived, never a second persisted copy (D10, AC2, AC3)', () => {
   test('reconstructs completed/current/next/failed purely from change.yaml, safe after a simulated interruption', () => {
     const change = {
@@ -105,7 +147,9 @@ describe('deriveBatchProgress — always derived, never a second persisted copy 
     };
     const intent = { orderedTasks: ['a', 'b', 'c'] };
     const progress = deriveBatchProgress(change, intent);
-    assert.deepEqual(progress, { completed: ['a'], current: 'b', next: 'c', failed: null });
+    assert.deepEqual(progress, {
+      completed: ['a'], current: 'b', next: 'c', failed: null, checkpointTask: null, checkpointReached: false,
+    });
   });
 
   test('exactly one task is ever "current" — the first non-terminal task, never more (AC2)', () => {
@@ -119,7 +163,9 @@ describe('deriveBatchProgress — always derived, never a second persisted copy 
   test('current is null once every batched task is terminal', () => {
     const change = { tasks: [{ id: 'a', status: 'implemented' }, { id: 'b', status: 'verified' }] };
     const progress = deriveBatchProgress(change, { orderedTasks: ['a', 'b'] });
-    assert.deepEqual(progress, { completed: ['a', 'b'], current: null, next: null, failed: null });
+    assert.deepEqual(progress, {
+      completed: ['a', 'b'], current: null, next: null, failed: null, checkpointTask: null, checkpointReached: false,
+    });
   });
 
   test('a current task with a failed self-check is reported as failed', () => {
@@ -132,6 +178,32 @@ describe('deriveBatchProgress — always derived, never a second persisted copy 
     const change = { tasks: [{ id: 'a', status: 'approved', execution: { suspension: { kind: 'confirm-required' } } }] };
     const progress = deriveBatchProgress(change, { orderedTasks: ['a'] });
     assert.equal(progress.failed, 'a');
+  });
+
+  test('checkpointReached is false while the checkpoint task is not yet terminal (D20 until-checkpoint, PR re-review packet 04)', () => {
+    const change = {
+      tasks: [{ id: 'a', status: 'implemented' }, { id: 'b', status: 'in-implementation' }, { id: 'c', status: 'approved' }],
+    };
+    const progress = deriveBatchProgress(change, { orderedTasks: ['a', 'b', 'c'], checkpointPolicy: 'b' });
+    assert.equal(progress.checkpointTask, 'b');
+    assert.equal(progress.checkpointReached, false);
+  });
+
+  test('checkpointReached is true once the checkpoint task is terminal, without nulling current/next (execution bound, not selection bound)', () => {
+    const change = {
+      tasks: [{ id: 'a', status: 'implemented' }, { id: 'b', status: 'implemented' }, { id: 'c', status: 'approved' }],
+    };
+    const progress = deriveBatchProgress(change, { orderedTasks: ['a', 'b', 'c'], checkpointPolicy: 'b' });
+    assert.equal(progress.checkpointReached, true);
+    assert.equal(progress.current, 'c'); // still real — handleBatchReview needs this to keep refusing to run early
+    assert.equal(progress.next, null);
+  });
+
+  test('no checkpointPolicy at all reports checkpointTask: null, checkpointReached: false regardless of progress', () => {
+    const change = { tasks: [{ id: 'a', status: 'implemented' }] };
+    const progress = deriveBatchProgress(change, { orderedTasks: ['a'] });
+    assert.equal(progress.checkpointTask, null);
+    assert.equal(progress.checkpointReached, false);
   });
 
   test('the persisted intent carries no progress fields — this function is the only source of them', () => {
@@ -172,6 +244,37 @@ describe('hardStopReason — checked before any risk signal, never bypassable by
   test('requiresFullReview never offers a full review as a substitute for a hard stop, regardless of risk signals (AC12, AC13)', () => {
     const task = { self_check: { status: 'failed', failed_criteria: ['AC2'] } };
     assert.equal(requiresFullReview(task, ['scope-expansion', 'public-api-impact']), false);
+  });
+});
+
+describe('completionHardStop — `complete` gate for a missing/failed self-check (D24/D28, PR re-review packet 02)', () => {
+  test('outside an active batch, a task with no self_check at all completes (self-check stays optional)', () => {
+    assert.equal(completionHardStop({}, { inActiveBatch: false }), null);
+  });
+
+  test('inside an active batch, a task with no self_check at all is a hard stop — it must not silently complete', () => {
+    const stop = completionHardStop({}, { inActiveBatch: true });
+    assert.notEqual(stop, null);
+    assert.equal(stop.code, 'unresolved-self-check');
+  });
+
+  test('a failed self-check is always a hard stop, in or out of a batch', () => {
+    const task = { self_check: { status: 'failed', failed_criteria: ['AC1'] } };
+    assert.notEqual(completionHardStop(task, { inActiveBatch: false }), null);
+    assert.notEqual(completionHardStop(task, { inActiveBatch: true }), null);
+  });
+
+  test('a passed self-check never blocks completion, in or out of a batch', () => {
+    const task = { self_check: { status: 'passed' } };
+    assert.equal(completionHardStop(task, { inActiveBatch: false }), null);
+    assert.equal(completionHardStop(task, { inActiveBatch: true }), null);
+  });
+
+  test('rerunning self-check to a passing result clears a previously in-batch-blocked completion', () => {
+    const task = {};
+    assert.notEqual(completionHardStop(task, { inActiveBatch: true }), null);
+    task.self_check = { status: 'passed' };
+    assert.equal(completionHardStop(task, { inActiveBatch: true }), null);
   });
 });
 
@@ -313,6 +416,65 @@ describe('staleEvidenceTasks — evidence freshness before the gating review (D1
     const c = { tasks: [{ id: 'a' }, { id: 'b', self_check: { status: 'passed', fingerprint: 'fp-b' } }] };
     const stale = staleEvidenceTasks(c, ['a', 'b'], {}, { a: 'anything', b: 'fp-b' });
     assert.deepEqual(stale, []);
+  });
+});
+
+describe('attributeTouchedPaths — real whole-batch diff attribution, never an empty caller-supplied map (PR re-review packet 03)', () => {
+  test('a changed file is attributed to the one task whose declared paths match it', () => {
+    const result = attributeTouchedPaths(
+      ['a', 'b'],
+      { a: ['tools/foo.mjs'], b: ['tools/bar.mjs'] },
+      ['tools/foo.mjs', 'tools/bar.mjs', 'unrelated/baz.mjs']
+    );
+    assert.deepEqual(result, { a: ['tools/foo.mjs'], b: ['tools/bar.mjs'] });
+  });
+
+  test('a file matching more than one task\'s declared paths is attributed to every matching task (ambiguous shared file)', () => {
+    const result = attributeTouchedPaths(
+      ['a', 'b'],
+      { a: ['tools/specs/**'], b: ['tools/specs/lifecycle.mjs'] },
+      ['tools/specs/lifecycle.mjs']
+    );
+    assert.deepEqual(result, { a: ['tools/specs/lifecycle.mjs'], b: ['tools/specs/lifecycle.mjs'] });
+  });
+
+  test('a changed file matching no batched task\'s declared paths is attributed to none of them', () => {
+    const result = attributeTouchedPaths(['a'], { a: ['tools/foo.mjs'] }, ['docs/unrelated.md']);
+    assert.deepEqual(result, { a: [] });
+  });
+
+  test('a task with no declared paths at all gets an empty attribution, not a crash', () => {
+    const result = attributeTouchedPaths(['a'], {}, ['tools/foo.mjs']);
+    assert.deepEqual(result, { a: [] });
+  });
+});
+
+describe('detectBatchIntegrationFindings — deterministic whole-batch findings, never composed as review prose (PR re-review packet 03)', () => {
+  test('two tasks that actually touched the same file produce a finding naming both tasks and the shared path', () => {
+    const intent = { temporaryInconsistencies: [] };
+    const touchedPaths = { a: ['tools/shared.mjs'], b: ['tools/shared.mjs'], c: ['tools/only-c.mjs'] };
+    const findings = detectBatchIntegrationFindings(intent, ['a', 'b', 'c'], touchedPaths);
+    assert.equal(findings.length, 1);
+    assert.deepEqual(findings[0].tasks, ['a', 'b']);
+    assert.deepEqual(findings[0].paths, ['tools/shared.mjs']);
+  });
+
+  test('no shared touched files produces no findings', () => {
+    const intent = { temporaryInconsistencies: [] };
+    const touchedPaths = { a: ['tools/a-only.mjs'], b: ['tools/b-only.mjs'] };
+    assert.deepEqual(detectBatchIntegrationFindings(intent, ['a', 'b'], touchedPaths), []);
+  });
+
+  test('a declared temporary-inconsistency pair\'s overlap is not reported (already owner-sanctioned)', () => {
+    const intent = { temporaryInconsistencies: [['a', 'b']] };
+    const touchedPaths = { a: ['tools/shared.mjs'], b: ['tools/shared.mjs'] };
+    assert.deepEqual(detectBatchIntegrationFindings(intent, ['a', 'b'], touchedPaths), []);
+  });
+
+  test('declared-pattern overlap alone (no actually-shared file) produces no finding — real diff evidence only', () => {
+    const intent = { temporaryInconsistencies: [] };
+    const touchedPaths = { a: ['tools/a-only.mjs'], b: [] }; // b declared overlapping patterns but touched nothing shared
+    assert.deepEqual(detectBatchIntegrationFindings(intent, ['a', 'b'], touchedPaths), []);
   });
 });
 

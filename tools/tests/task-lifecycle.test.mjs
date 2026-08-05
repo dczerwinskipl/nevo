@@ -154,6 +154,55 @@ describe('validateApproval — the full approve gate', () => {
     assert.equal(r.ok, true);
     assert.equal(r.idempotent, false);
   });
+
+  describe('task-level fingerprint (PR re-review packet 01) — only checked when taskId is passed', () => {
+    test('skips the task-level check entirely when no taskId is passed (unchanged legacy behavior)', () => {
+      const r = validateApproval('draft', readyReview(), 'abc123');
+      assert.equal(r.ok, true);
+    });
+
+    test('rejects when the review has no task_fingerprints entry for this task at all', () => {
+      const r = validateApproval('draft', readyReview(), 'abc123', { taskId: 't1', currentTaskFingerprint: 'tfp1' });
+      assert.equal(r.ok, false);
+      assert.equal(r.code, 'missing-task-fingerprint');
+      assert.match(r.reason, /task_fingerprints entry for 't1'/);
+    });
+
+    test('rejects when the review reviewed a different task set (entry present for another task only)', () => {
+      const review = { ...readyReview(), task_fingerprints: { 'other-task': 'tfp-other' } };
+      const r = validateApproval('draft', review, 'abc123', { taskId: 't1', currentTaskFingerprint: 'tfp1' });
+      assert.equal(r.ok, false);
+      assert.equal(r.code, 'missing-task-fingerprint');
+    });
+
+    test('rejects when the recorded task fingerprint is stale (task body changed since review)', () => {
+      const review = { ...readyReview(), task_fingerprints: { t1: 'tfp1-OLD' } };
+      const r = validateApproval('draft', review, 'abc123', { taskId: 't1', currentTaskFingerprint: 'tfp1-NEW' });
+      assert.equal(r.ok, false);
+      assert.equal(r.code, 'stale-task-fingerprint');
+      assert.match(r.reason, /stale for task 't1'/);
+    });
+
+    test('an unrelated task changing does not stale a different task\'s own recorded fingerprint', () => {
+      const review = { ...readyReview(), task_fingerprints: { t1: 'tfp1', t2: 'tfp2-OLD' } };
+      const r = validateApproval('draft', review, 'abc123', { taskId: 't1', currentTaskFingerprint: 'tfp1' });
+      assert.equal(r.ok, true);
+    });
+
+    test('approves when both the change-level and task-level fingerprints are current', () => {
+      const review = { ...readyReview(), task_fingerprints: { t1: 'tfp1' } };
+      const r = validateApproval('draft', review, 'abc123', { taskId: 't1', currentTaskFingerprint: 'tfp1' });
+      assert.equal(r.ok, true);
+      assert.equal(r.idempotent, false);
+    });
+
+    test('mechanicalExempt skips the task-level check too, same as the change-level/review checks', () => {
+      const r = validateApproval('draft', null, 'abc123', {
+        mechanicalExempt: true, taskId: 't1', currentTaskFingerprint: 'tfp1',
+      });
+      assert.equal(r.ok, true);
+    });
+  });
 });
 
 describe('validateFinalize — the finalize gate', () => {

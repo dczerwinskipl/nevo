@@ -87,7 +87,22 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
       after a passing review, but if this task's own self-check regresses between this
       review and the next invocation, it will show up here — do not offer continuation;
       report the hard stop and stop (D24: a full review is never a substitute for it).
-    - If `progress.current` names another task: ask, as a closed choice, whether to
+    - If `progress.checkpointReached` is `true` (D20 `until-checkpoint` mode): do **not**
+      offer to continue into `progress.current` — that would silently behave like
+      `all-approved-reachable`, exactly what this checkpoint exists to prevent. Report
+      that checkpoint `progress.checkpointTask` was reached, and ask, as a closed choice,
+      whether to cross it:
+      ```
+      Checkpoint `<progress.checkpointTask>` reached. Batch intent stays active either way.
+      1. Continue past the checkpoint now (next: `<progress.current>`)
+      2. Stop here for now
+      ```
+      On 1 → proceed exactly as `/nevo-ai:task-start <change-id> <progress.current>`
+      would, in this same turn (the checkpoint bounds this one offer, not the batch's
+      remaining selection — `orderedTasks` is unchanged). On 2 → make no changes; the
+      batch intent is untouched and resumable later via
+      `node tools/specs.mjs batch-status <change-id>`.
+    - Else, if `progress.current` names another task: ask, as a closed choice, whether to
       continue to it now (`/nevo-ai:task-next` already knows how to resolve it — this
       offer is "keep going in this same batch," not a second, separate command
       invocation):

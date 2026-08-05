@@ -319,7 +319,9 @@ describe('Batch', () => {
     const intent = { orderedTasks: ['a', 'b', 'c'] }; // intent has no progress fields at all
     assert.deepEqual(Object.keys(intent), ['orderedTasks']);
     const progress = deriveBatchProgress(change, intent);
-    assert.deepEqual(progress, { completed: ['a'], current: 'b', next: 'c', failed: null });
+    assert.deepEqual(progress, {
+      completed: ['a'], current: 'b', next: 'c', failed: null, checkpointTask: null, checkpointReached: false,
+    });
   });
 
   test('a small low-risk code task uses self-check plus the gating batch review only (no full task-review)', () => {

@@ -3,8 +3,13 @@
   "private": true,
   "type": "module",
   "description": "Repository-local Node.js tooling for NEvo specs and docs (not published).",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
-    "test": "node --test tools/tests/"
+    "test": "node --test tools/tests/",
+    "specs:check": "node tools/specs.mjs check",
+    "docs:check": "node tools/docs.mjs check"
   },
   "dependencies": {
     "commander": "^15.0.0",

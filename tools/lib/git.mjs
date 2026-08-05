@@ -144,3 +144,27 @@ export function touchesPaths(root, base, branch, paths) {
   const out = run(root, ['diff', '--stat', `${base}...${branch}`, '--', ...paths]);
   return out.trim().length > 0;
 }
+
+// Every file changed between `base` and `head` (default the current worktree
+// state) — the real whole-batch diff (D19/D24, gating batch review, PR
+// re-review packet 03), never `{}` passed by the caller in place of real
+// touched-path data. Plain two-dot range (not `base...head`) — the batch
+// runs linearly on one branch, so this is exactly "every change made since
+// batch start" — excludes anything that predates the batch, same requirement
+// `touchesPaths` above serves for the unrelated dotnet-build-relevance check.
+// `git diff` alone never reports untracked files (by design — it only knows
+// about tracked content), so when `head` is omitted (comparing against the
+// live worktree, not a second fixed commit) this also unions in
+// `git ls-files --others --exclude-standard` — a new file added as part of
+// this batch's work but not yet `git add`ed at review time must still count
+// as touched, not silently excluded from evidence-staleness/integration
+// detection.
+export function getChangedFiles(root, base, head = '') {
+  const range = head ? `${base}..${head}` : base;
+  const out = run(root, ['diff', '--name-only', range]);
+  const tracked = out ? out.split('\n').filter(Boolean) : [];
+  if (head) return tracked;
+  const untracked = run(root, ['ls-files', '--others', '--exclude-standard']);
+  const untrackedFiles = untracked ? untracked.split('\n').filter(Boolean) : [];
+  return [...new Set([...tracked, ...untrackedFiles])];
+}

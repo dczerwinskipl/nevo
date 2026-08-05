@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { CliError, RecoveryError } from './lib/cli-errors.mjs';
 import { ensureDir, moveDir, readUtf8, writeUtf8 } from './lib/fs.mjs';
 import { updateYamlFile } from './lib/yaml.mjs';
+import { splitShellWords } from './lib/shell-words.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
 import {
@@ -29,7 +30,8 @@ import {
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
   validateFinalize, deriveStage, inspectStartPostconditions, inspectApprovePostconditions, classifyDirtyWorktree,
   BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
-  buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict,
+  buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict, validateBatchCheckpoint,
+  completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -190,8 +192,17 @@ export function handleContext(changeSlug, taskId) {
 // `/nevo-ai:spec-review` records this exact output as a spec review's
 // `spec_fingerprint`; a status-only or unrelated-task edit no longer
 // invalidates it, closing the gap D7 exists to fix.
-export function handleFingerprint(changeSlug) {
+// --task prints computeTaskFingerprint instead (PR re-review packet 01) — the
+// exact value `/nevo-ai:spec-review` copies into a review's
+// `task_fingerprints.<task-id>` entry, same convention as the change-level
+// value's own doc comment above.
+export function handleFingerprint(changeSlug, options = {}) {
   const change = requireChange(changeSlug);
+  if (options.task) {
+    requireTask(change, options.task);
+    console.log(computeTaskFingerprint(change, options.task));
+    return;
+  }
   console.log(computeChangeFingerprint(change));
 }
 
@@ -209,16 +220,24 @@ export function handleApprove(changeSlug, taskId) {
   // D7/D9 migration (task 09): compares against the change-level tier — a
   // spec review's own scope — instead of the old whole-file hash, which
   // invalidated on any status write, execution.suspension change, or
-  // unrelated task edit (exactly the cost D7 exists to remove).
+  // unrelated task edit (exactly the cost D7 exists to remove). The
+  // task-level fingerprint (PR re-review packet 01) closes the gap this left:
+  // change_fingerprint excludes task body/AC/context by design, so this
+  // task's own content changing after review must still be caught.
   const currentFingerprint = computeChangeFingerprint(change);
-  const result = validateApproval(task.status, review, currentFingerprint, { mechanicalExempt });
+  const currentTaskFingerprint = computeTaskFingerprint(change, taskId);
+  const result = validateApproval(task.status, review, currentFingerprint, {
+    mechanicalExempt, taskId, currentTaskFingerprint,
+  });
   const inspection = inspectApprovePostconditions(result);
 
   if (inspection.result === 'not_retryable') {
     // REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE — recoverable, confirm-required:
     // re-run the review, then retry approval. Persisted so a resumed session
     // knows a confirmation is still owed, without re-deriving it from prose.
-    if (inspection.code === 'stale-fingerprint') {
+    // Covers all three staleness shapes (change-level, missing/stale
+    // task-level) — same recovery scenario, same remedy.
+    if (inspection.code === 'stale-fingerprint' || inspection.code === 'missing-task-fingerprint' || inspection.code === 'stale-task-fingerprint') {
       setTaskSuspension(change, taskId, {
         kind: 'confirm-required', code: 'REC-07', previous_action: 'approve',
         created_at: new Date().toISOString(),
@@ -342,10 +361,15 @@ export function handleComplete(changeSlug, taskId) {
   // D24, task 08 — a hard-stopped task (a recorded, still-failing self-check)
   // can never be marked complete; a full task-review is never a substitute
   // for correcting the implementation and rerunning the self-check (the only
-  // path that clears this). A task with no self_check at all is unaffected —
-  // self-check is optional outside batch mode.
-  const stop = hardStopReason(task);
-  if (task.self_check && stop) {
+  // path that clears this). A task with no self_check at all is unaffected
+  // when it's not part of an active batch — self-check is optional there.
+  // Inside an active batch that includes this task, a *missing* self-check
+  // is a hard stop too (PR re-review packet 02) — see completionHardStop's
+  // own doc comment.
+  const intent = loadBatchIntent(change);
+  const inActiveBatch = Boolean(intent?.orderedTasks?.includes(taskId));
+  const stop = completionHardStop(task, { inActiveBatch });
+  if (stop) {
     throw new CliError(
       `Task '${taskId}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — ` +
       `correct the implementation and rerun 'node tools/specs.mjs self-check ${changeSlug} ${taskId}' before marking it complete.`
@@ -370,9 +394,15 @@ export function handleVerify(changeSlug, taskId) {
 
 // ── Self-check (D28) — the single write path for self_check ────────────────
 
-function runVerificationCommand(commandString) {
-  const [program, ...args] = commandString.split(/\s+/);
+// Quote-aware (splitShellWords, PR re-review packet 05): a whitespace split
+// broke any command with a quoted argument containing a space or a filter
+// expression (e.g. `dotnet test --filter "Category=A|Category=B"`). A
+// malformed command string (an unterminated quote) is reported as a failed
+// verification command, same as a non-zero exit code, rather than crashing
+// the whole self-check run.
+export function runVerificationCommand(commandString) {
   try {
+    const [program, ...args] = splitShellWords(commandString);
     execFileSync(program, args, { cwd: ROOT, encoding: 'utf8' });
     return { command: commandString, exit_code: 0 };
   } catch (error) {
@@ -414,6 +444,16 @@ export function handleSelfCheck(changeSlug, taskId) {
 // `start`/`complete` transitions unchanged (constraint), never a new write
 // path to change.yaml. handleStart is a function declaration, hoisted, so
 // this forward reference (it's defined later in this file) is safe.
+// `until-checkpoint` (D20, PR re-review packet 04): the mode used to select
+// the same reachable set as `all-approved-reachable` and never actually
+// bounded execution — `checkpointPolicy` was persisted but nothing ever read
+// it. `--checkpoint` is now required for this mode, must name a real task
+// that was actually selected into this batch, and must not already be
+// terminal (an already-passed checkpoint is rejected rather than silently
+// treated as "reached immediately"). `deriveBatchProgress`'s
+// `checkpointReached` is what the conversational continuation offer
+// (`/nevo-ai:task-review` step 9a0) checks to stop at the boundary — see
+// that function's own doc comment.
 export function handleBatchStart(changeSlug, mode, options = {}) {
   const change = requireChange(changeSlug);
   if (loadBatchIntent(change)) {
@@ -425,19 +465,29 @@ export function handleBatchStart(changeSlug, mode, options = {}) {
   if (!selection.ok) throw new CliError(selection.reason);
   if (!selection.orderedTasks.length) throw new CliError(`No tasks selected for mode '${mode}'.`);
 
+  const checkpointId = options.checkpoint || null;
+  const checkpointTaskStatus = checkpointId ? change.tasks.find(t => t.id === checkpointId)?.status : undefined;
+  const checkpointCheck = validateBatchCheckpoint(mode, checkpointId, selection.orderedTasks, checkpointTaskStatus);
+  if (!checkpointCheck.ok) throw new CliError(checkpointCheck.reason);
+  const checkpointTask = mode === 'until-checkpoint' ? checkpointId : null;
+
   const intent = {
     change: changeSlug,
     requestedTasks: taskIds || selection.orderedTasks,
     orderedTasks: selection.orderedTasks,
     startRevision: git.getCurrentRevision(ROOT),
     reviewMode: 'batch',
-    checkpointPolicy: mode === 'until-checkpoint' ? (options.checkpoint || null) : null,
+    checkpointPolicy: checkpointTask,
     temporaryInconsistencies: options.tempInconsistentPair
       ? [options.tempInconsistentPair.split(',').map(s => s.trim())]
       : [],
   };
   writeBatchIntent(change, intent);
-  console.log(`Batch started for '${changeSlug}' (mode: ${mode}): ${selection.orderedTasks.join(' -> ')}`);
+  console.log(
+    checkpointTask
+      ? `Batch started for '${changeSlug}' (mode: ${mode}, checkpoint: ${checkpointTask}): ${selection.orderedTasks.join(' -> ')}`
+      : `Batch started for '${changeSlug}' (mode: ${mode}): ${selection.orderedTasks.join(' -> ')}`
+  );
 
   handleStart(changeSlug, selection.orderedTasks[0]);
 }
@@ -495,7 +545,25 @@ export function handleBatchReview(changeSlug) {
 
   const currentFingerprints = {};
   for (const id of intent.orderedTasks) currentFingerprints[id] = computeTaskFingerprint(change, id);
-  const stale = staleEvidenceTasks(change, intent.orderedTasks, {}, currentFingerprints);
+
+  // Real whole-batch diff attribution (PR re-review packet 03) — the
+  // previous version passed `{}` for touched paths, so staleEvidenceTasks'
+  // overlap half (and any cross-task integration signal) could never fire.
+  // `changedFiles` is the complete diff since `startRevision` (requirement:
+  // "excludes anything that predates the batch"); each file is attributed to
+  // every batched task whose own declared allowed_paths/consequential_paths
+  // match it (attributeTouchedPaths' documented rule — see its own doc
+  // comment for how an ambiguous shared file is handled).
+  const changedFiles = git.getChangedFiles(ROOT, intent.startRevision);
+  const taskDeclaredPaths = {};
+  for (const id of intent.orderedTasks) {
+    const t = requireTask(change, id);
+    const { fm } = loadTaskFileParts(change, t);
+    taskDeclaredPaths[id] = [...(fm.allowed_paths || []), ...(fm.consequential_paths || [])];
+  }
+  const touchedPaths = attributeTouchedPaths(intent.orderedTasks, taskDeclaredPaths, changedFiles);
+
+  const stale = staleEvidenceTasks(change, intent.orderedTasks, touchedPaths, currentFingerprints);
   if (stale.length) {
     throw new CliError(
       `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
@@ -505,16 +573,25 @@ export function handleBatchReview(changeSlug) {
 
   const followUps = loadFollowUps(change);
   const openBlocking = (followUps.follow_ups || []).filter(f => f.status === 'open' && f.severity === 'blocking');
-  const verdict = computeBatchReviewVerdict({ ownerDecisionFindings: openBlocking.length });
+  // Deterministic structural findings (Phase 3, PR re-review packet 03) — the
+  // "no findings" case must be attributable to an explicit review step, not
+  // merely "no blocking follow-up happened to be open."
+  const integrationFindings = detectBatchIntegrationFindings(intent, intent.orderedTasks, touchedPaths);
+  const verdict = computeBatchReviewVerdict({
+    ownerDecisionFindings: openBlocking.length, otherFindings: integrationFindings.length,
+  });
 
   const batchId = intent.startRevision.slice(0, 8);
   const reviewsDir = join(change._dir, 'reviews');
   ensureDir(reviewsDir);
   const reportFile = join(reviewsDir, `batch-${batchId}.md`);
   const generated = new Date().toISOString();
-  const findingsRows = openBlocking.length
-    ? openBlocking.map(f => `| ${f.id} | OWNER_DECISION | open blocking follow-up | ${f.reason} |`).join('\n')
-    : '| — | — | No findings | — |';
+  const followUpRows = openBlocking.map(f => `| ${f.id} | OWNER_DECISION | open blocking follow-up | ${f.reason} |`);
+  const integrationRows = integrationFindings.map((f, i) =>
+    `| BR-${String(i + 1).padStart(3, '0')} | NON_BLOCKING | cross-task integration | ${f.summary} |`
+  );
+  const allFindingsRows = [...followUpRows, ...integrationRows];
+  const findingsRows = allFindingsRows.length ? allFindingsRows.join('\n') : '| — | — | No findings | — |';
 
   const report = [
     '---',
@@ -541,6 +618,13 @@ export function handleBatchReview(changeSlug) {
     '## Batch integration',
     '',
     `Batched tasks (in order): ${intent.orderedTasks.join(', ')}.`,
+    '',
+    `Complete diff since \`${intent.startRevision}\`: ${changedFiles.length} file(s) changed.`,
+    '',
+    integrationFindings.length
+      ? 'Cross-task path overlap (same file touched by more than one batched task, per attributed declared paths):'
+      : 'No cross-task path overlap detected between batched tasks\' attributed touched paths.',
+    ...integrationFindings.map(f => `- ${f.summary}`),
     '',
   ].join('\n');
 
@@ -969,9 +1053,10 @@ export function buildProgram() {
     .action(handleContext);
 
   program.command('fingerprint')
-    .description('Print a deterministic hash of the spec inputs')
+    .description('Print a deterministic hash of the spec inputs (--task for one task\'s own semantic fingerprint)')
     .argument('<change>')
-    .action(handleFingerprint);
+    .option('--task <task-id>', 'Print this task\'s own semantic fingerprint instead of the change-level one')
+    .action((changeSlug, opts) => handleFingerprint(changeSlug, opts));
 
   program.command('approve')
     .description('Mark task as approved (requires a clean, ready review)')

@@ -59,6 +59,26 @@ describe('tools/specs.mjs CLI smoke tests', () => {
     assert.match(r.stdout.trim(), /^[0-9a-f]{64}$/);
   });
 
+  test('fingerprint <real-change> --task <real-task> prints a 64-char hex digest and exits 0 (PR re-review packet 01)', (t) => {
+    const list = run(SPECS_CLI, ['list']);
+    const changeMatch = list.stdout.match(/^\[[a-z-]+\] (\S+) —/m);
+    if (!changeMatch) { t.skip('no active change to fingerprint right now'); return; }
+    const taskMatch = list.stdout.match(/^\s+\d+\.\s+\[[a-z-]+\]\s+(\S+)/m);
+    if (!taskMatch) { t.skip('no task on the active change to fingerprint right now'); return; }
+    const r = run(SPECS_CLI, ['fingerprint', changeMatch[1], '--task', taskMatch[1]]);
+    assert.equal(r.code, 0);
+    assert.match(r.stdout.trim(), /^[0-9a-f]{64}$/);
+  });
+
+  test('fingerprint <real-change> --task <unknown-task> fails on stderr with a clear message', (t) => {
+    const list = run(SPECS_CLI, ['list']);
+    const changeMatch = list.stdout.match(/^\[[a-z-]+\] (\S+) —/m);
+    if (!changeMatch) { t.skip('no active change to fingerprint right now'); return; }
+    const r = run(SPECS_CLI, ['fingerprint', changeMatch[1], '--task', 'does-not-exist']);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /not found/);
+  });
+
   test('fingerprint <unknown-change> fails on stderr with a clear message', () => {
     const r = run(SPECS_CLI, ['fingerprint', 'does-not-exist']);
     assert.equal(r.code, 1);
