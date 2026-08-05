@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path';
 import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
   getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
-  checkoutTrackingBranch, getDirtyFiles, getCurrentRevision,
+  checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getCurrentRevision,
 } from '../lib/git.mjs';
 
 let repo, remote;
@@ -134,6 +134,38 @@ describe('lib/git.mjs against a disposable temp repo', () => {
     execFileSync('git', ['-C', repo, 'clean', '-fd', 'untracked.txt'], { encoding: 'utf8' });
   });
 
+  test('getDirtyPaths matches getDirtyFiles for an ordinary (non-rename) change', () => {
+    assert.deepEqual(getDirtyPaths(repo), []);
+    writeFileSync(join(repo, 'untracked2.txt'), 'new\n');
+    assert.deepEqual(getDirtyPaths(repo), ['untracked2.txt']);
+    execFileSync('git', ['-C', repo, 'clean', '-fd', 'untracked2.txt'], { encoding: 'utf8' });
+  });
+
+  test('a rename is reported as "old -> new" by getDirtyFiles but as two separate real paths by getDirtyPaths (PR review packet 03, Problem 3)', () => {
+    writeFileSync(join(repo, 'rename-src.txt'), 'x'.repeat(200)); // large enough for git to detect a rename, not add+delete
+    git(['add', 'rename-src.txt']);
+    git(['commit', '-m', 'add rename-src.txt']);
+
+    execFileSync('git', ['-C', repo, 'mv', 'rename-src.txt', 'rename-dst.txt'], { encoding: 'utf8' });
+
+    const files = getDirtyFiles(repo);
+    assert.equal(files.length, 1);
+    assert.match(files[0], /rename-src\.txt -> rename-dst\.txt/);
+
+    const paths = getDirtyPaths(repo);
+    assert.ok(paths.includes('rename-src.txt'), 'old path must be classifiable on its own');
+    assert.ok(paths.includes('rename-dst.txt'), 'new path must be classifiable on its own');
+    assert.equal(paths.length, 2);
+
+    git(['reset', '--hard', 'HEAD~1']);
+  });
+
+  test('a file with a space in its name is reported as its real, unquoted path', () => {
+    writeFileSync(join(repo, 'has space.txt'), 'x\n');
+    assert.deepEqual(getDirtyPaths(repo), ['has space.txt']);
+    execFileSync('git', ['-C', repo, 'clean', '-fd', 'has space.txt'], { encoding: 'utf8' });
+  });
+
   test('checkoutTrackingBranch (REC-02) fetches and checks out a branch that exists on origin but not locally', () => {
     createAndCheckoutBranch(repo, 'feature/remote-only');
     push(repo, 'feature/remote-only');
@@ -148,6 +180,22 @@ describe('lib/git.mjs against a disposable temp repo', () => {
     assert.equal(hasUpstream(repo, 'feature/remote-only'), true);
 
     checkoutBranch(repo, 'main');
+  });
+
+  test('hasUpstream is true for a branch that exists on the remote even when the local origin/<branch> tracking ref was never fetched (PR review packet 03, Problem 2)', () => {
+    // Create the branch directly against the bare remote, from a throwaway
+    // clone — `repo`'s own remote-tracking refs never learn about it via an
+    // ordinary fetch, simulating a clone whose cached refs are stale.
+    const otherClone = mkdtempSync(join(tmpdir(), 'nevo-git-clone-'));
+    execFileSync('git', ['-C', otherClone, 'clone', remote, '.'], { encoding: 'utf8' });
+    execFileSync('git', ['-C', otherClone, 'checkout', '-b', 'feature/stale-ref-test'], { encoding: 'utf8' });
+    execFileSync('git', ['-C', otherClone, 'push', 'origin', 'feature/stale-ref-test'], { encoding: 'utf8' });
+    rmSync(otherClone, { recursive: true, force: true });
+
+    // `repo` never fetched this branch — the old rev-parse-against-local-ref
+    // implementation would report false here.
+    assert.throws(() => execFileSync('git', ['-C', repo, 'rev-parse', '--verify', 'origin/feature/stale-ref-test'], { encoding: 'utf8' }));
+    assert.equal(hasUpstream(repo, 'feature/stale-ref-test'), true);
   });
 });
 

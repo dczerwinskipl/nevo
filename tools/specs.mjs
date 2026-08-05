@@ -73,12 +73,20 @@ function requireTask(change, taskId) {
 // an `automatic`-class recovery fixes itself same-turn and never calls this.
 // Exported for direct testing (tools/tests/recovery.test.mjs) — writing this
 // block must never touch the task's own `status` field (acceptance criterion 5).
+// Sets/clears only `execution.suspension` in place — never replaces the
+// whole `execution` object (PR review packet 03, secondary issue). No other
+// field lives under `execution` today, but a wholesale replace would
+// silently drop one the moment something else is added there.
 export function setTaskSuspension(change, taskId, suspension) {
   updateYamlFile(change._file, doc => {
     const tasks = doc.get('tasks', true);
     const item = tasks?.items?.find(it => it.get('id') === taskId);
     if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
-    item.set('execution', { suspension });
+    if (item.has('execution')) {
+      item.get('execution', true).set('suspension', suspension);
+    } else {
+      item.set('execution', { suspension });
+    }
   });
 }
 
@@ -86,7 +94,10 @@ export function clearTaskSuspension(change, taskId) {
   updateYamlFile(change._file, doc => {
     const tasks = doc.get('tasks', true);
     const item = tasks?.items?.find(it => it.get('id') === taskId);
-    if (item?.has('execution')) item.delete('execution');
+    if (!item?.has('execution')) return;
+    const execution = item.get('execution', true);
+    if (execution.has('suspension')) execution.delete('suspension');
+    if (execution.items.length === 0) item.delete('execution');
   });
 }
 
@@ -102,6 +113,21 @@ export function guardAgainstUnsafeManual(task, taskId, action) {
       `it must be resolved manually before '${action}' can be retried.`
     );
   }
+}
+
+// PR review packet 03, Problem 1: `handleStart`'s dirty-tree check must never
+// run for a `completed`/`not_retryable` postcondition result (nothing left
+// to do, or nothing safe to retry either way), and must only run when a
+// branch checkout/creation is actually about to happen — never while already
+// on the expected branch, where a dirty tree is just the task's own
+// in-progress implementation work, not something blocking a git operation
+// this call still needs to perform. Exported for direct testing
+// (tools/tests/start.test.mjs) — `handleStart` itself can't be driven
+// end-to-end in a unit test (it reads the real repository's `ACTIVE_DIR`),
+// so this predicate is the testable seam for the fix.
+export function startNeedsDirtyTreeCheck(postconditionResult, onExpectedBranch) {
+  if (postconditionResult === 'completed' || postconditionResult === 'not_retryable') return false;
+  return !onExpectedBranch;
 }
 
 export function handleGenerate() {
@@ -218,22 +244,21 @@ export function handleApprove(changeSlug, taskId) {
 // already exists). A dirty tree is classified (REC-05 task-related vs. REC-06
 // unrelated) rather than a single flat refusal, since only REC-05's files are
 // ever safe to reason about touching on the task's behalf.
+//
+// Postconditions are inspected *before* the dirty-tree check (PR review
+// packet 03, Problem 1): a task already `completed` — in-implementation, on
+// its expected branch — must return early as a no-op even with a dirty tree,
+// since that's just the task's own in-progress implementation work, not
+// something blocking a git operation this call still needs to perform. The
+// dirty-tree check only matters when a branch checkout/creation is actually
+// about to happen (`!onExpectedBranch`) — never for a `partially_completed`
+// case where only the `status` write is still missing.
 export function handleStart(changeSlug, taskId) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'start');
   const packet = buildContextPacket(change, task);
   const branch = packet.branch;
-
-  const dirtyFiles = git.getDirtyFiles(ROOT);
-  if (dirtyFiles.length) {
-    const classification = classifyDirtyWorktree(dirtyFiles, packet.allowed_paths);
-    setTaskSuspension(change, taskId, {
-      kind: classification.class, code: classification.code, previous_action: 'start',
-      created_at: new Date().toISOString(),
-    });
-    throw new RecoveryError(classification.code, { detail: `Dirty file(s): ${classification.files.join(', ')}` });
-  }
 
   const transition = validateTransition('start', task.status);
   if (!transition.ok) throw new CliError(transition.reason);
@@ -268,7 +293,21 @@ export function handleStart(changeSlug, taskId) {
     return;
   }
 
-  if (!onExpectedBranch) {
+  if (startNeedsDirtyTreeCheck(inspection.result, onExpectedBranch)) {
+    // Classification runs against real paths (getDirtyPaths — a rename
+    // contributes both its old and new path separately), never the
+    // "old -> new" human-readable display string, which can never match a
+    // real allowed_paths pattern (PR review packet 03, Problem 3).
+    const dirtyPaths = git.getDirtyPaths(ROOT);
+    if (dirtyPaths.length) {
+      const classification = classifyDirtyWorktree(dirtyPaths, packet.allowed_paths);
+      setTaskSuspension(change, taskId, {
+        kind: classification.class, code: classification.code, previous_action: 'start',
+        created_at: new Date().toISOString(),
+      });
+      throw new RecoveryError(classification.code, { detail: `Dirty file(s): ${classification.files.join(', ')}` });
+    }
+
     if (localExists) {
       git.checkoutBranch(ROOT, branch);
       console.log(`Switched to branch: ${branch}`);
