@@ -75,6 +75,6 @@ tasks:
   - id: workflow-docs-and-adr-migration
     order: 11
     file: tasks/11-workflow-docs-and-adr-migration.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - workflow-e2e-tests
