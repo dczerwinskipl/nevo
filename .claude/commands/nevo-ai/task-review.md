@@ -26,8 +26,39 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    right tool for seeing what the implementation changed (unlike using git status as a
    proxy for whether the *review itself* is stale, which step 2 already covers
    separately).
-4. Verify the diff stays within `allowed_paths` and does not touch `forbidden_paths` —
-   a violation here is always a blocking finding, no exceptions.
+4. Verify the diff stays within `allowed_paths` and does not touch `forbidden_paths`. A
+   violation can never be silently waived — it prevents `pass` while unresolved — but it
+   may be resolved through an explicit owner decision recorded in the review artifact
+   (D31): **no unresolved or unrecorded scope exception may pass**, never "no scope
+   exception may ever pass." Classify every touched path outside the task's own scope
+   with `classifyScopeFinding(path, { allowedPaths, forbiddenPaths })`
+   (`tools/specs/lifecycle.mjs`) — `compliant` / `outside-allowed` / `forbidden` — per
+   `references/review-policy.md` § "Owner-approved scope exceptions."
+4a. **Resolve every `outside-allowed`/`forbidden` finding from step 4**, one at a time
+    (or once per collected group, if several share the same resolution path):
+    ```
+    1. Accept the listed scope exception
+    2. Require the implementation to return to the declared scope
+    3. Leave unresolved
+    ```
+    Option 1 is offered only for an `outside-allowed` finding — **never** for
+    `forbidden` (that classification is categorically excluded from lightweight
+    acceptance; only reverting/re-attributing the change, or a specification scope
+    amendment, resolves it). On 1 → record the `scope_exceptions` frontmatter entry
+    (exact path, finding ID, reason, `decision: accepted`, `confirmed_by: owner`,
+    `confirmed_at`, `task_fingerprint` — `node tools/specs.mjs fingerprint <change-id>
+    --task <task-id>`, never estimated) and set the finding's lifecycle to `accepted`.
+    On 2 → the finding stays an unresolved `OWNER_DECISION`/`AUTO_FIX` finding pending
+    the implementation change. On 3 → the finding stays an unresolved `OWNER_DECISION`
+    finding, `pass` unreachable, same as before D31.
+4b. **Re-review: validate every existing `scope_exceptions` entry before treating it as
+    still `accepted`.** Run `isScopeExceptionValid(exception, { path, taskFingerprint })`
+    (`taskFingerprint` from `node tools/specs.mjs fingerprint <change-id> --task
+    <task-id>`, current) for each baseline entry — a mismatch invalidates it outright.
+    Separately, inspect whether the out-of-scope change has *materially expanded* beyond
+    what the exception covers (the deterministic check cannot decide this) — if so, treat
+    the exception as invalid and re-open the finding for a fresh owner decision (step 4a)
+    even though the deterministic check alone would have passed.
 5. Compare the implementation to: the task's acceptance criteria, its area's
    requirements (if any), change-wide constraints, applicable ADRs, and architecture
    documentation.
@@ -41,11 +72,19 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    step 2 found a baseline, verify each of its findings' **exact literal predicate**
    against the diff/code just inspected (not memory of what it probably still says),
    and assign a lifecycle status (`resolved` / `still-present` / `changed` /
-   `cannot-verify`) per `references/review-policy.md` § "Findings have a lifecycle, on
-   top of their actor category." Verdict is `pass` (no unresolved blocking findings,
-   computed from this run only), `changes-required` (fixable findings exist), or
-   `blocked` (something more fundamental — e.g. scope violation outside
-   `allowed_paths`, or verification evidence can't be produced at all).
+   `cannot-verify` / `accepted` — the last per step 4a) per `references/review-policy.md`
+   § "Findings have a lifecycle, on top of their actor category." Compute the verdict
+   with `computeTaskReviewChecklist` (`tools/specs/lifecycle.mjs`) — never composed as
+   prose — from the seven checklist inputs: AC coverage complete, whether an explicitly
+   required automated test is missing (always `AUTO_FIX`-blocking, independent of AC
+   coverage — a passing verification command alone never counts as coverage for a
+   scenario the tests don't exercise), verification passed, scope status (`compliant` /
+   `accepted-exception` / `unresolved`, from steps 4/4a/4b), forbidden-path-clean,
+   docs-consistent, unresolved blocking finding count, unresolved owner-decision count.
+   `pass` only when every item resolves clean; any single failure yields
+   `changes-required`. `blocked` is reserved for a more fundamental stop this checklist
+   doesn't itself model — e.g. verification evidence cannot be produced at all — and is
+   set directly, not through this function, when that happens.
 7a. **Record as follow-up (D15/D22, area context-and-validation-hardening, task 06).**
     For each `NON_BLOCKING` finding from step 7, ask (closed choice, one per finding or
     batched if several) whether to record it in `specs/active/<change-id>/follow-ups.yaml`
@@ -59,9 +98,16 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
     `NEEDS_CLARIFICATION` findings are categorized or handled — this action exists only
     for `NON_BLOCKING` findings, and it never fires without this explicit answer.
 8. Write the full report to `specs/active/<change-id>/reviews/<task-id>.md` using
-   `templates/review-report.md`'s shape (create `reviews/` if needed), including each
-   finding's predicate, lifecycle, and evidence — overwriting the file read in step 2,
-   which is expected; it's the one file this command writes.
+   `templates/review-report.md`'s compact, exception-oriented shape (D31 — the
+   seven-item `Checklist`, `Findings` restricted to actionable/exception content only,
+   the compact `Verification` and acceptance-criteria sections, the `scope_exceptions`
+   frontmatter when an exception is active), including each finding's predicate,
+   lifecycle, and evidence — overwriting the file read in step 2, which is expected;
+   it's the one file this command writes. A normal passing report lands around 15-30
+   lines because nothing else needs saying, per `templates/review-report.md`'s own
+   guidance — a report growing to fit real defects, owner decisions, or scope
+   exceptions is expected; it must never grow merely because a task has many satisfied
+   acceptance criteria.
 9. If the verdict is `pass`, don't just print the CLI command and stop — ask, using a
    closed menu (same principle as `/nevo-ai:spec-approve`: a known transition should be
    confirmed and applied in the same turn, not left as an instruction to type):

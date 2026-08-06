@@ -913,3 +913,46 @@
 - **Affected artifacts:** `change.yaml`,
   `tasks/13-review-report-compaction-and-scope-exceptions.md`,
   `areas/review-report-compaction-and-scope-exceptions.md`, `overview.md`
+
+## D32: `semantic_references` completeness (D26/D29) does not apply retroactively to tasks 01-11
+
+- **Question:** `/nevo-ai:spec-review` (F15, this change's own `reviews/spec.md`) found
+  that tasks 01-11 declare no `semantic_references` block at all, even though each task's
+  own prose explicitly cites specific decisions, constraints, and dependency contracts it
+  relies on (task 08 alone names 8 decisions, 3 dependency contracts, 1 constraint). The
+  D26/D29 completeness check this gap violates was only wired into `/nevo-ai:spec-review`
+  by task 11 — after tasks 01-10 were already approved and, in most cases, already
+  `implemented`/`verified` — so the check never had a chance to catch it at the time. Does
+  D26/D29's completeness requirement apply retroactively to tasks that reached a terminal
+  status before the check existed, or are they grandfathered?
+- **Options considered:** (A) Populate `semantic_references` on tasks 01-11 per F15's
+  full per-task breakdown in `reviews/spec.md` — a documentation-only change with no
+  behavior change, but it touches 11 already-terminal task files outside task 13's own
+  scope and technically invalidates each edited task's task-level semantic fingerprint
+  (D7/D18), even though nothing currently re-checks a terminal task's fingerprint
+  automatically | (B) Record an explicit decision that the completeness check does not
+  apply retroactively to already-terminal tasks — close F15 as accepted technical debt,
+  tracked via a non-blocking `follow-ups.yaml` entry for visibility if any of those tasks
+  is ever reopened.
+- **Decision:** (B).
+- **Rationale:** Owner-selected. A rule should not be enforced backward against work that
+  was already closed before the rule's own enforcement mechanism existed — tasks 01-11
+  were reviewed and approved under the process as it stood at the time, and D26/D29's
+  completeness check is a `/nevo-ai:spec-review`-time gate on reaching
+  `ready-for-approval`, not a standing obligation on every terminal task in the
+  specification's history. Populating 11 already-verified files for a documentation-only
+  correction (option A) is a real but disproportionate cost relative to the risk it
+  closes, since nothing today re-checks a terminal task's fingerprint on its own.
+- **Consequences:** F15 in `reviews/spec.md` is resolved by this decision, not by editing
+  tasks 01-11. `follow-ups.yaml` gains `FU-003` (`non-blocking`, `open`,
+  `source_task: review-report-compaction-and-scope-exceptions`) recording the gap and this
+  decision's rationale, so it stays visible without blocking anything. This decision
+  establishes precedent, scoped to this change only: `semantic_references` completeness
+  is enforced from task 12 onward (the first task reviewed after D26/D29's check went
+  live), never retroactively against tasks 01-11. If any of tasks 01-11 is ever reopened
+  (a status transition back out of `implemented`/`verified`, or a spec amendment editing
+  its content), its `semantic_references` completeness is re-evaluated at that point like
+  any other task under active review — this grandfather does not extend to a reopened
+  task.
+- **Date:** 2026-08-06 (review-driven refinement, from `reviews/spec.md` F15)
+- **Affected artifacts:** `owner-decisions.md`, `follow-ups.yaml`

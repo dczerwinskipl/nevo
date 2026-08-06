@@ -2,9 +2,9 @@
 review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: implementation-review-orchestration
-generated: 2026-08-05
-verdict: changes-required
-unresolved_required_fixes: 1
+generated: 2026-08-06
+verdict: pass
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 ---
@@ -13,14 +13,7 @@ unresolved_needs_clarification: 0
 
 ## Verdict
 
-`changes-required` — one unresolved `AUTO_FIX` finding (F1): the diff's own change to
-`change.yaml` (task 12's `self_check` block) was never propagated into
-`specs/index.generated.json` before the commit, so `node tools/specs.mjs check` fails
-and the pre-existing `tools/specs.mjs CLI smoke tests › check exits 0 when generated
-indexes are current` test regresses — directly violating this task's own AC13/AC14.
-
-No reliable previous-file baseline is available. Performing a fresh review of the
-current task implementation.
+`pass` — the 2026-08-05 review's sole blocking finding (F1) is resolved: `node tools/specs.mjs generate` was run and `specs/index.generated.json` now carries task 12's `self_check` block. `node tools/specs.mjs check`, the full test suite, and `node tools/specs.mjs validate`/`node tools/docs.mjs validate` all pass. No new code changed since the 2026-08-05 review (still commit `c5e3223`); this run re-verifies every finding's predicate against current file contents per `references/review-policy.md` § "Re-review," not against memory of the prior run.
 
 ## Scope compliance
 
@@ -83,8 +76,8 @@ Checked against `tasks/12-implementation-review-orchestration.md`'s 15 criteria:
 | 10 | Met (inspection) | Command file step 2 implements the baseline-read rule verbatim, same wording convention |
 | 11 | Met (inspection) | Aggregate path is `implementation-review-<scope>.md`, `<scope>` = `all`/order-list — distinct in shape from `<task-id>.md`/`audit-<slug>.md`/`batch-<id>.md` |
 | 12 | Met (inspection) | `review-policy.md` § "Multi-task implementation review" (full new section), `SKILL.md` (command table, status-vocabulary table, "Preventing premature implementation"), `docs/ai/specification-workflow.md` § new subsection — all present and consistent with the task's own required table/text |
-| 13 | **Not met** | `node tools/specs.mjs check` fails right now (`stale: specs/index.generated.json`, and `active.generated.md`/`archive.generated.md` — see F1 for the real cause, F2/informational note for the CRLF-only part). `node tools/docs.mjs check` passes ("Indexes are current.") |
-| 14 | **Not met** | `node --test tools/tests/*.test.mjs`: 668/669 pass, 1 failure — `tools/specs.mjs CLI smoke tests › check exits 0 when generated indexes are current` (pre-existing test, regressed by this task's own diff per F1) |
+| 13 | Met | `node tools/specs.mjs check` now passes ("Specs valid and indexes are current."), confirmed after F1's fix (`node tools/specs.mjs generate`). `node tools/docs.mjs check` passes ("Indexes are current.") |
+| 14 | Met | `node --test tools/tests/*.test.mjs`: 669/669 pass — `tools/specs.mjs CLI smoke tests › check exits 0 when generated indexes are current` no longer regresses |
 | 15 | Met | ADR-0006 "Multi-task implementation review orchestration (D30)" subsection (items 25-31) added; Context paragraph explicitly names "a twelfth task, `implementation-review-orchestration` (D30)" alongside tasks 01-11 |
 
 ## Architecture and documentation
@@ -98,34 +91,34 @@ in `forbidden_paths` for this task. `references/review-policy.md`, `SKILL.md`, a
 
 ## Tests
 
-`tools/tests/implementation-review.test.mjs`: 42/42 tests pass (verified by direct
+`tools/tests/implementation-review.test.mjs`: 42/42 tests pass (re-verified by direct
 execution: `node --test tools/tests/implementation-review.test.mjs`), covering every
 new exported function (`parseTaskOrderSpec`, `resolveReviewScope`,
 `computeMultiTaskReviewVerdict`, `selectEligibleForVerification`,
 `computeBulkTransitionTarget`, `validateBulkTransition`, `writeBulkTransition`) plus one
 reuse-confirmation test for `attributeTouchedPaths`/`detectBatchIntegrationFindings`.
-The full suite (`node --test tools/tests/*.test.mjs`) reports 668/669 passing — the one
-failure is `tools/specs.mjs CLI smoke tests › check exits 0 when generated indexes are
-current`, a pre-existing test (introduced in commit `aa71381`, unmodified by this task)
-that now fails because of this task's own diff (F1). No test coverage gap was found in
-`implementation-review.test.mjs` itself relative to the area's nine listed
-area-specific acceptance criteria.
+The full suite (`node --test tools/tests/*.test.mjs`) now reports 669/669 passing —
+`tools/specs.mjs CLI smoke tests › check exits 0 when generated indexes are current`
+(the test F1 previously regressed) passes again after `node tools/specs.mjs generate`.
+No test coverage gap was found in `implementation-review.test.mjs` itself relative to
+the area's nine listed area-specific acceptance criteria.
 
 ## Findings
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | first-review | This task's diff added a `self_check` block to `change.yaml` for task 12; `specs/index.generated.json` (a `consequential_paths` entry for this task) must reflect that content, per `checkSpecsIndexes`, which diffs the *whole* `tasks` array including `self_check` | `node tools/specs.mjs check` fails right now with `stale: specs/index.generated.json` (plus the two `.generated.md` files — see the informational note below); the pre-existing `tools/tests/cli-smoke.test.mjs` test `check exits 0 when generated indexes are current` fails as a direct consequence. This is the task-review "exception" case in `references/review-policy.md` § "Gating versus non-gating checks": *this diff* should have regenerated the index and didn't. Fix: run `node tools/specs.mjs generate` and commit the regenerated `specs/index.generated.json` (and `.generated.md` files). | Ran `node tools/specs.mjs check` directly: exit code 1, `stale: specs/index.generated.json`. Ran the full suite: `668/669` pass, the 1 failure is exactly this. Confirmed root cause by diffing `buildSpecsIndexes()`'s in-memory output against the committed `specs/index.generated.json` — the only substantive difference is task 12's missing `self_check` block (fingerprint/revision/commands/status), added to `change.yaml` in the same commit (`c5e3223`) but never propagated. (I ran `node tools/specs.mjs generate` once to confirm this diagnosis, then reverted it with `git checkout --` immediately — the repository is back to its exact pre-review state; this review made no lasting change to the code under review.) | `specs/index.generated.json`, `specs/active/nevo-ai-process-continuity-and-hardening/change.yaml` |
-| F2 | INFORMATIONAL | — | `checkSpecsIndexes` also reports `stale: specs/active.generated.md` / `stale: specs/archive.generated.md` | Not self-caused by this task: the *only* difference between the on-disk file and a freshly built one is CRLF-vs-LF line endings — the git blob content is byte-identical (LF-only) at both `HEAD` and the pre-task commit `2b95632`, confirmed with `git show <rev>:specs/active.generated.md \| xxd`. This is a local Windows checkout artifact (`core.autocrlf=true` converts LF→CRLF on checkout; `writeUtf8` always writes LF), present before this task and unrelated to its diff. Recorded as informational per the "unrelated part of the repo is stale" carve-out, not counted toward F1's blocking severity. | — | `specs/active.generated.md`, `specs/archive.generated.md` |
-| F3 | NON_BLOCKING | first-review | `tasks/12-implementation-review-orchestration.md`'s `consequential_paths` list (`docs/index.generated.md`, `docs/index.generated.json`, `specs/active.generated.md`, `specs/index.generated.json`) should name every generated artifact this task's own diff mechanically touches | `docs/routing.generated.json` was touched by this task's commit (`c5e3223`) with a timestamp-only diff (no rule content changed — same generator run that regenerated the declared `docs/index.generated.*`), but isn't listed in either `allowed_paths` or `consequential_paths`. Zero semantic risk (content is unchanged, only the `generated` ISO timestamp moved), but the task's own scope declaration is incomplete. Candidate for follow-up recording (not recorded — requires owner-facing confirmation, out of scope for this subagent run). | `git show c5e3223 -- docs/routing.generated.json`: only the `generated` field's timestamp changed | `specs/active/nevo-ai-process-continuity-and-hardening/tasks/12-implementation-review-orchestration.md` |
+| F1 | AUTO_FIX | resolved | This task's diff added a `self_check` block to `change.yaml` for task 12; `specs/index.generated.json` (a `consequential_paths` entry for this task) must reflect that content, per `checkSpecsIndexes`, which diffs the *whole* `tasks` array including `self_check` | *(resolved — not an active finding)* `node tools/specs.mjs generate` was run via `/nevo-ai:task-apply-review`, regenerating `specs/index.generated.json`/`specs/active.generated.md`/`specs/archive.generated.md` with task 12's `self_check` block included. | Re-ran `node tools/specs.mjs check`: `Specs valid and indexes are current.` (exit 0). Re-ran the full suite: `669/669` pass, including the previously-regressed `check exits 0 when generated indexes are current`. | `specs/index.generated.json`, `specs/active/nevo-ai-process-continuity-and-hardening/change.yaml` |
+| F2 | INFORMATIONAL | resolved | `checkSpecsIndexes` also reported `stale: specs/active.generated.md` / `stale: specs/archive.generated.md` on 2026-08-05 | Not self-caused by this task, as previously noted (CRLF-vs-LF local-checkout artifact, byte-identical git blob). Re-running `node tools/specs.mjs check` after F1's fix now reports `Specs valid and indexes are current.` with no stale entries at all — `git status --porcelain` confirms neither `.generated.md` file shows as modified. No longer reproduces; recorded as resolved for completeness, was never blocking. | Re-ran `node tools/specs.mjs check`: clean, no `stale:` output. | `specs/active.generated.md`, `specs/archive.generated.md` |
+| F3 | NON_BLOCKING | still-present | `tasks/12-implementation-review-orchestration.md`'s `consequential_paths` list (`docs/index.generated.md`, `docs/index.generated.json`, `specs/active.generated.md`, `specs/index.generated.json`) should name every generated artifact this task's own diff mechanically touches | `docs/routing.generated.json` was touched by this task's commit (`c5e3223`) with a timestamp-only diff (no rule content changed — same generator run that regenerated the declared `docs/index.generated.*`), but isn't listed in either `allowed_paths` or `consequential_paths`. Zero semantic risk (content is unchanged, only the `generated` ISO timestamp moved), but the task's own scope declaration is incomplete. Not applied by `/nevo-ai:task-apply-review` (only `AUTO_FIX` findings are applied); still a candidate for follow-up recording at the owner's discretion. | `git show c5e3223 -- docs/routing.generated.json`: only the `generated` field's timestamp changed | `specs/active/nevo-ai-process-continuity-and-hardening/tasks/12-implementation-review-orchestration.md` |
 | F4 | INFORMATIONAL | — | `node tools/specs.mjs validate` / `node tools/docs.mjs validate` — clean | Both ran clean: `Validated 6 changes — no errors.` / `Validated 60 documents — no errors.` | — |
 | F5 | INFORMATIONAL | — | `node tools/specs.mjs review-scope`/`bulk-transition` CLI wiring sanity check | Manually invoked (read-only calls only) against the real repository: `review-scope --all` correctly returns all 12 tasks in order; `review-scope --tasks 01-03` returns the first three; `review-scope` with neither flag, and with both flags, both correctly reject with "Exactly one of --all or --tasks is required."; `bulk-transition` with missing `--tasks`/`--outcome` correctly rejects via Commander's `requiredOption`; `bulk-transition --tasks ghost --outcome verified` correctly rejects with "Unknown task id(s): ghost" without touching `change.yaml`. `bulk-transition`'s actual write path was **not** invoked against the real repository (would mutate task statuses); its correctness is covered instead by `implementation-review.test.mjs`'s `writeBulkTransition` tests against a temp fixture. | — | `tools/specs.mjs` |
 
-## Required action
+## Resolution
 
-Run `node tools/specs.mjs generate` (regenerates `specs/active.generated.md`,
-`specs/archive.generated.md`, `specs/index.generated.json` in one deterministic pass)
-and commit the result, so `node tools/specs.mjs check` and the `cli-smoke.test.mjs`
-regression both pass again (F1). F2 needs no action — it predates this task and is a
-local-checkout artifact, not a repository defect. F3 is optional (candidate follow-up,
-not blocking this task's own verdict).
+F1 was applied via `/nevo-ai:task-apply-review`: `node tools/specs.mjs generate` was
+run, regenerating `specs/active.generated.md`, `specs/archive.generated.md`, and
+`specs/index.generated.json` in one deterministic pass. `node tools/specs.mjs check`,
+the full test suite (`669/669`), `node tools/specs.mjs validate`, and
+`node tools/docs.mjs validate`/`check` all pass. No unresolved blocking findings
+remain — F3 (`NON_BLOCKING`) is the only still-present finding and does not affect the
+verdict.

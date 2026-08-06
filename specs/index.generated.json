@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-06T06:38:25.992Z",
+  "generated": "2026-08-06T17:34:10.124Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -112,7 +112,7 @@
           "id": "implementation-review-orchestration",
           "order": 12,
           "file": "tasks/12-implementation-review-orchestration.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "state-and-fingerprint-semantics",
             "scope-and-follow-up-mechanisms",
@@ -155,9 +155,10 @@
           "id": "review-report-compaction-and-scope-exceptions",
           "order": 13,
           "file": "tasks/13-review-report-compaction-and-scope-exceptions.md",
-          "status": "draft",
+          "status": "in-implementation",
           "depends_on": [
-            "implementation-review-orchestration"
+            "implementation-review-orchestration",
+            "state-and-fingerprint-semantics"
           ]
         }
       ]

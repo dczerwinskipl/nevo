@@ -64,6 +64,7 @@ a second, independent axis, only populated when a baseline exists:
 | `still-present` | The predicate is still true, unchanged |
 | `changed` | Related content changed, but the finding needs fresh evaluation — a partial fix, or the fix took a different shape than expected |
 | `cannot-verify` | The referenced file/section no longer exists, or the original predicate can't be checked as written — say why |
+| `accepted` | (`task-review`/`implementation-review` only, D31) An out-of-scope finding the owner explicitly accepted as a recorded `scope_exceptions` entry — not because the underlying violation stopped being true (unlike `resolved`), so the finding's row and the checklist's "Scope check resolved" item must still state every time that the implementation exceeded its declared scope. Excluded from the unresolved-blocking count feeding the verdict, but never deleted. See "Owner-approved scope exceptions" below. |
 
 Before repeating any baseline finding, verify its **exact, literal predicate** against
 the file it refers to, right now — not "I recall this was missing." Concretely: if the
@@ -755,10 +756,109 @@ verification evidence (build/test output).
 ## Blocking versus non-blocking findings
 
 - **Blocking**: scope violation (edits outside `allowed_paths` or touching
-  `forbidden_paths`), missing acceptance-criteria coverage, missing tests for behavior
-  change, undocumented breaking change, architecture/ADR conflict not called out.
+  `forbidden_paths` — see "Owner-approved scope exceptions" below for how an
+  `outside-allowed` violation may reach `pass`), missing acceptance-criteria coverage,
+  missing tests for behavior change, undocumented breaking change, architecture/ADR
+  conflict not called out.
 - **Non-blocking**: style nits, suggestions for a follow-up, minor documentation
   polish that doesn't affect correctness.
+
+## Owner-approved scope exceptions (D31, area review-report-compaction-and-scope-exceptions)
+
+`task-review`/`implementation-review` no longer treat every scope violation as an
+unconditional block. The rule is: **no unresolved or unrecorded scope exception may
+pass** — never "no scope exception may ever pass." A scope violation is never silently
+waived; it still starts as a blocking finding, classified through the normal
+`AUTO_FIX`/`OWNER_DECISION` taxonomy like any other finding, never a special
+unconditional category outside it.
+
+### Classification
+
+Every touched path outside a task's own scope is classified by `classifyScopeFinding`
+(`tools/specs/lifecycle.mjs`), reusing `pathMatchesAllowedPattern`:
+
+| Classification | Meaning | Resolvable via `scope_exceptions`? |
+|---|---|---|
+| `compliant` | Inside `allowed_paths` | n/a — not a finding |
+| `outside-allowed` | Outside `allowed_paths`, not matching `forbidden_paths` | Yes — the owner may accept it |
+| `forbidden` | Matches `forbidden_paths` | **Never** — see below |
+
+The reviewer also distinguishes, and states which applies, independent of this
+classification: work attributable to another task, or unnecessary unrelated work — and
+names the smallest valid resolution (revert, relocate into an already-allowed file,
+attribute to another task, amend the task's declared scope, or accept it as an
+owner-approved exception). A violation is never classified as automatically resolved
+merely because the changed file looks reasonable.
+
+### `forbidden_paths` is categorically excluded
+
+A `forbidden` classification may be resolved only by reverting/re-attributing the
+change, or by an explicit owner-approved scope amendment that edits the task's own
+`forbidden_paths`/`allowed_paths` (see "Specification scope amendment" below) — never
+through a `scope_exceptions` entry. A `scope_exceptions` entry naming a path
+`classifyScopeFinding` classifies `forbidden` is invalid and must never be written; this
+is a hard rule the reviewer checks, not a judgment call.
+
+### The owner's decision menu
+
+Presented once per violation, or once per collected group under
+"Multi-task implementation review" → the aggregate confirmation, below:
+
+```
+1. Accept the listed scope exception
+2. Require the implementation to return to the declared scope
+3. Leave unresolved
+```
+
+Option 1 is available only for an `outside-allowed` finding — never for `forbidden`.
+Option 3 leaves the finding an unresolved `OWNER_DECISION`, which keeps `pass`
+unreachable exactly as before.
+
+### The exception schema
+
+Recorded in the review artifact's `scope_exceptions` frontmatter (see
+`templates/review-report.md`) — one concrete path, one finding ID, a reason, and the
+task fingerprint at acceptance time, never a blanket glob:
+
+```yaml
+scope_exceptions:
+  - finding: F1
+    path: tools/tests/start.test.mjs
+    reason: Dedicated start lifecycle tests are clearer than adding unrelated cases to recovery.test.mjs.
+    decision: accepted
+    confirmed_by: owner
+    confirmed_at: 2026-08-05
+    task_fingerprint: "<fingerprint>"
+```
+
+After acceptance, the finding's lifecycle becomes `accepted` (see "Findings have a
+lifecycle" above).
+
+### Exception validity across re-review
+
+`isScopeExceptionValid(exception, { path, taskFingerprint })` (`tools/specs/lifecycle.mjs`)
+deterministically checks, for each existing `scope_exceptions` entry: the same concrete
+path is still involved, and the task's current semantic fingerprint (D18,
+`computeTaskFingerprint`) matches the fingerprint recorded at acceptance. A changed task
+fingerprint invalidates the exception outright — this half is deterministic and
+testable. Whether the *nature* of the out-of-scope change has "materially expanded"
+beyond that (e.g. the same file grew a large, unrelated new function) is a
+model-inspection step the reviewer performs at re-review time, not something the
+deterministic check alone can decide — a re-review that finds material expansion treats
+the exception as invalid and re-opens the finding for a fresh owner decision, even when
+the deterministic check alone would have passed.
+
+### Specification scope amendment
+
+Amending `allowed_paths`/`forbidden_paths`/task attribution is a specification scope
+amendment, not a review-level exception. It is recorded as an owner decision, edits the
+task file directly, and invalidates that task's semantic fingerprint and review baseline
+(D18's existing mechanism — no new invalidation logic) — requiring a fresh
+`/nevo-ai:task-review` pass. It does not, by itself, force any other lifecycle
+transition on the task's current implementation status. This path already exists
+(`/nevo-ai:spec-refine`, `/nevo-ai:spec-review`) — it is the correct escalation whenever
+a lightweight `scope_exceptions` entry isn't available (a `forbidden` finding) or isn't
+what the owner actually wants (the declared scope itself should change going forward).
 
 ## Architecture drift detection
 

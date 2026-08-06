@@ -56,6 +56,15 @@ decision, short of either N single-task `task-review` round trips or the deliber
 non-gating `spec-audit`. See "Multi-task implementation review orchestration (D30)"
 below.
 
+A thirteenth task, `review-report-compaction-and-scope-exceptions` (D31), was added
+after task 12 reached `status: in-implementation`: task 12's own review shape (and the
+pre-existing `task-review`/`spec-audit`/gating-batch-review shapes it reuses) narrates
+every passing check in prose, expensive once `/nevo-ai:implementation-review` starts
+aggregating several tasks at once; separately, `task-review.md`'s "a scope violation is
+always blocking, no exceptions" wording gave a legitimate, owner-accepted narrow
+violation no path to `pass` short of a full spec amendment. See "Review report
+compaction and owner-approved scope exceptions (D31)" below.
+
 ## Decision
 
 ### State model and fingerprints (D1, D6, D7, D16, D18, D27)
@@ -245,6 +254,60 @@ below.
     own depth across a range; it does not fold it in or duplicate the latter's
     thematic, non-gating shape.
 
+### Review report compaction and owner-approved scope exceptions (D31)
+
+32. **A seven-item compact checklist replaces verbose positive-proof prose** in
+    `task-review`/`implementation-review` reports (`spec-review`/`spec-audit`/the
+    gating batch review are unchanged) — computed by `computeTaskReviewChecklist`
+    (`tools/specs/lifecycle.mjs`), never composed as prose. A checked item carries no
+    further prose; a failed item names the specific acceptance criterion, finding, or
+    scope issue beneath it. `Findings` is restricted to actionable/exception content —
+    never a synthetic `INFORMATIONAL` row for a passing check, since that fact is
+    already the checked checklist item. A normal passing report lands around 15-30
+    lines as a consequence, not a truncation target.
+33. **"No unresolved or unrecorded scope exception may pass" replaces "a scope
+    violation is always blocking, no exceptions."** Every touched path outside a
+    task's own scope is classified by `classifyScopeFinding` (`tools/specs/lifecycle.mjs`,
+    reusing `pathMatchesAllowedPattern`) as `compliant` / `outside-allowed` /
+    `forbidden`. An `outside-allowed` finding may be resolved by an explicit owner
+    decision — accept (`scope_exceptions` entry, one concrete path + one finding ID +
+    task fingerprint, never a glob), require a return to declared scope, or leave
+    unresolved. A `forbidden` finding is **categorically excluded** from this
+    mechanism — only reverting/re-attributing the change, or a specification scope
+    amendment editing the task's own `allowed_paths`/`forbidden_paths` (D18's existing
+    fingerprint-invalidation mechanism, no new logic), resolves it.
+34. **A new finding-lifecycle value, `accepted`**, alongside the existing
+    `resolved`/`still-present`/`changed`/`cannot-verify` set — excluded from the
+    unresolved-blocking count feeding the verdict, but the finding's row and the
+    checklist's "Scope check resolved" item must still state, every time the report is
+    written, that the implementation exceeded its declared scope. The finding is never
+    deleted, only re-validated on the next re-review.
+35. **Exception validity across re-review splits deterministic from model-judged.**
+    `isScopeExceptionValid` (`tools/specs/lifecycle.mjs`) deterministically checks the
+    same concrete path and the task's current semantic fingerprint (D18,
+    `computeTaskFingerprint`) against what was recorded at acceptance — a mismatch
+    invalidates the exception outright. Whether the out-of-scope change has *materially
+    expanded* beyond that is a model-inspection step at re-review time the deterministic
+    check cannot decide; a re-review finding material expansion re-opens the finding for
+    a fresh owner decision even when the fingerprint check alone would have passed.
+36. **`implementation-review`'s aggregate report becomes one compact row per task**
+    (`Task | Verdict | AC | Tests | Scope | Findings`, `Scope` one of `compliant` /
+    `exception pending` / `N owner-approved exception(s)` / `forbidden-path
+    violation`) instead of several concatenated full per-task reports — expanded only
+    for failing/exception/cross-task/owner-decision tasks. Several selected tasks'
+    scope-exception decisions are collected into one owner-facing confirmation, grouped
+    by `outside-allowed` (eligible for the acceptance menu) versus `forbidden` (never
+    eligible) — never folded into one accept-all answer — applied atomically through
+    task 12's existing `bulk-transition` operation, never a second write path, and never
+    touching a task with any other still-unresolved finding.
+37. **The three-value per-task verdict set is unchanged** — `pass` / `changes-required`
+    / `blocked`, no fourth value for a pending scope-exception decision. An unresolved
+    scope-exception decision is an unresolved `OWNER_DECISION` finding, which already
+    routes a task to `changes-required` under the existing table; the aggregate table's
+    `Scope` column, not the `Verdict` column, is where "exception pending" is surfaced.
+    `--verbose` (restoring full AC-by-AC prose) is an optional, additive interface this
+    task may ship without, per its own scope.
+
 ## What was deliberately not adopted / not changed
 
 - A full workflow engine or generic state DSL — explicitly rejected as unjustified
@@ -260,6 +323,14 @@ below.
   to follow, not a code mechanism; only integrity is checked deterministically.
 - Automating the repair-branch flow beyond branch creation — editing files, running the
   targeted checks, and opening the repair PR remain manual, owner-driven steps.
+- A fully-implemented `--verbose` mode for `task-review` (D31) — the interface may be
+  added later without complicating the default compact flow, but the default shape is
+  what this change actually required.
+- Resolving a `forbidden_paths` violation through any review-level mechanism (D31) —
+  only a specification scope amendment or reverting the change.
+- Retroactively rewriting any already-written `reviews/*.md` file from tasks 01-12 to
+  the new compact shape (D31) — it applies going forward, on the next
+  `task-review`/`implementation-review` run.
 
 ## Consequences
 
@@ -291,3 +362,7 @@ below.
   bulk confirmation instead of N separate `/nevo-ai:task-review` round trips, without
   weakening any individual task's own review depth or ever moving a task that still
   carries an unresolved blocking finding.
+- A passing `task-review`/`implementation-review` report costs a fraction of the tokens
+  it used to (D31) — a normal passing report is ~15-30 lines instead of full AC-by-AC
+  prose — while a legitimate, narrow, owner-accepted scope exception no longer forces a
+  permanent block or a full spec amendment just to reach `pass`.

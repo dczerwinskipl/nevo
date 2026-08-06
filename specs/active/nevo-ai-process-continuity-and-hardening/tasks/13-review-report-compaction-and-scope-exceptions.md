@@ -4,11 +4,13 @@ status: draft
 change: nevo-ai-process-continuity-and-hardening
 depends_on:
   - implementation-review-orchestration
+  - state-and-fingerprint-semantics
 semantic_references:
   decisions: [D30, D31]
   constraints: [C1, C2, C4]
   dependency_contracts:
     - implementation-review-orchestration
+    - state-and-fingerprint-semantics
 context:
   required:
     - specs/active/nevo-ai-process-continuity-and-hardening/areas/review-report-compaction-and-scope-exceptions.md
@@ -79,6 +81,11 @@ and decision model `/nevo-ai:implementation-review` already established (its ver
 table, its per-task reuse of `task-review`'s own flow, its `bulk-transition` write path),
 rather than building a parallel one; starting before task 12 exists would mean editing an
 aggregate report shape that didn't exist yet.
+
+`state-and-fingerprint-semantics` (task 01) — `isScopeExceptionValid` (Implementation
+constraints, "Scope-violation policy") calls `computeTaskFingerprint` (D18) directly to
+check a recorded exception's task fingerprint against the task's current one; this task
+cannot implement that check before `computeTaskFingerprint` exists.
 
 ## Implementation constraints
 

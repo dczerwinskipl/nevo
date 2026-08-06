@@ -45,7 +45,8 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    (`pass`/`changes-required`/`blocked`), blocking-finding count, non-blocking-finding
    count, and blocking finding IDs — its full diff/file reads must not remain in this
    command's own context once the subagent returns. Do not ask a status question between
-   tasks; that happens exactly once, at the very end (step 8).
+   tasks; that happens exactly once, at the very end (step 9), after step 8's separate
+   scope-exception collection.
 4. **Cross-task integration pass**, once every per-task review in scope is complete.
    Compute the real diff across the resolved scope, attribute every changed file to every
    in-scope task whose `allowed_paths`/`consequential_paths` match it, and detect a
@@ -65,16 +66,49 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    its own verdict is `pass` **and** it carries zero unresolved blocking findings at
    either level (per `references/review-policy.md` § "Eligibility and the one bulk
    confirmation"). Every other selected task is "must remain unchanged." This is a hard
-   rule — never overridden by which bulk-confirmation option the owner picks in step 8.
+   rule — never overridden by which bulk-confirmation option the owner picks in step 9,
+   though step 8's scope-exception decisions may change *which* tasks are eligible before
+   this is recomputed for step 9.
 7. **Write the aggregate report** to
    `specs/active/<change-id>/reviews/implementation-review-<scope>.md` (create `reviews/`
-   if needed) — overall verdict; one section per selected task (its own verdict, a
-   reference to its `reviews/<task-id>.md`, its unresolved findings by ID/category/
-   one-line summary); the cross-task integration findings; the eligible-for-verification
-   list; the must-remain-unchanged list and why. This overwrites the file read in step 2,
+   if needed) using the compact table shape (D31, area review-report-compaction-and-scope-exceptions requirement 17) — overall verdict; one compact row per selected task:
+
+   ```
+   | Task | Verdict | AC | Tests | Scope | Findings |
+   |---|---|---|---|---|---|
+   | state-and-fingerprint-semantics | pass | 11/11 | passed | compliant | 0 |
+   | recovery-classification-and-machine-readable-errors | changes-required | 7/7 | passed | exception pending | 1 |
+   ```
+
+   `Scope` is one of `compliant` / `exception pending` / `N owner-approved exception(s)` /
+   `forbidden-path violation`. Never several concatenated full per-task reports — details
+   are expanded only for: failing tasks, unresolved scope exceptions, accepted scope
+   exceptions, cross-task findings, and owner decisions (a reference to that task's own
+   `reviews/<task-id>.md` plus its unresolved findings by ID/category/one-line summary,
+   never the full per-task report re-embedded); every other task gets exactly its one
+   row. Also include: the cross-task integration findings, the eligible-for-verification
+   list, the must-remain-unchanged list and why. This overwrites the file read in step 2,
    which is expected.
-8. **One closed confirmation, asked once, only when step 6 found at least one eligible
-   task — never per task:**
+8. **Collect every selected task's pending scope-exception decision into the same turn**
+   (D31 requirement 18), *before* the step 9 status confirmation — never one accept-all
+   answer across every kind of violation. Group by resolution path:
+   - `outside-allowed` findings (eligible for the requirement-11 menu — accept /
+     return-to-scope / leave-unresolved), presented together for however many tasks carry
+     one;
+   - `forbidden` findings (never eligible for acceptance — only revert/re-attribute or a
+     specification scope amendment), presented separately, never folded into the same
+     accept-all answer as the `outside-allowed` group.
+
+   If zero tasks carry a pending scope-exception decision, skip this step entirely and say
+   so. Apply the collected decisions atomically (D31 requirement 19): update each
+   resolved finding's lifecycle once, update the aggregate and per-task review artifacts
+   together, and record any newly `accepted` exception's `scope_exceptions` entry — before
+   step 9's status confirmation runs, so step 9's eligibility computation (step 6) already
+   reflects the just-resolved findings. A task with any *other* still-unresolved finding
+   (not itself a scope exception) is never touched by this step's decisions alone — it
+   still needs its own fix before it can become eligible.
+9. **One closed confirmation, asked once, only when step 6 found at least one eligible
+   task (recomputed after step 8's decisions) — never per task:**
 
    ```
    1. Mark every passing selected task as verified
@@ -88,30 +122,40 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    with `--outcome self-verified`. On 3 → make no changes. **No status is changed without
    this explicit answer**, and the command only ever targets the eligible subset from step
    6 — a task listed as "must remain unchanged" is never included in `--tasks` here, even
-   under the same invocation. If the CLI call fails (a computed transition became invalid
-   between step 6 and this step — e.g. a hard-stopped self-check), relay its exact error;
-   do not retry or override it.
-9. End with `references/review-policy.md` § "Multi-task implementation review" → "Chat
-   output shape". `Verdict` is the value from step 5; bullets list the reviewed task ids,
-   the eligible-for-verification list, the must-remain-unchanged list, and the cross-task
-   integration finding count; `Report` is the path from step 7; `Next command` is:
-   - `blocked` → the specific manual fix needed,
-   - `owner-decision-required` → the exact decision(s) needed, one per finding ID,
-   - `changes-required` → what to fix per task, then re-run this same command,
-   - `pass` and step 8 applied a transition → `node tools/specs.mjs status <change-id>`,
-     run now, relayed verbatim (read-only — report it, never act on it, same rule
-     `/nevo-ai:task-review` follows),
-   - `pass` and step 8 was skipped or answered "leave unchanged" →
-     `No further action required.`
+   under the same invocation. This is the one existing `bulk-transition` write path —
+   step 8's collected scope decisions are never applied through a second, parallel write
+   path, and a task with any still-unresolved finding is never included here regardless
+   of which scope decision it received in step 8. If the CLI call fails (a computed
+   transition became invalid between step 6 and this step — e.g. a hard-stopped
+   self-check), relay its exact error; do not retry or override it.
+10. End with `references/review-policy.md` § "Multi-task implementation review" → "Chat
+    output shape". `Verdict` is the value from step 5; bullets list the reviewed task ids,
+    the eligible-for-verification list, the must-remain-unchanged list, and the cross-task
+    integration finding count; `Report` is the path from step 7; `Next command` is:
+    - `blocked` → the specific manual fix needed,
+    - `owner-decision-required` → the exact decision(s) needed, one per finding ID
+      (including any still-unresolved `forbidden`-classified scope finding, which step 8
+      never resolves),
+    - `changes-required` → what to fix per task, then re-run this same command,
+    - `pass` and step 9 applied a transition → `node tools/specs.mjs status <change-id>`,
+      run now, relayed verbatim (read-only — report it, never act on it, same rule
+      `/nevo-ai:task-review` follows),
+    - `pass` and step 9 was skipped or answered "leave unchanged" →
+      `No further action required.`
 
 ## Rules
 
-- Status changes only ever happen after the explicit menu answer in step 8, and only ever
+- Status changes only ever happen after the explicit menu answer in step 9, and only ever
   through the single `bulk-transition` CLI call — never a per-task `complete`/`verify`
   call, never before the confirmation.
+- Scope-exception decisions (step 8) are collected before, and applied atomically ahead
+  of, step 9's status confirmation — never merged into one accept-all answer across
+  `outside-allowed` and `forbidden` findings, and never applied through any write path
+  other than the finding-lifecycle update (step 8) plus the one `bulk-transition` call
+  (step 9).
 - Never apply a status transition to a task carrying an unresolved blocking finding,
   regardless of which bulk-confirmation option is chosen (step 6's eligibility rule is
-  absolute).
+  absolute, recomputed after step 8).
 - Never re-evaluate an individual task's own acceptance criteria inside the cross-task
   integration pass (step 4) — that boundary is as firm here as it already is for the
   gating batch review and for `spec-audit`.
@@ -119,7 +163,8 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
   orchestrates the former's own depth across a range, it does not fold it in or duplicate
   the latter's thematic, non-gating shape.
 - Do not fix code yourself as part of this command — review stays read-only with respect
-  to the code under review; writing `reviews/implementation-review-<scope>.md` (step 7)
-  and applying the status transition the owner just chose (step 8) are the two
-  exceptions, same principle as `/nevo-ai:task-review`.
+  to the code under review; writing `reviews/implementation-review-<scope>.md` (step 7),
+  recording collected scope-exception decisions (step 8), and applying the status
+  transition the owner just chose (step 9) are the exceptions, same principle as
+  `/nevo-ai:task-review`.
 - Do not commit.

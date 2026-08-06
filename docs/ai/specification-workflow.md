@@ -855,6 +855,76 @@ In Claude Code this is `/nevo-ai:implementation-review <change-id> --all|--tasks
 directly, using `node tools/specs.mjs review-scope`/`bulk-transition` for the
 deterministic parts and running `task-review`'s own flow per task for the review depth.
 
+### Compact, exception-oriented reports and owner-approved scope exceptions (D31)
+
+A `task-review`/`implementation-review` report narrating every passing check in prose is
+correct but expensive — a task with eleven satisfied acceptance criteria used to repeat
+all eleven, and an aggregate `implementation-review` risked concatenating several such
+reports instead of summarizing them. `spec-review`, `spec-audit`, and the gating batch
+review are unaffected by this section — their own report shapes are unchanged.
+
+**Report compaction.** A `task-review`/`implementation-review` per-task report renders a
+seven-item compact checklist — computed, not composed as prose — instead of full
+positive-proof narration:
+
+```
+- [x] All acceptance criteria covered
+- [x] Required automated verification passed
+- [x] Scope check resolved
+- [x] No forbidden-path violation remains unresolved
+- [x] Architecture and documentation remain consistent
+- [x] No unresolved blocking findings
+- [x] No unresolved owner decision
+```
+
+A checked item carries no further prose; a failed item names the specific acceptance
+criterion, finding, or scope issue directly beneath it. `Findings` is restricted to
+actionable or exception content — never a synthetic `INFORMATIONAL` row recording that a
+test passed, a validation command succeeded, or the diff respected `allowed_paths`; those
+facts are already the checked checklist item. Verification renders as one line per
+command plus pass/fail; a fully satisfied acceptance-criteria set renders as one summary
+line, expanding only criteria that are unmet, partial, untested, or questionable. A
+normal passing report lands around 15-30 lines as a consequence of nothing else needing
+saying, never a truncation target — a report with real defects, owner decisions, or
+scope exceptions grows to fit them.
+
+**Owner-approved scope exceptions.** The previous rule — "a scope violation is always
+blocking, no exceptions" — is replaced with: **no unresolved or unrecorded scope
+exception may pass**, never "no scope exception may ever pass." Every touched path
+outside a task's declared scope is classified `compliant` / `outside-allowed` /
+`forbidden` against `allowed_paths`/`forbidden_paths`. An `outside-allowed` violation may
+be resolved through an explicit owner decision — accept it as a recorded, structured
+exception (one concrete path, one finding ID, a reason, and the task's semantic
+fingerprint at acceptance time — never a blanket glob), require the implementation to
+return to its declared scope, or leave it unresolved. A `forbidden` violation is
+**categorically excluded** from this mechanism: only reverting/re-attributing the change,
+or a specification scope amendment that edits the task's own `allowed_paths`/
+`forbidden_paths` (invalidating that task's semantic fingerprint and review baseline, the
+same mechanism a normal spec change already uses), resolves it.
+
+An accepted exception's finding gets a new lifecycle value, `accepted` — excluded from
+the unresolved-blocking count feeding the verdict, but its row and the checklist's
+"Scope check resolved" item still state, every time the report is written, that the
+implementation exceeded its declared scope; the finding is never deleted. Across
+re-review, the same concrete path and the task's current semantic fingerprint are
+checked deterministically against what was recorded at acceptance — a mismatch
+invalidates the exception outright; whether the out-of-scope change has *materially
+expanded* beyond that is a model-inspection judgment the deterministic check cannot make
+on its own, and a re-review finding material expansion re-opens the finding for a fresh
+owner decision regardless.
+
+The three-value per-task verdict set (`pass` / `changes-required` / `blocked`) is
+unchanged — an unresolved scope-exception decision is an unresolved `OWNER_DECISION`
+finding under the existing table, not a fourth verdict value.
+`implementation-review`'s aggregate report renders one compact row per task (`Task |
+Verdict | AC | Tests | Scope | Findings`, `Scope` one of `compliant` / `exception
+pending` / `N owner-approved exception(s)` / `forbidden-path violation`) instead of
+concatenating full per-task reports, and collects every selected task's pending
+scope-exception decision into one owner-facing confirmation — grouped by
+`outside-allowed` (eligible for the acceptance menu) versus `forbidden` (never
+eligible), never merged into one accept-all answer — applied atomically through the same
+bulk-transition operation, never a second write path.
+
 ### Finalizing: the step after every task is verified
 
 Archiving a change (`node tools/specs.mjs archive <change>`) only ever checks local task

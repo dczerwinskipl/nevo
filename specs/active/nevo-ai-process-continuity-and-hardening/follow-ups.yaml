@@ -27,3 +27,16 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: FU-003
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: design-gap
+    severity: non-blocking
+    reason: "Tasks 01-11 declare no semantic_references block even though their own
+      prose cites specific decisions/constraints/dependency contracts (D26/D29
+      completeness check). D32 grandfathers this: the completeness check was
+      only wired into /nevo-ai:spec-review by task 11, after tasks 01-10 were
+      already approved, so it does not apply retroactively. Revisit only if any
+      of tasks 01-11 is reopened."
+    resolver_task: null
+    status: open
+    resolution: null

@@ -355,7 +355,7 @@ the next `/nevo-ai:spec-review` pass rather than reserved as a fresh fork here.
 ## Owner decisions
 
 See `owner-decisions.md` — D1 through D29 recorded 2026-08-04, D30 recorded 2026-08-05,
-D31 recorded 2026-08-06.
+D31 and D32 recorded 2026-08-06.
 
 ## Proposed architecture
 

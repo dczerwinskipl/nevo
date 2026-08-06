@@ -1232,6 +1232,134 @@ export function computeBulkTransitionTarget(currentStatus, outcome) {
  * behavior). Returns `{ ok: true, transitions: [{ id, from, to, noop }] }` or
  * `{ ok: false, reason }`.
  */
+// ── Review report compaction and scope exceptions (D31, task 13) ───────────
+//
+// The deterministic surface behind `task-review.md`/`implementation-review.md`'s
+// compact checklist shape and owner-approved scope-exception model (area
+// review-report-compaction-and-scope-exceptions). Reuses `pathMatchesAllowedPattern`
+// (already used by `classifyDirtyWorktree`/`attributeTouchedPaths`) rather than a
+// second glob matcher.
+
+// The seven-item compact checklist's stable item ids, in the exact order the
+// checklist itself renders them (area requirement 1).
+export const TASK_REVIEW_CHECKLIST_ITEMS = [
+  'ac-coverage', 'verification', 'scope', 'forbidden-path', 'docs', 'blocking-findings', 'owner-decision',
+];
+
+export const TASK_REVIEW_VERDICTS = new Set(['pass', 'changes-required', 'blocked']);
+
+/**
+ * Deterministic verdict-consistency guard (area requirement 5) — computed from
+ * the seven checklist items, never composed as prose. `scopeStatus` is
+ * `'compliant'` (every touched path is inside `allowed_paths`), `'accepted-exception'`
+ * (an `outside-allowed` violation has a valid, matching `scope_exceptions` entry —
+ * see `isScopeExceptionValid`), or `'unresolved'` (an `outside-allowed` violation
+ * with no valid recorded exception). `forbiddenPathClean` is checked and reported
+ * separately from `scopeStatus` (area requirement 10 — a `forbidden_paths`
+ * violation is never resolvable through the exception mechanism, so it can never
+ * be folded into `scopeStatus`). `missingRequiredAutomatedTest` is reported
+ * independently of `acCoverageComplete` and is always `AUTO_FIX`-classified,
+ * never merely non-blocking (area requirement, D31's own consequences) —
+ * mirrors the existing rule that a passing verification command alone never
+ * satisfies AC coverage for a scenario the tests don't actually exercise.
+ * `pass` requires every one of the seven items to resolve clean; any single
+ * failure yields `changes-required` — `blocked` is reserved for the task's own
+ * more fundamental stops (e.g. verification evidence that cannot be produced at
+ * all) that this checklist does not itself model, so it is never returned by
+ * this function directly, only ever composed by the caller when such a stop is
+ * detected outside these seven inputs. Returns `{ verdict, unresolvedItems }`,
+ * `unresolvedItems` being `[{ item, category, reason }]` in checklist order.
+ */
+export function computeTaskReviewChecklist({
+  acCoverageComplete,
+  missingRequiredAutomatedTest = false,
+  verificationPassed,
+  scopeStatus,
+  forbiddenPathClean,
+  docsConsistent,
+  unresolvedBlockingCount = 0,
+  unresolvedOwnerDecisionCount = 0,
+} = {}) {
+  if (!['compliant', 'accepted-exception', 'unresolved'].includes(scopeStatus)) {
+    throw new Error(`Unknown scope status '${scopeStatus}' — must be one of compliant/accepted-exception/unresolved.`);
+  }
+
+  const unresolvedItems = [];
+
+  if (!acCoverageComplete) {
+    unresolvedItems.push({
+      item: 'ac-coverage', category: 'OWNER_DECISION',
+      reason: 'Not every acceptance criterion is met, partially met, tested, or unquestionable.',
+    });
+  }
+  if (missingRequiredAutomatedTest) {
+    unresolvedItems.push({
+      item: 'ac-coverage', category: 'AUTO_FIX',
+      reason: 'An explicitly required automated test is missing — a passing verification command alone does not cover it.',
+    });
+  }
+  if (!verificationPassed) {
+    unresolvedItems.push({ item: 'verification', category: 'AUTO_FIX', reason: 'Required automated verification did not pass.' });
+  }
+  if (scopeStatus === 'unresolved') {
+    unresolvedItems.push({
+      item: 'scope', category: 'OWNER_DECISION',
+      reason: 'A scope violation outside allowed_paths has no valid, recorded owner-approved exception.',
+    });
+  }
+  if (!forbiddenPathClean) {
+    unresolvedItems.push({
+      item: 'forbidden-path', category: 'AUTO_FIX',
+      reason: 'A forbidden_paths violation remains — revert or re-attribute it; it is never resolvable via scope_exceptions.',
+    });
+  }
+  if (!docsConsistent) {
+    unresolvedItems.push({ item: 'docs', category: 'AUTO_FIX', reason: 'Architecture/documentation is not consistent with the change.' });
+  }
+  if (unresolvedBlockingCount > 0) {
+    unresolvedItems.push({
+      item: 'blocking-findings', category: 'AUTO_FIX',
+      reason: `${unresolvedBlockingCount} unresolved blocking finding(s) remain.`,
+    });
+  }
+  if (unresolvedOwnerDecisionCount > 0) {
+    unresolvedItems.push({
+      item: 'owner-decision', category: 'OWNER_DECISION',
+      reason: `${unresolvedOwnerDecisionCount} unresolved owner decision(s) remain.`,
+    });
+  }
+
+  return { verdict: unresolvedItems.length ? 'changes-required' : 'pass', unresolvedItems };
+}
+
+/**
+ * Scope-finding classification (area requirement 9/10) — reuses
+ * `pathMatchesAllowedPattern` verbatim rather than a new glob matcher.
+ * `forbidden` is checked first so a path that (mis)matches both an
+ * `allowed_paths` and a `forbidden_paths` pattern is never misclassified as
+ * `compliant` — `forbidden_paths` is the hard exclusion, by construction.
+ */
+export function classifyScopeFinding(path, { allowedPaths = [], forbiddenPaths = [] } = {}) {
+  if (forbiddenPaths.some(p => pathMatchesAllowedPattern(path, p))) return 'forbidden';
+  if (allowedPaths.some(p => pathMatchesAllowedPattern(path, p))) return 'compliant';
+  return 'outside-allowed';
+}
+
+/**
+ * Exception-validity check across re-review (area requirement 15) —
+ * deterministic half only: the same concrete path and the same task
+ * fingerprint (D18's `computeTaskFingerprint`, passed in by the caller — this
+ * function does no fingerprinting itself). A changed task fingerprint or a
+ * different path invalidates the exception outright. Whether the *nature* of
+ * the change has "materially expanded" beyond that is a model-inspection step
+ * the caller (`task-review.md`'s re-review flow) performs separately — this
+ * function cannot and does not decide that half.
+ */
+export function isScopeExceptionValid(exception, { path, taskFingerprint }) {
+  if (!exception) return false;
+  return exception.path === path && exception.task_fingerprint === taskFingerprint;
+}
+
 export function validateBulkTransition(change, taskIds, outcome) {
   const transitions = [];
   for (const id of taskIds) {
