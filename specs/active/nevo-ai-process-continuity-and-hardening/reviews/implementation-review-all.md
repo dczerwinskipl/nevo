@@ -10,7 +10,33 @@ verdict: blocked
 unresolved_required_fixes: 6
 unresolved_owner_decisions: 3
 unresolved_needs_clarification: 0
+status: partially-stale
+stale_tasks: [recovery-classification-and-machine-readable-errors, conversational-approval-ergonomics, scope-and-follow-up-mechanisms, batch-execution-and-gating-review, finalization-hardening-and-migration, workflow-e2e-tests]
+partially-invalidated-by: reviews/implementation-review-02-04-06-08-09-10.md
 ---
+
+> **Partially stale (2026-08-06).** This `--all` scope's own per-task rows for
+> `recovery-classification-and-machine-readable-errors`, `conversational-approval-ergonomics`,
+> `scope-and-follow-up-mechanisms`, `batch-execution-and-gating-review`,
+> `finalization-hardening-and-migration`, and `workflow-e2e-tests` (below) are outdated —
+> a later, narrower re-review at scope `02-04-06-08-09-10`
+> (`reviews/implementation-review-02-04-06-08-09-10.md`) found and closed every one of
+> their findings; that report's own per-task rows are current. This file's rows for the
+> six tasks *not* in that narrower scope
+> (`state-and-fingerprint-semantics`, `resume-and-continue-controller`,
+> `context-completeness-and-routing-precedence`, `mechanical-task-type`,
+> `workflow-docs-and-adr-migration`, `implementation-review-orchestration`) were never
+> re-reviewed and remain valid historical evidence for those tasks as of this file's own
+> `generated` date — this file's overall `blocked` verdict does not apply to the current
+> state of the change. The current canonical source of truth for any task's own review
+> result is always its own `reviews/<task-id>.md`, never an aggregate file (of either
+> scope) — see `references/review-policy.md` § "Multi-task implementation review."
+>
+> This narrower-supersedes-part-of-a-broader-report situation has no first-class tooling
+> support yet (a real aggregate-report lifecycle/index mechanism is deferred to a future
+> task — see `follow-ups.yaml`); this notice and the `status`/`stale_tasks`/
+> `partially-invalidated-by` frontmatter fields above are a manual, honest interim
+> record, not a computed one.
 
 # Review: nevo-ai-process-continuity-and-hardening (implementation-review, scope: all)
 

@@ -40,3 +40,83 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: FU-004
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: correctness
+    severity: non-blocking
+    reason: "node tools/specs.mjs status / deriveStage's ready-to-start stage
+      reports the first approved task without checking depsSatisfied — found
+      2026-08-06 when status reported task 13 ready-to-start while its
+      dependency (task 12) was still in-implementation. Fix: deriveStage must
+      never report an approved task as ready-to-start unless depsSatisfied is
+      true; report the actual unmet dependencies and the real next valid action
+      instead."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-005
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: design-gap
+    severity: non-blocking
+    reason: "Scoped implementation-review report files
+      (reviews/implementation-review-<scope>.md) have no lifecycle/staleness
+      relationship to each other. A narrower re-review (e.g. scope
+      02-04-06-08-09-10) leaves a broader prior report (scope all) with outdated
+      per-task rows and no marker, index, or overlap detection linking them.
+      Manually patched once (2026-08-06) with an interim
+      status/stale_tasks/partially-invalidated-by frontmatter block on
+      implementation-review-all.md. Needs a real mechanism: structured
+      aggregate-report lifecycle metadata
+      (current/partially-stale/stale/superseded), an aggregate review
+      index/manifest (every aggregate report, its scope, generation timestamp,
+      lifecycle status, covered task fingerprints, stale task subset,
+      invalidating report reference), and /nevo-ai:implementation-review
+      detecting an overlapping (not just exact-string) prior scope. Needs test
+      coverage: full review then narrower re-review, narrower review changing
+      one task, partial invalidation of the old full report, no false full
+      supersession, aggregate/pass rejection when a canonical per-task report
+      disagrees (this last one is already covered —
+      validateAggregateAgainstCanonicalReviews, tools/specs/lifecycle.mjs)."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-006
+    source_task: finalization-hardening-and-migration
+    kind: design-gap
+    severity: non-blocking
+    reason: "No formal correction path exists for drift discovered in a file no task
+      owns (every task's forbidden_paths excludes docs/development/**, but
+      nothing in that directory is any task's allowed_paths either). Hit twice
+      this change: docs/development/git-workflow.md's stale merge-strategy
+      description (task 09's own diff changed the real behavior; fixed via a
+      direct, owner-authorized standalone edit) and, earlier, task-review.md's
+      missing consequential_paths carve-out (task 06 required it, only closed
+      when task 13 happened to also own that file). Needs a named, classified
+      path: unowned-drift, with an explicit owner menu (1: create a narrow
+      corrective task, 2: amend/re-attribute an existing task, 3: an explicit
+      owner-authorized maintenance correction), the decision and exact paths
+      persisted, never silently handled as an ad hoc out-of-band edit the way
+      both incidents above were."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-007
+    source_task: recovery-classification-and-machine-readable-errors
+    kind: design-gap
+    severity: non-blocking
+    reason: "handleStart (tools/specs.mjs) and checkSpecsIndexes/buildSpecsIndexes
+      (tools/specs/service.mjs) read the real repository's ACTIVE_DIR/specs
+      paths directly (module-level constants derived from import.meta.url), not
+      a parameter — so neither can be driven end-to-end in a fixture-backed test
+      without mutating the real repo. Worked around twice this change: AC4 (task
+      02) by extracting handleStart's suspension-construction decision into a
+      pure, separately-tested function (nextSuspensionForNotRetryable); REC-03
+      (task 10) by writing a real test that corrupts and restores the real
+      repo's generated indexes in a finally block. Needs: parameterize
+      repository/spec roots for handleStart, index checks, and similar handlers,
+      so fixture-backed end-to-end tests are possible without mutating the real
+      repository, while retaining production defaults (no behavior change for
+      real CLI invocations)."
+    resolver_task: null
+    status: open
+    resolution: null

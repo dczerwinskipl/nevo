@@ -61,7 +61,16 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    implementation review" → "Overall verdict — an explicit table, never composed as
    prose." Count unresolved `OWNER_DECISION`/`NEEDS_CLARIFICATION` findings and unresolved
    `AUTO_FIX` findings separately, across both the per-task and cross-task-integration
-   levels, before evaluating the table.
+   levels, before evaluating the table. Before writing the per-task `Verdict` column
+   (step 7), run `validateAggregateAgainstCanonicalReviews` (`tools/specs/lifecycle.mjs`)
+   against each selected task's own `reviews/<task-id>.md` frontmatter (`verdict`,
+   `unresolved_required_fixes`, `unresolved_owner_decisions`,
+   `unresolved_needs_clarification`) and the row you are about to write — this is what
+   catches an aggregate silently drifting from its own per-task artifacts (found by
+   hand once, 2026-08-06: a per-task review's frontmatter still said
+   `changes-required` after its body/counts had been updated to `pass`). If it returns
+   `{ ok: false, reason }`, stop and fix the named canonical review file first — never
+   write an aggregate row that contradicts it.
 6. **Determine eligibility.** A task is eligible for the bulk-verification offer only when
    its own verdict is `pass` **and** it carries zero unresolved blocking findings at
    either level (per `references/review-policy.md` § "Eligibility and the one bulk

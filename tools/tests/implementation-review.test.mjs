@@ -21,6 +21,7 @@ import {
   selectEligibleForVerification,
   computeBulkTransitionTarget, validateBulkTransition, MULTI_REVIEW_OUTCOMES,
   attributeTouchedPaths, detectBatchIntegrationFindings,
+  validateAggregateAgainstCanonicalReviews,
 } from '../specs/lifecycle.mjs';
 import { loadChange, writeBulkTransition } from '../specs/service.mjs';
 
@@ -121,6 +122,72 @@ describe('resolveReviewScope — deterministic, eligibility-checked scope resolu
       const status = scopeFixture().tasks.find(t => t.id === id).status;
       assert.equal(MULTI_REVIEW_ELIGIBLE_STATUSES.has(status), true);
     }
+  });
+});
+
+// ── validateAggregateAgainstCanonicalReviews — aggregate/per-task consistency guard ─
+
+function cleanReview(overrides = {}) {
+  return {
+    verdict: 'pass', unresolvedRequiredFixes: 0, unresolvedOwnerDecisions: 0, unresolvedNeedsClarification: 0,
+    ...overrides,
+  };
+}
+
+describe('validateAggregateAgainstCanonicalReviews — the aggregate must never contradict its own per-task artifacts', () => {
+  test('every task pass, aggregate agrees: ok', () => {
+    const perTaskReviews = { a: cleanReview(), b: cleanReview() };
+    const aggregateRow = { a: 'pass', b: 'pass' };
+    assert.deepEqual(validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow), { ok: true });
+  });
+
+  test('a missing canonical review artifact is rejected by name', () => {
+    const perTaskReviews = { a: cleanReview(), b: null };
+    const aggregateRow = { a: 'pass', b: 'pass' };
+    const r = validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /'b'.*no canonical review artifact/);
+  });
+
+  test('a review claiming pass with unresolved findings recorded is rejected as internally inconsistent (the exact bug this guard exists to catch)', () => {
+    const perTaskReviews = { a: cleanReview({ verdict: 'pass', unresolvedRequiredFixes: 1 }) };
+    const aggregateRow = { a: 'pass' };
+    const r = validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /'a'.*internally inconsistent/);
+  });
+
+  test('a review claiming changes-required with zero unresolved findings recorded is rejected as internally inconsistent', () => {
+    // The real bug found 2026-08-06: a per-task review's frontmatter verdict
+    // said changes-required while its own unresolved counts were all 0 —
+    // the body text had been updated to pass, the frontmatter verdict field
+    // hadn't.
+    const perTaskReviews = { a: cleanReview({ verdict: 'changes-required' }) };
+    const aggregateRow = { a: 'changes-required' };
+    const r = validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /'a'.*internally inconsistent/);
+  });
+
+  test('the aggregate row disagreeing with an internally-consistent canonical review is rejected, naming both values', () => {
+    const perTaskReviews = { a: cleanReview({ verdict: 'changes-required', unresolvedRequiredFixes: 1 }) };
+    const aggregateRow = { a: 'pass' };
+    const r = validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /'a'.*claims 'pass'.*says 'changes-required'/);
+  });
+
+  test('an owner-decision-classified unresolved count alone (no required fixes) still makes a pass verdict inconsistent', () => {
+    const perTaskReviews = { a: cleanReview({ verdict: 'pass', unresolvedOwnerDecisions: 1 }) };
+    const aggregateRow = { a: 'pass' };
+    assert.equal(validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow).ok, false);
+  });
+
+  test('checks tasks in aggregateRow key order and reports the first disagreement', () => {
+    const perTaskReviews = { a: cleanReview(), b: null, c: null };
+    const aggregateRow = { a: 'pass', b: 'pass', c: 'pass' };
+    const r = validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow);
+    assert.match(r.reason, /'b'/);
   });
 });
 

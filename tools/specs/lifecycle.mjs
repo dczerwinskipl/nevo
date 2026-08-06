@@ -960,15 +960,28 @@ function withSuspension(task, stageResult) {
  * Read-only `self_check` state classifier (D28, requirement 8) — never writes
  * `self_check` itself (area `batch-execution-and-gating-review` is the sole
  * writer). `current` is `{ fingerprint, revision }` for the task right now, if
- * the caller was able to compute it; omitted (or non-matching) reads as
- * "cannot confirm freshness," which conservatively reports `passed-but-stale`
- * rather than falsely claiming `passed-and-fresh`.
+ * the caller was able to compute it; omitted (or non-matching fingerprint)
+ * reads as "cannot confirm freshness," which conservatively reports
+ * `passed-but-stale` rather than falsely claiming `passed-and-fresh`.
+ *
+ * Freshness is `fingerprint`-only (D18's task-level semantic projection) —
+ * `current.revision` is accepted for callers that still pass it (harmless,
+ * ignored) but is never compared. `self_check.revision` is audit/provenance
+ * metadata only (owner-decisions.md D33): the repository's global `HEAD`
+ * advances for reasons that have nothing to do with this task (another task
+ * committing, an unrelated fix), so comparing it here would report a task as
+ * stale purely because time passed elsewhere — the exact over-invalidation
+ * D33 already rejected for the batch gating review's equivalent check
+ * (`staleEvidenceTasks`). Detecting the narrower real risk revision once
+ * stood in for (this task's own already-self-checked commit being amended or
+ * rebased after the fact) is deferred to a future task-specific provenance
+ * mechanism, same as D33's own deferral.
  */
 function describeSelfCheck(task, current) {
   const selfCheck = task.self_check;
   if (!selfCheck) return { state: 'not-run' };
   if (selfCheck.status === 'failed') return { state: 'failed', failedCriteria: selfCheck.failed_criteria || [] };
-  const fresh = Boolean(current) && selfCheck.fingerprint === current.fingerprint && selfCheck.revision === current.revision;
+  const fresh = Boolean(current) && selfCheck.fingerprint === current.fingerprint;
   return { state: fresh ? 'passed-and-fresh' : 'passed-but-stale' };
 }
 
@@ -1159,6 +1172,56 @@ export function resolveReviewScope(change, { all = false, tasks: tasksSpec } = {
 }
 
 export const MULTI_TASK_REVIEW_VERDICTS = new Set(['pass', 'changes-required', 'owner-decision-required', 'blocked']);
+
+/**
+ * Deterministic consistency guard between an aggregate `implementation-review`
+ * and the per-task canonical review artifacts (`reviews/<task-id>.md`) it
+ * summarizes — the exact class of contradiction a 2026-08-06 reconciliation
+ * pass found by hand (an aggregate report claiming `pass` for a task whose own
+ * `reviews/<task-id>.md` frontmatter still said `changes-required`). The
+ * aggregate must never override or invent a per-task verdict in prose; this
+ * function is what enforces that mechanically instead of relying on the
+ * writer to remember. `perTaskReviews` is `{[taskId]: ReviewFrontmatter |
+ * null}` — `null` (or absent) means the review file is missing/unreadable,
+ * gathered by the caller (I/O). `ReviewFrontmatter` is `{ verdict,
+ * unresolvedRequiredFixes, unresolvedOwnerDecisions,
+ * unresolvedNeedsClarification }`, read verbatim from that file's frontmatter.
+ * `aggregateRow` is `{[taskId]: verdict}`, the aggregate's own per-task
+ * `Verdict` column as written. Returns `{ ok: true }` or `{ ok: false, reason
+ * }` naming the first disagreement found, evaluated in `Object.keys(aggregateRow)`
+ * order. Does not itself compare task fingerprints — no per-task review
+ * currently persists one in its own frontmatter (unlike `spec-review`'s
+ * `task_fingerprints` map); adding that is separate, larger work, not folded
+ * in here silently.
+ */
+export function validateAggregateAgainstCanonicalReviews(perTaskReviews, aggregateRow) {
+  for (const taskId of Object.keys(aggregateRow)) {
+    const review = perTaskReviews[taskId];
+    if (!review) {
+      return { ok: false, reason: `'${taskId}': no canonical review artifact found (reviews/${taskId}.md missing or unreadable).` };
+    }
+    const unresolvedCount = (review.unresolvedRequiredFixes ?? 0) + (review.unresolvedOwnerDecisions ?? 0) + (review.unresolvedNeedsClarification ?? 0);
+    if (review.verdict === 'pass' && unresolvedCount > 0) {
+      return {
+        ok: false,
+        reason: `'${taskId}': canonical review (reviews/${taskId}.md) verdict is 'pass' but records ${unresolvedCount} unresolved finding(s) — internally inconsistent artifact, fix the review file first.`,
+      };
+    }
+    if (review.verdict !== 'pass' && unresolvedCount === 0) {
+      return {
+        ok: false,
+        reason: `'${taskId}': canonical review (reviews/${taskId}.md) verdict is '${review.verdict}' but records zero unresolved findings — internally inconsistent artifact, fix the review file first.`,
+      };
+    }
+    if (aggregateRow[taskId] !== review.verdict) {
+      return {
+        ok: false,
+        reason: `'${taskId}': aggregate row claims '${aggregateRow[taskId]}' but its canonical review (reviews/${taskId}.md) says '${review.verdict}'.`,
+      };
+    }
+  }
+  return { ok: true };
+}
 
 /**
  * Overall verdict for `/nevo-ai:implementation-review` (D30, task 12,

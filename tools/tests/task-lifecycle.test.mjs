@@ -553,6 +553,19 @@ describe('deriveStage — self-check-aware reporting (D28, AC7)', () => {
     const r = deriveStage(inProgressChange(selfCheck), { pr: null, ghAvailable: true, verification: [] });
     assert.deepEqual(r.selfCheck, { state: 'passed-but-stale' });
   });
+
+  test('D33: global HEAD advancing alone (an unrelated later commit) never makes a fingerprint-unchanged self-check stale', () => {
+    // Same scenario staleEvidenceTasks' own D33 regression already covers for
+    // the batch gating review — describeSelfCheck must not regress the same
+    // way for the single-task deriveStage path. Task A's self-check recorded
+    // revision 'rev-A'; by the time deriveStage runs, task B's own later
+    // commit has moved the repository's real HEAD to 'rev-B' — A's own
+    // fingerprint is unchanged, so it must still read passed-and-fresh.
+    const selfCheck = { status: 'passed', fingerprint: 'fp-a', revision: 'rev-A' };
+    const facts = { pr: null, ghAvailable: true, verification: [], currentTaskState: { fingerprint: 'fp-a', revision: 'rev-B' } };
+    const r = deriveStage(inProgressChange(selfCheck), facts);
+    assert.deepEqual(r.selfCheck, { state: 'passed-and-fresh' });
+  });
 });
 
 describe('scopeOf/isEndOfScope/nextInScope — authorized scope (AC4)', () => {

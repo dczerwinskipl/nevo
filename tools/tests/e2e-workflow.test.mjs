@@ -876,7 +876,7 @@ describe('D28 — persisted self-check state', () => {
     assert.equal(hardStopReason({}).code, 'unresolved-self-check');
   });
 
-  test('self_check freshness end-to-end via deriveStage: fresh when fingerprint/revision match', () => {
+  test('self_check freshness end-to-end via deriveStage: fresh when fingerprint matches (D33: revision is not a staleness input)', () => {
     const change = { _slug: 'c', tasks: [{ id: 't1', status: 'in-implementation', self_check: { status: 'passed', fingerprint: 'fp1', revision: 'rev1' } }] };
     const facts = { pr: null, ghAvailable: true, verification: [], currentTaskState: { fingerprint: 'fp1', revision: 'rev1' } };
     assert.deepEqual(deriveStage(change, facts).selfCheck, { state: 'passed-and-fresh' });
