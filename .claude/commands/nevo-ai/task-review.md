@@ -27,11 +27,16 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    proxy for whether the *review itself* is stale, which step 2 already covers
    separately).
 4. Verify the diff stays within `allowed_paths` and does not touch `forbidden_paths`. A
-   violation can never be silently waived — it prevents `pass` while unresolved — but it
-   may be resolved through an explicit owner decision recorded in the review artifact
-   (D31): **no unresolved or unrecorded scope exception may pass**, never "no scope
-   exception may ever pass." Classify every touched path outside the task's own scope
-   with `classifyScopeFinding(path, { allowedPaths, forbiddenPaths })`
+   write inside the task's own `consequential_paths` is **not** a scope violation at this
+   step — it is a direct, mechanical, generated-or-reference-only consequence of the
+   task's primary scope, still shown in the diff and still reviewed (steps 5-6), just
+   never classified or counted as a scope finding. A genuine violation (outside both
+   `allowed_paths` and `consequential_paths`) can never be silently waived — it prevents
+   `pass` while unresolved — but it may be resolved through an explicit owner decision
+   recorded in the review artifact (D31): **no unresolved or unrecorded scope exception
+   may pass**, never "no scope exception may ever pass." Classify every touched path
+   outside the task's own `allowed_paths`/`consequential_paths` with
+   `classifyScopeFinding(path, { allowedPaths, forbiddenPaths })`
    (`tools/specs/lifecycle.mjs`) — `compliant` / `outside-allowed` / `forbidden` — per
    `references/review-policy.md` § "Owner-approved scope exceptions."
 4a. **Resolve every `outside-allowed`/`forbidden` finding from step 4**, one at a time

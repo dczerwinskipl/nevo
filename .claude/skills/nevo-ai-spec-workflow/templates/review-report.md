@@ -161,9 +161,13 @@ re-review.
 ## Scope compliance *(task review only)*
 
 Whether the diff stayed within `allowed_paths` and away from `forbidden_paths` —
-confirm explicitly, don't just imply it from the absence of a finding. Every touched
-path is classified via `classifyScopeFinding` (`compliant` / `outside-allowed` /
-`forbidden`). A `compliant` path needs no further mention. An `outside-allowed` path is
+confirm explicitly, don't just imply it from the absence of a finding. A write inside
+the task's own `consequential_paths` is **not** a scope violation — a direct,
+mechanical, generated-or-reference-only consequence of the task's primary scope, still
+shown in the diff and still reviewed, just never classified or counted as a scope
+finding (area context-and-validation-hardening, task 06). Every other touched path
+outside `allowed_paths`/`consequential_paths` is classified via `classifyScopeFinding`
+(`compliant` / `outside-allowed` / `forbidden`). A `compliant` path needs no further mention. An `outside-allowed` path is
 a blocking finding classified `AUTO_FIX`/`OWNER_DECISION` (never a special,
 unconditional category) — name the smallest valid resolution (revert, relocate into an
 already-allowed file, attribute to another task, amend the task's declared scope, or

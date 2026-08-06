@@ -2,8 +2,8 @@
 review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: batch-execution-and-gating-review
-generated: 2026-08-05T17:43:40Z
-verdict: blocked
+generated: 2026-08-06T18:06:26Z
+verdict: changes-required
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 2
 unresolved_needs_clarification: 0
@@ -13,80 +13,105 @@ unresolved_needs_clarification: 0
 
 ## Verdict
 
-`blocked` — the task's own core logic (four-mode selection, derived progress, hard-stop/
-risk-signal split, evidence freshness, self-check writer, gating batch review) is
-correct, thoroughly tested, and matches its area/owner-decision model, but the diff that
-actually makes it work (commit `aa71381`) writes to files outside this task's declared
-`allowed_paths`/`consequential_paths` — a scope violation, which `task-review.md` itself
-names as the canonical example of `blocked` rather than `changes-required`.
+`changes-required` — the task's own core logic (four-mode selection, derived progress,
+hard-stop/risk-signal split, evidence freshness, self-check writer, gating batch review)
+is correct, thoroughly tested, and matches its area/owner-decision model, but two
+unresolved `OWNER_DECISION` findings remain open (F1: a scope finding classified
+`outside-allowed`, resolvable via the D31 owner-approved-exception menu but not yet
+resolved; F2: an undocumented predicate substitution in `staleEvidenceTasks`). Per D31,
+an unresolved `outside-allowed` scope finding routes to `changes-required`, not
+`blocked` — `blocked` is reserved for a more fundamental stop (verification evidence
+that cannot be produced at all, or a `forbidden`-classified path), neither of which
+applies here.
 
-No reliable previous-file baseline is available. Performing a fresh review of the
-current task implementation.
+Baseline read in full before this run touched the file
+(`specs/active/nevo-ai-process-continuity-and-hardening/reviews/batch-execution-and-gating-review.md`,
+generated `2026-08-05T17:43:40Z`, verdict `blocked`). Both of its findings (F1, F2)
+re-verified against current file/commit contents below; their exact predicates are
+unchanged since that baseline.
+
+## Checklist
+
+- [ ] All acceptance criteria covered
+  - AC18: not fully met — see F2 (the `self_check.revision` half of the staleness
+    predicate is not implemented in the gating-review path)
+- [x] Required automated verification passed
+- [ ] Scope check resolved
+  - F1: unresolved `outside-allowed` scope finding (`tools/lib/git.mjs`,
+    `tools/lib/shell-words.mjs`) — no `scope_exceptions` entry recorded
+- [x] No forbidden-path violation remains unresolved
+- [x] Architecture and documentation remain consistent
+- [ ] No unresolved blocking findings
+  - F1, F2 (see below)
+- [ ] No unresolved owner decision
+  - 2 unresolved owner decisions (F1, F2)
 
 ## Findings
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | OWNER_DECISION | first-review | Every file this task's diff touches is listed in the task's own `allowed_paths` or `consequential_paths` | Task 08's load-bearing logic (real whole-batch diff via `git.getChangedFiles`, quote-aware self-check command parsing via `splitShellWords`) was added in `tools/lib/git.mjs` and the new `tools/lib/shell-words.mjs` — neither is in `allowed_paths` (`tools/lib/git.mjs` is task 02's declared file per `tasks/02-recovery-classification-and-machine-readable-errors.md`) or in `consequential_paths` (context packet reports `"consequential_paths": []`). The same commit (`aa71381`) also touched `.claude/commands/nevo-ai/spec-review.md`, `package.json`, the new `.github/workflows/tool-tests.yml`, and test files not declared for this task (`tools/tests/cli-smoke.test.mjs`, `tools/tests/verification-command.test.mjs`, `tools/tests/git.test.mjs`, `tools/tests/task-lifecycle.test.mjs`, `tools/tests/e2e-workflow.test.mjs`) — none of these appear in any task's declared paths at all for the `.github`/`package.json` items. Remediation is a judgment call (retroactively extend this task's declared scope vs. treat the commit as a legitimate cross-cutting fix vs. split it after the fact), not a mechanical one. | `git show --stat aa71381` lists `tools/lib/git.mjs`, `tools/lib/shell-words.mjs` (new), `.claude/commands/nevo-ai/spec-review.md`, `package.json`, `.github/workflows/tool-tests.yml`, and the test files above; task 08's context packet's `allowed_paths` is exactly `[tools/specs/lifecycle.mjs, tools/specs/service.mjs, tools/specs.mjs, tools/tests/batch.test.mjs, .claude/commands/nevo-ai/task-review.md, .claude/commands/nevo-ai/task-next.md, .claude/skills/nevo-ai-spec-workflow/templates/review-report.md, .claude/skills/nevo-ai-spec-workflow/references/review-policy.md]`; `handleBatchReview` (`tools/specs.mjs:558`) calls `git.getChangedFiles`, and `handleSelfCheck`'s `runVerificationCommand` (`tools/specs.mjs:404-411`) calls `splitShellWords` — both load-bearing for this task's own acceptance criteria (AC7/AC10/AC11/AC17). | `tools/lib/git.mjs`, `tools/lib/shell-words.mjs` |
-| F2 | OWNER_DECISION | first-review | `staleEvidenceTasks` (D19/D28, area requirement 5a(b)) compares each batched task's `self_check.fingerprint` **and** `self_check.revision` against its *current* semantic fingerprint/revision as one predicate, separate from the file-overlap check (5a(a)) | The actual implementation of `staleEvidenceTasks` in `tools/specs/lifecycle.mjs` only ever compares `fingerprint`; it never receives or compares a "current revision" value at all — `handleBatchReview` (`tools/specs.mjs`) never computes one to pass in. The fingerprint+revision comparison the area doc and AC18 both name explicitly *is* correctly implemented elsewhere — `describeSelfCheck` (`tools/specs/lifecycle.mjs:953-959`), used by `deriveStage` for the single-task resume path — but that code path is never invoked by the gating batch review. This may be an intentional, arguably superior substitution (the real per-file diff-overlap check is more precise than a raw revision-equality comparison, which would over-invalidate every earlier task's evidence the moment *any* later commit lands, regardless of relevance — exactly what D19's own rationale warns against), but as written it is a literal deviation from the task's own "Implementation constraints" text and AC18's wording, untested for the revision-only case. This is a design question for the owner to confirm (accept the substitution and correct the written AC/area text to match, or require the literal revision check) rather than a fix an agent should silently pick a side on. | `tools/specs/lifecycle.mjs:732-753` (`staleEvidenceTasks`) never references `self_check.revision`; compare to `tools/specs/lifecycle.mjs:953-959` (`describeSelfCheck`), which does `selfCheck.fingerprint === current.fingerprint && selfCheck.revision === current.revision`. `tools/tests/batch.test.mjs`'s AC18 test (`"a self_check.fingerprint no longer matching the current fingerprint is stale..."`) only exercises the fingerprint half. | `tools/specs/lifecycle.mjs` (`staleEvidenceTasks`), `tools/specs.mjs` (`handleBatchReview`) |
-| F3 | INFORMATIONAL | first-review | — | `node tools/specs.mjs check` reports `stale: specs/index.generated.json`, but regenerating and diffing it shows the only change is task 12 (`implementation-review-orchestration`)'s own `self_check` block being newly present in `change.yaml` — an unrelated, currently-in-implementation task, not anything task 08's own diff touches (task 08's `allowed_paths` never includes any `specs/**` source file). Per review-policy's "Gating versus non-gating checks," this is repository-wide non-gating staleness attributable to other, unrelated work, not a blocking finding for this task. Reverted the accidental regeneration (`git checkout -- specs/index.generated.json specs/active.generated.md specs/archive.generated.md`) to keep this review read-only. | `node tools/specs.mjs check` → `stale: specs/index.generated.json`; `git diff -- specs/index.generated.json` after a throwaway `generate` showed only task 12's `self_check` block appearing. | — |
-| F4 | NON_BLOCKING | first-review | — | `tools/tests/batch.test.mjs` (and, consistently, task 10's `tools/tests/e2e-workflow.test.mjs`) exercise every batch mechanism exclusively at the pure `lifecycle.mjs`-function level; none of the actual CLI handlers this task adds (`handleBatchStart`, `handleBatchStatus`, `handleBatchReview`, `handleSelfCheck`) are exercised against a real fixture with real file I/O/git, unlike `tools/tests/start.test.mjs`'s convention of fixture-backed tests for comparable I/O-touching code. All manual verification below passes, so this is a coverage-depth observation, not a demonstrated defect — candidate for follow-up recording (not recorded — requires owner-facing confirmation, out of scope for this subagent run). | `Grep` for `handleBatchStart\|handleBatchReview\|handleBatchStatus\|handleSelfCheck` across `tools/tests/` matches only `tools/tests/batch.test.mjs` (the exported-function list, not a call) and `tools/tests/verification-command.test.mjs` (tests `runVerificationCommand`/`splitShellWords` directly, still not the full `handleSelfCheck` I/O path). | `tools/tests/batch.test.mjs`, `tools/tests/e2e-workflow.test.mjs` |
-| F5 | INFORMATIONAL | first-review | — | The task's own comment header in `tools/tests/batch.test.mjs` ("`// Run: node --test tools/tests/`") uses the bare-directory form that fails on this Windows repo (`MODULE_NOT_FOUND`) rather than the working `node --test tools/tests/*.test.mjs`. This is not unique to this task — the identical comment appears in several test files that predate this change on `main` (e.g. `tools/tests/fs-safety.test.mjs`, `tools/tests/bash-guard.test.mjs`, `tools/tests/index-generation.test.mjs`), and the task's own "## Verification" section (and `package.json`'s `test` script, and the new CI workflow) already use explicit file paths / the correct glob, not the broken bare form. Pre-existing repo-wide convention, not introduced or worsened by this task. | `git log main -1 -- tools/tests/fs-safety.test.mjs` shows the file predates this branch; `package.json`'s `"test"` script uses `node --test tools/tests/*.test.mjs`. | `tools/tests/batch.test.mjs:6` |
+| F1 | OWNER_DECISION | still-present | Every file this task's diff touches is either in the task's own `allowed_paths` or classifies `compliant`/is exempt as `consequential_paths` | Re-verified against current commit content: `getChangedFiles` (`tools/lib/git.mjs`, added in `aa71381`) is task 08's own real whole-batch-diff logic (D19/D24, used by `handleBatchReview`); `splitShellWords` (`tools/lib/shell-words.mjs`, new file, `aa71381`) is task 08's own quote-aware self-check verification-command tokenizer (D28, used by `runVerificationCommand`). Both are load-bearing for this task's own acceptance criteria (AC7, AC10, AC11, AC17) but neither path is in `allowed_paths` (`tools/lib/**` is not declared) or `consequential_paths` (`[]`). `classifyScopeFinding(path, {allowedPaths, forbiddenPaths})` returns `outside-allowed` for both — neither matches a `forbidden_paths` pattern (`src/**`, `tests/**`, `examples/**`, `docs/development/**`), so this is resolvable via the D31 owner-approved-exception menu (accept / return to declared scope / leave unresolved) — not something this review can decide on its own. The same commit also touches several other undeclared paths, all likewise `outside-allowed`, none `forbidden`: `.claude/commands/nevo-ai/spec-review.md`, `package.json`, `.github/workflows/tool-tests.yml` (new), `tools/tests/cli-smoke.test.mjs`, `tools/tests/verification-command.test.mjs`, `tools/tests/git.test.mjs`, `tools/tests/task-lifecycle.test.mjs`, `tools/tests/e2e-workflow.test.mjs` — these are incidental to a broader post-hoc fix commit spanning multiple tasks' concerns (per the commit's own message, "addresses an external re-review... six work packets"), not load-bearing for task 08's own acceptance criteria specifically, and not attributable to any task's declared scope as written. No `scope_exceptions` entry exists in this file's frontmatter and no owner decision in `owner-decisions.md` (checked D30-D32, the only recent entries) addresses this. Unresolved. | `git show aa71381 -- tools/lib/git.mjs` / `tools/lib/shell-words.mjs` shows both files' content is exactly `getChangedFiles`/`splitShellWords`; `git show aa71381 --stat` lists all touched paths; task 08's context packet `allowed_paths` = `[tools/specs/lifecycle.mjs, tools/specs/service.mjs, tools/specs.mjs, tools/tests/batch.test.mjs, .claude/commands/nevo-ai/task-review.md, .claude/commands/nevo-ai/task-next.md, .claude/skills/nevo-ai-spec-workflow/templates/review-report.md, .claude/skills/nevo-ai-spec-workflow/references/review-policy.md]`, `consequential_paths: []`; `owner-decisions.md` D30/D31/D32 concern tasks 12/13, not this finding. | `tools/lib/git.mjs`, `tools/lib/shell-words.mjs` (+ incidental paths above) |
+| F2 | OWNER_DECISION | still-present | `staleEvidenceTasks` (D19/D28, area requirement 5a(b)) compares each batched task's `self_check.fingerprint` **and** `self_check.revision` against its *current* semantic fingerprint/revision as one predicate, separate from the file-overlap check (5a(a)) | Re-read `tools/specs/lifecycle.mjs` just now: `staleEvidenceTasks` (lines 732-753) still only ever compares `task.self_check.fingerprint !== currentFp` — it never receives or compares a "current revision" value; `handleBatchReview` still never computes one to pass in. The fingerprint+revision comparison the area doc (requirement 5a(b)) and AC18 both name explicitly is still correctly implemented only in `describeSelfCheck` (lines 953-959: `selfCheck.fingerprint === current.fingerprint && selfCheck.revision === current.revision`), which serves the single-task resume path (`deriveStage`), not the gating batch review. Checked for documentation of this as an intentional substitution since the baseline: the task file's AC18 text, the area doc's requirement 5a(b) text, and `owner-decisions.md` (D30-D32, the only entries added since the baseline review) are all unchanged and still describe the literal fingerprint-and-revision comparison — no ADR or decision record documents the substitution. Still undocumented, still a live design question for the owner (accept the substitution and correct the written AC/area text, or require the literal revision check). | `tools/specs/lifecycle.mjs:732-753` (`staleEvidenceTasks`, re-read this run) vs. `tools/specs/lifecycle.mjs:953-959` (`describeSelfCheck`); `grep` for `self_check.revision`/`AC18` across `specs/active/nevo-ai-process-continuity-and-hardening/` finds only the pre-existing task/area text and the prior reviews, no new documentation. | `tools/specs/lifecycle.mjs` (`staleEvidenceTasks`), `tools/specs.mjs` (`handleBatchReview`) |
+| F3 | NON_BLOCKING | still-present | — | `tools/tests/batch.test.mjs` (and task 10's `tools/tests/e2e-workflow.test.mjs`) still exercise every batch mechanism only at the pure `lifecycle.mjs`-function level — none of `handleBatchStart`/`handleBatchStatus`/`handleBatchReview`/`handleSelfCheck` are exercised against a real fixture with real file I/O/git, unlike `tools/tests/start.test.mjs`'s fixture-backed convention. All verification below passes; coverage-depth observation, not a demonstrated defect. Candidate for follow-up recording — left unrecorded pending the orchestrator's centralized decision collection for this run. | `Grep` for `handleBatchStart\|handleBatchReview\|handleBatchStatus\|handleSelfCheck` in `tools/tests/` matches only a comment in `tools/tests/batch.test.mjs` referencing `handleBatchReview`, not a call. | `tools/tests/batch.test.mjs` |
 
 ## Scope compliance
 
-**Not clean.** `docs/development/**`, `src/**`, `tests/**`, `examples/**` (this task's
-`forbidden_paths`) are untouched by either commit that implements this task
-(`a25ad2f`, `aa71381`) — confirmed via `git show --stat` on both. However, the diff that
-completes this task's own acceptance criteria (`aa71381`) touches several files outside
-`allowed_paths`/`consequential_paths` — see F1. The original implementation commit
-(`a25ad2f`) alone stayed entirely within `allowed_paths`.
+**Not clean — 1 unresolved `outside-allowed` finding (F1), 0 `forbidden`.**
+`docs/development/**`, `src/**`, `tests/**`, `examples/**` (this task's `forbidden_paths`)
+remain untouched by either commit that implements this task (`a25ad2f`, `aa71381`) —
+confirmed via `git show --stat` on both, re-checked this run. `a25ad2f` (the original
+implementation) stays entirely within `allowed_paths`. `aa71381` (the completing fix
+commit) touches, outside `allowed_paths`/`consequential_paths`: `tools/lib/git.mjs`,
+`tools/lib/shell-words.mjs` (new — both load-bearing for this task, see F1),
+`.claude/commands/nevo-ai/spec-review.md`, `package.json`,
+`.github/workflows/tool-tests.yml` (new), `tools/tests/cli-smoke.test.mjs`,
+`tools/tests/verification-command.test.mjs`, `tools/tests/git.test.mjs`,
+`tools/tests/task-lifecycle.test.mjs`, `tools/tests/e2e-workflow.test.mjs`. Every one of
+these classifies `outside-allowed` via `classifyScopeFinding` (none matches a
+`forbidden_paths` pattern). No `scope_exceptions` entry is recorded in this file — F1 is
+unresolved. No owner decision recorded elsewhere accepts, rejects, or otherwise resolves
+it.
+
+## Verification
+
+- `node --test tools/tests/batch.test.mjs` — passed (67/67, 12 suites)
+- `node --test tools/tests/task-lifecycle.test.mjs` — passed (106/106, 15 suites)
+- `node tools/specs.mjs validate` — passed (`Validated 6 changes — no errors.`)
+
+Gating validation: passed (`node tools/specs.mjs validate`, `node tools/docs.mjs
+validate` — both clean, run just now).
+Non-gating repository check: `node tools/specs.mjs check` — passed (`Specs valid and
+indexes are current.`); `node tools/docs.mjs check` — passed (`Indexes are current.`).
+Both non-gating checks are now clean (the baseline's `F3` — stale
+`specs/index.generated.json` from unrelated task 12 state — no longer applies; task 12
+was regenerated/verified since).
 
 ## Acceptance-criteria coverage
 
-All 18 acceptance criteria have a directly corresponding, passing automated test in
-`tools/tests/batch.test.mjs` (cross-checked by name/AC-tag against every `describe`/
-`test` block) and/or `tools/tests/e2e-workflow.test.mjs`, with one caveat:
-
-- AC1–AC17: met, with real test coverage (selection modes and rejection, single-
-  in-implementation invariant, derived-progress reconstruction after interruption,
-  risk-signal/hard-stop split, temporary-inconsistency exemption, evidence-staleness
-  detection, verdict-table correctness, `self_check` write shape).
-- AC18: **partially met** — the fingerprint half is implemented and tested; the
+- AC1-AC17: met, with real test coverage (selection modes and rejection,
+  single-in-implementation invariant, derived-progress reconstruction after
+  interruption, risk-signal/hard-stop split, temporary-inconsistency exemption,
+  evidence-staleness detection, verdict-table correctness, `self_check` write shape) —
+  re-confirmed by the passing test run above.
+- AC18: **not fully met** — the fingerprint half is implemented and tested; the
   `self_check.revision` half named explicitly in the AC's own text is not implemented as
-  its own predicate in the gating-review path (see F2). Whether the actual
-  fingerprint-plus-real-diff-overlap design already satisfies AC18's intent, or the
-  literal revision comparison is still required, is the open question in F2.
+  its own predicate in the gating-review path (F2).
 
 ## Architecture and documentation
 
 Consistent with `areas/batch-execution-and-gating-review.md` (D10, D11, D19, D20, D24,
-D28) and the referenced owner decisions — read in full; every requirement/constraint in
-the area doc maps to a corresponding function or test, with the one exception noted in
-F2. Documentation impact named by the task file (`task-review.md`, `task-next.md`,
-`review-policy.md`, `templates/review-report.md`) is fully delivered — all four were
-updated across `a25ad2f`/`aa71381`, verified by direct reading:
-`task-review.md`'s step 9a0 implements the batch-continuation offer exactly as the area
-doc describes (including the `until-checkpoint` boundary and
-`validationBlocksContinuation`); `task-next.md`'s step 5 names `batch-start` as an
-available alternative without ever running it; `review-policy.md` carries the full
-"Batch review" section; `templates/review-report.md` carries the batch frontmatter/
-section shape. No `docs/development/**` architecture doc describes batch execution, so
-no drift there.
+D28) and the referenced owner decisions, re-read in full this run — every
+requirement/constraint maps to a corresponding function or test, with the one exception
+still open in F2. Documentation impact named by the task file (`task-review.md`,
+`task-next.md`, `review-policy.md`, `templates/review-report.md`) remains fully
+delivered — all four still carry the batch-execution content (`task-review.md`'s step
+9a0 batch-continuation offer including the `until-checkpoint` boundary and
+`validationBlocksContinuation`; `task-next.md`'s `batch-start` mention; `review-policy.md`'s
+"Batch review" section; `templates/review-report.md`'s batch frontmatter/section shape).
+No `docs/development/**` architecture doc describes batch execution, so no drift there.
 
 ## Tests
 
-`node --test tools/tests/batch.test.mjs` — 67/67 passing (12 suites), run just now.
-`node --test tools/tests/task-lifecycle.test.mjs` — 106/106 passing (15 suites), run just
-now. `node tools/specs.mjs validate` — `Validated 6 changes — no errors.`, run just now.
-Real output, not assumed. (Separately confirmed, per this review's own instructions: the
-bare `node --test tools/tests/` form does fail on this Windows repo with
-`MODULE_NOT_FOUND` — but this task's own "## Verification" section never uses that form,
-so it is not a finding against this task; see F5 for the unrelated stale-comment
-observation.)
-
-Gating validation: passed (`node tools/specs.mjs validate`, `node tools/docs.mjs
-validate` — both clean).
-Non-gating repository check: `node tools/specs.mjs check` failed (`stale:
-specs/index.generated.json`) — caused by unrelated task 12 self-check state, not this
-task's diff (see F3); `node tools/docs.mjs check` passed (`Indexes are current.`).
+Behavior changes have corresponding automated test coverage for every acceptance
+criterion except AC18's revision half (F2) and the CLI-handler I/O depth gap (F3,
+non-blocking).
