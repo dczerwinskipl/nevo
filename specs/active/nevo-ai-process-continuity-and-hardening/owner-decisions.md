@@ -835,3 +835,81 @@
 - **Affected artifacts:** `change.yaml`,
   `tasks/12-implementation-review-orchestration.md`,
   `areas/implementation-review-orchestration.md`, `overview.md`
+
+## D31: New task 13 — compact, exception-oriented review reports and owner-approved scope exceptions
+
+- **Question:** Task 12's review shape (and the pre-existing `task-review`/`spec-audit`/
+  batch-review shapes it reuses) produce reports that narrate every passing check in
+  prose, even when nothing is wrong — expensive in tokens and slow for the owner to scan,
+  especially once `/nevo-ai:implementation-review` starts aggregating several tasks at
+  once. Separately, `task-review.md`'s own wording ("a violation here is always a
+  blocking finding, no exceptions") gives a scope violation no path to `pass` even when
+  the owner considers it a legitimate, narrow exception — forcing either a permanent
+  block or a spec rewrite for a change the owner would otherwise just accept. Should a
+  new task make `task-review`/`implementation-review` reports compact and
+  exception-oriented by default, and let the owner explicitly accept a narrow,
+  non-forbidden scope exception without either silently waiving it or requiring a full
+  spec amendment?
+- **Options considered:** Presented by the owner as a fully specified, required model,
+  not a menu — 37 numbered requirements (recorded verbatim in
+  `areas/review-report-compaction-and-scope-exceptions.md`) covering: a compact,
+  deterministic checklist replacing verbose positive-proof prose; a `Findings` section
+  restricted to actionable/exception content, never synthetic `INFORMATIONAL` entries for
+  passing checks; compact AC-coverage and verification sections; deterministic
+  verdict-consistency guards (a missing required automated test is `AUTO_FIX`-blocking,
+  never a soft observation); a 15-30 line target for a normal passing report; replacing
+  "a scope violation is always blocking, no exceptions" with "never silently waived, but
+  resolvable through an explicit owner decision recorded in the review artifact";
+  distinguishing an undeclared-`allowed_paths` violation from a `forbidden_paths`
+  violation (the latter is never resolvable through a lightweight review exception); a
+  structured, narrow, machine-readable `scope_exceptions` schema (exact path, finding ID,
+  reason, task fingerprint — never a blanket glob); exception-validity rules across
+  re-review (same path, same task identity, same baseline, not materially expanded); the
+  same compact/exception-oriented shape applied to `implementation-review`'s aggregate
+  report; one collected owner-facing confirmation for several tasks' scope decisions
+  rather than one per task; and required test/doc coverage.
+- **Decision:** Build exactly as specified — new task 13,
+  `review-report-compaction-and-scope-exceptions`
+  (`tasks/13-review-report-compaction-and-scope-exceptions.md`,
+  `areas/review-report-compaction-and-scope-exceptions.md`), depending on
+  `implementation-review-orchestration` (task 12) because both the single-task and
+  aggregate review shapes must share one report and decision model.
+- **Rationale:** Owner-specified directly, with the explicit instruction to record the
+  decision and apply the refinement without a further owner turn on the requirements
+  themselves (mirrors D30's own framing). The remaining implementation-shaped choices the
+  owner's requirements left open are recorded here as this decision's consequences,
+  flagged for the owner to override in the next `/nevo-ai:spec-review` pass if a
+  different shape is wanted: the aggregate table's owner-supplied example used
+  `owner-decision` as a per-task `Verdict` value, which would add a fourth per-task
+  verdict beyond `task-review`'s already-decided three-value set
+  (`pass`/`changes-required`/`blocked`, `SKILL.md` § "Status vocabulary per command");
+  this task keeps the three-value set unchanged (an unresolved scope-exception decision
+  classifies as an unresolved `OWNER_DECISION` finding, which already routes a task to
+  `changes-required` under the existing verdict table) and instead surfaces "exception
+  pending" only in the aggregate table's `Scope` column, per requirement 22's own
+  distinction between full compliance and an accepted exception — the owner's compact
+  example remains illustrative, not a literal new enum value, consistent with "the exact
+  wording may be refined" already stated for the checklist. A new finding-lifecycle value,
+  `accepted`, is added alongside the existing `resolved`/`still-present`/`changed`/
+  `cannot-verify` set (requirement 21's "accepted or resolved-by-owner" is recorded under
+  one canonical value, `accepted`, matching the schema example's own `decision: accepted`
+  field, rather than two synonymous values).
+- **Consequences:** `references/review-policy.md`, `templates/review-report.md`,
+  `task-review.md`, and `implementation-review.md` gain the compact checklist shape and
+  the `scope_exceptions` schema; scope-violation findings are classified through the
+  normal `AUTO_FIX`/`OWNER_DECISION` taxonomy (never a fixed, unconditional block) with a
+  `forbidden_paths` violation excluded from lightweight review-level acceptance;
+  `tools/specs/lifecycle.mjs` gains the deterministic pieces of this model (scope-finding
+  classification, checklist-driven verdict computation, exception-validity checking across
+  re-review) so the checklist/verdict/exception rules are real, tested functions, not
+  prose the reviewing model has to reconstruct each run — the same pattern task 12
+  established for its own verdict/eligibility/transition logic. `spec-review`,
+  `spec-audit`, and the gating batch review's own report shapes are unchanged — the
+  owner's 37 requirements scope this compaction to `task-review`/`implementation-review`
+  only (requirement 29). No implementation begins under this refinement itself — task 13
+  starts `draft`, subject to the same `/nevo-ai:spec-review` → `/nevo-ai:spec-approve` →
+  `/nevo-ai:task-start` gate as every other task.
+- **Date:** 2026-08-06 (sixth refinement pass)
+- **Affected artifacts:** `change.yaml`,
+  `tasks/13-review-report-compaction-and-scope-exceptions.md`,
+  `areas/review-report-compaction-and-scope-exceptions.md`, `overview.md`

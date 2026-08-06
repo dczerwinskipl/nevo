@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T16:33:13.597Z",
+  "generated": "2026-08-06T06:38:25.992Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -12,7 +12,7 @@
           "id": "state-and-fingerprint-semantics",
           "order": 1,
           "file": "tasks/01-state-and-fingerprint-semantics.md",
-          "status": "implemented"
+          "status": "verified"
         },
         {
           "id": "recovery-classification-and-machine-readable-errors",
@@ -27,7 +27,7 @@
           "id": "resume-and-continue-controller",
           "order": 3,
           "file": "tasks/03-resume-and-continue-controller.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "recovery-classification-and-machine-readable-errors"
           ]
@@ -45,7 +45,7 @@
           "id": "context-completeness-and-routing-precedence",
           "order": 5,
           "file": "tasks/05-context-completeness-and-routing-precedence.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "state-and-fingerprint-semantics"
           ]
@@ -63,7 +63,7 @@
           "id": "mechanical-task-type",
           "order": 7,
           "file": "tasks/07-mechanical-task-type.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "scope-and-follow-up-mechanisms",
             "state-and-fingerprint-semantics"
@@ -103,7 +103,7 @@
           "id": "workflow-docs-and-adr-migration",
           "order": 11,
           "file": "tasks/11-workflow-docs-and-adr-migration.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "workflow-e2e-tests"
           ]
@@ -118,6 +118,46 @@
             "scope-and-follow-up-mechanisms",
             "batch-execution-and-gating-review",
             "workflow-docs-and-adr-migration"
+          ],
+          "self_check": {
+            "fingerprint": "e1900fcc9f63734fb6c8a519a95a431052d2def1181d0f268e49aed59c76d3b6",
+            "revision": "2b956327fc44e3d0880e9dcdd5ff88ee37d9a7d1",
+            "commands": [
+              {
+                "command": "node --test tools/tests/implementation-review.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "review-report-compaction-and-scope-exceptions",
+          "order": 13,
+          "file": "tasks/13-review-report-compaction-and-scope-exceptions.md",
+          "status": "draft",
+          "depends_on": [
+            "implementation-review-orchestration"
           ]
         }
       ]

@@ -213,6 +213,7 @@ anywhere in the current process, and no batch-execution support at all.
 | Context & scope hardening | Original findings #1/#2/#3/#20/#4/#6 + refinement findings 9, 10 + second-pass finding 7 | Real, verified; refined twice |
 | Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 + third-pass finding 2 | Real, verified; refined three times |
 | Implementation review orchestration | New scope, requested after tasks 01-11 shipped — see D30 (fifth refinement pass) | New; not a correction to any earlier finding |
+| Review report compaction and scope exceptions | New scope, requested after task 12 reached in-implementation — see D31 (sixth refinement pass) | New; not a correction to any earlier finding |
 
 ### Findings rejected or already resolved (unchanged from the original pass)
 
@@ -277,6 +278,16 @@ D30 records the request and the decision to build it as task 12 in this same
 specification (see `areas/implementation-review-orchestration.md` for the full
 requirement set).
 
+### The sixth refinement pass — new scope, not a correction
+
+Also not a defect fix: task 12's own review shape (in-implementation at the time of this
+pass) made real usage more expensive than it needed to be — full positive-proof prose for
+every passing check, and no path to `pass` for a scope violation the owner would
+otherwise accept as a legitimate, narrow exception. D31 records the request and the
+decision to build it as task 13, depending on task 12 because both the single-task and
+aggregate review shapes must share one report and decision model (see
+`areas/review-report-compaction-and-scope-exceptions.md` for the full requirement set).
+
 ## Constraints
 
 Each constraint below carries a stable identifier (`C1`-`C10`) so a task's
@@ -334,11 +345,17 @@ four preconditions guarding the creation). The third refinement pass's correctio
 behavior and wording directly — and were applied without a further owner turn. The
 fourth refinement pass's corrections (D27-D29) were narrowly scoped and fully
 prescriptive by the owner's own framing ("apply only these final corrections") — no
-fork, applied directly.
+fork, applied directly. The fifth refinement pass (D30) and sixth refinement pass (D31)
+were each new, owner-requested scope rather than a correction — both presented as a
+fully specified, required model (numbered requirements, not a menu) with no unresolved
+fork of their own; the implementation-shaped choices each pass's requirements left open
+are recorded as that decision's own consequences, flagged for the owner to override at
+the next `/nevo-ai:spec-review` pass rather than reserved as a fresh fork here.
 
 ## Owner decisions
 
-See `owner-decisions.md` — D1 through D29, all recorded 2026-08-04.
+See `owner-decisions.md` — D1 through D29 recorded 2026-08-04, D30 recorded 2026-08-05,
+D31 recorded 2026-08-06.
 
 ## Proposed architecture
 
@@ -830,6 +847,7 @@ extra implementation cost.
 - `areas/batch-execution-and-gating-review.md` — task 08
 - `areas/finalization-and-migration.md` — tasks 09, 10, 11
 - `areas/implementation-review-orchestration.md` — task 12 (D30, fifth refinement pass)
+- `areas/review-report-compaction-and-scope-exceptions.md` — task 13 (D31, sixth refinement pass)
 
 ## Change-wide acceptance criteria
 
@@ -929,6 +947,15 @@ extra implementation cost.
     status transition, through one atomic `change.yaml` write, only to tasks with zero
     unresolved blocking findings — never to a task with an unresolved blocking finding,
     regardless of which bulk-confirmation option is chosen (D30).
+25. `task-review`/`implementation-review` reports use the compact, deterministic
+    checklist (never a synthetic `INFORMATIONAL` finding for a passing check); a missing
+    explicitly required automated test always blocks `pass`; a scope violation outside
+    `allowed_paths` (never `forbidden_paths`) may reach `pass` only through a recorded,
+    narrow, machine-readable `scope_exceptions` entry naming one concrete path, one
+    finding, and the task fingerprint at acceptance time; an accepted exception remains
+    visible in the report and is re-validated (same path, same task fingerprint) on every
+    re-review; `spec-review`, `spec-audit`, and the gating batch review's own report
+    shapes are unchanged (D31).
 
 ## Verification strategy
 
@@ -975,6 +1002,16 @@ one atomic bulk-transition operation — instead of superseding it or writing a 
 ADR, since D30 is new scope within this same change, not a correction to an accepted
 decision; task 12 also updates the ADR's "Context" paragraph to name itself alongside
 tasks 01-11.
+
+The sixth refinement pass adds: why the multi-task implementation review orchestrator's
+own report shape (D30) needed a further compaction pass (D31) — a compact, deterministic
+checklist and restricted `Findings` section instead of full positive-proof prose for
+every passing check — and why a scope violation is never silently waived but is no
+longer unconditionally blocking either, resolvable through a narrow,
+machine-readable owner-approved exception recorded in the review artifact, with
+`forbidden_paths` categorically excluded from that lightweight path. This is the same
+ADR's third addition, not a separate one, since D31 is new scope within this same change;
+task 13 also updates the ADR's "Context" paragraph to name itself alongside tasks 01-12.
 
 ## Out of scope
 
