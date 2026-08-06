@@ -10,11 +10,63 @@
 // node --test tools/tests/
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   computeTaskReviewChecklist, TASK_REVIEW_CHECKLIST_ITEMS, TASK_REVIEW_VERDICTS,
   classifyScopeFinding, isScopeExceptionValid,
 } from '../specs/lifecycle.mjs';
+
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+
+// ── Template shape regression: the actual checklist example in
+// templates/review-report.md, not a self-authored fixture (AC1) ────────────
+
+function templateReportContent() {
+  return readFileSync(join(ROOT, '.claude/skills/nevo-ai-spec-workflow/templates/review-report.md'), 'utf8').replace(/\r\n/g, '\n');
+}
+
+describe('templates/review-report.md — Checklist section shape (AC1)', () => {
+  const content = templateReportContent();
+  const checklistHeadingIdx = content.indexOf('## Checklist');
+  const passingBlockStart = content.indexOf('```', checklistHeadingIdx);
+  const passingBlockEnd = content.indexOf('```', passingBlockStart + 3);
+  const passingBlock = content.slice(passingBlockStart + 3, passingBlockEnd).trim();
+  const lines = passingBlock.split('\n');
+
+  test('the passing-example checklist block has exactly the seven items, in order, all checked', () => {
+    assert.equal(lines.length, 7);
+    const expectedText = [
+      'All acceptance criteria covered',
+      'Required automated verification passed',
+      'Scope check resolved',
+      'No forbidden-path violation remains unresolved',
+      'Architecture and documentation remain consistent',
+      'No unresolved blocking findings',
+      'No unresolved owner decision',
+    ];
+    lines.forEach((line, i) => {
+      assert.equal(line, `- [x] ${expectedText[i]}`, `line ${i + 1} must be a checked item with no trailing prose`);
+    });
+  });
+
+  test('a checked item in the passing example carries no indented continuation line', () => {
+    for (const line of lines) {
+      assert.match(line, /^- \[x\] /, 'every line in the passing example must itself be a top-level checked item, never a continuation');
+    }
+  });
+
+  test('the "Scope check resolved" exception-note example keeps the item checked and never uses the false-compliance wording (AC11)', () => {
+    const noteBlockStart = content.indexOf('```', passingBlockEnd + 3);
+    const noteBlockEnd = content.indexOf('```', noteBlockStart + 3);
+    const noteBlock = content.slice(noteBlockStart + 3, noteBlockEnd);
+    assert.match(noteBlock, /- \[x\] Scope check resolved/);
+    assert.match(noteBlock, /owner-approved exception recorded/);
+    assert.doesNotMatch(noteBlock, /stays within `?allowed_paths`?/);
+  });
+});
 
 // ── computeTaskReviewChecklist (AC1, AC3, AC4, AC5, AC6) ────────────────────
 
