@@ -13,7 +13,7 @@ tasks:
   - id: state-and-fingerprint-semantics
     order: 1
     file: tasks/01-state-and-fingerprint-semantics.md
-    status: implemented
+    status: verified
   - id: recovery-classification-and-machine-readable-errors
     order: 2
     file: tasks/02-recovery-classification-and-machine-readable-errors.md
@@ -23,7 +23,7 @@ tasks:
   - id: resume-and-continue-controller
     order: 3
     file: tasks/03-resume-and-continue-controller.md
-    status: implemented
+    status: verified
     depends_on:
       - recovery-classification-and-machine-readable-errors
   - id: conversational-approval-ergonomics
@@ -35,7 +35,7 @@ tasks:
   - id: context-completeness-and-routing-precedence
     order: 5
     file: tasks/05-context-completeness-and-routing-precedence.md
-    status: implemented
+    status: verified
     depends_on:
       - state-and-fingerprint-semantics
   - id: scope-and-follow-up-mechanisms
@@ -47,7 +47,7 @@ tasks:
   - id: mechanical-task-type
     order: 7
     file: tasks/07-mechanical-task-type.md
-    status: implemented
+    status: verified
     depends_on:
       - scope-and-follow-up-mechanisms
       - state-and-fingerprint-semantics
@@ -75,7 +75,7 @@ tasks:
   - id: workflow-docs-and-adr-migration
     order: 11
     file: tasks/11-workflow-docs-and-adr-migration.md
-    status: implemented
+    status: verified
     depends_on:
       - workflow-e2e-tests
   - id: implementation-review-orchestration
