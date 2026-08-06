@@ -203,9 +203,19 @@ task cannot be implemented meaningfully before it lands.
 17. Every self-check run writes `self_check` with the correct `status`/fingerprint/
     revision, and a failed run's `failed_criteria`/command exit codes are readable
     directly from it (automated, same suite) (D28).
-18. A task whose `self_check.fingerprint`/`revision` no longer match its current values
-    is treated as "passed but stale" and its self-check reruns before the gating batch
-    review proceeds (automated, same suite) (D28).
+18. A task whose `self_check.fingerprint` no longer matches its current task-level
+    semantic fingerprint (D18) is treated as "passed but stale" and its self-check
+    reruns before the gating batch review proceeds (automated, same suite) (D28).
+    `self_check.revision` is recorded as audit/provenance metadata (which git revision
+    the check ran at) but is not itself compared against the batch's current `HEAD` for
+    this predicate — in a sequential multi-task batch `HEAD` advances after every task,
+    so a literal revision-equality check would incorrectly flag every earlier
+    already-passing task as stale purely from later tasks committing, which would
+    defeat the batch model's own purpose (owner decision, second post-implementation
+    refinement — see `owner-decisions.md`). Detecting the narrower real risk this
+    guarded against (a task's own already-self-checked commit being amended/rebased
+    after the fact, not merely a later task advancing `HEAD`) is deferred to a future,
+    separate task built around deterministic implementation-provenance tracking.
 
 ## Verification
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS,
   depsSatisfied, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
-  scopeOf, isEndOfScope, nextInScope, planContinuation, stopReasonForSuspension,
+  scopeOf, isEndOfScope, nextInScope, planContinuation, stopReasonForSuspension, nextSuspensionForNotRetryable,
   resolveAfterConfirmedRepair, inspectStartPostconditions, inspectApprovePostconditions,
   classifyDirtyWorktree, CONTINUATION_STOP_REASONS,
 } from '../specs/lifecycle.mjs';
@@ -651,6 +651,40 @@ describe('stopReasonForSuspension', () => {
     ]) {
       assert.equal(CONTINUATION_STOP_REASONS.has(reason), true);
     }
+  });
+});
+
+describe('nextSuspensionForNotRetryable — start requirement 4 (AC4)', () => {
+  test('a pre-existing suspension produces a new one, reusing its code, previous_action: start, a fresh created_at', () => {
+    const existing = { kind: 'confirm-required', code: 'REC-05', previous_action: 'start', created_at: '2020-01-01T00:00:00Z' };
+    const next = nextSuspensionForNotRetryable(existing, '2026-08-06T12:00:00Z');
+    assert.deepEqual(next, {
+      kind: 'owner-decision', code: 'REC-05', previous_action: 'start', created_at: '2026-08-06T12:00:00Z',
+    });
+  });
+
+  test('the new suspension never repeats the stale previous_action verbatim from an unrelated original action', () => {
+    // Even if the stale suspension's own previous_action was something other
+    // than 'start' (e.g. it was recorded by a different flow), the new one
+    // always names 'start' — the action that just discovered the fresh
+    // not_retryable situation — never a blind copy of the old value.
+    const existing = { kind: 'owner-decision', code: 'REC-08', previous_action: 'approve', created_at: '2020-01-01T00:00:00Z' };
+    const next = nextSuspensionForNotRetryable(existing, '2026-08-06T12:00:00Z');
+    assert.equal(next.previous_action, 'start');
+    assert.notEqual(next.previous_action, existing.previous_action);
+  });
+
+  test('no pre-existing suspension means nothing to do — returns null, not a fabricated suspension', () => {
+    assert.equal(nextSuspensionForNotRetryable(undefined, '2026-08-06T12:00:00Z'), null);
+    assert.equal(nextSuspensionForNotRetryable(null, '2026-08-06T12:00:00Z'), null);
+  });
+
+  test('defaults `now` to the real current time when not injected', () => {
+    const before = Date.now();
+    const next = nextSuspensionForNotRetryable({ code: 'REC-06' });
+    const after = Date.now();
+    const createdAtMs = Date.parse(next.created_at);
+    assert.ok(createdAtMs >= before && createdAtMs <= after, 'created_at must fall within the call window');
   });
 });
 

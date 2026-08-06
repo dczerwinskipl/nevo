@@ -3,8 +3,8 @@ review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: conversational-approval-ergonomics
 generated: 2026-08-06
-verdict: changes-required
-unresolved_required_fixes: 1
+verdict: pass
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 ---
@@ -18,28 +18,29 @@ verification commands, not assumed from the baseline text.
 
 ## Verdict
 
-`changes-required` — one unresolved `AUTO_FIX` finding (F1: the task's own
-`## Verification` block still names a command that fails as literally written on this
-checkout). Every acceptance criterion this task's own diff owns is met; scope is clean.
+`pass` — F1 is resolved (the task file's own `## Verification` command was corrected).
+Every acceptance criterion this task's own diff owns is met; scope is clean.
 
 ## Checklist
 
 - [x] All acceptance criteria covered
-- [ ] Required automated verification passed
-  - F1 — task file's own `## Verification` line 114 (`node --test tools/tests/`) still
-    fails outright when run exactly as written
+- [x] Required automated verification passed
 - [x] Scope check resolved
 - [x] No forbidden-path violation remains unresolved
 - [x] Architecture and documentation remain consistent
-- [x] No unresolved blocking findings *(F1 is the sole blocker, already captured above)*
+- [x] No unresolved blocking findings
 - [x] No unresolved owner decision
 
 ## Findings
 
-| ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
-|---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | still-present | The task's own `## Verification` fenced block contains a command that actually executes successfully in this repository's environment | `node --test tools/tests/` (as literally written on line 114) still fails outright — a runner-resolution failure, not a test failure. The corrected form `node --test tools/tests/*.test.mjs` succeeds (692 tests, 0 failing — the one previously-failing, unrelated stale-index test from the 2026-08-05 baseline now also passes, since `node tools/specs.mjs check` is clean on this checkout). Fix: change line 114 to `node --test tools/tests/*.test.mjs`, matching `package.json`'s own `test` script and task 12's own Verification section. | Ran `node --test tools/tests/` this run — exited 1, `Cannot find module 'D:\repos\git\nevo\tools\tests'`, 0 tests executed. Ran `node --test tools/tests/*.test.mjs` this run — tests 692, pass 692, fail 0. Read `tasks/04-conversational-approval-ergonomics.md` line 114 directly, this run — still literally `node --test tools/tests/`, unchanged since the baseline. | `specs/active/nevo-ai-process-continuity-and-hardening/tasks/04-conversational-approval-ergonomics.md:114` |
-| F3 | NON_BLOCKING | still-present | Automated coverage exists that drives a genuine simulated `confirm-required`→repair→re-inspect sequence, not just pre-built already-resolved inspection objects | `describe('D17 — combined-transition repair-and-retry', ...)` in `tools/tests/e2e-workflow.test.mjs` (lines 512-542, unchanged since baseline) still calls `resolveAfterConfirmedRepair` with literal pre-built objects (e.g. `{ result: 'safe_to_retry', missing: [] }`) rather than a state produced by an actual confirm-required stop; the "approve computed exactly once" claim is still a code comment, not an assertion. AC5's "exactly once / no second invocation" guarantee remains verified by manual trace of `spec-approve.md` § "Approve and start" (re-traced this run, still correct) rather than by a driven test. Candidate for follow-up recording — not recorded, per this run's instructions to report only. | `tools/tests/e2e-workflow.test.mjs:512-542`, re-read this run. `.claude/commands/nevo-ai/spec-approve.md:61-111` (§ "Approve and start"), re-traced this run — unchanged. | `tools/tests/e2e-workflow.test.mjs:512-542` |
+No findings.
+
+Baseline finding, re-verified against current content this run:
+
+| ID | Category | Lifecycle | Predicate | Evidence |
+|---|---|---|---|---|
+| F1 | AUTO_FIX | resolved | The task's own `## Verification` fenced block contains a command that actually executes successfully in this repository's environment | Line 114 now reads `node --test tools/tests/*.test.mjs`, matching `package.json`'s own `test` script and task 12's Verification section. Ran it this run: 696/696 pass. |
+| F3 | NON_BLOCKING | still-present | Automated coverage exists that drives a genuine simulated `confirm-required`→repair→re-inspect sequence, not just pre-built already-resolved inspection objects | `describe('D17 — combined-transition repair-and-retry', ...)` in `tools/tests/e2e-workflow.test.mjs` (lines 512-542) still calls `resolveAfterConfirmedRepair` with literal pre-built objects rather than a state produced by an actual confirm-required stop. AC5's "exactly once" guarantee remains verified by manual trace of `spec-approve.md` § "Approve and start" rather than by a driven test. Not recorded as a follow-up — left in the report only. |
 
 ## Scope compliance
 
@@ -63,10 +64,8 @@ re-read in full this run, still match the baseline's description).
 
 ## Verification
 
-- `node --test tools/tests/` (task file's literal command, line 114) — **failed** (see F1)
-- `node --test tools/tests/*.test.mjs` (corrected form) — passed (692/692)
-- `node tools/specs.mjs validate` (task file's own second command) — passed
-- `node tools/specs.mjs check` (non-gating, informational) — passed (`Specs valid and indexes are current.` — the baseline's unrelated stale-index failure is gone on this checkout)
+- `node --test tools/tests/*.test.mjs` — passed (696/696)
+- `node tools/specs.mjs validate` — passed
 
 ## Acceptance-criteria coverage
 

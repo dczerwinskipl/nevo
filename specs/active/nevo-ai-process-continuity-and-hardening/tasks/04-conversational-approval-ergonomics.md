@@ -111,7 +111,7 @@ the recovery classification before offering transitions inline responsibly.
 ## Verification
 
 ```
-node --test tools/tests/
+node --test tools/tests/*.test.mjs
 node tools/specs.mjs validate
 ```
 

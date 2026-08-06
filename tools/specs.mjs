@@ -32,7 +32,7 @@ import {
   BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict, validateBatchCheckpoint,
   completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
-  resolveReviewScope, validateBulkTransition,
+  resolveReviewScope, validateBulkTransition, nextSuspensionForNotRetryable,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,15 +297,14 @@ export function handleStart(changeSlug, taskId) {
   });
 
   if (inspection.result === 'not_retryable') {
-    // requirement 4: when the original action's own preconditions no longer
-    // hold, resuming a prior suspension creates a *new* one describing the new
-    // situation rather than blindly retrying the stale previous_action.
-    if (task.execution?.suspension) {
-      setTaskSuspension(change, taskId, {
-        kind: 'owner-decision', code: task.execution.suspension.code, previous_action: 'start',
-        created_at: new Date().toISOString(),
-      });
-    }
+    // requirement 4 (AC4): when the original action's own preconditions no
+    // longer hold, resuming a prior suspension creates a *new* one describing
+    // the new situation rather than blindly retrying the stale
+    // previous_action — nextSuspensionForNotRetryable (tools/specs/lifecycle.mjs)
+    // is the pure decision, unit-tested there since handleStart itself reads
+    // the real repository and can't be driven end-to-end in a fixture test.
+    const nextSuspension = nextSuspensionForNotRetryable(task.execution?.suspension);
+    if (nextSuspension) setTaskSuspension(change, taskId, nextSuspension);
     throw new CliError(`Task '${taskId}' cannot be started: ${inspection.reason}`);
   }
   if (inspection.result === 'completed') {

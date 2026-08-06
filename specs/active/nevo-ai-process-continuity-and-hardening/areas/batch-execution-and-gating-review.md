@@ -121,10 +121,16 @@ task per call. Full citations in `overview.md` § "Review, audit, and evidence".
    is still trustworthy once a later batched task has touched the same subsystem. Before
    the gating batch review (requirement 7) proceeds: (a) determine which later-batched
    tasks' changes could affect an earlier task's recorded evidence; (b) for the
-   self-check layer specifically, compare each batched task's `self_check.fingerprint`/
-   `self_check.revision` against its *current* semantic fingerprint/revision — a
-   mismatch is "passed but stale" (D28) and triggers a rerun of that task's self-check
-   (which then rewrites `self_check`, requirement 4b); (c) invalidate (and require a
+   self-check layer specifically, compare each batched task's `self_check.fingerprint`
+   against its *current* task-level semantic fingerprint (D18) — a mismatch is "passed
+   but stale" (D28) and triggers a rerun of that task's self-check (which then rewrites
+   `self_check`, requirement 4b). `self_check.revision` is recorded alongside
+   `fingerprint` as audit/provenance metadata (which git revision the check ran at) but
+   is **not** itself compared against the batch's current `HEAD` here — `HEAD` advances
+   after every batched task by the sequential model's own design (requirement 1), so a
+   literal revision-equality predicate would flag every already-passing earlier task as
+   stale purely from later tasks committing, defeating the batch model's purpose (owner
+   decision, second post-implementation refinement — see `owner-decisions.md`); (c) invalidate (and require a
    refresh of) any inspection-type evidence whose referenced files/line ranges changed
    since it was recorded; (d) treat evidence for a task whose own semantic fingerprint
    (`semantic_references`, D18) has changed since the evidence was recorded as stale

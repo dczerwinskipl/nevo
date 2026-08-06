@@ -69,8 +69,14 @@ All non-trivial changes go through a pull request. See `development/pull-request
 
 Squash merge into `main`. The PR title becomes the commit message — it must follow
 Conventional Commits format (`development/commit-conventions.md`). `node tools/specs.mjs
-finalize` performs exactly this (`gh pr merge --squash --delete-branch`) once its gate
-passes and the owner has confirmed.
+finalize` performs this in two separate steps, not one call, once its gate passes and
+the owner has confirmed: first `gh pr merge --squash` (deliberately without
+`--delete-branch`), then — only after a post-merge verification check passes — a
+separate branch-deletion step. On a post-merge verification failure, the branch is
+preserved as a diagnostic anchor instead of being deleted, so there is still something
+to investigate from and, after one more explicit owner confirmation, a guarded repair
+branch can be created from it. See `docs/ai/specification-workflow.md` § "Finalizing"
+for the full sequence.
 
 Do not rewrite local checkpoint commits on a feature branch. The squash handles cleanup.
 

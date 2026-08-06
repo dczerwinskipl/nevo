@@ -363,6 +363,20 @@ export function planContinuation(postconditionResult, scope, taskId, { externalS
 }
 
 /**
+ * `start`'s own requirement 4 (AC4, task 02 recovery-classification): when
+ * `inspectStartPostconditions` returns `not_retryable` and the task already
+ * carries a suspension, the new situation gets a *new* suspension describing
+ * it — never a blind retry of the stale `previous_action`. Returns the
+ * `setTaskSuspension` payload the caller should write, or `null` when there is
+ * no pre-existing suspension to replace (nothing to do). Pure — `now` is
+ * injected so the caller's real timestamp is testable without mocking `Date`.
+ */
+export function nextSuspensionForNotRetryable(existingSuspension, now = new Date().toISOString()) {
+  if (!existingSuspension) return null;
+  return { kind: 'owner-decision', code: existingSuspension.code, previous_action: 'start', created_at: now };
+}
+
+/**
  * Maps a persisted `execution.suspension` to one of the boundary's named stop
  * reasons, so a caller reports *why* the controller stopped using the same
  * vocabulary `planContinuation` returns rather than a suspension-specific one.

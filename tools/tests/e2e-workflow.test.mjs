@@ -11,9 +11,11 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { readFileSync, writeFileSync as writeFileSyncNode } from 'node:fs';
 import {
   loadChange, computeChangeFingerprint, computeTaskFingerprint,
   parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
+  buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
 } from '../specs/service.mjs';
 import {
   validateTransition, validateApproval, inspectStartPostconditions, inspectApprovePostconditions,
@@ -237,12 +239,41 @@ describe('Recovery', () => {
     assert.match(inspection.missing[0], /REC-02/);
   });
 
-  test('REC-03 (stale generated file) repairs and the original validation retries', () => {
-    // classifySimpleActionPostcondition models "the retried action now succeeds."
-    const failedFirst = { ok: false, reason: 'stale generated file' };
-    assert.equal(inspectApprovePostconditions(failedFirst).result, 'not_retryable');
-    const afterRegenerate = { ok: true, idempotent: false };
-    assert.equal(inspectApprovePostconditions(afterRegenerate).result, 'safe_to_retry');
+  test('REC-03 (stale generated file) — real detect-then-regenerate-then-clean cycle against the real repo indexes', () => {
+    // Exercises the actual REC-03 scenario end-to-end (buildSpecsIndexes/
+    // checkSpecsIndexes/writeSpecsIndexes, tools/specs/service.mjs) instead of
+    // feeding a synthetic { ok: false } object into the generic postcondition
+    // classifier — the previous version of this test never touched real
+    // staleness-detection code at all. Operates on the real repo's generated
+    // files (checkSpecsIndexes has no fixture-root parameter) but always
+    // restores the original content, pass or fail.
+    const originalActive = readFileSync(ACTIVE_INDEX_MD, 'utf8');
+    const originalArchive = readFileSync(ARCHIVE_INDEX_MD, 'utf8');
+    const originalJson = readFileSync(INDEX_JSON, 'utf8');
+    try {
+      assert.deepEqual(checkSpecsIndexes(), [], 'precondition: repo indexes must already be current before this test corrupts them');
+
+      writeFileSyncNode(ACTIVE_INDEX_MD, `${originalActive}\n<!-- REC-03 test: deliberately stale -->\n`);
+      const stale = checkSpecsIndexes();
+      assert.ok(stale.includes('stale: specs/active.generated.md'), 'corrupting the file must be detected as stale (REC-03 precondition)');
+
+      // The proposed recovery: "Regenerate the index." writeSpecsIndexes
+      // rewrites all three files together — archive.generated.md/index.generated.json
+      // were never corrupted, so this also proves regeneration is a real no-op
+      // for content that was already current (only the JSON's own `generated`
+      // timestamp field moves, which checkSpecsIndexes deliberately ignores).
+      writeSpecsIndexes(buildSpecsIndexes());
+      assert.deepEqual(checkSpecsIndexes(), [], 'regenerating must clear every reported staleness (REC-03 automatic repair)');
+    } finally {
+      // Restore all three byte-for-byte (not just the corrupted one) — the
+      // JSON's `generated` timestamp changed even though its content didn't,
+      // and leaving that drift behind would dirty the real working tree on
+      // every test run.
+      writeFileSyncNode(ACTIVE_INDEX_MD, originalActive);
+      writeFileSyncNode(ARCHIVE_INDEX_MD, originalArchive);
+      writeFileSyncNode(INDEX_JSON, originalJson);
+      assert.deepEqual(checkSpecsIndexes(), [], 'the repo must be left exactly as found, regardless of assertion outcome above');
+    }
   });
 
   test('REC-05 vs. REC-06 (task-related vs. unrelated dirty files) produce different classes', () => {
