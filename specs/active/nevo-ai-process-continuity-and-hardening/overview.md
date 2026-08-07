@@ -48,6 +48,22 @@ change: nevo-ai-process-continuity-and-hardening
 > (`areas/implementation-review-orchestration.md`). This is new scope, not a
 > consistency correction like the first four passes; it does not reopen or rewrite
 > tasks 01-11.
+>
+> **Seventh refinement note (2026-08-06):** after all 13 tasks reached `verified`, the
+> owner recorded a ten-property "one-person-workflow" bar (D34) and requested eight new
+> tasks (D35) closing gaps a prior reconciliation pass had already surfaced against it:
+> deterministically-enforced report minimization tightening task 13's own "15-30 line"
+> target (14, extends task 13's area); deterministic per-task implementation provenance,
+> closing D33's own explicitly deferred scope (15); a bounded semantic cross-task
+> integration pass and consolidated per-task structured review data, extending task
+> 12's area (16); scoped/incremental `/nevo-ai:spec-review` (17); completing two
+> owner-facing compound-action/status gaps already recorded as open follow-ups, FU-002
+> and FU-004 (18); a named unowned-drift correction process, closing FU-006 (19);
+> repository-bound handler testability, closing FU-007 (20); and one final task
+> validating every owner-facing flow end-to-end against D34's bar (21). Like the fifth
+> and sixth passes, this is new scope built on top of an already-implemented change, not
+> a consistency correction to tasks 01-13; none of their task bodies are reopened or
+> rewritten.
 
 ## Context
 
@@ -214,6 +230,14 @@ anywhere in the current process, and no batch-execution support at all.
 | Finalization & migration | Original finding #23 + refinement findings 8, 12 + second-pass finding 8 + third-pass finding 2 | Real, verified; refined three times |
 | Implementation review orchestration | New scope, requested after tasks 01-11 shipped — see D30 (fifth refinement pass) | New; not a correction to any earlier finding |
 | Review report compaction and scope exceptions | New scope, requested after task 12 reached in-implementation — see D31 (sixth refinement pass) | New; not a correction to any earlier finding |
+| Review report minimization | New scope, tightens task 13's own "15-30 line" target to a deterministically enforced maximum — see D34/D35 (seventh refinement pass) | New; extends task 13's area, not a correction to it |
+| Implementation provenance and attribution | New scope, closes D33's own explicitly deferred "deterministic implementation-provenance tracking" — see D34/D35 (seventh refinement pass) | New; not a correction to any earlier finding |
+| Semantic cross-task integration and consolidated decisions | New scope, extends task 12's cross-task integration pass beyond literal file-overlap and its per-task structured data — see D34/D35 (seventh refinement pass) | New; extends task 12's area, not a correction to it |
+| Scoped spec review | New scope, `/nevo-ai:spec-review` had no incremental mode before this — see D34/D35 (seventh refinement pass) | New; not a correction to any earlier finding |
+| Compound actions and dependency-aware status | Closes FU-002 and FU-004 (both still `open`) — see D34/D35 (seventh refinement pass) | Real, previously found and tracked as non-blocking follow-ups |
+| Unowned-drift correction | Closes FU-006 (still `open`) — see D34/D35 (seventh refinement pass) | Real, previously found and tracked as a non-blocking follow-up |
+| Handler testability | Closes FU-007 (still `open`) — see D34/D35 (seventh refinement pass) | Real, previously found and tracked as a non-blocking follow-up |
+| Owner-workflow acceptance | New scope, validates D34's ten-property bar end-to-end across tasks 14-20 — see D34/D35 (seventh refinement pass) | New; not a correction to any earlier finding |
 
 ### Findings rejected or already resolved (unchanged from the original pass)
 
@@ -326,7 +350,9 @@ position — this is the "named shared constraint" `validateSpecs` resolves agai
 `.claude/commands/nevo-ai/*.md`, `.claude/skills/nevo-ai-spec-workflow/**`,
 `docs/ai/specification-workflow.md`, `docs/ai/task-routing.md`,
 `docs/ai/change-impact-map.md`, `docs/ai/how-to-navigate.md` (task 05's precedence-rule
-addition), `AGENTS.md`, `CLAUDE.md` (pointer only). No `src/**` package is touched.
+addition), `docs/decisions/ADR-0006-process-continuity-and-hardening.md` (this change's
+own ADR, gaining a new subsection per task that documents one — tasks 11-21), `AGENTS.md`,
+`CLAUDE.md` (pointer only). No `src/**` package is touched.
 
 ## Options and trade-offs
 
@@ -355,7 +381,7 @@ the next `/nevo-ai:spec-review` pass rather than reserved as a fresh fork here.
 ## Owner decisions
 
 See `owner-decisions.md` — D1 through D29 recorded 2026-08-04, D30 recorded 2026-08-05,
-D31 and D32 recorded 2026-08-06.
+D31 through D35 recorded 2026-08-06.
 
 ## Proposed architecture
 
@@ -837,6 +863,17 @@ extra implementation cost.
   this change ships; task 06 documents the conversion shape.
 - Manual, single-step `tools/specs.mjs` commands and `.claude/commands/nevo-ai/*.md`
   entry points remain available throughout.
+- Task 15 adds a new optional per-task `implementation:` provenance block to
+  `change.yaml` (`baseline_revision`, `review_revision`, `changed_paths`,
+  `worktree_patch_fingerprint`) — additive, absent by default; a task with no
+  `implementation` block is simply "no persisted provenance yet," exactly the same
+  absence-is-valid convention `execution.suspension`/`self_check` already use. Every
+  task from 01-13 (already `verified`, all with real, merged implementation history)
+  has no persisted `implementation` block today — task 15 provides an explicit,
+  owner-confirmed migration flow to backfill it for an existing task on request, but
+  does not run that backfill unattended or retroactively against tasks 01-13 as part of
+  shipping task 15 itself (mirrors D32's precedent: a new completeness mechanism is not
+  silently enforced backward against already-terminal tasks).
 
 ## Areas
 
@@ -846,8 +883,14 @@ extra implementation cost.
 - `areas/context-and-validation-hardening.md` — tasks 05, 06, 07
 - `areas/batch-execution-and-gating-review.md` — task 08
 - `areas/finalization-and-migration.md` — tasks 09, 10, 11
-- `areas/implementation-review-orchestration.md` — task 12 (D30, fifth refinement pass)
-- `areas/review-report-compaction-and-scope-exceptions.md` — task 13 (D31, sixth refinement pass)
+- `areas/implementation-review-orchestration.md` — tasks 12, 16 (D30 fifth refinement pass; task 16 added by D35, seventh refinement pass)
+- `areas/review-report-compaction-and-scope-exceptions.md` — tasks 13, 14 (D31 sixth refinement pass; task 14 added by D35, seventh refinement pass)
+- `areas/implementation-provenance-and-attribution.md` — task 15 (D35, seventh refinement pass)
+- `areas/scoped-spec-review.md` — task 17 (D35, seventh refinement pass)
+- `areas/compound-actions-and-dependency-aware-status.md` — task 18 (D35, seventh refinement pass)
+- `areas/unowned-drift-correction.md` — task 19 (D35, seventh refinement pass)
+- `areas/handler-testability.md` — task 20 (D35, seventh refinement pass)
+- `areas/owner-workflow-acceptance.md` — task 21 (D35, seventh refinement pass)
 
 ## Change-wide acceptance criteria
 

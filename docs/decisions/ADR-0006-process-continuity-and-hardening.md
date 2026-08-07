@@ -65,6 +65,86 @@ always blocking, no exceptions" wording gave a legitimate, owner-accepted narrow
 violation no path to `pass` short of a full spec amendment. See "Review report
 compaction and owner-approved scope exceptions (D31)" below.
 
+After all thirteen tasks reached `verified`, a seventh refinement pass recorded a
+ten-property one-person-workflow bar (D34) and added eight further tasks (14–21, D35)
+closing gaps a reconciliation pass had already surfaced against it. A fourteenth task,
+`review-report-minimization`, tightens task 13's own "15-30 line" target for a normal
+passing `task-review`/`implementation-review` report into a deterministically enforced
+10-line ceiling. See "Report minimization (D34, D35)" below.
+
+A fifteenth task, `deterministic-implementation-provenance`, closes the scope D33
+explicitly deferred: a persisted, per-task `implementation` block
+(`baseline_revision`/`review_revision`/`changed_paths`/`worktree_patch_fingerprint`) so
+task ownership of a changed file is a stored, attributed fact rather than re-inferred
+from `git diff`, commit messages, or `allowed_paths` pattern-matching every time it's
+needed — closing `computeImplementationFingerprint`'s own long-standing "populating real
+revision/evidence data is later tasks' job" gap. See "Implementation provenance and
+attribution (D34, D35)" below.
+
+A sixteenth task, `semantic-cross-task-integration-and-consolidated-decisions`, extends
+task 12's cross-task integration pass beyond literal file-path overlap into a bounded
+semantic pass over pairs sharing a dependency contract or owner decision, completes the
+per-task structured record `implementation-review` carries into its aggregate step
+(pending owner/scope decisions, clarification requests, follow-up candidates, and the
+implementation fingerprint, task 15), and collapses owner/scope decisions, follow-up
+choices, and the bulk-transition confirmation into one consolidated stage — no per-task
+prompt of any kind, including task 12's own step-7a follow-up offer, which this task
+suppresses specifically inside `implementation-review`'s orchestration. See "Semantic
+cross-task integration and consolidated decisions (D34, D35)" below.
+
+A seventeenth task, `scoped-and-incremental-spec-review`, adds
+`/nevo-ai:spec-review <change-id> --all|--changed|--tasks <spec>` — `--all` (also the
+default, unchanged for full compatibility) reviews every task; `--changed` reviews only
+new or semantically changed tasks; `--tasks` reviews an explicit order range/list.
+Context reading and review scope are kept structurally separate — reading an
+already-reviewed task for background never re-grades it — and a scoped review cannot
+claim whole-change readiness unless every out-of-scope task (from task 12 onward) still
+retains a fingerprint matching its last review. See "Scoped and incremental spec-review
+(D34, D35)" below.
+
+An eighteenth task, `compound-actions-and-dependency-aware-status`, closes two
+previously-tracked follow-ups: `spec-approve`'s "approve and start" outcome now
+continues directly into implementation after `start` succeeds, in the same turn, with no
+further ask (FU-002); and `deriveStage`'s `ready-to-start` stage now checks
+`depsSatisfied` before reporting a task ready, falling through to the real blocking
+task's own stage or an explicit `blocked-on-dependencies` report (FU-004). See "Complete
+owner-facing compound actions and dependency-aware status (D34, D35)" below.
+
+A nineteenth task, `unowned-drift-correction-flow`, adds a named, classified process —
+**unowned-drift** — for a real correction outside every current task's own scope,
+closing FU-006 (hit twice in this repository's own history as an undocumented ad hoc
+edit). `classifyUnownedDrift` distinguishes `owned`/`forbidden`/`unowned-drift`; a
+classified `unowned-drift` path is presented a three-option owner menu (a narrow
+corrective task, amending an existing task's scope, or an explicit owner-authorized
+maintenance correction); the third option persists a structured `follow-ups.yaml`
+record (`validateMaintenanceCorrectionEntry`), never a silent edit. See "Formal
+unowned-drift correction flow (D34, D35)" below.
+
+A twentieth task, `repository-bound-handler-testability`, parameterizes
+`handleStart`/`checkSpecsIndexes`/`buildSpecsIndexes`'s repository-root paths —
+optional parameters defaulting to the real repository, closing FU-007 (`handleStart`
+"reads the real repository's `ACTIVE_DIR`... and can't be driven end-to-end in a
+fixture test," worked around twice already). A reusable `createFixtureRepo` helper
+builds a throwaway git repository plus a minimal `specs/active/` tree, so `start`,
+index staleness (REC-03), `execution.suspension`, and dependency-aware `status` (task
+18) all get real, fixture-backed end-to-end coverage without ever touching the real
+checkout. See "Repository-bound handler testability (D34, D35)" below.
+
+A twenty-first, final task, `owner-workflow-acceptance-scenarios`, validates D34's whole
+ten-property bar end-to-end across tasks 14-20's own mechanisms, composed — fifteen
+required regression scenarios (approve+start begins work without a further ask; a
+passing review renders minimally; a failing review expands only what failed; bounded
+per-task context; no owner questions between task reviews; a real semantic contract
+mismatch is detected; path overlap alone stays non-blocking; independent per-task
+provenance on a shared file; a scoped review never re-grades old tasks; dependency-aware
+status never proposes an unstartable task; unowned drift follows the named process; an
+accepted scope exception stays narrow; `HEAD` advancement never stales earlier evidence;
+an aggregate report can never contradict its own canonical per-task reports; and the
+composite scenario — only the initial request, genuine owner decisions, and one final
+confirmation), driven against fixture repositories (task 20), never the real one, and
+test-only (no production code in its own `allowed_paths`). See "Owner-workflow
+acceptance scenarios (D34, D35)" below.
+
 ## Decision
 
 ### State model and fingerprints (D1, D6, D7, D16, D18, D27)
@@ -307,6 +387,215 @@ compaction and owner-approved scope exceptions (D31)" below.
     `Scope` column, not the `Verdict` column, is where "exception pending" is surfaced.
     `--verbose` (restoring full AC-by-AC prose) is an optional, additive interface this
     task may ship without, per its own scope.
+
+### Report minimization (D34, D35)
+
+38. **A normal passing `task-review`/`implementation-review` report has at most 10
+    non-empty lines**, tightening D31's "15-30 lines as a consequence" figure into a
+    deterministically enforced ceiling: title line, the seven checklist items
+    (`renderCompactReviewChecklist`), plus, when an owner-approved scope exception is
+    active, one exception-note line (`renderNormalPassingReportBody`, both in
+    `tools/specs/lifecycle.mjs`). Applies only to the fully-passing case — no unresolved
+    finding, no unresolved owner/scope decision; a report with any of those keeps D31's
+    expanded shape.
+39. **A structural guard, not just a shorter template.** `checkReportSectionUniqueness`
+    (`tools/specs/lifecycle.mjs`) confirms AC coverage, scope, and findings each appear
+    at most once in a rendered report body — a second heading restating a checklist item
+    is a defect this function catches, not a style preference.
+40. **The same renderer serves both `task-review` and `implementation-review`.**
+    `implementation-review`'s per-task loop reuses `task-review.md` step 8 verbatim
+    (task 12), so a passing task's own `reviews/<task-id>.md` already goes through
+    `renderNormalPassingReportBody` — no second, divergent minimal-report renderer for
+    the orchestrated case.
+
+### Implementation provenance and attribution (D34, D35)
+
+41. **A persisted, per-task `implementation` block** —
+    `baseline_revision`/`review_revision`/`changed_paths`/`worktree_patch_fingerprint` —
+    closes the scope D33 explicitly deferred ("a narrower, correct revision-based
+    check... as a genuinely new predicate... explicitly named as future work"). Task
+    ownership of a changed file becomes a stored fact instead of being re-inferred from
+    `git diff`, commit messages, or `allowed_paths` pattern-matching every time it's
+    needed.
+42. **`baseline_revision` is recorded exactly once**, on a task's first successful
+    `start` (`nextImplementationBaseline`, `tools/specs/lifecycle.mjs`) — a later
+    `safe_to_retry`/idempotent `start` never overwrites it, mirroring how `self_check`
+    (D28) and `execution.suspension` (D8) are each written by exactly one path.
+43. **`changed_paths` is attributed, not merely collected** —
+    `computeTaskAttributedChangedPaths` filters a raw changed-file list (committed since
+    baseline, plus still-uncommitted/untracked — `git.getChangedFiles`'s own existing
+    union) down to only the paths matching this task's own `allowed_paths`, refreshed
+    alongside `self_check` on every `self-check` run. Two sequential tasks touching the
+    same file each retain their own independent, correct attribution — task B editing a
+    file never rewrites task A's already-persisted record.
+44. **`computeImplementationFingerprint` is finally populated with real data.** The
+    function itself (defined by task 01) is unchanged; a new
+    `computeImplementationFingerprintFromProvenance` reads a task's own persisted
+    `implementation` block as the `revision`/`evidence` inputs, closing the gap the
+    function's own original doc comment named ("populating real revision/evidence data
+    is later tasks' job").
+45. **`implementation` is excluded from every fingerprint tier** — operational evidence,
+    not semantic task content, exactly like `status`/`execution.suspension`/
+    `self_check`.
+46. **Owner-confirmed migration flow, never unattended.** `suggest-provenance` (read-only
+    — inspects commit messages mentioning the task id as a *suggestion*, never
+    authoritative) and `apply-provenance --confirm --baseline <sha>` (the only write
+    path, refuses to write without an explicit `--confirm`) let an already-terminal task
+    (01-13) gain a reconstructed `implementation` block on request — never run
+    unattended against them as part of shipping this task, mirroring D32's precedent
+    that a new completeness mechanism is not silently enforced backward against
+    already-closed work.
+47. **Does not reopen D33.** `self_check.revision`/`staleEvidenceTasks` are unchanged —
+    this is a separate, narrower mechanism answering "what did this task's own work
+    touch," not a reversal of D33's "never compare against global `HEAD` equality" rule.
+
+### Semantic cross-task integration and consolidated decisions (D34, D35)
+
+48. **Bounded pair selection, not every pair in scope.** `selectSemanticIntegrationPairs`
+    (`tools/specs/lifecycle.mjs`) selects a pair for semantic inspection when it already
+    shares a file-overlap finding, or when the two tasks' `semantic_references` name each
+    other (`dependency_contracts`) or share a decision — a real relationship the
+    file-overlap check alone cannot see. Path overlap alone remains a review candidate,
+    never an automatic defect, unchanged from task 12's own original rule.
+49. **Eleven signal categories, model-inspected over the selected pairs** — dependency
+    contracts, semantic references, public CLI changes, shared schemas/state, lifecycle
+    transitions, producer/consumer relationships, error/recovery contracts, guard/
+    side-effect ordering, documentation contracts, consequential paths, and shared files.
+    A finding exists only for a real inconsistency — never a synthetic record that a pair
+    was checked and found clean, same split this workflow already uses for
+    semantic-reference completeness (D26).
+50. **The per-task structured record is complete.** `PER_TASK_REVIEW_FIELDS`
+    (`tools/specs/lifecycle.mjs`) names every field the owner's requirement listed —
+    task ID, verdict, AC covered/total, scope status, blocking findings, pending owner
+    decisions, pending scope decisions, clarification requests, follow-up candidates,
+    review artifact, and implementation fingerprint (task 15) — validated by
+    `validatePerTaskReviewRecord` before it leaves a per-task subagent's context.
+51. **One consolidated stage, not a scope-decision turn followed by a status turn.**
+    `buildConsolidatedDecisionStage` collects every reviewed task's pending owner/scope
+    decisions and follow-up candidates; `implementation-review.md` presents them
+    together, in one turn, before the bulk-transition confirmation (itself unchanged from
+    task 12's own eligibility rule and single write path).
+52. **Task 12's own step-7a follow-up offer is suppressed, but only inside this
+    orchestration.** A per-task run happening *through* `implementation-review` collects
+    a would-be follow-up candidate into the consolidated stage instead of asking inline;
+    `/nevo-ai:task-review` run standalone is unaffected — its own step 7a offer is
+    unchanged, still presented per task, exactly as task 12 originally shipped it.
+
+### Scoped and incremental spec-review (D34, D35)
+
+53. **`--all`/`--changed`/`--tasks` — `--all` is also the default**, so every existing
+    invocation of `/nevo-ai:spec-review <change-id>` continues to work unchanged.
+    `--changed` (`selectChangedTaskIds`) selects tasks whose current
+    `computeTaskFingerprint` doesn't match the prior review's `task_fingerprints` entry,
+    or that have no entry at all. `--tasks` reuses the same order-range/order-list
+    grammar `/nevo-ai:implementation-review`'s `review-scope` already established, rather
+    than a second parser.
+54. **Context reading and review scope are structurally separate.** Reading an
+    already-reviewed task's file for background never re-grades it, never regenerates
+    its verdict, never replaces its `task_fingerprints` entry, and never changes its
+    `status` — only the deterministic report write persists those fields, and only for
+    tasks in the resolved scope.
+55. **A scoped review names a potentially-impacted out-of-scope task, never silently
+    re-reviews or ignores it.** `findPotentiallyImpactedOutOfScopeTasks` reports an
+    out-of-scope task named in a selected task's own `dependency_contracts`, offering
+    scope expansion rather than deciding on the owner's behalf.
+56. **A scoped review cannot claim whole-change readiness on a stale out-of-scope
+    baseline.** `scopedReviewBaselineValid` gates rows 4-5 of the spec-review decision
+    table for any non-`--all` run — every out-of-scope task from task 12 onward must
+    still have a fingerprint matching its last review, or the verdict reports the
+    invalidated task(s) and recommends scope expansion instead.
+57. **The same compact shape task 14 already defines**, adapted to `spec-review`'s own
+    five-value verdict vocabulary (`renderScopedSpecReviewBody`) — only for the new
+    scoped modes; `--all`'s existing report shape is unchanged.
+
+### Complete owner-facing compound actions and dependency-aware status (D34, D35)
+
+58. **"Approve and start implementation" completes the whole operation its label
+    promises, closing FU-002.** After `start` succeeds, `spec-approve.md` continues
+    directly into implementation in the same turn — no further ask, no "Implement,
+    then ..." handoff — reusing the same single-task implementation loop
+    `/nevo-ai:task-start`/a named-subset batch already drives, rather than a second,
+    parallel mechanism. Plain `Approve` (no start) is unmodified — it still stops after
+    approval. Every existing D17 stop condition inside "approve and start"
+    (`confirm-required`, `unsafe_manual`, `not_retryable`, `partially_completed`,
+    unrelated dirty files, scope expansion, an ADR conflict) is unchanged — this closes
+    only the success path's ending.
+59. **The general rule, stated once for every future compound action:** an owner-facing
+    compound action completes the operation its own label promises — if a label says "X
+    and Y," the command performs both in the same turn on the success path, never
+    X-then-a-textual-pointer-to-Y.
+60. **`deriveStage`'s `ready-to-start` stage now checks `depsSatisfied`, closing
+    FU-004.** The exact predicate `start` itself uses — reproduced concretely
+    2026-08-06, `status` reported a task ready-to-start while its dependency was still
+    `in-implementation`. An approved-but-blocked task no longer reports as ready; the
+    real next action is whichever other task's own stage actually applies (an earlier
+    genuinely-ready approved task, or the blocking dependency's own `needs-approval`/
+    `ready-to-start`/`in-progress` stage), or, if no other stage explains it, a new
+    explicit `blocked-on-dependencies` stage naming the unmet dependency and its current
+    status.
+
+### Formal unowned-drift correction flow (D34, D35)
+
+61. **`classifyUnownedDrift` names the real classification, closing FU-006.**
+    `owned` (inside some task's `allowed_paths`/`consequential_paths`, or attributed to
+    the task currently under review), `forbidden` (matches any task's `forbidden_paths`
+    — never eligible for the lightweight option below, same hard exclusion task 13
+    already established for `scope_exceptions`), or `unowned-drift` (outside every
+    task's scope, not the current task's own diff).
+62. **The three-option owner menu** — create a narrow corrective task, amend/re-attribute
+    an existing task's scope, or an explicit owner-authorized maintenance correction —
+    replaces the undocumented ad hoc edit FU-006 recorded twice in this repository's own
+    history.
+63. **The maintenance-correction option persists a structured record, never a silent
+    edit.** A `kind: maintenance-correction` `follow-ups.yaml` entry, validated by
+    `validateMaintenanceCorrectionEntry` beyond what every follow-up entry already
+    requires: exact `paths` (never a glob), `reason`, `confirmed_by: owner`,
+    `confirmed_at`, and `revision`.
+64. **Visible in review and audit, never silently absent.** A recorded correction
+    surfacing in a later `spec-audit`/`task-review` run's scope is named explicitly by
+    its follow-up id, never re-flagged as an unexplained anomaly.
+
+### Repository-bound handler testability (D34, D35)
+
+65. **Optional parameters, defaulting to the real repository — no production behavior
+    change.** `handleStart(changeSlug, taskId, { activeDir, gitRoot })`,
+    `buildSpecsIndexes({ activeDir, archiveDir })`,
+    `checkSpecsIndexes({ activeDir, archiveDir, activeIndexMd, archiveIndexMd,
+    indexJson })`, and `writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd,
+    indexJson })` all default every new parameter to the same module-level constant
+    they always read — every existing call site (the CLI, `handleBatchStart`'s forward
+    reference) is unaffected.
+66. **No service locator, no global mutable configuration.** Parameterization is plain
+    function arguments/options objects — nothing settable at the module level, nothing
+    that could leak between a test run and a real invocation.
+67. **A reusable fixture-repository helper**, `createFixtureRepo`
+    (`tools/tests/fixture-repo.test-helper.mjs`) — a throwaway git repository plus a
+    minimal `specs/active/<change>/` tree (`change.yaml`, task front matter, a
+    controllable task graph) — closes FU-007's two prior workarounds
+    (`nextSuspensionForNotRetryable`'s isolated unit test, task 02; the real-repo-
+    corrupting REC-03 test, task 10) with real, fixture-backed end-to-end coverage:
+    `start` behavior, index staleness, `execution.suspension`, and dependency-aware
+    `status` (task 18) against a real, loaded `change.yaml` — none of it touching the
+    actual repository.
+
+### Owner-workflow acceptance scenarios (D34, D35)
+
+68. **Fifteen required regression scenarios, each exercising a real handler chain against
+    a fixture repository** (`tools/tests/owner-workflow-acceptance.test.mjs`) — never
+    only the isolated function each owning task (14-20) already unit-tests alone. Covers
+    every property D34 named: compound-action completion, minimal/expanded report
+    shapes, bounded per-task context, one consolidated decision stage, real vs.
+    non-blocking cross-task findings, independent provenance on a shared file, scoped
+    review without re-grading, dependency-aware status, unowned-drift, narrow scope
+    exceptions, `HEAD`-advancement-proof evidence, and the aggregate-vs-canonical guard
+    (regression only — that mechanism shipped before this refinement pass).
+69. **The composite scenario is its own explicit test**, not merely implied by the other
+    fourteen: a full fixture run — `start` on two approved tasks, zero genuine owner
+    decisions, one consolidated stage, one bulk-eligible set — proves the whole
+    one-person-workflow claim directly, not just its individual mechanisms in isolation.
+70. **Test-only, by construction.** This task's own `forbidden_paths` excludes every
+    production source file it exercises — a gap found here routes back to the owning
+    task for a real fix, never a workaround patched into the acceptance suite itself.
 
 ## What was deliberately not adopted / not changed
 

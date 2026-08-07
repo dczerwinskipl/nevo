@@ -15,10 +15,16 @@ report; the conversation only gets the short structured summary from
 guide, not mandatory boilerplate — omit any section with nothing to say, but never omit
 "Findings" or "Verdict" (or, for `task-review`/`implementation-review`'s per-task
 section, "Checklist" — D31). Report size is a consequence of what actually needs
-saying, not a target enforced by truncation: a normal passing `task-review` report lands
-around 15-30 lines because nothing else needs saying; a report with defects, owner
-decisions, or scope exceptions grows to fit them — it must never grow merely because a
-task happens to carry many satisfied acceptance criteria.
+saying, not a target enforced by truncation: a report with defects, owner decisions, or
+scope exceptions grows to fit them — it must never grow merely because a task happens to
+carry many satisfied acceptance criteria. **A normal passing `task-review`/
+`implementation-review` per-task report (D34/D35, task 14) has at most 10 non-empty
+lines** — title plus the seven checklist items (plus, when active, one owner-approved-
+exception note line) — rendered by `renderNormalPassingReportBody`
+(`tools/specs/lifecycle.mjs`), never composed as prose; no separate `Findings`,
+`Verification`, or `Acceptance-criteria coverage` section is written for this case, since
+each of the seven checklist items already states the fact those sections would
+otherwise restate.
 
 ```markdown
 ---

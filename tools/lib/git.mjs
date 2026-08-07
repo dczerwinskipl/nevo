@@ -168,3 +168,33 @@ export function getChangedFiles(root, base, head = '') {
   const untrackedFiles = untracked ? untracked.split('\n').filter(Boolean) : [];
   return [...new Set([...tracked, ...untrackedFiles])];
 }
+
+// Raw uncommitted diff (staged + unstaged, tracked files only) for specific
+// paths — used to fingerprint a task's own uncommitted work
+// (`implementation.worktree_patch_fingerprint`, area
+// implementation-provenance-and-attribution, task 15) so a content-only edit
+// changes the fingerprint even when the touched-path list doesn't. Restricted
+// to `paths` (never the whole tree) so a concurrent, unrelated dirty file
+// never perturbs this task's own recorded provenance.
+export function getWorktreeDiff(root, paths = []) {
+  if (!paths.length) return '';
+  return run(root, ['diff', 'HEAD', '--', ...paths]);
+}
+
+// Commits whose message mentions `needle` (case-insensitive) — a migration-flow
+// *suggestion* only (area implementation-provenance-and-attribution requirement
+// 8: "commit-message matching may suggest boundaries but is never authoritative"),
+// never treated as the persisted record itself.
+export function findCommitsMentioning(root, needle) {
+  let out;
+  try {
+    out = run(root, ['log', '--all', '--format=%H %s', '--grep', needle, '-i']);
+  } catch {
+    return [];
+  }
+  if (!out) return [];
+  return out.split('\n').filter(Boolean).map(line => {
+    const spaceIdx = line.indexOf(' ');
+    return spaceIdx === -1 ? { sha: line, subject: '' } : { sha: line.slice(0, spaceIdx), subject: line.slice(spaceIdx + 1) };
+  });
+}

@@ -296,6 +296,34 @@ export function classifyDirtyWorktree(dirtyFiles, allowedPaths) {
   return { code: 'REC-05', class: 'confirm-required', files: dirtyFiles };
 }
 
+/**
+ * Narrows a raw changed-file list (e.g. `git.getChangedFiles`'s output) down
+ * to paths actually attributable to this task's own declared scope
+ * (D34/D35, area implementation-provenance-and-attribution, task 15) —
+ * deliberately narrower than "everything that changed since baseline," which
+ * would also catch a later, unrelated task's own edit to a file this task
+ * never declared. Reuses `pathMatchesAllowedPattern`, same matcher
+ * `classifyDirtyWorktree` already uses for the equivalent recovery-time
+ * classification.
+ */
+export function computeTaskAttributedChangedPaths(changedFiles, allowedPaths) {
+  const patterns = allowedPaths || [];
+  const attributed = changedFiles.filter(f => patterns.some(p => pathMatchesAllowedPattern(f, p)));
+  return [...new Set(attributed)].sort();
+}
+
+/**
+ * Decides the `baseline_revision` to persist for `implementation` (area
+ * implementation-provenance-and-attribution requirement 3) — recorded once,
+ * on the task's first successful transition into `in-implementation`, never
+ * overwritten by a later idempotent/`safe_to_retry` `start`. `existing` is
+ * the task's current `implementation` block (or `undefined`); `revision` is
+ * the current git revision this call would record if nothing was set yet.
+ */
+export function nextImplementationBaseline(existing, revision) {
+  return existing?.baseline_revision || revision;
+}
+
 // ── Resume-and-continue controller (D2/D3/D8/D17, task 03) ─────────────────
 //
 // An authorized scope is a single task id or an already-resolved ordered
@@ -824,6 +852,157 @@ export function detectBatchIntegrationFindings(intent, orderedTaskIds, touchedPa
   return findings;
 }
 
+/**
+ * Bounded pair selection for the semantic cross-task integration pass
+ * (D34/D35, task 16, area implementation-review-orchestration requirement
+ * 16) — the deterministic "which pairs get inspected" half; the actual
+ * semantic inspection across the eleven named signal categories (dependency
+ * contracts, public CLI changes, shared schemas, ...) is a model-review step
+ * over the selected pairs, same split this workflow already uses for
+ * semantic-reference completeness (D26). A pair is selected when either: (a)
+ * it already appears in `fileOverlapPairs` (reused from
+ * `detectBatchIntegrationFindings`'s own file-overlap detection — never
+ * recomputed a second way), or (b) one task's `semantic_references.decisions`/
+ * `dependency_contracts` names the other, or they share a decision — a real
+ * relationship `attributeTouchedPaths` alone cannot see (two tasks can share
+ * a dependency contract without ever touching the same file). `taskSemanticRefs`
+ * is `{[taskId]: { decisions: string[], dependencyContracts: string[] }}`.
+ * Never selects every pair in scope — that would defeat "bounded."
+ */
+export function selectSemanticIntegrationPairs(orderedTaskIds, taskSemanticRefs, fileOverlapPairs = []) {
+  const pairs = new Map();
+  const key = (a, b) => [a, b].sort().join(' ');
+  for (const [a, b] of fileOverlapPairs) pairs.set(key(a, b), [a, b].sort());
+
+  const refs = taskSemanticRefs || {};
+  for (let i = 0; i < orderedTaskIds.length; i++) {
+    for (let j = i + 1; j < orderedTaskIds.length; j++) {
+      const a = orderedTaskIds[i];
+      const b = orderedTaskIds[j];
+      const ra = refs[a] || {};
+      const rb = refs[b] || {};
+      const dependencyRelated = (ra.dependencyContracts || []).includes(b) || (rb.dependencyContracts || []).includes(a);
+      const sharedDecision = (ra.decisions || []).some(d => (rb.decisions || []).includes(d));
+      if (dependencyRelated || sharedDecision) pairs.set(key(a, b), [a, b].sort());
+    }
+  }
+  return [...pairs.values()];
+}
+
+/** The complete structured per-task record `implementation-review` carries forward from a per-task review into the aggregate/consolidated stage (area requirement 19) — every field a caller must populate, none inferred silently. */
+export const PER_TASK_REVIEW_FIELDS = [
+  'taskId', 'verdict', 'acCovered', 'acTotal', 'scopeStatus', 'blockingFindings',
+  'pendingOwnerDecisions', 'pendingScopeDecisions', 'clarificationRequests',
+  'followUpCandidates', 'reviewArtifact', 'implementationFingerprint',
+];
+
+/**
+ * Validates a per-task structured review record carries every field
+ * `PER_TASK_REVIEW_FIELDS` requires (area requirement 19) — throws naming
+ * the missing field(s) rather than silently proceeding with an incomplete
+ * record the consolidated stage would then under-report from.
+ */
+export function validatePerTaskReviewRecord(record) {
+  const missing = PER_TASK_REVIEW_FIELDS.filter(f => !(f in (record || {})));
+  if (missing.length) {
+    throw new Error(`Per-task review record for '${record?.taskId || '?'}' is missing required field(s): ${missing.join(', ')}`);
+  }
+  return true;
+}
+
+/**
+ * Collects every reviewed task's pending decisions and follow-up candidates
+ * into the one consolidated stage (D34/D35, task 16, area requirement 21) —
+ * never per-task. Scope decisions are grouped by resolution path
+ * (`outsideAllowed` vs. `forbidden`, mirroring task 13's own classification)
+ * since only the former is eligible for the lightweight acceptance menu.
+ * `records` are `PER_TASK_REVIEW_FIELDS`-shaped (validated by the caller via
+ * `validatePerTaskReviewRecord` before reaching here). Eligibility for the
+ * bulk-transition menu reuses `selectEligibleForVerification` verbatim —
+ * never re-derived a second way.
+ */
+export function buildConsolidatedDecisionStage(records) {
+  const ownerDecisions = [];
+  const scopeDecisionsOutsideAllowed = [];
+  const scopeDecisionsForbidden = [];
+  const clarificationRequests = [];
+  const followUpCandidates = [];
+
+  for (const record of records || []) {
+    for (const d of record.pendingOwnerDecisions || []) ownerDecisions.push({ taskId: record.taskId, ...d });
+    for (const s of record.pendingScopeDecisions || []) {
+      const bucket = s.classification === 'forbidden' ? scopeDecisionsForbidden : scopeDecisionsOutsideAllowed;
+      bucket.push({ taskId: record.taskId, ...s });
+    }
+    for (const c of record.clarificationRequests || []) clarificationRequests.push({ taskId: record.taskId, ...c });
+    for (const f of record.followUpCandidates || []) followUpCandidates.push({ taskId: record.taskId, ...f });
+  }
+
+  return {
+    ownerDecisions,
+    scopeDecisions: { outsideAllowed: scopeDecisionsOutsideAllowed, forbidden: scopeDecisionsForbidden },
+    clarificationRequests,
+    followUpCandidates,
+    eligibleForBulkTransition: selectEligibleForVerification(
+      (records || []).map(r => ({ id: r.taskId, verdict: r.verdict, blockingFindings: r.blockingFindings })),
+    ),
+  };
+}
+
+// ── Unowned-drift correction (D34/D35, task 19) ─────────────────────────────
+
+export const UNOWNED_DRIFT_CLASSIFICATIONS = new Set(['owned', 'forbidden', 'unowned-drift']);
+
+/**
+ * Classifies a path a review/implementation touched that falls outside the
+ * task currently under review/implementation's own scope (area
+ * unowned-drift-correction requirement 1) — 'forbidden' when it matches any
+ * task's `forbidden_paths` (never eligible for the lightweight
+ * maintenance-correction option, requirement 5, mirrors task 13's own
+ * `forbidden_paths` exclusion); 'owned' when it's inside some task's
+ * `allowed_paths`/`consequential_paths`, or attributed to the task currently
+ * under review via `currentTaskChangedPaths` (e.g. that task's own persisted
+ * `implementation.changed_paths`, task 15); 'unowned-drift' otherwise —
+ * outside every task's declared scope and not attributable to the current
+ * task's own diff. `taskPaths` is `{[taskId]: { allowedPaths: string[],
+ * consequentialPaths: string[], forbiddenPaths: string[] }}`.
+ */
+export function classifyUnownedDrift(path, taskPaths, { currentTaskChangedPaths = [] } = {}) {
+  const entries = Object.values(taskPaths || {});
+  if (entries.some(p => (p.forbiddenPaths || []).some(pat => pathMatchesAllowedPattern(path, pat)))) {
+    return 'forbidden';
+  }
+  if (currentTaskChangedPaths.includes(path)) return 'owned';
+  if (entries.some(p => [...(p.allowedPaths || []), ...(p.consequentialPaths || [])].some(pat => pathMatchesAllowedPattern(path, pat)))) {
+    return 'owned';
+  }
+  return 'unowned-drift';
+}
+
+/** The three-option owner menu for a classified `unowned-drift` path (area requirement 2) — 'maintenance-correction' is never offered for a 'forbidden' classification. */
+export const UNOWNED_DRIFT_OPTIONS = ['create-corrective-task', 'amend-existing-task', 'maintenance-correction'];
+
+/**
+ * Validates a `kind: maintenance-correction` follow-up entry's own required
+ * fields (area requirement 3), beyond what `validateFollowUps`
+ * (`tools/specs/validation.mjs`) already checks for every follow-up entry
+ * (`id`/`source_task`/`kind`/`reason`/`severity`/`status`/`resolver_task`):
+ * exact `paths` (never a glob — a blanket path defeats the whole point of a
+ * narrow, auditable correction), the `reason`, explicit owner confirmation
+ * (`confirmed_by: owner`), `confirmed_at`, and the `revision` that performed
+ * the correction. Returns `{ ok: true }` or `{ ok: false, missing }`.
+ */
+export function validateMaintenanceCorrectionEntry(entry) {
+  const missing = [];
+  if (!Array.isArray(entry?.paths) || entry.paths.length === 0) missing.push('paths');
+  else if (entry.paths.some(p => typeof p !== 'string' || p.includes('*'))) missing.push('paths (no globs allowed — one exact path per entry)');
+  if (!entry?.reason) missing.push('reason');
+  if (entry?.confirmed_by !== 'owner') missing.push('confirmed_by');
+  if (!entry?.confirmed_at) missing.push('confirmed_at');
+  if (!entry?.revision) missing.push('revision');
+  return missing.length ? { ok: false, missing } : { ok: true };
+}
+
 export const BATCH_REVIEW_VERDICTS = new Set(['no-findings', 'changes-recommended', 'owner-decision-required']);
 
 /**
@@ -996,9 +1175,9 @@ function describeSelfCheck(task, current) {
  *
  * Returns `{ stage, detail, nextCommand }`, plus `suspension` when the relevant task has
  * one (D8) and `selfCheck` for the in-implementation stage (D28). `stage` is one of:
- * `needs-approval` | `ready-to-start` | `in-progress` | `cannot-verify-pr` | `needs-pr` |
- * `pr-draft` | `needs-comment-resolution` | `needs-verification-fixes` |
- * `ready-to-finalize` | `done`.
+ * `needs-approval` | `ready-to-start` | `blocked-on-dependencies` | `in-progress` |
+ * `cannot-verify-pr` | `needs-pr` | `pr-draft` | `needs-comment-resolution` |
+ * `needs-verification-fixes` | `ready-to-finalize` | `done`.
  */
 export function deriveStage(change, facts) {
   const draft = change.tasks.find(t => t.status === 'draft');
@@ -1010,12 +1189,21 @@ export function deriveStage(change, facts) {
     };
   }
 
-  const approved = change.tasks.find(t => t.status === 'approved');
-  if (approved) {
-    return withSuspension(approved, {
+  // D34/D35, task 18 (closes FU-004) — an `approved` task is only
+  // `ready-to-start` when `depsSatisfied` actually holds, the same predicate
+  // `start` itself uses; reporting the first `approved` task unconditionally
+  // let `status` recommend a task `start` would immediately reject. If an
+  // earlier-ordered approved task is blocked but a later one is genuinely
+  // ready, that later one is the real next action (requirement 8) — `.find`
+  // over `change.tasks` in its existing declared order already expresses
+  // this without a second sort.
+  const approvedTasks = change.tasks.filter(t => t.status === 'approved');
+  const readyApproved = approvedTasks.find(t => depsSatisfied(t, change));
+  if (readyApproved) {
+    return withSuspension(readyApproved, {
       stage: 'ready-to-start',
-      detail: `Task '${approved.id}' is approved but not started.`,
-      nextCommand: `/nevo-ai:task-start ${change._slug || change.id} ${approved.id}`,
+      detail: `Task '${readyApproved.id}' is approved but not started.`,
+      nextCommand: `/nevo-ai:task-start ${change._slug || change.id} ${readyApproved.id}`,
     });
   }
 
@@ -1027,6 +1215,29 @@ export function deriveStage(change, facts) {
       nextCommand: `Implement, then /nevo-ai:task-review ${change._slug || change.id} ${inProgress.id}`,
     });
     return { ...base, selfCheck: describeSelfCheck(inProgress, facts.currentTaskState) };
+  }
+
+  // Every approved task exists but none is ready, and no draft/in-implementation
+  // task above already explained why (a chain of approved-but-blocked tasks,
+  // or a dependency that's `abandoned`/missing rather than merely not-yet-
+  // started) — report the block explicitly, naming the unmet dependency(ies),
+  // rather than falling through to the "every task terminal" logic below,
+  // which would be wrong: real, non-terminal work is still pending.
+  if (approvedTasks.length) {
+    const blocked = approvedTasks[0];
+    const unmet = (blocked.depends_on || []).filter(depId => {
+      const dep = change.tasks.find(t => t.id === depId);
+      return !dep || !DEPENDENCY_SATISFYING_STATUSES.has(dep.status);
+    });
+    const unmetDescriptions = unmet.map(depId => {
+      const dep = change.tasks.find(t => t.id === depId);
+      return `'${depId}' (${dep ? dep.status : 'missing'})`;
+    });
+    return withSuspension(blocked, {
+      stage: 'blocked-on-dependencies',
+      detail: `Task '${blocked.id}' is approved but blocked on: ${unmetDescriptions.join(', ')}.`,
+      nextCommand: `Resolve blocking dependenc${unmet.length === 1 ? 'y' : 'ies'}: ${unmet.join(', ')}.`,
+    });
   }
 
   // Every task is now in a terminal status (implemented/verified/archived/abandoned) —
@@ -1096,6 +1307,118 @@ export function deriveStage(change, facts) {
 // archived independently of its whole change) but never needs a further
 // bulk-transition hop — see computeBulkTransitionTarget below.
 export const MULTI_REVIEW_ELIGIBLE_STATUSES = new Set(['in-implementation', 'implemented', 'verified', 'archived']);
+
+// ── Scoped and incremental spec-review (D34/D35, task 17) ──────────────────
+
+export const SPEC_REVIEW_SCOPE_MODES = new Set(['all', 'tasks', 'changed']);
+
+/**
+ * Resolve `--all`/`--tasks <spec>`/`--changed` into an ordered, deduplicated
+ * list of task ids for a scoped `/nevo-ai:spec-review` run (area
+ * scoped-spec-review requirement 1) — distinct from `resolveReviewScope`
+ * (task 12), which filters by `MULTI_REVIEW_ELIGIBLE_STATUSES`;
+ * `spec-review` reviews a task's *specification*, before it ever reaches
+ * that lifecycle point, so no status filtering applies here. Exactly one of
+ * `all`/`tasks`/`changed` is accepted — no flag given is the caller's job to
+ * treat as `all` (the compatibility default), not this function's.
+ * `changedTaskIds` (for `changed`) is supplied by the caller — computed via
+ * `selectChangedTaskIds`, since fingerprint comparison needs file access this
+ * pure function doesn't have.
+ */
+export function resolveSpecReviewScope(change, { all = false, tasks: tasksSpec, changed = false, changedTaskIds = [] } = {}) {
+  const modesGiven = [all, Boolean(tasksSpec), changed].filter(Boolean).length;
+  if (modesGiven !== 1) {
+    return { ok: false, reason: 'Exactly one of --all/--tasks/--changed is required.' };
+  }
+  if (all) return { ok: true, mode: 'all', taskIds: change.tasks.map(t => t.id) };
+  if (changed) return { ok: true, mode: 'changed', taskIds: [...changedTaskIds] };
+
+  const parsed = parseTaskOrderSpec(tasksSpec);
+  if (!parsed.ok) return parsed;
+  const byOrder = new Map(change.tasks.map(t => [t.order, t.id]));
+  const taskIds = [];
+  for (const order of parsed.orders) {
+    const id = byOrder.get(order);
+    if (!id) return { ok: false, reason: `--tasks names order ${order}, which doesn't resolve to a real task in this change.` };
+    taskIds.push(id);
+  }
+  return { ok: true, mode: 'tasks', taskIds: [...new Set(taskIds)] };
+}
+
+/**
+ * `--changed` selection (area requirement 3) — exactly the tasks whose
+ * current semantic fingerprint (D18) doesn't match what the prior review
+ * recorded, or that have no recorded entry at all (a genuinely new task).
+ * `evaluableTaskIds` is the set `--changed` is allowed to select from (the
+ * caller excludes D32-grandfathered tasks the same way step 5a already
+ * does) — this function never invents that exemption itself.
+ */
+export function selectChangedTaskIds(evaluableTaskIds, priorTaskFingerprints, currentTaskFingerprints) {
+  const prior = priorTaskFingerprints || {};
+  const current = currentTaskFingerprints || {};
+  return evaluableTaskIds.filter(id => prior[id] === undefined || prior[id] !== current[id]);
+}
+
+/**
+ * Names every out-of-scope task whose fingerprint context could plausibly
+ * have shifted because of what's actually in scope this run (area
+ * requirement 4) — a selected task's `dependency_contracts` naming an
+ * unselected task. Reported by name, offered for explicit scope expansion;
+ * never silently re-reviewed and never silently ignored.
+ * `taskDependencyContracts` is `{[taskId]: string[]}`.
+ */
+export function findPotentiallyImpactedOutOfScopeTasks(selectedTaskIds, taskDependencyContracts) {
+  const selected = new Set(selectedTaskIds);
+  const impacted = new Set();
+  for (const id of selected) {
+    for (const dep of (taskDependencyContracts || {})[id] || []) {
+      if (!selected.has(dep)) impacted.add(dep);
+    }
+  }
+  return [...impacted].sort();
+}
+
+/**
+ * The scoped-verdict guard (area requirement 5) — a scoped review cannot
+ * claim `ready-for-approval`/`approved-for-implementation` for the whole
+ * change unless every task *outside* the selected scope still has a
+ * fingerprint matching what the last review recorded for it.
+ * `checkableOutOfScopeTaskIds` is the out-of-scope subset this check applies
+ * to (the caller excludes D32-grandfathered tasks, same exemption step 5a
+ * already uses) — a task with no prior recorded fingerprint at all is
+ * treated as invalid (nothing to trust), not silently skipped.
+ */
+export function scopedReviewBaselineValid(checkableOutOfScopeTaskIds, priorTaskFingerprints, currentTaskFingerprints) {
+  const prior = priorTaskFingerprints || {};
+  const current = currentTaskFingerprints || {};
+  const invalidTaskIds = checkableOutOfScopeTaskIds.filter(id => prior[id] === undefined || prior[id] !== current[id]);
+  return { valid: invalidTaskIds.length === 0, invalidTaskIds };
+}
+
+/**
+ * Adapts task 14's compact-checklist rendering shape (`renderCompactReviewChecklist`)
+ * to a scoped `spec-review` run's own five-value verdict vocabulary (area
+ * requirement 6) — reused, not a second, divergent renderer. Only for the
+ * fully-passing case (`ready-for-approval`/`approved-for-implementation`,
+ * zero unresolved findings of any kind) — a review with any unresolved
+ * finding keeps the full report shape, unchanged.
+ */
+export function renderScopedSpecReviewBody({
+  status, unresolvedRequiredFixes = 0, unresolvedOwnerDecisions = 0, unresolvedNeedsClarification = 0,
+} = {}, { title } = {}) {
+  const passing = (status === 'ready-for-approval' || status === 'approved-for-implementation')
+    && unresolvedRequiredFixes === 0 && unresolvedOwnerDecisions === 0 && unresolvedNeedsClarification === 0;
+  if (!passing) {
+    throw new Error('renderScopedSpecReviewBody is only for a fully-passing scoped review result.');
+  }
+  const lines = [
+    '- [x] No unresolved required fix',
+    '- [x] No unresolved owner decision',
+    '- [x] No unresolved clarification request',
+    `- [x] Verdict: ${status}`,
+  ];
+  return `# ${title}\n\n${lines.join('\n')}`;
+}
 
 /**
  * Parse a `--tasks` spec into the requested `order` numbers — a dash range
@@ -1407,6 +1730,90 @@ export function computeTaskReviewChecklist({
   }
 
   return { verdict: unresolvedItems.length ? 'changes-required' : 'pass', unresolvedItems };
+}
+
+const TASK_REVIEW_CHECKLIST_LABELS = {
+  'ac-coverage': 'All acceptance criteria covered',
+  'verification': 'Required automated verification passed',
+  'scope': 'Scope check resolved',
+  'forbidden-path': 'No forbidden-path violation remains unresolved',
+  'docs': 'Architecture and documentation remain consistent',
+  'blocking-findings': 'No unresolved blocking findings',
+  'owner-decision': 'No unresolved owner decision',
+};
+
+/**
+ * Deterministic checklist renderer (task 14, area
+ * review-report-compaction-and-scope-exceptions §E requirement 25) — renders
+ * `computeTaskReviewChecklist`'s output as the seven-item Markdown block
+ * `templates/review-report.md` documents, so the passing/failing shape is a
+ * real function's output, not prompt wording composed independently each run.
+ * A checked item (`[x]`) carries no further line. A failed item (`[ ]`) gets
+ * one indented `- <reason>` line per unresolved-item reason recorded against
+ * it, in `unresolvedItems` order. `scopeExceptionCount > 0` appends the
+ * owner-approved-exception note under the (still checked) "Scope check
+ * resolved" item (requirement 14, task 13) — never the false-compliance
+ * wording ("stays within `allowed_paths`").
+ */
+export function renderCompactReviewChecklist({ unresolvedItems = [] } = {}, { scopeExceptionCount = 0 } = {}) {
+  const failuresByItem = new Map();
+  for (const u of unresolvedItems) {
+    if (!failuresByItem.has(u.item)) failuresByItem.set(u.item, []);
+    failuresByItem.get(u.item).push(u.reason);
+  }
+  const lines = [];
+  for (const item of TASK_REVIEW_CHECKLIST_ITEMS) {
+    const failures = failuresByItem.get(item);
+    if (failures) {
+      lines.push(`- [ ] ${TASK_REVIEW_CHECKLIST_LABELS[item]}`);
+      for (const reason of failures) lines.push(`  - ${reason}`);
+    } else {
+      lines.push(`- [x] ${TASK_REVIEW_CHECKLIST_LABELS[item]}`);
+      if (item === 'scope' && scopeExceptionCount > 0) {
+        lines.push(`  - ${scopeExceptionCount} owner-approved exception${scopeExceptionCount === 1 ? '' : 's'} recorded`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Deterministic ≤10-non-empty-line body for a normal passing
+ * `task-review`/`implementation-review` per-task report (D34/D35, area §E
+ * requirements 21-25) — title line + the seven checklist items (+ up to one
+ * exception-note line). Throws if the checklist result isn't `pass`: a
+ * failing or exception-pending report keeps the expanded shape task 13
+ * already defines (findings, AC-coverage table, verification lines) and does
+ * not go through this renderer — only the fully-passing case is minimized.
+ */
+export function renderNormalPassingReportBody(checklistResult, { title, scopeExceptionCount = 0 } = {}) {
+  if (!checklistResult || checklistResult.verdict !== 'pass') {
+    throw new Error('renderNormalPassingReportBody is only for a passing checklist result — a failing/exception-bearing report uses the expanded shape instead.');
+  }
+  const checklist = renderCompactReviewChecklist(checklistResult, { scopeExceptionCount });
+  return `# ${title}\n\n${checklist}`;
+}
+
+/**
+ * Structural guard (area §E requirement 22) — AC coverage, scope, and
+ * findings must each appear exactly once in a rendered report body, never
+ * restated under a second heading/section for emphasis. Counts occurrences of
+ * each concept's marker text; a count of 0 is fine (the concept may be
+ * entirely represented by a checked checklist item with nothing further to
+ * say), a count > 1 is the defect this guard exists to catch.
+ */
+export function checkReportSectionUniqueness(reportBody) {
+  const markers = {
+    'ac-coverage': [/All acceptance criteria covered/gi, /## Acceptance-criteria coverage/gi],
+    'scope': [/Scope check resolved/gi, /## Scope compliance/gi],
+    'findings': [/## Findings/gi],
+  };
+  const duplicates = [];
+  for (const [section, patterns] of Object.entries(markers)) {
+    const count = patterns.reduce((sum, re) => sum + (reportBody.match(re) || []).length, 0);
+    if (count > 1) duplicates.push({ section, count });
+  }
+  return { ok: duplicates.length === 0, duplicates };
 }
 
 /**

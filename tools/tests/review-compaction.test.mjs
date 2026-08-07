@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path';
 import {
   computeTaskReviewChecklist, TASK_REVIEW_CHECKLIST_ITEMS, TASK_REVIEW_VERDICTS,
   classifyScopeFinding, isScopeExceptionValid,
+  renderCompactReviewChecklist, renderNormalPassingReportBody, checkReportSectionUniqueness,
 } from '../specs/lifecycle.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -249,5 +250,111 @@ describe('scope classification and exception validity feeding computeTaskReviewC
     });
     assert.notEqual(result.verdict, 'pass');
     assert.ok(result.unresolvedItems.some(u => u.item === 'forbidden-path'));
+  });
+});
+
+// ── Task 14 (review-report-minimization, D34/D35, area §E): renderCompactReviewChecklist / renderNormalPassingReportBody / checkReportSectionUniqueness ──
+
+function nonEmptyLines(text) {
+  return text.split('\n').filter(l => l.trim().length > 0);
+}
+
+describe('renderCompactReviewChecklist — deterministic checklist rendering (task 14)', () => {
+  test('a clean pass result renders exactly the seven checked items, in order, no continuation lines', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const rendered = renderCompactReviewChecklist(result);
+    const lines = rendered.split('\n');
+    assert.equal(lines.length, 7);
+    for (const line of lines) assert.match(line, /^- \[x\] /);
+  });
+
+  test('a failed item renders unchecked with its reason(s) as indented continuation lines', () => {
+    const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), docsConsistent: false });
+    const rendered = renderCompactReviewChecklist(result);
+    const lines = rendered.split('\n');
+    const docsIdx = lines.findIndex(l => l.includes('Architecture and documentation remain consistent'));
+    assert.match(lines[docsIdx], /^- \[ \] /);
+    assert.match(lines[docsIdx + 1], /^  - /);
+  });
+
+  test('an active scope exception appends the owner-approved-exception note under the still-checked scope item, never false-compliance wording', () => {
+    const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), scopeStatus: 'accepted-exception' });
+    const rendered = renderCompactReviewChecklist(result, { scopeExceptionCount: 1 });
+    assert.match(rendered, /- \[x\] Scope check resolved\n {2}- 1 owner-approved exception recorded/);
+    assert.doesNotMatch(rendered, /stays within `?allowed_paths`?/);
+  });
+});
+
+describe('renderNormalPassingReportBody — the ≤10-non-empty-line normal-passing body (task 14, AC1, AC2, AC5, AC6)', () => {
+  test('a fully-passing report (no exception) has at most 10 non-empty lines', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task' });
+    assert.ok(nonEmptyLines(body).length <= 10, `expected <=10 non-empty lines, got ${nonEmptyLines(body).length}`);
+  });
+
+  test('a fully-passing report with one accepted scope exception still has at most 10 non-empty lines (AC2)', () => {
+    const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), scopeStatus: 'accepted-exception' });
+    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task', scopeExceptionCount: 1 });
+    assert.ok(nonEmptyLines(body).length <= 10, `expected <=10 non-empty lines, got ${nonEmptyLines(body).length}`);
+  });
+
+  test('the normal-passing body contains none of the excluded prose forms (AC4)', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task' });
+    const forbidden = [
+      /because/i, /passed \d+/i, /test count/i, /## Findings/, /## Verification/,
+      /## Acceptance-criteria coverage/, /INFORMATIONAL/, /commit/i,
+    ];
+    for (const re of forbidden) assert.doesNotMatch(body, re, `body must not match ${re}`);
+  });
+
+  test('pass is required — throws for a non-pass checklist result rather than silently truncating it (AC6)', () => {
+    const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), docsConsistent: false });
+    assert.throws(() => renderNormalPassingReportBody(result, { title: 'x' }), /only for a passing checklist result/);
+  });
+
+  test('a failing report keeps the expanded shape — computeTaskReviewChecklist output for a failure still names the failed items in full, not truncated for a line budget (AC5)', () => {
+    const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), acCoverageComplete: false, verificationPassed: false });
+    assert.equal(result.unresolvedItems.length, 2);
+    const rendered = renderCompactReviewChecklist(result);
+    assert.match(rendered, /All acceptance criteria covered/);
+    assert.match(rendered, /Required automated verification passed/);
+  });
+});
+
+describe('checkReportSectionUniqueness — AC coverage/scope/findings appear at most once (task 14, AC3)', () => {
+  test('a normal passing body (checklist only) reports no duplicates', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const body = renderNormalPassingReportBody(result, { title: 'Review: x/y' });
+    assert.deepEqual(checkReportSectionUniqueness(body), { ok: true, duplicates: [] });
+  });
+
+  test('a report restating "All acceptance criteria covered" under a second heading is flagged', () => {
+    const body = [
+      '- [x] All acceptance criteria covered',
+      '## Acceptance-criteria coverage',
+      '- [x] All 11 acceptance criteria covered',
+    ].join('\n');
+    const { ok, duplicates } = checkReportSectionUniqueness(body);
+    assert.equal(ok, false);
+    assert.ok(duplicates.some(d => d.section === 'ac-coverage'));
+  });
+
+  test('two "## Findings" headings in the same report are flagged', () => {
+    const body = '## Findings\nNo findings.\n\n## Findings\nSomething else.';
+    const { ok, duplicates } = checkReportSectionUniqueness(body);
+    assert.equal(ok, false);
+    assert.ok(duplicates.some(d => d.section === 'findings'));
+  });
+});
+
+// ── Same minimal per-task format used by the implementation-review aggregate (task 14, AC7) ──
+
+describe('renderNormalPassingReportBody reused for implementation-review per-task detail (task 14, AC7)', () => {
+  test('a passing task expanded inside an aggregate report renders through the same function — no second, divergent minimal-report renderer', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const perTaskBody = renderNormalPassingReportBody(result, { title: 'Review: change/task-a (implementation-review, scope: 01-03)' });
+    assert.ok(nonEmptyLines(perTaskBody).length <= 10);
+    assert.deepEqual(checkReportSectionUniqueness(perTaskBody), { ok: true, duplicates: [] });
   });
 });

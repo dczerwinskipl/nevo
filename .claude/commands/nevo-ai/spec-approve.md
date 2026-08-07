@@ -69,10 +69,20 @@ sequence is even offered.
 2. Run `node tools/specs.mjs start <change-id> <task-id>`. This is the re-check of
    `start`'s postconditions against *current* state (task 02's `start-task` postcondition
    contract, area `recovery-and-resume`) — the CLI already performs it internally on
-   every invocation; do not re-derive or re-implement that guard here. If it succeeds,
-   both transitions are done: report the combined result (task now `in-implementation`,
-   branch named). In every outcome below, `approve` from step 1 is never rolled back and
-   never re-run.
+   every invocation; do not re-derive or re-implement that guard here. In every outcome
+   below, `approve` from step 1 is never rolled back and never re-run.
+
+   **If `start` succeeds: continue directly into implementation, in this same turn — do
+   not stop, do not ask whether to begin, do not end with an "Implement, then ..."
+   instruction (D34/D35, task 18, closes FU-002).** The label "Approve and start
+   implementation" is the contract for the whole operation, not just its two lifecycle
+   transitions: load the context packet `start` already printed, and begin implementing
+   the task's own acceptance criteria immediately, reusing the same single-task
+   implementation loop `/nevo-ai:task-start` and a `named-subset`/single-task batch run
+   would otherwise drive (area `batch-execution-and-gating-review`, task 08) — never a
+   second, parallel implementation-driving mechanism. Report the combined transitions
+   (task now `in-implementation`, branch named) as a brief fact on the way to
+   implementing, not as a stopping point.
 3. If `start` fails, read its output/exit and branch on the classified result (the
    five-value postcondition vocabulary, D17 — task 02's `RecoveryError` carries a
    `class`/`code` when the stop is one of `REC-01`..`REC-09`; a plain, unclassified error
@@ -123,6 +133,11 @@ sequence is even offered.
   3, and 4 behave exactly as before this task; only option 2 is new.
 - Inside "approve and start," a confirmation for a repair is asked **at most once** —
   never loop presenting the same confirm-required prompt (D17).
+- **An owner-facing compound action completes the operation promised by its own label
+  (D34/D35, task 18).** "Approve and start implementation" performs approval, `start`,
+  and implementation, in the same turn, on the success path — never X-then-a-textual-
+  pointer-to-Y. Applies to any future compound action this workflow adds, not only this
+  one.
 
 ## Ending the response
 
@@ -150,7 +165,10 @@ approved` (add `→ in-implementation` for `approved-and-started`; `none` for
 ```
 
 `Next command` is: `/nevo-ai:task-start <change-id> <task-id>` after a plain successful
-approval (option 1); `Implement, then /nevo-ai:task-review <change-id> <task-id>` after
-`approved-and-started` (option 2 fully succeeded); `No further action required.` after
-"keep as draft" or "show report"; the specific fix/confirmation/command needed (from
-step 2, or from the "approve and start" branch that stopped) otherwise.
+approval (option 1); `/nevo-ai:task-review <change-id> <task-id>` after
+`approved-and-started` (option 2 fully succeeded — implementation has already begun in
+this same turn per step 2's own instruction, D34/D35 task 18; this names the next
+*command*, once implementation is done, never a "go implement" handoff); `No further
+action required.` after "keep as draft" or "show report"; the specific fix/confirmation/
+command needed (from step 2, or from the "approve and start" branch that stopped)
+otherwise.

@@ -513,6 +513,41 @@ export function computeImplementationFingerprint(change, taskId, { revision = nu
   return hashProjection(['implementation-fingerprint-v1', taskFingerprint, revision, evidence]);
 }
 
+/**
+ * `computeImplementationFingerprint`, populated from a task's own persisted
+ * `implementation` provenance block (D34/D35, task 15 — area
+ * implementation-provenance-and-attribution) instead of requiring the caller
+ * to supply `revision`/`evidence` by hand. Closes the gap this function's own
+ * original doc comment named ("populating real revision/evidence data is
+ * later tasks' job"). A task with no persisted `implementation` block yet
+ * still gets a real fingerprint — `revision`/`evidence` are simply `null`/`[]`,
+ * the same defaults `computeImplementationFingerprint` already has.
+ */
+export function computeImplementationFingerprintFromProvenance(change, taskId) {
+  const task = change.tasks.find(t => t.id === taskId);
+  const impl = task?.implementation;
+  if (!impl) return computeImplementationFingerprint(change, taskId, {});
+  return computeImplementationFingerprint(change, taskId, {
+    revision: impl.review_revision || impl.baseline_revision || null,
+    evidence: impl.changed_paths || [],
+  });
+}
+
+// ── Implementation provenance (D34/D35, task 15) ────────────────────────────
+//
+// The single write path for `implementation` — no other code sets this field
+// (same constraint pattern as `self_check`/`execution.suspension`).
+
+/** Write `task`'s `implementation` provenance block — overwrites any prior value. */
+export function writeImplementationProvenance(change, taskId, implementation) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('implementation', implementation);
+  });
+}
+
 // ── Self-check writer (D28, task 08) ────────────────────────────────────────
 //
 // The single write path for `self_check` — no other code sets this field
@@ -584,15 +619,20 @@ function toRow(c) {
   return `| \`${c.id}\` | ${c.title} | ${c.status} | ${c.priority ?? '-'} | ${c.created ?? '-'} |\n`;
 }
 
-/** Build the expected generated index content in memory. Deterministic — no timestamps in the Markdown. */
-export function buildSpecsIndexes() {
-  const active = listChanges(ACTIVE_DIR).sort((a, b) => {
+/**
+ * Build the expected generated index content in memory. Deterministic — no
+ * timestamps in the Markdown. `activeDir`/`archiveDir` default to the real
+ * repository's own paths (D34/D35, task 20, closes FU-007) — a fixture-backed
+ * test passes its own temp directories without touching the real checkout.
+ */
+export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  const active = listChanges(activeDir).sort((a, b) => {
     const sa = STATUS_ORDER.indexOf(a.status);
     const sb = STATUS_ORDER.indexOf(b.status);
     if (sa !== sb) return sa - sb;
     return (a.priority ?? 999) - (b.priority ?? 999);
   });
-  const archive = listChanges(ARCHIVE_DIR);
+  const archive = listChanges(archiveDir);
 
   const header = '| ID | Title | Status | Priority | Created |\n|---|---|---|---|---|\n';
 
@@ -610,28 +650,42 @@ export function buildSpecsIndexes() {
   return { activeMd, archiveMd, changes, activeCount: active.length, archiveCount: archive.length };
 }
 
-/** Persist already-built index content. No decisions made here — just writes. */
-export function writeSpecsIndexes(built) {
-  writeUtf8(ACTIVE_INDEX_MD, built.activeMd);
-  writeUtf8(ARCHIVE_INDEX_MD, built.archiveMd);
-  writeUtf8(INDEX_JSON, JSON.stringify({ generated: new Date().toISOString(), changes: built.changes }, null, 2));
+/**
+ * Persist already-built index content. No decisions made here — just writes.
+ * `activeIndexMd`/`archiveIndexMd`/`indexJson` default to the real
+ * repository's own generated-file paths (D34/D35, task 20).
+ */
+export function writeSpecsIndexes(built, { activeIndexMd = ACTIVE_INDEX_MD, archiveIndexMd = ARCHIVE_INDEX_MD, indexJson = INDEX_JSON } = {}) {
+  writeUtf8(activeIndexMd, built.activeMd);
+  writeUtf8(archiveIndexMd, built.archiveMd);
+  writeUtf8(indexJson, JSON.stringify({ generated: new Date().toISOString(), changes: built.changes }, null, 2));
 }
 
-/** Compare on-disk generated files against freshly-built expected content, ignoring the JSON timestamp. */
-export function checkSpecsIndexes() {
-  const built = buildSpecsIndexes();
+/**
+ * Compare on-disk generated files against freshly-built expected content,
+ * ignoring the JSON timestamp. All five paths default to the real
+ * repository's own (D34/D35, task 20, closes FU-007) — a fixture-backed test
+ * passes its own temp paths for every one, so a deliberately stale/missing
+ * generated file (the REC-03 scenario) can be reproduced without corrupting
+ * the real repository's own generated files.
+ */
+export function checkSpecsIndexes({
+  activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR,
+  activeIndexMd = ACTIVE_INDEX_MD, archiveIndexMd = ARCHIVE_INDEX_MD, indexJson = INDEX_JSON,
+} = {}) {
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
   const problems = [];
 
-  if (!existsSync(ACTIVE_INDEX_MD)) problems.push('missing: specs/active.generated.md');
-  else if (readUtf8(ACTIVE_INDEX_MD) !== built.activeMd) problems.push('stale: specs/active.generated.md');
+  if (!existsSync(activeIndexMd)) problems.push('missing: specs/active.generated.md');
+  else if (readUtf8(activeIndexMd) !== built.activeMd) problems.push('stale: specs/active.generated.md');
 
-  if (!existsSync(ARCHIVE_INDEX_MD)) problems.push('missing: specs/archive.generated.md');
-  else if (readUtf8(ARCHIVE_INDEX_MD) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
+  if (!existsSync(archiveIndexMd)) problems.push('missing: specs/archive.generated.md');
+  else if (readUtf8(archiveIndexMd) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
 
-  if (!existsSync(INDEX_JSON)) {
+  if (!existsSync(indexJson)) {
     problems.push('missing: specs/index.generated.json');
   } else {
-    const existing = JSON.parse(readUtf8(INDEX_JSON));
+    const existing = JSON.parse(readUtf8(indexJson));
     if (JSON.stringify(existing.changes) !== JSON.stringify(built.changes)) {
       problems.push('stale: specs/index.generated.json');
     }

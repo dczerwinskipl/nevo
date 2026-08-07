@@ -25,8 +25,11 @@ follow_ups:
       into implementation in the same turn, without a further ask; 'Approve'
       alone (no start) should remain a hard stop with no implementation prompt."
     resolver_task: null
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Fixed by task 18 (D34/D35): spec-approve.md's 'Approve and start'
+      now continues directly into implementation after start succeeds, in the
+      same turn, with no further ask; plain Approve is unchanged. See
+      tools/tests/compound-actions.test.mjs."
   - id: FU-003
     source_task: review-report-compaction-and-scope-exceptions
     kind: design-gap
@@ -52,8 +55,12 @@ follow_ups:
       true; report the actual unmet dependencies and the real next valid action
       instead."
     resolver_task: null
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Fixed by task 18 (D34/D35): deriveStage's ready-to-start stage now
+      checks depsSatisfied before reporting a task ready, falls through to the
+      real blocking task's own stage, and reports blocked-on-dependencies
+      explicitly when no other stage applies. See
+      tools/tests/status-dependency-aware.test.mjs."
   - id: FU-005
     source_task: review-report-compaction-and-scope-exceptions
     kind: design-gap
@@ -98,8 +105,12 @@ follow_ups:
       persisted, never silently handled as an ad hoc out-of-band edit the way
       both incidents above were."
     resolver_task: null
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Fixed by task 19 (D34/D35): named unowned-drift classification
+      (classifyUnownedDrift), three-option owner menu, and a structured kind:
+      maintenance-correction follow-ups.yaml record
+      (validateMaintenanceCorrectionEntry), visible in spec-audit/task-review.
+      See tools/tests/unowned-drift.test.mjs and references/review-policy.md."
   - id: FU-007
     source_task: recovery-classification-and-machine-readable-errors
     kind: design-gap
@@ -117,6 +128,89 @@ follow_ups:
       so fixture-backed end-to-end tests are possible without mutating the real
       repository, while retaining production defaults (no behavior change for
       real CLI invocations)."
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed by task 20 (D34/D35):
+      handleStart/checkSpecsIndexes/buildSpecsIndexes now take optional
+      repository-root parameters defaulting to the real repo; createFixtureRepo
+      (tools/tests/fixture-repo.test-helper.mjs) provides real, fixture-backed
+      end-to-end coverage. See tools/tests/handler-testability.test.mjs."
+  - id: FU-008
+    source_task: deterministic-implementation-provenance
+    kind: test-rigor
+    severity: non-blocking
+    reason: computeTaskAttributedChangedPaths diverges from the task's own stated
+      computeChangedPaths+classifyDirtyWorktree design -- behaviorally
+      equivalent but undocumented substitution
+      (reviews/deterministic-implementation-provenance.md F4).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-009
+    source_task: deterministic-implementation-provenance
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC4's 'tested for each of the four fields independently' is only
+      partially met --
+      baseline_revision/review_revision/worktree_patch_fingerprint are not each
+      independently varied, though the underlying exclusion is structurally
+      guaranteed regardless (reviews/deterministic-implementation-provenance.md
+      F5).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-010
+    source_task: scoped-and-incremental-spec-review
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC1/AC4/AC7's (automated) tag overstates what a dedicated test literally
+      exercises for three guarantees -- real assurance rests on spec-review.md's
+      own prose and structural guarantees, not a dedicated regression test
+      (reviews/scoped-and-incremental-spec-review.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-011
+    source_task: compound-actions-and-dependency-aware-status
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC6's automated test only asserts the depsSatisfied invariant inside the
+      ready-to-start branch, not against the other deriveStage stages it also
+      runs scenarios for
+      (reviews/compound-actions-and-dependency-aware-status.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-012
+    source_task: repository-bound-handler-testability
+    kind: documentation
+    severity: non-blocking
+    reason: Stale comment in tools/specs.mjs near handleStart's not_retryable branch
+      still claims handleStart 'can't be driven end-to-end in a fixture test' --
+      now false after this task (reviews/repository-bound-handler-testability.md
+      F1).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-013
+    source_task: repository-bound-handler-testability
+    kind: test-rigor
+    severity: non-blocking
+    reason: handler-testability.test.mjs exercises only 2 of the 5 named handleStart
+      postcondition/suspension outcomes (completed, not_retryable) through the
+      fixture harness -- safe_to_retry/partially_completed/unsafe_manual remain
+      untested against a fixture
+      (reviews/repository-bound-handler-testability.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-014
+    source_task: owner-workflow-acceptance-scenarios
+    kind: test-rigor
+    severity: non-blocking
+    reason: Scenario 8's fixture-backed test only starts one of its two declared
+      tasks, never demonstrating the second task's edit against the shared file
+      (reviews/owner-workflow-acceptance-scenarios.md F3).
     resolver_task: null
     status: open
     resolution: null

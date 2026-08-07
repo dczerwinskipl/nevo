@@ -480,31 +480,59 @@ task; an invalid `--tasks` spec; or any resolved task whose status isn't
 `in-implementation`/`implemented`/`verified`/`archived` (nothing to review yet, or
 explicitly dropped work).
 
-### Per-task review — bounded context, no per-task status prompt
+### Per-task review — bounded context, no per-task prompt of any kind (D34/D35, task 16)
 
 For each task in the resolved scope, in order: run `task-review`'s own flow steps 1-8
 (through writing `reviews/<task-id>.md`) — never step 9 onward (the per-task
 status-decision menu, the batch-continuation offer). In Claude Code, delegate each
 task's review to a fresh subagent invocation so a completed task's full diff/file reads
 do not remain in the orchestrating context while the next task's review runs — only that
-task's finished `reviews/<task-id>.md` path plus a compact summary (verdict,
-blocking/non-blocking finding counts, blocking finding IDs) carries forward.
-Cursor/Copilot/any terminal-driven use achieves the same bound by running `task-review`'s
-flow once per task in a fresh session. No per-task status question is ever asked — that
-happens exactly once, at the end, over the whole eligible subset (see below).
+task's structured return record (below) carries forward. Cursor/Copilot/any
+terminal-driven use achieves the same bound by running `task-review`'s flow once per
+task in a fresh session.
 
-### Cross-task integration pass
+The returned record is `PER_TASK_REVIEW_FIELDS`-shaped (`tools/specs/lifecycle.mjs`,
+validated by `validatePerTaskReviewRecord`): `taskId`, `verdict`, `acCovered`/`acTotal`,
+`scopeStatus`, `blockingFindings`, `pendingOwnerDecisions`, `pendingScopeDecisions`
+(each tagged `outside-allowed`/`forbidden` via `classifyScopeFinding`),
+`clarificationRequests`, `followUpCandidates`, `reviewArtifact`, and
+`implementationFingerprint` (`computeImplementationFingerprintFromProvenance`, task 15).
+**No question of any kind is ever asked between tasks** — not a status decision, not an
+owner/scope decision, not a follow-up choice. Step 7a's follow-up-recording offer is
+suppressed specifically inside `implementation-review`'s own orchestration (never inside
+standalone `task-review`) and collected into `followUpCandidates` instead — every
+decision surfaces exactly once, at the one consolidated stage (below).
 
-Once every per-task review in scope is complete, run one integration pass — reusing the
-gating batch review's own diff-attribution/integration-finding functions
-(`attributeTouchedPaths`/`detectBatchIntegrationFindings`, area
-`batch-execution-and-gating-review`) rather than a second implementation: the real diff
-across the resolved scope, each changed file attributed to every in-scope task whose
-`allowed_paths`/`consequential_paths` match it, and a structured finding for every pair
-of in-scope tasks whose attributed touched paths actually overlap. Also checks
-`follow-ups.yaml` for any open, `blocking`-severity entry whose `source_task` falls
-inside the resolved scope. This pass never re-evaluates any individual task's own
-acceptance criteria — those were already gated by that task's own per-task review, above.
+### Cross-task integration pass (extended by D34/D35, task 16)
+
+Once every per-task review in scope is complete, run two bounded passes, neither
+re-evaluating any individual task's own acceptance criteria (already gated by that
+task's own per-task review, above):
+
+1. **File-overlap detection** — reusing the gating batch review's own
+   diff-attribution/integration-finding functions (`attributeTouchedPaths`/
+   `detectBatchIntegrationFindings`, area `batch-execution-and-gating-review`) rather
+   than a second implementation: the real diff across the resolved scope, each changed
+   file attributed to every in-scope task whose `allowed_paths`/`consequential_paths`
+   match it, and a structured finding for every pair of in-scope tasks whose attributed
+   touched paths actually overlap. **Path overlap alone is a review candidate, not a
+   defect** — classified through the normal `AUTO_FIX`/`OWNER_DECISION` taxonomy like
+   any other finding, never automatically blocking.
+2. **Bounded semantic integration** — `selectSemanticIntegrationPairs` resolves which
+   pairs to inspect: every file-overlap pair from (1), plus any pair sharing a
+   `semantic_references.decisions` entry or named in each other's `dependency_contracts`
+   (a real relationship (1) alone cannot see). For each selected pair, inspect: dependency
+   contracts, semantic references, public CLI changes, shared schemas/state, lifecycle
+   transitions, producer/consumer relationships, error/recovery contracts, guard/
+   side-effect ordering, documentation contracts, consequential paths, and shared files
+   — the same model-review split this workflow already uses for semantic-reference
+   completeness (D26): the pair selection is deterministic, whether a real inconsistency
+   exists within a selected pair is a model judgment. **A finding is created only for a
+   real semantic inconsistency** — an inspected pair with no actual conflict produces no
+   finding, never a synthetic `INFORMATIONAL` entry.
+
+Both passes also check `follow-ups.yaml` for any open, `blocking`-severity entry whose
+`source_task` falls inside the resolved scope.
 
 ### Overall verdict — an explicit table, never composed as prose
 
@@ -544,7 +572,17 @@ A task is eligible for the bulk-verification offer (`selectEligibleForVerificati
 unresolved blocking findings at either the per-task or the cross-task level. Every other
 selected task is "must remain unchanged" — its status is never touched, regardless of
 which bulk-confirmation option is chosen. This is a hard rule, not a per-run judgment
-call.
+call. `buildConsolidatedDecisionStage` (`tools/specs/lifecycle.mjs`, task 16) computes
+`eligibleForBulkTransition` by calling `selectEligibleForVerification` directly — never a
+second, re-derived eligibility check.
+
+**One consolidated stage, not two separate ones (D34/D35, task 16).** Required owner and
+scope decisions, optional follow-up choices, and the bulk-transition confirmation below
+are presented together, in the same turn, after every per-task review and the cross-task
+integration pass complete — never as a separate scope-decision turn followed by a later
+status turn. Scope decisions are applied atomically before eligibility is recomputed for
+the bulk-transition confirmation, so the confirmation always reflects the just-resolved
+findings.
 
 Exactly one closed confirmation, asked once, only when at least one task is eligible —
 never per task:
@@ -631,6 +669,15 @@ Evaluate top to bottom. The **first** row whose condition holds determines the v
 | 3 | Any unresolved `AUTO_FIX` finding exists (rows 1-2 don't apply) | `changes-required` | `false` | `false` |
 | 4 | No unresolved `AUTO_FIX`/`OWNER_DECISION`/`NEEDS_CLARIFICATION` findings remain, but the relevant task(s) are not `status: approved` in `change.yaml` | `ready-for-approval` | `true` | `false` |
 | 5 | No unresolved blocking findings remain, and the relevant task(s) **are** `status: approved` in `change.yaml` (checked directly, not assumed) | `approved-for-implementation` | `true` | `true` |
+
+**Rows 4-5 for a scoped run (`--changed`/`--tasks`, D34/D35, task 17):** neither may be
+reached unless `scopedReviewBaselineValid` (`tools/specs/lifecycle.mjs`) also reports
+`valid: true` for every out-of-scope task from task 12 onward — a scoped review cannot
+claim whole-change readiness while an out-of-scope task's fingerprint no longer matches
+what the last review recorded for it, even when the *selected* scope's own findings are
+otherwise clean. A `valid: false` result reports the named `invalidTaskIds` and
+recommends scope expansion instead of rows 4/5. `--all` is never subject to this
+guard — every task is already in scope.
 
 `NON_BLOCKING` and `INFORMATIONAL` findings never appear in this table — they cannot
 change the verdict, by construction, not by discipline. Row 2 covers `OWNER_DECISION`
@@ -763,6 +810,26 @@ verification evidence (build/test output).
 - **Non-blocking**: style nits, suggestions for a follow-up, minor documentation
   polish that doesn't affect correctness.
 
+## Report minimization (D34/D35, task review-report-minimization)
+
+`task-review`/`implementation-review`'s compact checklist shape (D31, above) already
+replaced verbose positive-proof prose with the seven-item checklist. This tightens the
+normal-passing case further: a report whose verdict is `pass`, with no unresolved
+finding and at most an already-accepted scope exception, has **at most 10 non-empty
+lines** — the title line plus the seven checklist items (`renderCompactReviewChecklist`)
+plus, when an exception is active, one owner-approved-exception note line
+(`renderNormalPassingReportBody`, both in `tools/specs/lifecycle.mjs`). This is a real,
+tested function's output, not prompt wording each run composes independently — AC
+coverage, scope, and findings each appear exactly once (`checkReportSectionUniqueness`
+guards this), and no separate `Findings`/`Verification`/`Acceptance-criteria coverage`
+section is written for the normal-passing case, since each is already fully represented
+by its own checked checklist item. A report carrying any unresolved finding, owner
+decision, or scope exception still pending a decision keeps the expanded shape (task 13)
+— minimization applies only to the case that has genuinely nothing further to say.
+`spec-review`, `spec-audit`, and the gating batch review's own report shapes are
+unaffected — this applies to `task-review`/`implementation-review` only, same scope
+restriction D31 already established.
+
 ## Owner-approved scope exceptions (D31, area review-report-compaction-and-scope-exceptions)
 
 `task-review`/`implementation-review` no longer treat every scope violation as an
@@ -865,6 +932,87 @@ what the owner actually wants (the declared scope itself should change going for
 If the diff changes behavior that `docs/development/` describes, and the same branch
 does not update that document, this is a blocking finding — architecture docs must
 track current behavior.
+
+## Unowned-drift correction (D34/D35, area unowned-drift-correction)
+
+A real, legitimate correction sometimes falls outside every current task's own
+`allowed_paths`/`consequential_paths` — and isn't attributable to the task currently
+under review/implementation's own diff either. Before this area existed, this was
+handled twice in this repository's own history as an undocumented, ad hoc standalone
+edit (`follow-ups.yaml` FU-006). **Unowned-drift** is the named, classified process that
+replaces that pattern.
+
+### Classification
+
+`classifyUnownedDrift(path, taskPaths, { currentTaskChangedPaths })`
+(`tools/specs/lifecycle.mjs`) returns one of three values for a touched path outside a
+task's own scope:
+
+| Classification | Meaning | Eligible for the maintenance-correction option? |
+|---|---|---|
+| `owned` | Inside some task's `allowed_paths`/`consequential_paths`, or attributed to the task currently under review (its own `implementation.changed_paths`, task 15) | n/a — not unowned-drift at all |
+| `forbidden` | Matches any task's `forbidden_paths` | **Never** — same hard exclusion task 13's own scope-exception model already uses |
+| `unowned-drift` | Outside every task's declared scope, not the current task's own diff, not `forbidden_paths`-matched | Yes |
+
+A correction genuinely unrelated to the task currently under review is always routed
+through this flow — never folded into that task's own diff/review just because it's
+convenient, and never attributed to a task it doesn't actually belong to.
+
+### The owner's decision menu
+
+Presented once the classification is confirmed `unowned-drift`:
+
+```
+1. Create a narrow corrective task
+2. Amend or re-attribute an existing task
+3. Perform an explicit owner-authorized maintenance correction
+```
+
+Options 1 and 2 go through the normal `/nevo-ai:spec-refine` path (a new task, or an
+existing task's `allowed_paths`/`consequential_paths`/`depends_on` edited — the latter
+invalidates that task's fingerprint exactly like any other scope amendment, task 13's
+existing precedent). Option 3 is a direct, one-time correction for a fix too small or
+too immediate to justify either of the first two.
+
+### The maintenance-correction record
+
+Option 3 never silently edits and moves on — it persists a structured record, by
+default a `kind: maintenance-correction` entry in `follow-ups.yaml` (reusing its
+existing schema/validation machinery rather than inventing a second ledger):
+
+```yaml
+follow_ups:
+  - id: FU-0NN
+    source_task: null            # unowned-drift is not attributable to any task
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: What drifted and why it needed correcting now.
+    resolver_task: null
+    status: resolved
+    resolution: Corrected directly; see paths/revision below.
+    paths: [docs/development/git-workflow.md]   # exact paths, never a glob
+    confirmed_by: owner
+    confirmed_at: 2026-08-07
+    revision: <commit SHA that performed the correction>
+```
+
+`validateMaintenanceCorrectionEntry` (`tools/specs/lifecycle.mjs`) checks the four
+fields beyond what `validateFollowUps` (`tools/specs/validation.mjs`) already requires
+of every follow-up entry: `paths` (a non-empty list of exact paths, never a glob —
+one concrete path each, same "never a blanket pattern" rule task 13's own
+`scope_exceptions` schema already follows), `reason`, `confirmed_by: owner` (literal —
+never silently defaulted), `confirmed_at`, and `revision`. A path classified `forbidden`
+must never appear in a `maintenance-correction` entry's `paths` — that classification is
+categorically excluded from this lightweight path (same hard rule as `forbidden_paths`
+throughout this workflow).
+
+### Visibility in review and audit
+
+A recorded unowned-drift correction (any of the three options) must be visible to
+`/nevo-ai:spec-audit` and to any `task-review`/`implementation-review` run whose scope's
+diff touches the corrected path — named explicitly ("handled via unowned-drift
+correction, see `<follow-up id>`"), never silently absent and never re-flagged as an
+unexplained anomaly.
 
 ## Gating versus non-gating checks
 

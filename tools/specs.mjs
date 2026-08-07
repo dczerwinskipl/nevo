@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import { CliError, RecoveryError } from './lib/cli-errors.mjs';
 import { ensureDir, moveDir, readUtf8, writeUtf8 } from './lib/fs.mjs';
@@ -22,6 +23,7 @@ import {
   FOLLOW_UP_SEVERITIES,
   loadTaskFileParts, parseVerificationCommands, writeSelfCheck,
   loadBatchIntent, writeBatchIntent, clearBatchIntent, writeBulkTransition,
+  writeImplementationProvenance,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
@@ -33,6 +35,7 @@ import {
   buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict, validateBatchCheckpoint,
   completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
   resolveReviewScope, validateBulkTransition, nextSuspensionForNotRetryable,
+  computeTaskAttributedChangedPaths, nextImplementationBaseline,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -273,8 +276,14 @@ export function handleApprove(changeSlug, taskId) {
 // dirty-tree check only matters when a branch checkout/creation is actually
 // about to happen (`!onExpectedBranch`) — never for a `partially_completed`
 // case where only the `status` write is still missing.
-export function handleStart(changeSlug, taskId) {
-  const change = requireChange(changeSlug);
+// D34/D35, task 20 (closes FU-007) — `activeDir`/`gitRoot` are optional,
+// defaulting to the real repository's own paths, so every existing call site
+// (the CLI, `handleBatchStart`'s forward reference) is unaffected. A
+// fixture-backed test passes its own temp `activeDir` (a `specs/active/`-
+// shaped tree) and `gitRoot` (a real, throwaway git repository) to drive this
+// handler end-to-end without touching the real checkout.
+export function handleStart(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoot = ROOT } = {}) {
+  const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'start');
   const packet = buildContextPacket(change, task);
@@ -284,9 +293,9 @@ export function handleStart(changeSlug, taskId) {
   if (!transition.ok) throw new CliError(transition.reason);
 
   const depsOk = transition.idempotent || depsSatisfied(task, change);
-  const localExists = git.branchExists(ROOT, branch);
-  const remoteOnly = !localExists && git.hasUpstream(ROOT, branch);
-  const onExpectedBranch = git.getCurrentBranch(ROOT) === branch;
+  const localExists = git.branchExists(gitRoot, branch);
+  const remoteOnly = !localExists && git.hasUpstream(gitRoot, branch);
+  const onExpectedBranch = git.getCurrentBranch(gitRoot) === branch;
 
   const inspection = inspectStartPostconditions({
     taskStatus: task.status, depsOk, onExpectedBranch, localBranchExists: localExists, remoteBranchExists: remoteOnly,
@@ -317,7 +326,7 @@ export function handleStart(changeSlug, taskId) {
     // contributes both its old and new path separately), never the
     // "old -> new" human-readable display string, which can never match a
     // real allowed_paths pattern (PR review packet 03, Problem 3).
-    const dirtyPaths = git.getDirtyPaths(ROOT);
+    const dirtyPaths = git.getDirtyPaths(gitRoot);
     if (dirtyPaths.length) {
       const classification = classifyDirtyWorktree(dirtyPaths, packet.allowed_paths);
       setTaskSuspension(change, taskId, {
@@ -328,14 +337,14 @@ export function handleStart(changeSlug, taskId) {
     }
 
     if (localExists) {
-      git.checkoutBranch(ROOT, branch);
+      git.checkoutBranch(gitRoot, branch);
       console.log(`Switched to branch: ${branch}`);
     } else if (remoteOnly) {
       // REC-02, automatic class — fixes itself same-turn, no suspension.
-      git.checkoutTrackingBranch(ROOT, branch);
+      git.checkoutTrackingBranch(gitRoot, branch);
       console.log(`Checked out existing remote branch: ${branch} (REC-02)`);
     } else {
-      git.createAndCheckoutBranch(ROOT, branch);
+      git.createAndCheckoutBranch(gitRoot, branch);
       console.log(`Created branch: ${branch}`);
     }
   }
@@ -343,6 +352,17 @@ export function handleStart(changeSlug, taskId) {
   if (task.status !== 'in-implementation') {
     setTaskStatus(change, taskId, 'in-implementation');
     console.log(`Task '${taskId}' set to in-implementation.`);
+  }
+
+  // D34/D35, task 15 — record baseline_revision exactly once, on the first
+  // successful start; nextImplementationBaseline is a no-op once it's already
+  // set, so a later safe_to_retry/idempotent start never overwrites it.
+  const baseline = nextImplementationBaseline(task.implementation, git.getCurrentRevision(gitRoot));
+  if (baseline !== task.implementation?.baseline_revision) {
+    writeImplementationProvenance(change, taskId, {
+      ...(task.implementation || {}),
+      baseline_revision: baseline,
+    });
   }
 
   clearTaskSuspension(change, taskId);
@@ -423,12 +443,30 @@ export function handleSelfCheck(changeSlug, taskId) {
   if (!commands.length) throw new CliError(`Task '${taskId}' has no "## Verification" commands to run.`);
 
   const commandResults = commands.map(runVerificationCommand);
+  const currentRevision = git.getCurrentRevision(ROOT);
   const selfCheck = buildSelfCheckResult({
     commandResults,
     fingerprint: computeTaskFingerprint(change, taskId),
-    revision: git.getCurrentRevision(ROOT),
+    revision: currentRevision,
   });
   writeSelfCheck(change, taskId, selfCheck);
+
+  // D34/D35, task 15 — alongside self_check, refresh this task's own
+  // attributed implementation provenance. Only when a baseline already
+  // exists (a task started before this mechanism, or a fixture task with no
+  // real start, has nothing to attribute yet — this is not itself an error).
+  if (task.implementation?.baseline_revision) {
+    const packet = buildContextPacket(change, task);
+    const changedSinceBaseline = git.getChangedFiles(ROOT, task.implementation.baseline_revision);
+    const attributedPaths = computeTaskAttributedChangedPaths(changedSinceBaseline, packet.allowed_paths);
+    const worktreeDiff = git.getWorktreeDiff(ROOT, attributedPaths);
+    writeImplementationProvenance(change, taskId, {
+      baseline_revision: task.implementation.baseline_revision,
+      review_revision: currentRevision,
+      changed_paths: attributedPaths,
+      worktree_patch_fingerprint: worktreeDiff ? createHash('sha256').update(worktreeDiff).digest('hex') : null,
+    });
+  }
 
   if (selfCheck.status === 'failed') {
     console.log(`Self-check FAILED for '${taskId}': ${selfCheck.failed_criteria.join(', ')}`);
@@ -436,6 +474,56 @@ export function handleSelfCheck(changeSlug, taskId) {
   } else {
     console.log(`Self-check passed for '${taskId}'.`);
   }
+}
+
+// ── Implementation provenance migration flow (D34/D35, task 15) ────────────
+//
+// Owner-confirmed migration for a task with no persisted `implementation`
+// block (e.g. tasks 01-13, already-terminal before this mechanism existed —
+// same "not silently backfilled" precedent D32 already established).
+// `suggest-provenance` is strictly read-only; `apply-provenance` never writes
+// without `--confirm`. Commit-message matching is a *suggestion* only (area
+// implementation-provenance-and-attribution requirement 2) — never treated
+// as authoritative once written.
+
+export function handleSuggestProvenance(changeSlug, taskId) {
+  const change = requireChange(changeSlug);
+  const task = requireTask(change, taskId);
+  if (task.implementation?.baseline_revision) {
+    console.log(JSON.stringify({ taskId, alreadyHasProvenance: true, implementation: task.implementation }, null, 2));
+    return;
+  }
+  const packet = buildContextPacket(change, task);
+  const commits = git.findCommitsMentioning(ROOT, taskId);
+  console.log(JSON.stringify({
+    taskId,
+    suggested: true,
+    note: 'Commit-message matching is a suggestion only, never authoritative — review before applying with apply-provenance --confirm.',
+    candidateBaselineRevision: commits.length ? commits[commits.length - 1].sha : null,
+    candidateCommits: commits,
+    allowedPaths: packet.allowed_paths,
+  }, null, 2));
+}
+
+export function handleApplyProvenance(changeSlug, taskId, options = {}) {
+  const change = requireChange(changeSlug);
+  requireTask(change, taskId);
+  if (!options.confirm) {
+    throw new CliError('apply-provenance requires --confirm — a persisted implementation block is written only after explicit owner confirmation, never unattended.');
+  }
+  if (!options.baseline) {
+    throw new CliError('apply-provenance requires --baseline <revision>.');
+  }
+  const changedPaths = options.changedPaths
+    ? options.changedPaths.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  writeImplementationProvenance(change, taskId, {
+    baseline_revision: options.baseline,
+    review_revision: options.baseline,
+    changed_paths: changedPaths,
+    worktree_patch_fingerprint: null,
+  });
+  console.log(`Implementation provenance written for '${taskId}' (baseline ${options.baseline}).`);
 }
 
 // ── Batch execution and gating review (D10, D19, D20, D24, D28, task 08) ───
@@ -1174,6 +1262,21 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .action(handleSelfCheck);
+
+  program.command('suggest-provenance')
+    .description('Read-only: suggest a baseline_revision/changed_paths reconstruction for a task with no persisted implementation block (D34/D35)')
+    .argument('<change>')
+    .argument('<task>')
+    .action(handleSuggestProvenance);
+
+  program.command('apply-provenance')
+    .description('Write a task\'s implementation provenance block after explicit owner confirmation (D34/D35) — requires --confirm')
+    .argument('<change>')
+    .argument('<task>')
+    .requiredOption('--baseline <revision>')
+    .option('--changed-paths <path,path,...>')
+    .option('--confirm', 'Required — this writes only after explicit confirmation, never unattended')
+    .action((changeSlug, taskId, opts) => handleApplyProvenance(changeSlug, taskId, opts));
 
   program.command('batch-start')
     .description(`Select a batch (${[...BATCH_SELECTION_MODES].join('/')}) and start its first task`)

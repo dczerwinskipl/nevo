@@ -38,7 +38,10 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    outside the task's own `allowed_paths`/`consequential_paths` with
    `classifyScopeFinding(path, { allowedPaths, forbiddenPaths })`
    (`tools/specs/lifecycle.mjs`) — `compliant` / `outside-allowed` / `forbidden` — per
-   `references/review-policy.md` § "Owner-approved scope exceptions."
+   `references/review-policy.md` § "Owner-approved scope exceptions." A path this task
+   didn't touch but that carries a matching `kind: maintenance-correction` entry in
+   `follow-ups.yaml` (D34/D35, area unowned-drift-correction) is named explicitly if it
+   surfaces during review — never re-flagged as an unexplained anomaly.
 4a. **Resolve every `outside-allowed`/`forbidden` finding from step 4**, one at a time
     (or once per collected group, if several share the same resolution path):
     ```
@@ -108,11 +111,18 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    the compact `Verification` and acceptance-criteria sections, the `scope_exceptions`
    frontmatter when an exception is active), including each finding's predicate,
    lifecycle, and evidence — overwriting the file read in step 2, which is expected;
-   it's the one file this command writes. A normal passing report lands around 15-30
-   lines because nothing else needs saying, per `templates/review-report.md`'s own
-   guidance — a report growing to fit real defects, owner decisions, or scope
-   exceptions is expected; it must never grow merely because a task has many satisfied
-   acceptance criteria.
+   it's the one file this command writes. **A normal passing report (step 7's verdict is
+   `pass`, no unresolved finding, at most an already-accepted scope exception) has at
+   most 10 non-empty lines (D34/D35, task 14) — call
+   `renderNormalPassingReportBody(checklistResult, { title, scopeExceptionCount })`
+   (`tools/specs/lifecycle.mjs`) for the body instead of composing it as prose; it is
+   exactly the title line plus the seven checklist items (via
+   `renderCompactReviewChecklist`), nothing else.** A report with any unresolved
+   finding, owner decision, or a scope exception still pending a decision keeps the
+   expanded shape (findings, AC-coverage detail, verification lines) task 13 already
+   defines — it must never grow merely because a task has many satisfied acceptance
+   criteria, and it must never shrink below what a real defect, decision, or exception
+   requires stating.
 9. If the verdict is `pass`, don't just print the CLI command and stop — ask, using a
    closed menu (same principle as `/nevo-ai:spec-approve`: a known transition should be
    confirmed and applied in the same turn, not left as an instruction to type):

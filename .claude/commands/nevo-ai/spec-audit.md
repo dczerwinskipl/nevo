@@ -36,7 +36,11 @@ been made, do not invoke this proactively.
    them.
 4. This audit never re-evaluates any task's own acceptance criteria — those were already
    gated by that task's own `/nevo-ai:task-review`. State this explicitly in the report's
-   "Scope note" so it's never mistaken for a re-grade.
+   "Scope note" so it's never mistaken for a re-grade. If `<focus>`'s inspection touches a
+   path with a matching `kind: maintenance-correction` entry in `follow-ups.yaml` (D34/D35,
+   area unowned-drift-correction), name it explicitly ("handled via unowned-drift
+   correction, see `<follow-up id>`") — never report it as an unexplained anomaly, and
+   never silently omit it either.
 5. Classify every finding per `references/review-policy.md` § "Findings must be
    actor-classified". If a baseline existed (step 2), assign each of its findings a
    lifecycle (`resolved`/`still-present`/`changed`/`cannot-verify`) per § "Findings have

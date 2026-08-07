@@ -966,3 +966,171 @@
 - **Consequences:** No code change to `staleEvidenceTasks`/`tools/specs.mjs`'s `handleBatchReview` — `self_check.revision` continues to be written (D28) but is never read back as a staleness input. `tasks/08-batch-execution-and-gating-review.md` AC18 and `areas/batch-execution-and-gating-review.md` requirement 5a(b) are corrected to state this explicitly, rather than describing a predicate the code never implemented. The narrower "was this task's own commit rewritten after self-check" risk (option C) remains a real, undetected gap — explicitly named as future work for the planned deterministic implementation-provenance task, not silently dropped.
 - **Date:** 2026-08-06 (review-driven refinement, from the task 02/04/06/08/09/10 implementation-review)
 - **Affected artifacts:** `tasks/08-batch-execution-and-gating-review.md`, `areas/batch-execution-and-gating-review.md`, `reviews/batch-execution-and-gating-review.md`
+
+## D34: Owner goal for the seventh refinement pass — one-person-workflow optimization
+
+- **Question:** Tasks 01-13 are all `verified`, but real usage and the reconciliation
+  pass that produced D33 surfaced seven open, non-blocking `follow-ups.yaml` entries
+  (FU-001..FU-007) plus D33's own explicitly deferred "deterministic implementation-
+  provenance tracking." Before adding a further batch of tasks to close them, what is
+  the workflow actually optimizing for, so each new task can be checked against a
+  concrete bar rather than added ad hoc?
+- **Decision:** This is a one-person project. The workflow must optimize for: (1) one
+  owner request per logical operation; (2) bounded model context; (3) minimal
+  human-facing output; (4) detailed text only for failures, decisions, and accepted
+  exceptions; (5) no repeated confirmation of an already-authorized action; (6) no
+  repeated review of unchanged work; (7) deterministic evidence and lifecycle writes;
+  (8) reliable task attribution when many tasks share one branch and modify shared
+  files; (9) one consolidated owner interaction after multi-task review; (10) no
+  ceremony caused only by internal command boundaries.
+- **Rationale:** Owner-supplied — this restates and sharpens the change's own original
+  framing ("keep the deterministic, human-led, spec-anchored model; reduce repeated
+  model work, repeated context loading, and approval ceremony where a real gate isn't
+  at stake" — see `overview.md` § "Context") as ten concrete, checkable properties,
+  specifically because the reconciliation pass that produced D33 found real gaps
+  against exactly this bar: provenance (property 8), a compound action that still ends
+  in "Implement, then ..." instead of continuing (5, 10), a `status` stage that can
+  propose an unstartable task (7), and review reports still built around positive-proof
+  prose rather than a deterministic minimum (3, 4, 7).
+- **Consequences:** Every task added by this refinement pass (D35, tasks 14-21) states,
+  in its own "Goal" section, which of these ten properties it closes a gap against — the
+  ten properties are the acceptance bar task 21 (owner-workflow acceptance scenarios)
+  tests directly. This decision does not reopen or change any consequence of D1-D33 —
+  it is the frame the next decision (D35) is evaluated against, not a correction to
+  prior scope.
+- **Date:** 2026-08-06 (seventh refinement pass)
+- **Affected artifacts:** `overview.md`, `tasks/14-review-report-minimization.md` through `tasks/21-owner-workflow-acceptance-scenarios.md`
+
+## D35: New tasks 14-21 — closing the remaining workflow-hardening gaps before treating the workflow as usable
+
+- **Question:** With D34's ten properties as the bar, seven areas remain open against
+  it: (1) task 13's own "15-30 line" report target is still a consequence of prose
+  guidance, not a deterministically enforced minimum (D34 properties 3/4/7); (2) D33
+  explicitly deferred "deterministic implementation-provenance tracking" as future work
+  — `computeImplementationFingerprint` (`tools/specs/service.mjs`) is defined but never
+  populated with real revision/evidence data, and task ownership of a shared file
+  touched by two sequential tasks is inferred from `git diff`/commit messages, never
+  persisted (D34 property 8); (3) task 12's cross-task integration pass
+  (`detectBatchIntegrationFindings`) detects only literal file-path overlap between
+  tasks, not a semantic contract mismatch, and per-task data returned to the aggregate
+  step omits a distinct pending-decision/clarification-request field and the
+  implementation fingerprint entirely (D34 properties 6/9); (4) `/nevo-ai:spec-review`
+  has no scoped/incremental mode — every review re-reads and re-grades the whole change,
+  even to add context for one new task (D34 properties 2/6); (5) `spec-approve`'s
+  "approve and start" ends its successful path with `Next command: Implement, then
+  /nevo-ai:task-review ...` rather than continuing into implementation in the same turn
+  (FU-002, still open), and `deriveStage`'s `ready-to-start` stage reports the first
+  `approved` task without checking `depsSatisfied` (FU-004, still open — confirmed by
+  direct inspection of `lifecycle.mjs`'s `deriveStage`, which never calls
+  `depsSatisfied`/`isTaskReady`) (D34 properties 5/7/10); (6) no named process exists for
+  a legitimate correction outside every current task's ownership — FU-006 (still open)
+  records this being handled twice already as an ad hoc, undocumented edit; (7)
+  `handleStart`/`checkSpecsIndexes`/`buildSpecsIndexes` (`tools/specs.mjs`,
+  `tools/specs/service.mjs`) read the real repository's paths from module-level
+  constants, not a parameter — FU-007 (still open) records this forcing two separate
+  workarounds already, rather than a real fixture-backed test path. Should these seven
+  gaps be closed as one dependency-ordered batch of new tasks in this same
+  specification, to the requirements the owner specified directly, plus one final task
+  validating the owner-facing flows end-to-end?
+- **Options considered:** Presented by the owner as a fully specified, required model,
+  not a menu — eight numbered task areas (recorded verbatim across
+  `areas/review-report-compaction-and-scope-exceptions.md` §E,
+  `areas/implementation-provenance-and-attribution.md`,
+  `areas/implementation-review-orchestration.md` § "Semantic integration (task 16)",
+  `areas/scoped-spec-review.md`, `areas/compound-actions-and-dependency-aware-status.md`,
+  `areas/unowned-drift-correction.md`, `areas/handler-testability.md`, and
+  `areas/owner-workflow-acceptance.md`), each with a fully specified requirement set —
+  mirrors D30/D31's own framing (fully specified model, not a fork to litigate).
+- **Decision:** Build exactly as specified — eight new tasks, 14 through 21, in
+  dependency order: `review-report-minimization` (14, extends task 13's area),
+  `deterministic-implementation-provenance` (15),
+  `semantic-cross-task-integration-and-consolidated-decisions` (16, extends task 12's
+  area), `scoped-and-incremental-spec-review` (17),
+  `compound-actions-and-dependency-aware-status` (18), `unowned-drift-correction-flow`
+  (19), `repository-bound-handler-testability` (20), and
+  `owner-workflow-acceptance-scenarios` (21, depends on all seven, validates D34's bar
+  end-to-end). None reopens or rewrites tasks 01-13's own bodies; two extend an existing
+  area file (13's and 12's) because their scope is a direct, coherent extension of that
+  area's own responsibility, per the refinement's own "reuse existing areas where
+  coherent" instruction — the other six get a new area file each because their
+  responsibility (provenance, scoped review, compound actions, unowned drift, handler
+  testability, final acceptance) does not already belong to an existing area.
+- **Rationale:** Owner-specified directly, with the explicit instruction to record the
+  decision and apply the refinement without a further owner turn on the requirements
+  themselves (mirrors D30/D31's own framing exactly). Each of the seven gaps already has
+  independent evidence in this specification's own history — four as still-`open`
+  `follow-ups.yaml` entries (FU-002, FU-004, FU-006, FU-007) or an unimplemented function
+  contract (`computeImplementationFingerprint`), one as D33's own explicit deferral — so
+  this is closing already-identified gaps under a named bar (D34), not discovering new
+  ones. The aggregate-report partial-staleness interim mechanism (`status`/`stale_tasks`/
+  `partially-invalidated-by` frontmatter, added in the reconciliation pass preceding this
+  one) and FU-005 (a further, first-class aggregate-report lifecycle/index mechanism) are
+  deliberately **not** included in tasks 14-21 — none of the owner's eight requirement
+  areas asked for it, and the existing interim mechanism together with
+  `validateAggregateAgainstCanonicalReviews`'s canonical-report guard (also already
+  shipped) are sufficient for what this pass was actually asked to close; FU-005 stays
+  open, tracked, for a future pass if the owner wants the fuller mechanism.
+- **Consequences:** `change.yaml` gains eight new task entries (14-21, all `draft`); each
+  new task's `areas/*.md` records its full requirement set; task 21's acceptance
+  criteria are exactly the "Required regression scenarios" list the owner specified,
+  restated as testable criteria. Implementation-shaped choices the owner's requirements
+  left open (exact CLI subcommand/flag names, exact schema field names for the
+  `implementation:` provenance block, the exact three-item unowned-drift menu wording)
+  are recorded in each task's own file as this decision's consequences, flagged for the
+  owner to override at the next `/nevo-ai:spec-review` pass, per the same convention
+  D30/D31 already established. No implementation begins under this refinement itself —
+  every new task starts `draft`, subject to the same `/nevo-ai:spec-review` →
+  `/nevo-ai:spec-approve` → `/nevo-ai:task-start` gate as every other task in this
+  change.
+- **Date:** 2026-08-06 (seventh refinement pass)
+- **Affected artifacts:** `change.yaml`, `overview.md`, `tasks/14-review-report-minimization.md`, `tasks/15-deterministic-implementation-provenance.md`, `tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md`, `tasks/17-scoped-and-incremental-spec-review.md`, `tasks/18-compound-actions-and-dependency-aware-status.md`, `tasks/19-unowned-drift-correction-flow.md`, `tasks/20-repository-bound-handler-testability.md`, `tasks/21-owner-workflow-acceptance-scenarios.md`, `areas/review-report-compaction-and-scope-exceptions.md`, `areas/implementation-review-orchestration.md`, `areas/implementation-provenance-and-attribution.md`, `areas/scoped-spec-review.md`, `areas/compound-actions-and-dependency-aware-status.md`, `areas/unowned-drift-correction.md`, `areas/handler-testability.md`, `areas/owner-workflow-acceptance.md`
+
+## D36: Scope exception accepted — `tools/lib/git.mjs` under task 15
+
+- **Question:** Task 15's (`deterministic-implementation-provenance`) diff added `getWorktreeDiff`/`findCommitsMentioning` to `tools/lib/git.mjs`, outside the task's declared `allowed_paths`/`consequential_paths` (`classifyScopeFinding` → `outside-allowed`, finding F1 of `reviews/deterministic-implementation-provenance.md`). Accept the exception, require the implementation to return to declared scope, or leave it unresolved?
+- **Options considered:** (A) Accept the exception | (B) Return to declared scope (relocate or amend `allowed_paths`) | (C) Leave unresolved
+- **Decision:** (A) Accept the exception.
+- **Rationale:** `tools/lib/git.mjs` is a natural home for shared git helpers, and every other path this task touched is in-scope.
+- **Consequences:** Recorded as a `scope_exceptions` entry in `reviews/deterministic-implementation-provenance.md` (finding F1, `task_fingerprint: 7013dbba4965bbd8387de72f3d0f6a964b71ea06c0c75ac28324026fee1d56d0`); F1's lifecycle is now `accepted`, excluded from that task's unresolved-blocking count (2 remain: F2, F3 — see D37). Task 15's own `allowed_paths` is unchanged — the exception covers this occurrence, not a standing grant.
+- **Date:** 2026-08-07
+- **Affected artifacts:** `reviews/deterministic-implementation-provenance.md`
+
+## D37: Task 15's AC6/AC7/AC9 gaps — close via a corrective task
+
+- **Question:** Task 15's own review found two unmet acceptance criteria: AC6 (`task-review.md` step 4's scope check never reads a task's persisted `implementation.changed_paths` — and no task in scope 14-21 is currently allowed to fix that file: task 15 is `forbidden_paths`-excluded from `.claude/commands/**`, and task 16's own "Out of scope" section separately excludes changing `task-review`'s own flow) and AC7/AC9 (no regression-detection mechanism or test exists for a later task's edit being silently re-attributed to an earlier task on a `handleSelfCheck` re-run). Create a corrective task, accept as a known limitation, or leave unresolved?
+- **Options considered:** (A) Create a corrective task | (B) Accept as known limitation, record as a non-blocking follow-up | (C) Leave unresolved
+- **Decision:** (A) Create a corrective task.
+- **Rationale:** Both are real, described gaps in task 15's own acceptance criteria, not stylistic nits — AC6 leaves the scope-check mechanism task 15 was supposed to complete only half-wired, and AC7/AC9's gap contradicts ADR-0006 item 43's documented guarantee (task B editing a file never rewrites task A's already-persisted record) for exactly the re-run case AC7 exists to cover.
+- **Consequences:** F2/F3 in `reviews/deterministic-implementation-provenance.md` remain open, unresolved `OWNER_DECISION` findings — task 15 stays `changes-required` — until a new task (scoped via `/nevo-ai:spec-refine`) actually closes them. That corrective task must be allowed to touch `.claude/commands/nevo-ai/task-review.md` (for AC6) and `tools/specs.mjs`/`tools/specs/lifecycle.mjs` (for AC7/AC9's regression detection) — paths task 15 itself could not touch.
+- **Date:** 2026-08-07
+- **Affected artifacts:** `reviews/deterministic-implementation-provenance.md`; a new corrective task, not yet created.
+
+## D38: Task 21's under-composed scenarios — rewrite, don't retroactively relax the constraint
+
+- **Question:** Task 21's own review found that roughly ten of its fifteen required acceptance scenarios only call a single sibling-task-already-tested `tools/specs/lifecycle.mjs` function directly, instead of composing a real command-turn-level integration scenario — contradicting the task's own explicit "Implementation constraints" text (and the area doc's identical wording) that a scenario calling an internal function directly does not satisfy this task's own acceptance criteria (finding F1 of `reviews/owner-workflow-acceptance-scenarios.md`). Rewrite the scenarios, amend the constraint retroactively to match what was built, or leave unresolved?
+- **Options considered:** (A) Rewrite the scenarios as real command-turn-level tests | (B) Amend task 21's own "Implementation constraints" text to accept function-level tests | (C) Leave unresolved
+- **Decision:** (A) Rewrite the scenarios.
+- **Rationale:** Task 21 exists specifically to validate D34's ten properties end-to-end across tasks 14-20 — its own review already found the individual behaviors correctly implemented and covered by their own sibling tests, so a second layer of function-level tests adds little; relaxing the constraint instead of meeting it would leave the change without the actual end-to-end acceptance evidence D35 asked for.
+- **Consequences:** F1 in `reviews/owner-workflow-acceptance-scenarios.md` stays an open, unresolved `OWNER_DECISION` finding — task 21 stays `changes-required` — until a corrective task (scoped via `/nevo-ai:spec-refine`) rewrites the flagged scenarios in `tools/tests/owner-workflow-acceptance.test.mjs` to drive real command-turn-level flows rather than calling `tools/specs/lifecycle.mjs` functions directly.
+- **Date:** 2026-08-07
+- **Affected artifacts:** `reviews/owner-workflow-acceptance-scenarios.md`; a new corrective task, not yet created.
+
+## D39: `handleSelfCheck`'s hardcoded `ROOT` — extend task 20's parameterization
+
+- **Question:** The cross-task integration pass of `/nevo-ai:implementation-review nevo-ai-process-continuity-and-hardening --tasks 14-21` found that `handleSelfCheck` (`tools/specs.mjs`) still hardcodes the real repository `ROOT` for `git.getCurrentRevision`/`git.getChangedFiles`/`git.getWorktreeDiff`. Task 20 (`repository-bound-handler-testability`) parameterized `handleStart`/`checkSpecsIndexes`/`buildSpecsIndexes` with `activeDir`/`gitRoot`, but not `handleSelfCheck` — even though `follow-ups.yaml`'s own FU-007 reason text named "handleStart, index checks, and similar handlers" as the intended scope, and FU-007 was marked `resolved` by task 20 anyway. Task 15 (`deterministic-implementation-provenance`) added new repo-root-dependent provenance-refresh logic to exactly this unparameterized function in this same change, so that logic remains untestable via a fixture repo without touching the real repository — the concrete root cause behind task 15's own F3 gap (see D37). Extend the parameterization now, accept as a known gap, or leave unresolved?
+- **Options considered:** (A) Extend task 20's `gitRoot` pattern to `handleSelfCheck` now | (B) Accept as a known gap, record as a follow-up, leave FU-007 as resolved | (C) Leave unresolved
+- **Decision:** (A) Extend the parameterization now.
+- **Rationale:** FU-007's own text already named "similar handlers" as in scope; `handleSelfCheck` is exactly that, and task 15 made the gap concretely worse by adding new logic to it in the same change without a fixture-testable path.
+- **Consequences:** Finding X1 (cross-task integration, `reviews/implementation-review-14-21.md`) stays an open, unresolved `OWNER_DECISION` finding until a corrective task (scoped via `/nevo-ai:spec-refine`) parameterizes `handleSelfCheck` with an optional `gitRoot` (defaulting to the real `ROOT`, mirroring `handleStart`'s own pattern) and adds fixture-backed coverage. Also reopens whether FU-007 should still read `resolved` — the corrective task should either amend FU-007's own entry or record a fresh follow-up naming the remaining gap explicitly, rather than leaving `resolved` standing next to a still-open cross-task finding.
+- **Date:** 2026-08-07
+- **Affected artifacts:** `reviews/implementation-review-14-21.md`, `follow-ups.yaml` (FU-007); a new corrective task, not yet created.
+
+## D40: Task 19's AC5 wording — correct to match the implementation
+
+- **Question:** Task 19's AC5 literally states both FU-006 incident fixtures classify as `unowned-drift`, but per AC2's own forbidden-priority rule, the `git-workflow.md` fixture actually (and correctly) classifies as `forbidden` instead — the implementation is right, but AC5's own wording contradicts it and the passing test's own title is still misleadingly "classifies unowned-drift" (finding F2 of `reviews/unowned-drift-correction-flow.md`). Correct AC5's wording, leave it as written, or leave unresolved?
+- **Options considered:** (A) Correct AC5's wording in the task file | (B) Leave AC5 as written | (C) Leave unresolved
+- **Decision:** (A) Correct AC5's wording.
+- **Rationale:** The implementation is already correct (verified against AC2's own forbidden-priority rule); leaving AC5's text as-is would leave a permanent, self-contradicting acceptance criterion in the task file.
+- **Consequences:** `tasks/19-unowned-drift-correction-flow.md`'s AC5 needs to be amended (via `/nevo-ai:spec-refine`, a specification scope amendment — this review command does not edit task files itself) to state that the `git-workflow.md` fixture classifies `forbidden`, matching AC2 and the actual passing test in `tools/tests/unowned-drift.test.mjs`; the test's own description string is a candidate for the same correction. Finding F2 in `reviews/unowned-drift-correction-flow.md` stays an open `NEEDS_CLARIFICATION` finding until this lands.
+- **Date:** 2026-08-07
+- **Affected artifacts:** `reviews/unowned-drift-correction-flow.md`; `tasks/19-unowned-drift-correction-flow.md` (not yet amended).

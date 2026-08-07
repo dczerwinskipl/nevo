@@ -163,6 +163,96 @@ separate status-decision prompts) or reaching for the deliberately non-gating
     orchestrates `task-review`'s own per-task depth across a range, it does not fold
     `task-review` into itself or duplicate `spec-audit`'s thematic, non-gating shape.
 
+## Semantic integration and consolidated decisions (task 16, D34/D35, seventh refinement pass)
+
+> Extends requirements 7-11 above rather than replacing them. Requirement 7's cross-task
+> integration pass, as shipped by task 12, detects exactly one structural signal:
+> literal overlap between two tasks' actually-changed files
+> (`detectBatchIntegrationFindings`). Confirmed during discovery for this pass: no code
+> anywhere checks dependency-contract compliance, semantic-reference consistency, public
+> CLI/interface changes, shared schema/state-shape, lifecycle-transition correctness,
+> producer/consumer relationships, error/recovery contracts, guard/side-effect ordering,
+> or documentation contracts as part of the integration pass. Task 16 adds a bounded
+> semantic pass over relevant task pairs/components without re-grading any individual
+> task's own acceptance criteria (requirement 7's own boundary, unchanged).
+
+15. **Path overlap is a review candidate, not a defect** — restates requirement 7's
+    existing classification (an overlap is `AUTO_FIX`/`OWNER_DECISION` depending on
+    severity, never an automatic blocking finding by itself) so task 16's expanded
+    signal set is read against the same rule, not a stricter one.
+16. **Bounded semantic integration pass, selected from named signal categories** — for
+    task pairs or connected components with a real relationship (not every pair in the
+    scope; selection follows requirement 7's existing overlap detection *plus* any pair
+    sharing a `semantic_references.dependency_contracts`/`decisions` entry), check:
+    dependency contracts (does the depended-on task's contract still hold as the
+    dependent task assumed), semantic references (D18 — do both tasks' declared
+    references remain mutually consistent), public CLI changes (a flag/subcommand one
+    task added or changed that another task's own acceptance criteria assumed a
+    different shape for), shared schemas/state (`change.yaml` field shapes, persisted
+    block schemas two tasks both write), lifecycle transitions (two tasks' status/
+    transition assumptions about each other), producer/consumer relationships (one
+    task's output is another's declared input), error/recovery contracts (`REC-xx`
+    scenarios or postcondition contracts two tasks both touch), guard/side-effect
+    ordering (does one task's guard sequence still hold given another task's changes),
+    documentation contracts (do both tasks' doc edits agree), consequential paths
+    (generated-file regeneration two tasks both trigger), and shared files (requirement
+    7's existing check, unchanged). This is a bounded, targeted inspection over
+    identified pairs/components — not a full re-read of every task's own diff a second
+    time.
+17. **Never re-grades an individual task's own acceptance criteria** — restates
+    requirement 7's existing boundary; task 16 only adds signal categories to what is
+    inspected between tasks, not a second AC-grading pass within one task.
+18. **Findings only for real semantic inconsistencies** — a signal in requirement 16's
+    list that, on inspection, does not actually conflict (e.g. two tasks both add CLI
+    flags to different subcommands with no interaction) produces no finding at all —
+    never a synthetic `INFORMATIONAL` entry recording that the signal was checked and
+    found clean (mirrors task 13/14's "no synthetic informational findings" rule,
+    applied here to the integration pass specifically).
+19. **Per-task reviewer structured return data, completed.** Each per-task
+    `task-review` run (requirement 3, reused verbatim) already returns verdict, AC
+    covered/total, and a blocking-finding count/list to the aggregate step
+    (requirement 5/8). Task 16 completes the structured contract with the remaining
+    fields the aggregate step must carry forward explicitly rather than re-deriving:
+    task ID; verdict; AC covered/total; scope status; blocking findings (unchanged);
+    **pending owner decisions** (unresolved `OWNER_DECISION` findings, as a distinct
+    list, not folded into the blocking-finding count); **pending scope decisions**
+    (unresolved scope-exception-eligible findings, task 13, as a distinct list);
+    **clarification requests** (unresolved `NEEDS_CLARIFICATION` findings, as a
+    distinct list — previously only counted toward the overall verdict table, never
+    itself surfaced as reviewable data); **follow-up candidates** (any item the
+    per-task step 7a offer recorded or declined, named so the aggregate step can show
+    it without re-deriving it); the review artifact path (unchanged); and the
+    **implementation fingerprint** (`computeImplementationFingerprint`, wired to real
+    data by task 15 — previously absent from every per-task return and every report
+    field entirely).
+20. **Per-task reviewers never ask the owner anything** — restates requirement 4's
+    existing rule (no per-task status prompt) and extends it explicitly to pending
+    owner/scope decisions and clarification requests (requirement 19): every one of
+    those is *collected*, not *asked about*, during the per-task pass; the owner sees
+    them exactly once, at the consolidated stage (requirement 21). **This supersedes
+    requirement 3's per-task reuse of `task-review`'s step 7a follow-up-recording offer,
+    specifically within `implementation-review`'s own orchestration** — task 16 changes
+    `implementation-review.md` so that, when it runs `task-review`'s steps 1-8 per task
+    (requirement 3), it collects any step-7a-eligible follow-up candidate into that
+    task's structured return (requirement 19's `followUpCandidates` field) instead of
+    presenting the offer inline; the candidate is then offered once, for every task
+    together, at the consolidated stage. `task-review` run standalone (not through
+    `implementation-review`) is unaffected — its own step 7a offer is unchanged, still
+    presented per task, exactly as task 12 originally shipped it. This is a narrow,
+    named behavioral change to `implementation-review.md`'s own flow, not an edit to
+    task 12's task file or to `task-review.md` itself.
+21. **One consolidated stage after every task and the integration pass complete** —
+    replaces requirement 11's "one closed confirmation ... only when at least one task
+    is eligible" with a single stage carrying three parts in the same turn: (a) every
+    required owner decision and scope decision collected across every reviewed task
+    (requirement 19) and the integration pass (requirement 16), presented together,
+    per `references/decision-policy.md`; (b) optional follow-up choices (accept/decline
+    each collected follow-up candidate, requirement 19) offered together, not per task;
+    (c) requirement 11's existing bulk status-transition menu, asked once, after (a) and
+    (b) are resolved in the same turn. No per-task status prompt and no per-task
+    follow-up prompt — restates and generalizes requirements 4/11 into one owner-facing
+    interaction covering the whole run, not just the status transition.
+
 ## Constraints
 
 - Never ask for a per-task status decision (requirement 4) — exactly one bulk
@@ -228,6 +318,18 @@ established, since this area extends the same shared files task 11 last finalize
   `reviews/implementation-review-<scope>.md` as its baseline and classifies each
   previously-reported finding's lifecycle correctly, while a run at a different `<scope>`
   reports no baseline available.
+- A test proves the semantic integration pass (requirement 16) detects at least one
+  real cross-task inconsistency for a fixture pair sharing a `semantic_references`
+  entry (e.g. a dependency contract one task assumed that the other task's own change
+  actually breaks), and produces zero findings for a fixture pair with no real
+  relationship despite touching the same signal category.
+- A test proves each per-task structured return (requirement 19) carries pending owner
+  decisions, pending scope decisions, and clarification requests as distinct lists
+  (never folded into the blocking-finding count) and a non-null implementation
+  fingerprint once task 15's provenance data exists for that task.
+- A test proves the consolidated stage (requirement 21) presents owner/scope decisions,
+  follow-up choices, and the bulk-transition menu together in one turn, and that no
+  per-task prompt of any kind occurs between individual task reviews.
 
 ## Dependencies
 
@@ -241,7 +343,13 @@ reimplementing (requirement 7). `workflow-docs-and-adr-migration` (task 11) — 
 extends `references/review-policy.md`, `docs/ai/specification-workflow.md`, and
 `.claude/skills/nevo-ai-spec-workflow/SKILL.md` on top of the shared-doc/terminology/ADR
 baseline task 11 already established; starting before task 11 would mean editing docs
-task 11 was still going to rewrite.
+task 11 was still going to rewrite. Task 16 (requirements 15-21) additionally depends on
+`review-report-compaction-and-scope-exceptions` (task 13, for the scope-decision
+collection it folds into the consolidated stage) and
+`deterministic-implementation-provenance` (task 15, for the implementation fingerprint
+requirement 19 now requires) — task 16 is a separate task, not folded into task 12,
+because it was requested after task 12 reached `verified`, per the same "new task, not a
+reopened one" convention D30/D31 already established.
 
 ## Out of scope
 
