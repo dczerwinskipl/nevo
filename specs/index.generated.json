@@ -1,6 +1,54 @@
 {
-  "generated": "2026-08-08T11:17:29.829Z",
+  "generated": "2026-08-08T12:08:24.709Z",
   "changes": [
+    {
+      "id": "architecture-documentation",
+      "title": "Architecture documentation",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "core-architecture-docs",
+          "order": 1,
+          "file": "tasks/01-core-architecture-docs.md",
+          "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-operational-workflow",
+      "title": "NEvo AI operational workflow (Claude Code layer)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "add-operational-layer",
+          "order": 1,
+          "file": "tasks/01-add-operational-layer.md",
+          "status": "verified"
+        },
+        {
+          "id": "add-technical-decision-support",
+          "order": 2,
+          "file": "tasks/02-add-technical-decision-support.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        },
+        {
+          "id": "add-review-handoff",
+          "order": 3,
+          "file": "tasks/03-add-review-handoff.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        }
+      ]
+    },
     {
       "id": "nevo-ai-process-continuity-and-hardening",
       "title": "NEvo AI workflow process continuity and hardening",
@@ -576,54 +624,6 @@
             ],
             "status": "passed"
           }
-        }
-      ]
-    },
-    {
-      "id": "architecture-documentation",
-      "title": "Architecture documentation",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "core-architecture-docs",
-          "order": 1,
-          "file": "tasks/01-core-architecture-docs.md",
-          "status": "verified"
-        }
-      ]
-    },
-    {
-      "id": "nevo-ai-operational-workflow",
-      "title": "NEvo AI operational workflow (Claude Code layer)",
-      "status": "in-implementation",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "add-operational-layer",
-          "order": 1,
-          "file": "tasks/01-add-operational-layer.md",
-          "status": "verified"
-        },
-        {
-          "id": "add-technical-decision-support",
-          "order": 2,
-          "file": "tasks/02-add-technical-decision-support.md",
-          "status": "verified",
-          "depends_on": [
-            "add-operational-layer"
-          ]
-        },
-        {
-          "id": "add-review-handoff",
-          "order": 3,
-          "file": "tasks/03-add-review-handoff.md",
-          "status": "verified",
-          "depends_on": [
-            "add-operational-layer"
-          ]
         }
       ]
     },
