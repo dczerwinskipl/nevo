@@ -1103,7 +1103,12 @@
 - **Rationale:** Both are real, described gaps in task 15's own acceptance criteria, not stylistic nits — AC6 leaves the scope-check mechanism task 15 was supposed to complete only half-wired, and AC7/AC9's gap contradicts ADR-0006 item 43's documented guarantee (task B editing a file never rewrites task A's already-persisted record) for exactly the re-run case AC7 exists to cover.
 - **Consequences:** F2/F3 in `reviews/deterministic-implementation-provenance.md` remain open, unresolved `OWNER_DECISION` findings — task 15 stays `changes-required` — until a new task (scoped via `/nevo-ai:spec-refine`) actually closes them. That corrective task must be allowed to touch `.claude/commands/nevo-ai/task-review.md` (for AC6) and `tools/specs.mjs`/`tools/specs/lifecycle.mjs` (for AC7/AC9's regression detection) — paths task 15 itself could not touch.
 - **Date:** 2026-08-07
-- **Affected artifacts:** `reviews/deterministic-implementation-provenance.md`; a new corrective task, not yet created.
+- **Affected artifacts:** `reviews/deterministic-implementation-provenance.md`; closed 2026-08-08 without a
+  separate new task — owner chose to amend the two existing tasks that already had the
+  needed paths allowed instead: AC7/AC9 (`detectProvenanceOverlap`, no `task-review.md`
+  access needed) implemented directly in task 15's own scope; AC6
+  (`resolveScopeCheckPaths`) wired into `task-review.md` step 4 via `tasks/19-unowned-drift-correction-flow.md`'s
+  new AC9 (task 19 already owned both `task-review.md` and `tools/specs/lifecycle.mjs`).
 
 ## D38: Task 21's under-composed scenarios — rewrite, don't retroactively relax the constraint
 
@@ -1123,7 +1128,22 @@
 - **Rationale:** FU-007's own text already named "similar handlers" as in scope; `handleSelfCheck` is exactly that, and task 15 made the gap concretely worse by adding new logic to it in the same change without a fixture-testable path.
 - **Consequences:** Finding X1 (cross-task integration, `reviews/implementation-review-14-21.md`) stays an open, unresolved `OWNER_DECISION` finding until a corrective task (scoped via `/nevo-ai:spec-refine`) parameterizes `handleSelfCheck` with an optional `gitRoot` (defaulting to the real `ROOT`, mirroring `handleStart`'s own pattern) and adds fixture-backed coverage. Also reopens whether FU-007 should still read `resolved` — the corrective task should either amend FU-007's own entry or record a fresh follow-up naming the remaining gap explicitly, rather than leaving `resolved` standing next to a still-open cross-task finding.
 - **Date:** 2026-08-07
-- **Affected artifacts:** `reviews/implementation-review-14-21.md`, `follow-ups.yaml` (FU-007); a new corrective task, not yet created.
+- **Affected artifacts:** `reviews/implementation-review-14-21.md`, `follow-ups.yaml` (FU-007); closed
+  2026-08-08 by amending `tasks/20-repository-bound-handler-testability.md` (new AC10)
+  instead of a separate new task — `tools/specs.mjs`/`tools/tests/handler-testability.test.mjs`
+  were already inside task 20's own `allowed_paths`. `handleSelfCheck` now takes an
+  optional `{ activeDir, gitRoot }`, mirroring `handleStart`; FU-007's resolution text
+  extended to name `handleSelfCheck` explicitly, still `status: resolved`.
+
+## D42: Task 16's AC1/AC2 wording — correct to match what's actually automatable
+
+- **Question:** Task 16's own review found AC1/AC2 tagged `(automated)` for an outcome — "produces exactly one semantic-integration finding" / "produces zero findings" — that is inherently a model-review judgment (the eleven-signal-category inspection, area requirement 2), not something a deterministic test can prove; the shipped test only exercises the deterministic pair-*selection* half (`selectSemanticIntegrationPairs`) (finding F1 of `reviews/semantic-cross-task-integration-and-consolidated-decisions.md`). Correct the wording, leave it as written, or leave unresolved?
+- **Options considered:** (A) Correct AC1/AC2's wording to distinguish automated pair-selection from the model-review judgment | (B) Leave as written | (C) Leave unresolved
+- **Decision:** (A) Correct the wording.
+- **Rationale:** Same reasoning as D40 (task 19's AC5) — the implementation is already correct; the acceptance criterion's own text overclaimed what a deterministic test can prove for an inherently judgment-based step.
+- **Consequences:** `tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md`'s AC1/AC2 now state that pair *selection* is automated and tested, while the actual finding/no-finding outcome for an inspected pair is a model-review judgment. Finding F1 in `reviews/semantic-cross-task-integration-and-consolidated-decisions.md` is resolved.
+- **Date:** 2026-08-08
+- **Affected artifacts:** `tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md`, `reviews/semantic-cross-task-integration-and-consolidated-decisions.md`
 
 ## D41: Reopened scope exception — `tools/lib/git.mjs` under task 15, re-accepted
 
@@ -1143,4 +1163,4 @@
 - **Rationale:** The implementation is already correct (verified against AC2's own forbidden-priority rule); leaving AC5's text as-is would leave a permanent, self-contradicting acceptance criterion in the task file.
 - **Consequences:** `tasks/19-unowned-drift-correction-flow.md`'s AC5 needs to be amended (via `/nevo-ai:spec-refine`, a specification scope amendment — this review command does not edit task files itself) to state that the `git-workflow.md` fixture classifies `forbidden`, matching AC2 and the actual passing test in `tools/tests/unowned-drift.test.mjs`; the test's own description string is a candidate for the same correction. Finding F2 in `reviews/unowned-drift-correction-flow.md` stays an open `NEEDS_CLARIFICATION` finding until this lands.
 - **Date:** 2026-08-07
-- **Affected artifacts:** `reviews/unowned-drift-correction-flow.md`; `tasks/19-unowned-drift-correction-flow.md` (not yet amended).
+- **Affected artifacts:** `reviews/unowned-drift-correction-flow.md`; `tasks/19-unowned-drift-correction-flow.md` (amended 2026-08-08 — AC5 corrected; `tools/tests/unowned-drift.test.mjs`'s misleading describe-block title corrected in the same pass).

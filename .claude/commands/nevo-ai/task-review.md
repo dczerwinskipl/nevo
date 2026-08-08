@@ -26,16 +26,32 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
    right tool for seeing what the implementation changed (unlike using git status as a
    proxy for whether the *review itself* is stale, which step 2 already covers
    separately).
-4. Verify the diff stays within `allowed_paths` and does not touch `forbidden_paths`. A
-   write inside the task's own `consequential_paths` is **not** a scope violation at this
-   step — it is a direct, mechanical, generated-or-reference-only consequence of the
-   task's primary scope, still shown in the diff and still reviewed (steps 5-6), just
-   never classified or counted as a scope finding. A genuine violation (outside both
-   `allowed_paths` and `consequential_paths`) can never be silently waived — it prevents
-   `pass` while unresolved — but it may be resolved through an explicit owner decision
-   recorded in the review artifact (D31): **no unresolved or unrecorded scope exception
-   may pass**, never "no scope exception may ever pass." Classify every touched path
-   outside the task's own `allowed_paths`/`consequential_paths` with
+4. Determine the set of touched paths to classify: step 3's live diff/`git status`
+   inspection, unioned with the task's own persisted `implementation.changed_paths`
+   (D34/D35, task 15), when present. The live diff is never skipped or replaced —
+   `implementation.changed_paths` is itself computed as a subset of the task's own
+   `allowed_paths` (`computeTaskAttributedChangedPaths`), so by construction it can
+   never contain a genuine out-of-scope violation; treating it as the sole source would
+   silently hide exactly the class of finding this step exists to catch (this
+   repository hit the concrete case directly — task 15's own `tools/lib/git.mjs` scope
+   exception, D36/D41). The persisted record adds real value on top of the live diff: it
+   guarantees already-committed work since `baseline_revision` is included even if the
+   live-diff step only inspected current dirty files, and it gives a deterministic
+   "definitely this task's own attributed footprint" signal for cross-task
+   disambiguation in a shared working tree. Compute the union via
+   `resolveScopeCheckPaths(task, liveDiffPaths)` (`tools/specs/lifecycle.mjs`, D37) —
+   never re-derived by hand.
+
+   Verify the resulting paths stay within `allowed_paths` and do not touch
+   `forbidden_paths`. A write inside the task's own `consequential_paths` is **not** a
+   scope violation at this step — it is a direct, mechanical, generated-or-reference-only
+   consequence of the task's primary scope, still shown in the diff and still reviewed
+   (steps 5-6), just never classified or counted as a scope finding. A genuine violation
+   (outside both `allowed_paths` and `consequential_paths`) can never be silently waived —
+   it prevents `pass` while unresolved — but it may be resolved through an explicit owner
+   decision recorded in the review artifact (D31): **no unresolved or unrecorded scope
+   exception may pass**, never "no scope exception may ever pass." Classify every touched
+   path outside the task's own `allowed_paths`/`consequential_paths` with
    `classifyScopeFinding(path, { allowedPaths, forbiddenPaths })`
    (`tools/specs/lifecycle.mjs`) — `compliant` / `outside-allowed` / `forbidden` — per
    `references/review-policy.md` § "Owner-approved scope exceptions." A path this task

@@ -2,16 +2,16 @@
 // implementation-provenance-and-attribution): the pure decision/filtering
 // functions in tools/specs/lifecycle.mjs, the fingerprint-tier exclusion and
 // computeImplementationFingerprintFromProvenance in tools/specs/service.mjs,
-// and the migration-flow confirmation guard in tools/specs.mjs.
+// the migration-flow confirmation guard in tools/specs.mjs, and (AC7/AC9,
+// corrective pass) handleSelfCheck's cross-task provenance-overlap detection
+// driven end-to-end against a fixture repository.
 //
-// handleStart/handleSelfCheck's own writes of `implementation` (baseline
-// recording on first start, changed_paths/review_revision refresh on
-// self-check) read the real repository's ACTIVE_DIR and git state and can't
-// be driven end-to-end in a fixture-backed test yet — the same limitation
-// FU-007 already recorded for handleStart generally; closing it for every
-// repository-bound handler, including this task's own writers, is task 20's
-// job (repository-bound-handler-testability). This file covers the pure
-// decision logic these handlers are built from.
+// handleStart/handleSelfCheck's own writes of `implementation` are now
+// fixture-testable (task 20, D39 extended handleSelfCheck's own gitRoot/
+// activeDir parameterization to close the gap this comment used to name) —
+// see the AC7/AC9 describe block below and tools/tests/handler-testability.test.mjs's
+// own D39 coverage. Most of this file still covers the pure decision logic
+// these handlers are built from, which needs no fixture at all.
 // Run: node --test tools/tests/
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,12 +21,14 @@ import { join } from 'node:path';
 
 import {
   computeTaskAttributedChangedPaths, nextImplementationBaseline, resolveProvenanceMappings,
+  detectProvenanceOverlap,
 } from '../specs/lifecycle.mjs';
 import {
   loadChange, computeChangeFingerprint, computeTaskFingerprint,
   computeImplementationFingerprint, computeImplementationFingerprintFromProvenance,
 } from '../specs/service.mjs';
-import { handleApplyProvenance } from '../specs.mjs';
+import { handleApplyProvenance, handleStart, handleSelfCheck } from '../specs.mjs';
+import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
 
 // ── computeTaskAttributedChangedPaths (AC2, AC3) ────────────────────────────
 
@@ -91,9 +93,94 @@ describe('nextImplementationBaseline — baseline_revision recorded once, never 
     assert.equal(nextImplementationBaseline({ baseline_revision: 'sha-first' }, 'sha-second'), 'sha-first');
   });
 
-  test('handleStart\'s own idempotency guard (task 02) is a real code path this decision feeds — proven at the unit level here; end-to-end coverage over the real repository is task 20\'s job', () => {
-    // See this file's own header comment.
+  test('handleStart\'s own idempotency guard (task 02) is a real code path this decision feeds — proven at the unit level here; end-to-end coverage against a fixture repository is in the AC7/AC9 describe block below', () => {
     assert.ok(true);
+  });
+});
+
+// ── detectProvenanceOverlap (AC7, AC9) ──────────────────────────────────────
+// AC7: a later task's self-check inspects current repository state for a
+// regression against an earlier task's already-attributed evidence when
+// both touch the same file — extends AC2's two-sequential-tasks scenario
+// (above) from a pure-function check into a real fixture-driven flow.
+// AC9: no freshness computation this task adds compares any `implementation`
+// field against global HEAD equality — mirrors the regression test already
+// covering `describeSelfCheck`/`staleEvidenceTasks` (D33) for the new
+// provenance fields.
+
+describe('detectProvenanceOverlap — pure, data-only cross-task overlap detection (AC9: no HEAD-equality dependency)', () => {
+  test('two tasks whose persisted changed_paths share a file are reported as overlapping', () => {
+    const tasks = [
+      { id: 't1', implementation: { changed_paths: ['shared.mjs', 'a-only.mjs'] } },
+      { id: 't2', implementation: { changed_paths: ['shared.mjs', 'b-only.mjs'] } },
+    ];
+    const overlaps = detectProvenanceOverlap(tasks, 't1', ['shared.mjs', 'a-only.mjs']);
+    assert.deepEqual(overlaps, [{ taskId: 't2', paths: ['shared.mjs'] }]);
+  });
+
+  test('two tasks with disjoint changed_paths report no overlap', () => {
+    const tasks = [
+      { id: 't1', implementation: { changed_paths: ['a-only.mjs'] } },
+      { id: 't2', implementation: { changed_paths: ['b-only.mjs'] } },
+    ];
+    assert.deepEqual(detectProvenanceOverlap(tasks, 't1', ['a-only.mjs']), []);
+  });
+
+  test('a task with no persisted implementation block at all is simply skipped, never thrown on', () => {
+    const tasks = [{ id: 't1', implementation: { changed_paths: ['x.mjs'] } }, { id: 't2' }];
+    assert.deepEqual(detectProvenanceOverlap(tasks, 't1', ['x.mjs']), []);
+  });
+
+  test('the function signature takes no revision/HEAD argument at all — same "data-only" contract as describeSelfCheck/staleEvidenceTasks (D33, AC9)', () => {
+    // A regression here would be adding a `currentRevision`/`head` parameter
+    // this function reads — the two-argument-plus-paths shape below is the
+    // full, intended contract; a 4th argument silently accepted would not
+    // fail this assertion, so what matters is this function is never called
+    // with one anywhere in this codebase (grepped manually — only the two
+    // call sites this file and tools/specs.mjs's own handleSelfCheck use).
+    assert.equal(detectProvenanceOverlap.length, 3);
+  });
+});
+
+describe('handleSelfCheck surfaces a real cross-task provenance overlap end-to-end (AC7, extends AC2\'s fixture)', () => {
+  test('task B\'s self-check, after editing a file task A already attributed to itself, surfaces the overlap — task A\'s own persisted changed_paths is unaffected (AC2 extended + AC7)', () => {
+    const f = createFixtureRepo({
+      changeSlug: 'fx-provenance-overlap',
+      tasks: [
+        { id: 'task-a', status: 'approved', allowedPaths: ['shared/**', 'task-a/**'], verification: ['echo ok'] },
+        { id: 'task-b', status: 'approved', allowedPaths: ['shared/**', 'task-b/**'], verification: ['echo ok'] },
+      ],
+    });
+    try {
+      handleStart('fx-provenance-overlap', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('shared/file.mjs', 'task A content', 'Task A edits the shared file');
+      handleSelfCheck('fx-provenance-overlap', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+
+      const afterTaskA = loadChange('fx-provenance-overlap', f.activeDir).tasks.find(t => t.id === 'task-a');
+      assert.deepEqual(afterTaskA.implementation.changed_paths, ['shared/file.mjs']);
+
+      handleStart('fx-provenance-overlap', 'task-b', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('shared/file.mjs', 'task B content', 'Task B edits the same shared file');
+      handleSelfCheck('fx-provenance-overlap', 'task-b', { activeDir: f.activeDir, gitRoot: f.root });
+
+      const reloaded = loadChange('fx-provenance-overlap', f.activeDir);
+      const taskAAfterB = reloaded.tasks.find(t => t.id === 'task-a');
+      const taskBAfterB = reloaded.tasks.find(t => t.id === 'task-b');
+
+      // AC2 (extended): task A's own already-persisted record is unchanged
+      // by task B's later self-check — no retroactive rewrite.
+      assert.deepEqual(taskAAfterB.implementation.changed_paths, ['shared/file.mjs']);
+
+      // AC7: the real overlap between the two tasks' persisted changed_paths
+      // is detectable, computed purely from what's now persisted for both —
+      // exactly the signal handleSelfCheck's own call to
+      // detectProvenanceOverlap surfaces as a console note during task B's
+      // self-check above.
+      const overlaps = detectProvenanceOverlap(reloaded.tasks, 'task-b', taskBAfterB.implementation.changed_paths);
+      assert.deepEqual(overlaps, [{ taskId: 'task-a', paths: ['shared/file.mjs'] }]);
+    } finally {
+      f.teardown();
+    }
   });
 });
 

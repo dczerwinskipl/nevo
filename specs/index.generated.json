@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T08:53:05.389Z",
+  "generated": "2026-08-08T11:17:29.829Z",
   "changes": [
     {
       "id": "nevo-ai-process-continuity-and-hardening",
@@ -165,7 +165,7 @@
           "id": "review-report-minimization",
           "order": 14,
           "file": "tasks/14-review-report-minimization.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "review-report-compaction-and-scope-exceptions"
           ],
@@ -205,7 +205,7 @@
           "id": "deterministic-implementation-provenance",
           "order": 15,
           "file": "tasks/15-deterministic-implementation-provenance.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "state-and-fingerprint-semantics",
             "recovery-classification-and-machine-readable-errors",
@@ -247,7 +247,7 @@
           "id": "semantic-cross-task-integration-and-consolidated-decisions",
           "order": 16,
           "file": "tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "implementation-review-orchestration",
             "review-report-compaction-and-scope-exceptions",
@@ -301,7 +301,7 @@
           "id": "scoped-and-incremental-spec-review",
           "order": 17,
           "file": "tasks/17-scoped-and-incremental-spec-review.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "state-and-fingerprint-semantics",
             "implementation-review-orchestration",
@@ -356,7 +356,7 @@
           "id": "compound-actions-and-dependency-aware-status",
           "order": 18,
           "file": "tasks/18-compound-actions-and-dependency-aware-status.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "conversational-approval-ergonomics",
             "resume-and-continue-controller",
@@ -416,7 +416,7 @@
           "id": "unowned-drift-correction-flow",
           "order": 19,
           "file": "tasks/19-unowned-drift-correction-flow.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "scope-and-follow-up-mechanisms",
             "review-report-compaction-and-scope-exceptions"
@@ -526,7 +526,7 @@
           "id": "owner-workflow-acceptance-scenarios",
           "order": 21,
           "file": "tasks/21-owner-workflow-acceptance-scenarios.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "review-report-minimization",
             "deterministic-implementation-provenance",

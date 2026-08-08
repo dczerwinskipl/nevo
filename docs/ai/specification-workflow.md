@@ -247,6 +247,19 @@ open-ended question, for example:
 Do not generate implementation tasks in the same step unless the owner has already
 approved a direction.
 
+### A compound action completes what its own label promises
+
+An owner-facing option that names a combined operation ("Approve and start
+implementation," for example) must actually perform the whole thing on success, in the
+same turn — not just the first half, followed by yet another confirmation before the
+part the label promised. Two separate, auditable transitions (`approve` then `start`)
+can still back a single confirmed choice; the point is that once the owner has
+authorized the compound action, nothing about the remaining, already-in-scope steps is
+re-asked. A closed menu naming a distinct "just approve" option is unaffected — that
+one is still a hard stop with no implementation prompt, exactly as before. This applies
+to any command offering a compound choice, not only approve-and-start; the pattern is
+general.
+
 ## Artifact decomposition
 
 A specification should be no larger than it needs to be:
@@ -415,6 +428,15 @@ derived fact, since it's never written twice.
 | Available/recommended action | Derived | `deriveStage`'s `nextCommand` |
 | Worktree status (clean/dirty) | Derived | `git status --porcelain` at read time |
 | Current branch | Derived | `git branch --show-current` at read time |
+
+`deriveStage`'s `ready-to-start` stage never reports an `approved` task as
+ready-to-start unless `depsSatisfied` is also true for it — an approved task whose own
+dependency is still `in-implementation` (or otherwise not dependency-satisfying) is
+never offered as the next action. When the naive first-approved-task candidate is
+blocked this way, `deriveStage` falls through to that task's own real blocking stage, or
+reports the dedicated `blocked-on-dependencies` stage naming the actual unmet
+dependency, rather than silently reporting a task the caller could not actually start
+yet.
 
 ## Using `tools/specs.mjs`
 
@@ -676,6 +698,29 @@ A specification review additionally answers, explicitly: may implementation star
 (literally `implementation_allowed`). Are the relevant tasks actually `approved`
 (checked in `change.yaml`, not assumed)? What concretely has to happen first?
 
+### A spec review can be scoped, without weakening its whole-change claims
+
+`/nevo-ai:spec-review <change-id>` defaults to `--all` (every existing invocation keeps
+working unchanged). Two additional modes let a review focus on what actually needs
+re-grading: `--changed` selects every task whose current `computeTaskFingerprint` no
+longer matches the last review's recorded `task_fingerprints` entry (or has none at
+all); `--tasks <range-or-list>` (the same dash-separated order range or comma-separated
+order list `/nevo-ai:implementation-review`'s `review-scope` already uses) names an
+explicit subset. Reading an already-reviewed task's file for background context never
+re-grades it, never regenerates its verdict, and never touches its `status` or
+`task_fingerprints` entry — only the deterministic report write persists those fields,
+and only for tasks in the resolved scope.
+
+A scoped run still must not claim whole-change readiness on a stale foundation: rows
+4-5 of the verdict table above (`ready-for-approval` / `approved-for-implementation`)
+are additionally gated, for any non-`--all` run, on every out-of-scope task's current
+fingerprint still matching what the last review recorded for it. A mismatch reports the
+specific invalidated task(s) and recommends expanding scope, instead of reaching rows
+4-5. `--all` is never subject to this guard — every task is already in scope by
+definition. An out-of-scope task is named as potentially impacted only when its own
+fingerprint has actually drifted — never merely because a selected task's declared
+`dependency_contracts` names it (a dependency is context, not automatic invalidation).
+
 ### Review freshness is verified deterministically, not inferred
 
 Time passes between a review being written and an owner acting on it, and the spec can
@@ -883,10 +928,21 @@ actionable or exception content — never a synthetic `INFORMATIONAL` row record
 test passed, a validation command succeeded, or the diff respected `allowed_paths`; those
 facts are already the checked checklist item. Verification renders as one line per
 command plus pass/fail; a fully satisfied acceptance-criteria set renders as one summary
-line, expanding only criteria that are unmet, partial, untested, or questionable. A
-normal passing report lands around 15-30 lines as a consequence of nothing else needing
-saying, never a truncation target — a report with real defects, owner decisions, or
-scope exceptions grows to fit them.
+line, expanding only criteria that are unmet, partial, untested, or questionable.
+
+**Corrected (final pre-approval refinement pass): the seven-item checklist above is
+itself superseded for the normal passing case.** A report whose verdict is `pass`, with
+no unresolved finding and at most an already-accepted scope exception, is now exactly
+**4 non-empty lines** — the title, plus three rows: `Acceptance criteria: <covered>/
+<total>`, `Scope: compliant` (or `resolved` plus one nested exception-note line), and
+`Findings: none unresolved`. The four internal-only gates that have nothing to say when
+they pass (required automated verification, no forbidden-path violation, architecture/
+documentation consistency, no unresolved owner decision) are never rendered as their own
+row in this case — a failing gate still surfaces normally, through the `Verification`
+section or a `Findings` entry, on any report that isn't fully clean. The original
+seven-item checklist shape above still applies to any report carrying an unresolved
+finding, owner decision, or pending scope exception — this minimization applies only to
+the case that has genuinely nothing further to say, never as a truncation target.
 
 **Owner-approved scope exceptions.** The previous rule — "a scope violation is always
 blocking, no exceptions" — is replaced with: **no unresolved or unrecorded scope
@@ -924,6 +980,34 @@ scope-exception decision into one owner-facing confirmation — grouped by
 `outside-allowed` (eligible for the acceptance menu) versus `forbidden` (never
 eligible), never merged into one accept-all answer — applied atomically through the same
 bulk-transition operation, never a second write path.
+
+### Unowned-drift correction — a real fix that no current task's scope covers
+
+A legitimate correction sometimes falls outside every current task's own `allowed_paths`/
+`consequential_paths`, and isn't attributable to the task currently under review's own
+diff either — a doc no task owns needing a fix, for example. Before this process existed,
+this repository handled that case twice as an undocumented, ad hoc standalone edit.
+**Unowned-drift** replaces that pattern with a named, classified one.
+
+A touched path outside every task's declared scope classifies as `owned` (inside some
+task's scope, or attributable to the task currently under review), `forbidden` (matches
+any task's `forbidden_paths` — **never** eligible for the lightweight option below, same
+hard exclusion `forbidden_paths` gets everywhere else in this workflow), or
+`unowned-drift` (outside every declared scope, not the current diff, not
+`forbidden_paths`-matched). A path classified `unowned-drift` gets a three-option owner
+menu: create a narrow corrective task; amend or re-attribute an existing task's own
+scope; or an explicit, owner-authorized maintenance correction for a fix too small or
+immediate to justify either of the first two.
+
+The maintenance-correction option never silently edits and moves on — it persists a
+structured `kind: maintenance-correction` entry in the follow-up ledger: exact `paths`
+(never a glob, one concrete path per entry), `reason`, `confirmed_by: owner` (literal,
+never defaulted), `confirmed_at`, and the `revision` that performed the correction. A
+path classified `forbidden` must never appear in a maintenance-correction entry's
+`paths` — same hard exclusion as everywhere else. A recorded correction, any of the
+three options, must be visible to a later `spec-audit`/`task-review` run whose scope
+touches the corrected path — named explicitly by its follow-up id, never silently
+absent and never re-flagged as an unexplained anomaly.
 
 ### Finalizing: the step after every task is verified
 

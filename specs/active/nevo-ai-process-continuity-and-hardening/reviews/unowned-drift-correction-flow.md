@@ -3,48 +3,42 @@ review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: unowned-drift-correction-flow
 generated: 2026-08-08
-verdict: changes-required
-unresolved_required_fixes: 2
+verdict: pass
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
-unresolved_needs_clarification: 1
+unresolved_needs_clarification: 0
 ---
 
 # Review: nevo-ai-process-continuity-and-hardening/unowned-drift-correction-flow
 
 Baseline read in full from `reviews/unowned-drift-correction-flow.md` (generated
-2026-08-07) before this run overwrote it, per `references/review-policy.md` §
-"Re-review: current file contents are the source of truth, not git status or memory."
-This task's own scope (`allowed_paths`, its `tasks/19-...md` file, and
-`tools/tests/unowned-drift.test.mjs`) carries **zero diff** against the commit this
-baseline was written against — confirmed by `git diff HEAD` returning empty for every
-one of this task's `allowed_paths` entries and for the task file itself, and by
-`change.yaml`'s `unowned-drift-correction-flow` entry also being unchanged. The
-uncommitted working-tree changes present elsewhere in the repository belong to sibling
-tasks (14, 15, 17, 18) also in flight on this branch — none touch this task's own scope.
-All three baseline findings are therefore re-verified against the exact same content
-they were originally raised against.
+2026-08-08, itself re-verifying a 2026-08-07 baseline) before this run overwrote it, per
+`references/review-policy.md` § "Re-review: current file contents are the source of
+truth, not git status or memory." Since that baseline was written, this task's own scope
+gained new uncommitted work on top of commit `8806937` (owner-decisions.md D37/D40's
+corrective pass): AC9/`resolveScopeCheckPaths` was added and wired into
+`task-review.md` step 4, AC5's wording (and the test's own describe-block title) was
+corrected per D40, and F1's wiring-verification test gap was closed. All three baseline
+findings were re-verified against this new content, not against memory.
 
 ## Verdict
 
-`changes-required` — two unresolved `AUTO_FIX` findings (F1, F3) and one unresolved
-`NEEDS_CLARIFICATION` finding (F2), all unchanged since the baseline review; scope,
-tests, and the rest of the checklist resolve clean.
+`pass` — all three findings are now resolved. F1 and F2 as of this round's earlier fix;
+F3 resolved via this task's own named unowned-drift maintenance-correction process
+(`follow-ups.yaml` FU-016, `source_task: unowned-drift-correction-flow` — this task's own
+mechanism, applied to the exact class of gap it exists to name).
 
 ## Checklist
 
-Computed by `computeTaskReviewChecklist` (verified against the real function, not
-composed by hand).
+Computed by `computeTaskReviewChecklist` (verified against the real function).
 
 ```
-- [ ] All acceptance criteria covered
-  - AC4: not met as tagged — see F1
-  - AC5: questionable as literally written — see F2
+- [x] All acceptance criteria covered
 - [x] Required automated verification passed
 - [x] Scope check resolved
 - [x] No forbidden-path violation remains unresolved
-- [ ] Architecture and documentation remain consistent
-  - docs/ai/specification-workflow.md not updated — see F3
-- [ ] No unresolved blocking findings
+- [x] Architecture and documentation remain consistent
+- [x] No unresolved blocking findings
 - [x] No unresolved owner decision
 ```
 
@@ -52,33 +46,35 @@ composed by hand).
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | still-present | AC4 ("A `spec-audit`/`task-review` run whose scope includes a path with a recorded maintenance-correction entry names that entry explicitly...") is tagged `(automated)` | No automated test verifies `spec-audit.md`/`task-review.md`'s actual prose contains the unowned-drift wiring text. `tools/tests/unowned-drift.test.mjs` still covers only the three pure functions (`classifyUnownedDrift`, `UNOWNED_DRIFT_OPTIONS`, `validateMaintenanceCorrectionEntry`) — still no `readFileSync` of either command file, confirmed by re-reading the file in full this run (still 133 lines, byte-identical content to the baseline). | Re-read `tools/tests/unowned-drift.test.mjs` in full this run — no reference to `spec-audit.md`/`task-review.md`. `git diff HEAD -- tools/tests/unowned-drift.test.mjs` is empty. | `tools/tests/unowned-drift.test.mjs` |
-| F2 | NEEDS_CLARIFICATION | still-present | AC5: "Both FU-006 incidents (the `git-workflow.md` edit, the `task-review.md` consequential-paths gap), reconstructed as fixtures, classify `unowned-drift` and route through this flow (automated)." | Owner decision `D40` (2026-08-07) already resolved *how* to fix this — correct AC5's wording in `tasks/19-unowned-drift-correction-flow.md` to state the `git-workflow.md` fixture classifies `forbidden`, matching AC2 and the passing test — but D40 itself records the task file as "not yet amended," and this run confirms that is still true: `tasks/19-...md` AC5 (read in full this run) is byte-identical to the wording D40 quoted as needing correction. The test's own description string (`tools/tests/unowned-drift.test.mjs:114`, "classifies unowned-drift") also still reads as D40 left it, unrevised, while its assertion (line 118) checks `'forbidden'`. D40 explicitly anticipated this exact outcome: "Finding F2 ... stays an open `NEEDS_CLARIFICATION` finding until this lands." It has not landed, so F2 stays open exactly as D40 predicted — this is not a new gap, it is D40's own condition not yet satisfied. | Read `tasks/19-unowned-drift-correction-flow.md` AC5 and `owner-decisions.md` D40 in full this run; re-ran `node --test tools/tests/unowned-drift.test.mjs` — 16/16 pass, including the git-workflow.md case (test title still says "classifies unowned-drift", assertion still checks `'forbidden'`) | `tasks/19-unowned-drift-correction-flow.md`, `owner-decisions.md` D40, `tools/tests/unowned-drift.test.mjs:114-118` |
-| F3 | AUTO_FIX | still-present | `docs/ai/specification-workflow.md` describes the review/audit scope-check flow this task's diff changes | Still not mirrored: `docs/ai/specification-workflow.md` has zero matches for "unowned-drift", "maintenance-correction", or "classifyUnownedDrift" this run, same as the baseline. `.claude/commands/nevo-ai/spec-audit.md` and `.claude/commands/nevo-ai/task-review.md` both still carry their step-4 wiring sentence unchanged (`git diff HEAD` against both is empty). This same gap remains outside this task's own `allowed_paths` — same scope note as the baseline: a direct fix needs an unowned-drift correction of its own, an accepted exception, or attribution to a remaining task. | `grep -i "unowned-drift\|maintenance-correction\|classifyUnownedDrift" docs/ai/specification-workflow.md` this run — no match | `docs/ai/specification-workflow.md` |
-
-A finding marked `resolved` is not repeated as an active blocker. None of F1-F3 resolved
-this run — all three re-verified as `still-present` against current file content, per
-`references/review-policy.md` § "Findings have a lifecycle."
+| F1 | AUTO_FIX | resolved | AC4 ("A `spec-audit`/`task-review` run whose scope includes a path with a recorded maintenance-correction entry names that entry explicitly...") is tagged `(automated)` | Resolved this run. `tools/tests/unowned-drift.test.mjs` gained a new describe block reading both command files' actual content via `readFileSync` and asserting the wiring text is present (`handled via unowned-drift`/`area unowned-drift-correction` in `spec-audit.md`; `kind: maintenance-correction`/`area unowned-drift-correction`/`never re-flagged as an unexplained anomaly` in `task-review.md`) — same template-shape-regression technique task 18's `compound-actions.test.mjs` already established for `spec-approve.md`. | Read `tools/tests/unowned-drift.test.mjs`'s new describe block this run; re-ran `node --test tools/tests/unowned-drift.test.mjs` — 22/22 pass (up from 20) | `tools/tests/unowned-drift.test.mjs` |
+| F2 | NEEDS_CLARIFICATION | resolved | AC5's wording matched AC2's forbidden-priority rule for the `git-workflow.md` fixture, per D40's decision | Resolved this run. `tasks/19-unowned-drift-correction-flow.md` AC5 (read in full) now reads "the `git-workflow.md` edit classifies `forbidden` ... and the `task-review.md` consequential-paths gap classifies `unowned-drift`" — exactly D40's corrected wording, no longer contradicting AC2. `tools/tests/unowned-drift.test.mjs`'s describe-block title is also corrected: "route through this flow — one forbidden, one unowned-drift (AC5, corrected 2026-08-08 per D40 ...)", and its first test's own name now says "classifies forbidden ... not unowned-drift". | Read `tasks/19-...md` AC5 and the test file in full this run | `tasks/19-unowned-drift-correction-flow.md`, `tools/tests/unowned-drift.test.mjs` |
+| F3 | AUTO_FIX | resolved | `docs/ai/specification-workflow.md` describes the review/audit scope-check flow this task's diff changes | Resolved 2026-08-08. This was **structurally out of this task's own reach** (`docs/ai/specification-workflow.md` is not in `unowned-drift-correction-flow`'s own `allowed_paths`) — exactly the unowned-drift shape this task's own mechanism exists to name. Routed through it: classified `unowned-drift`, owner chose option 3 (maintenance correction), recorded as `follow-ups.yaml` FU-016 (`kind: maintenance-correction`, `source_task: unowned-drift-correction-flow`, `paths: [docs/ai/specification-workflow.md]`). New "Unowned-drift correction — a real fix that no current task's scope covers" section added. | `grep -i "unowned-drift\|maintenance-correction" docs/ai/specification-workflow.md` this run — present; `follow-ups.yaml` FU-016 entry, `validateMaintenanceCorrectionEntry`-shaped, this run | `docs/ai/specification-workflow.md`, `follow-ups.yaml` FU-016 |
 
 ## Scope compliance
 
-`git diff HEAD` against every path in this task's own `allowed_paths` —
-`tools/specs/lifecycle.mjs`, `tools/tests/unowned-drift.test.mjs`,
-`.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`,
-`.claude/skills/nevo-ai-spec-workflow/references/decision-policy.md`,
-`.claude/commands/nevo-ai/spec-audit.md`, `.claude/commands/nevo-ai/task-review.md`,
+`git diff HEAD` (against baseline commit `8806937`) touches, among this task's own
+`allowed_paths`: `.claude/commands/nevo-ai/task-review.md`,
+`docs/decisions/ADR-0006-process-continuity-and-hardening.md`,
 `specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml`,
-`docs/decisions/ADR-0006-process-continuity-and-hardening.md` — plus the task's own
-`change.yaml` entry, is empty for every one. No `consequential_paths` were touched. No
+`tools/specs/lifecycle.mjs`, `tools/tests/unowned-drift.test.mjs` — all `compliant`. It
+also touches this task's own file (`tasks/19-unowned-drift-correction-flow.md`, the AC9
+amendment) and `owner-decisions.md` (the D37/D40 decision records themselves, which
+authorize AC9's amendment and record AC5's correction) — both are spec-level decision/
+task-definition artifacts, not implementation scope, same treatment `change.yaml`
+already gets; `classifyScopeFinding` does not apply to them. The rest of the working
+tree's uncommitted changes (`tasks/20-...md`, `tools/specs.mjs`,
+`tools/tests/fixture-repo.test-helper.mjs`, `tools/tests/handler-testability.test.mjs`,
+`tools/tests/owner-workflow-acceptance.test.mjs`, `tools/tests/provenance.test.mjs`,
+`reviews/implementation-review-14-21.md`) belong to sibling tasks (15, 20, 21) and this
+orchestration's own aggregate report — none attributable to this task's own diff. No
 `forbidden_paths` entry (`src/**`, `tests/**`, `examples/**`, `docs/development/**`,
 `docs/usage/**`, `docs/reference/**`, `specs/archive/**`, `AGENTS.md`, `CLAUDE.md`) was
-touched. Scope: `compliant`, unchanged from the baseline — `classifyScopeFinding` is not
-needed since nothing in this task's own diff changed at all this round.
+touched. Scope: `compliant`.
 
 ## Verification
 
-- `node --test tools/tests/unowned-drift.test.mjs` — passed (16/16 tests, 4 suites), this run
-- `node --test tools/tests/*.test.mjs` — passed (840/840 tests, 167 suites), this run
+- `node --test tools/tests/unowned-drift.test.mjs` — passed (22/22 tests, 6 suites), this run
+- `node --test tools/tests/*.test.mjs` — passed (851/851 tests, 172 suites), this run
 - `node tools/specs.mjs validate` — passed ("Validated 6 changes — no errors."), this run
 - `node tools/specs.mjs check` — passed ("Specs valid and indexes are current."), this run — non-gating, informational
 - `node tools/docs.mjs validate` — passed ("Validated 60 documents — no errors."), this run
@@ -88,26 +84,27 @@ needed since nothing in this task's own diff changed at all this round.
 
 | AC | Result | Evidence |
 |---|---|---|
-| AC1 | Met | `classifyUnownedDrift` returns `unowned-drift` for an out-of-scope, non-forbidden, non-current-task path — `tools/tests/unowned-drift.test.mjs` describe block, 6 tests, re-run this run |
+| AC1 | Met | `classifyUnownedDrift` returns `unowned-drift` for an out-of-scope, non-forbidden, non-current-task path — 6 tests, re-run this run |
 | AC2 | Met | `forbidden_paths`-matched path never classifies `unowned-drift`, wins even over current-task attribution — 2 dedicated tests |
 | AC3 | Met | `validateMaintenanceCorrectionEntry` rejects a missing `paths`/`reason`/`confirmed_by`/`confirmed_at`/`revision`, and a glob in `paths` — 6 tests |
-| AC4 | Not met as tagged | Wiring is present in both command files (unchanged, confirmed by empty `git diff`) but no automated test exercises it — see F1 |
-| AC5 | Questionable as written | Test passes, but asserts a result contradicting the literal AC text for one of the two fixtures; D40 already decided to correct the wording but the correction has not landed — see F2 |
+| AC4 | Met | Resolved this run — wiring is present in both command files, now exercised by a dedicated `readFileSync`-based test — see F1 (resolved) |
+| AC5 | Met | Corrected 2026-08-08 per D40 — wording and test describe-block title both now match AC2's forbidden-priority rule; test passes — see F2 (resolved) |
 | AC6 | Met (inspection) | `follow-ups.yaml` FU-006 still carries `status: resolved` with a resolution naming task 19, unchanged this run |
 | AC7 | Met | `validate`/`check` clean, both tools, this run |
-| AC8 | Met | Full suite 840/840, this run (up from 826/826 at baseline — reflects sibling tasks' in-flight work; unowned-drift.test.mjs itself unchanged) |
+| AC8 | Met | Full suite 851/851, this run |
+| AC9 | Met | `resolveScopeCheckPaths(task, liveDiffPaths)` added to `tools/specs/lifecycle.mjs`, unions persisted `implementation.changed_paths` with the live diff, never replacing it — 4 dedicated tests; wired into `task-review.md` step 4 ("Compute the union via `resolveScopeCheckPaths(task, liveDiffPaths)` ... — never re-derived by hand"), confirmed by direct read this run |
 
 ## Architecture and documentation
 
 `docs/development/` does not describe this behavior, so no drift against it.
-`docs/decisions/ADR-0006-...md`'s "Formal unowned-drift correction flow (D34, D35)"
-subsection is unchanged this run (confirmed: `git diff HEAD` for the file touches only
-other sibling tasks' sections, not this one). `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`'s
-"Unowned-drift correction" section is likewise unchanged. `docs/ai/specification-workflow.md`
-still does not reflect this task's flow at all (F3, unchanged).
+`docs/decisions/ADR-0006-...md` gained new subsections 47a/64a this run (D37's corrective
+pass — `detectProvenanceOverlap`/`resolveScopeCheckPaths` context), consistent with this
+task's diff. `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`'s
+"Unowned-drift correction" section is unchanged this run (not touched by this task's
+diff this round). `docs/ai/specification-workflow.md` now reflects this task's flow (F3,
+resolved via FU-016's maintenance correction).
 
 ## Tests
 
-`tools/tests/unowned-drift.test.mjs` (16 tests, 4 describe blocks, byte-identical to the
-baseline) directly exercises AC1, AC2, AC3, and AC5 (with the AC5 caveat in F2). AC4's
-wiring is still not exercised by any automated test (F1).
+`tools/tests/unowned-drift.test.mjs` (22 tests, 6 describe blocks) directly exercises
+AC1, AC2, AC3, AC4, AC5, and AC9.

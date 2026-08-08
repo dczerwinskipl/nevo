@@ -95,6 +95,17 @@ own menu deliberately mirrors.
 - Do not allow `classifyUnownedDrift`/the menu to offer option 3 for any path matching
   a `forbidden_paths` pattern on any active task (area requirement 5, hard rule).
 
+> **Amended 2026-08-08 — owner-decisions.md D37.** Task 15's (`deterministic-implementation-provenance`)
+> own review found AC6 (task-review.md's scope check should read a task's persisted
+> `implementation.changed_paths` rather than re-deriving from a live diff) unmet — no
+> task in the seventh refinement pass was allowed to touch `task-review.md` for this
+> specific fix, since task 15 itself is `forbidden_paths`-excluded from
+> `.claude/commands/**`. D37 decided to wire it here rather than create a separate
+> corrective task, since this task already owns `task-review.md`'s scope-check step (AC4
+> above) and `tools/specs/lifecycle.mjs`. AC9 below is the resulting scope amendment —
+> it does not change this task's own unowned-drift mechanism, only extends its existing
+> `task-review.md` wiring responsibility.
+
 ## Acceptance criteria
 
 1. A path outside every task's `allowed_paths`/`consequential_paths`, not attributable
@@ -108,15 +119,29 @@ own menu deliberately mirrors.
 4. A `spec-audit`/`task-review` run whose scope includes a path with a recorded
    maintenance-correction entry names that entry explicitly rather than reporting an
    unexplained anomaly (automated).
-5. Both FU-006 incidents (the `git-workflow.md` edit, the `task-review.md`
-   consequential-paths gap), reconstructed as fixtures, classify `unowned-drift` and
-   route through this flow (automated).
+5. Both FU-006 incidents, reconstructed as fixtures, route through this flow: the
+   `git-workflow.md` edit classifies `forbidden` (AC2's forbidden-priority rule — every
+   task's `forbidden_paths` already excludes `docs/development/**`, which is exactly why
+   FU-006 named it a gap in the first place) and the `task-review.md` consequential-paths
+   gap classifies `unowned-drift` (automated; corrected 2026-08-08 per D40 — this
+   criterion previously stated both incidents classify `unowned-drift`, contradicting
+   AC2's own forbidden-priority rule and the actual passing test).
 6. `follow-ups.yaml`'s FU-006 entry is updated to `status: resolved` with a
    `resolution` field referencing this task, only after AC1-AC5 pass (`inspection`).
 7. `node tools/specs.mjs validate`/`check` and `node tools/docs.mjs validate`/`check`
    report clean after this task's changes (automated).
 8. `node --test tools/tests/*.test.mjs` (full suite, including the new
    `unowned-drift.test.mjs`) passes (automated).
+9. `task-review.md` step 4's scope check unions a task's persisted
+   `implementation.changed_paths` (task 15) into the set of touched paths to classify,
+   on top of — never instead of — step 3's live diff/`git status` inspection (a
+   persisted-only source would structurally never contain a real violation, since
+   `implementation.changed_paths` is itself already filtered to `allowed_paths`) via
+   `resolveScopeCheckPaths(task, liveDiffPaths)` (`tools/specs/lifecycle.mjs`)
+   (`automated: node --test tools/tests/unowned-drift.test.mjs`; AC6 of
+   `deterministic-implementation-provenance`, wired here per D37, 2026-08-08, since
+   task 15's own `forbidden_paths` excludes `.claude/commands/**` and this task already
+   owns `task-review.md`'s scope-check wiring, AC4 above).
 
 ## Verification
 

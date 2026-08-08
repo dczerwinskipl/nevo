@@ -58,11 +58,14 @@ export function createFixtureRepo({
 
   tasks.forEach((t, i) => {
     const order = String(i + 1).padStart(2, '0');
+    const verificationSection = t.verification?.length
+      ? ['', '## Verification', '', '```', ...t.verification, '```', '']
+      : [];
     writeFileSync(join(changeDir, 'tasks', `${order}-${t.id}.md`), [
       '---', `id: ${changeSlug}.${t.id}`, 'status: draft', `change: ${changeSlug}`,
       'allowed_paths:', ...(t.allowedPaths || ['fixture/**']).map(p => `  - ${p}`),
       'forbidden_paths: []',
-      '---', `# Task: ${t.id}`, '',
+      '---', `# Task: ${t.id}`, ...verificationSection,
     ].join('\n'));
   });
 
@@ -80,5 +83,17 @@ export function createFixtureRepo({
     changeDir,
     changeYamlPath: join(changeDir, 'change.yaml'),
     teardown: () => rmSync(root, { recursive: true, force: true }),
+    // Writes `relPath` (relative to the fixture repo root) and commits it —
+    // lets a test simulate a task's own edit landing in the fixture repo
+    // between `handleStart` and `handleSelfCheck`, so handlers that read
+    // real git history (`git.getChangedFiles`/`getWorktreeDiff`) have a real
+    // commit to see, never a hand-built changed-file list.
+    commitFile: (relPath, content, message = `Update ${relPath}`) => {
+      const full = join(root, relPath);
+      mkdirSync(join(full, '..'), { recursive: true });
+      writeFileSync(full, content);
+      git(root, ['add', relPath]);
+      git(root, ['commit', '-q', '-m', message]);
+    },
   };
 }

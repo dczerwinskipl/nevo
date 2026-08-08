@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
-import { handleStart } from '../specs.mjs';
+import { handleStart, handleSelfCheck } from '../specs.mjs';
 import { loadChange, buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes, ACTIVE_DIR } from '../specs/service.mjs';
 import { deriveStage, depsSatisfied } from '../specs/lifecycle.mjs';
 
@@ -124,6 +124,31 @@ describe('deriveStage/depsSatisfied against a fixture-loaded task graph (AC4, ex
     const stage = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
     assert.notEqual(stage.stage, 'ready-to-start');
     assert.equal(stage.stage, 'in-progress');
+  });
+});
+
+// ── D39 (owner-decisions.md): handleSelfCheck against a fixture, real gitRoot param ──
+// Extends this task's own gitRoot-parameterization pattern (AC1's handleStart
+// coverage above) to handleSelfCheck — the cross-task integration finding X1
+// (reviews/implementation-review-14-21.md) found handleSelfCheck still
+// hardcoded the real repository's ROOT even after this task shipped,
+// leaving task 15's own new provenance-refresh logic in it untestable via a
+// fixture without touching the real repository.
+
+describe('handleSelfCheck driven against a fixture repository (D39, extends AC1\'s pattern)', () => {
+  test('a self-check run against a fixture repo writes self_check and refreshes implementation.changed_paths, without touching the real repository', () => {
+    const f = fixture({
+      changeSlug: 'fx-selfcheck',
+      tasks: [{ id: 't1', status: 'approved', allowedPaths: ['fixture/**'], verification: ['echo ok'] }],
+    });
+    handleStart('fx-selfcheck', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/change.txt', 'hello', 'Task t1 edits a fixture file');
+
+    handleSelfCheck('fx-selfcheck', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+
+    const task = loadChange('fx-selfcheck', f.activeDir).tasks.find(t => t.id === 't1');
+    assert.equal(task.self_check?.status, 'passed');
+    assert.ok(task.implementation.changed_paths.includes('fixture/change.txt'));
   });
 });
 

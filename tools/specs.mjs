@@ -36,6 +36,7 @@ import {
   completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
   resolveReviewScope, validateBulkTransition, nextSuspensionForNotRetryable,
   computeTaskAttributedChangedPaths, nextImplementationBaseline, resolveProvenanceMappings,
+  detectProvenanceOverlap,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -310,8 +311,10 @@ export function handleStart(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoo
     // longer hold, resuming a prior suspension creates a *new* one describing
     // the new situation rather than blindly retrying the stale
     // previous_action — nextSuspensionForNotRetryable (tools/specs/lifecycle.mjs)
-    // is the pure decision, unit-tested there since handleStart itself reads
-    // the real repository and can't be driven end-to-end in a fixture test.
+    // is unit-tested there as a pure decision in its own right; handleStart's
+    // own end-to-end path (including this branch) is separately covered
+    // against a fixture repository (tools/tests/handler-testability.test.mjs,
+    // task 20, D34/D35).
     const nextSuspension = nextSuspensionForNotRetryable(task.execution?.suspension);
     if (nextSuspension) setTaskSuspension(change, taskId, nextSuspension);
     throw new CliError(`Task '${taskId}' cannot be started: ${inspection.reason}`);
@@ -435,15 +438,15 @@ export function runVerificationCommand(commandString) {
 // revision — exactly what deriveStage's self-check-freshness comparison
 // (D28) reads back. No other code writes `self_check` (constraint, area
 // batch-execution-and-gating-review).
-export function handleSelfCheck(changeSlug, taskId) {
-  const change = requireChange(changeSlug);
+export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoot = ROOT } = {}) {
+  const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
   const { body } = loadTaskFileParts(change, task);
   const commands = parseVerificationCommands(body);
   if (!commands.length) throw new CliError(`Task '${taskId}' has no "## Verification" commands to run.`);
 
   const commandResults = commands.map(runVerificationCommand);
-  const currentRevision = git.getCurrentRevision(ROOT);
+  const currentRevision = git.getCurrentRevision(gitRoot);
   const selfCheck = buildSelfCheckResult({
     commandResults,
     fingerprint: computeTaskFingerprint(change, taskId),
@@ -457,15 +460,25 @@ export function handleSelfCheck(changeSlug, taskId) {
   // real start, has nothing to attribute yet — this is not itself an error).
   if (task.implementation?.baseline_revision) {
     const packet = buildContextPacket(change, task);
-    const changedSinceBaseline = git.getChangedFiles(ROOT, task.implementation.baseline_revision);
+    const changedSinceBaseline = git.getChangedFiles(gitRoot, task.implementation.baseline_revision);
     const attributedPaths = computeTaskAttributedChangedPaths(changedSinceBaseline, packet.allowed_paths);
-    const worktreeDiff = git.getWorktreeDiff(ROOT, attributedPaths);
+    const worktreeDiff = git.getWorktreeDiff(gitRoot, attributedPaths);
     writeImplementationProvenance(change, taskId, {
       baseline_revision: task.implementation.baseline_revision,
       review_revision: currentRevision,
       changed_paths: attributedPaths,
       worktree_patch_fingerprint: worktreeDiff ? createHash('sha256').update(worktreeDiff).digest('hex') : null,
     });
+
+    // D34/D35, task 15, AC7/AC9 — surface a real cross-task provenance
+    // overlap the moment this self-check re-run finds one, rather than only
+    // at the later gating batch review. Data-only (persisted changed_paths),
+    // never a HEAD-equality comparison — same constraint D33 already
+    // established for describeSelfCheck/staleEvidenceTasks.
+    const overlaps = detectProvenanceOverlap(change.tasks, taskId, attributedPaths);
+    for (const overlap of overlaps) {
+      console.log(`Note: '${taskId}' and '${overlap.taskId}' both attribute changed_paths: ${overlap.paths.join(', ')} — verify this overlap is expected before trusting either task's evidence in isolation.`);
+    }
   }
 
   if (selfCheck.status === 'failed') {

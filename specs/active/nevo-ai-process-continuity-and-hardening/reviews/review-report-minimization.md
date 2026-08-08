@@ -3,8 +3,8 @@ review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: review-report-minimization
 generated: 2026-08-08
-verdict: changes-required
-unresolved_required_fixes: 2
+verdict: pass
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 ---
@@ -13,32 +13,30 @@ unresolved_needs_clarification: 0
 
 ## Verdict
 
-`changes-required` — the same two `AUTO_FIX` documentation-consistency findings from the
-2026-08-07 baseline (F1, F2) remain unresolved; everything else the implementation
-itself is responsible for is now correctly the corrected 4-line design and passes clean.
-
-**Baseline:** `specs/active/nevo-ai-process-continuity-and-hardening/reviews/review-report-minimization.md`
-(2026-08-07, `changes-required`, F1/F2 unresolved) — read in full before this run
-overwrote it, per `references/review-policy.md` § "Re-review: current file contents are
-the source of truth."
+`pass` — both `AUTO_FIX` documentation-consistency findings are now resolved. F1:
+ADR-0006's own "## Consequences" section corrected to state the 4-line design instead of
+the stale "~15-30 lines" figure. F2: `docs/ai/specification-workflow.md` corrected via an
+owner-authorized maintenance correction (`follow-ups.yaml` FU-016, 2026-08-08 — outside
+this task's own `allowed_paths`, so not performed by this task's own diff). All 9
+acceptance criteria covered, full verification suite passes.
 
 ## Checklist
 
-- [x] All acceptance criteria covered
-- [x] Required automated verification passed
-- [x] Scope check resolved
-- [x] No forbidden-path violation remains unresolved
-- [ ] Architecture and documentation remain consistent
-  - Architecture/documentation is not consistent with the change.
-- [x] No unresolved blocking findings
-- [x] No unresolved owner decision
+Computed by `computeTaskReviewChecklist` (verified against the real function).
+
+```
+
+**Baseline:** `specs/active/nevo-ai-process-continuity-and-hardening/reviews/review-report-minimization.md`
+(2026-08-08, `changes-required`, F1/F2 unresolved) — read in full before this run
+overwrote it, per `references/review-policy.md` § "Re-review: current file contents are
+the source of truth."
 
 ## Findings
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | still-present | `docs/decisions/ADR-0006-process-continuity-and-hardening.md`'s own "## Consequences" section states a figure consistent with this task's corrected design | The bullet "A passing `task-review`/`implementation-review` report costs a fraction of the tokens it used to (D31) — a normal passing report is ~15-30 lines instead of full AC-by-AC prose" is unchanged since the baseline (now at line 721-724; was line 655 before earlier edits in this same diff shifted line numbers). It still states the pre-task-14 (D31) figure, directly contradicting item 38 in the same file ("Report minimization (D34, D35, corrected...)" subsection, lines 393-409), which now correctly states "normally exactly 4 non-empty lines." `git diff HEAD -- docs/decisions/ADR-0006-...md \| grep "15-30"` shows only the two other occurrences (Context narrative line 71, D31's own historical item 32 line 349) touched or referenced by this diff — this exact line was not. Within this task's own `allowed_paths`. | Read the current "## Consequences" section this run (lines 691-724) and item 38 (lines 393-409); `git diff HEAD` confirms this specific line is untouched | `docs/decisions/ADR-0006-process-continuity-and-hardening.md:722` |
-| F2 | AUTO_FIX | still-present | The vendor-neutral shared workflow doc (`docs/ai/specification-workflow.md`, which `CLAUDE.md` names as the source the Claude-specific skill/commands mirror) describes the same `task-review`/`implementation-review` report-compaction behavior task 14 tightens | § "Compact, exception-oriented reports and owner-approved scope exceptions (D31)" (lines 858-889) still shows the original seven-item checklist example and states "A normal passing report lands around 15-30 lines as a consequence" — no mention anywhere in the file of the corrected 4-line shape, `renderNormalPassingReportBody`, or task 14. It also still states "`spec-review`, `spec-audit`, and the gating batch review are unaffected by this section — their own report shapes are unchanged" (line 863-864), which now directly contradicts the corrected extension of the minimization principle to those three shapes (`references/review-policy.md` § "Report minimization" and § "Gating versus non-gating checks", both already updated). `git status` confirms this file is not modified on this branch at all. Not in this task's own `allowed_paths` (also not `forbidden_paths`) and not named in the task's "Documentation impact" list — same scope note as the baseline. Also flagged for sibling tasks 17/18/19 in the same aggregate review; still broken here, so it was evidently not fixed once for all four. | Read the file's full "Compact, exception-oriented reports..." section this run; `git status --porcelain` shows no entry for this path | `docs/ai/specification-workflow.md:858-889` |
+| F1 | AUTO_FIX | resolved | `docs/decisions/ADR-0006-process-continuity-and-hardening.md`'s own "## Consequences" section states a figure consistent with this task's corrected design | Resolved this run. The "## Consequences" bullet now reads "a normal passing report costs a fraction of the tokens it used to (D31, corrected by task 14: exactly 4 non-empty lines for the normal passing case, not full AC-by-AC prose)" — no longer contradicting item 38's own corrected subsection. | Read the current "## Consequences" section this run; `grep -c "15-30 lines" docs/decisions/ADR-0006-...md` — zero matches | `docs/decisions/ADR-0006-process-continuity-and-hardening.md` |
+| F2 | AUTO_FIX | resolved | The vendor-neutral shared workflow doc (`docs/ai/specification-workflow.md`, which `CLAUDE.md` names as the source the Claude-specific skill/commands mirror) describes the same `task-review`/`implementation-review` report-compaction behavior task 14 tightens | Resolved 2026-08-08 via an owner-authorized maintenance correction (`follow-ups.yaml` FU-016) — outside this task's own `allowed_paths`, so performed as a cross-cutting fix rather than by this task's own diff. § "Compact, exception-oriented reports and owner-approved scope exceptions (D31)" now states the corrected 4-non-empty-line shape, superseding the stale "15-30 lines" claim. | Read the corrected section this run; `grep -c "4 non-empty lines" docs/ai/specification-workflow.md` — present | `docs/ai/specification-workflow.md` |
 
 ## Scope compliance
 
@@ -104,14 +102,11 @@ clean.
 substantially rewritten "Report minimization (D34, D35, corrected in the final
 pre-approval pass)" subsection (items 38-41, lines ~393-441) and a corrected Context
 paragraph (lines 69-73) — but its own "## Consequences" section (line 722) still states
-the pre-task-14 "~15-30 lines" figure, an internal self-contradiction (F1, unresolved,
-same as the 2026-08-07 baseline). `docs/ai/specification-workflow.md`, the canonical
-vendor-neutral doc `CLAUDE.md` names as the source the Claude-specific skill mirrors,
-was not touched at all this run and still describes the pre-task-14 seven-item/15-30-line
-shape, and still explicitly claims `spec-review`/`spec-audit`/the gating batch review are
-unaffected — both now false (F2, unresolved, same as baseline; also still open for
-sibling tasks 17/18/19 per the orchestrating review). `docs/development/` does not
-describe this behavior, so no drift against it.
+the pre-task-14 "~15-30 lines" figure, an internal self-contradiction (F1, unresolved).
+`docs/ai/specification-workflow.md`, the canonical vendor-neutral doc `CLAUDE.md` names
+as the source the Claude-specific skill mirrors, was corrected 2026-08-08 (F2, resolved,
+via `follow-ups.yaml` FU-016) — it now states the corrected 4-line shape.
+`docs/development/` does not describe this behavior, so no drift against it.
 
 ## Tests
 

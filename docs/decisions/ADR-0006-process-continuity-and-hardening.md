@@ -495,6 +495,14 @@ acceptance scenarios (D34, D35)" below.
 47. **Does not reopen D33.** `self_check.revision`/`staleEvidenceTasks` are unchanged —
     this is a separate, narrower mechanism answering "what did this task's own work
     touch," not a reversal of D33's "never compare against global `HEAD` equality" rule.
+47a. **Corrective pass (D37, 2026-08-08): a real cross-task provenance-overlap signal,
+    data-only.** `detectProvenanceOverlap` (`tools/specs/lifecycle.mjs`) surfaces, the
+    moment a self-check re-run finds one, when this task's freshly-attributed
+    `changed_paths` shares a file with another task's own already-persisted
+    `implementation.changed_paths` — the same class of signal `staleEvidenceTasks`
+    already computes at batch-review time, now visible per self-check. Deliberately
+    never compares against global `HEAD` (same D33 constraint item 47 already states) —
+    purely a comparison over two tasks' own persisted records.
 
 ### Semantic cross-task integration and consolidated decisions (D34, D35)
 
@@ -621,6 +629,17 @@ acceptance scenarios (D34, D35)" below.
 64. **Visible in review and audit, never silently absent.** A recorded correction
     surfacing in a later `spec-audit`/`task-review` run's scope is named explicitly by
     its follow-up id, never re-flagged as an unexplained anomaly.
+64a. **Corrective pass (D37, 2026-08-08): `task-review.md` step 4 unions a task's
+    persisted `implementation.changed_paths` into its scope-check evidence — never a
+    replacement for the live diff.** `resolveScopeCheckPaths` (`tools/specs/lifecycle.mjs`)
+    adds the persisted record on top of step 3's own live-diff/`git status` inspection,
+    which is never skipped: `implementation.changed_paths` is itself computed as a
+    subset of the task's own `allowed_paths` (item 43), so by construction it can never
+    contain a genuine out-of-scope violation — treating it as the sole source would
+    silently hide exactly the class of finding this step exists to catch (the concrete
+    case: task 15's own `tools/lib/git.mjs` scope exception, D36/D41). Wired here, in
+    task 19's own scope, rather than task 15's — task 15's `forbidden_paths` excludes
+    `.claude/commands/**`.
 
 ### Repository-bound handler testability (D34, D35)
 
@@ -644,6 +663,16 @@ acceptance scenarios (D34, D35)" below.
     `start` behavior, index staleness, `execution.suspension`, and dependency-aware
     `status` (task 18) against a real, loaded `change.yaml` — none of it touching the
     actual repository.
+67a. **Corrective pass (D39, 2026-08-08): `handleSelfCheck` gains the same
+    `{ activeDir, gitRoot }` parameterization as `handleStart`.** The cross-task
+    integration pass of `/nevo-ai:implementation-review --tasks 14-21` found
+    `handleSelfCheck` still hardcoded the real repository's `ROOT`, even though
+    `FU-007`'s own reason text named "similar handlers" in scope and task 15 (item 41)
+    added new repo-root-dependent provenance-refresh logic to exactly this function in
+    the same change. `createFixtureRepo`'s `tasks[].verification` and the new
+    `commitFile()` helper enable real fixture-backed coverage of a full
+    `start` → edit → `self-check` cycle. `FU-007`'s resolution text was extended to name
+    `handleSelfCheck` explicitly, still `status: resolved`.
 
 ### Owner-workflow acceptance scenarios (D34, D35)
 
@@ -663,6 +692,20 @@ acceptance scenarios (D34, D35)" below.
 70. **Test-only, by construction.** This task's own `forbidden_paths` excludes every
     production source file it exercises — a gap found here routes back to the owning
     task for a real fix, never a workaround patched into the acceptance suite itself.
+70a. **Corrective pass (D38, 2026-08-08): item 68's "each exercising a real handler
+    chain" claim, made accurate.** This task's own review found roughly two-thirds of
+    the fifteen scenarios still only called a single sibling-task-tested
+    `tools/specs/lifecycle.mjs` function directly with hand-typed inputs, contradicting
+    this task's own "Implementation constraints" text. Corrected: every flagged scenario
+    now derives its inputs from a real fixture — `handleStart`/`handleSelfCheck` against
+    `createFixtureRepo`, real `computeTaskFingerprint`/`buildContextPacket` calls, and
+    (scenarios 6/7) a real `attributeTouchedPaths`/`detectBatchIntegrationFindings` diff
+    over an actual two-task fixture commit — rather than a hand-built object standing in
+    for what a real handler chain would have produced. Scenario 4 (record-shape
+    validation) and scenario 14 (regression-only, over an already-shipped mechanism)
+    were correctly left calling their subject function directly — testing a schema
+    validator's shape-rejection behavior has no more "real" form than passing it
+    objects.
 
 ## What was deliberately not adopted / not changed
 
@@ -719,6 +762,7 @@ acceptance scenarios (D34, D35)" below.
   weakening any individual task's own review depth or ever moving a task that still
   carries an unresolved blocking finding.
 - A passing `task-review`/`implementation-review` report costs a fraction of the tokens
-  it used to (D31) — a normal passing report is ~15-30 lines instead of full AC-by-AC
-  prose — while a legitimate, narrow, owner-accepted scope exception no longer forces a
-  permanent block or a full spec amendment just to reach `pass`.
+  it used to (D31, corrected by task 14: exactly 4 non-empty lines for the normal
+  passing case, not full AC-by-AC prose) — while a legitimate, narrow, owner-accepted
+  scope exception no longer forces a permanent block or a full spec amendment just to
+  reach `pass`.

@@ -313,6 +313,32 @@ export function computeTaskAttributedChangedPaths(changedFiles, allowedPaths) {
 }
 
 /**
+ * Detects a real provenance overlap (D34/D35, task 15, AC7/AC9) — this
+ * task's freshly-recomputed `attributedPaths` (from the current self-check
+ * re-run) shares a file with another task's own already-persisted
+ * `implementation.changed_paths`. Surfaces the same class of signal
+ * `staleEvidenceTasks`/`detectBatchIntegrationFindings` already detect at
+ * batch-review time, but at the single-self-check granularity, so a shared
+ * file's cross-attribution is visible the moment it happens, not only when a
+ * later gating batch review runs. Deliberately data-only (persisted
+ * `implementation.changed_paths`, never a fresh git/HEAD comparison) — same
+ * "no global HEAD-equality check" constraint D33/AC9 already established for
+ * `describeSelfCheck`/`staleEvidenceTasks`, extended here to the new
+ * provenance fields. `tasks` is a change's full `tasks` array; `taskId` is
+ * the task whose self-check just ran.
+ */
+export function detectProvenanceOverlap(tasks, taskId, attributedPaths) {
+  const overlaps = [];
+  for (const other of tasks || []) {
+    if (other.id === taskId) continue;
+    const otherPaths = other.implementation?.changed_paths || [];
+    const shared = (attributedPaths || []).filter(p => otherPaths.includes(p));
+    if (shared.length) overlaps.push({ taskId: other.id, paths: shared });
+  }
+  return overlaps;
+}
+
+/**
  * Decides the `baseline_revision` to persist for `implementation` (area
  * implementation-provenance-and-attribution requirement 3) — recorded once,
  * on the task's first successful transition into `in-implementation`, never
@@ -1907,6 +1933,35 @@ export function classifyScopeFinding(path, { allowedPaths = [], forbiddenPaths =
   if (forbiddenPaths.some(p => pathMatchesAllowedPattern(path, p))) return 'forbidden';
   if (allowedPaths.some(p => pathMatchesAllowedPattern(path, p))) return 'compliant';
   return 'outside-allowed';
+}
+
+/**
+ * Which touched paths `/nevo-ai:task-review`'s own step 4 scope check
+ * (`references/review-policy.md` § "Owner-approved scope exceptions")
+ * should classify for a given task (D34/D35, task 15 AC6 — wired here by
+ * task 19, since task 15's own `forbidden_paths` excludes
+ * `.claude/commands/**`). Deliberately a **union**, not a replacement: the
+ * live-diff paths the caller already inspected (step 3) are always included
+ * — `implementation.changed_paths` is itself computed as a subset of a
+ * task's own `allowed_paths` (`computeTaskAttributedChangedPaths`), so it can
+ * *never* contain a genuine out-of-scope violation by construction; treating
+ * it as the sole source would silently hide exactly the class of finding
+ * step 4 exists to catch (this repository hit the concrete case directly —
+ * task 15's own `tools/lib/git.mjs` scope exception, D36/D41 — which only a
+ * live-diff scan, never a persisted `changed_paths` read, could have found).
+ * The persisted record is still real, additive value: it guarantees
+ * already-committed work since `baseline_revision` is included even if the
+ * caller's own live-diff step only inspected current `git status` (dirty
+ * files), and it gives a deterministic, already-resolved "this is definitely
+ * this task's own attributed footprint" signal for cross-task disambiguation
+ * in a shared working tree — never a narrower substitute for step 3's own
+ * inspection. Never re-derives or mutates either input; the actual per-path
+ * classification still goes through `classifyScopeFinding` unchanged.
+ */
+export function resolveScopeCheckPaths(task, liveDiffPaths) {
+  const persisted = task?.implementation?.changed_paths || [];
+  const live = liveDiffPaths || [];
+  return [...new Set([...persisted, ...live])].sort();
 }
 
 /**

@@ -119,12 +119,20 @@ task's structured per-task return requires.
 ## Acceptance criteria
 
 1. A fixture pair of tasks sharing a `semantic_references.dependency_contracts`/
-   `decisions` entry, where one task's change actually breaks the other's assumed
-   contract, produces exactly one semantic-integration finding
-   (`automated: node --test tools/tests/semantic-integration.test.mjs`).
+   `decisions` entry — even with no file overlap — is selected for inspection by
+   `selectSemanticIntegrationPairs`
+   (`automated: node --test tools/tests/semantic-integration.test.mjs`). Whether an
+   inspected pair's actual content produces a real semantic-integration finding is a
+   model-review judgment (the eleven signal categories, area requirement 2) with no
+   code representation, by design — corrected 2026-08-08 (owner decision): the original
+   wording claimed this outcome itself was `(automated)`, which is not achievable for a
+   judgment step.
 2. A fixture pair touching the same signal category (e.g. both editing CLI help text)
-   with no real conflict produces zero findings — no synthetic `INFORMATIONAL` entry
-   (automated).
+   with no real conflict is still selected for inspection but produces no finding of any
+   kind — selection alone carries no verdict/classification field (automated); never a
+   synthetic `INFORMATIONAL` entry. Whether a genuinely clean pair produces zero findings
+   in practice is the same model-review judgment named in AC1 — corrected 2026-08-08,
+   same reason as AC1.
 3. The integration pass never re-derives or re-reports an individual task's own AC
    coverage as an integration finding (automated + inspection).
 4. Each per-task structured return carries `pendingOwnerDecisions`,

@@ -119,11 +119,19 @@ exists in `deriveStage`.
 6. No new module-level mutable global or settable singleton exists anywhere in
    `tools/specs.mjs`/`tools/specs/service.mjs` after this task (inspection).
 7. `follow-ups.yaml`'s FU-007 entry is updated to `status: resolved` with a
-   `resolution` field referencing this task, only after AC1-AC6 pass (`inspection`).
+   `resolution` field referencing this task, only after AC1-AC6 and AC10 pass
+   (`inspection`; resolution text names `handleSelfCheck` explicitly alongside the
+   original three handlers, per D39).
 8. `node tools/specs.mjs validate`/`check` and `node tools/docs.mjs validate`/`check`
    report clean after this task's changes (automated).
 9. `node --test tools/tests/*.test.mjs` (full suite, including the new fixture helper
    and `handler-testability.test.mjs`) passes (automated).
+10. `handleSelfCheck` (`tools/specs.mjs`) accepts the same `{ activeDir, gitRoot }`
+    parameterization pattern as `handleStart`, defaulting to the real repository, and is
+    driven end-to-end against a fixture repository — writing both `self_check` and a
+    refreshed `implementation.changed_paths` without touching the real repository
+    (`automated: node --test tools/tests/handler-testability.test.mjs`; D39, amended
+    2026-08-08).
 
 ## Verification
 
@@ -149,4 +157,17 @@ locator or global override; "Context" paragraph names task 20 alongside tasks 01
 - Deleting the existing REC-03 real-repo test or the `nextSuspensionForNotRetryable`
   extraction.
 - Parameterizing any handler beyond `handleStart`/`checkSpecsIndexes`/
-  `buildSpecsIndexes`.
+  `buildSpecsIndexes`/`handleSelfCheck` (AC10, D39).
+
+> **Amended 2026-08-08 — owner-decisions.md D39.** The cross-task integration pass of
+> `/nevo-ai:implementation-review --tasks 14-21` found `handleSelfCheck` still hardcoded
+> the real repository's `ROOT`, even though `follow-ups.yaml`'s own FU-007 reason text
+> already named "handleStart, index checks, **and similar handlers**" as the intended
+> scope, and FU-007 was marked `resolved` by this task anyway. Task 15
+> (`deterministic-implementation-provenance`) added new repo-root-dependent
+> provenance-refresh logic to exactly this unparameterized function in the same change,
+> making the gap concretely worse. D39 decided to extend this task's own
+> `gitRoot`/`activeDir` parameterization pattern to `handleSelfCheck` rather than route it
+> through a separate corrective task, since the target file (`tools/specs.mjs`) and test
+> file (`tools/tests/handler-testability.test.mjs`) were already inside this task's own
+> `allowed_paths`. AC10 below and this note are the resulting scope amendment.

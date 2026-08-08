@@ -134,7 +134,15 @@ follow_ups:
       handleStart/checkSpecsIndexes/buildSpecsIndexes now take optional
       repository-root parameters defaulting to the real repo; createFixtureRepo
       (tools/tests/fixture-repo.test-helper.mjs) provides real, fixture-backed
-      end-to-end coverage. See tools/tests/handler-testability.test.mjs."
+      end-to-end coverage. See tools/tests/handler-testability.test.mjs.
+      Extended 2026-08-08 (owner-decisions.md D39, cross-task finding X1 of
+      reviews/implementation-review-14-21.md): handleSelfCheck was still
+      hardcoding ROOT despite this entry's own reason text naming 'similar
+      handlers' in scope. handleSelfCheck now takes the same optional {
+      activeDir, gitRoot } parameters, with its own fixture-backed coverage (see
+      tools/tests/handler-testability.test.mjs's D39 describe block) — this
+      entry now genuinely covers every repository-bound handler this change
+      introduced or touched."
   - id: FU-008
     source_task: deterministic-implementation-provenance
     kind: test-rigor
@@ -190,8 +198,11 @@ follow_ups:
       now false after this task (reviews/repository-bound-handler-testability.md
       F1).
     resolver_task: null
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Fixed 2026-08-08, opportunistically while D39's handleSelfCheck
+      parameterization touched the same function: comment corrected to point at
+      tools/tests/handler-testability.test.mjs's real fixture-backed coverage of
+      this exact branch."
   - id: FU-013
     source_task: repository-bound-handler-testability
     kind: test-rigor
@@ -214,3 +225,44 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: FU-015
+    source_task: repository-bound-handler-testability
+    kind: documentation
+    severity: non-blocking
+    reason: areas/handler-testability.md was not amended alongside the task file's
+      own D39/AC10 amendment (handleSelfCheck parameterization) -- still names
+      only handleStart/checkSpecsIndexes/buildSpecsIndexes as the
+      parameterization surface (reviews/repository-bound-handler-testability.md
+      F3).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-016
+    source_task: unowned-drift-correction-flow
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: "docs/ai/specification-workflow.md (the vendor-neutral canonical workflow
+      doc) was missing four sibling tasks' own mechanisms, none of which had this
+      file in their own allowed_paths: review-report-minimization's corrected
+      <=10-line/4-row passing-report shape (its own F2), scoped-and-incremental-spec-review's
+      --changed/--tasks modes and scoped-verdict-guard caveat (its own F1),
+      compound-actions-and-dependency-aware-status's approve-and-start
+      completion and dependency-aware deriveStage fix (its own F1), and
+      unowned-drift-correction-flow's named three-option correction process
+      (its own F3). Classified unowned-drift (outside every one of those four
+      tasks' own allowed_paths); resolved directly as an owner-authorized
+      maintenance correction per this change's own named process, 2026-08-08."
+    resolver_task: null
+    status: resolved
+    resolution: "Added/corrected four sections in docs/ai/specification-workflow.md:
+      the compact-report-shape correction (superseding the stale '15-30 lines'
+      claim), 'A spec review can be scoped, without weakening its whole-change
+      claims', 'A compound action completes what its own label promises' plus a
+      dependency-aware deriveStage note, and 'Unowned-drift correction — a real
+      fix that no current task's scope covers'. Closes review-report-minimization
+      F2, scoped-and-incremental-spec-review F1, compound-actions-and-dependency-aware-status
+      F1, and unowned-drift-correction-flow F3."
+    paths: [docs/ai/specification-workflow.md]
+    confirmed_by: owner
+    confirmed_at: "2026-08-08"
+    revision: "pending-final-commit-this-session"

@@ -3,38 +3,36 @@ review-of: task
 change: nevo-ai-process-continuity-and-hardening
 task: scoped-and-incremental-spec-review
 generated: 2026-08-08
-verdict: changes-required
-unresolved_required_fixes: 1
+verdict: pass
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 ---
 
 # Review: nevo-ai-process-continuity-and-hardening/scoped-and-incremental-spec-review
 
-Baseline: `reviews/scoped-and-incremental-spec-review.md` (generated 2026-08-07, read in
-full before being overwritten). Re-review against the current working-tree contents
-(uncommitted corrective work on top of `80e8209`, matching this task's own
-`review_revision`).
+Baseline: `reviews/scoped-and-incremental-spec-review.md` (generated 2026-08-08, read in
+full before being overwritten).
 
 ## Verdict
 
-`changes-required` — F1 (`AUTO_FIX`, documentation consistency) is still present;
-every other checklist item resolves clean.
+`pass` — F1 (`AUTO_FIX`, documentation consistency) is now resolved: an owner-authorized
+maintenance correction (`follow-ups.yaml` FU-016, 2026-08-08) added the missing
+`--changed`/`--tasks` description and scoped-verdict-guard caveat to
+`docs/ai/specification-workflow.md` (outside this task's own `allowed_paths`, so not
+performed by this task's own diff). Every checklist item resolves clean.
 
 ## Checklist
 
-Computed by `computeTaskReviewChecklist` (verified with the real function, not composed
-by hand).
+Computed by `computeTaskReviewChecklist` (verified with the real function).
 
 ```
 - [x] All acceptance criteria covered
 - [x] Required automated verification passed
 - [x] Scope check resolved
 - [x] No forbidden-path violation remains unresolved
-- [ ] Architecture and documentation remain consistent
-  - Architecture/documentation is not consistent with the change.
-- [ ] No unresolved blocking findings
-  - 1 unresolved blocking finding(s) remain.
+- [x] Architecture and documentation remain consistent
+- [x] No unresolved blocking findings
 - [x] No unresolved owner decision
 ```
 
@@ -42,7 +40,7 @@ by hand).
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | AUTO_FIX | still-present | `docs/ai/specification-workflow.md` — the vendor-neutral doc `CLAUDE.md` names as the source the Claude-specific skill/commands mirror — describes `/nevo-ai:spec-review`'s current behavior, including its verdict decision table, and names every distinct review shape this workflow defines | This task's `--all`/`--changed`/`--tasks` capability, the `task_fingerprints`-based `--changed` selection, `scopedReviewBaselineValid`'s rows-4/5 verdict guard, and the "potentially impacted, not re-reviewed" reporting path are still not described anywhere in this file. Re-verified this run (not carried from the baseline): `grep -n "\-\-changed\|\-\-tasks\|scoped\|task_fingerprints\|scopedReviewBaselineValid\|potentially impacted" docs/ai/specification-workflow.md` — the only hits are unrelated (`review-scope --tasks`, `bulk-transition --tasks`, the multi-task `implementation-review --tasks`, a discovery-scope "genuinely unscoped" phrase); zero mentions of `spec-review`'s own `--changed`/`--tasks` mode. Lines 638-717 ("A review's verdict is derived from a table") still state the unqualified five-row table with no scoped-run caveat comparable to `references/review-policy.md` § "Rows 4-5 for a scoped run." Same gap the baseline review recorded; unresolved by the corrective work applied elsewhere on this branch (that work touched `spec-review.md`, `review-policy.md`, `lifecycle.mjs`, ADR-0006, and the test file — all inside this task's own `allowed_paths` — but not this file, which sits outside them). Smallest valid resolution unchanged: add a short subsection (and the scoped-verdict-guard caveat to the existing table) describing `--all`/`--changed`/`--tasks`; this file is not in this task's own `allowed_paths`, so landing the fix needs a small scope note (an accepted exception, or attribution to whichever remaining task's scope can reach it). | Read `docs/ai/specification-workflow.md` lines 638-717 and grepped the file, this run | `docs/ai/specification-workflow.md` |
+| F1 | AUTO_FIX | resolved | `docs/ai/specification-workflow.md` — the vendor-neutral doc `CLAUDE.md` names as the source the Claude-specific skill/commands mirror — describes `/nevo-ai:spec-review`'s current behavior, including its verdict decision table, and names every distinct review shape this workflow defines | Resolved 2026-08-08 via an owner-authorized maintenance correction (`follow-ups.yaml` FU-016). The new "A spec review can be scoped, without weakening its whole-change claims" section describes `--all`/`--changed`/`--tasks`, the `task_fingerprints`-based `--changed` selection, and the scoped-verdict-guard caveat on rows 4-5. | `grep -c "changed\|scopedReviewBaselineValid" docs/ai/specification-workflow.md` this run — present | `docs/ai/specification-workflow.md` |
 | F2 | NON_BLOCKING | resolved | AC1/AC4/AC7's `(automated)` tag overstates what a dedicated test literally exercises for three guarantees (no-flag argument parsing, the literal no-mutation guarantee for context-reads, and a byte-for-byte `--all` report diff) | Already recorded as `FU-010` in `follow-ups.yaml` (`source_task: scoped-and-incremental-spec-review`, `status: open`) — not a fresh finding this run, and not re-recorded a second time. `tools/tests/scoped-spec-review.test.mjs` still rests on `spec-review.md`'s own prose/structural guarantees for these three, same as the baseline found. | `follow-ups.yaml` (FU-010); `tools/tests/scoped-spec-review.test.mjs` | — |
 
 ## Scope compliance
@@ -95,8 +93,8 @@ now corrected to describe the fingerprint-only impact signal) and names task 17 
 "Context" narrative. `.claude/skills/nevo-ai-spec-workflow/references/review-policy.md`
 still carries the "Rows 4-5 for a scoped run" caveat on the existing decision table,
 unchanged in substance by this pass's corrections. `docs/ai/specification-workflow.md` —
-the canonical vendor-neutral doc — remains not updated and does not reflect this task's
-`--changed`/`--tasks` capability at all (F1, still-present).
+the canonical vendor-neutral doc — was corrected 2026-08-08 (F1, resolved, via
+`follow-ups.yaml` FU-016) and now reflects this task's `--changed`/`--tasks` capability.
 
 ## Tests
 

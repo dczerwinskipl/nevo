@@ -20,10 +20,21 @@
 // Run: node --test tools/tests/
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
-import { handleStart, handleApplyProvenance } from '../specs.mjs';
-import { loadChange, computeTaskFingerprint, computeChangeFingerprint } from '../specs/service.mjs';
+import { handleStart, handleSelfCheck, handleApplyProvenance } from '../specs.mjs';
+import { loadChange, computeTaskFingerprint, computeChangeFingerprint, buildContextPacket } from '../specs/service.mjs';
+import { getChangedFiles, getCurrentRevision } from '../lib/git.mjs';
+
+// Captures the fixture repo's current revision before any task edits it —
+// the real `startRevision` baseline `getChangedFiles(root, startRevision)`
+// diffs against, mirroring how the gating batch review computes its own
+// real diff (area batch-execution-and-gating-review).
+function captureRevision(root) {
+  return getCurrentRevision(root);
+}
 import {
   deriveStage, depsSatisfied,
   computeTaskReviewChecklist, renderCompactReviewChecklist, renderNormalPassingReportBody,
@@ -33,6 +44,8 @@ import {
   classifyUnownedDrift, UNOWNED_DRIFT_OPTIONS, validateMaintenanceCorrectionEntry,
   classifyScopeFinding, isScopeExceptionValid,
   validateAggregateAgainstCanonicalReviews,
+  resolveScopeCheckPaths, detectProvenanceOverlap,
+  attributeTouchedPaths, detectBatchIntegrationFindings,
 } from '../specs/lifecycle.mjs';
 
 const fixtures = [];
@@ -79,8 +92,28 @@ describe('Scenario 1 — approve+start begins work without another confirmation'
 // ceiling a differently-shaped body could also satisfy.
 
 describe('Scenario 2 — a passing review produces only minimal result rows', () => {
-  test('a fully-passing checklist renders exactly the title plus three rows: AC coverage, scope, findings', () => {
-    const result = computeTaskReviewChecklist(passingChecklistInput());
+  test('scope and verification-passed derived from a real handleStart+handleSelfCheck fixture run; the checklist renders exactly the title plus three rows', () => {
+    const f = fixture({
+      changeSlug: 'aw-s2',
+      tasks: [{ id: 't1', status: 'approved', allowedPaths: ['fixture/**'], verification: ['echo ok'] }],
+    });
+    handleStart('aw-s2', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/change.txt', 'content', 'Task t1 edits an in-scope file');
+    handleSelfCheck('aw-s2', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+
+    const task = loadChange('aw-s2', f.activeDir).tasks.find(t => t.id === 't1');
+    const touchedPaths = resolveScopeCheckPaths(task, []);
+    assert.ok(touchedPaths.length > 0, 'the real self-check must have attributed at least the committed file');
+    const scopeStatus = touchedPaths.every(p => classifyScopeFinding(p, { allowedPaths: ['fixture/**'], forbiddenPaths: [] }) === 'compliant')
+      ? 'compliant' : 'unresolved';
+
+    const result = computeTaskReviewChecklist({
+      acCoverageComplete: true, missingRequiredAutomatedTest: false,
+      verificationPassed: task.self_check.status === 'passed', // real self-check outcome
+      scopeStatus, // real classification of the real attributed paths
+      forbiddenPathClean: true, docsConsistent: true,
+      unresolvedBlockingCount: 0, unresolvedOwnerDecisionCount: 0,
+    });
     const body = renderNormalPassingReportBody(result, { title: 'Review: aw-s2/t1', totalAcceptanceCriteria: 9 });
     const lines = body.split('\n').filter(l => l.trim());
     assert.deepEqual(lines, [
@@ -106,8 +139,27 @@ describe('Scenario 2 — a passing review produces only minimal result rows', ()
 // ── Scenario 3: Failing review expands only failed checks ──────────────────
 
 describe('Scenario 3 — a failing review expands only the failed checks', () => {
-  test('exactly one failed item gets an expanded reason line; every other item stays a bare checked line', () => {
-    const result = computeTaskReviewChecklist({ ...passingChecklistInput(), docsConsistent: false });
+  test('scope/verification derived real and passing from a fixture run; only the one deliberately-failing gate (docsConsistent) gets an expanded reason line', () => {
+    const f = fixture({
+      changeSlug: 'aw-s3',
+      tasks: [{ id: 't1', status: 'approved', allowedPaths: ['fixture/**'], verification: ['echo ok'] }],
+    });
+    handleStart('aw-s3', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/change.txt', 'content', 'in-scope edit');
+    handleSelfCheck('aw-s3', 't1', { activeDir: f.activeDir, gitRoot: f.root });
+    const task = loadChange('aw-s3', f.activeDir).tasks.find(t => t.id === 't1');
+    const touchedPaths = resolveScopeCheckPaths(task, []);
+    const scopeStatus = touchedPaths.every(p => classifyScopeFinding(p, { allowedPaths: ['fixture/**'], forbiddenPaths: [] }) === 'compliant')
+      ? 'compliant' : 'unresolved';
+    assert.equal(scopeStatus, 'compliant');
+
+    const result = computeTaskReviewChecklist({
+      acCoverageComplete: true, missingRequiredAutomatedTest: false,
+      verificationPassed: task.self_check.status === 'passed',
+      scopeStatus, forbiddenPathClean: true,
+      docsConsistent: false, // the one deliberate failure this scenario proves stays isolated
+      unresolvedBlockingCount: 0, unresolvedOwnerDecisionCount: 0,
+    });
     const rendered = renderCompactReviewChecklist(result);
     const lines = rendered.split('\n');
     const uncheckedLines = lines.filter(l => l.startsWith('- [ ]'));
@@ -135,37 +187,127 @@ describe('Scenario 4 — multi-task review uses bounded per-task context', () =>
 // ── Scenario 5: No owner questions appear between task reviews ─────────────
 
 describe('Scenario 5 — no owner questions between task reviews; everything collects into one stage', () => {
-  test('three tasks\' pending decisions all land in one buildConsolidatedDecisionStage call, never three separate stages', () => {
+  test('a real out-of-scope finding (task 2) and a real cross-task provenance overlap (tasks 3/4) both land in one buildConsolidatedDecisionStage call, never separate stages', () => {
+    const f = fixture({
+      changeSlug: 'aw-s5',
+      tasks: [
+        { id: 't1', status: 'approved', allowedPaths: ['fixture/t1/**'], verification: ['echo ok'] },
+        { id: 't2', status: 'approved', allowedPaths: ['fixture/t2/**'], verification: ['echo ok'] },
+        { id: 't3', status: 'approved', allowedPaths: ['fixture/shared/**'], verification: ['echo ok'] },
+        { id: 't4', status: 'approved', allowedPaths: ['fixture/shared/**'], verification: ['echo ok'] },
+      ],
+    });
+
+    // t2 touches a file outside its own declared scope — a real outside-allowed
+    // finding. No self-check run yet for t2, so it has no persisted
+    // implementation.changed_paths (that field is only ever a subset of its
+    // own allowed_paths, by construction — it can never itself contain an
+    // out-of-scope path) — resolveScopeCheckPaths correctly falls back to the
+    // real live diff since t2's own baseline_revision.
+    handleStart('aw-s5', 't2', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/outside/oops.mjs', 'x', 't2 edits an out-of-scope file');
+    const t2 = loadChange('aw-s5', f.activeDir).tasks.find(t => t.id === 't2');
+    const t2LiveDiff = getChangedFiles(f.root, t2.implementation.baseline_revision);
+    const t2Touched = resolveScopeCheckPaths(t2, t2LiveDiff);
+    const t2Classification = t2Touched
+      .map(p => classifyScopeFinding(p, { allowedPaths: ['fixture/t2/**'], forbiddenPaths: [] }))
+      .find(c => c !== 'compliant');
+    assert.equal(t2Classification, 'outside-allowed');
+
+    // t3, then t4, both edit the same shared file — a real cross-task provenance overlap.
+    handleStart('aw-s5', 't3', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/file.mjs', 'v1', 't3 edits the shared file');
+    handleSelfCheck('aw-s5', 't3', { activeDir: f.activeDir, gitRoot: f.root });
+    handleStart('aw-s5', 't4', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/file.mjs', 'v2', 't4 edits the same shared file');
+    handleSelfCheck('aw-s5', 't4', { activeDir: f.activeDir, gitRoot: f.root });
+    const reloaded = loadChange('aw-s5', f.activeDir);
+    const t4 = reloaded.tasks.find(t => t.id === 't4');
+    const overlaps = detectProvenanceOverlap(reloaded.tasks, 't4', t4.implementation.changed_paths);
+    assert.ok(overlaps.some(o => o.taskId === 't3'));
+
     const records = [
-      fullPerTaskRecord({ taskId: 't1', pendingOwnerDecisions: [{ finding: 'F1' }] }),
-      fullPerTaskRecord({ taskId: 't2', pendingScopeDecisions: [{ finding: 'F2', classification: 'outside-allowed' }] }),
-      fullPerTaskRecord({ taskId: 't3', followUpCandidates: [{ summary: 'later' }] }),
+      fullPerTaskRecord({ taskId: 't1' }), // clean — nothing pending
+      fullPerTaskRecord({
+        taskId: 't2',
+        pendingScopeDecisions: [{ finding: 'F1', path: t2Touched.find(p => classifyScopeFinding(p, { allowedPaths: ['fixture/t2/**'], forbiddenPaths: [] }) === 'outside-allowed'), classification: t2Classification }],
+      }),
+      fullPerTaskRecord({
+        taskId: 't4',
+        pendingOwnerDecisions: [{ finding: 'F1', summary: `provenance overlap with '${overlaps[0].taskId}': ${overlaps[0].paths.join(', ')}` }],
+      }),
     ];
     const stage = buildConsolidatedDecisionStage(records);
     assert.equal(stage.ownerDecisions.length, 1);
     assert.equal(stage.scopeDecisions.outsideAllowed.length, 1);
-    assert.equal(stage.followUpCandidates.length, 1);
   });
 });
 
 // ── Scenario 6: Semantic integration detects a real contract mismatch ──────
 
 describe('Scenario 6 — semantic integration selects a real cross-task relationship for inspection', () => {
-  test('two tasks sharing a decision with no file overlap are still selected as a pair to inspect', () => {
-    const pairs = selectSemanticIntegrationPairs(['a', 'b'], { a: { decisions: ['D1'] }, b: { decisions: ['D1'] } }, []);
-    assert.deepEqual(pairs, [['a', 'b']]);
+  test('a real file-overlap pair, derived from an actual fixture diff, is selected alongside a decision-shared pair with no file overlap at all', () => {
+    const f = fixture({
+      changeSlug: 'aw-s6',
+      tasks: [
+        { id: 'a', status: 'approved', allowedPaths: ['fixture/shared/**', 'fixture/a/**'] },
+        { id: 'b', status: 'approved', allowedPaths: ['fixture/shared/**', 'fixture/b/**'] },
+      ],
+    });
+    const startRevision = captureRevision(f.root);
+    handleStart('aw-s6', 'a', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/x.mjs', 'v1', 'task a edits the shared file');
+    handleStart('aw-s6', 'b', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/x.mjs', 'v2', 'task b edits the same shared file');
+
+    const changedFiles = getChangedFiles(f.root, startRevision);
+    const touched = attributeTouchedPaths(['a', 'b'], {
+      a: ['fixture/shared/**', 'fixture/a/**'], b: ['fixture/shared/**', 'fixture/b/**'],
+    }, changedFiles);
+    const findings = detectBatchIntegrationFindings({ temporaryInconsistencies: [] }, ['a', 'b'], touched);
+    assert.ok(findings.length >= 1, 'the real fixture diff must produce a real file-overlap finding');
+    const fileOverlapPairs = findings.map(fnd => fnd.tasks);
+
+    // 'c' shares a decision with 'a' but never touches a file 'a' also touches.
+    const pairs = selectSemanticIntegrationPairs(
+      ['a', 'b', 'c'],
+      { a: { decisions: ['D1'] }, b: {}, c: { decisions: ['D1'] } },
+      fileOverlapPairs,
+    );
+    assert.ok(pairs.some(p => p.includes('a') && p.includes('b')), 'the real file-overlap pair must be selected');
+    assert.ok(pairs.some(p => p.includes('a') && p.includes('c')), 'the decision-shared, file-disjoint pair must also be selected');
   });
 });
 
 // ── Scenario 7: Path overlap alone does not create a defect ────────────────
 
 describe('Scenario 7 — path overlap alone is a review candidate, not an automatic defect', () => {
-  test('a file-overlap pair is selected for inspection, but selection itself is not a finding', () => {
-    const pairs = selectSemanticIntegrationPairs(['a', 'b'], {}, [['a', 'b']]);
+  test('a real file-overlap pair, derived from an actual fixture diff, is selected for inspection — but selection itself carries no finding/verdict', () => {
+    const f = fixture({
+      changeSlug: 'aw-s7',
+      tasks: [
+        { id: 'a', status: 'approved', allowedPaths: ['fixture/shared/**'] },
+        { id: 'b', status: 'approved', allowedPaths: ['fixture/shared/**'] },
+      ],
+    });
+    const startRevision = captureRevision(f.root);
+    handleStart('aw-s7', 'a', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/x.mjs', 'v1', 'task a edits the shared file');
+    handleStart('aw-s7', 'b', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/shared/x.mjs', 'v2', 'task b edits the same shared file');
+
+    const changedFiles = getChangedFiles(f.root, startRevision);
+    const touched = attributeTouchedPaths(['a', 'b'], { a: ['fixture/shared/**'], b: ['fixture/shared/**'] }, changedFiles);
+    const findings = detectBatchIntegrationFindings({ temporaryInconsistencies: [] }, ['a', 'b'], touched);
+    assert.ok(findings.length >= 1);
+    const fileOverlapPairs = findings.map(fnd => fnd.tasks);
+
+    const pairs = selectSemanticIntegrationPairs(['a', 'b'], {}, fileOverlapPairs);
     assert.deepEqual(pairs, [['a', 'b']]);
-    // Selection alone carries no verdict/classification — a real finding
-    // requires a further, separate classification step (task 16's own
-    // model-review inspection), never inferred from selection alone.
+    // Selection alone carries no verdict/classification field of any kind —
+    // a real finding requires a further, separate classification step (task
+    // 16's own model-review inspection), never inferred from selection alone.
+    assert.ok(!('verdict' in pairs[0]) && !('classification' in pairs[0]));
   });
 });
 
@@ -200,17 +342,39 @@ describe('Scenario 8 — two tasks modifying one shared file retain independent 
 // ── Scenario 9: Scoped spec review evaluates a new task in old context without re-grading old tasks ──
 
 describe('Scenario 9 — a scoped review evaluates a new task without re-grading old ones', () => {
-  test('--changed selects only the new/changed task; old tasks\' fingerprints are never recomputed as part of scope resolution', () => {
-    const change = { tasks: [{ id: 'old1', order: 1 }, { id: 'old2', order: 2 }, { id: 'new1', order: 3 }] };
-    const changed = selectChangedTaskIds(['old1', 'old2', 'new1'], { old1: 'fp1', old2: 'fp2' }, { old1: 'fp1', old2: 'fp2', new1: 'fp3' });
+  test('--changed selects only the new/changed task, using real fixture-computed fingerprints; old tasks\' fingerprints are unaffected', () => {
+    const f = fixture({
+      changeSlug: 'aw-s9',
+      tasks: [
+        { id: 'old1', status: 'verified', allowedPaths: ['fixture/old1/**'] },
+        { id: 'old2', status: 'verified', allowedPaths: ['fixture/old2/**'] },
+        { id: 'new1', status: 'draft', allowedPaths: ['fixture/new1/**'] },
+      ],
+    });
+    const change = loadChange('aw-s9', f.activeDir);
+    // Simulates the last review's recorded task_fingerprints — new1 has none
+    // (it didn't exist at the time of that review).
+    const priorFingerprints = {
+      old1: computeTaskFingerprint(change, 'old1'),
+      old2: computeTaskFingerprint(change, 'old2'),
+    };
+    const currentFingerprints = {
+      old1: computeTaskFingerprint(change, 'old1'),
+      old2: computeTaskFingerprint(change, 'old2'),
+      new1: computeTaskFingerprint(change, 'new1'),
+    };
+    const changed = selectChangedTaskIds(['old1', 'old2', 'new1'], priorFingerprints, currentFingerprints);
+    assert.deepEqual(changed, ['new1']);
+
     const scope = resolveSpecReviewScope(change, { changed: true, changedTaskIds: changed });
     assert.deepEqual(scope.taskIds, ['new1']);
     assert.ok(!scope.taskIds.includes('old1'));
     assert.ok(!scope.taskIds.includes('old2'));
-  });
 
-  test('a scoped review\'s whole-change-readiness claim requires every out-of-scope baseline to still match', () => {
-    const result = scopedReviewBaselineValid(['old1', 'old2'], { old1: 'fp1', old2: 'fp2' }, { old1: 'fp1', old2: 'fp2' });
+    // A scoped review's whole-change-readiness claim requires every
+    // out-of-scope baseline to still match — proven against the same real
+    // fingerprints just computed, not hand-typed placeholder strings.
+    const result = scopedReviewBaselineValid(['old1', 'old2'], priorFingerprints, currentFingerprints);
     assert.equal(result.valid, true);
   });
 });
@@ -218,18 +382,19 @@ describe('Scenario 9 — a scoped review evaluates a new task without re-grading
 // ── Scenario 10: Dependency-aware status never proposes an unstartable task ──
 
 describe('Scenario 10 — status never proposes an unstartable task', () => {
-  test('across a range of fixtures, any task deriveStage reports ready-to-start always has depsSatisfied true', () => {
+  test('across three real fixture-loaded task graphs, any task deriveStage reports ready-to-start always has depsSatisfied true', () => {
     const graphs = [
-      [{ id: 't1', status: 'verified' }, { id: 't2', status: 'approved', depends_on: ['t1'] }],
-      [{ id: 't1', status: 'draft' }, { id: 't2', status: 'approved', depends_on: ['t1'] }],
-      [{ id: 't1', status: 'approved' }],
+      [{ id: 't1', status: 'verified', allowedPaths: ['fixture/**'] }, { id: 't2', status: 'approved', allowedPaths: ['fixture/**'], dependsOn: ['t1'] }],
+      [{ id: 't1', status: 'draft', allowedPaths: ['fixture/**'] }, { id: 't2', status: 'approved', allowedPaths: ['fixture/**'], dependsOn: ['t1'] }],
+      [{ id: 't1', status: 'approved', allowedPaths: ['fixture/**'] }],
     ];
     for (const tasks of graphs) {
-      const change = { _slug: 'c', tasks };
+      const f = fixture({ changeSlug: 'aw-s10', tasks });
+      const change = loadChange('aw-s10', f.activeDir); // real change.yaml, not an inline JS object
       const stage = deriveStage(change, { pr: null, ghAvailable: true, verification: [] });
       if (stage.stage === 'ready-to-start') {
         const readyId = stage.nextCommand.split(' ').pop();
-        const readyTask = tasks.find(t => t.id === readyId);
+        const readyTask = change.tasks.find(t => t.id === readyId);
         assert.equal(depsSatisfied(readyTask, change), true);
       }
     }
@@ -239,8 +404,17 @@ describe('Scenario 10 — status never proposes an unstartable task', () => {
 // ── Scenario 11: Legitimate unowned drift follows the named correction process ──
 
 describe('Scenario 11 — legitimate unowned drift follows the named three-option process', () => {
-  test('a classified unowned-drift path is offered the three-option menu, and a completed maintenance correction validates', () => {
-    const classification = classifyUnownedDrift('docs/ai/orphaned.md', { t1: { allowedPaths: ['tools/**'], forbiddenPaths: [] } });
+  test('a path classified against a real fixture change\'s own allowed_paths/forbidden_paths is offered the three-option menu, and a completed maintenance correction validates', () => {
+    const f = fixture({
+      changeSlug: 'aw-s11',
+      tasks: [{ id: 't1', status: 'approved', allowedPaths: ['tools/**'] }],
+    });
+    const change = loadChange('aw-s11', f.activeDir);
+    const taskPaths = Object.fromEntries(change.tasks.map(t => {
+      const packet = buildContextPacket(change, t);
+      return [t.id, { allowedPaths: packet.allowed_paths, forbiddenPaths: packet.forbidden_paths }];
+    }));
+    const classification = classifyUnownedDrift('docs/ai/orphaned.md', taskPaths);
     assert.equal(classification, 'unowned-drift');
     assert.deepEqual(UNOWNED_DRIFT_OPTIONS, ['create-corrective-task', 'amend-existing-task', 'maintenance-correction']);
     const entry = {
@@ -259,26 +433,66 @@ describe('Scenario 11 — legitimate unowned drift follows the named three-optio
 // ── Scenario 12: Accepted scope exceptions remain visible and narrow ───────
 
 describe('Scenario 12 — an accepted scope exception stays visible and narrow', () => {
-  test('a valid exception matches only its exact recorded path and task fingerprint — never a broader glob', () => {
-    const exception = { path: 'tools/tests/x.test.mjs', task_fingerprint: 'fp1' };
-    assert.equal(isScopeExceptionValid(exception, { path: 'tools/tests/x.test.mjs', taskFingerprint: 'fp1' }), true);
-    assert.equal(isScopeExceptionValid(exception, { path: 'tools/tests/y.test.mjs', taskFingerprint: 'fp1' }), false);
-    assert.equal(classifyScopeFinding('tools/tests/x.test.mjs', { allowedPaths: [], forbiddenPaths: [] }), 'outside-allowed');
+  test('a valid exception matches only its exact recorded path and a real fixture task\'s own current fingerprint — never a broader glob', () => {
+    const f = fixture({
+      changeSlug: 'aw-s12',
+      tasks: [{ id: 't1', status: 'approved', allowedPaths: ['fixture/t1/**'] }],
+    });
+    const change = loadChange('aw-s12', f.activeDir);
+    const task = change.tasks.find(t => t.id === 't1');
+    const realFingerprint = computeTaskFingerprint(change, 't1');
+
+    const exception = { path: 'tools/tests/x.test.mjs', task_fingerprint: realFingerprint };
+    assert.equal(isScopeExceptionValid(exception, { path: 'tools/tests/x.test.mjs', taskFingerprint: realFingerprint }), true);
+    assert.equal(isScopeExceptionValid(exception, { path: 'tools/tests/y.test.mjs', taskFingerprint: realFingerprint }), false);
+
+    // A real task-file amendment drifts the fingerprint and invalidates the
+    // exception — the exact real-world case this change's own D36→D41
+    // scope-exception re-review hit directly (an unrelated task-file wording
+    // edit invalidated an already-accepted exception).
+    appendFileSync(join(f.changeDir, 'tasks', '01-t1.md'), '\nA later amendment to this task file.\n');
+    const driftedFingerprint = computeTaskFingerprint(loadChange('aw-s12', f.activeDir), 't1');
+    assert.notEqual(driftedFingerprint, realFingerprint);
+    assert.equal(isScopeExceptionValid(exception, { path: 'tools/tests/x.test.mjs', taskFingerprint: driftedFingerprint }), false);
+
+    const packet = buildContextPacket(change, task);
+    assert.equal(classifyScopeFinding('tools/tests/x.test.mjs', { allowedPaths: packet.allowed_paths, forbiddenPaths: packet.forbidden_paths }), 'outside-allowed');
   });
 });
 
 // ── Scenario 13: Global HEAD advancement does not stale earlier evidence ───
 
 describe('Scenario 13 — HEAD advancing does not stale an earlier task\'s own evidence', () => {
-  test('a task\'s semantic fingerprint is unaffected by another task\'s implementation/self_check fields changing (D33/D28 exclusion, composed with task 15)', () => {
-    const f = fixture({ changeSlug: 'aw-s13', tasks: [{ id: 't1', status: 'draft', allowedPaths: ['fixture/**'] }] });
-    const change = loadChange('aw-s13', f.activeDir);
-    const before = computeTaskFingerprint(change, 't1');
-    const beforeChange = computeChangeFingerprint(change);
-    // Simulate HEAD having advanced (a later task committing) — this task's
-    // own semantic fingerprint must be unaffected, since neither
-    // `self_check`/`implementation` nor another task's own progress feed it.
+  test('t1\'s semantic fingerprint is unaffected by t2\'s real HEAD-advancing start+self-check — not a same-state comparison (corrected 2026-08-08: the prior version compared two loadChange() calls against unmodified fixture state, a tautology)', () => {
+    const f = fixture({
+      changeSlug: 'aw-s13',
+      tasks: [
+        { id: 't1', status: 'draft', allowedPaths: ['fixture/t1/**'] },
+        { id: 't2', status: 'approved', allowedPaths: ['fixture/t2/**'], verification: ['echo ok'] },
+      ],
+    });
+    const before = computeTaskFingerprint(loadChange('aw-s13', f.activeDir), 't1');
+    const beforeChange = computeChangeFingerprint(loadChange('aw-s13', f.activeDir));
+
+    // t2 genuinely advances: a real commit lands (HEAD moves), and t2 gains
+    // real self_check/implementation fields — exactly the fields D33/D28
+    // (self_check) and task 15 (implementation) both exclude from every
+    // fingerprint tier.
+    const revisionBefore = captureRevision(f.root);
+    handleStart('aw-s13', 't2', { activeDir: f.activeDir, gitRoot: f.root });
+    f.commitFile('fixture/t2/change.txt', 'content', 't2 advances HEAD');
+    handleSelfCheck('aw-s13', 't2', { activeDir: f.activeDir, gitRoot: f.root });
+    const revisionAfter = captureRevision(f.root);
+    assert.notEqual(revisionAfter, revisionBefore, 'HEAD must have genuinely advanced');
+
     const reloaded = loadChange('aw-s13', f.activeDir);
+    const t2After = reloaded.tasks.find(t => t.id === 't2');
+    assert.equal(t2After.self_check?.status, 'passed');
+    assert.ok(t2After.implementation?.changed_paths?.length, 't2 must have real, non-empty implementation fields now');
+
+    // t1's own fingerprint — and the change-level fingerprint, which
+    // excludes every task's status/self_check/implementation by design — are
+    // both unaffected by t2's real, HEAD-advancing progress.
     assert.equal(computeTaskFingerprint(reloaded, 't1'), before);
     assert.equal(computeChangeFingerprint(reloaded), beforeChange);
   });
