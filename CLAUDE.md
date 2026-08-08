@@ -87,7 +87,7 @@ shared skill `.claude/skills/nevo-ai-spec-workflow/` and the read-only
 | `/nevo-ai:spec-create <change-id> <goal>` | Discover, then create a new specification after owner decisions |
 | `/nevo-ai:spec-refine <change-id> [focus]` | Refine an existing active spec (no implementation) |
 | `/nevo-ai:spec-review <change-id>` | Read-only implementation-readiness review |
-| `/nevo-ai:spec-approve <change-id> [task-id]` | Interactive approval gate — confirms with the owner, then writes `approved` |
+| `/nevo-ai:spec-approve <change-id> [task-id]` | Interactive approval gate — confirms with the owner, then writes `approved` (its "approve and start" outcome also runs `start` in the same confirmation) |
 | `/nevo-ai:task-next [filters]` | Return the next approved, ready task |
 | `/nevo-ai:task-start <change-id> <task-id>` | Safely start one task and prepare its context |
 | `/nevo-ai:task-review <change-id> <task-id>` | Review the working tree against one task |

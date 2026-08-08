@@ -17,6 +17,74 @@ export const ARCHIVE_DIR = join(ROOT, 'specs', 'archive');
 export const ACTIVE_INDEX_MD = join(ROOT, 'specs', 'active.generated.md');
 export const ARCHIVE_INDEX_MD = join(ROOT, 'specs', 'archive.generated.md');
 export const INDEX_JSON = join(ROOT, 'specs', 'index.generated.json');
+const ROUTING_INDEX_FILE = join(ROOT, 'docs', 'routing.generated.json');
+
+// ── Context-completeness / routing precedence (D12, area context-and-
+// validation-hardening, task 05) ────────────────────────────────────────────
+
+function globPrefix(pattern) {
+  return pattern.replace(/\/\*\*$/, '').replace(/\/\*$/, '').replace(/\\/g, '/');
+}
+
+// Path-glob-only overlap — no content/semantic search, no repository scan
+// (constraint, area context-and-validation-hardening): true when either
+// pattern's fixed prefix is an ancestor of (or equal to) the other's.
+export function pathGlobsOverlap(a, b) {
+  const pa = globPrefix(a);
+  const pb = globPrefix(b);
+  return pa === pb || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
+}
+
+function loadRoutingIndex() {
+  if (!existsSync(ROUTING_INDEX_FILE)) return null;
+  return JSON.parse(readUtf8(ROUTING_INDEX_FILE));
+}
+
+// A context_exceptions entry validly suppresses its warning (PR review
+// packet 04, Problem 1) only when: its `decision` resolves to a currently
+// *active* (non-superseded) owner decision, and `reason` is a non-empty
+// string. Exact `omitted` matching only, never substring/approximate — the
+// caller compares this entry's `omitted` against a rule's `doc_ref` by
+// strict equality.
+function isActiveContextException(entry, decisionsMap) {
+  if (!entry?.omitted || !entry?.decision || !String(entry?.reason || '').trim()) return false;
+  const decision = decisionsMap.get(entry.decision);
+  return Boolean(decision && !decision.supersededBy);
+}
+
+/**
+ * Context-completeness check (requirements 2/3/6): diff routing-table
+ * suggestions — sourced only from the already-generated
+ * `docs/routing.generated.json`, never the source Markdown at check time —
+ * against a task's own declared `context.required`/`optional`. A declared
+ * entry always wins (requirement 4/precedence rule) — this only ever adds
+ * gap-check candidates, it never removes or overrides one. A *valid*
+ * `context_exceptions` entry (see `isActiveContextException`) also suppresses
+ * its own specific warning — an invalid one (unresolved/superseded decision,
+ * blank reason, or naming a different document) suppresses nothing. A
+ * warning, never a hard failure (requirement 3). Pure: `routingIndex` is the
+ * already-loaded JSON, or `null` when it hasn't been generated yet.
+ */
+export function computeRoutingWarnings(
+  routingIndex, allowedPaths, declaredContextPaths, contextExceptions = [], decisionsMap = new Map()
+) {
+  if (!routingIndex) {
+    return ['routing index not generated (docs/routing.generated.json) — run `node tools/docs.mjs generate`'];
+  }
+  const declared = new Set(declaredContextPaths);
+  const exempted = new Set(
+    contextExceptions.filter(e => isActiveContextException(e, decisionsMap)).map(e => e.omitted)
+  );
+  const matched = (routingIndex.rules || []).filter(rule =>
+    (allowedPaths || []).some(ap => pathGlobsOverlap(ap, rule.path_glob))
+  );
+  if (!matched.length) {
+    return ['no routing rule matched — verify context manually'];
+  }
+  return matched
+    .filter(rule => !declared.has(rule.doc_ref) && !exempted.has(rule.doc_ref))
+    .map(rule => `routing rule '${rule.rule_id}' (${rule.path_glob}) suggests '${rule.doc_ref}' — not in this task's declared context`);
+}
 
 const GENERATED_NOTICE = '<!-- GENERATED FILE — do not edit. Run: node tools/specs.mjs generate -->\n\n';
 
@@ -60,6 +128,28 @@ export function setChangeStatus(change, status) {
   updateYamlFile(change._file, doc => doc.set('status', status));
 }
 
+/**
+ * The single write path for `/nevo-ai:implementation-review`'s bulk status
+ * transition (D30, task 12, area implementation-review-orchestration
+ * requirement 12) — one read-modify-write of `change.yaml` covering every
+ * eligible task's transition together, never one write per task.
+ * `transitions` is `validateBulkTransition`'s own output (`tools/specs/lifecycle.mjs`) — already validated for every task before this is ever
+ * called; this function performs no validation of its own, only the write.
+ * A `noop` entry (already at or past the target status) is skipped — its
+ * `status` field is never rewritten to the same value.
+ */
+export function writeBulkTransition(change, transitions) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    for (const t of transitions) {
+      if (t.noop) continue;
+      const item = tasks?.items?.find(it => it.get('id') === t.id);
+      if (!item) throw new CliError(`Task '${t.id}' not found in ${change._file}`);
+      item.set('status', t.to);
+    }
+  });
+}
+
 // ── Context packet ─────────────────────────────────────────────────────────
 
 export function buildContextPacket(change, task) {
@@ -72,23 +162,40 @@ export function buildContextPacket(change, task) {
     ? `${prefix}/${change._slug}/${task.id}`
     : `${prefix}/${change._slug}`;
 
+  const contextRequired = (taskFm.context?.required || []).map(p =>
+    p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
+  );
+  const contextOptional = (taskFm.context?.optional || []).map(p =>
+    p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
+  );
+  const allowedPaths = taskFm.allowed_paths || [];
+  const consequentialPaths = taskFm.consequential_paths || [];
+  const contextExceptions = taskFm.context_exceptions || [];
+  const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));
+
   return {
     change: { id: change.id, title: change.title },
     task: {
       id: task.id,
       file: task.file ? `specs/active/${change._slug}/${task.file}` : null,
     },
-    context: {
-      required: (taskFm.context?.required || []).map(p =>
-        p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
-      ),
-      optional: (taskFm.context?.optional || []).map(p =>
-        p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
-      ),
-    },
-    allowed_paths: taskFm.allowed_paths || [],
+    context: { required: contextRequired, optional: contextOptional },
+    allowed_paths: allowedPaths,
+    // Kept as its own field, not merged into allowed_paths (PR review packet
+    // 04, Problem 2) — the two carry different review semantics (a
+    // consequential write is never a scope violation at task-review time;
+    // an allowed_paths write is the task's primary declared scope).
+    consequential_paths: consequentialPaths,
+    context_exceptions: contextExceptions,
     forbidden_paths: taskFm.forbidden_paths || [],
     branch,
+    routingWarnings: computeRoutingWarnings(
+      loadRoutingIndex(),
+      [...allowedPaths, ...consequentialPaths], // a doc may be relevant via a consequential write too
+      [...contextRequired, ...contextOptional],
+      contextExceptions,
+      decisionsMap
+    ),
   };
 }
 
@@ -158,26 +265,388 @@ export function loadReview(change) {
   return parseFrontMatterFile(file);
 }
 
+// ── Follow-up ledger — mutable YAML, not append-only (D15, D22, task 06) ───
+
+export const FOLLOW_UP_STATUSES = new Set(['open', 'resolved', 'dismissed']);
+export const FOLLOW_UP_SEVERITIES = new Set(['blocking', 'non-blocking']);
+
+function followUpsFile(change) {
+  return join(change._dir, 'follow-ups.yaml');
+}
+
+/** Load a change's follow-up ledger, or `{ follow_ups: [] }` if it has none yet. */
+export function loadFollowUps(change) {
+  const file = followUpsFile(change);
+  if (!existsSync(file)) return { follow_ups: [] };
+  return parseYamlFile(file) || { follow_ups: [] };
+}
+
+/**
+ * Record a new follow-up entry (`task-review`/`spec-audit`'s "record as
+ * follow-up" action for a `NON_BLOCKING` finding) — always a fresh `id`,
+ * creates `follow-ups.yaml` if this is the change's first entry.
+ */
+export function addFollowUp(change, entry) {
+  const file = followUpsFile(change);
+  if (!existsSync(file)) writeUtf8(file, 'follow_ups: []\n');
+  updateYamlFile(file, doc => {
+    const list = doc.get('follow_ups', true);
+    list.flow = false; // block style — an empty [] node otherwise stays flow-style once populated
+    list.add(entry);
+  });
+}
+
+/**
+ * Mutate an existing follow-up entry's `status`/`resolution` in place — D15's
+ * "mutable current-state list, not append-only": a resolve/dismiss action
+ * changes the existing entry, it never appends a duplicate for the same
+ * follow-up (AC4).
+ */
+export function resolveFollowUp(change, id, { status, resolution, decisionRef = null }) {
+  const file = followUpsFile(change);
+  updateYamlFile(file, doc => {
+    const list = doc.get('follow_ups', true);
+    const item = list?.items?.find(it => it.get('id') === id);
+    if (!item) throw new CliError(`Follow-up '${id}' not found in ${file}`);
+    item.set('status', status);
+    item.set('resolution', resolution);
+    // A structured reference (PR review packet 05B, Problem 1) — never a
+    // regex scan over `resolution`'s free-form prose for an incidental
+    // 'D<n>' mention. Only set when given; a non-blocking dismissal or a
+    // plain resolve has no decision to record.
+    if (decisionRef) item.set('decision_ref', decisionRef);
+  });
+}
+
+// ── Three-tier canonical semantic fingerprint (D7, D18, D27, D28) ──────────
+//
+// Replaces the single whole-file-hash model's *design intent*
+// (`computeSpecFingerprint` above stays in place — it is still what
+// tools/specs.mjs's approve gate reads, and rewiring that call site is
+// outside this task's allowed_paths). Each function extracts specific
+// semantic fields from parsed structures and hashes that projection — never
+// raw file bytes — so `status`, `execution.suspension`, and `self_check` are
+// simply never read here, not excluded after the fact.
+
+// Fields whose *membership*, not order, is the semantic fact — YAML authors
+// reordering one of these must never change the fingerprint. Object-valued
+// entries (e.g. context_exceptions' {omitted, decision, reason} tuples) sort
+// by their own canonical JSON form, which is itself key-order-independent
+// (stableStringify is applied recursively before the sort).
+const SET_LIKE_KEYS = new Set([
+  'allowed_paths', 'consequential_paths', 'forbidden_paths', 'required', 'optional',
+  'decisions', 'constraints', 'dependency_contracts', 'context_exceptions',
+]);
+
+/**
+ * Deterministic, key-order-independent serialization: object keys are
+ * sorted recursively, and any array reached via a `SET_LIKE_KEYS` key is
+ * sorted too (by each element's own canonical form) — so semantically
+ * equivalent YAML (reordered mapping keys, reordered set-like lists)
+ * produces byte-identical output before hashing. `keyHint` is the property
+ * name the caller is about to serialize `value` under, if any.
+ */
+function stableStringify(value, keyHint) {
+  if (Array.isArray(value)) {
+    const items = value.map(v => stableStringify(v));
+    if (SET_LIKE_KEYS.has(keyHint)) items.sort();
+    return `[${items.join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(value[k], k)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hashProjection(parts) {
+  const hash = createHash('sha256');
+  for (const part of parts) {
+    hash.update(typeof part === 'string' ? part : stableStringify(part));
+    hash.update('\n\x00\n');
+  }
+  return hash.digest('hex');
+}
+
+function readIfExists(path) {
+  return existsSync(path) ? readUtf8(path) : '';
+}
+
+const DECISION_HEADER_RE = /^## (D\d+):.*$/gm;
+const SUPERSESSION_MARKER_RE = /(D\d+)\s+is\s+authoritative\b/;
+
+/**
+ * Parse `owner-decisions.md` into `{ id -> { text, supersededBy } }`.
+ * `supersededBy` is set only when a decision's own text explicitly marks
+ * itself superseded (e.g. D1's "kept for the audit trail; D7 is
+ * authoritative on granularity") — a "Refined by" note that merely narrows
+ * or extends an earlier decision does not count (see `overview.md` §
+ * "Owner-decision supersession").
+ */
+export function parseOwnerDecisions(content) {
+  const headers = [...content.matchAll(DECISION_HEADER_RE)];
+  const map = new Map();
+  for (let i = 0; i < headers.length; i++) {
+    const id = headers[i][1];
+    const start = headers[i].index;
+    const end = i + 1 < headers.length ? headers[i + 1].index : content.length;
+    const text = content.slice(start, end);
+    const marker = text.match(SUPERSESSION_MARKER_RE);
+    map.set(id, { text, supersededBy: marker && marker[1] !== id ? marker[1] : null });
+  }
+  return map;
+}
+
+/** Follow a decision's `supersededBy` chain to the currently-active entry's own text. */
+function resolveActiveDecisionText(decisionsMap, id, seen = new Set()) {
+  const entry = decisionsMap.get(id);
+  if (!entry) return null;
+  if (entry.supersededBy && !seen.has(id)) {
+    seen.add(id);
+    return resolveActiveDecisionText(decisionsMap, entry.supersededBy, seen);
+  }
+  return entry.text;
+}
+
+const CONSTRAINT_BULLET_RE = /^- \*\*(C\d+)\.\*\*\s?(.*)$/gm;
+
+/** Parse `overview.md`'s numbered `- **Cn.** ...` constraint bullets into `{ id -> text }`. */
+export function parseConstraints(overviewContent) {
+  const map = new Map();
+  for (const m of overviewContent.matchAll(CONSTRAINT_BULLET_RE)) map.set(m[1], m[2]);
+  return map;
+}
+
+/**
+ * `computeChangeFingerprint(change)` — a canonical projection over change
+ * scope, shared constraints, and change-level acceptance criteria (all live
+ * in `overview.md`'s own prose) plus the task graph's shape (ids +
+ * `depends_on` edges only, never per-task status). Owner-decision text flows
+ * into the fingerprint system at the task tier instead (via
+ * `semantic_references.decisions`, D18) — decisions embedded directly in
+ * `overview.md`'s own architecture prose already invalidate this tier
+ * through `overview.md` itself; decisions relevant only to one task's
+ * content are exactly the case D18 scopes to that task's own fingerprint,
+ * not this one.
+ */
+export function computeChangeFingerprint(change) {
+  const overview = readIfExists(join(change._dir, 'overview.md'));
+  const taskGraph = change.tasks
+    .map(t => ({ id: t.id, depends_on: [...(t.depends_on || [])].sort() }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return hashProjection(['change-fingerprint-v1', overview, taskGraph]);
+}
+
+export function loadTaskFileParts(change, task) {
+  const filePath = resolveWithinBase(change._dir, task.file);
+  const raw = readUtf8(filePath);
+  const fm = parseFrontMatterFile(filePath);
+  const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  return { fm, body };
+}
+
+/**
+ * `computeTaskFingerprint(change, taskId)` — a canonical projection over that
+ * task's own definition (its file's body — goal, constraints, acceptance
+ * criteria, out-of-scope — excluding its front matter's `status`, which is
+ * simply never read), `allowed_paths`/`consequential_paths`/`forbidden_paths`,
+ * `context`, `context_exceptions` (D13, reserved — task 06 populates it),
+ * this task's own `depends_on` edges (its prerequisites/ordering, distinct
+ * from which of them are semantically load-bearing), and
+ * `semantic_references` (D18) — resolved, not just echoed: each referenced
+ * decision/constraint's own current text, and each `dependency_contracts`
+ * entry's own task-level fingerprint (recursively), so a change to any of
+ * them propagates here without a separate prose-inference step.
+ */
+export function computeTaskFingerprint(change, taskId, seen = new Set()) {
+  const task = change.tasks.find(t => t.id === taskId);
+  if (!task || !task.file) return hashProjection(['task-fingerprint-v1', taskId, 'missing']);
+
+  const { fm, body } = loadTaskFileParts(change, task);
+  const sr = fm.semantic_references || {};
+
+  // `semantic_references` itself is deliberately not included here: its
+  // resolved content (decisionTexts/constraintTexts/dependencyFingerprints,
+  // below — each already sorted) fully represents what it contributes to
+  // this fingerprint. Including the raw block too would hash the same
+  // semantic data twice — once raw (order-sensitive), once resolved
+  // (order-independent) — so reordering a set-like semantic_references list
+  // would falsely invalidate the fingerprint despite `stableStringify`'s own
+  // set-like handling below already covering `context_exceptions`/
+  // `allowed_paths`/etc.
+  const ownProjection = {
+    id: task.id,
+    depends_on: [...(task.depends_on || [])].sort(),
+    context: fm.context || {},
+    allowed_paths: [...(fm.allowed_paths || [])].sort(),
+    consequential_paths: [...(fm.consequential_paths || [])].sort(),
+    forbidden_paths: [...(fm.forbidden_paths || [])].sort(),
+    context_exceptions: fm.context_exceptions || [],
+  };
+
+  const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));
+  const constraintsMap = parseConstraints(readIfExists(join(change._dir, 'overview.md')));
+
+  const decisionTexts = [...(sr.decisions || [])].sort()
+    .map(id => resolveActiveDecisionText(decisionsMap, id) ?? `unresolved:${id}`);
+  const constraintTexts = [...(sr.constraints || [])].sort()
+    .map(id => constraintsMap.get(id) ?? `unresolved:${id}`);
+
+  const nextSeen = new Set(seen).add(taskId);
+  const dependencyFingerprints = [...(sr.dependency_contracts || [])].sort()
+    .map(depId => (nextSeen.has(depId) ? `cycle:${depId}` : computeTaskFingerprint(change, depId, nextSeen)));
+
+  return hashProjection([
+    'task-fingerprint-v1', ownProjection, body, decisionTexts, constraintTexts, dependencyFingerprints,
+  ]);
+}
+
+/**
+ * `computeImplementationFingerprint(change, taskId, evidence)` — the task-level
+ * fingerprint plus a reviewed diff/revision identifier and evidence
+ * references. This task only defines the function's contract; populating
+ * real revision/evidence data is later tasks' job (task 08's self-check,
+ * task 08/area `batch-execution-and-gating-review`'s evidence model).
+ */
+export function computeImplementationFingerprint(change, taskId, { revision = null, evidence = [] } = {}) {
+  const taskFingerprint = computeTaskFingerprint(change, taskId);
+  return hashProjection(['implementation-fingerprint-v1', taskFingerprint, revision, evidence]);
+}
+
+/**
+ * `computeImplementationFingerprint`, populated from a task's own persisted
+ * `implementation` provenance block (D34/D35, task 15 — area
+ * implementation-provenance-and-attribution) instead of requiring the caller
+ * to supply `revision`/`evidence` by hand. Closes the gap this function's own
+ * original doc comment named ("populating real revision/evidence data is
+ * later tasks' job"). A task with no persisted `implementation` block yet
+ * still gets a real fingerprint — `revision`/`evidence` are simply `null`/`[]`,
+ * the same defaults `computeImplementationFingerprint` already has.
+ *
+ * Corrected (seventh refinement pass, owner review): the original version
+ * folded `baseline_revision`/`review_revision` together with `||` (only one
+ * ever reached the hash) and never fed `worktree_patch_fingerprint` into the
+ * hash at all, so two different implementations sharing a `baseline_revision`
+ * and `changed_paths` list but differing only in uncommitted content — the
+ * one case `worktree_patch_fingerprint` exists to distinguish — produced the
+ * same implementation fingerprint. `revision` now carries both persisted
+ * revision markers (as a pair, not an `||` fallback) and `evidence` carries
+ * `worktree_patch_fingerprint` alongside `changed_paths`, so every field the
+ * `implementation` schema (area requirement 1) persists actually
+ * participates in the hash. `computeImplementationFingerprint`'s own
+ * `{ revision, evidence }` contract is unchanged — only the data supplied at
+ * this call site is richer.
+ */
+export function computeImplementationFingerprintFromProvenance(change, taskId) {
+  const task = change.tasks.find(t => t.id === taskId);
+  const impl = task?.implementation;
+  if (!impl) return computeImplementationFingerprint(change, taskId, {});
+  return computeImplementationFingerprint(change, taskId, {
+    revision: [impl.baseline_revision || null, impl.review_revision || null],
+    evidence: [...(impl.changed_paths || []), impl.worktree_patch_fingerprint || null],
+  });
+}
+
+// ── Implementation provenance (D34/D35, task 15) ────────────────────────────
+//
+// The single write path for `implementation` — no other code sets this field
+// (same constraint pattern as `self_check`/`execution.suspension`).
+
+/** Write `task`'s `implementation` provenance block — overwrites any prior value. */
+export function writeImplementationProvenance(change, taskId, implementation) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('implementation', implementation);
+  });
+}
+
+// ── Self-check writer (D28, task 08) ────────────────────────────────────────
+//
+// The single write path for `self_check` — no other code sets this field
+// (constraint, area batch-execution-and-gating-review).
+
+/** Parse a task's "## Verification" fenced code block into one command string per line. */
+export function parseVerificationCommands(body) {
+  const match = body.match(/##\s*Verification\s*\r?\n+```[a-zA-Z]*\r?\n([\s\S]*?)```/i);
+  if (!match) return [];
+  return match[1].split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+}
+
+/** Write `task`'s `self_check` block (task 01's validated shape) — overwrites any prior value. */
+export function writeSelfCheck(change, taskId, selfCheck) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('self_check', selfCheck);
+  });
+}
+
+// ── Batch intent — persisted intent only, progress is always derived (D10) ─
+
+function batchIntentFile(change) {
+  return join(change._dir, 'batch.json');
+}
+
+/** Load a change's active batch intent, or `null` if none is in progress. */
+export function loadBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (!existsSync(file)) return null;
+  const raw = readUtf8(file);
+  if (!raw.trim()) return null; // cleared (clearBatchIntent's empty-file convention)
+  return JSON.parse(raw);
+}
+
+/**
+ * Persist a new batch's intent — `change`, `requestedTasks`, `orderedTasks`,
+ * `startRevision`, `reviewMode`, `checkpointPolicy`, `temporaryInconsistencies`
+ * only (requirement — no `completed`/`current`/`next`/`failed` field; those
+ * are always `deriveBatchProgress`'s job).
+ */
+export function writeBatchIntent(change, intent) {
+  writeUtf8(batchIntentFile(change), JSON.stringify(intent, null, 2));
+}
+
+/** Clear a change's batch intent file once the batch is done (or abandoned). */
+export function clearBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (existsSync(file)) writeUtf8(file, '');
+  // An empty file, not a deleted one — this module never deletes files
+  // (mirrors the rest of tools/lib/fs.mjs's usage in this codebase); loadBatchIntent
+  // treats an empty file the same as a missing one (JSON.parse('') fails, so
+  // check emptiness first here, not there).
+}
+
 // ── Index generation: build (pure, deterministic) + write (I/O) ────────────
 
+// `blocked`/`needs-decision` are removed from the vocabulary (D16); `superseded`
+// was never set by any code path and carried no real semantics — removed rather
+// than given a fabricated meaning (D6/requirement 5).
 const STATUS_ORDER = [
-  'in-implementation', 'approved', 'needs-decision', 'draft', 'blocked',
-  'implemented', 'verified', 'abandoned', 'superseded', 'archived',
+  'in-implementation', 'approved', 'draft',
+  'implemented', 'verified', 'abandoned', 'archived',
 ];
 
 function toRow(c) {
   return `| \`${c.id}\` | ${c.title} | ${c.status} | ${c.priority ?? '-'} | ${c.created ?? '-'} |\n`;
 }
 
-/** Build the expected generated index content in memory. Deterministic — no timestamps in the Markdown. */
-export function buildSpecsIndexes() {
-  const active = listChanges(ACTIVE_DIR).sort((a, b) => {
+/**
+ * Build the expected generated index content in memory. Deterministic — no
+ * timestamps in the Markdown. `activeDir`/`archiveDir` default to the real
+ * repository's own paths (D34/D35, task 20, closes FU-007) — a fixture-backed
+ * test passes its own temp directories without touching the real checkout.
+ */
+export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  const active = listChanges(activeDir).sort((a, b) => {
     const sa = STATUS_ORDER.indexOf(a.status);
     const sb = STATUS_ORDER.indexOf(b.status);
     if (sa !== sb) return sa - sb;
     return (a.priority ?? 999) - (b.priority ?? 999);
   });
-  const archive = listChanges(ARCHIVE_DIR);
+  const archive = listChanges(archiveDir);
 
   const header = '| ID | Title | Status | Priority | Created |\n|---|---|---|---|---|\n';
 
@@ -195,28 +664,42 @@ export function buildSpecsIndexes() {
   return { activeMd, archiveMd, changes, activeCount: active.length, archiveCount: archive.length };
 }
 
-/** Persist already-built index content. No decisions made here — just writes. */
-export function writeSpecsIndexes(built) {
-  writeUtf8(ACTIVE_INDEX_MD, built.activeMd);
-  writeUtf8(ARCHIVE_INDEX_MD, built.archiveMd);
-  writeUtf8(INDEX_JSON, JSON.stringify({ generated: new Date().toISOString(), changes: built.changes }, null, 2));
+/**
+ * Persist already-built index content. No decisions made here — just writes.
+ * `activeIndexMd`/`archiveIndexMd`/`indexJson` default to the real
+ * repository's own generated-file paths (D34/D35, task 20).
+ */
+export function writeSpecsIndexes(built, { activeIndexMd = ACTIVE_INDEX_MD, archiveIndexMd = ARCHIVE_INDEX_MD, indexJson = INDEX_JSON } = {}) {
+  writeUtf8(activeIndexMd, built.activeMd);
+  writeUtf8(archiveIndexMd, built.archiveMd);
+  writeUtf8(indexJson, JSON.stringify({ generated: new Date().toISOString(), changes: built.changes }, null, 2));
 }
 
-/** Compare on-disk generated files against freshly-built expected content, ignoring the JSON timestamp. */
-export function checkSpecsIndexes() {
-  const built = buildSpecsIndexes();
+/**
+ * Compare on-disk generated files against freshly-built expected content,
+ * ignoring the JSON timestamp. All five paths default to the real
+ * repository's own (D34/D35, task 20, closes FU-007) — a fixture-backed test
+ * passes its own temp paths for every one, so a deliberately stale/missing
+ * generated file (the REC-03 scenario) can be reproduced without corrupting
+ * the real repository's own generated files.
+ */
+export function checkSpecsIndexes({
+  activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR,
+  activeIndexMd = ACTIVE_INDEX_MD, archiveIndexMd = ARCHIVE_INDEX_MD, indexJson = INDEX_JSON,
+} = {}) {
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
   const problems = [];
 
-  if (!existsSync(ACTIVE_INDEX_MD)) problems.push('missing: specs/active.generated.md');
-  else if (readUtf8(ACTIVE_INDEX_MD) !== built.activeMd) problems.push('stale: specs/active.generated.md');
+  if (!existsSync(activeIndexMd)) problems.push('missing: specs/active.generated.md');
+  else if (readUtf8(activeIndexMd) !== built.activeMd) problems.push('stale: specs/active.generated.md');
 
-  if (!existsSync(ARCHIVE_INDEX_MD)) problems.push('missing: specs/archive.generated.md');
-  else if (readUtf8(ARCHIVE_INDEX_MD) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
+  if (!existsSync(archiveIndexMd)) problems.push('missing: specs/archive.generated.md');
+  else if (readUtf8(archiveIndexMd) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
 
-  if (!existsSync(INDEX_JSON)) {
+  if (!existsSync(indexJson)) {
     problems.push('missing: specs/index.generated.json');
   } else {
-    const existing = JSON.parse(readUtf8(INDEX_JSON));
+    const existing = JSON.parse(readUtf8(indexJson));
     if (JSON.stringify(existing.changes) !== JSON.stringify(built.changes)) {
       problems.push('stale: specs/index.generated.json');
     }

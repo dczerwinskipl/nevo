@@ -68,6 +68,13 @@ each package to its reference doc and any relevant maintainer doc(s).
 Both route by path only — read the specific files they point to, not the whole
 `docs/development/` or `docs/reference/packages/` tree.
 
+**Precedence rule (D12):** a task's own declared `context.required`/`context.optional`
+always wins over a routing-table suggestion. The routing table (both files' `## Routing table` section, machine-matched via `docs/routing.generated.json` against a
+task's `allowed_paths`) only ever *adds* gap-check candidates for a task's declared
+context to be diffed against — it never overrides, narrows, or replaces what a task
+already declares. A reported gap is a warning to consider, not an instruction to add the
+suggested file; declared context is authoritative.
+
 ## Finding ADRs
 
 `docs/decisions/` — sorted by number. ADRs with `status: superseded` point to their replacement.

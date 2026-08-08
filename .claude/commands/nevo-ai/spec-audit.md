@@ -36,7 +36,11 @@ been made, do not invoke this proactively.
    them.
 4. This audit never re-evaluates any task's own acceptance criteria — those were already
    gated by that task's own `/nevo-ai:task-review`. State this explicitly in the report's
-   "Scope note" so it's never mistaken for a re-grade.
+   "Scope note" so it's never mistaken for a re-grade. If `<focus>`'s inspection touches a
+   path with a matching `kind: maintenance-correction` entry in `follow-ups.yaml` (D34/D35,
+   area unowned-drift-correction), name it explicitly ("handled via unowned-drift
+   correction, see `<follow-up id>`") — never report it as an unexplained anomaly, and
+   never silently omit it either.
 5. Classify every finding per `references/review-policy.md` § "Findings must be
    actor-classified". If a baseline existed (step 2), assign each of its findings a
    lifecycle (`resolved`/`still-present`/`changed`/`cannot-verify`) per § "Findings have
@@ -45,6 +49,13 @@ been made, do not invoke this proactively.
 6. Compute `Verdict` from `references/review-policy.md` § "Change-wide audits" →
    "Verdict decision table" — `no-findings` / `changes-recommended` /
    `owner-decision-required`. Never compose it as prose.
+6a. **Record as follow-up (D15/D22, area context-and-validation-hardening, task 06).**
+    For each `NON_BLOCKING` finding from step 5, ask (closed choice, one per finding or
+    batched if several) whether to record it in `specs/active/<change-id>/follow-ups.yaml`
+    instead of letting it live only in this run's report — same mechanism and menu shape
+    as `/nevo-ai:task-review` step 7a: `1. Record as a follow-up (severity: ...)` / `2. Leave it in the report only`. On 1 → `node tools/specs.mjs follow-up-add <change-id> <id> --source-task <the task the finding traces to> --kind <short-kind> --severity <blocking|non-blocking> --reason <finding summary>`. This never fires without this
+    explicit answer, and never changes how `AUTO_FIX`/`OWNER_DECISION`/
+    `NEEDS_CLARIFICATION` findings are categorized or handled.
 7. Write the full report to `specs/active/<change-id>/reviews/audit-<slug>.md` using
    `templates/review-report.md`'s `review-of: spec-audit` shape (create `reviews/` if
    needed) — overwriting the file read in step 2, which is expected.

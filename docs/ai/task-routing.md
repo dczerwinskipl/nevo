@@ -83,3 +83,26 @@ the next approved task, loading a context packet), see
   multiple — see `docs/development/messaging-pipeline.md` § "Handler registration".
 - **Tests:** `tests/NEvo.Messaging.Tests/` for pipeline-level changes; the consuming
   package's own tests for a specific new command/event type.
+
+## Routing table
+
+Machine-readable rules matched against a task's `allowed_paths` (D12) — a supplement to
+the scenario-based routing above, not a replacement for it; consumed only via
+`docs/routing.generated.json` (`node tools/docs.mjs generate`), never re-parsed from this
+table at check time. `rule_id` is unique across this file and `change-impact-map.md`
+combined.
+
+| rule_id | path_glob | doc_ref |
+|---|---|---|
+| RT-01 | src/NEvo.Messaging/** | docs/development/messaging-pipeline.md |
+| RT-02 | src/NEvo.Core/** | docs/development/messaging-pipeline.md |
+| RT-03 | src/NEvo.Messaging.Web/** | docs/development/transport-development.md |
+| RT-04 | src/NEvo.Web/** | docs/development/transport-development.md |
+| RT-05 | src/NEvo.EntityFramework/** | docs/development/persistence-development.md |
+| RT-06 | src/NEvo.Messaging.EntityFramework/** | docs/development/persistence-development.md |
+| RT-07 | src/NEvo.Orchestrating.EntityFramework/** | docs/development/persistence-development.md |
+| RT-08 | src/NEvo.Authorization/** | docs/development/extension-points.md |
+| RT-09 | src/NEvo.Messaging.Authorization/** | docs/development/extension-points.md |
+| RT-10 | src/NEvo.Web.Authorization/** | docs/development/extension-points.md |
+| RT-11 | src/NEvo.Messaging.EntityFramework/** | docs/development/inbox-outbox.md |
+| RT-12 | src/NEvo.Messaging.Cqrs/** | docs/development/processing-model.md |

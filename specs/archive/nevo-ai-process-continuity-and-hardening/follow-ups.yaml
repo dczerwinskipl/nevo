@@ -1,0 +1,268 @@
+follow_ups:
+  - id: FU-001
+    source_task: finalization-hardening-and-migration
+    kind: correctness
+    severity: non-blocking
+    reason: computeChangeFingerprint (tools/specs/service.mjs) only hashes
+      overview.md + task graph shape; D7's Consequences text says
+      change_fingerprint should also cover shared constraints, owner decisions,
+      change-level acceptance criteria, and cross-task invariants.
+      owner-decisions.md changes currently do not invalidate a spec review's
+      fingerprint. tools/specs/service.mjs is outside task 09's allowed_paths so
+      this could not be fixed here.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-002
+    source_task: conversational-approval-ergonomics
+    kind: design-gap
+    severity: non-blocking
+    reason: "spec-approve.md D3 'Approve and start implementation' only performs the
+      approve+start lifecycle transitions, then asks a second confirmation
+      before actually implementing -- contradicts the option's own label and the
+      'no repeated confirmation for an already-authorized action' principle
+      (C8/D17). Fix: after start succeeds, the flow should continue directly
+      into implementation in the same turn, without a further ask; 'Approve'
+      alone (no start) should remain a hard stop with no implementation prompt."
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed by task 18 (D34/D35): spec-approve.md's 'Approve and start'
+      now continues directly into implementation after start succeeds, in the
+      same turn, with no further ask; plain Approve is unchanged. See
+      tools/tests/compound-actions.test.mjs."
+  - id: FU-003
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: design-gap
+    severity: non-blocking
+    reason: "Tasks 01-11 declare no semantic_references block even though their own
+      prose cites specific decisions/constraints/dependency contracts (D26/D29
+      completeness check). D32 grandfathers this: the completeness check was
+      only wired into /nevo-ai:spec-review by task 11, after tasks 01-10 were
+      already approved, so it does not apply retroactively. Revisit only if any
+      of tasks 01-11 is reopened."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-004
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: correctness
+    severity: non-blocking
+    reason: "node tools/specs.mjs status / deriveStage's ready-to-start stage
+      reports the first approved task without checking depsSatisfied — found
+      2026-08-06 when status reported task 13 ready-to-start while its
+      dependency (task 12) was still in-implementation. Fix: deriveStage must
+      never report an approved task as ready-to-start unless depsSatisfied is
+      true; report the actual unmet dependencies and the real next valid action
+      instead."
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed by task 18 (D34/D35): deriveStage's ready-to-start stage now
+      checks depsSatisfied before reporting a task ready, falls through to the
+      real blocking task's own stage, and reports blocked-on-dependencies
+      explicitly when no other stage applies. See
+      tools/tests/status-dependency-aware.test.mjs."
+  - id: FU-005
+    source_task: review-report-compaction-and-scope-exceptions
+    kind: design-gap
+    severity: non-blocking
+    reason: "Scoped implementation-review report files
+      (reviews/implementation-review-<scope>.md) have no lifecycle/staleness
+      relationship to each other. A narrower re-review (e.g. scope
+      02-04-06-08-09-10) leaves a broader prior report (scope all) with outdated
+      per-task rows and no marker, index, or overlap detection linking them.
+      Manually patched once (2026-08-06) with an interim
+      status/stale_tasks/partially-invalidated-by frontmatter block on
+      implementation-review-all.md. Needs a real mechanism: structured
+      aggregate-report lifecycle metadata
+      (current/partially-stale/stale/superseded), an aggregate review
+      index/manifest (every aggregate report, its scope, generation timestamp,
+      lifecycle status, covered task fingerprints, stale task subset,
+      invalidating report reference), and /nevo-ai:implementation-review
+      detecting an overlapping (not just exact-string) prior scope. Needs test
+      coverage: full review then narrower re-review, narrower review changing
+      one task, partial invalidation of the old full report, no false full
+      supersession, aggregate/pass rejection when a canonical per-task report
+      disagrees (this last one is already covered —
+      validateAggregateAgainstCanonicalReviews, tools/specs/lifecycle.mjs)."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-006
+    source_task: finalization-hardening-and-migration
+    kind: design-gap
+    severity: non-blocking
+    reason: "No formal correction path exists for drift discovered in a file no task
+      owns (every task's forbidden_paths excludes docs/development/**, but
+      nothing in that directory is any task's allowed_paths either). Hit twice
+      this change: docs/development/git-workflow.md's stale merge-strategy
+      description (task 09's own diff changed the real behavior; fixed via a
+      direct, owner-authorized standalone edit) and, earlier, task-review.md's
+      missing consequential_paths carve-out (task 06 required it, only closed
+      when task 13 happened to also own that file). Needs a named, classified
+      path: unowned-drift, with an explicit owner menu (1: create a narrow
+      corrective task, 2: amend/re-attribute an existing task, 3: an explicit
+      owner-authorized maintenance correction), the decision and exact paths
+      persisted, never silently handled as an ad hoc out-of-band edit the way
+      both incidents above were."
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed by task 19 (D34/D35): named unowned-drift classification
+      (classifyUnownedDrift), three-option owner menu, and a structured kind:
+      maintenance-correction follow-ups.yaml record
+      (validateMaintenanceCorrectionEntry), visible in spec-audit/task-review.
+      See tools/tests/unowned-drift.test.mjs and references/review-policy.md."
+  - id: FU-007
+    source_task: recovery-classification-and-machine-readable-errors
+    kind: design-gap
+    severity: non-blocking
+    reason: "handleStart (tools/specs.mjs) and checkSpecsIndexes/buildSpecsIndexes
+      (tools/specs/service.mjs) read the real repository's ACTIVE_DIR/specs
+      paths directly (module-level constants derived from import.meta.url), not
+      a parameter — so neither can be driven end-to-end in a fixture-backed test
+      without mutating the real repo. Worked around twice this change: AC4 (task
+      02) by extracting handleStart's suspension-construction decision into a
+      pure, separately-tested function (nextSuspensionForNotRetryable); REC-03
+      (task 10) by writing a real test that corrupts and restores the real
+      repo's generated indexes in a finally block. Needs: parameterize
+      repository/spec roots for handleStart, index checks, and similar handlers,
+      so fixture-backed end-to-end tests are possible without mutating the real
+      repository, while retaining production defaults (no behavior change for
+      real CLI invocations)."
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed by task 20 (D34/D35):
+      handleStart/checkSpecsIndexes/buildSpecsIndexes now take optional
+      repository-root parameters defaulting to the real repo; createFixtureRepo
+      (tools/tests/fixture-repo.test-helper.mjs) provides real, fixture-backed
+      end-to-end coverage. See tools/tests/handler-testability.test.mjs.
+      Extended 2026-08-08 (owner-decisions.md D39, cross-task finding X1 of
+      reviews/implementation-review-14-21.md): handleSelfCheck was still
+      hardcoding ROOT despite this entry's own reason text naming 'similar
+      handlers' in scope. handleSelfCheck now takes the same optional {
+      activeDir, gitRoot } parameters, with its own fixture-backed coverage (see
+      tools/tests/handler-testability.test.mjs's D39 describe block) — this
+      entry now genuinely covers every repository-bound handler this change
+      introduced or touched."
+  - id: FU-008
+    source_task: deterministic-implementation-provenance
+    kind: test-rigor
+    severity: non-blocking
+    reason: computeTaskAttributedChangedPaths diverges from the task's own stated
+      computeChangedPaths+classifyDirtyWorktree design -- behaviorally
+      equivalent but undocumented substitution
+      (reviews/deterministic-implementation-provenance.md F4).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-009
+    source_task: deterministic-implementation-provenance
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC4's 'tested for each of the four fields independently' is only
+      partially met --
+      baseline_revision/review_revision/worktree_patch_fingerprint are not each
+      independently varied, though the underlying exclusion is structurally
+      guaranteed regardless (reviews/deterministic-implementation-provenance.md
+      F5).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-010
+    source_task: scoped-and-incremental-spec-review
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC1/AC4/AC7's (automated) tag overstates what a dedicated test literally
+      exercises for three guarantees -- real assurance rests on spec-review.md's
+      own prose and structural guarantees, not a dedicated regression test
+      (reviews/scoped-and-incremental-spec-review.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-011
+    source_task: compound-actions-and-dependency-aware-status
+    kind: test-rigor
+    severity: non-blocking
+    reason: AC6's automated test only asserts the depsSatisfied invariant inside the
+      ready-to-start branch, not against the other deriveStage stages it also
+      runs scenarios for
+      (reviews/compound-actions-and-dependency-aware-status.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-012
+    source_task: repository-bound-handler-testability
+    kind: documentation
+    severity: non-blocking
+    reason: Stale comment in tools/specs.mjs near handleStart's not_retryable branch
+      still claims handleStart 'can't be driven end-to-end in a fixture test' --
+      now false after this task (reviews/repository-bound-handler-testability.md
+      F1).
+    resolver_task: null
+    status: resolved
+    resolution: "Fixed 2026-08-08, opportunistically while D39's handleSelfCheck
+      parameterization touched the same function: comment corrected to point at
+      tools/tests/handler-testability.test.mjs's real fixture-backed coverage of
+      this exact branch."
+  - id: FU-013
+    source_task: repository-bound-handler-testability
+    kind: test-rigor
+    severity: non-blocking
+    reason: handler-testability.test.mjs exercises only 2 of the 5 named handleStart
+      postcondition/suspension outcomes (completed, not_retryable) through the
+      fixture harness -- safe_to_retry/partially_completed/unsafe_manual remain
+      untested against a fixture
+      (reviews/repository-bound-handler-testability.md F2).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-014
+    source_task: owner-workflow-acceptance-scenarios
+    kind: test-rigor
+    severity: non-blocking
+    reason: Scenario 8's fixture-backed test only starts one of its two declared
+      tasks, never demonstrating the second task's edit against the shared file
+      (reviews/owner-workflow-acceptance-scenarios.md F3).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-015
+    source_task: repository-bound-handler-testability
+    kind: documentation
+    severity: non-blocking
+    reason: areas/handler-testability.md was not amended alongside the task file's
+      own D39/AC10 amendment (handleSelfCheck parameterization) -- still names
+      only handleStart/checkSpecsIndexes/buildSpecsIndexes as the
+      parameterization surface (reviews/repository-bound-handler-testability.md
+      F3).
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-016
+    source_task: unowned-drift-correction-flow
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: "docs/ai/specification-workflow.md (the vendor-neutral canonical workflow
+      doc) was missing four sibling tasks' own mechanisms, none of which had this
+      file in their own allowed_paths: review-report-minimization's corrected
+      <=10-line/4-row passing-report shape (its own F2), scoped-and-incremental-spec-review's
+      --changed/--tasks modes and scoped-verdict-guard caveat (its own F1),
+      compound-actions-and-dependency-aware-status's approve-and-start
+      completion and dependency-aware deriveStage fix (its own F1), and
+      unowned-drift-correction-flow's named three-option correction process
+      (its own F3). Classified unowned-drift (outside every one of those four
+      tasks' own allowed_paths); resolved directly as an owner-authorized
+      maintenance correction per this change's own named process, 2026-08-08."
+    resolver_task: null
+    status: resolved
+    resolution: "Added/corrected four sections in docs/ai/specification-workflow.md:
+      the compact-report-shape correction (superseding the stale '15-30 lines'
+      claim), 'A spec review can be scoped, without weakening its whole-change
+      claims', 'A compound action completes what its own label promises' plus a
+      dependency-aware deriveStage note, and 'Unowned-drift correction — a real
+      fix that no current task's scope covers'. Closes review-report-minimization
+      F2, scoped-and-incremental-spec-review F1, compound-actions-and-dependency-aware-status
+      F1, and unowned-drift-correction-flow F3."
+    paths: [docs/ai/specification-workflow.md]
+    confirmed_by: owner
+    confirmed_at: "2026-08-08"
+    revision: "26576268d4e86c1b344d89d470b355547edcc1d4"

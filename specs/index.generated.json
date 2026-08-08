@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-04T06:14:01.375Z",
+  "generated": "2026-08-08T12:08:24.709Z",
   "changes": [
     {
       "id": "architecture-documentation",
@@ -46,6 +46,584 @@
           "depends_on": [
             "add-operational-layer"
           ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-process-continuity-and-hardening",
+      "title": "NEvo AI workflow process continuity and hardening",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-04",
+      "tasks": [
+        {
+          "id": "state-and-fingerprint-semantics",
+          "order": 1,
+          "file": "tasks/01-state-and-fingerprint-semantics.md",
+          "status": "verified"
+        },
+        {
+          "id": "recovery-classification-and-machine-readable-errors",
+          "order": 2,
+          "file": "tasks/02-recovery-classification-and-machine-readable-errors.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "resume-and-continue-controller",
+          "order": 3,
+          "file": "tasks/03-resume-and-continue-controller.md",
+          "status": "verified",
+          "depends_on": [
+            "recovery-classification-and-machine-readable-errors"
+          ]
+        },
+        {
+          "id": "conversational-approval-ergonomics",
+          "order": 4,
+          "file": "tasks/04-conversational-approval-ergonomics.md",
+          "status": "verified",
+          "depends_on": [
+            "resume-and-continue-controller"
+          ]
+        },
+        {
+          "id": "context-completeness-and-routing-precedence",
+          "order": 5,
+          "file": "tasks/05-context-completeness-and-routing-precedence.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "scope-and-follow-up-mechanisms",
+          "order": 6,
+          "file": "tasks/06-scope-and-follow-up-mechanisms.md",
+          "status": "verified",
+          "depends_on": [
+            "context-completeness-and-routing-precedence"
+          ]
+        },
+        {
+          "id": "mechanical-task-type",
+          "order": 7,
+          "file": "tasks/07-mechanical-task-type.md",
+          "status": "verified",
+          "depends_on": [
+            "scope-and-follow-up-mechanisms",
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "batch-execution-and-gating-review",
+          "order": 8,
+          "file": "tasks/08-batch-execution-and-gating-review.md",
+          "status": "verified",
+          "depends_on": [
+            "conversational-approval-ergonomics",
+            "state-and-fingerprint-semantics",
+            "scope-and-follow-up-mechanisms"
+          ]
+        },
+        {
+          "id": "finalization-hardening-and-migration",
+          "order": 9,
+          "file": "tasks/09-finalization-hardening-and-migration.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-execution-and-gating-review",
+            "mechanical-task-type"
+          ]
+        },
+        {
+          "id": "workflow-e2e-tests",
+          "order": 10,
+          "file": "tasks/10-workflow-e2e-tests.md",
+          "status": "verified",
+          "depends_on": [
+            "finalization-hardening-and-migration"
+          ]
+        },
+        {
+          "id": "workflow-docs-and-adr-migration",
+          "order": 11,
+          "file": "tasks/11-workflow-docs-and-adr-migration.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-e2e-tests"
+          ]
+        },
+        {
+          "id": "implementation-review-orchestration",
+          "order": 12,
+          "file": "tasks/12-implementation-review-orchestration.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "scope-and-follow-up-mechanisms",
+            "batch-execution-and-gating-review",
+            "workflow-docs-and-adr-migration"
+          ],
+          "self_check": {
+            "fingerprint": "e1900fcc9f63734fb6c8a519a95a431052d2def1181d0f268e49aed59c76d3b6",
+            "revision": "2b956327fc44e3d0880e9dcdd5ff88ee37d9a7d1",
+            "commands": [
+              {
+                "command": "node --test tools/tests/implementation-review.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "review-report-compaction-and-scope-exceptions",
+          "order": 13,
+          "file": "tasks/13-review-report-compaction-and-scope-exceptions.md",
+          "status": "verified",
+          "depends_on": [
+            "implementation-review-orchestration",
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "review-report-minimization",
+          "order": 14,
+          "file": "tasks/14-review-report-minimization.md",
+          "status": "verified",
+          "depends_on": [
+            "review-report-compaction-and-scope-exceptions"
+          ],
+          "self_check": {
+            "fingerprint": "2e37e51b852fbd21a7487c8087c06c0a4730ae8bbd2111188622bdacdd914e1a",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/review-compaction.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "deterministic-implementation-provenance",
+          "order": 15,
+          "file": "tasks/15-deterministic-implementation-provenance.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "recovery-classification-and-machine-readable-errors",
+            "batch-execution-and-gating-review"
+          ],
+          "self_check": {
+            "fingerprint": "bfaa1704353da9130836c68c5f810c540607726ca1b69650609f29a27a4d1c15",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/provenance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "semantic-cross-task-integration-and-consolidated-decisions",
+          "order": 16,
+          "file": "tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md",
+          "status": "verified",
+          "depends_on": [
+            "implementation-review-orchestration",
+            "review-report-compaction-and-scope-exceptions",
+            "deterministic-implementation-provenance"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/implementation-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/semantic-integration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "0373e117ec9e4d15c90ea63fe7da0170f115eac4aac240504d073fa07ab0c2c6"
+          },
+          "self_check": {
+            "fingerprint": "770f8ecaba652622b9309de97d60064795c7f56dffd49a267049c31db52fd266",
+            "revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "commands": [
+              {
+                "command": "node --test tools/tests/semantic-integration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "scoped-and-incremental-spec-review",
+          "order": 17,
+          "file": "tasks/17-scoped-and-incremental-spec-review.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "implementation-review-orchestration",
+            "review-report-minimization"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/context-policy.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/scoped-spec-review.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4199ae8f8f65536d703ab99f7d034e6f13d8728af5268c789164bfdd004a1a0a"
+          },
+          "self_check": {
+            "fingerprint": "8f7039ad1f16614412243ccf13c6156a893d1b91b8086c353601184ff3dc1b67",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/scoped-spec-review.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "compound-actions-and-dependency-aware-status",
+          "order": 18,
+          "file": "tasks/18-compound-actions-and-dependency-aware-status.md",
+          "status": "verified",
+          "depends_on": [
+            "conversational-approval-ergonomics",
+            "resume-and-continue-controller",
+            "batch-execution-and-gating-review"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-approve.md",
+              "docs/ai/task-execution-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/compound-actions.test.mjs",
+              "tools/tests/status-dependency-aware.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "03c30385b5004ef51d0bf14edf4db6e5aeafc25651b85508f5fcded85ef4eef4"
+          },
+          "self_check": {
+            "fingerprint": "bd5f415751378925eea46d6c19c6e302cf71147d611383adc486b57a919fe75c",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/compound-actions.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/status-dependency-aware.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "unowned-drift-correction-flow",
+          "order": 19,
+          "file": "tasks/19-unowned-drift-correction-flow.md",
+          "status": "verified",
+          "depends_on": [
+            "scope-and-follow-up-mechanisms",
+            "review-report-compaction-and-scope-exceptions"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-audit.md",
+              ".claude/commands/nevo-ai/task-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/unowned-drift.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "55674d34f11919fef2caa6f5e604f77ed6489eb083f2eb35ca0db497dcf833b6"
+          },
+          "self_check": {
+            "fingerprint": "79854244922ab64166922c7bc919f4f01ef45e7a4e2888633b1cf940858d906c",
+            "revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "commands": [
+              {
+                "command": "node --test tools/tests/unowned-drift.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "repository-bound-handler-testability",
+          "order": 20,
+          "file": "tasks/20-repository-bound-handler-testability.md",
+          "status": "verified",
+          "depends_on": [
+            "recovery-classification-and-machine-readable-errors",
+            "workflow-e2e-tests",
+            "compound-actions-and-dependency-aware-status"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs.mjs",
+              "tools/specs/service.mjs",
+              "tools/tests/fixture-repo.test-helper.mjs",
+              "tools/tests/handler-testability.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "79d767db26be898b5cddaf255c258214eb21edb5bec21c3b699bb00d923e8def"
+          },
+          "self_check": {
+            "fingerprint": "832882c5c51d30b34739d307494b821789d9574aa0c0ce5384a42efcc5c1cf05",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/handler-testability.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "owner-workflow-acceptance-scenarios",
+          "order": 21,
+          "file": "tasks/21-owner-workflow-acceptance-scenarios.md",
+          "status": "verified",
+          "depends_on": [
+            "review-report-minimization",
+            "deterministic-implementation-provenance",
+            "semantic-cross-task-integration-and-consolidated-decisions",
+            "scoped-and-incremental-spec-review",
+            "compound-actions-and-dependency-aware-status",
+            "unowned-drift-correction-flow",
+            "repository-bound-handler-testability"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/tests/owner-workflow-acceptance.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "c0f24b48ec1b1ed298b59159ea2cadfff032e503ef908d6334d0e37287a93cf1"
+          },
+          "self_check": {
+            "fingerprint": "630be62307c9f1b3a71d4719d26a061b612d8d3c19cb9ec1be6a9627e321ab2c",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/owner-workflow-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },

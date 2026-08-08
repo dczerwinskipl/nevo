@@ -1,13 +1,40 @@
 ---
 description: Read-only implementation-readiness review of a NEvo specification.
-argument-hint: <change-id>
+argument-hint: <change-id> [--all|--changed|--tasks <range-or-list>]
 disable-model-invocation: true
 ---
 
 Read the shared skill `nevo-ai-spec-workflow` (`.claude/skills/nevo-ai-spec-workflow/SKILL.md`)
 if not already in context, plus `references/review-policy.md`.
 
-Arguments (`$ARGUMENTS`): `<change-id>`.
+Arguments (`$ARGUMENTS`): `<change-id> [--all|--changed|--tasks <range-or-list>]`.
+`--all` (also the default when no flag is given — full compatibility with every
+existing invocation and doc reference to `/nevo-ai:spec-review <change-id>`) reviews
+every task. `--changed` (D34/D35, task 17) reviews only new or semantically changed
+tasks — those whose current `computeTaskFingerprint` doesn't match the fingerprint the
+prior review recorded for them. `--tasks <spec>` reviews an explicit order range
+(`14-17`) or order list (`14,16,18`), same grammar `/nevo-ai:implementation-review`
+already uses. At most one of `--changed`/`--tasks` may be given; giving both is an
+error, not a silent pick of one.
+
+## Scope resolution (D34/D35, task 17)
+
+0. Resolve the scope **before** step 1 touches anything. Run
+   `node tools/specs.mjs fingerprint <change-id> --task <task-id>` for every task from
+   task 12 onward (D32 grandfathers tasks 01-11 out of this entirely, same exemption
+   step 5a already uses) to get `currentTaskFingerprints`, and read the prior
+   `reviews/spec.md`'s `task_fingerprints` map (if any) as `priorTaskFingerprints`. Call
+   `resolveSpecReviewScope(change, { all, tasks, changed, changedTaskIds })`
+   (`tools/specs/lifecycle.mjs`) — for `--changed`, `changedTaskIds` comes from
+   `selectChangedTaskIds(evaluableTaskIds, priorTaskFingerprints,
+   currentTaskFingerprints)` first. If resolution fails (zero or more than one mode
+   given, an unresolvable `--tasks` order number), relay the exact reason and stop.
+   **Review scope is separate from context scope** — reading an already-reviewed task's
+   file for background (e.g. to understand a new task's dependency) never re-grades that
+   task, never regenerates its verdict, never replaces its `task_fingerprints` entry,
+   and never changes its `status` or adds it to this run's selected scope; only the
+   deterministic write in step 9 ever persists those fields, and only for tasks in the
+   resolved scope.
 
 ## Flow
 
@@ -22,14 +49,18 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    anything changed — that signal is not part of this mechanism, ever** (an untracked
    directory carries zero file-level diff information, which is exactly how a past
    re-review went stale).
-3. Read `change.yaml` and every current artifact (`overview.md`, `areas/`, `tasks/`) in
-   full, fresh — regardless of what step 2 found, regardless of git status. This is not
-   optional even when nothing seems to have changed.
+3. Read `change.yaml`, `overview.md`, and every `areas/` file in full, fresh — regardless
+   of what step 2 found, regardless of git status, regardless of scope; these establish
+   context and cross-task dependency correctness even for a scoped run. For `tasks/`:
+   read every task in the resolved scope (step 0) in full, fresh — the same "no
+   shortcut" rule as always. A task **outside** the resolved scope is read only as much
+   as genuinely needed for context (e.g. understanding a dependency an in-scope task
+   relies on) — reading it never re-grades it, per step 0's context-vs-review-scope
+   boundary.
 4. Run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if the change
    touches docs) — these are the **gating** checks; do not re-derive them by hand. If
    either fails, the verdict is `blocked` — stop there, don't continue evaluating
-   readiness on top of a structurally broken spec. Also run `node tools/specs.mjs
-   check` and `node tools/docs.mjs check` — these are **non-gating**: they check
+   readiness on top of a structurally broken spec. Also run `node tools/specs.mjs check` and `node tools/docs.mjs check` — these are **non-gating**: they check
    whether *repository-wide* generated indexes are current, which can fail because of
    an unrelated active change, not this one. Record the result as an `INFORMATIONAL`
    finding either way, explicitly labeled "Gating validation: passed/failed" vs.
@@ -46,6 +77,18 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    option analysis exists — `references/solution-option-analysis.md` — not just a
    single proposed approach; record its absence as an `OWNER_DECISION` or
    `NEEDS_CLARIFICATION` finding (whichever fits — see below).
+5a. **Semantic-reference completeness (D26, D29).** For every task **in the resolved
+   scope** (step 0) — never an out-of-scope task, per the context-vs-review-scope
+   boundary — run the model-review check in `references/review-policy.md` §
+   "Semantic-reference completeness (model review)" — this is separate from, and in
+   addition to, `node tools/specs.mjs validate`'s own deterministic reference-*integrity*
+   checks (step 4); neither
+   substitutes for the other. Categorize a missing, load-bearing reference as `AUTO_FIX`
+   (unambiguous which one) or `OWNER_DECISION` (ambiguous) — never `NON_BLOCKING`; an
+   unnecessary (declared but not load-bearing) reference may stay `NON_BLOCKING`. An
+   unresolved missing-reference finding blocks `ready-for-approval` exactly like any
+   other unresolved `AUTO_FIX`/`OWNER_DECISION` finding in the decision table below —
+   no separate mechanism, just this categorization feeding the existing one.
 6. Classify every current finding per `references/review-policy.md` § "Findings must be
    actor-classified" (`AUTO_FIX` / `OWNER_DECISION` / `NEEDS_CLARIFICATION` /
    `NON_BLOCKING` / `INFORMATIONAL`). If step 2 found a baseline, additionally verify
@@ -70,18 +113,57 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
    if it fails, a classification or a file read upstream is wrong — fix it and
    recompute, don't emit a report that fails its own check. Answer the three
    implementation-readiness questions from § "Implementation readiness declaration."
+7a. **Scoped-verdict guard and impacted-task reporting (D34/D35, task 17, corrected) —
+    only for a run that is not `--all`.** Before the verdict can read
+    `ready-for-approval`/`approved-for-implementation`, run
+    `scopedReviewBaselineValid(checkableOutOfScopeTaskIds, priorTaskFingerprints,
+    currentTaskFingerprints)` (`tools/specs/lifecycle.mjs`) over every out-of-scope task
+    from task 12 onward (same D32 exemption as step 5a). This one deterministic check is
+    the sole automated source of "potentially impacted" — an out-of-scope task appears in
+    `invalidTaskIds` only because *its own* current fingerprint no longer matches its
+    recorded baseline (which already accounts for a shared owner decision, shared
+    constraint, or the out-of-scope task's own `dependency_contracts` naming a changed
+    selected task, since `computeTaskFingerprint` folds `semantic_references`
+    recursively). A selected task naming an out-of-scope task in its own
+    `semantic_references.dependency_contracts` is reading it as context and is never, by
+    itself, a reason to add that task to this list. If `valid` is `false`, the verdict
+    cannot claim whole-change readiness — report the named `invalidTaskIds` explicitly in
+    the report as "potentially impacted, not re-reviewed in this scope," and recommend
+    scope expansion (a wider `--tasks`/`--all` re-run) as the next command, even though
+    the *selected* scope's own findings might otherwise be clean. Separately, if reading
+    an out-of-scope task's file as context surfaces a real cross-contract impact this
+    deterministic check does not represent, report it explicitly as a distinct
+    model-inspection finding — never invented by an automated function, and never
+    inferred merely from the selected task depending on the older one.
 8. Run `node tools/specs.mjs fingerprint <change-id>` and use its exact printed output
    as the `spec_fingerprint` value in the report's frontmatter — never estimate or
    recompute this by reasoning (see `references/review-policy.md` § "Deterministic
-   review freshness"). Run this *after* step 3's re-read, immediately before writing
-   the report, so it reflects exactly what was reviewed.
+   review freshness"). Then, for every task evaluated in step 5a, run
+   `node tools/specs.mjs fingerprint <change-id> --task <task-id>` and record its exact
+   printed output under `task_fingerprints.<task-id>` — same rule, never estimated (see
+   that section's "Task-level freshness" subsection for why this is separate from
+   `spec_fingerprint`). Run both *after* step 3's re-read, immediately before writing
+   the report, so they reflect exactly what was reviewed.
 9. Write the full report to `specs/active/<change-id>/reviews/spec.md` using
    `templates/review-report.md`'s shape (create the `reviews/` directory if needed),
    including the frontmatter `verdict`, `ready_for_approval`, `implementation_allowed`,
-   `spec_fingerprint`, and the three separate unresolved counts, and — per finding —
-   its predicate, lifecycle, and evidence. This overwrites the file read in step 2;
-   that's expected, it's the one file this command writes — everything else about the
-   change stays untouched.
+   `spec_fingerprint`, `task_fingerprints`, and the three separate unresolved counts, and
+   — per finding — its predicate, lifecycle, and evidence. Name any
+   `scopedReviewBaselineValid` `invalidTaskIds` (step 7a) explicitly as "potentially
+   impacted, not re-reviewed." **For a fully-passing result (`ready-for-approval`/
+   `approved-for-implementation`, zero unresolved findings of any kind) — `--all` or
+   scoped, no distinction — render the body with `renderScopedSpecReviewBody`
+   (`tools/specs/lifecycle.mjs`, task 17, corrected by task 14/D34/D35's final
+   pre-approval pass) instead of composing it as prose.** This function's own
+   verdict-gating and inputs are unchanged; only the restriction that confined it to
+   scoped runs is removed — a fully-passing `--all` review previously still wrote full
+   AC-by-AC narration and per-task detail with nothing wrong to report, exactly the
+   redundant positive narration this correction removes. Never a synthetic
+   `INFORMATIONAL` finding for a passing check, for any run, scoped or `--all`. A
+   run with any unresolved finding, owner decision, or invalid out-of-scope baseline
+   keeps the full expanded report shape — unaffected by this correction. This overwrites
+   the file read in step 2; that's expected, it's the one file this command writes —
+   everything else about the change stays untouched.
 10. End the response using `references/review-policy.md` § "Chat output shape" →
     `/nevo-ai:spec-review`'s exact required shape. `Next command` is:
     - `blocked` → the specific manual fix needed before any command can proceed,
@@ -89,10 +171,25 @@ Arguments (`$ARGUMENTS`): `<change-id>`.
       `/nevo-ai:spec-refine --from-review` (that command stops at these findings too —
       don't send the owner in a circle),
     - `changes-required` → `/nevo-ai:spec-refine <change-id> --from-review`,
-    - `ready-for-approval` → `/nevo-ai:spec-approve <change-id> <task-id>` — do not tell
-      the owner to hand-edit `change.yaml`; that command is the interactive approval
-      gate,
+    - step 7a found an invalid out-of-scope baseline → the exact scope-expansion command
+      (a wider `--tasks` or `--all` re-run) naming the invalidated task(s), even if this
+      run's own selected-scope findings are otherwise clean,
+    - `ready-for-approval` → see step 10a below — do not just print
+      `/nevo-ai:spec-approve <change-id> <task-id>` and stop; offer it inline, in the
+      same turn,
     - `approved-for-implementation` → `/nevo-ai:task-next`.
+10a. **Inline approval offer at `ready-for-approval` (D3, requirement 1).** This is an
+    *additional* entry point into `/nevo-ai:spec-approve`'s own unchanged gate, not a
+    bypass of it — reuse that command's own confirmation and CLI call rather than
+    re-implementing an approval prompt here. Concretely: present exactly
+    `/nevo-ai:spec-approve <change-id> <task-id>`'s own Flow step 3 menu (all four
+    options — approve / approve and start / keep as draft / show report) in this same
+    turn, and on an answer, follow that command's Flow step 4 (and, for option 2, its
+    "Approve and start" section) exactly — including `node tools/specs.mjs approve`'s own
+    fresh fingerprint/verdict re-check, which still runs and is still what actually
+    enforces the gate (AC3 — this command's own judgment never substitutes for it, even
+    though the verdict was just computed in step 7). One decision point total: this menu
+    *is* the approval confirmation, not a wrapper prompting whether to see another one.
 
 ## Rules
 

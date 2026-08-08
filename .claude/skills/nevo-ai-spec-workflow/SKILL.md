@@ -40,6 +40,7 @@ Load only the reference file(s) for the phase you are in — not all of them.
 | Loading context | `references/context-policy.md` | `task-next`, `task-start` |
 | Judging readiness / diffs | `references/review-policy.md` | `spec-review`, `task-review` |
 | Judging a cross-task theme in an already-implemented change | `references/review-policy.md` § "Change-wide audits" | `spec-audit` |
+| Orchestrating task-review depth across a range/list of tasks | `references/review-policy.md` § "Multi-task implementation review" | `implementation-review` |
 
 Templates in `templates/` are guides for artifact shape, not mandatory boilerplate —
 each template states which of its sections may be omitted. Use them when creating or
@@ -103,19 +104,30 @@ structurally separate:
 
 ## Preventing premature implementation
 
-`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs
-start`, and never mark a task `approved`. `spec-review`, `task-review`, and
-`spec-audit` never edit files unless the owner explicitly asked for fixes to be
-applied — writing their own `reviews/*.md` artifact (and, for `spec-audit`, setting
-`audit_status` after its own closed-menu confirmation) is the one exception, and it is
-never the change/task/spec files under review. `spec-approve` is the single place a task's `approved` status gets
+`spec-create` and `spec-refine` never write source code, never run `tools/specs.mjs start`, and never mark a task `approved`. `spec-review`, `task-review`,
+`spec-audit`, and `implementation-review` never edit files unless the owner explicitly
+asked for fixes to be applied — writing their own `reviews/*.md` artifact (and, for
+`spec-audit`, setting `audit_status` after its own closed-menu confirmation) is the one
+exception, and it is never the change/task/spec files under review.
+`implementation-review`'s own exception is narrower still: writing
+`reviews/implementation-review-<scope>.md` and applying the one bulk status transition
+the owner just confirmed (never a per-task status write, and never without that
+confirmation) — it does not otherwise edit the tasks it reviews, and it never replaces
+or weakens `task-review`/`spec-audit`. `spec-approve` is the single place a task's `approved` status gets
 written, and even there only after an explicit, interactive answer in the same turn,
 and the CLI's own approval gate (see `tools/specs.mjs approve` — draft-only, requires a
 current, ready, fully-resolved review) is what actually enforces it, not the agent's
-judgment. `spec-approve` offers exactly three outcomes — approve, keep as draft, show
-the report — and **never** starts implementation itself, even when the owner approves;
-it prints `/nevo-ai:task-start <change> <task>` as the next command and stops there.
-Approving a task and starting it are always two separate, separately-confirmed actions.
+judgment. `spec-approve` offers exactly four outcomes — approve, approve and start, keep
+as draft, show the report. For the first, third, and fourth, it **never** starts
+implementation itself, even when the owner approves; it prints `/nevo-ai:task-start <change> <task>` as the next command and stops there. The fourth outcome, "approve and
+start" (D3), is the one deliberate exception: it is its own explicit menu item — never
+the default, never pre-selected, never inferred — and selecting it runs `approve` then
+re-checks and runs `start` in the same turn (task 02/03's postcondition model governs
+what happens if `start` can't complete; see `spec-approve.md` § "Approve and start").
+Every other command in this skill still never starts implementation on its own
+initiative. `spec-review` reaching `ready-for-approval` offers this same menu inline,
+in the same turn, as an additional entry point into `spec-approve`'s gate — not a
+bypass of it; the CLI call and its checks are unchanged either way.
 
 ## Ending every command's response
 
@@ -145,8 +157,7 @@ to skim past the one field that mattered. Define the shape once here — command
 ​```
 ```
 
-When there is nothing further to run, the fenced block reads exactly `No further action
-required.` instead of a command. Never omit the `Artifact` or `Next command` part —
+When there is nothing further to run, the fenced block reads exactly `No further action required.` instead of a command. Never omit the `Artifact` or `Next command` part —
 write `none`/`No further action required.` explicitly rather than dropping the section,
 so the shape stays predictable across every command.
 
@@ -175,6 +186,7 @@ Fixed, no free-form synonyms in the `Status`/`Verdict` line:
 | `task-review` | `pass` \| `changes-required` \| `blocked` |
 | `task-apply-review` | same as `task-review` (it re-runs that command's own flow) |
 | `spec-audit` | `no-findings` \| `changes-recommended` \| `owner-decision-required` |
+| `implementation-review` | `pass` \| `changes-required` \| `owner-decision-required` \| `blocked` |
 | `spec-finalize` | `finalized` \| `pushed` \| `gate-passed` \| `blocked` |
 | `spec-resolve-comments` | `resolved` \| `needs-owner-input` \| `none-unresolved` |
 | `spec-status` | `needs-approval` \| `ready-to-start` \| `in-progress` \| `cannot-verify-pr` \| `needs-pr` \| `pr-draft` \| `needs-comment-resolution` \| `needs-verification-fixes` \| `ready-to-finalize` \| `done` |

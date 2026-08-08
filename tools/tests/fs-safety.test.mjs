@@ -2,13 +2,18 @@
 // Run: node --test tools/tests/
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { resolveWithinBase } from '../lib/fs.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 
 describe('resolveWithinBase', () => {
-  const base = join('D:', 'repos', 'git', 'nevo', 'specs', 'active');
+  // `resolve('/...')` is absolute on both POSIX (as written) and Windows
+  // (resolved against the current working directory's drive) — a hardcoded
+  // `D:\...` string is not recognized as absolute on POSIX at all, which is
+  // exactly what broke this suite on Linux CI while passing on a Windows
+  // checkout.
+  const base = resolve('/repo-root/specs/active');
 
   test('resolves an ordinary relative path inside the base directory', () => {
     const resolved = resolveWithinBase(base, 'my-change');
@@ -34,7 +39,7 @@ describe('resolveWithinBase', () => {
   });
 
   test('rejects an absolute path outside the base directory', () => {
-    assert.throws(() => resolveWithinBase(base, 'C:\\Windows\\System32'), CliError);
+    assert.throws(() => resolveWithinBase(base, resolve('/definitely-outside/dir')), CliError);
   });
 
   test('the thrown error names the offending path', () => {
