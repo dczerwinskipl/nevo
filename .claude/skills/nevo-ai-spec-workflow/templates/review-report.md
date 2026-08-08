@@ -18,13 +18,21 @@ section, "Checklist" — D31). Report size is a consequence of what actually nee
 saying, not a target enforced by truncation: a report with defects, owner decisions, or
 scope exceptions grows to fit them — it must never grow merely because a task happens to
 carry many satisfied acceptance criteria. **A normal passing `task-review`/
-`implementation-review` per-task report (D34/D35, task 14) has at most 10 non-empty
-lines** — title plus the seven checklist items (plus, when active, one owner-approved-
-exception note line) — rendered by `renderNormalPassingReportBody`
-(`tools/specs/lifecycle.mjs`), never composed as prose; no separate `Findings`,
-`Verification`, or `Acceptance-criteria coverage` section is written for this case, since
-each of the seven checklist items already states the fact those sections would
-otherwise restate.
+`implementation-review` per-task report (D34/D35, task 14, corrected in the final
+pre-approval pass) is normally exactly 4 non-empty lines** — a title line, then three
+rows: `Acceptance criteria: <covered>/<total>`, `Scope: compliant` (or `resolved` plus
+one nested owner-approved-exception line), `Findings: none unresolved` — rendered by
+`renderNormalPassingReportBody` (`tools/specs/lifecycle.mjs`), never composed as prose.
+`computeTaskReviewChecklist`'s seven internal gates (verification, forbidden-path,
+architecture/docs, blocking findings, owner decision, alongside AC coverage and scope)
+and its verdict semantics are completely unchanged — `pass` still requires every one of
+them to resolve clean. Four of the seven (verification, forbidden-path, docs, owner
+decision) are simply never rendered as their own positive row once they pass; when one
+of them fails instead, it surfaces through the relevant failed result (the `Verification`
+section's failed command, or a `Findings` row) — never through a resurrected checklist
+row. No separate `Findings`, `Verification`, or `Acceptance-criteria coverage` section is
+written for the passing case, since the three rendered rows already state everything
+those sections would otherwise restate.
 
 ```markdown
 ---
@@ -72,40 +80,47 @@ task_fingerprints:                      # spec review only — one entry per tas
 <one line — the value above, plus a one-sentence reason. Never a looser phrase like
 "ready for implementation" — see references/review-policy.md § "Forbidden phrasing".>
 
-## Checklist *(task review / implementation-review per-task section only — D31)*
+## Checklist *(task review / implementation-review per-task section only — D31/D34/D35)*
 
-The seven-item compact checklist replaces verbose positive-proof prose for
-`task-review`/`implementation-review` reports (never `spec-review`/`spec-audit`/the
-gating batch review — those are unchanged). Computed, not composed as prose, by
-`computeTaskReviewChecklist` (`tools/specs/lifecycle.mjs`). A checked item (`[x]`)
-carries no further prose — the fact is already established. A failed item (`[ ]`)
-names the specific acceptance criterion, finding, or scope issue directly beneath it.
+`computeTaskReviewChecklist` (`tools/specs/lifecycle.mjs`) computes seven internal
+gates — never `spec-review`/`spec-audit`/the gating batch review, which use their own
+verdict tables — and `pass` still requires every one of them clean. What's rendered
+differs by outcome:
+
+**Normal pass (`renderNormalPassingReportBody`)** — exactly three rows, never all seven:
+
+```
+- [x] Acceptance criteria: 11/11
+- [x] Scope: compliant
+- [x] Findings: none unresolved
+```
+
+Four of the seven internal gates — required automated verification, no forbidden-path
+violation, architecture/documentation consistency, no unresolved owner decision — never
+get their own row once they pass; a checked item above already establishes there's
+nothing to say. When an owner-approved scope exception is active, the `Scope` row reads
+`resolved` (never the false-compliance word `compliant`) with one nested note:
+
+```
+- [x] Scope: resolved
+  - 1 owner-approved exception recorded
+```
+
+**Failing / exception-pending (`renderCompactReviewChecklist`)** — the original
+seven-item expanded shape, unchanged from task 13: a checked item (`[x]`) carries no
+further prose; a failed item (`[ ]`) names the specific acceptance criterion, finding,
+or scope issue directly beneath it — this is "the relevant failed result" a failing
+gate surfaces through, never a resurrected positive row for the six that still pass:
 
 ```
 - [x] All acceptance criteria covered
 - [x] Required automated verification passed
-- [x] Scope check resolved
+- [ ] Scope check resolved
+  - tools/tests/extra.test.mjs is outside allowed_paths — see F3
 - [x] No forbidden-path violation remains unresolved
 - [x] Architecture and documentation remain consistent
 - [x] No unresolved blocking findings
 - [x] No unresolved owner decision
-```
-
-When an owner-approved scope exception is active, the "Scope check resolved" item
-stays checked but gains a note — it must never read the false-compliance wording
-("stays within `allowed_paths`") while an accepted exception exists:
-
-```
-- [x] Scope check resolved
-  - 1 owner-approved exception recorded
-```
-
-A failed item, e.g.:
-
-```
-- [ ] All acceptance criteria covered
-  - AC7: not met — see F2
-- [x] Required automated verification passed
 ```
 
 ## Implementation readiness *(spec review only)*
@@ -132,17 +147,22 @@ valid, good outcome: say "No findings" explicitly rather than omitting the secti
 truth") — write `first-review` in `Lifecycle` when there is no baseline, never leave it
 blank (a blank cell reads as "forgot to check," not "not applicable").
 
-**`task-review`/`implementation-review` only (D31):** `Findings` contains only
-actionable or exception content — actual defects, missing AC coverage, unresolved
-risks, scope violations, required fixes, owner decisions, accepted scope exceptions,
-and explicit follow-up candidates. Never a synthetic `INFORMATIONAL` row recording that
-a test passed, a validation command succeeded, `allowed_paths` was respected, a
-forbidden path was absent, the implementation matched expected structure, or docs
-stayed consistent — those facts are already represented by a checked "Checklist" item
-above; restating them here is exactly the redundancy this task removes. Render `No
-findings.` verbatim when nothing actionable remains. `spec-review`/`spec-audit`/the
-gating batch review are unaffected — their own `INFORMATIONAL` rows (e.g. the F4/F5
-examples below) are unchanged.
+**Every review shape (D31, extended to all five by D34/D35's final pre-approval
+correction):** `Findings` contains only actionable or exception content — actual
+defects, missing AC coverage, unresolved risks, scope violations, required fixes,
+owner decisions, accepted scope exceptions, and explicit follow-up candidates. Never a
+synthetic `INFORMATIONAL` row recording that a test passed, a validation command
+succeeded, `allowed_paths` was respected, a forbidden path was absent, the
+implementation matched expected structure, or docs stayed consistent — those facts are
+already represented by a checked "Checklist" item (task-review/implementation-review)
+or the verdict itself (`spec-review`/`spec-audit`/the gating batch review); restating
+them here is exactly the redundancy this rule removes, for every review shape, not only
+`task-review`/`implementation-review`. Render `No findings.` verbatim when nothing
+actionable remains. This does not weaken any check or verdict semantics — a review still
+runs every gate it always ran; only a passing gate's redundant positive row is gone. The
+F5 example below (an `INFORMATIONAL` row recording a passing `validate` run) is retained
+only to show the shape a *pre-correction* report used — a current report never writes a
+row like it.
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|

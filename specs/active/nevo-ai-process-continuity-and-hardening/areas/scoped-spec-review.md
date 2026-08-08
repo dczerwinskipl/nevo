@@ -52,13 +52,30 @@ task already being reviewed.
    map (or has no recorded entry — a genuinely new task) — never a model's own
    assessment of "does this look different."
 4. **A scoped review may name older tasks as potentially impacted, but must never
-   silently re-review them.** If a change to the selected scope's own content (e.g. a
-   new task's `semantic_references.dependency_contracts` naming an older task) means an
-   older, unselected task's own fingerprint context has shifted, the review reports
-   this by name — "`task-X`'s fingerprint may be affected by this change; not
-   re-reviewed in this scope" — and offers explicit scope expansion (re-run with a
-   wider `--tasks`/`--all`) rather than either ignoring the impact or quietly grading
-   the older task anyway.
+   silently re-review them — and impact is never inferred from the selected task
+   depending on the older one.** A new or changed task naming an older, out-of-scope
+   task in `semantic_references.dependency_contracts` means the older task is *context*
+   for the selected task — it does not, by itself, mean the older task was affected.
+   Reading or referencing an older task as a dependency of the selected task never marks
+   that older task impacted. An out-of-scope task is potentially impacted only when its
+   own current `computeTaskFingerprint` no longer matches the baseline recorded for it
+   in `reviews/spec.md`'s `task_fingerprints` map (`scopedReviewBaselineValid`,
+   requirement 5) — the deterministic fingerprint baseline is the primary and only
+   automated impact signal, and it already accounts for a shared owner decision, a
+   shared constraint, or the out-of-scope task's own `dependency_contracts` naming a
+   changed selected task, because `computeTaskFingerprint` (D18) already folds a task's
+   declared `semantic_references` (including its own `dependency_contracts`) into its
+   fingerprint recursively — an out-of-scope task that itself depends on a changed
+   in-scope task's contract already gets a different fingerprint for that reason, with
+   no second, dependency-direction-based check required. Additional inspection by the
+   reviewing model may identify a real cross-contract impact the deterministic
+   fingerprint comparison does not represent (e.g. an undeclared coupling); report that
+   explicitly as a model-inspection finding, distinct from the deterministic signal, but
+   never as an automated function's own output. Either way, the review reports an
+   impacted task by name — "`task-X`'s fingerprint no longer matches its recorded
+   baseline; not re-reviewed in this scope" — and offers explicit scope expansion
+   (re-run with a wider `--tasks`/`--all`) rather than either ignoring the impact or
+   quietly grading the older task anyway.
 5. **A scoped review must not claim whole-change readiness unless every unreviewed task
    still retains a valid baseline.** The verdict computation (`references/review-policy.md`
    § "Spec-review verdicts are derived, never chosen narratively") gains one more input
@@ -74,10 +91,13 @@ task already being reviewed.
    checklist shape task 14 already defines, adapted to `spec-review`'s own verdict
    vocabulary (`blocked`/`owner-decision-required`/`changes-required`/
    `ready-for-approval`/`approved-for-implementation`) rather than `task-review`'s
-   three-value set. `spec-review`'s existing full-review (`--all`, the default) output
-   shape is unchanged by this area — only the new scoped modes adopt the compact shape
-   from their introduction, since they have no prior shape to preserve compatibility
-   with.
+   three-value set. As originally shipped, `spec-review`'s existing full-review (`--all`,
+   the default) output shape was left unchanged by this area — only the new scoped modes
+   adopted the compact shape. **Corrected by task 14/D34/D35's final pre-approval pass:**
+   a fully-passing `--all` run now renders through this same function too — see task 14's
+   area (§E) for the owner-facing minimization principle extended to every review shape.
+   This area's own scoped-mode requirement (this one) is unchanged; only the artificial
+   `--all`-is-exempt restriction is lifted, by task 14, not by reopening this area.
 
 ## Constraints
 
@@ -118,8 +138,13 @@ report shape.
 - A test proves reading an older task as context during a scoped review does not alter
   that task's `task_fingerprints` entry, verdict, or status.
 - A test proves a scoped review whose new task's `dependency_contracts` names an
-  unselected older task reports that older task by name as "potentially impacted, not
-  re-reviewed" rather than silently including or ignoring it.
+  unselected older task, with that older task's own fingerprint unchanged from its
+  recorded baseline, does **not** report the older task as impacted and does not request
+  scope expansion — reading it as context is not evidence of impact.
+- A test proves an out-of-scope task whose own current fingerprint no longer matches its
+  recorded baseline is reported by name as "potentially impacted, not re-reviewed"
+  rather than silently included or ignored, regardless of whether anything in the
+  selected scope names it.
 - A test proves a scoped review cannot report `ready-for-approval`/
   `approved-for-implementation` while any out-of-scope task's fingerprint baseline is
   invalid, and correctly can when every out-of-scope task's baseline is valid.
@@ -138,8 +163,10 @@ requirement 6's scoped-review report shape.
 
 ## Out of scope
 
-- Changing `spec-review`'s existing full-review (`--all`, the default) output shape —
-  requirement 6 applies only to the new scoped modes.
+- Changing `spec-review`'s existing full-review (`--all`, the default) output shape *as
+  this area's own concern* — requirement 6 introduces the compact shape only for the new
+  scoped modes; extending it to `--all` too is task 14's own correction (§E), not a
+  reopening of this area's requirement 6.
 - Changing `task-review`, `spec-audit`, `implementation-review`, or the gating batch
   review's own scope/report model — this area is `spec-review`-only.
 - A repository-wide scan across other active changes — `--all` still means "every task

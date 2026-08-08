@@ -76,12 +76,36 @@ predicate" to this area.
    dirty-worktree classification (`classifyDirtyWorktree`, task 02) already used to
    distinguish task-related from unrelated dirty files.
 5. **Provenance is included in the implementation fingerprint, excluded from every
-   semantic tier.** `computeImplementationFingerprint` (already defined, `service.mjs`)
-   is wired to actually consume `implementation.baseline_revision`/`changed_paths` as
-   its `revision`/`evidence` inputs — closing the gap its own doc comment names.
+   semantic tier — and every persisted field that identifies actual implementation
+   content participates.** Corrected (owner review, seventh refinement pass): a
+   fingerprint built only from `baseline_revision` (or `review_revision` via a fallback
+   that only ever surfaces one of the two) plus `changed_paths` cannot distinguish two
+   implementations that share a baseline and touch the same files but actually differ —
+   the exact case `worktree_patch_fingerprint` exists to catch for attributable
+   uncommitted content. `computeImplementationFingerprint` (already defined,
+   `service.mjs`) is wired, through `computeImplementationFingerprintFromProvenance`, to
+   consume **all four** persisted provenance fields: the task's own semantic fingerprint
+   (already an input via `computeTaskFingerprint`, unchanged), `baseline_revision` and
+   `review_revision` together (not folded into one value with `||`), the canonical
+   `changed_paths` list, and `worktree_patch_fingerprint` when present — closing the gap
+   the function's own doc comment named, and correctly this time.
    `computeChangeFingerprint`/`computeTaskFingerprint` (D7/D18) never read the
    `implementation` block, exactly like `status`/`execution.suspension`/`self_check` —
    it is operational evidence, not semantic task content.
+5a. **`review_revision`/`changed_paths`/`worktree_patch_fingerprint` are frozen at the
+   task's own self-check/task-review boundary, never mutated by a later task.** Each is
+   written only by `handleSelfCheck` (`tools/specs.mjs`) for that specific `taskId`,
+   computed from that task's own `baseline_revision` and its own `allowed_paths`
+   attribution (requirement 4) — a later task B's own `start`/`self-check` writes only
+   task B's `implementation` block; nothing in this area's write paths ever reads or
+   rewrites another task's already-persisted `implementation` entry. Global `HEAD`
+   advancing after task A's own `review_revision` was recorded (e.g. because task B
+   later completed) does not itself change task A's persisted fields (requirement 9) —
+   they represent task A's own reviewed snapshot, not "whatever `HEAD` is now." A later
+   re-run of task A's own `self-check` legitimately advances task A's own
+   `review_revision`/`changed_paths`/`worktree_patch_fingerprint` together, in the same
+   write, to the new snapshot being attributed to task A — this is task A revising its
+   own record, not task B expanding it.
 6. **Scope checking (`task-review`, the gating batch review, `implementation-review`)
    checks only attributable task evidence** — a finding about "files this task touched"
    is computed from `implementation.changed_paths` once it exists for that task, not
@@ -96,16 +120,23 @@ predicate" to this area.
    state (not solely its own diff) to detect whether task B's edit introduced a
    regression against task A's already-reviewed evidence — this is a real inspection
    step, not assumed away by attribution alone.
-8. **Owner-confirmed migration flow for existing tasks without provenance.** Tasks
-   01-13 (all `verified` before this area exists) have no `implementation` block. A new,
-   explicit, read-only-until-confirmed flow inspects git history (commit messages,
-   branch history, `allowed_paths` overlap) to *suggest* a `baseline_revision`/
-   `changed_paths` reconstruction for a named task, presents it to the owner as a
-   proposal (never silently applied), and only writes the `implementation` block after
-   an explicit owner confirmation — mirroring D32's precedent that a new completeness
-   mechanism is not silently enforced backward against already-terminal work. This flow
-   is available on request; task 15 does not run it unattended against tasks 01-13 as
-   part of shipping.
+8. **Owner-confirmed migration flow for existing tasks without provenance — several
+   proposed mappings may be confirmed in one owner action.** Tasks 01-13 (all `verified`
+   before this area exists) have no `implementation` block. A new, explicit,
+   read-only-until-confirmed flow (`suggest-provenance`) inspects git history (commit
+   messages, branch history, `allowed_paths` overlap) to *suggest* a
+   `baseline_revision`/`changed_paths` reconstruction for a named task, presents it to
+   the owner as a proposal (never silently applied), and only writes the
+   `implementation` block after an explicit owner confirmation — mirroring D32's
+   precedent that a new completeness mechanism is not silently enforced backward against
+   already-terminal work. Corrected (owner review, seventh refinement pass): the write
+   step (`apply-provenance`) accepts several proposed mappings (one per task) in a single
+   call, confirmed together under the caller's one `--confirm` — the owner reviews every
+   proposed mapping first (via one or more `suggest-provenance` calls), then confirms all
+   of them at once; this is never required to be one separate `apply-provenance --confirm`
+   invocation per task, though a single-task call remains the same shape as before. This
+   flow is available on request; task 15 does not run it unattended against tasks 01-13
+   as part of shipping.
 9. **Never compares evidence freshness by global `HEAD` equality** — same rule D33
    already established for `self_check.revision`/`staleEvidenceTasks`, restated here so
    this area's own new mechanism does not reproduce the exact over-invalidation D33
@@ -159,11 +190,20 @@ D7/D18) as the tiers this area's schema is explicitly excluded from.
   by any edit to a task's `implementation` block (mirrors the existing `self_check`
   exclusion test pattern).
 - A test proves `computeImplementationFingerprint` now actually consumes
-  `implementation.baseline_revision`/`changed_paths` rather than requiring them to be
-  passed in from an untested call site.
+  `implementation.baseline_revision`/`review_revision`/`changed_paths`/
+  `worktree_patch_fingerprint` rather than requiring them to be passed in from an
+  untested call site.
+- A test proves two implementations sharing the same `baseline_revision` and
+  `changed_paths` but differing in `review_revision` (different committed content)
+  produce different implementation fingerprints, and a second test proves the same for
+  `worktree_patch_fingerprint` (different uncommitted content) with `baseline_revision`,
+  `review_revision`, and `changed_paths` all held equal.
 - A test proves the migration flow only ever writes an `implementation` block after an
   explicit confirmation fixture, never unattended, and that its git-history suggestion
   is clearly marked as a suggestion, not an already-applied fact.
+- A test proves several proposed legacy provenance mappings can be resolved and written
+  together under one owner confirmation, and that a multi-task request without
+  `--mappings` is rejected rather than silently applied to only the first task.
 - A test proves no freshness computation in this area compares any provenance field
   against global `HEAD` equality (inspection + a regression test mirroring the one
   already added for `describeSelfCheck`/`staleEvidenceTasks`, D33).

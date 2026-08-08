@@ -91,16 +91,24 @@ the scoped review's own compact report shape.
   write path (the review artifact write step) ever persists those fields, and that step
   only runs for tasks in the resolved scope.
 - Add the "potentially impacted, not re-reviewed" reporting path (area requirement 4):
-  when a selected task's `semantic_references.dependency_contracts` names an
-  out-of-scope task, name that task in the response and offer scope expansion — do not
-  auto-expand.
+  an out-of-scope task is named and offered for scope expansion when *its own* current
+  `computeTaskFingerprint` no longer matches its recorded `task_fingerprints` baseline —
+  the same `invalidTaskIds` the scoped-verdict guard (below) already computes. A selected
+  task's `semantic_references.dependency_contracts` naming an out-of-scope task is never,
+  by itself, evidence of impact — reading an older task as a dependency is context, not a
+  re-review trigger. Do not auto-expand scope in either case.
 - Add the scoped-verdict guard (area requirement 5) to the existing derived-verdict
   table (`references/review-policy.md`): `ready-for-approval`/
   `approved-for-implementation` requires every out-of-scope task's fingerprint to still
   match its recorded baseline; otherwise report which task(s) need scope expansion.
 - Wire `renderCompactReviewChecklist` (task 14) into the scoped-review report path,
-  adapted to `spec-review`'s own five-value verdict vocabulary (area requirement 6) —
-  `spec-review --all`'s existing report shape is unchanged.
+  adapted to `spec-review`'s own five-value verdict vocabulary (area requirement 6). As
+  originally shipped, `spec-review --all`'s existing report shape was left unchanged;
+  **corrected by task 14/D34/D35's final pre-approval pass** — a fully-passing `--all`
+  run now renders through the same compact shape (`renderScopedSpecReviewBody`), since
+  the owner-facing minimization principle was found to apply to every review shape, not
+  only the new scoped modes. `--all`'s *behavior* (which tasks are evaluated, the verdict
+  computation itself) is unchanged either way — only the fully-passing body's rendering.
 
 ## Acceptance criteria
 
@@ -112,16 +120,27 @@ the scoped review's own compact report shape.
    from (or is absent from) the prior review's `task_fingerprints` map (automated).
 4. Reading an older, out-of-scope task's file for context during a scoped run does not
    alter that task's `task_fingerprints` entry, verdict, or `status` (automated).
-5. A selected task naming an out-of-scope task in
-   `semantic_references.dependency_contracts` produces an explicit "potentially
-   impacted, not re-reviewed" report entry for that task, never a silent re-review or a
-   silent omission (automated).
+5. An out-of-scope task whose own current fingerprint no longer matches its recorded
+   `task_fingerprints` baseline produces an explicit "potentially impacted, not
+   re-reviewed" report entry for that task, never a silent re-review or a silent
+   omission (automated).
+5a. A new or changed selected task naming an out-of-scope task in
+   `semantic_references.dependency_contracts` does **not**, by itself, produce a
+   "potentially impacted" entry for that out-of-scope task when its fingerprint is
+   unchanged — reading it as context is not evidence of impact (automated, the required
+   new-task-depends-on-old-task regression: task B depends on task A, A's fingerprint is
+   unchanged, a scoped review of B uses A as context, A is not reported as potentially
+   impacted and no scope expansion is requested).
 6. A scoped review cannot report `ready-for-approval`/`approved-for-implementation`
    while any out-of-scope task's fingerprint baseline is invalid; it can when every
    out-of-scope task's baseline is valid (automated).
 7. A fully-passing scoped review renders the same compact checklist shape as task 14's
-   output, adapted to `spec-review`'s own verdict vocabulary; `--all`'s existing report
-   shape is byte-for-byte unchanged for an otherwise-identical fixture (automated).
+   output, adapted to `spec-review`'s own verdict vocabulary. As originally shipped,
+   `--all`'s report shape was asserted byte-for-byte unchanged for an otherwise-identical
+   fixture; **corrected by task 14/D34/D35's final pre-approval pass** — a fully-passing
+   `--all` fixture now renders through the same compact shape as a fully-passing scoped
+   run, byte-for-byte identical between the two (automated). `--all`'s verdict/finding
+   computation for a non-passing fixture is unaffected either way.
 8. `node tools/specs.mjs validate`/`check` and `node tools/docs.mjs validate`/`check`
    report clean after this task's doc edits (automated).
 9. `node --test tools/tests/*.test.mjs` (full suite, including the new
@@ -149,9 +168,12 @@ separate from review-scope selection; "Context" paragraph names task 17 alongsid
 
 ## Out of scope
 
-- Changing `spec-review --all`'s existing output shape.
+- Changing `spec-review --all`'s existing *behavior* (verdict computation, task
+  evaluation) — the fully-passing *body shape* is extended to match the scoped compact
+  shape by task 14/D34/D35's own correction, not by reopening this task's own scope.
 - Changing `task-review`, `spec-audit`, `implementation-review`, or the gating batch
-  review's own scope/report model.
+  review's own scope/report model — task 14/D34/D35's own correction touches their
+  passing/no-findings report shapes; this task does not.
 - A repository-wide, cross-change review scope.
 - Automatically expanding scope on a detected potential impact — always named and
   offered, never silently applied.

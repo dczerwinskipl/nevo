@@ -5,19 +5,23 @@ change: nevo-ai-process-continuity-and-hardening
 depends_on:
   - recovery-classification-and-machine-readable-errors
   - workflow-e2e-tests
+  - compound-actions-and-dependency-aware-status
 semantic_references:
   decisions: [D8, D34, D35]
   constraints: [C1, C6]
   dependency_contracts:
     - recovery-classification-and-machine-readable-errors
     - workflow-e2e-tests
+    - compound-actions-and-dependency-aware-status
 context:
   required:
     - specs/active/nevo-ai-process-continuity-and-hardening/areas/handler-testability.md
+    - specs/active/nevo-ai-process-continuity-and-hardening/areas/compound-actions-and-dependency-aware-status.md
     - specs/active/nevo-ai-process-continuity-and-hardening/owner-decisions.md
     - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
     - tools/specs.mjs
     - tools/specs/service.mjs
+    - tools/specs/lifecycle.mjs
   optional:
     - tools/tests/start.test.mjs
     - tools/tests/e2e-workflow.test.mjs
@@ -68,6 +72,11 @@ around.
 
 `workflow-e2e-tests` (task 10) — the existing REC-03 real-repo-corrupting test this
 task's fixture-backed equivalent supersedes in coverage.
+
+`compound-actions-and-dependency-aware-status` (task 18) — AC4 exercises `deriveStage`'s
+`ready-to-start`/dependency-blocked computation (task 18's own fix) against a fixture
+task graph; this task cannot claim that coverage before task 18's `depsSatisfied` check
+exists in `deriveStage`.
 
 ## Implementation constraints
 

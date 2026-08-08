@@ -118,8 +118,8 @@ tasks:
     depends_on:
       - review-report-compaction-and-scope-exceptions
     self_check:
-      fingerprint: a25ace07d0b844a86165da3d58c8b9d261b59b79fc3a741c0431d9f0d9995a5f
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: 2e37e51b852fbd21a7487c8087c06c0a4730ae8bbd2111188622bdacdd914e1a
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/review-compaction.test.mjs
           exit_code: 0
@@ -143,8 +143,8 @@ tasks:
       - recovery-classification-and-machine-readable-errors
       - batch-execution-and-gating-review
     self_check:
-      fingerprint: 7013dbba4965bbd8387de72f3d0f6a964b71ea06c0c75ac28324026fee1d56d0
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: bfaa1704353da9130836c68c5f810c540607726ca1b69650609f29a27a4d1c15
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/provenance.test.mjs
           exit_code: 0
@@ -204,7 +204,7 @@ tasks:
       - review-report-minimization
     implementation:
       baseline_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
-      review_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      review_revision: 80e820909375abca2df449761ffb388d5514cee4
       changed_paths:
         - .claude/commands/nevo-ai/spec-review.md
         - .claude/skills/nevo-ai-spec-workflow/references/context-policy.md
@@ -212,10 +212,10 @@ tasks:
         - docs/decisions/ADR-0006-process-continuity-and-hardening.md
         - tools/specs/lifecycle.mjs
         - tools/tests/scoped-spec-review.test.mjs
-      worktree_patch_fingerprint: 10f41d67f0f7a7b1d431c3e408e0e2a6ffb1b9e69affa2a6048532080c96b253
+      worktree_patch_fingerprint: 4199ae8f8f65536d703ab99f7d034e6f13d8728af5268c789164bfdd004a1a0a
     self_check:
-      fingerprint: f4ce684f07e5387bf7f186e54783910db0c4af38f0e07ff27b2a62a2105c023e
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: 8f7039ad1f16614412243ccf13c6156a893d1b91b8086c353601184ff3dc1b67
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/scoped-spec-review.test.mjs
           exit_code: 0
@@ -240,18 +240,19 @@ tasks:
       - batch-execution-and-gating-review
     implementation:
       baseline_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
-      review_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      review_revision: 80e820909375abca2df449761ffb388d5514cee4
       changed_paths:
         - .claude/commands/nevo-ai/spec-approve.md
+        - docs/ai/task-execution-policy.md
         - docs/decisions/ADR-0006-process-continuity-and-hardening.md
         - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
         - tools/specs/lifecycle.mjs
         - tools/tests/compound-actions.test.mjs
         - tools/tests/status-dependency-aware.test.mjs
-      worktree_patch_fingerprint: 4eab7ce829246974406ebbb274fa8127226c985ce2efdb39e4a2965d6478ac7d
+      worktree_patch_fingerprint: 03c30385b5004ef51d0bf14edf4db6e5aeafc25651b85508f5fcded85ef4eef4
     self_check:
-      fingerprint: 7ca08bc5a8d4c83bace28bed95b9579f791b38cd20ae21f17c8559fee7abdd60
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: bd5f415751378925eea46d6c19c6e302cf71147d611383adc486b57a919fe75c
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/compound-actions.test.mjs
           exit_code: 0
@@ -311,9 +312,10 @@ tasks:
     depends_on:
       - recovery-classification-and-machine-readable-errors
       - workflow-e2e-tests
+      - compound-actions-and-dependency-aware-status
     implementation:
       baseline_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
-      review_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      review_revision: 80e820909375abca2df449761ffb388d5514cee4
       changed_paths:
         - docs/decisions/ADR-0006-process-continuity-and-hardening.md
         - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
@@ -321,10 +323,10 @@ tasks:
         - tools/specs/service.mjs
         - tools/tests/fixture-repo.test-helper.mjs
         - tools/tests/handler-testability.test.mjs
-      worktree_patch_fingerprint: 9af6a54c15c2941ed8680708456184d34e703719f0b872c903f4e124e9293219
+      worktree_patch_fingerprint: 79d767db26be898b5cddaf255c258214eb21edb5bec21c3b699bb00d923e8def
     self_check:
-      fingerprint: 01cb3cd36e89fb55c577de544da45f4fb3783b699e654ebb1c2268a12df5949f
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: 832882c5c51d30b34739d307494b821789d9574aa0c0ce5384a42efcc5c1cf05
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/handler-testability.test.mjs
           exit_code: 0
@@ -353,14 +355,14 @@ tasks:
       - repository-bound-handler-testability
     implementation:
       baseline_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
-      review_revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      review_revision: 80e820909375abca2df449761ffb388d5514cee4
       changed_paths:
         - docs/decisions/ADR-0006-process-continuity-and-hardening.md
         - tools/tests/owner-workflow-acceptance.test.mjs
-      worktree_patch_fingerprint: d6d52c69f167cd98ff359bf907b6f1118b82c3ef058c404df1cb1d8c16590710
+      worktree_patch_fingerprint: c0f24b48ec1b1ed298b59159ea2cadfff032e503ef908d6334d0e37287a93cf1
     self_check:
-      fingerprint: b0a79010b2d161208a46b7a3371b288191a8cfa31e9df533363f0de676d99bcf
-      revision: c0009050db04b7e8773196af23a83bf09bf1ff74
+      fingerprint: 630be62307c9f1b3a71d4719d26a061b612d8d3c19cb9ec1be6a9627e321ab2c
+      revision: 80e820909375abca2df449761ffb388d5514cee4
       commands:
         - command: node --test tools/tests/owner-workflow-acceptance.test.mjs
           exit_code: 0

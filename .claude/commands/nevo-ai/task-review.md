@@ -106,23 +106,28 @@ Arguments (`$ARGUMENTS`): `<change-id> <task-id>`.
     `NEEDS_CLARIFICATION` findings are categorized or handled — this action exists only
     for `NON_BLOCKING` findings, and it never fires without this explicit answer.
 8. Write the full report to `specs/active/<change-id>/reviews/<task-id>.md` using
-   `templates/review-report.md`'s compact, exception-oriented shape (D31 — the
-   seven-item `Checklist`, `Findings` restricted to actionable/exception content only,
-   the compact `Verification` and acceptance-criteria sections, the `scope_exceptions`
-   frontmatter when an exception is active), including each finding's predicate,
-   lifecycle, and evidence — overwriting the file read in step 2, which is expected;
-   it's the one file this command writes. **A normal passing report (step 7's verdict is
-   `pass`, no unresolved finding, at most an already-accepted scope exception) has at
-   most 10 non-empty lines (D34/D35, task 14) — call
-   `renderNormalPassingReportBody(checklistResult, { title, scopeExceptionCount })`
-   (`tools/specs/lifecycle.mjs`) for the body instead of composing it as prose; it is
-   exactly the title line plus the seven checklist items (via
-   `renderCompactReviewChecklist`), nothing else.** A report with any unresolved
-   finding, owner decision, or a scope exception still pending a decision keeps the
-   expanded shape (findings, AC-coverage detail, verification lines) task 13 already
-   defines — it must never grow merely because a task has many satisfied acceptance
-   criteria, and it must never shrink below what a real defect, decision, or exception
-   requires stating.
+   `templates/review-report.md`'s compact, exception-oriented shape (D31 — `Findings`
+   restricted to actionable/exception content only, the compact `Verification` and
+   acceptance-criteria sections, the `scope_exceptions` frontmatter when an exception is
+   active), including each finding's predicate, lifecycle, and evidence — overwriting the
+   file read in step 2, which is expected; it's the one file this command writes.
+   **A normal passing report (step 7's verdict is `pass`, no unresolved finding, at most
+   an already-accepted scope exception) is normally exactly 4 non-empty lines (D34/D35,
+   task 14, corrected) — call
+   `renderNormalPassingReportBody(checklistResult, { title, totalAcceptanceCriteria,
+   scopeExceptionCount })` (`tools/specs/lifecycle.mjs`) for the body instead of
+   composing it as prose; it is exactly the title line plus three rows — acceptance
+   criteria coverage, scope, findings — never the full seven-item checklist. The other
+   four internal gates (verification, forbidden-path, docs/architecture, owner decision)
+   still gate `pass` exactly as before through `computeTaskReviewChecklist`; they simply
+   never render their own positive row.** A report with any unresolved finding, owner
+   decision, or a scope exception still pending a decision keeps the expanded shape
+   (`renderCompactReviewChecklist`'s full seven-item checklist, findings, AC-coverage
+   detail, verification lines) task 13 already defines, unchanged — a failing gate among
+   the four surfaces there, through its own checklist row or a `Findings` entry, never
+   through a resurrected row on an otherwise-passing report. Size must never grow merely
+   because a task has many satisfied acceptance criteria, and must never shrink below
+   what a real defect, decision, or exception requires stating.
 9. If the verdict is `pass`, don't just print the CLI command and stop — ask, using a
    closed menu (same principle as `/nevo-ai:spec-approve`: a known transition should be
    confirmed and applied in the same turn, not left as an instruction to type):

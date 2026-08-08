@@ -8,6 +8,11 @@
 Own two related corrections to owner-facing command output, both instances of the same
 underlying rule: **an owner-facing compound action completes the operation promised by
 its label; a status report never contradicts what the actual start action would do.**
+Also owns closing F5 (final pre-approval review): `docs/ai/task-execution-policy.md`
+reconciled to distinguish standalone per-task operation, owner-authorized batch
+operation, genuine owner-decision stops, and internal command boundaries that must never
+manufacture an extra confirmation — assigned here because this area already owns the
+owner-facing compound-action/dependency-aware behavior the doc must describe correctly.
 
 1. `spec-approve`'s "Approve and start implementation" outcome performs the lifecycle
    transitions (`approve` → `start`) and then continues directly into implementation in

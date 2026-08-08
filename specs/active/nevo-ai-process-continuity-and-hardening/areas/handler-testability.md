@@ -102,6 +102,9 @@ existing postcondition/suspension contract and the `nextSuspensionForNotRetryabl
 extraction this area builds fixture-backed coverage around.
 `workflow-e2e-tests` (task 10) — the existing REC-03 real-repo-corrupting test this
 area's fixture-backed equivalent supersedes in coverage.
+`compound-actions-and-dependency-aware-status` (task 18) — `deriveStage`'s
+dependency-aware `ready-to-start` computation, exercised against a fixture task graph
+(requirement 4's dependency-blocked scenario) rather than only unit-level mocks.
 
 ## Out of scope
 

@@ -1125,6 +1125,16 @@
 - **Date:** 2026-08-07
 - **Affected artifacts:** `reviews/implementation-review-14-21.md`, `follow-ups.yaml` (FU-007); a new corrective task, not yet created.
 
+## D41: Reopened scope exception — `tools/lib/git.mjs` under task 15, re-accepted
+
+- **Question:** D36 accepted a scope exception for `tools/lib/git.mjs` (`getWorktreeDiff`/`findCommitsMentioning`, outside task 15's `allowed_paths`), recorded against task 15's semantic fingerprint at the time (`7013dbba4965bbd8387de72f3d0f6a964b71ea06c0c75ac28324026fee1d56d0`). The 2026-08-08 re-review of tasks 14-21 (`reviews/implementation-review-14-21.md`) found this fingerprint stale — task 15's own file was edited since D36 (AC5/AC5a/AC8a wording, "Implementation constraints" corrections) — invalidating the exception per `isScopeExceptionValid`, even though `tools/lib/git.mjs` itself has not changed further since D36 (confirmed: `git diff HEAD -- tools/lib/git.mjs` empty). Re-accept against the current fingerprint, require return to declared scope, or leave unresolved?
+- **Options considered:** (A) Accept the exception again, against the current fingerprint | (B) Return to declared scope (relocate `getWorktreeDiff`/`findCommitsMentioning` or amend `allowed_paths`) | (C) Leave unresolved
+- **Decision:** (A) Re-accept the exception.
+- **Rationale:** The underlying out-of-scope change is byte-identical to what D36 already approved — only the task's own fingerprint moved, for reasons (AC wording edits) unrelated to `git.mjs`. D36's original reasoning (a natural shared-helper home, every other touched path in-scope) still holds.
+- **Consequences:** Recorded as a `scope_exceptions` entry in `reviews/deterministic-implementation-provenance.md` (finding F1, `task_fingerprint: bfaa1704353da9130836c68c5f810c540607726ca1b69650609f29a27a4d1c15`); F1's lifecycle is now `accepted`, excluded from that task's unresolved-blocking count (2 remain: F2, F3 — see D37). Task 15's own `allowed_paths` is unchanged — this exception, like D36, covers this occurrence, not a standing grant, and remains subject to the same re-validation on any future fingerprint change.
+- **Date:** 2026-08-08
+- **Affected artifacts:** `reviews/deterministic-implementation-provenance.md`
+
 ## D40: Task 19's AC5 wording — correct to match the implementation
 
 - **Question:** Task 19's AC5 literally states both FU-006 incident fixtures classify as `unowned-drift`, but per AC2's own forbidden-priority rule, the `git-workflow.md` fixture actually (and correctly) classifies as `forbidden` instead — the implementation is right, but AC5's own wording contradicts it and the passing test's own title is still misleadingly "classifies unowned-drift" (finding F2 of `reviews/unowned-drift-correction-flow.md`). Correct AC5's wording, leave it as written, or leave unresolved?

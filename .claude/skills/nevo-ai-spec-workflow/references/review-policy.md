@@ -810,25 +810,47 @@ verification evidence (build/test output).
 - **Non-blocking**: style nits, suggestions for a follow-up, minor documentation
   polish that doesn't affect correctness.
 
-## Report minimization (D34/D35, task review-report-minimization)
+## Report minimization (D34/D35, task review-report-minimization, corrected in the
+## final pre-approval review pass)
 
 `task-review`/`implementation-review`'s compact checklist shape (D31, above) already
-replaced verbose positive-proof prose with the seven-item checklist. This tightens the
-normal-passing case further: a report whose verdict is `pass`, with no unresolved
-finding and at most an already-accepted scope exception, has **at most 10 non-empty
-lines** — the title line plus the seven checklist items (`renderCompactReviewChecklist`)
-plus, when an exception is active, one owner-approved-exception note line
-(`renderNormalPassingReportBody`, both in `tools/specs/lifecycle.mjs`). This is a real,
+replaced verbose positive-proof prose with the seven-item checklist. A report whose
+verdict is `pass`, with no unresolved finding and at most an already-accepted scope
+exception, is now normally exactly **4 non-empty lines** — the title line plus three
+rows: `Acceptance criteria: <covered>/<total>`, `Scope: compliant` (or `resolved` plus
+one nested exception-note line), `Findings: none unresolved`
+(`renderNormalPassingReportBody`, `tools/specs/lifecycle.mjs`). This supersedes this
+task's original design, which still rendered all seven `computeTaskReviewChecklist`
+items — technically ≤10 lines, but still a positive row for four gates (required
+automated verification, no forbidden-path violation, architecture/documentation
+consistency, no unresolved owner decision) that have nothing to say when they pass.
+Those four remain mandatory *internal* gates through `computeTaskReviewChecklist`,
+completely unchanged — `pass` still requires every one of the seven to resolve clean;
+they are simply never rendered as their own row once they pass. When one of them fails
+instead, it surfaces through the relevant failed result — the `Verification` section's
+failed command, or a `Findings` row — never a resurrected checklist row. This is a real,
 tested function's output, not prompt wording each run composes independently — AC
 coverage, scope, and findings each appear exactly once (`checkReportSectionUniqueness`
-guards this), and no separate `Findings`/`Verification`/`Acceptance-criteria coverage`
-section is written for the normal-passing case, since each is already fully represented
-by its own checked checklist item. A report carrying any unresolved finding, owner
-decision, or scope exception still pending a decision keeps the expanded shape (task 13)
-— minimization applies only to the case that has genuinely nothing further to say.
-`spec-review`, `spec-audit`, and the gating batch review's own report shapes are
-unaffected — this applies to `task-review`/`implementation-review` only, same scope
-restriction D31 already established.
+guards this, recognizing both the corrected inline wording and the original expanded
+headings), and no separate `Findings`/`Verification`/`Acceptance-criteria coverage`
+section is written for the normal-passing case. A report carrying any unresolved
+finding, owner decision, or scope exception still pending a decision keeps the expanded
+shape (`renderCompactReviewChecklist`, task 13, unchanged) — minimization applies only
+to the case that has genuinely nothing further to say.
+
+**Extended to every review shape, not only `task-review`/`implementation-review`.** This
+task's original text excluded `spec-review`, `spec-audit`, and the gating batch review
+entirely — the final pre-approval review found that exclusion itself contradicted D34/
+D35's own minimization intent. Corrected: a fully-passing `spec-review` run (`--all` or
+scoped) renders through `renderScopedSpecReviewBody` (task 17) regardless of mode — see
+"Chat output shape" → `/nevo-ai:spec-review`'s exact required shape, and
+`references/review-policy.md` § "Gating versus non-gating checks" for the corresponding
+correction to `spec-audit`/the gating batch review's own `no-findings` case (no synthetic
+`INFORMATIONAL` row for a check that merely passed). None of these four shapes' own
+checks, gates, or verdict tables are weakened by this — only redundant positive
+rendering is removed from their passing/no-findings case; `implementation-review`'s own
+aggregate table also drops its `Tests` column for the same reason (a passing `Verdict`
+already implies verification passed).
 
 ## Owner-approved scope exceptions (D31, area review-report-compaction-and-scope-exceptions)
 
@@ -1024,10 +1046,14 @@ Not everything a review runs should be able to change the verdict:
 - **Non-gating**: `tools/specs.mjs check` and `tools/docs.mjs check` — whether
   *repository-wide* generated indexes are current. These can fail because of a
   completely unrelated active change that hasn't regenerated its own indexes yet — not
-  this review's concern to block on. Run them, record the result as an `INFORMATIONAL`
-  finding, and if it fails, say why when you can tell (e.g. "stale because
-  `<other-change>` has pending, unregenerated edits") — never let it change the
-  verdict.
+  this review's concern to block on. Run them; a clean result needs no row at all (the
+  same universal rule as every other passing check — see `templates/review-report.md` §
+  "Findings," corrected by task 14/D34/D35's final pre-approval pass to apply to every
+  review shape, not only `task-review`/`implementation-review`: never a synthetic
+  `INFORMATIONAL` row confirming a check passed). A failure is genuinely worth recording
+  — it's real information the owner needs even though it never blocks this review's own
+  verdict — say why when you can tell (e.g. "stale because `<other-change>` has pending,
+  unregenerated edits").
 - **Exception, task review only**: if the task's *own* diff touches `docs/**` or
   `specs/**` sources and the corresponding generated index wasn't regenerated as part
   of that same diff, that specific staleness is self-caused and *is* a blocking

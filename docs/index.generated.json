@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-05T16:33:13.063Z",
+  "generated": "2026-08-08T08:53:05.815Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -714,7 +714,7 @@
         "starting implementation of a task",
         "deciding whether to proceed or stop"
       ],
-      "summary": "Rules for how agents execute tasks: what they may decide independently, what requires owner approval, and when to stop.",
+      "summary": "Rules for how agents execute tasks: what they may decide independently, what requires owner approval, and when to stop — for a standalone task and for an owner-authorized batch alike.",
       "related": [
         "ai.how-to-navigate"
       ]

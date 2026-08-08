@@ -35,7 +35,7 @@ import {
   buildSelfCheckResult, batchValidationBlocks, staleEvidenceTasks, computeBatchReviewVerdict, validateBatchCheckpoint,
   completionHardStop, attributeTouchedPaths, detectBatchIntegrationFindings,
   resolveReviewScope, validateBulkTransition, nextSuspensionForNotRetryable,
-  computeTaskAttributedChangedPaths, nextImplementationBaseline,
+  computeTaskAttributedChangedPaths, nextImplementationBaseline, resolveProvenanceMappings,
 } from './specs/lifecycle.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -505,25 +505,40 @@ export function handleSuggestProvenance(changeSlug, taskId) {
   }, null, 2));
 }
 
-export function handleApplyProvenance(changeSlug, taskId, options = {}) {
+// Owner correction (seventh refinement pass): several proposed legacy
+// provenance reconstructions may be confirmed in one owner action — one
+// --confirm covers every mapping passed via --mappings, never one prompt per
+// task. A single task id with --baseline/--changed-paths keeps working
+// exactly as before (single-task shape, unchanged for existing callers).
+// Parsing/validation itself is `resolveProvenanceMappings` (lifecycle.mjs,
+// pure, no repository I/O) — this handler only gates on --confirm and
+// performs the actual repository writes.
+export function handleApplyProvenance(changeSlug, taskIdOrList, options = {}) {
   const change = requireChange(changeSlug);
-  requireTask(change, taskId);
   if (!options.confirm) {
     throw new CliError('apply-provenance requires --confirm — a persisted implementation block is written only after explicit owner confirmation, never unattended.');
   }
-  if (!options.baseline) {
-    throw new CliError('apply-provenance requires --baseline <revision>.');
+
+  let mappings;
+  try {
+    mappings = resolveProvenanceMappings(taskIdOrList, options);
+  } catch (error) {
+    throw new CliError(error.message);
   }
-  const changedPaths = options.changedPaths
-    ? options.changedPaths.split(',').map(s => s.trim()).filter(Boolean)
-    : [];
-  writeImplementationProvenance(change, taskId, {
-    baseline_revision: options.baseline,
-    review_revision: options.baseline,
-    changed_paths: changedPaths,
-    worktree_patch_fingerprint: null,
-  });
-  console.log(`Implementation provenance written for '${taskId}' (baseline ${options.baseline}).`);
+
+  for (const { taskId } of mappings) requireTask(change, taskId);
+
+  for (const { taskId, baseline, changedPaths } of mappings) {
+    writeImplementationProvenance(change, taskId, {
+      baseline_revision: baseline,
+      review_revision: baseline,
+      changed_paths: changedPaths,
+      worktree_patch_fingerprint: null,
+    });
+  }
+
+  const summary = mappings.map(m => `'${m.taskId}' (baseline ${m.baseline})`).join(', ');
+  console.log(`Implementation provenance written for: ${summary}.`);
 }
 
 // ── Batch execution and gating review (D10, D19, D20, D24, D28, task 08) ───
@@ -1270,13 +1285,14 @@ export function buildProgram() {
     .action(handleSuggestProvenance);
 
   program.command('apply-provenance')
-    .description('Write a task\'s implementation provenance block after explicit owner confirmation (D34/D35) — requires --confirm')
+    .description('Write one or more tasks\' implementation provenance block after explicit owner confirmation (D34/D35) — requires --confirm; use --mappings to confirm several legacy reconstructions in one action')
     .argument('<change>')
-    .argument('<task>')
-    .requiredOption('--baseline <revision>')
-    .option('--changed-paths <path,path,...>')
+    .argument('<tasks>', 'A single task id, or a comma-separated list when using --mappings')
+    .option('--baseline <revision>', 'Single-task shape only')
+    .option('--changed-paths <path,path,...>', 'Single-task shape only')
+    .option('--mappings <json>', 'JSON array of {task, baseline, changedPaths} — required for more than one task; all written under this one --confirm')
     .option('--confirm', 'Required — this writes only after explicit confirmation, never unattended')
-    .action((changeSlug, taskId, opts) => handleApplyProvenance(changeSlug, taskId, opts));
+    .action((changeSlug, tasks, opts) => handleApplyProvenance(changeSlug, tasks, opts));
 
   program.command('batch-start')
     .description(`Select a batch (${[...BATCH_SELECTION_MODES].join('/')}) and start its first task`)

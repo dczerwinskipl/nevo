@@ -522,14 +522,28 @@ export function computeImplementationFingerprint(change, taskId, { revision = nu
  * later tasks' job"). A task with no persisted `implementation` block yet
  * still gets a real fingerprint — `revision`/`evidence` are simply `null`/`[]`,
  * the same defaults `computeImplementationFingerprint` already has.
+ *
+ * Corrected (seventh refinement pass, owner review): the original version
+ * folded `baseline_revision`/`review_revision` together with `||` (only one
+ * ever reached the hash) and never fed `worktree_patch_fingerprint` into the
+ * hash at all, so two different implementations sharing a `baseline_revision`
+ * and `changed_paths` list but differing only in uncommitted content — the
+ * one case `worktree_patch_fingerprint` exists to distinguish — produced the
+ * same implementation fingerprint. `revision` now carries both persisted
+ * revision markers (as a pair, not an `||` fallback) and `evidence` carries
+ * `worktree_patch_fingerprint` alongside `changed_paths`, so every field the
+ * `implementation` schema (area requirement 1) persists actually
+ * participates in the hash. `computeImplementationFingerprint`'s own
+ * `{ revision, evidence }` contract is unchanged — only the data supplied at
+ * this call site is richer.
  */
 export function computeImplementationFingerprintFromProvenance(change, taskId) {
   const task = change.tasks.find(t => t.id === taskId);
   const impl = task?.implementation;
   if (!impl) return computeImplementationFingerprint(change, taskId, {});
   return computeImplementationFingerprint(change, taskId, {
-    revision: impl.review_revision || impl.baseline_revision || null,
-    evidence: impl.changed_paths || [],
+    revision: [impl.baseline_revision || null, impl.review_revision || null],
+    evidence: [...(impl.changed_paths || []), impl.worktree_patch_fingerprint || null],
   });
 }
 

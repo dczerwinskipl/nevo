@@ -29,7 +29,7 @@ function templateReportContent() {
   return readFileSync(join(ROOT, '.claude/skills/nevo-ai-spec-workflow/templates/review-report.md'), 'utf8').replace(/\r\n/g, '\n');
 }
 
-describe('templates/review-report.md — Checklist section shape (AC1)', () => {
+describe('templates/review-report.md — Checklist section shape (AC1, corrected: 3-row minimal pass)', () => {
   const content = templateReportContent();
   const checklistHeadingIdx = content.indexOf('## Checklist');
   const passingBlockStart = content.indexOf('```', checklistHeadingIdx);
@@ -37,35 +37,38 @@ describe('templates/review-report.md — Checklist section shape (AC1)', () => {
   const passingBlock = content.slice(passingBlockStart + 3, passingBlockEnd).trim();
   const lines = passingBlock.split('\n');
 
-  test('the passing-example checklist block has exactly the seven items, in order, all checked', () => {
-    assert.equal(lines.length, 7);
-    const expectedText = [
-      'All acceptance criteria covered',
-      'Required automated verification passed',
-      'Scope check resolved',
-      'No forbidden-path violation remains unresolved',
-      'Architecture and documentation remain consistent',
-      'No unresolved blocking findings',
-      'No unresolved owner decision',
-    ];
-    lines.forEach((line, i) => {
-      assert.equal(line, `- [x] ${expectedText[i]}`, `line ${i + 1} must be a checked item with no trailing prose`);
-    });
+  test('the normal-pass example is exactly three rows: AC coverage, Scope, Findings', () => {
+    assert.equal(lines.length, 3);
+    assert.match(lines[0], /^- \[x\] Acceptance criteria: \d+\/\d+$/);
+    assert.equal(lines[1], '- [x] Scope: compliant');
+    assert.equal(lines[2], '- [x] Findings: none unresolved');
   });
 
-  test('a checked item in the passing example carries no indented continuation line', () => {
-    for (const line of lines) {
-      assert.match(line, /^- \[x\] /, 'every line in the passing example must itself be a top-level checked item, never a continuation');
+  test('the normal-pass example never restates any of the four internal-only gates as its own row', () => {
+    for (const forbiddenText of [
+      'Required automated verification passed', 'No forbidden-path violation remains unresolved',
+      'Architecture and documentation remain consistent', 'No unresolved owner decision', 'No unresolved blocking findings',
+    ]) {
+      assert.ok(!passingBlock.includes(forbiddenText), `passing example must not restate "${forbiddenText}"`);
     }
   });
 
-  test('the "Scope check resolved" exception-note example keeps the item checked and never uses the false-compliance wording (AC11)', () => {
+  test('the "Scope: resolved" exception-note example keeps the row checked and never uses the false-compliance word "compliant"', () => {
     const noteBlockStart = content.indexOf('```', passingBlockEnd + 3);
     const noteBlockEnd = content.indexOf('```', noteBlockStart + 3);
     const noteBlock = content.slice(noteBlockStart + 3, noteBlockEnd);
-    assert.match(noteBlock, /- \[x\] Scope check resolved/);
+    assert.match(noteBlock, /- \[x\] Scope: resolved/);
     assert.match(noteBlock, /owner-approved exception recorded/);
-    assert.doesNotMatch(noteBlock, /stays within `?allowed_paths`?/);
+    assert.doesNotMatch(noteBlock, /\[x\] Scope: compliant/);
+  });
+
+  test('the failing/exception-pending example still uses the full seven-item expanded shape, unchanged from task 13', () => {
+    const failingHeadingIdx = content.indexOf('Failing / exception-pending');
+    const failingBlockStart = content.indexOf('```', failingHeadingIdx);
+    const failingBlockEnd = content.indexOf('```', failingBlockStart + 3);
+    const failingBlock = content.slice(failingBlockStart + 3, failingBlockEnd).trim();
+    const failingLines = failingBlock.split('\n').filter(l => !l.startsWith('  -'));
+    assert.equal(failingLines.length, 7);
   });
 });
 
@@ -285,22 +288,43 @@ describe('renderCompactReviewChecklist — deterministic checklist rendering (ta
   });
 });
 
-describe('renderNormalPassingReportBody — the ≤10-non-empty-line normal-passing body (task 14, AC1, AC2, AC5, AC6)', () => {
-  test('a fully-passing report (no exception) has at most 10 non-empty lines', () => {
+describe('renderNormalPassingReportBody — the minimal 4-line normal-passing body (task 14, corrected: 3 rows, not 7, plus title)', () => {
+  test('a fully-passing report (no exception) is exactly 4 non-empty lines: title + AC coverage + Scope + Findings', () => {
     const result = computeTaskReviewChecklist(cleanChecklistInput());
-    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task' });
-    assert.ok(nonEmptyLines(body).length <= 10, `expected <=10 non-empty lines, got ${nonEmptyLines(body).length}`);
+    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task', totalAcceptanceCriteria: 11 });
+    const lines = nonEmptyLines(body);
+    assert.equal(lines.length, 4, `expected exactly 4 non-empty lines, got ${lines.length}`);
+    assert.equal(lines[0], '# Review: some-change/some-task');
+    assert.equal(lines[1], '- [x] Acceptance criteria: 11/11');
+    assert.equal(lines[2], '- [x] Scope: compliant');
+    assert.equal(lines[3], '- [x] Findings: none unresolved');
   });
 
-  test('a fully-passing report with one accepted scope exception still has at most 10 non-empty lines (AC2)', () => {
+  test('a fully-passing report with one accepted scope exception adds exactly one nested line (5 total)', () => {
     const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), scopeStatus: 'accepted-exception' });
-    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task', scopeExceptionCount: 1 });
-    assert.ok(nonEmptyLines(body).length <= 10, `expected <=10 non-empty lines, got ${nonEmptyLines(body).length}`);
+    const body = renderNormalPassingReportBody(result, {
+      title: 'Review: some-change/some-task', totalAcceptanceCriteria: 11, scopeExceptionCount: 1,
+    });
+    const lines = nonEmptyLines(body);
+    assert.equal(lines.length, 5, `expected exactly 5 non-empty lines, got ${lines.length}`);
+    assert.equal(lines[2], '- [x] Scope: resolved');
+    assert.equal(lines[3], '  - 1 owner-approved exception recorded');
+  });
+
+  test('the four internal-only gates (verification, forbidden-path, docs, owner-decision) never render as their own positive rows', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    const body = renderNormalPassingReportBody(result, { title: 'Review: x/y', totalAcceptanceCriteria: 5 });
+    for (const forbiddenText of [
+      'Required automated verification passed', 'No forbidden-path violation remains unresolved',
+      'Architecture and documentation remain consistent', 'No unresolved owner decision', 'No unresolved blocking findings',
+    ]) {
+      assert.ok(!body.includes(forbiddenText), `body must not restate "${forbiddenText}" as its own row`);
+    }
   });
 
   test('the normal-passing body contains none of the excluded prose forms (AC4)', () => {
     const result = computeTaskReviewChecklist(cleanChecklistInput());
-    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task' });
+    const body = renderNormalPassingReportBody(result, { title: 'Review: some-change/some-task', totalAcceptanceCriteria: 3 });
     const forbidden = [
       /because/i, /passed \d+/i, /test count/i, /## Findings/, /## Verification/,
       /## Acceptance-criteria coverage/, /INFORMATIONAL/, /commit/i,
@@ -310,7 +334,12 @@ describe('renderNormalPassingReportBody — the ≤10-non-empty-line normal-pass
 
   test('pass is required — throws for a non-pass checklist result rather than silently truncating it (AC6)', () => {
     const result = computeTaskReviewChecklist({ ...cleanChecklistInput(), docsConsistent: false });
-    assert.throws(() => renderNormalPassingReportBody(result, { title: 'x' }), /only for a passing checklist result/);
+    assert.throws(() => renderNormalPassingReportBody(result, { title: 'x', totalAcceptanceCriteria: 3 }), /only for a passing checklist result/);
+  });
+
+  test('totalAcceptanceCriteria is required — throws rather than rendering a bare "Acceptance criteria" line with no count', () => {
+    const result = computeTaskReviewChecklist(cleanChecklistInput());
+    assert.throws(() => renderNormalPassingReportBody(result, { title: 'x' }), /requires totalAcceptanceCriteria/);
   });
 
   test('a failing report keeps the expanded shape — computeTaskReviewChecklist output for a failure still names the failed items in full, not truncated for a line budget (AC5)', () => {
@@ -325,7 +354,7 @@ describe('renderNormalPassingReportBody — the ≤10-non-empty-line normal-pass
 describe('checkReportSectionUniqueness — AC coverage/scope/findings appear at most once (task 14, AC3)', () => {
   test('a normal passing body (checklist only) reports no duplicates', () => {
     const result = computeTaskReviewChecklist(cleanChecklistInput());
-    const body = renderNormalPassingReportBody(result, { title: 'Review: x/y' });
+    const body = renderNormalPassingReportBody(result, { title: 'Review: x/y', totalAcceptanceCriteria: 4 });
     assert.deepEqual(checkReportSectionUniqueness(body), { ok: true, duplicates: [] });
   });
 
@@ -353,8 +382,11 @@ describe('checkReportSectionUniqueness — AC coverage/scope/findings appear at 
 describe('renderNormalPassingReportBody reused for implementation-review per-task detail (task 14, AC7)', () => {
   test('a passing task expanded inside an aggregate report renders through the same function — no second, divergent minimal-report renderer', () => {
     const result = computeTaskReviewChecklist(cleanChecklistInput());
-    const perTaskBody = renderNormalPassingReportBody(result, { title: 'Review: change/task-a (implementation-review, scope: 01-03)' });
+    const perTaskBody = renderNormalPassingReportBody(result, {
+      title: 'Review: change/task-a (implementation-review, scope: 01-03)', totalAcceptanceCriteria: 7,
+    });
     assert.ok(nonEmptyLines(perTaskBody).length <= 10);
+    assert.equal(nonEmptyLines(perTaskBody).length, 4);
     assert.deepEqual(checkReportSectionUniqueness(perTaskBody), { ok: true, duplicates: [] });
   });
 });

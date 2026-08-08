@@ -95,18 +95,33 @@ must not reproduce the rejected over-invalidation of.
   uncommitted files (area requirement 4) — never unrelated dirty files.
 - Wire `computeImplementationFingerprint` (`tools/specs/service.mjs`, already defined
   but never populated with real data) to actually consume
-  `implementation.baseline_revision`/`changed_paths` as its `revision`/`evidence`
-  inputs (area requirement 5) — do not change the function's existing signature/
-  contract, only its call sites and the data it now actually receives.
+  `implementation.baseline_revision`, `implementation.review_revision`,
+  `implementation.changed_paths`, and `implementation.worktree_patch_fingerprint` (when
+  present) as its `revision`/`evidence` inputs (area requirement 5, corrected) — do not
+  change the function's existing signature/contract, only its call sites
+  (`computeImplementationFingerprintFromProvenance`) and the data they now actually
+  receive. `baseline_revision` and `review_revision` are both included (never folded
+  together with `||`, which only ever surfaces one of the two) so that two
+  implementations sharing a baseline and touched-path list but differing in actual
+  committed or uncommitted content never collide.
+- Document, in this task's own area file (requirement 5a), exactly when
+  `review_revision`/`changed_paths`/`worktree_patch_fingerprint` are frozen/persisted —
+  at that specific task's own `start`/self-check boundary only, never mutated by a later
+  task's own `start`/self-check.
 - Confirm (and add a regression test proving) `computeChangeFingerprint`/
   `computeTaskFingerprint` output is unaffected by any `implementation` field (area
   requirement 5's exclusion half).
-- Add a read-only `tools/specs.mjs` subcommand that inspects git history for a named
-  task without a persisted `implementation` block and proposes a
+- Add a read-only `tools/specs.mjs` subcommand (`suggest-provenance`) that inspects git
+  history for a named task without a persisted `implementation` block and proposes a
   `baseline_revision`/`changed_paths` reconstruction (commit-message matching,
   `allowed_paths` overlap) — never writes anything until a separate, explicit
-  confirmation step is invoked (area requirement 8). This flow is available on request;
-  do not run it against tasks 01-13 as part of this task's own shipping.
+  confirmation step (`apply-provenance --confirm`) is invoked (area requirement 8).
+  `apply-provenance` accepts either one task id with `--baseline`/`--changed-paths`, or
+  several task ids plus `--mappings` (a JSON array of `{task, baseline, changedPaths}`)
+  written together under the caller's single `--confirm` — the owner is never required
+  to invoke `apply-provenance --confirm` once per task when confirming several proposed
+  legacy mappings at once. This flow is available on request; do not run it against
+  tasks 01-13 as part of this task's own shipping.
 - Do not compare any provenance field against global `HEAD` equality anywhere in this
   task's own new code (area requirement 9, D33) — reuse the existing fingerprint-based
   staleness comparison pattern D28/D33 already established.
@@ -127,9 +142,15 @@ must not reproduce the rejected over-invalidation of.
 4. `computeChangeFingerprint`/`computeTaskFingerprint` output is unchanged by any edit
    to a task's `implementation` block, tested for each of the four fields independently
    (automated).
-5. `computeImplementationFingerprint` consumes real `implementation.baseline_revision`/
-   `changed_paths` data from a task's persisted state rather than requiring an
-   external caller to supply it (automated).
+5. `computeImplementationFingerprint` consumes real `implementation.baseline_revision`,
+   `review_revision`, `changed_paths`, and `worktree_patch_fingerprint` (when present)
+   data from a task's persisted state rather than requiring an external caller to supply
+   it (automated).
+5a. Two implementations sharing the same `baseline_revision` and `changed_paths` but
+   differing in `review_revision` produce different implementation fingerprints, and the
+   same holds, independently, for `worktree_patch_fingerprint` with everything else held
+   equal — the required regression proving the fingerprint identifies implementation
+   content, not just baseline/touched-path shape (automated).
 6. Scope-check evidence (task 16's structured per-task data, and any `task-review`
    scope check for a task with a persisted `implementation` block) reads
    `implementation.changed_paths`, not a fresh `attributeTouchedPaths` pattern match,
@@ -141,6 +162,11 @@ must not reproduce the rejected over-invalidation of.
    explicit confirmation fixture — never unattended — and its git-history
    reconstruction is presented as a labeled suggestion, never as an already-applied
    fact (automated + inspection).
+8a. `apply-provenance` resolves several proposed legacy mappings (one per task) passed
+   via `--mappings` and writes all of them together under one `--confirm` — a request
+   naming more than one task without `--mappings` is rejected rather than silently
+   applied to only the first task or requiring a separate confirmation per task
+   (automated).
 9. No freshness computation added by this task compares any `implementation` field
    against global `HEAD` equality; a regression test mirrors the one already covering
    `describeSelfCheck`/`staleEvidenceTasks` (D33) for the new provenance fields

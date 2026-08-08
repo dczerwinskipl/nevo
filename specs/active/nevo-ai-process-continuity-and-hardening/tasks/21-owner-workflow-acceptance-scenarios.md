@@ -111,7 +111,10 @@ mechanism one or more of them owns:
 
 1. Approve and start implementation begins work without another confirmation
    (`automated: node --test tools/tests/owner-workflow-acceptance.test.mjs`).
-2. Passing review produces only minimal result rows (≤10 non-empty lines) (automated).
+2. Passing review produces only minimal result rows — exactly the title plus three rows
+   (acceptance criteria, scope, findings), with none of the four internal-only gates
+   (verification, forbidden-path, docs, owner decision) rendered as its own row
+   (corrected: proves the actual minimal shape, not only a line-count ceiling) (automated).
 3. Failing review expands only failed checks (automated).
 4. Multi-task review uses bounded per-task context (automated).
 5. No owner questions appear between task reviews (automated).

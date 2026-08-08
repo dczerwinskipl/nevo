@@ -211,11 +211,15 @@ this area exists to prevent before task 12's own reports become the normal case.
     per-task reports:
 
     ```
-    | Task | Verdict | AC | Tests | Scope | Findings |
-    |---|---|---|---|---|---|
-    | state-and-fingerprint-semantics | pass | 11/11 | passed | compliant | 0 |
-    | recovery-classification-and-machine-readable-errors | changes-required | 7/7 | passed | exception pending | 1 |
+    | Task | Verdict | AC | Scope | Findings |
+    |---|---|---|---|---|
+    | state-and-fingerprint-semantics | pass | 11/11 | compliant | 0 |
+    | recovery-classification-and-machine-readable-errors | changes-required | 7/7 | exception pending | 1 |
     ```
+
+    (`Tests` column removed by task 14/D34/D35's final pre-approval correction — a
+    passing `Verdict` already implies verification passed; restating it was exactly the
+    redundant positive narration this correction removes.)
 
     `Verdict` uses `task-review`'s own three-value set (`pass`/`changes-required`/
     `blocked`, unchanged — see "Options and trade-offs" note below); `Scope` is one of
@@ -257,15 +261,23 @@ this area exists to prevent before task 12's own reports become the normal case.
 > `tools/specs/lifecycle.mjs` as of the sixth refinement pass). Task 14 tightens the
 > actual number and makes it a real, checkable guarantee.
 
-21. **A normal passing body has at most 10 non-empty lines.** "Normal passing" means:
-    full AC coverage, `Scope: compliant` (or an already-`accepted` exception carried
-    forward with no new decision needed this run), and zero unresolved findings. The
-    ten-line ceiling covers exactly: a title line, the seven checklist items
-    (requirement 1), and up to two lines for the accepted-exception note (requirement
-    14) when one applies — nothing else. This is stricter than requirement 7's "15-30
-    lines" language; requirement 7's own guarantee ("must never grow merely because a
-    task happens to carry many satisfied acceptance criteria") is unchanged, only the
-    upper bound for the normal case is now a fixed, enforced number instead of a range.
+21. **A normal passing body is normally exactly 4 non-empty lines — corrected in the
+    final pre-approval review pass.** "Normal passing" means: full AC coverage,
+    `Scope: compliant` (or an already-`accepted` exception carried forward with no new
+    decision needed this run), and zero unresolved findings. The body covers exactly: a
+    title line, then three rows — `Acceptance criteria: <covered>/<total>`,
+    `Scope: compliant`/`resolved`, `Findings: none unresolved` — plus one nested line for
+    an accepted-exception note (requirement 14) when one applies (5 lines total in that
+    case). This supersedes this task's own original "seven checklist items, ≤10 lines"
+    design: rendering all seven `computeTaskReviewChecklist` items even when they all
+    passed was still full positive-proof narration for four gates (verification,
+    forbidden-path, docs/architecture, owner decision) with nothing to say when clean.
+    Those four remain mandatory *internal* gates through `computeTaskReviewChecklist`,
+    completely unchanged — they are simply never rendered as their own row once they
+    pass; a failure among them surfaces through the relevant failed result (the
+    `Verification` section, or a `Findings` row), not a resurrected checklist row.
+    Requirement 7's own guarantee ("must never grow merely because a task happens to
+    carry many satisfied acceptance criteria") is unchanged.
 22. **AC coverage appears exactly once, scope appears exactly once, findings appear
     exactly once** — no report may restate any of the three under a second heading or
     inside a different section for emphasis (a literal, checkable structural rule, not
@@ -274,31 +286,49 @@ this area exists to prevent before task 12's own reports become the normal case.
     report passed; a separate verdict-explanation paragraph; a full listing of
     successful verification commands beyond the one-line-per-command shape requirement
     3 already established; test counts beyond what a single verification line already
-    states; a separate architecture/documentation-consistency confirmation paragraph
-    (the checklist's "Architecture and documentation remain consistent" item, checked,
-    is the entire statement); a repeated AC-coverage restatement; a list of
-    scope-compliant paths; Git history narration; and any synthetic
-    `INFORMATIONAL` finding (already excluded by requirement 2 — restated here because
-    the ten-line ceiling makes a single reintroduced item measurably break the budget).
-24. **`pass` remains impossible** (unchanged from requirement 5, restated for emphasis
-    against the new ceiling) with incomplete AC coverage, missing required automated
-    coverage, unresolved scope, a blocking finding, or an unresolved owner decision —
-    the ten-line ceiling applies only to a report that has actually earned `pass`
-    through requirement 5's existing guards; it is never achieved by omitting content a
-    non-`pass` report is required to show.
-25. **Deterministic rendering, not prompt wording alone.** A new
-    `tools/specs/lifecycle.mjs` function (`renderCompactReviewChecklist` or equivalent)
-    takes the same seven checklist inputs `computeTaskReviewChecklist` (task 13)
-    already computes and renders the exact ten-or-fewer-line body for the normal-pass
-    case; `task-review.md`/`implementation-review.md` call it instead of composing the
-    passing-case body as free text. A failing/exception-bearing report still expands
-    only the failed ACs, scope issues, or active findings (unchanged from task 13) —
-    the ten-line ceiling applies only to the fully-passing case.
+    states; a separate architecture/documentation-consistency confirmation paragraph;
+    a repeated AC-coverage restatement; a list of scope-compliant paths; Git history
+    narration; a synthetic `INFORMATIONAL` finding; and — corrected — any of the seven
+    checklist items' own positive row for the four that are now internal-only
+    (verification, forbidden-path, docs/architecture, owner decision).
+24. **`pass` remains impossible** (unchanged from requirement 5, restated for emphasis)
+    with incomplete AC coverage, missing required automated coverage, unresolved scope,
+    a blocking finding, or an unresolved owner decision — the minimal body applies only
+    to a report that has actually earned `pass` through requirement 5's existing guards;
+    it is never achieved by omitting content a non-`pass` report is required to show.
+25. **Deterministic rendering, not prompt wording alone — corrected shape.**
+    `renderNormalPassingReportBody` (`tools/specs/lifecycle.mjs`) renders the exact
+    4-line (title + 3 rows) normal-pass body from `computeTaskReviewChecklist`'s `pass`
+    result plus the AC total count — not all seven checklist items, superseding this
+    task's own original design; `task-review.md`/`implementation-review.md` call it
+    instead of composing the passing-case body as free text.
+    `renderCompactReviewChecklist` (task 13, unchanged) still renders the full seven-item
+    expanded shape, but now exclusively for the failing/exception-bearing case — a
+    failing/exception-bearing report still expands only the failed ACs, scope issues, or
+    active findings (unchanged from task 13).
 26. **The same minimal per-task format is used inside `implementation-review`'s
-    aggregate report** (task 12/13's own compact table, requirement 17) — a passing
-    task's row plus zero expanded lines already satisfies the ten-line-per-task budget
-    trivially; this requirement exists to state explicitly that task 14 does not
-    introduce a second, divergent minimal-report shape for the aggregate case.
+    aggregate report** (task 12/13's own compact table, requirement 17, corrected) — a
+    passing task's row plus zero expanded lines trivially satisfies the minimal-body
+    shape; this requirement exists to state explicitly that task 14 does not introduce a
+    second, divergent minimal-report shape for the aggregate case. The aggregate table
+    itself drops its `Tests` column — a passing `Verdict` already implies verification
+    passed.
+27. **The same minimization principle applies to every other review shape** — `spec-review`
+    (`--all` and scoped alike), `spec-audit`, and the gating batch review — corrected in
+    the final pre-approval review pass, which found this area's original text explicitly
+    excluding these four report shapes contradicted D34/D35's own minimization intent. A
+    fully-passing `spec-review` run (scoped or `--all`) renders through
+    `renderScopedSpecReviewBody` (task 17) regardless of mode; a `spec-audit`/gating-batch
+    -review `no-findings` result never carries a synthetic `INFORMATIONAL` row confirming
+    a check merely passed (`references/review-policy.md` § "Gating versus non-gating
+    checks," `templates/review-report.md` § "Findings," both corrected).
+28. **None of these four report shapes' own checks, gates, or verdict tables are
+    weakened by requirement 27** — `spec-review`'s five-value verdict, `spec-audit`'s and
+    the gating batch review's three-value verdict table, and every underlying
+    deterministic check they already run are completely unchanged. Requirement 27 only
+    removes redundant positive rendering from the *passing/no-findings* case; a run with
+    any actual finding, owner decision, or invalid baseline keeps its full existing
+    expanded shape.
 
 ## Constraints
 
@@ -364,11 +394,21 @@ decisions (requirement 19).
 - A test proves a re-review preserves a finding's `accepted` lifecycle without repeating
   it as an active blocker, while still surfacing it in the report's evidence trail.
 - A test proves a synthetic fully-passing report (full AC coverage, compliant scope,
-  zero findings) renders at most 10 non-empty lines (requirement 21), and that AC
-  coverage, scope, and findings each appear exactly once (requirement 22).
-- A test proves `renderCompactReviewChecklist` (requirement 25), not prompt wording
-  alone, is what a passing report's body is generated from — a snapshot test comparing
-  the function's deterministic output against the actual rendered report body.
+  zero findings) renders exactly 4 non-empty lines (requirement 21, corrected), and that
+  AC coverage, scope, and findings each appear exactly once (requirement 22).
+- A test proves `renderNormalPassingReportBody` (requirement 25, corrected), not prompt
+  wording alone, is what a passing report's body is generated from — a snapshot test
+  comparing the function's deterministic output against the actual rendered report body
+  — and that none of the four internal-only gates renders as its own positive row.
+- A test proves `implementation-review`'s aggregate table has no `Tests` column
+  (requirement 26).
+- A test (or, where the report body is agent-composed prose rather than a pure
+  function's output, an inspection check) proves a fully-passing `spec-review --all` run
+  renders the same compact body as a fully-passing scoped run (requirement 27), and that
+  `spec-audit`/the gating batch review's documented `no-findings` shape no longer
+  instructs recording a synthetic `INFORMATIONAL` row for a passing check
+  (requirement 27) while leaving their verdict tables and underlying checks unchanged
+  (requirement 28).
 
 ## Dependencies
 
@@ -379,16 +419,22 @@ that same report/decision model rather than building a second one, so it cannot 
 before task 12's own CLI surface and command file exist. `state-and-fingerprint-semantics`
 (task 01) — `computeTaskFingerprint` (D18), read by the exception-validity check
 (requirement 15). Task 14 (§E) additionally depends on this same area's own task 13
-output — `computeTaskReviewChecklist` and the seven-item checklist shape — since
-`renderCompactReviewChecklist` (requirement 25) renders exactly those seven inputs;
-task 14 is recorded as a separate task (not folded into task 13) because it was
-requested after task 13 reached `verified`, per the same "new task, not a reopened one"
-convention D30/D31 already established.
+output — `computeTaskReviewChecklist`'s seven-item verdict computation, which
+`renderNormalPassingReportBody`'s pass-gate and `renderCompactReviewChecklist`'s
+failing-shape rendering both still consume; task 14 is recorded as a separate task (not
+folded into task 13) because it was requested after task 13 reached `verified`, per the
+same "new task, not a reopened one" convention D30/D31 already established. Requirement
+27 additionally reuses `renderScopedSpecReviewBody` (task 17) for `spec-review`'s
+passing-body shape — task 14's own §E requirement 27 depends on task 17's function
+existing, both delivered together in the same (seventh) refinement pass.
 
 ## Out of scope
 
-- Changing `/nevo-ai:spec-review`, `/nevo-ai:spec-audit`, or the gating batch review's own
-  report shape or verdict vocabulary (requirement 17's explicit scope).
+- Changing `/nevo-ai:spec-review`'s five-value verdict vocabulary, `/nevo-ai:spec-audit`'s
+  or the gating batch review's three-value verdict table, or any of their underlying
+  deterministic checks (requirement 28) — requirement 27 only removes redundant positive
+  rendering from their own passing/no-findings case; their verdict computation is
+  unchanged.
 - A fourth per-task verdict value for `task-review`/`implementation-review` (see
   "Options and trade-offs" note above) — an unresolved scope-exception decision is an
   unresolved `OWNER_DECISION` finding under the existing three-value set.

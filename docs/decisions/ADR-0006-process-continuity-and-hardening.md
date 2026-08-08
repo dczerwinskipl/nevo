@@ -69,8 +69,11 @@ After all thirteen tasks reached `verified`, a seventh refinement pass recorded 
 ten-property one-person-workflow bar (D34) and added eight further tasks (14–21, D35)
 closing gaps a reconciliation pass had already surfaced against it. A fourteenth task,
 `review-report-minimization`, tightens task 13's own "15-30 line" target for a normal
-passing `task-review`/`implementation-review` report into a deterministically enforced
-10-line ceiling. See "Report minimization (D34, D35)" below.
+passing `task-review`/`implementation-review` report — corrected, in a final
+pre-approval review, from a deterministically enforced 10-line ceiling into a minimal,
+normally-4-line shape (three rows: AC coverage, scope, findings) extended to every
+review shape, not only `task-review`/`implementation-review`. See "Report minimization
+(D34, D35)" below.
 
 A fifteenth task, `deterministic-implementation-provenance`, closes the scope D33
 explicitly deferred: a persisted, per-task `implementation` block
@@ -371,10 +374,12 @@ acceptance scenarios (D34, D35)" below.
     check cannot decide; a re-review finding material expansion re-opens the finding for
     a fresh owner decision even when the fingerprint check alone would have passed.
 36. **`implementation-review`'s aggregate report becomes one compact row per task**
-    (`Task | Verdict | AC | Tests | Scope | Findings`, `Scope` one of `compliant` /
-    `exception pending` / `N owner-approved exception(s)` / `forbidden-path
-    violation`) instead of several concatenated full per-task reports — expanded only
-    for failing/exception/cross-task/owner-decision tasks. Several selected tasks'
+    (`Task | Verdict | AC | Scope | Findings` — `Tests` column removed by task 14's final
+    pre-approval correction, D34/D35, since a passing `Verdict` already implies
+    verification passed; `Scope` one of `compliant` / `exception pending` / `N
+    owner-approved exception(s)` / `forbidden-path violation`) instead of several
+    concatenated full per-task reports — expanded only for failing/exception/cross-task/
+    owner-decision tasks. Several selected tasks'
     scope-exception decisions are collected into one owner-facing confirmation, grouped
     by `outside-allowed` (eligible for the acceptance menu) versus `forbidden` (never
     eligible) — never folded into one accept-all answer — applied atomically through
@@ -388,16 +393,25 @@ acceptance scenarios (D34, D35)" below.
     `--verbose` (restoring full AC-by-AC prose) is an optional, additive interface this
     task may ship without, per its own scope.
 
-### Report minimization (D34, D35)
+### Report minimization (D34, D35, corrected in the final pre-approval pass)
 
-38. **A normal passing `task-review`/`implementation-review` report has at most 10
-    non-empty lines**, tightening D31's "15-30 lines as a consequence" figure into a
-    deterministically enforced ceiling: title line, the seven checklist items
-    (`renderCompactReviewChecklist`), plus, when an owner-approved scope exception is
-    active, one exception-note line (`renderNormalPassingReportBody`, both in
-    `tools/specs/lifecycle.mjs`). Applies only to the fully-passing case — no unresolved
+38. **A normal passing `task-review`/`implementation-review` report is normally exactly
+    4 non-empty lines** — title, then three rows: acceptance-criteria coverage, scope,
+    findings (`renderNormalPassingReportBody`, `tools/specs/lifecycle.mjs`), plus, when
+    an owner-approved scope exception is active, one nested exception-note line under the
+    scope row. Corrected from this task's original design, which still rendered all
+    seven `computeTaskReviewChecklist` items (via `renderCompactReviewChecklist`) even
+    when every one of them passed — technically under the original 10-line ceiling, but
+    still full positive-proof narration for four gates with nothing to say when they
+    pass. `computeTaskReviewChecklist`'s seven internal gates and verdict semantics
+    (`pass`/`changes-required`/`blocked`) are completely unchanged — four of the seven
+    (verification, forbidden-path, docs/architecture, owner decision) are simply never
+    rendered as their own positive row; when one of them fails instead, it surfaces
+    through the relevant failed result (a `Verification` line, or a `Findings` row), not
+    a resurrected checklist row. Applies only to the fully-passing case — no unresolved
     finding, no unresolved owner/scope decision; a report with any of those keeps D31's
-    expanded shape.
+    original expanded shape (`renderCompactReviewChecklist`'s full seven-item checklist),
+    unchanged.
 39. **A structural guard, not just a shorter template.** `checkReportSectionUniqueness`
     (`tools/specs/lifecycle.mjs`) confirms AC coverage, scope, and findings each appear
     at most once in a rendered report body — a second heading restating a checklist item
@@ -406,7 +420,21 @@ acceptance scenarios (D34, D35)" below.
     `implementation-review`'s per-task loop reuses `task-review.md` step 8 verbatim
     (task 12), so a passing task's own `reviews/<task-id>.md` already goes through
     `renderNormalPassingReportBody` — no second, divergent minimal-report renderer for
-    the orchestrated case.
+    the orchestrated case. The aggregate table drops its `Tests` column (`Task | Verdict
+    | AC | Scope | Findings`) — a passing `Verdict` already implies verification passed.
+41. **The same minimization principle — remove redundant positive narration, never weaken
+    a check or verdict — extends to every review shape, not only `task-review`/
+    `implementation-review`.** Corrects this task's own original area exclusion ("never
+    `spec-review`/`spec-audit`/the gating batch review — those are unchanged"), which the
+    final pre-approval review found shipped a real contradiction with the general
+    minimization intent. `spec-review --all`'s fully-passing whole-change body and a
+    scoped run's body both use the same compact checklist shape (`renderScopedSpecReviewBody`,
+    task 17, D34/D35 — its own verdict computation is unaffected, only its output is now
+    also the `--all` passing shape, not scoped-only). `spec-audit`'s `no-findings` case
+    and the gating batch review's `no-findings` case each drop the synthetic
+    `INFORMATIONAL` rows their reports previously carried for a passing check — the
+    verdict tables (`computeMultiTaskReviewVerdict`-style three-value tables) and every
+    underlying check are unchanged; only redundant positive narration is gone.
 
 ### Implementation provenance and attribution (D34, D35)
 
@@ -428,23 +456,42 @@ acceptance scenarios (D34, D35)" below.
     alongside `self_check` on every `self-check` run. Two sequential tasks touching the
     same file each retain their own independent, correct attribution — task B editing a
     file never rewrites task A's already-persisted record.
-44. **`computeImplementationFingerprint` is finally populated with real data.** The
-    function itself (defined by task 01) is unchanged; a new
-    `computeImplementationFingerprintFromProvenance` reads a task's own persisted
-    `implementation` block as the `revision`/`evidence` inputs, closing the gap the
-    function's own original doc comment named ("populating real revision/evidence data
-    is later tasks' job").
+44. **`computeImplementationFingerprint` is finally populated with real data — and with
+    all of it, not just baseline and touched paths.** The function itself (defined by
+    task 01) is unchanged; a new `computeImplementationFingerprintFromProvenance` reads
+    a task's own persisted `implementation` block as the `revision`/`evidence` inputs,
+    closing the gap the function's own original doc comment named ("populating real
+    revision/evidence data is later tasks' job"). Corrected (owner review, seventh
+    refinement pass): the first version folded `baseline_revision`/`review_revision`
+    together with `||` and never fed `worktree_patch_fingerprint` into the hash at all,
+    so two implementations sharing a baseline and touched-path list but differing only in
+    uncommitted content produced the same fingerprint — exactly the case
+    `worktree_patch_fingerprint` exists to catch. `revision` now carries both
+    `baseline_revision` and `review_revision` as a pair, and `evidence` carries
+    `worktree_patch_fingerprint` alongside `changed_paths`, so every persisted field that
+    identifies actual implementation content participates in the hash.
 45. **`implementation` is excluded from every fingerprint tier** — operational evidence,
     not semantic task content, exactly like `status`/`execution.suspension`/
     `self_check`.
-46. **Owner-confirmed migration flow, never unattended.** `suggest-provenance` (read-only
-    — inspects commit messages mentioning the task id as a *suggestion*, never
-    authoritative) and `apply-provenance --confirm --baseline <sha>` (the only write
-    path, refuses to write without an explicit `--confirm`) let an already-terminal task
-    (01-13) gain a reconstructed `implementation` block on request — never run
-    unattended against them as part of shipping this task, mirroring D32's precedent
-    that a new completeness mechanism is not silently enforced backward against
-    already-closed work.
+45a. **`review_revision`/`changed_paths`/`worktree_patch_fingerprint` are frozen at each
+    task's own self-check boundary.** `handleSelfCheck` writes only the named task's own
+    `implementation` entry, computed from that task's own `baseline_revision` and its own
+    `allowed_paths` attribution — a later task's `start`/self-check never reads or
+    rewrites an earlier task's already-persisted entry, and global `HEAD` advancing after
+    task A's own review does not itself change task A's recorded fields.
+46. **Owner-confirmed migration flow, never unattended — and several proposed mappings
+    may be confirmed together.** `suggest-provenance` (read-only — inspects commit
+    messages mentioning the task id as a *suggestion*, never authoritative) and
+    `apply-provenance --confirm` (the only write path, refuses to write without an
+    explicit `--confirm`) let an already-terminal task (01-13) gain a reconstructed
+    `implementation` block on request — never run unattended against them as part of
+    shipping this task, mirroring D32's precedent that a new completeness mechanism is
+    not silently enforced backward against already-closed work. Corrected (owner review):
+    `apply-provenance` also accepts a comma-separated task list plus `--mappings` (one
+    JSON array of `{task, baseline, changedPaths}`), writing every named task's block
+    together under the caller's one `--confirm` — the owner is never required to invoke
+    it once per task when confirming several proposed reconstructions at once; a single
+    task with `--baseline`/`--changed-paths` keeps the original single-task shape.
 47. **Does not reopen D33.** `self_check.revision`/`staleEvidenceTasks` are unchanged —
     this is a separate, narrower mechanism answering "what did this task's own work
     touch," not a reversal of D33's "never compare against global `HEAD` equality" rule.
@@ -496,9 +543,15 @@ acceptance scenarios (D34, D35)" below.
     `status` — only the deterministic report write persists those fields, and only for
     tasks in the resolved scope.
 55. **A scoped review names a potentially-impacted out-of-scope task, never silently
-    re-reviews or ignores it.** `findPotentiallyImpactedOutOfScopeTasks` reports an
-    out-of-scope task named in a selected task's own `dependency_contracts`, offering
-    scope expansion rather than deciding on the owner's behalf.
+    re-reviews or ignores it — and impact is never inferred from being depended on.**
+    `findPotentiallyImpactedOutOfScopeTasks` reports an out-of-scope task only when its
+    own current fingerprint no longer matches its recorded baseline (the same signal
+    `scopedReviewBaselineValid` computes) — never merely because a selected task's
+    `dependency_contracts` names it. A new task depending on an older one means the older
+    task is context for the new one, not evidence the new task invalidated it; a real
+    cross-contract impact the fingerprint check misses is a separate, explicit
+    model-inspection finding, never an automated inference from the dependency direction.
+    Offers scope expansion rather than deciding on the owner's behalf.
 56. **A scoped review cannot claim whole-change readiness on a stale out-of-scope
     baseline.** `scopedReviewBaselineValid` gates rows 4-5 of the spec-review decision
     table for any non-`--all` run — every out-of-scope task from task 12 onward must
@@ -533,6 +586,20 @@ acceptance scenarios (D34, D35)" below.
     `ready-to-start`/`in-progress` stage), or, if no other stage explains it, a new
     explicit `blocked-on-dependencies` stage naming the unmet dependency and its current
     status.
+61. **`docs/ai/task-execution-policy.md` is reconciled with batch execution, closing
+    F5.** The doc described only a per-task, one-confirmation-per-step model, never
+    updated for the batch/low-ceremony execution D2/D4/D17 and area
+    `batch-execution-and-gating-review` (task 08) already implement — a real, shipped
+    contradiction the final pre-approval review found and refused to leave unresolved.
+    Corrected into four clearly separated sections: standalone per-task operation
+    (original content, preserved), owner-authorized sequential batch operation (self-check
+    plus the end-of-batch gating review for a no-risk-signal task, D24's hard stops,
+    D2's no-per-task-confirmation rule), genuine owner-decision stops (identical in both
+    modes — `AGENTS.md`'s gate list, scope/`forbidden_paths` changes, new dependencies,
+    ADR changes, D17's stop conditions), and internal command boundaries that must never
+    manufacture an extra confirmation (item 58's compound-action continuation, batch
+    task-to-task continuation, self-check's own evidence write, D17's resume-in-place).
+    A documentation correction only — no behavior change.
 
 ### Formal unowned-drift correction flow (D34, D35)
 

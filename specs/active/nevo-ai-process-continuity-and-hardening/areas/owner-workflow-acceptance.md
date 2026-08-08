@@ -34,8 +34,12 @@ own list, mapped to the mechanism(s) it exercises:
    full `spec-approve` "approve and start" turn against a real approved task, asserting
    implementation has begun by the end of the turn (task 18).
 2. **Passing review produces only minimal result rows** — a full `task-review` turn
-   against a fully-passing task, asserting the response body is at most 10 non-empty
-   lines (task 14).
+   against a fully-passing task, asserting the response body is exactly the title plus
+   three rows (acceptance criteria, scope, findings), and that none of the four
+   internal-only gates (verification, forbidden-path, docs, owner decision) renders as
+   its own row (task 14, corrected in the final pre-approval review pass — proves the
+   actual minimal shape, not only a line-count ceiling a differently-shaped body could
+   also satisfy).
 3. **Failing review expands only failed checks** — a full `task-review` turn against a
    task with exactly one failed acceptance criterion, asserting only that criterion is
    expanded, every other checklist item stays compact (tasks 13/14, regression).

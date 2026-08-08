@@ -78,21 +78,29 @@ describe('selectChangedTaskIds — fingerprint-based, never re-derived from pros
   });
 });
 
-// ── findPotentiallyImpactedOutOfScopeTasks (AC5) ────────────────────────────
+// ── findPotentiallyImpactedOutOfScopeTasks (AC5, AC5a — corrected direction) ─
 
-describe('findPotentiallyImpactedOutOfScopeTasks — named, never silently re-reviewed or ignored (AC5)', () => {
-  test('a selected task naming an out-of-scope task in dependency_contracts is reported', () => {
-    const impacted = findPotentiallyImpactedOutOfScopeTasks(['t2'], { t2: ['t1'] });
+describe('findPotentiallyImpactedOutOfScopeTasks — impact comes only from the out-of-scope task\'s own fingerprint, never from being depended on (AC5)', () => {
+  test('an out-of-scope task whose own fingerprint no longer matches its recorded baseline is reported', () => {
+    const impacted = findPotentiallyImpactedOutOfScopeTasks(['t1'], { t1: 'a' }, { t1: 'CHANGED' });
     assert.deepEqual(impacted, ['t1']);
   });
 
-  test('a dependency_contracts reference to another in-scope task is not reported', () => {
-    const impacted = findPotentiallyImpactedOutOfScopeTasks(['t1', 't2'], { t2: ['t1'] });
+  test('an out-of-scope task with a matching fingerprint is not reported, even with no prior relationship data', () => {
+    assert.deepEqual(findPotentiallyImpactedOutOfScopeTasks(['t1'], { t1: 'a' }, { t1: 'a' }), []);
+  });
+
+  test('AC5a regression — new task B depends on old task A; A\'s fingerprint is unchanged; A is not reported as impacted merely because B\'s dependency_contracts names it', () => {
+    // The function no longer takes selectedTaskIds/dependency_contracts at all —
+    // a selected task naming an out-of-scope task as a dependency is context,
+    // never an input to this check. Passing only A's (unchanged) fingerprint
+    // data proves the old task is not flagged regardless of what depends on it.
+    const impacted = findPotentiallyImpactedOutOfScopeTasks(['task-a'], { 'task-a': 'fp-a' }, { 'task-a': 'fp-a' });
     assert.deepEqual(impacted, []);
   });
 
-  test('no relationships at all reports nothing', () => {
-    assert.deepEqual(findPotentiallyImpactedOutOfScopeTasks(['t1'], {}), []);
+  test('a checkable out-of-scope task with no prior fingerprint at all is reported, not silently skipped', () => {
+    assert.deepEqual(findPotentiallyImpactedOutOfScopeTasks(['t1'], {}, { t1: 'a' }), ['t1']);
   });
 });
 

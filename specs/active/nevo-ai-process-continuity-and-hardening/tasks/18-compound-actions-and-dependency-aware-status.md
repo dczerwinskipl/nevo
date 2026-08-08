@@ -20,6 +20,7 @@ context:
     - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
     - .claude/commands/nevo-ai/spec-approve.md
     - tools/specs/lifecycle.mjs
+    - docs/ai/task-execution-policy.md
   optional:
     - .claude/commands/nevo-ai/task-start.md
     - docs/decisions/ADR-0006-process-continuity-and-hardening.md
@@ -30,6 +31,7 @@ allowed_paths:
   - .claude/commands/nevo-ai/spec-approve.md
   - specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml
   - docs/decisions/ADR-0006-process-continuity-and-hardening.md
+  - docs/ai/task-execution-policy.md
 consequential_paths:
   - docs/index.generated.md
   - docs/index.generated.json
@@ -60,6 +62,15 @@ caused only by internal command boundaries). `spec-approve`'s "approve and start
 outcome continues directly into implementation after `start` succeeds, in the same turn
 (FU-002); `deriveStage`'s `ready-to-start` stage never reports an `approved` task as
 ready unless `depsSatisfied` is true (FU-004).
+
+**Also closes F5 (final pre-approval review):** `docs/ai/task-execution-policy.md`
+described only a per-task, one-confirmation-per-step model — never reconciled with the
+batch/low-ceremony execution this same change already implements (D2/D4/D17, area
+`batch-execution-and-gating-review`). Assigned to this task because it owns the
+owner-facing compound-action/dependency-aware behavior the doc must describe correctly.
+The doc now distinguishes standalone per-task operation, owner-authorized sequential
+batch operation, genuine owner-decision stops (identical in both modes), and internal
+command boundaries that must never manufacture an extra confirmation.
 
 ## Dependencies
 
@@ -98,6 +109,17 @@ the existing batch implementation loop rather than building a second one.
 - Do not modify `spec-approve`'s outcome menu shape, D3/D14's approval semantics, or any
   `deriveStage` stage other than `ready-to-start` (a broader audit is out of scope, per
   the area file).
+- Rewrite `docs/ai/task-execution-policy.md` (F5) to distinguish, as separate sections:
+  standalone per-task operation (the original "Before starting"/"During implementation"/
+  "Completing a task" content, preserved), owner-authorized sequential batch operation
+  (D2/D4, area `batch-execution-and-gating-review`), genuine owner-decision stops
+  (`AGENTS.md`'s gate list, scope/`forbidden_paths` changes, new dependencies, ADR
+  changes, D17's stop conditions — identical in both modes, never bypassed by batch
+  authorization), and internal command boundaries that must never manufacture an extra
+  confirmation (the compound "approve and start" continuation this task itself builds,
+  batch task-to-task continuation, self-check's own evidence write, D17's resume-in-place
+  after a `confirm-required` stop). Do not change the underlying behavior any of these
+  reference — this is a documentation correction, not a new mechanism.
 
 ## Acceptance criteria
 
@@ -122,6 +144,12 @@ the existing batch implementation loop rather than building a second one.
 7. `follow-ups.yaml`'s FU-002 and FU-004 entries are updated to `status: resolved` with
    a `resolution` field referencing this task, only after AC1-AC6 pass
    (`inspection`).
+7a. `docs/ai/task-execution-policy.md` (F5) clearly distinguishes standalone per-task
+   operation, owner-authorized batch operation, genuine owner-decision stops (unchanged
+   in both modes), and internal command boundaries that never require an extra
+   confirmation — verified by inspection that all four are present as clearly separated
+   sections and that no forbidden action or owner-decision stop from the original
+   standalone-only version was silently dropped (`inspection`).
 8. `node tools/specs.mjs validate`/`check` and `node tools/docs.mjs validate`/`check`
    report clean after this task's changes (automated).
 9. `node --test tools/tests/*.test.mjs` (full suite, including the two new test files)
@@ -143,7 +171,10 @@ node tools/docs.mjs check
 
 `docs/decisions/ADR-0006-process-continuity-and-hardening.md` (new subsection covering
 the general "a compound action completes the operation its label promises" rule and the
-dependency-aware status fix; "Context" paragraph names task 18 alongside tasks 01-17).
+dependency-aware status fix; "Context" paragraph names task 18 alongside tasks 01-17),
+`docs/ai/task-execution-policy.md` (F5 — rewritten to distinguish standalone/batch
+operation, owner-decision stops, and internal command boundaries, per the Implementation
+constraints above).
 
 ## Out of scope
 

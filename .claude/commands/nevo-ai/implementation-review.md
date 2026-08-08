@@ -42,8 +42,9 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    classification with lifecycle status, and writing `reviews/<task-id>.md`) — **never**
    step 9 onward (the per-task status-decision menu, the batch-continuation offer). A
    passing per-task report is written through `task-review.md` step 8's own
-   `renderNormalPassingReportBody` call (task 14, D34/D35) — the same ≤10-line minimal
-   shape, not a second, divergent renderer for the orchestrated case.
+   `renderNormalPassingReportBody` call (task 14, D34/D35, corrected) — the same minimal
+   4-line (title + AC coverage + Scope + Findings) shape, not a second, divergent
+   renderer for the orchestrated case.
 
    **Step 7a's follow-up-recording offer is suppressed inside this orchestration
    specifically (task 16, D34/D35) — collected into `followUpCandidates` instead of
@@ -127,13 +128,13 @@ change (`/nevo-ai:spec-audit`, non-gating, never applies a status transition).
    this is recomputed for step 9.
 7. **Write the aggregate report** to
    `specs/active/<change-id>/reviews/implementation-review-<scope>.md` (create `reviews/`
-   if needed) using the compact table shape (D31, area review-report-compaction-and-scope-exceptions requirement 17) — overall verdict; one compact row per selected task:
+   if needed) using the compact table shape (D31, area review-report-compaction-and-scope-exceptions requirement 17, `Tests` column removed by task 14/D34/D35's final pre-approval correction — a passing `Verdict` already implies verification passed; the column restated a fact the verdict already carries) — overall verdict; one compact row per selected task:
 
    ```
-   | Task | Verdict | AC | Tests | Scope | Findings |
-   |---|---|---|---|---|---|
-   | state-and-fingerprint-semantics | pass | 11/11 | passed | compliant | 0 |
-   | recovery-classification-and-machine-readable-errors | changes-required | 7/7 | passed | exception pending | 1 |
+   | Task | Verdict | AC | Scope | Findings |
+   |---|---|---|---|---|
+   | state-and-fingerprint-semantics | pass | 11/11 | compliant | 0 |
+   | recovery-classification-and-machine-readable-errors | changes-required | 7/7 | exception pending | 1 |
    ```
 
    `Scope` is one of `compliant` / `exception pending` / `N owner-approved exception(s)` /

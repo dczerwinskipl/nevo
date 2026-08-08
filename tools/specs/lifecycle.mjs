@@ -324,6 +324,55 @@ export function nextImplementationBaseline(existing, revision) {
   return existing?.baseline_revision || revision;
 }
 
+/**
+ * Parses/validates `apply-provenance`'s input into a normalized list of
+ * `{ taskId, baseline, changedPaths }` mappings — pure, no repository I/O,
+ * so `handleApplyProvenance` (tools/specs.mjs) can write from it without the
+ * parsing/validation logic itself being repository-bound. Owner correction
+ * (seventh refinement pass, area requirement 8): several proposed legacy
+ * provenance reconstructions may be confirmed in one owner action via
+ * `--mappings` (a JSON array), all resolved together under the caller's one
+ * `--confirm` — never one prompt per task. A single task id with
+ * `baseline`/`changedPaths` options keeps the original single-task shape.
+ * Throws a plain `Error` on invalid input — the caller wraps it as needed.
+ */
+export function resolveProvenanceMappings(taskIdOrList, options = {}) {
+  const taskIds = String(taskIdOrList ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!taskIds.length) throw new Error('apply-provenance requires at least one task id.');
+
+  if (options.mappings) {
+    let parsed;
+    try {
+      parsed = JSON.parse(options.mappings);
+    } catch {
+      throw new Error('apply-provenance --mappings must be valid JSON: an array of {task, baseline, changedPaths}.');
+    }
+    if (!Array.isArray(parsed) || !parsed.length) {
+      throw new Error('apply-provenance --mappings must be a non-empty JSON array.');
+    }
+    return parsed.map(entry => {
+      if (!entry.task || !entry.baseline) {
+        throw new Error('Each --mappings entry requires "task" and "baseline".');
+      }
+      return {
+        taskId: entry.task,
+        baseline: entry.baseline,
+        changedPaths: Array.isArray(entry.changedPaths) ? entry.changedPaths : [],
+      };
+    });
+  }
+
+  if (taskIds.length > 1) {
+    throw new Error('apply-provenance for more than one task requires --mappings (one JSON array, confirmed together under this single --confirm) — --baseline/--changed-paths only cover a single task.');
+  }
+  if (!options.baseline) throw new Error('apply-provenance requires --baseline <revision>.');
+  return [{
+    taskId: taskIds[0],
+    baseline: options.baseline,
+    changedPaths: options.changedPaths ? options.changedPaths.split(',').map(s => s.trim()).filter(Boolean) : [],
+  }];
+}
+
 // ── Resume-and-continue controller (D2/D3/D8/D17, task 03) ─────────────────
 //
 // An authorized scope is a single task id or an already-resolved ordered
@@ -1360,22 +1409,30 @@ export function selectChangedTaskIds(evaluableTaskIds, priorTaskFingerprints, cu
 }
 
 /**
- * Names every out-of-scope task whose fingerprint context could plausibly
- * have shifted because of what's actually in scope this run (area
- * requirement 4) — a selected task's `dependency_contracts` naming an
- * unselected task. Reported by name, offered for explicit scope expansion;
- * never silently re-reviewed and never silently ignored.
- * `taskDependencyContracts` is `{[taskId]: string[]}`.
+ * Names every out-of-scope task that is potentially impacted by this run
+ * (area requirement 4, corrected) — an out-of-scope task's own current
+ * `computeTaskFingerprint` no longer matching the baseline recorded for it in
+ * `reviews/spec.md`'s `task_fingerprints` map. This is exactly
+ * `scopedReviewBaselineValid`'s own `invalidTaskIds` computation, exposed
+ * under this name for the reporting step (as distinct from the verdict-gate
+ * use of the same check) — one deterministic signal, two consumers, never two
+ * divergent computations.
+ *
+ * Reading or referencing an older, out-of-scope task as a
+ * `semantic_references.dependency_contracts` entry of a selected task is
+ * never, by itself, evidence of impact — a prior version of this function
+ * used that direction as its signal, which is backwards: a new task
+ * depending on an older one means the older task is context/dependency
+ * input for the new one, not something the new task's existence can
+ * invalidate. That direction-based check has been removed; `depIds`/`refs`
+ * about the *selected* scope are not inputs to this function at all. Any
+ * real cross-contract impact the deterministic fingerprint comparison
+ * doesn't represent is a model-inspection judgment made at review time
+ * (area requirement 4), reported separately in the review body — never
+ * inferred by an automated function from a dependency reference alone.
  */
-export function findPotentiallyImpactedOutOfScopeTasks(selectedTaskIds, taskDependencyContracts) {
-  const selected = new Set(selectedTaskIds);
-  const impacted = new Set();
-  for (const id of selected) {
-    for (const dep of (taskDependencyContracts || {})[id] || []) {
-      if (!selected.has(dep)) impacted.add(dep);
-    }
-  }
-  return [...impacted].sort();
+export function findPotentiallyImpactedOutOfScopeTasks(outOfScopeTaskIds, priorTaskFingerprints, currentTaskFingerprints) {
+  return scopedReviewBaselineValid(outOfScopeTaskIds, priorTaskFingerprints, currentTaskFingerprints).invalidTaskIds;
 }
 
 /**
@@ -1778,20 +1835,43 @@ export function renderCompactReviewChecklist({ unresolvedItems = [] } = {}, { sc
 }
 
 /**
- * Deterministic ≤10-non-empty-line body for a normal passing
+ * Deterministic 4-non-empty-line body for a normal passing
  * `task-review`/`implementation-review` per-task report (D34/D35, area §E
- * requirements 21-25) — title line + the seven checklist items (+ up to one
- * exception-note line). Throws if the checklist result isn't `pass`: a
- * failing or exception-pending report keeps the expanded shape task 13
- * already defines (findings, AC-coverage table, verification lines) and does
- * not go through this renderer — only the fully-passing case is minimized.
+ * requirements 21-25, corrected by owner review — final pre-approval pass).
+ *
+ * The original version of this renderer rendered all seven
+ * `computeTaskReviewChecklist` items (via `renderCompactReviewChecklist`) even
+ * when every one of them passed — technically ≤10 lines, but still full
+ * positive-proof narration for four gates (verification, forbidden-path,
+ * docs/architecture, owner-decision) that have nothing to say when they pass.
+ * Corrected shape: exactly three rows — AC coverage, Scope, Findings — plus
+ * the title, normally four non-empty lines total (one more when an accepted
+ * scope exception adds its nested note). The four checklist items dropped
+ * from direct rendering (verification/forbidden-path/docs/owner-decision)
+ * remain mandatory *internal* gates — `computeTaskReviewChecklist`'s own
+ * seven-item verdict computation and semantics are completely unchanged; this
+ * function only stops re-stating what a checked item already proved. `pass`
+ * is still required to call this renderer at all (thrown otherwise) — a
+ * failing/exception-pending report uses `renderCompactReviewChecklist`'s
+ * expanded shape instead, where a failed item is exactly "the relevant
+ * failed result," unchanged from task 13.
  */
-export function renderNormalPassingReportBody(checklistResult, { title, scopeExceptionCount = 0 } = {}) {
+export function renderNormalPassingReportBody(checklistResult, { title, totalAcceptanceCriteria, scopeExceptionCount = 0 } = {}) {
   if (!checklistResult || checklistResult.verdict !== 'pass') {
     throw new Error('renderNormalPassingReportBody is only for a passing checklist result — a failing/exception-bearing report uses the expanded shape instead.');
   }
-  const checklist = renderCompactReviewChecklist(checklistResult, { scopeExceptionCount });
-  return `# ${title}\n\n${checklist}`;
+  if (!Number.isInteger(totalAcceptanceCriteria) || totalAcceptanceCriteria < 1) {
+    throw new Error('renderNormalPassingReportBody requires totalAcceptanceCriteria (a positive integer) to render the acceptance-criteria coverage line.');
+  }
+  const scopeLine = scopeExceptionCount > 0
+    ? `- [x] Scope: resolved\n  - ${scopeExceptionCount} owner-approved exception${scopeExceptionCount === 1 ? '' : 's'} recorded`
+    : '- [x] Scope: compliant';
+  const lines = [
+    `- [x] Acceptance criteria: ${totalAcceptanceCriteria}/${totalAcceptanceCriteria}`,
+    scopeLine,
+    '- [x] Findings: none unresolved',
+  ];
+  return `# ${title}\n\n${lines.join('\n')}`;
 }
 
 /**
@@ -1804,9 +1884,9 @@ export function renderNormalPassingReportBody(checklistResult, { title, scopeExc
  */
 export function checkReportSectionUniqueness(reportBody) {
   const markers = {
-    'ac-coverage': [/All acceptance criteria covered/gi, /## Acceptance-criteria coverage/gi],
-    'scope': [/Scope check resolved/gi, /## Scope compliance/gi],
-    'findings': [/## Findings/gi],
+    'ac-coverage': [/All acceptance criteria covered/gi, /## Acceptance-criteria coverage/gi, /Acceptance criteria: \d+\/\d+/gi],
+    'scope': [/Scope check resolved/gi, /## Scope compliance/gi, /- \[x\] Scope: (compliant|resolved)/gi],
+    'findings': [/## Findings/gi, /- \[x\] Findings: (none unresolved|\d+)/gi],
   };
   const duplicates = [];
   for (const [section, patterns] of Object.entries(markers)) {

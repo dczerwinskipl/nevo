@@ -113,17 +113,28 @@ error, not a silent pick of one.
    if it fails, a classification or a file read upstream is wrong — fix it and
    recompute, don't emit a report that fails its own check. Answer the three
    implementation-readiness questions from § "Implementation readiness declaration."
-7a. **Scoped-verdict guard (D34/D35, task 17) — only for a run that is not `--all`.**
-    Before the verdict can read `ready-for-approval`/`approved-for-implementation`, run
+7a. **Scoped-verdict guard and impacted-task reporting (D34/D35, task 17, corrected) —
+    only for a run that is not `--all`.** Before the verdict can read
+    `ready-for-approval`/`approved-for-implementation`, run
     `scopedReviewBaselineValid(checkableOutOfScopeTaskIds, priorTaskFingerprints,
     currentTaskFingerprints)` (`tools/specs/lifecycle.mjs`) over every out-of-scope task
-    from task 12 onward (same D32 exemption as step 5a). If `valid` is `false`, the
-    verdict cannot claim whole-change readiness — report the named `invalidTaskIds` and
-    recommend scope expansion (a wider `--tasks`/`--all` re-run) as the next command,
-    even though the *selected* scope's own findings might otherwise be clean. Also run
-    `findPotentiallyImpactedOutOfScopeTasks(selectedTaskIds, taskDependencyContracts)` —
-    name any result explicitly in the report as "potentially impacted, not re-reviewed in
-    this scope," and offer scope expansion; never silently include or silently ignore it.
+    from task 12 onward (same D32 exemption as step 5a). This one deterministic check is
+    the sole automated source of "potentially impacted" — an out-of-scope task appears in
+    `invalidTaskIds` only because *its own* current fingerprint no longer matches its
+    recorded baseline (which already accounts for a shared owner decision, shared
+    constraint, or the out-of-scope task's own `dependency_contracts` naming a changed
+    selected task, since `computeTaskFingerprint` folds `semantic_references`
+    recursively). A selected task naming an out-of-scope task in its own
+    `semantic_references.dependency_contracts` is reading it as context and is never, by
+    itself, a reason to add that task to this list. If `valid` is `false`, the verdict
+    cannot claim whole-change readiness — report the named `invalidTaskIds` explicitly in
+    the report as "potentially impacted, not re-reviewed in this scope," and recommend
+    scope expansion (a wider `--tasks`/`--all` re-run) as the next command, even though
+    the *selected* scope's own findings might otherwise be clean. Separately, if reading
+    an out-of-scope task's file as context surfaces a real cross-contract impact this
+    deterministic check does not represent, report it explicitly as a distinct
+    model-inspection finding — never invented by an automated function, and never
+    inferred merely from the selected task depending on the older one.
 8. Run `node tools/specs.mjs fingerprint <change-id>` and use its exact printed output
    as the `spec_fingerprint` value in the report's frontmatter — never estimate or
    recompute this by reasoning (see `references/review-policy.md` § "Deterministic
@@ -138,11 +149,20 @@ error, not a silent pick of one.
    including the frontmatter `verdict`, `ready_for_approval`, `implementation_allowed`,
    `spec_fingerprint`, `task_fingerprints`, and the three separate unresolved counts, and
    — per finding — its predicate, lifecycle, and evidence. Name any
-   `findPotentiallyImpactedOutOfScopeTasks` result (step 7a) explicitly, and, for a
-   scoped run whose result is fully passing, render the body with
-   `renderScopedSpecReviewBody` (task 14/17's compact shape, task 14, D34/D35) instead of
-   composing it as prose — `--all`'s own report shape is unchanged. This overwrites the
-   file read in step 2; that's expected, it's the one file this command writes —
+   `scopedReviewBaselineValid` `invalidTaskIds` (step 7a) explicitly as "potentially
+   impacted, not re-reviewed." **For a fully-passing result (`ready-for-approval`/
+   `approved-for-implementation`, zero unresolved findings of any kind) — `--all` or
+   scoped, no distinction — render the body with `renderScopedSpecReviewBody`
+   (`tools/specs/lifecycle.mjs`, task 17, corrected by task 14/D34/D35's final
+   pre-approval pass) instead of composing it as prose.** This function's own
+   verdict-gating and inputs are unchanged; only the restriction that confined it to
+   scoped runs is removed — a fully-passing `--all` review previously still wrote full
+   AC-by-AC narration and per-task detail with nothing wrong to report, exactly the
+   redundant positive narration this correction removes. Never a synthetic
+   `INFORMATIONAL` finding for a passing check, for any run, scoped or `--all`. A
+   run with any unresolved finding, owner decision, or invalid out-of-scope baseline
+   keeps the full expanded report shape — unaffected by this correction. This overwrites
+   the file read in step 2; that's expected, it's the one file this command writes —
    everything else about the change stays untouched.
 10. End the response using `references/review-policy.md` § "Chat output shape" →
     `/nevo-ai:spec-review`'s exact required shape. `Next command` is:

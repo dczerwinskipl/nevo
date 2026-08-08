@@ -74,12 +74,32 @@ describe('Scenario 1 — approve+start begins work without another confirmation'
 });
 
 // ── Scenario 2: Passing review produces only minimal result rows ───────────
+// Corrected (final pre-approval review): proves the minimal three-result-row
+// shape itself — acceptance criteria, scope, findings — not merely a line
+// ceiling a differently-shaped body could also satisfy.
 
 describe('Scenario 2 — a passing review produces only minimal result rows', () => {
-  test('a fully-passing checklist renders a body with at most 10 non-empty lines', () => {
+  test('a fully-passing checklist renders exactly the title plus three rows: AC coverage, scope, findings', () => {
     const result = computeTaskReviewChecklist(passingChecklistInput());
-    const body = renderNormalPassingReportBody(result, { title: 'Review: aw-s2/t1' });
-    assert.ok(body.split('\n').filter(l => l.trim()).length <= 10);
+    const body = renderNormalPassingReportBody(result, { title: 'Review: aw-s2/t1', totalAcceptanceCriteria: 9 });
+    const lines = body.split('\n').filter(l => l.trim());
+    assert.deepEqual(lines, [
+      '# Review: aw-s2/t1',
+      '- [x] Acceptance criteria: 9/9',
+      '- [x] Scope: compliant',
+      '- [x] Findings: none unresolved',
+    ]);
+  });
+
+  test('none of the four internal-only gates (verification, forbidden-path, docs, owner-decision) renders as its own row', () => {
+    const result = computeTaskReviewChecklist(passingChecklistInput());
+    const body = renderNormalPassingReportBody(result, { title: 'Review: aw-s2/t1', totalAcceptanceCriteria: 9 });
+    for (const forbiddenText of [
+      'Required automated verification passed', 'No forbidden-path violation remains unresolved',
+      'Architecture and documentation remain consistent', 'No unresolved owner decision', 'No unresolved blocking findings',
+    ]) {
+      assert.ok(!body.includes(forbiddenText));
+    }
   });
 });
 
