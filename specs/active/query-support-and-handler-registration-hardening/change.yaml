@@ -13,9 +13,27 @@ tasks:
   - id: command-event-adapter-characterization
     order: 1
     file: tasks/01-command-event-adapter-characterization.md
-    status: in-implementation
+    status: implemented
     implementation:
       baseline_revision: 37ecc4440cef06ea4a8ab4484859edb93bc24d9f
+      review_revision: f8c88e29a029d401712fc55ec0139477e5ca7ea1
+      changed_paths:
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandDispatcherTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandProcessingStrategyTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/GlobalUsings.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 8f2feb88fab67868b455415eb4d048d6c19beb8568b0432d552cb8cec44082f0
+      revision: f8c88e29a029d401712fc55ec0139477e5ca7ea1
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Cqrs.Tests
+          exit_code: 0
+      status: passed
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md
