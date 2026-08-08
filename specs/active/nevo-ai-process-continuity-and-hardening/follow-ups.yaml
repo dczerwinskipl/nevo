@@ -265,4 +265,4 @@ follow_ups:
     paths: [docs/ai/specification-workflow.md]
     confirmed_by: owner
     confirmed_at: "2026-08-08"
-    revision: "pending-final-commit-this-session"
+    revision: "26576268d4e86c1b344d89d470b355547edcc1d4"
