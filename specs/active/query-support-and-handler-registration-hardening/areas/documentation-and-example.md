@@ -43,6 +43,10 @@ read-side example wired end-to-end in `examples/ExampleApp/`.
    with a `GetDocumentQuery -> DocumentDto`-shaped query over an artificial `PingQuery ->
    string` — wired to an actual HTTP endpoint in the example app, demonstrating
    `IQueryDispatcher` end-to-end.
+6. Update `docs/reference/packages/NEvo.Messaging.md`'s public-surface documentation to
+   note, as a breaking change, that `MessageHandlerAdapterBase<TMessageGroup>` and the
+   two Command/Event adapter types built on it were removed and replaced by a new public
+   `MessageHandlerAdapter` (D6) — see `overview.md` § "Compatibility and migration".
 
 ## Constraints
 

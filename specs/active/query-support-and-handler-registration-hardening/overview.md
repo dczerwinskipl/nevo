@@ -83,8 +83,10 @@ inheritance-based pattern the owner does not want extended further.
 
 ## Affected modules
 
-- `src/NEvo.Messaging/Handling/` (shared adapter, factory contract — internal
-  implementation only, public contracts unchanged)
+- `src/NEvo.Messaging/Handling/` (shared adapter, factory contract — `IMessageHandler`/
+  `IMessageHandlerFactory`/`IMessageHandlerRegistry`/`MessageHandlerDescription` are
+  unchanged; `MessageHandlerAdapterBase<TMessageGroup>` is removed and replaced by a new
+  public `MessageHandlerAdapter` — a public breaking change, see D6)
 - `src/NEvo.Messaging/Events/` (registration idempotency)
 - `src/NEvo.Messaging.Cqrs/Commands/` (registration idempotency; adapter now delegates to
   the shared component)
@@ -92,6 +94,7 @@ inheritance-based pattern the owner does not want extended further.
 - `tests/NEvo.Messaging.Cqrs.Tests/` (new)
 - `examples/ExampleApp/` (Query example)
 - `docs/usage/`, `docs/reference/packages/NEvo.Messaging.Cqrs.md`,
+  `docs/reference/packages/NEvo.Messaging.md` (public-surface/breaking-change note, D6),
   `docs/development/architecture-overview.md`, `docs/development/testing-strategy.md`
 
 ## Options and trade-offs
@@ -105,7 +108,10 @@ conversation and resolved by owner decisions D1–D5 in `owner-decisions.md`. Su
   repository-wide, unjustified — the existing object-boxing pattern already supports
   typed results, proven by Command/Event's own working use of it). Selected: one shared,
   composed `MessageHandlerAdapter` used by Command/Event/Query, replacing
-  `MessageHandlerAdapterBase<TMessageGroup>` and its two subclasses (D1).
+  `MessageHandlerAdapterBase<TMessageGroup>` and its two subclasses (D1) — all three
+  removed types are public, so this is a public breaking change; the replacement is
+  itself public rather than internal, since it is constructed cross-assembly and no
+  `InternalsVisibleTo` is introduced (D6).
 - **Registration idempotency** — rejected scoping the fix to `AddQueries()` alone.
   Selected: retrofit `AddCommands()`/`AddEvents()` too, for one consistent idempotency
   story across all three (D2).
@@ -122,7 +128,7 @@ conversation and resolved by owner decisions D1–D5 in `owner-decisions.md`. Su
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1–D5).
+See `owner-decisions.md` (D1–D6).
 
 ## Proposed architecture
 
@@ -168,13 +174,25 @@ See `owner-decisions.md` (D1–D5).
 
 ## Compatibility and migration
 
-Additive for consumers: `Command`/`ICommandHandler`/`ICommandDispatcher`,
-`Event`/`IEventHandler`, and `AddCommands()`/`AddEvents()`'s single-call behavior are
-unchanged from the public API perspective. The one internal behavior change is
-`AddCommands()`/`AddEvents()` becoming safe to call twice (previously could throw) — this
-can only ever make previously-failing code succeed, not the reverse, so it is not a
-breaking change for any consumer relying on documented behavior. No migration steps are
-required.
+**This change contains a public breaking change (D6) — corrected here after spec review
+found the original wording ("additive", "no migration steps required") factually wrong.**
+
+- **Breaking:** `MessageHandlerAdapterBase<TMessageGroup>`, `CommandHandlerAdapter`, and
+  `EventHandlerAdapter` are `public` types today and are deleted (task 02). A new
+  `public` `MessageHandlerAdapter` (`NEvo.Messaging.Handling`) replaces all three. Any
+  consumer referencing the three deleted types directly (rather than through
+  `ICommandHandler<T>`/`IEventHandler<T>`/`IMessageHandlerFactory`, the documented
+  extension points) will not compile against the new version. No compatibility shims or
+  deprecated forwarding types are provided (D6, owner's explicit choice — this is our own
+  framework and the removed types were never a documented extension point).
+- **Non-breaking:** `Command`/`ICommandHandler`/`ICommandDispatcher`,
+  `Event`/`IEventHandler`, and `AddCommands()`/`AddEvents()`'s single-call behavior are
+  unchanged from the public API perspective. `AddCommands()`/`AddEvents()` becoming safe
+  to call twice (previously could throw) can only ever make previously-failing code
+  succeed, not the reverse — not a breaking change on its own.
+- No data/schema migration is required — this is a source/binary compatibility break for
+  direct references to the three deleted types only, not a runtime behavior or persistence
+  change.
 
 ## Areas
 

@@ -3,7 +3,7 @@ id: query-support-and-handler-registration-hardening.command-event-adapter-chara
 status: draft
 change: query-support-and-handler-registration-hardening
 semantic_references:
-  decisions: [D5]
+  decisions: [D1, D5]
 context:
   required:
     - specs/active/query-support-and-handler-registration-hardening/areas/shared-handler-invocation.md
@@ -57,6 +57,19 @@ None — first task in the change.
   (`NoHandlerFoundException`, via the registry — not the adapter itself); the
   multiple-handlers path (`MoreThanOneHandlerFoundException`); an exception thrown inside
   the handler being captured as `Left<Exception>` rather than propagating.
+- **Exception-identity characterization (required before task 02, D1).** Task 02
+  replaces direct method calls with `MethodInfo.Invoke`-based reflection.
+  `MethodBase.Invoke` wraps a *synchronous* exception thrown by a non-`async` target
+  method in `TargetInvocationException` — a naive reflection-based adapter could leak
+  that wrapper into `Left<Exception>` instead of the handler's real exception, and a test
+  that only asserts "ends up as `Left<Exception>`" would not catch this regression (any
+  `Exception` subtype satisfies that assertion). Add two distinct cases, both asserting
+  the *exact original exception instance* is preserved (not merely the same type):
+  1. A Command handler whose `HandleAsync` is declared **without** `async` and `throw`s
+     synchronously before returning any `Task` (a legal, if unusual, handler shape).
+  2. A Command handler whose `HandleAsync` **is** `async` and throws after the method has
+     started running (the already-covered faulted-`Task` case) — assert instance
+     identity here too, not just "captured as `Left<Exception>`".
 - Cover, for `CommandDispatcher`: that `DispatchAsync` creates an `IMessageContext` when
   none is set on `IMessageContextAccessor`, and reuses one when already set.
 - Cover, for `CommandProcessingStrategy`: `ShouldApply` returns true only for `Command`
@@ -76,12 +89,17 @@ None — first task in the change.
    (automated: `dotnet build`).
 2. Successful single-handler Command dispatch is covered (automated).
 3. No-handler-found and multiple-handlers-found Command failures are covered (automated).
-4. An exception thrown inside a Command handler is captured as `Left<Exception>`
+4. An exception thrown inside an `async` Command handler (a faulted `Task`) is captured
+   as `Left<Exception>` wrapping the **exact original exception instance** — not merely
+   an exception of the same type (automated).
+5. A Command handler whose `HandleAsync` is declared **without** `async` and throws
+   synchronously before returning a `Task` is also captured as `Left<Exception>` wrapping
+   the exact original exception instance, not a `TargetInvocationException` or other
+   reflection wrapper (automated).
+6. `CommandDispatcher`'s context creation/reuse behavior is covered (automated).
+7. `CommandProcessingStrategy.ShouldApply`/`ProcessMessageAsync` behavior is covered
    (automated).
-5. `CommandDispatcher`'s context creation/reuse behavior is covered (automated).
-6. `CommandProcessingStrategy.ShouldApply`/`ProcessMessageAsync` behavior is covered
-   (automated).
-7. All new tests pass against the current (pre-task-02) implementation.
+8. All new tests pass against the current (pre-task-02) implementation.
 
 ## Verification
 

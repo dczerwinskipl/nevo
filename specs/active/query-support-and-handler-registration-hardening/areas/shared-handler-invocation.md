@@ -35,19 +35,31 @@ adapter path has zero existing test coverage today.
    cases at minimum.
 2. `MessageHandlerAdapterBase<TMessageGroup>`, `CommandHandlerAdapter`, and
    `EventHandlerAdapter` are deleted.
-3. One new, non-generic, concrete `MessageHandlerAdapter : IMessageHandler` (composition,
-   not inheritance) replaces all three: resolves the handler instance via
-   `ActivatorUtilities.CreateInstance`, invokes `HandlerDescription.Method` reflectively,
-   adapts the arbitrary `Either<Exception, TResult>` result into
-   `Either<Exception, object>`, and logs exceptions via `ILogger` (both Command and Event
-   paths — resolving the existing `Console.WriteLine` inconsistency).
-4. `CommandHandlerAdapterFactory` and `EventHandlerAdapterFactory` construct the shared
+3. One new, non-generic, concrete, **`public`** `MessageHandlerAdapter : IMessageHandler`
+   (composition, not inheritance; `public` because `CommandHandlerAdapterFactory`/
+   `EventHandlerAdapterFactory` construct it from the separate `NEvo.Messaging.Cqrs`
+   assembly and no `InternalsVisibleTo` is introduced — D6) replaces all three: resolves
+   the handler instance via `ActivatorUtilities.CreateInstance`, invokes
+   `HandlerDescription.Method` reflectively, adapts the arbitrary
+   `Either<Exception, TResult>` result into `Either<Exception, object>`, and logs
+   exceptions via `ILogger` (both Command and Event paths — resolving the existing
+   `Console.WriteLine` inconsistency).
+4. Reflective invocation via `MethodInfo.Invoke` wraps a *synchronous* exception thrown by
+   a non-`async` handler method in `TargetInvocationException` — the adapter must catch
+   and unwrap this to the original `InnerException` so `Left<Exception>` always contains
+   the handler's actual exception, never a reflection wrapper. Proven by task 01's
+   synchronous-throw characterization test continuing to pass unchanged after the
+   refactor.
+5. `CommandHandlerAdapterFactory` and `EventHandlerAdapterFactory` construct the shared
    `MessageHandlerAdapter` in `Create()` instead of their own bespoke adapter type. Their
    `ForInterface`/`GetMessageHandlerDescriptions` are otherwise unchanged.
-5. Command and Event's public contracts (`ICommandHandler<TMessage>`,
+6. Command and Event's public contracts (`ICommandHandler<TMessage>`,
    `IEventHandler<TEvent>`, `ICommandDispatcher`, `IEventPublisher`,
    `CommandProcessingStrategy`, `EventProcessingStrategyBase` subclasses) are unchanged —
    this is an internal implementation swap behind `IMessageHandlerFactory.Create()`.
+   `MessageHandlerAdapterBase<TMessageGroup>`, `CommandHandlerAdapter`, and
+   `EventHandlerAdapter` themselves are `public` today and their removal **is** a public
+   breaking change (D6) — see `overview.md` § "Compatibility and migration".
 
 ## Constraints
 
@@ -56,15 +68,18 @@ adapter path has zero existing test coverage today.
   02) begins.
 - No change to `IMessageHandler`, `IMessageHandlerFactory`, `IMessageHandlerRegistry`, or
   `MessageHandlerDescription`'s public shape.
+- No new `InternalsVisibleTo` — `MessageHandlerAdapter` is `public`, not `internal` (D6).
 
 ## Interfaces and boundaries
 
 Consumed by: `query-cqrs-support` area (the new `QueryHandlerAdapterFactory` constructs
 this same shared adapter — see that area's Requirements).
 
-Exposes: the shared `MessageHandlerAdapter` class (internal composition detail, not
-itself a new public extension point — third-party handler-kind authors still implement
-`IMessageHandlerFactory` per `docs/development/extension-points.md`, unchanged).
+Exposes: the shared `MessageHandlerAdapter` class — a **public** type (D6, required
+because it is constructed cross-assembly with no `InternalsVisibleTo`), but **not** a
+documented extension point — third-party handler-kind authors still implement
+`IMessageHandlerFactory` per `docs/development/extension-points.md`, unchanged. Do not
+document `MessageHandlerAdapter` itself as an extension point in task 06's docs work.
 
 ## Area-specific acceptance criteria
 
@@ -75,6 +90,9 @@ itself a new public extension point — third-party handler-kind authors still i
 3. Command and Event exception handling both go through `ILogger` (automated/inspection).
 4. `dotnet build` succeeds with no reference to `MessageHandlerAdapterBase` remaining
    anywhere in `src/`.
+5. `TargetInvocationException` never leaks into `Left<Exception>` — task 01's
+   synchronous-throw characterization test still passes after the refactor (automated).
+6. `MessageHandlerAdapter` is declared `public` (inspection, D6).
 
 ## Dependencies
 

@@ -89,7 +89,9 @@ completing Query end-to-end: dispatch → middleware → strategy → handler �
    correctly against one shared `QueryProcessingStrategy` instance (automated).
 6. `AddQueries()` is idempotent under a repeated call (automated).
 7. `AddMessages()+AddCommands()+AddEvents()+AddQueries()` compose without duplicate
-   infrastructure and all four kinds remain independently dispatchable (automated).
+   infrastructure registration; with all four composed, Command dispatch (via
+   `ICommandDispatcher`), Event publish (via `IEventPublisher`), and Query dispatch (via
+   `IQueryDispatcher`) each independently work correctly (automated).
 8. Message-level middleware (e.g. correlation ID) and handler-level middleware execute
    around a Query dispatch in the same relative order as around a Command dispatch
    (automated).

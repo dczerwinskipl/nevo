@@ -13,7 +13,9 @@ tasks:
   - id: command-event-adapter-characterization
     order: 1
     file: tasks/01-command-event-adapter-characterization.md
-    status: approved
+    status: in-implementation
+    implementation:
+      baseline_revision: 37ecc4440cef06ea4a8ab4484859edb93bc24d9f
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md

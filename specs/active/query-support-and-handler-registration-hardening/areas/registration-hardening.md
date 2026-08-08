@@ -38,10 +38,16 @@ once, without changing what a single call registers.
 ## Constraints
 
 - `TryAddEnumerable` (not plain `TryAdd`) where a service is legitimately registered as
-  one of several implementations of the same interface (e.g. `IMessageProcessingStrategy`,
-  where Command/Event/Query each contribute their own strategy instance and all must
-  survive registration) — using plain `TryAdd` there would silently drop every
-  registration after the first.
+  one of several implementations of the same interface — e.g. `IMessageProcessingStrategy`,
+  where Command and Event each contribute their own strategy instance(s)
+  (`CommandProcessingStrategy`; `ParallelEventProcessingStrategy` and
+  `SequentialEventProcessingStrategy`) and all must survive registration; using plain
+  `TryAdd` there would silently drop every registration after the first. **Query is not
+  part of this interface** — `QueryProcessingStrategy` implements the separate
+  `IMessageProcessingStrategyWithResult` interface (single-instance-per-app, not
+  multi-registration), and its idempotent registration is added directly in
+  `AddQueries()` (task 05), not retrofitted here. Do not register `QueryProcessingStrategy`
+  as an `IMessageProcessingStrategy`.
 - Do not change what a *single* call to any of the three methods registers — this is an
   idempotency fix, not a registration-surface change.
 
@@ -58,7 +64,10 @@ today, `Microsoft.Extensions.DependencyInjection` namespace, no new parameters.
 4. `AddMessages()+AddCommands()+AddEvents()+AddQueries()` composed together resolve
    exactly one instance of each singleton/scoped service that is meant to be singular,
    and the full set of `IMessageProcessingStrategy` implementations contributed by
-   Command/Event/Query are all still resolvable (automated).
+   Command and Event (`CommandProcessingStrategy`, `ParallelEventProcessingStrategy`,
+   `SequentialEventProcessingStrategy`) are all still resolvable — Query's own
+   `IMessageProcessingStrategyWithResult` registration is verified separately in task 05
+   (automated).
 5. Every existing characterization test (task 01) still passes (automated).
 
 ## Dependencies

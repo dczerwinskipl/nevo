@@ -3,13 +3,14 @@ id: query-support-and-handler-registration-hardening.documentation-and-example
 status: draft
 change: query-support-and-handler-registration-hardening
 semantic_references:
-  decisions: [D5]
+  decisions: [D5, D6]
 context:
   required:
     - specs/active/query-support-and-handler-registration-hardening/areas/documentation-and-example.md
     - specs/active/query-support-and-handler-registration-hardening/owner-decisions.md
     - docs/usage/commands.md
     - docs/reference/packages/NEvo.Messaging.Cqrs.md
+    - docs/reference/packages/NEvo.Messaging.md
     - docs/development/architecture-overview.md
     - docs/development/testing-strategy.md
   optional:
@@ -21,6 +22,7 @@ allowed_paths:
   - docs/usage/commands.md
   - docs/usage/events.md
   - docs/reference/packages/NEvo.Messaging.Cqrs.md
+  - docs/reference/packages/NEvo.Messaging.md
   - docs/development/architecture-overview.md
   - docs/development/testing-strategy.md
   - examples/ExampleApp/**
@@ -61,6 +63,15 @@ Document Query as a supported, first-class feature and demonstrate it end-to-end
 - Update `docs/development/testing-strategy.md`: add `NEvo.Messaging.Cqrs.Tests` to "Test
   projects", and add or adjust a "Required tests per subsystem" row covering CQRS
   command/query dispatch, pointing at `tests/NEvo.Messaging.Cqrs.Tests`.
+- **Breaking-change note (D6, required).** `docs/reference/packages/NEvo.Messaging.md`'s
+  public-surface documentation must note that `MessageHandlerAdapterBase<TMessageGroup>`,
+  `CommandHandlerAdapter` (`NEvo.Messaging.Cqrs`), and `EventHandlerAdapter` were public
+  types removed by this change, replaced by the new public `MessageHandlerAdapter` — a
+  breaking change for any direct reference to the three removed types (not for consumers
+  using the documented `ICommandHandler<T>`/`IEventHandler<T>`/`IMessageHandlerFactory`
+  extension surface, which is unaffected). Do not describe `MessageHandlerAdapter` as a
+  new extension point — it is not one (see `areas/shared-handler-invocation.md` §
+  "Interfaces and boundaries").
 - Example: extend the existing `Document` aggregate
   (`examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/`) with a
   `GetDocumentQuery -> DocumentDto`-shaped query and handler, wired to a real HTTP GET
@@ -74,7 +85,11 @@ Document Query as a supported, first-class feature and demonstrate it end-to-end
 2. No document in `docs/` still states query-side support is absent or unimplemented
    (inspection).
 3. `docs/development/testing-strategy.md` lists `NEvo.Messaging.Cqrs.Tests` (inspection).
-4. The `GetDocumentQuery` endpoint is reachable in the running example app and returns
+4. `docs/reference/packages/NEvo.Messaging.md` documents the removal of
+   `MessageHandlerAdapterBase<TMessageGroup>`/`CommandHandlerAdapter`/
+   `EventHandlerAdapter` and the addition of the public `MessageHandlerAdapter` as a
+   breaking change (inspection, D6).
+5. The `GetDocumentQuery` endpoint is reachable in the running example app and returns
    the expected `DocumentDto` for a previously created document (inspection — manual run
    of `examples/ExampleApp/`).
 
