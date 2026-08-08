@@ -13,7 +13,7 @@ tasks:
   - id: command-event-adapter-characterization
     order: 1
     file: tasks/01-command-event-adapter-characterization.md
-    status: draft
+    status: approved
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md
