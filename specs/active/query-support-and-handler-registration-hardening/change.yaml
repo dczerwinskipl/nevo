@@ -19,7 +19,7 @@ tasks:
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md
-    status: draft
+    status: approved
     depends_on:
       - command-event-adapter-characterization
   - id: registration-idempotency-hardening
