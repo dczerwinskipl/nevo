@@ -69,9 +69,27 @@ tasks:
   - id: registration-idempotency-hardening
     order: 3
     file: tasks/03-registration-idempotency-hardening.md
-    status: draft
+    status: implemented
     depends_on:
       - command-event-adapter-characterization
+    implementation:
+      baseline_revision: ef0c4d3939c4d1c48a72a76106c7e373719627fc
+      review_revision: ef0c4d3939c4d1c48a72a76106c7e373719627fc
+      changed_paths:
+        - src/NEvo.Messaging.Cqrs/Commands/ServiceCollectionExtensions.cs
+        - src/NEvo.Messaging/Events/ServiceCollectionExtensions.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj
+        - tests/NEvo.Messaging.Cqrs.Tests/ServiceCollectionExtensionsTests.cs
+      worktree_patch_fingerprint: 6eef5c771f811f2092e2a5a6b2574ed330fec0e95bd73a2389557cf70b9e04f1
+    self_check:
+      fingerprint: d476e517937cc4350b8b8b9708599e3af82c629d6ad0f96844c2cd228bd62ff8
+      revision: ef0c4d3939c4d1c48a72a76106c7e373719627fc
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Cqrs.Tests
+          exit_code: 0
+      status: passed
   - id: query-abstractions-and-discovery
     order: 4
     file: tasks/04-query-abstractions-and-discovery.md
