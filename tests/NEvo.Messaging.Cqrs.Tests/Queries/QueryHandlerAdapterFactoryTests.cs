@@ -87,6 +87,29 @@ public class QueryHandlerAdapterFactoryTests
         description.Method!.Name.Should().Be(nameof(IntQueryHandlerMock.HandleAsync));
     }
 
+    [Fact]
+    public async Task GetMessageHandlerDescriptions_And_Dispatch_WorkWithExplicitInterfaceImplementation()
+    {
+        // Arrange
+        var factory = new QueryHandlerAdapterFactory(_loggerMock);
+        Type handlerType = typeof(ExplicitStringQueryHandlerMock);
+        Type handlerInterface = typeof(IQueryHandler<StringQueryMock, string>);
+        var serviceProviderMock = new Mock<IServiceProvider>();
+        var messageContextMock = new Mock<IMessageContext>();
+        messageContextMock.SetupGet(ctx => ctx.ServiceProvider).Returns(serviceProviderMock.Object);
+
+        // Act – factory resolution
+        var descriptions = factory.GetMessageHandlerDescriptions(handlerType, handlerInterface).ToList();
+        descriptions.Should().HaveCount(1);
+        var adapter = factory.Create(descriptions[0]);
+
+        // Act – dispatch
+        var result = await adapter.HandleAsync(new StringQueryMock(), messageContextMock.Object, CancellationToken.None);
+
+        // Assert
+        result.Should().BeRight().Which.Should().Be("explicit");
+    }
+
     private record StringQueryMock : Query<string>;
     private record IntQueryMock : Query<int>;
 
@@ -100,5 +123,11 @@ public class QueryHandlerAdapterFactoryTests
     {
         public Task<Either<Exception, int>> HandleAsync(IntQueryMock query, IMessageContext messageContext, CancellationToken cancellationToken)
             => throw new NotImplementedException();
+    }
+
+    private class ExplicitStringQueryHandlerMock : IQueryHandler<StringQueryMock, string>
+    {
+        Task<Either<Exception, string>> IQueryHandler<StringQueryMock, string>.HandleAsync(StringQueryMock query, IMessageContext messageContext, CancellationToken cancellationToken)
+            => Task.FromResult(Either<Exception, string>.Right("explicit"));
     }
 }

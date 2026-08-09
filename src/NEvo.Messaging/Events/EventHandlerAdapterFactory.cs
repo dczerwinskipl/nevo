@@ -18,7 +18,7 @@ public class EventHandlerAdapterFactory(ILogger<MessageHandlerAdapter> eventHand
             MessageType: handlerInterface.GetGenericArguments()[0],
             InterfaceType: handlerInterface,
             ReturnType: typeof(Unit),
-            Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(IEventHandler<Event>.HandleAsync))
+            Method: InterfaceMethodResolver.Resolve(handlerType, handlerInterface, nameof(IEventHandler<Event>.HandleAsync))
         );
     }
 }

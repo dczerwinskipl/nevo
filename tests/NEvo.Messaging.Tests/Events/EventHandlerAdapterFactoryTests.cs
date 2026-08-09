@@ -73,12 +73,41 @@ public class EventHandlerAdapterFactoryTests
         description.Method!.Name.Should().Be(nameof(EventHandlerMock.HandleAsync));
     }
 
+    [Fact]
+    public async Task GetMessageHandlerDescriptions_And_Dispatch_WorkWithExplicitInterfaceImplementation()
+    {
+        // Arrange
+        var factory = new EventHandlerAdapterFactory(_mockLogger);
+        Type handlerType = typeof(ExplicitEventHandlerMock);
+        Type handlerInterface = typeof(IEventHandler<EventMock>);
+        var serviceProviderMock = new Mock<IServiceProvider>();
+        var messageContextMock = new Mock<IMessageContext>();
+        messageContextMock.SetupGet(ctx => ctx.ServiceProvider).Returns(serviceProviderMock.Object);
+
+        // Act – factory resolution
+        var descriptions = factory.GetMessageHandlerDescriptions(handlerType, handlerInterface).ToList();
+        descriptions.Should().HaveCount(1);
+        var adapter = factory.Create(descriptions[0]);
+
+        // Act – dispatch
+        var result = await adapter.HandleAsync(new EventMock(), messageContextMock.Object, CancellationToken.None);
+
+        // Assert
+        result.ExpectRight().Should().Be(Unit.Default);
+    }
+
     private class EventHandlerMock : IEventHandler<EventMock>
     {
         public Task<Either<Exception, Unit>> HandleAsync(EventMock message, IMessageContext messageContext, CancellationToken cancellationToken)
         {
             throw new NotImplementedException();
         }
+    }
+
+    private class ExplicitEventHandlerMock : IEventHandler<EventMock>
+    {
+        Task<Either<Exception, Unit>> IEventHandler<EventMock>.HandleAsync(EventMock message, IMessageContext messageContext, CancellationToken cancellationToken)
+            => Task.FromResult(Either<Exception, Unit>.Right(Unit.Default));
     }
 
     private record EventMock : Event { }

@@ -67,12 +67,41 @@ public class CommandHandlerAdapterFactoryTests
         description.Method!.Name.Should().Be(nameof(CommandHandlerMock.HandleAsync));
     }
 
+    [Fact]
+    public async Task GetMessageHandlerDescriptions_And_Dispatch_WorkWithExplicitInterfaceImplementation()
+    {
+        // Arrange
+        var factory = new CommandHandlerAdapterFactory(_loggerMock);
+        Type handlerType = typeof(ExplicitCommandHandlerMock);
+        Type handlerInterface = typeof(ICommandHandler<CommandMock>);
+        var serviceProviderMock = new Mock<IServiceProvider>();
+        var messageContextMock = new Mock<IMessageContext>();
+        messageContextMock.SetupGet(ctx => ctx.ServiceProvider).Returns(serviceProviderMock.Object);
+
+        // Act – factory resolution
+        var descriptions = factory.GetMessageHandlerDescriptions(handlerType, handlerInterface).ToList();
+        descriptions.Should().HaveCount(1);
+        var adapter = factory.Create(descriptions[0]);
+
+        // Act – dispatch
+        var result = await adapter.HandleAsync(new CommandMock(), messageContextMock.Object, CancellationToken.None);
+
+        // Assert
+        result.Should().BeRight().Which.Should().Be(Unit.Default);
+    }
+
     private class CommandHandlerMock : ICommandHandler<CommandMock>
     {
         public Task<Either<Exception, Unit>> HandleAsync(CommandMock message, IMessageContext messageContext, CancellationToken cancellationToken)
         {
             throw new NotImplementedException();
         }
+    }
+
+    private class ExplicitCommandHandlerMock : ICommandHandler<CommandMock>
+    {
+        Task<Either<Exception, Unit>> ICommandHandler<CommandMock>.HandleAsync(CommandMock message, IMessageContext messageContext, CancellationToken cancellationToken)
+            => Task.FromResult(Either<Exception, Unit>.Right(Unit.Default));
     }
 
     private record CommandMock : Command { }

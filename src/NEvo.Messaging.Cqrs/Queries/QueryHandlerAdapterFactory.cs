@@ -22,7 +22,7 @@ public class QueryHandlerAdapterFactory(ILogger<MessageHandlerAdapter> logger) :
             MessageType: queryType,
             InterfaceType: handlerInterface,
             ReturnType: resultType,
-            Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(IQueryHandler<Query<object>, object>.HandleAsync))
+            Method: InterfaceMethodResolver.Resolve(handlerType, handlerInterface, nameof(IQueryHandler<Query<object>, object>.HandleAsync))
         );
     }
 }

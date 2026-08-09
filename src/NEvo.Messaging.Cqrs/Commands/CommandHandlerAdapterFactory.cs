@@ -18,7 +18,7 @@ public class CommandHandlerAdapterFactory(ILogger<MessageHandlerAdapter> logger)
             MessageType: handlerInterface.GetGenericArguments()[0],
             InterfaceType: handlerInterface,
             ReturnType: typeof(Unit),
-            Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(ICommandHandler<Command>.HandleAsync))
+            Method: InterfaceMethodResolver.Resolve(handlerType, handlerInterface, nameof(ICommandHandler<Command>.HandleAsync))
         );
     }
 }
