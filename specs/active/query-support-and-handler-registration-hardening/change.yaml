@@ -13,7 +13,7 @@ tasks:
   - id: command-event-adapter-characterization
     order: 1
     file: tasks/01-command-event-adapter-characterization.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 37ecc4440cef06ea4a8ab4484859edb93bc24d9f
       review_revision: f8c88e29a029d401712fc55ec0139477e5ca7ea1
@@ -37,7 +37,7 @@ tasks:
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md
-    status: implemented
+    status: verified
     depends_on:
       - command-event-adapter-characterization
     implementation:
@@ -69,7 +69,7 @@ tasks:
   - id: registration-idempotency-hardening
     order: 3
     file: tasks/03-registration-idempotency-hardening.md
-    status: implemented
+    status: verified
     depends_on:
       - command-event-adapter-characterization
     implementation:
@@ -93,7 +93,7 @@ tasks:
   - id: query-abstractions-and-discovery
     order: 4
     file: tasks/04-query-abstractions-and-discovery.md
-    status: implemented
+    status: verified
     depends_on:
       - shared-handler-invocation-adapter
     implementation:
@@ -119,7 +119,7 @@ tasks:
   - id: query-dispatch-and-registration
     order: 5
     file: tasks/05-query-dispatch-and-registration.md
-    status: implemented
+    status: verified
     depends_on:
       - query-abstractions-and-discovery
       - registration-idempotency-hardening
@@ -145,7 +145,7 @@ tasks:
   - id: documentation-and-example
     order: 6
     file: tasks/06-documentation-and-example.md
-    status: implemented
+    status: verified
     depends_on:
       - query-dispatch-and-registration
     implementation:
