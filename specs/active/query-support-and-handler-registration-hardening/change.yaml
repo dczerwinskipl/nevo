@@ -119,10 +119,29 @@ tasks:
   - id: query-dispatch-and-registration
     order: 5
     file: tasks/05-query-dispatch-and-registration.md
-    status: draft
+    status: implemented
     depends_on:
       - query-abstractions-and-discovery
       - registration-idempotency-hardening
+    implementation:
+      baseline_revision: 4b0d66f591da5d3c5c2e092634df0a1e29cb266b
+      review_revision: 4b0d66f591da5d3c5c2e092634df0a1e29cb266b
+      changed_paths:
+        - src/NEvo.Messaging.Cqrs/Queries/IQueryDispatcher.cs
+        - src/NEvo.Messaging.Cqrs/Queries/QueryDispatcher.cs
+        - src/NEvo.Messaging.Cqrs/Queries/QueryProcessingStrategy.cs
+        - src/NEvo.Messaging.Cqrs/Queries/ServiceCollectionExtensions.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryDispatchIntegrationTests.cs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 0e81b16db3b0e7ccaee18443cf0bf264408c10cb92df8f5f7e80478107547857
+      revision: 4b0d66f591da5d3c5c2e092634df0a1e29cb266b
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Cqrs.Tests
+          exit_code: 0
+      status: passed
   - id: documentation-and-example
     order: 6
     file: tasks/06-documentation-and-example.md
