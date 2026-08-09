@@ -35,6 +35,7 @@ related:
 tests/
   NEvo.Core.Tests              Middleware ordering, guard clauses, functional extensions
   NEvo.Messaging.Tests         Message processing pipeline mechanics
+  NEvo.Messaging.Cqrs.Tests    Command/Query adapter, factory, strategy, dispatcher, and registration behavior
   NEvo.Ddd.EventSourcing.Tests Aggregate reconstruction, event folding
   NEvo.Orchestrating.Tests     Step execution, compensation on failure
   NEvo.Web.Authorization.Tests Claims-based auth middleware
@@ -61,6 +62,7 @@ subsystem documented under `docs/development/`:
 | Subsystem | Existing coverage | Notes |
 |---|---|---|
 | Messaging pipeline / dispatch (`docs/development/messaging-pipeline.md`, `processing-model.md`) | `tests/NEvo.Core.Tests` (middleware ordering), `tests/NEvo.Messaging.Tests` (pipeline mechanics) | No integration test exercises the full dispatch pipeline end-to-end — see "Known coverage gap". |
+| CQRS command/query dispatch (`docs/reference/packages/NEvo.Messaging.Cqrs.md`) | `tests/NEvo.Messaging.Cqrs.Tests` — adapter/factory/strategy/dispatcher characterization, Query end-to-end DI resolution, middleware ordering, cancellation propagation, and `AddCommands()`/`AddEvents()`/`AddQueries()` registration idempotency | The one subsystem with real end-to-end dispatch coverage (via a real `ServiceCollection`/`ServiceProvider`), unlike the broader "Known coverage gap" below. |
 | Authorization (`docs/reference/packages/NEvo.Messaging.Authorization.md`, `NEvo.Web.Authorization.md`) | `tests/NEvo.Web.Authorization.Tests` | No dedicated test project for `NEvo.Messaging.Authorization` itself — see that package's own "Examples and tests". |
 | Inbox/outbox (`docs/development/inbox-outbox.md`) | None dedicated | Inbox idempotency and outbox publishing are both untested — part of the known coverage gap above. |
 | Persistence / transactions (`docs/development/transaction-model.md`) | None dedicated | The transaction-ownership answers in `transaction-model.md` are grounded in code structure, not confirmed by an integration test — treat any change here as needing a new characterization test first. |

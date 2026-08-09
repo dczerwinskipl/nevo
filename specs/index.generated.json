@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T12:08:24.709Z",
+  "generated": "2026-08-09T11:13:31.341Z",
   "changes": [
     {
       "id": "architecture-documentation",
@@ -947,6 +947,246 @@
             "quickstart-and-installation-guide",
             "exampleapp-walkthrough-guide"
           ]
+        }
+      ]
+    },
+    {
+      "id": "query-support-and-handler-registration-hardening",
+      "title": "Query support and handler-registration hardening",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-08",
+      "tasks": [
+        {
+          "id": "command-event-adapter-characterization",
+          "order": 1,
+          "file": "tasks/01-command-event-adapter-characterization.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "37ecc4440cef06ea4a8ab4484859edb93bc24d9f",
+            "review_revision": "f8c88e29a029d401712fc55ec0139477e5ca7ea1",
+            "changed_paths": [
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandDispatcherTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandProcessingStrategyTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/GlobalUsings.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "8f2feb88fab67868b455415eb4d048d6c19beb8568b0432d552cb8cec44082f0",
+            "revision": "f8c88e29a029d401712fc55ec0139477e5ca7ea1",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "shared-handler-invocation-adapter",
+          "order": 2,
+          "file": "tasks/02-shared-handler-invocation-adapter.md",
+          "status": "verified",
+          "depends_on": [
+            "command-event-adapter-characterization"
+          ],
+          "implementation": {
+            "baseline_revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "review_revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapter.cs",
+              "src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapterFactory.cs",
+              "src/NEvo.Messaging/Events/EventHandlerAdapter.cs",
+              "src/NEvo.Messaging/Events/EventHandlerAdapterFactory.cs",
+              "src/NEvo.Messaging/Handling/MessageHandlerAdapter.cs",
+              "src/NEvo.Messaging/Handling/MessageHandlerAdapterBase.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs",
+              "tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterTests.cs"
+            ],
+            "worktree_patch_fingerprint": "92673f61321be79d5cd3c238a021028a5f4f3ed4f1dadbdac4ea7c8033e07750"
+          },
+          "self_check": {
+            "fingerprint": "f18814b65901474980ce6ad2816d257a4fd7998c5157fe37a124517413b60bec",
+            "revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "registration-idempotency-hardening",
+          "order": 3,
+          "file": "tasks/03-registration-idempotency-hardening.md",
+          "status": "verified",
+          "depends_on": [
+            "command-event-adapter-characterization"
+          ],
+          "implementation": {
+            "baseline_revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "review_revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Commands/ServiceCollectionExtensions.cs",
+              "src/NEvo.Messaging/Events/ServiceCollectionExtensions.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj",
+              "tests/NEvo.Messaging.Cqrs.Tests/ServiceCollectionExtensionsTests.cs"
+            ],
+            "worktree_patch_fingerprint": "6eef5c771f811f2092e2a5a6b2574ed330fec0e95bd73a2389557cf70b9e04f1"
+          },
+          "self_check": {
+            "fingerprint": "d476e517937cc4350b8b8b9708599e3af82c629d6ad0f96844c2cd228bd62ff8",
+            "revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "query-abstractions-and-discovery",
+          "order": 4,
+          "file": "tasks/04-query-abstractions-and-discovery.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-handler-invocation-adapter"
+          ],
+          "implementation": {
+            "baseline_revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "review_revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/NEvo.Messaging.Cqrs.csproj",
+              "src/NEvo.Messaging.Cqrs/Queries/IQueryHandler.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/Query.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryHandlerAdapterFactory.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/MessageHandlerExtractorQuerySupportTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryHandlerAdapterFactoryTests.cs"
+            ],
+            "worktree_patch_fingerprint": "c5c512c34f4b555a2ac364c5744cded695f525bd9422e5d37466635b014ffe46"
+          },
+          "self_check": {
+            "fingerprint": "25f734b6c91a632996a352a261f14a4df54e22fd84d2661c78e62fda9bb5cfb2",
+            "revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "query-dispatch-and-registration",
+          "order": 5,
+          "file": "tasks/05-query-dispatch-and-registration.md",
+          "status": "verified",
+          "depends_on": [
+            "query-abstractions-and-discovery",
+            "registration-idempotency-hardening"
+          ],
+          "implementation": {
+            "baseline_revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "review_revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Queries/IQueryDispatcher.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryDispatcher.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryProcessingStrategy.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/ServiceCollectionExtensions.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryDispatchIntegrationTests.cs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0e81b16db3b0e7ccaee18443cf0bf264408c10cb92df8f5f7e80478107547857",
+            "revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "documentation-and-example",
+          "order": 6,
+          "file": "tasks/06-documentation-and-example.md",
+          "status": "verified",
+          "depends_on": [
+            "query-dispatch-and-registration"
+          ],
+          "implementation": {
+            "baseline_revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "review_revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "changed_paths": [
+              "docs/development/architecture-overview.md",
+              "docs/development/testing-strategy.md",
+              "docs/reference/packages/NEvo.Messaging.Cqrs.md",
+              "docs/reference/packages/NEvo.Messaging.md",
+              "docs/usage/commands.md",
+              "docs/usage/events.md",
+              "docs/usage/queries.md",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentQueries.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/InMemoryDocumentEventStore.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/MessageHandlerRegistryExtensions.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs"
+            ],
+            "worktree_patch_fingerprint": "3e2266e851ff1a9f013748de7548338935db96038cb167a5979b67e2aa6b520b"
+          },
+          "self_check": {
+            "fingerprint": "914302c3fdd1b4a50435b6f861b9e0a5ad100cdbdff2fb2f560727718a7c1e15",
+            "revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     }

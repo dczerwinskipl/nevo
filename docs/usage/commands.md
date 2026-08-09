@@ -78,4 +78,5 @@ correctly.
 ## Next steps
 
 [Events](events.md) — for multi-handler, fire-and-react scenarios instead of a single
-command handler.
+command handler. [Queries](queries.md) — for read-side operations that return a typed
+result instead of `Unit`.

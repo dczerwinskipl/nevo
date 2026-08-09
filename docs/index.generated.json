@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08T08:53:05.815Z",
+  "generated": "2026-08-09T09:09:55.318Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -88,6 +88,14 @@
       "title": "Installation",
       "status": "current",
       "summary": "How to reference NEvo packages in a new project today, and the open question around NuGet publishing this guide does not paper over."
+    },
+    {
+      "file": "docs/usage/queries.md",
+      "id": "guides.queries",
+      "type": "guide",
+      "title": "Queries",
+      "status": "current",
+      "summary": "Dispatching a query via IQueryDispatcher and writing a typed query handler, using NEvo.Messaging.Cqrs's Query support."
     },
     {
       "file": "docs/usage/quick-start.md",
@@ -189,7 +197,7 @@
       "dependencies": [
         "NEvo.Messaging"
       ],
-      "summary": "CQRS command side on top of NEvo.Messaging: Command base type, ICommandHandler, ICommandDispatcher. Query-side support is not implemented — see Limitations."
+      "summary": "CQRS command and query sides on top of NEvo.Messaging: Command/Query base types, ICommandHandler/IQueryHandler, ICommandDispatcher/IQueryDispatcher."
     },
     {
       "file": "docs/reference/packages/NEvo.Messaging.EntityFramework.md",

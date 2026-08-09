@@ -1,4 +1,5 @@
-﻿using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
+﻿using NEvo.Ddd.EventSourcing.Tests.Mocks;
+using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 
 namespace NEvo.Messaging.Handling;
 
@@ -12,6 +13,7 @@ public static partial class ServiceCollectionExtensions
             options.Handlers.Add(typeof(SayHelloCommandHandler));
             options.Handlers.Add(typeof(MyEventHandlerA));
             options.Handlers.Add(typeof(MyEventHandlerB));
+            options.Handlers.Add(typeof(GetDocumentQueryHandler));
         });
         return serviceCollection;
     }

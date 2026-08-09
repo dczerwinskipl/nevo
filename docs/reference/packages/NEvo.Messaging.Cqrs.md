@@ -6,40 +6,45 @@ status: current
 dependencies:
   - NEvo.Messaging
 summary: >
-  CQRS command side on top of NEvo.Messaging: Command base type, ICommandHandler,
-  ICommandDispatcher. Query-side support is not implemented — see Limitations.
+  CQRS command and query sides on top of NEvo.Messaging: Command/Query base types,
+  ICommandHandler/IQueryHandler, ICommandDispatcher/IQueryDispatcher.
 ---
 
 # NEvo.Messaging.Cqrs
 
 ## Purpose
 
-`NEvo.Messaging.Cqrs` adds command-oriented types and dispatch on top of
-[`NEvo.Messaging`](NEvo.Messaging.md)'s generic message pipeline: a `Command` base
-record, `ICommandHandler<TMessage>`, and `ICommandDispatcher` for explicit
-(non-reflection-triggered) dispatch.
+`NEvo.Messaging.Cqrs` adds command- and query-oriented types and dispatch on top of
+[`NEvo.Messaging`](NEvo.Messaging.md)'s generic message pipeline: `Command`/`Query<TResult>`
+base types, `ICommandHandler<TMessage>`/`IQueryHandler<TQuery, TResult>`, and
+`ICommandDispatcher`/`IQueryDispatcher` for explicit (non-reflection-triggered) dispatch.
 
 ## When to use
 
-Whenever you're dispatching commands (single-handler, result-returning operations) —
-this is the standard way to add command support to a NEvo-based service. See
-`docs/usage/commands.md` for the task-oriented walkthrough.
+Whenever you're dispatching commands (single-handler, write-side operations) or queries
+(single-handler, typed-result read-side operations) — this is the standard way to add
+CQRS support to a NEvo-based service. See `docs/usage/commands.md` and
+`docs/usage/queries.md` for the task-oriented walkthroughs.
 
 ## When not to use
 
 If you only need events (multi-handler, no result), `NEvo.Messaging`'s own event
-support (`AddEvents()`) doesn't require this package. If you need query/read-side
-dispatch, this package does not provide it — see "Limitations".
+support (`AddEvents()`) doesn't require this package.
 
 ## Responsibilities
 
-- Define the `Command` message type (a `Message` subclass, per
-  [`NEvo.Messaging.md`](NEvo.Messaging.md)'s `IMessage` contract).
-- Provide `ICommandHandler<TMessage>` for command handlers and adapt them into the
-  generic `IMessageHandler` pipeline (`CommandHandlerAdapter`/`CommandHandlerAdapterFactory`).
-- Provide `ICommandDispatcher` for dispatching a command directly (resolving/creating
-  message context and delegating to the configured dispatch strategy).
-- Register the single-handler `CommandProcessingStrategy` used by
+- Define the `Command` and `Query<TResult>` message types (`Message`/`Message<TResult>`
+  subclasses, per [`NEvo.Messaging.md`](NEvo.Messaging.md)'s `IMessage` contract).
+- Provide `ICommandHandler<TMessage>`/`IQueryHandler<TQuery, TResult>` for handlers and
+  adapt them into the generic `IMessageHandler` pipeline
+  (`CommandHandlerAdapterFactory`/`QueryHandlerAdapterFactory`, both constructing the
+  shared `MessageHandlerAdapter` from [`NEvo.Messaging.md`](NEvo.Messaging.md)).
+- Provide `ICommandDispatcher`/`IQueryDispatcher` for dispatching directly
+  (resolving/creating message context and delegating to the configured dispatch
+  strategy, or — for Query — calling `IMessageProcessor.ProcessMessageAsync<TResult>`
+  directly).
+- Register the single-handler `CommandProcessingStrategy` and the single-handler,
+  typed-result `QueryProcessingStrategy` used by
   [`NEvo.Messaging.md`](NEvo.Messaging.md)'s processing-strategy selection.
 
 ## Dependencies
@@ -49,7 +54,8 @@ Depends only on `NEvo.Messaging` — see
 
 ## Public surface
 
-Grounded directly in `src/NEvo.Messaging.Cqrs/Commands/*.cs`.
+Grounded directly in `src/NEvo.Messaging.Cqrs/Commands/*.cs` and
+`src/NEvo.Messaging.Cqrs/Queries/*.cs`.
 
 ```csharp
 public record Command : Message
@@ -67,34 +73,57 @@ public interface ICommandDispatcher
 {
     Task<Either<Exception, Unit>> DispatchAsync(Command command, CancellationToken cancellationToken);
 }
+
+public abstract record Query<TResult> : Message<TResult>
+{
+    public Query();
+    public Query(Guid id, DateTime createdAt);
+}
+
+public interface IQueryHandler<in TQuery, TResult> where TQuery : Query<TResult>
+{
+    Task<Either<Exception, TResult>> HandleAsync(TQuery query, IMessageContext messageContext, CancellationToken cancellationToken);
+}
+
+public interface IQueryDispatcher
+{
+    Task<Either<Exception, TResult>> DispatchAsync<TResult>(Query<TResult> query, CancellationToken cancellationToken);
+}
 ```
 
 `CommandDispatcher` (the default `ICommandDispatcher`) resolves the current
 `IMessageContext` via `IMessageContextAccessor` (creating one via
 `IMessageContextProvider` if none is set yet), then delegates to
-`IMessageDispatchStrategyFactory<Command>`.
+`IMessageDispatchStrategyFactory<Command>`. `QueryDispatcher` (the default
+`IQueryDispatcher`) resolves/creates the context the same way, then calls
+`IMessageProcessor.ProcessMessageAsync<TResult>` directly — Query doesn't need the
+dispatch-strategy-factory indirection Command uses, since it has no swappable
+internal/external transport concept.
 
 ## Configuration
 
 ```csharp
 builder.Services.AddMessages();   // NEvo.Messaging
 builder.Services.AddCommands();   // this package
+builder.Services.AddQueries();    // this package — independent of AddCommands()
 ```
 
 `AddCommands()` registers `IMessageHandlerFactory` → `CommandHandlerAdapterFactory`,
 `IMessageProcessingStrategy` → `CommandProcessingStrategy`, `ICommandDispatcher` →
 `CommandDispatcher`, and `IMessageDispatchStrategyFactory<Command>` →
-`DefaultCommandDispatchStrategyFactory`.
+`DefaultCommandDispatchStrategyFactory`. `AddQueries()` registers
+`IMessageHandlerFactory` → `QueryHandlerAdapterFactory`,
+`IMessageProcessingStrategyWithResult` → `QueryProcessingStrategy` (one shared instance
+serves every `Query<TResult>` regardless of `TResult`), and `IQueryDispatcher` →
+`QueryDispatcher`. Both `AddCommands()` and `AddQueries()` are idempotent
+(`TryAdd*`/`TryAddEnumerable`-based) — a repeated call is a no-op, not a crash or a
+duplicate registration.
 
 ## Limitations
 
-- **Query-side support is not implemented.** The `.csproj` declares an empty
-  `<Folder Include="Queries\" />` placeholder with no corresponding source under a
-  `Queries/` directory — only `Commands/*.cs` and `GlobalUsings.cs` exist. Do not treat
-  this package as providing query dispatch, a `Query`/`IQueryHandler` type, or any
-  read-side abstraction — none exist yet.
-- Command handler resolution follows `NEvo.Messaging`'s single-handler rule for
-  commands (see [`NEvo.Messaging.md`](NEvo.Messaging.md) § Limitations).
+- Command/Query handler resolution follows `NEvo.Messaging`'s single-handler rule (see
+  [`NEvo.Messaging.md`](NEvo.Messaging.md) § Limitations). There is no multi-handler
+  Query semantics.
 
 ## Related packages
 
@@ -104,6 +133,8 @@ builder.Services.AddCommands();   // this package
 
 ## Examples and tests
 
-No dedicated `tests/NEvo.Messaging.Cqrs.Tests/` project exists; this package's
-behavior is exercised indirectly through `tests/NEvo.Messaging.Tests/` and consuming
-packages' tests.
+`tests/NEvo.Messaging.Cqrs.Tests/` is this package's dedicated test project —
+characterization tests for the Command adapter/factory/strategy/dispatcher, Query
+abstraction/discovery/dispatch tests (including end-to-end DI resolution, middleware
+ordering, and cancellation propagation), and registration-idempotency tests for
+`AddCommands()`/`AddEvents()`/`AddQueries()`.

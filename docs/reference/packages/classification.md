@@ -31,7 +31,7 @@ drawn from.
 
 | Package | Responsibility |
 |---|---|
-| [`NEvo.Messaging.Cqrs`](NEvo.Messaging.Cqrs.md) | CQRS command side on top of messaging. Query-side is not implemented (empty `Queries/` placeholder only). |
+| [`NEvo.Messaging.Cqrs`](NEvo.Messaging.Cqrs.md) | CQRS command and query sides on top of messaging. |
 | [`NEvo.Messaging.Authorization`](NEvo.Messaging.Authorization.md) | Auth hooks in message processing. |
 | [`NEvo.Messaging.Web`](NEvo.Messaging.Web.md) | HTTP transport / REST dispatch. |
 | [`NEvo.Messaging.EntityFramework`](NEvo.Messaging.EntityFramework.md) | EF-based inbox and outbox implementation. |

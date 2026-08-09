@@ -38,9 +38,10 @@ public class MessageProcessor(
     public async Task<Either<Exception, TResult>> ProcessMessageAsync<TResult>(IMessage<TResult> message, IMessageContext context, CancellationToken cancellationToken)
     {
         var result = await _messageProcessingMiddleware.ExecuteAsync(
-            async (input, cancellationToken) => await _messageProcessingStrategyFactory
+            async (input, cancellationToken) => (await _messageProcessingStrategyFactory
                                                             .CreateForMessageWithResult(message, context)
-                                                            .ProcessMessageWithResultAsync(message, context, cancellationToken),
+                                                            .ProcessMessageWithResultAsync(message, context, cancellationToken))
+                                                            .Map(value => (object)value!),
             (message, context),
             cancellationToken
         );

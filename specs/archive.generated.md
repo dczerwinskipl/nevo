@@ -10,3 +10,4 @@
 | `nevo-ai-review-hardening` | Deterministic approval gate and hardened Bash guard (PR #13 fix) | in-implementation | 10 | 2026-08-02 |
 | `nevo-documentation-architecture` | NEvo documentation architecture | draft | 10 | 2026-08-03 |
 | `nevo-documentation-foundation` | NEvo documentation foundation | draft | 10 | 2026-08-02 |
+| `query-support-and-handler-registration-hardening` | Query support and handler-registration hardening | draft | 10 | 2026-08-08 |
