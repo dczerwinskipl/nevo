@@ -34,7 +34,7 @@ or orchestration stack**. Capabilities are opt-in and independently composable.
 ```
 NEvo.Core                       Stable    Middleware pipeline primitives, functional types
 NEvo.Messaging                  Stable    Message processing pipeline, context, inbox/outbox abstractions
-NEvo.Messaging.Cqrs             Stable    CQRS commands on top of messaging (query-side not implemented)
+NEvo.Messaging.Cqrs             Stable    CQRS commands and queries on top of messaging
 NEvo.Messaging.Authorization    Pre-alpha Auth hooks in message processing
 NEvo.Messaging.Web              Pre-alpha HTTP transport / REST dispatch
 NEvo.Messaging.EntityFramework  Pre-alpha EF-based inbox and outbox implementation
@@ -47,9 +47,9 @@ NEvo.Orchestrating              Experimental  Saga orchestration (see orchestrat
 NEvo.Orchestrating.EntityFramework Experimental  EF persistence for orchestration state
 ```
 
-`NEvo.Messaging.Cqrs`'s query-side support (a `Query`/`IQueryHandler` abstraction) is not
-implemented — the package provides only the command side (`Command`, `ICommandHandler`,
-`ICommandDispatcher`). See `docs/reference/packages/NEvo.Messaging.Cqrs.md` for the exact
+`NEvo.Messaging.Cqrs` provides both the command side (`Command`, `ICommandHandler`,
+`ICommandDispatcher`) and the query side (`Query<TResult>`, `IQueryHandler`,
+`IQueryDispatcher`). See `docs/reference/packages/NEvo.Messaging.Cqrs.md` for the exact
 scope.
 
 ## Current maturity

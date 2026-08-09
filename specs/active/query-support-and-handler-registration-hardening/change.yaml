@@ -145,6 +145,32 @@ tasks:
   - id: documentation-and-example
     order: 6
     file: tasks/06-documentation-and-example.md
-    status: draft
+    status: implemented
     depends_on:
       - query-dispatch-and-registration
+    implementation:
+      baseline_revision: 9f843d400ace446c8904758d16eb330274ab5fa0
+      review_revision: 9f843d400ace446c8904758d16eb330274ab5fa0
+      changed_paths:
+        - docs/development/architecture-overview.md
+        - docs/development/testing-strategy.md
+        - docs/reference/packages/NEvo.Messaging.Cqrs.md
+        - docs/reference/packages/NEvo.Messaging.md
+        - docs/usage/commands.md
+        - docs/usage/events.md
+        - docs/usage/queries.md
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentQueries.cs
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/InMemoryDocumentEventStore.cs
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/MessageHandlerRegistryExtensions.cs
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs
+      worktree_patch_fingerprint: 3e2266e851ff1a9f013748de7548338935db96038cb167a5979b67e2aa6b520b
+    self_check:
+      fingerprint: 914302c3fdd1b4a50435b6f861b9e0a5ad100cdbdff2fb2f560727718a7c1e15
+      revision: 9f843d400ace446c8904758d16eb330274ab5fa0
+      commands:
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+        - command: dotnet build
+          exit_code: 0
+      status: passed

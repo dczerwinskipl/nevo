@@ -76,5 +76,6 @@ event and observing every registered handler's side effect (e.g. each handler's 
 
 ## Next steps
 
-[Commands](commands.md) — for single-handler, result-returning operations instead of
-multi-handler fan-out.
+[Commands](commands.md) — for single-handler, write-side operations instead of
+multi-handler fan-out. [Queries](queries.md) — for single-handler, typed-result
+read-side operations.

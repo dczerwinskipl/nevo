@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-08T08:53:05.815Z_
+_Generated: 2026-08-09T09:09:55.318Z_
 
 ## Hub
 
@@ -24,6 +24,7 @@ _Generated: 2026-08-08T08:53:05.815Z_
 | `guides.example-app-walkthrough` | [ExampleApp walkthrough](usage/example-app-walkthrough.md) | current |  |
 | `guides.inbox-outbox` | [Inbox/outbox](usage/inbox-outbox.md) | current |  |
 | `guides.installation` | [Installation](usage/installation.md) | current |  |
+| `guides.queries` | [Queries](usage/queries.md) | current |  |
 | `guides.quick-start` | [Quick start](usage/quick-start.md) | current |  |
 | `guides.troubleshooting` | [Troubleshooting](usage/troubleshooting.md) | current |  |
 

@@ -84,6 +84,17 @@ public interface IMessage<TResult> : IMessage { }
 object>>` — see `docs/development/messaging-pipeline.md` § "Handler registration" for
 how handlers are discovered and adapted.
 
+**Breaking change.** `MessageHandlerAdapterBase<TMessageGroup>` and the two adapter
+types built on it — `CommandHandlerAdapter` (`NEvo.Messaging.Cqrs`) and
+`EventHandlerAdapter` — were `public` types and have been **removed**. They are
+replaced by one shared, public, non-generic `MessageHandlerAdapter` (in this package's
+`NEvo.Messaging.Handling` namespace) that `CommandHandlerAdapterFactory`,
+`EventHandlerAdapterFactory`, and `QueryHandlerAdapterFactory` all construct. This only
+affects code that referenced one of the three removed types directly — the documented
+`ICommandHandler<T>`/`IEventHandler<T>`/`IMessageHandlerFactory` extension surface is
+unaffected. `MessageHandlerAdapter` is not itself a documented extension point; it is
+constructed by the factories above, never by third-party code.
+
 ### Events (`NEvo.Messaging.Events`)
 
 ```csharp
