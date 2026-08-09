@@ -37,9 +37,35 @@ tasks:
   - id: shared-handler-invocation-adapter
     order: 2
     file: tasks/02-shared-handler-invocation-adapter.md
-    status: approved
+    status: implemented
     depends_on:
       - command-event-adapter-characterization
+    implementation:
+      baseline_revision: 935dc8aba96d36eb4ddaede13ce0ceff386bbcc9
+      review_revision: 935dc8aba96d36eb4ddaede13ce0ceff386bbcc9
+      changed_paths:
+        - src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapter.cs
+        - src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapterFactory.cs
+        - src/NEvo.Messaging/Events/EventHandlerAdapter.cs
+        - src/NEvo.Messaging/Events/EventHandlerAdapterFactory.cs
+        - src/NEvo.Messaging/Handling/MessageHandlerAdapter.cs
+        - src/NEvo.Messaging/Handling/MessageHandlerAdapterBase.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs
+        - tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterFactoryTests.cs
+        - tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterTests.cs
+      worktree_patch_fingerprint: 92673f61321be79d5cd3c238a021028a5f4f3ed4f1dadbdac4ea7c8033e07750
+    self_check:
+      fingerprint: f18814b65901474980ce6ad2816d257a4fd7998c5157fe37a124517413b60bec
+      revision: 935dc8aba96d36eb4ddaede13ce0ceff386bbcc9
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Cqrs.Tests
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Tests
+          exit_code: 0
+      status: passed
   - id: registration-idempotency-hardening
     order: 3
     file: tasks/03-registration-idempotency-hardening.md

@@ -1,13 +1,14 @@
-﻿using NEvo.Messaging.Handling;
+﻿using Microsoft.Extensions.Logging;
+using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Cqrs.Commands;
 
-public class CommandHandlerAdapterFactory : IMessageHandlerFactory
+public class CommandHandlerAdapterFactory(ILogger<MessageHandlerAdapter> logger) : IMessageHandlerFactory
 {
     public Type ForInterface => typeof(ICommandHandler<>);
 
     public IMessageHandler Create(MessageHandlerDescription messageHandlerDescription)
-        => new CommandHandlerAdapter(messageHandlerDescription);
+        => new MessageHandlerAdapter(messageHandlerDescription, logger);
 
     public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface)
     {

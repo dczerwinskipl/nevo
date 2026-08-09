@@ -9,7 +9,7 @@ namespace NEvo.Messaging.Tests.Events;
 
 public class EventHandlerAdapterTests
 {
-    private readonly Mock<ILogger<EventHandlerAdapter>> _loggerMock;
+    private readonly Mock<ILogger<MessageHandlerAdapter>> _loggerMock;
     private readonly Mock<IServiceProvider> _serviceProviderMock;
     private readonly Mock<IMessageContext> _messageContextMock;
     private readonly Mock<IService> _serviceMock;
@@ -17,7 +17,7 @@ public class EventHandlerAdapterTests
 
     public EventHandlerAdapterTests()
     {
-        _loggerMock = new Mock<ILogger<EventHandlerAdapter>>();
+        _loggerMock = new Mock<ILogger<MessageHandlerAdapter>>();
         _serviceProviderMock = new Mock<IServiceProvider>();
         _messageContextMock = new Mock<IMessageContext>();
         _serviceMock = new Mock<IService>();
@@ -28,7 +28,9 @@ public class EventHandlerAdapterTests
             "Key",
             typeof(EventHandlerMock),
             typeof(Event),
-            typeof(IEventHandler<>)
+            typeof(IEventHandler<>),
+            ReturnType: typeof(Unit),
+            Method: typeof(EventHandlerMock).GetMethod(nameof(EventHandlerMock.HandleAsync))
         );
         _messageContextMock.SetupGet(ctx => ctx.ServiceProvider).Returns(_serviceProviderMock.Object);
     }
@@ -40,7 +42,7 @@ public class EventHandlerAdapterTests
         var expectedResult = UnitExt.DefaultEitherTask;
         var mockEvent = new Event();
         var cancellationToken = new CancellationToken();
-        var adapter = new EventHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
+        var adapter = new MessageHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
         _serviceMock.Setup(m => m.HandleAsync(mockEvent, _messageContextMock.Object, cancellationToken))
             .Returns(expectedResult);
 
@@ -60,7 +62,7 @@ public class EventHandlerAdapterTests
         var mockEvent = new Event();
         var cancellationToken = new CancellationToken();
         var exception = new Exception();
-        var adapter = new EventHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
+        var adapter = new MessageHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
         _serviceMock.Setup(m => m.HandleAsync(mockEvent, _messageContextMock.Object, cancellationToken))
             .ThrowsAsync(exception);
 

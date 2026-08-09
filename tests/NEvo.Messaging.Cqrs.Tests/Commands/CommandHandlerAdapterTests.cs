@@ -1,4 +1,5 @@
 using LanguageExt;
+using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Handling;
@@ -10,6 +11,7 @@ public class CommandHandlerAdapterTests
     private readonly Mock<IServiceProvider> _serviceProviderMock;
     private readonly Mock<IMessageContext> _messageContextMock;
     private readonly Mock<IService> _serviceMock;
+    private readonly Mock<ILogger<MessageHandlerAdapter>> _loggerMock;
     private readonly MessageHandlerDescription _messageHandlerDescription;
 
     public CommandHandlerAdapterTests()
@@ -17,6 +19,7 @@ public class CommandHandlerAdapterTests
         _serviceProviderMock = new Mock<IServiceProvider>();
         _messageContextMock = new Mock<IMessageContext>();
         _serviceMock = new Mock<IService>();
+        _loggerMock = new Mock<ILogger<MessageHandlerAdapter>>();
         _serviceProviderMock.Setup(sp => sp.GetService(typeof(IService)))
             .Returns(_serviceMock.Object);
 
@@ -24,7 +27,9 @@ public class CommandHandlerAdapterTests
             "Key",
             typeof(CommandHandlerMock),
             typeof(Command),
-            typeof(ICommandHandler<>)
+            typeof(ICommandHandler<>),
+            ReturnType: typeof(Unit),
+            Method: typeof(CommandHandlerMock).GetMethod(nameof(CommandHandlerMock.HandleAsync))
         );
         _messageContextMock.SetupGet(ctx => ctx.ServiceProvider).Returns(_serviceProviderMock.Object);
     }
@@ -35,7 +40,7 @@ public class CommandHandlerAdapterTests
         // Arrange
         var mockCommand = new Command();
         var cancellationToken = new CancellationToken();
-        var adapter = new CommandHandlerAdapter(_messageHandlerDescription);
+        var adapter = new MessageHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
         _serviceMock.Setup(m => m.HandleAsync(mockCommand, _messageContextMock.Object, cancellationToken))
             .Returns(Task.FromResult(Either<Exception, Unit>.Right(Unit.Default)));
 
@@ -55,7 +60,7 @@ public class CommandHandlerAdapterTests
         var mockCommand = new Command();
         var cancellationToken = new CancellationToken();
         var exception = new Exception();
-        var adapter = new CommandHandlerAdapter(_messageHandlerDescription);
+        var adapter = new MessageHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
         _serviceMock.Setup(m => m.HandleAsync(mockCommand, _messageContextMock.Object, cancellationToken))
             .ThrowsAsync(exception);
 
@@ -73,7 +78,7 @@ public class CommandHandlerAdapterTests
         var mockCommand = new Command();
         var cancellationToken = new CancellationToken();
         var exception = new Exception();
-        var adapter = new CommandHandlerAdapter(_messageHandlerDescription);
+        var adapter = new MessageHandlerAdapter(_messageHandlerDescription, _loggerMock.Object);
         _serviceMock.Setup(m => m.HandleAsync(mockCommand, _messageContextMock.Object, cancellationToken))
             .Throws(exception);
 

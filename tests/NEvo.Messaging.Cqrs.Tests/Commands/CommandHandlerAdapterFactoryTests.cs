@@ -1,4 +1,5 @@
 using LanguageExt;
+using Microsoft.Extensions.Logging;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Handling;
@@ -7,11 +8,13 @@ namespace NEvo.Messaging.Cqrs.Tests.Commands;
 
 public class CommandHandlerAdapterFactoryTests
 {
+    private readonly ILogger<MessageHandlerAdapter> _loggerMock = Mock.Of<ILogger<MessageHandlerAdapter>>();
+
     [Fact]
     public void ForInterface_ShouldReturnICommandHandlerGenericType()
     {
         // Arrange
-        var factory = new CommandHandlerAdapterFactory();
+        var factory = new CommandHandlerAdapterFactory(_loggerMock);
 
         // Act
         var forInterface = factory.ForInterface;
@@ -21,29 +24,31 @@ public class CommandHandlerAdapterFactoryTests
     }
 
     [Fact]
-    public void Create_ShouldReturnCommandHandlerAdapter()
+    public void Create_ShouldReturnMessageHandlerAdapter()
     {
         // Arrange
-        var factory = new CommandHandlerAdapterFactory();
+        var factory = new CommandHandlerAdapterFactory(_loggerMock);
         var description = new MessageHandlerDescription(
             "Key",
             typeof(CommandHandlerMock),
             typeof(CommandMock),
-            typeof(ICommandHandler<>)
+            typeof(ICommandHandler<>),
+            ReturnType: typeof(Unit),
+            Method: typeof(CommandHandlerMock).GetMethod(nameof(CommandHandlerMock.HandleAsync))
         );
 
         // Act
         var handler = factory.Create(description);
 
         // Assert
-        handler.Should().BeOfType<CommandHandlerAdapter>();
+        handler.Should().BeOfType<MessageHandlerAdapter>();
     }
 
     [Fact]
     public void GetMessageHandlerDescriptions_ShouldYieldCorrectDescription()
     {
         // Arrange
-        var factory = new CommandHandlerAdapterFactory();
+        var factory = new CommandHandlerAdapterFactory(_loggerMock);
         Type handlerType = typeof(CommandHandlerMock);
         Type handlerInterface = typeof(ICommandHandler<CommandMock>);
 
