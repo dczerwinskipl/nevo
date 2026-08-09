@@ -93,9 +93,29 @@ tasks:
   - id: query-abstractions-and-discovery
     order: 4
     file: tasks/04-query-abstractions-and-discovery.md
-    status: draft
+    status: implemented
     depends_on:
       - shared-handler-invocation-adapter
+    implementation:
+      baseline_revision: 1cec93188170b130c2f0c613b5af2cf3d52c9e57
+      review_revision: 1cec93188170b130c2f0c613b5af2cf3d52c9e57
+      changed_paths:
+        - src/NEvo.Messaging.Cqrs/NEvo.Messaging.Cqrs.csproj
+        - src/NEvo.Messaging.Cqrs/Queries/IQueryHandler.cs
+        - src/NEvo.Messaging.Cqrs/Queries/Query.cs
+        - src/NEvo.Messaging.Cqrs/Queries/QueryHandlerAdapterFactory.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Queries/MessageHandlerExtractorQuerySupportTests.cs
+        - tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryHandlerAdapterFactoryTests.cs
+      worktree_patch_fingerprint: c5c512c34f4b555a2ac364c5744cded695f525bd9422e5d37466635b014ffe46
+    self_check:
+      fingerprint: 25f734b6c91a632996a352a261f14a4df54e22fd84d2661c78e62fda9bb5cfb2
+      revision: 1cec93188170b130c2f0c613b5af2cf3d52c9e57
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Cqrs.Tests
+          exit_code: 0
+      status: passed
   - id: query-dispatch-and-registration
     order: 5
     file: tasks/05-query-dispatch-and-registration.md
