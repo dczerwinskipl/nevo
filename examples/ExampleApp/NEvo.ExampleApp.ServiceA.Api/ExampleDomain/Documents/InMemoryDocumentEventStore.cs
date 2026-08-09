@@ -4,10 +4,17 @@ using System.Collections.Concurrent;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-// Example-only IEventStore: appends Document events into a real in-memory
-// DocumentDto projection, so GetDocumentQuery can demonstrate a genuine
-// create-then-query round trip. FakeEventStore (the framework default) never
-// persists anything, so it cannot support that round trip.
+// WORKAROUND, not a pattern to copy: this conflates event persistence with read-model
+// projection (AppendEventsAsync hand-builds a DocumentDto directly instead of just
+// storing raw events, and LoadAggregateAsync still returns None like FakeEventStore).
+// It exists only because FakeEventStore (the framework default) never persists
+// anything, and there is no real generic event-replay/repository mechanism in
+// NEvo.Ddd.EventSourcing yet for GetDocumentQuery to demonstrate a genuine
+// create-then-query round trip against. PR #10 ("Feature/event sourcing",
+// feature/event-sourcing) reworks the store into a proper aggregate repository with
+// versioning and real replay — once that lands, delete this class and have
+// GetDocumentQueryHandler read through the real repository/projection mechanism
+// instead.
 public class InMemoryDocumentEventStore : IEventStore
 {
     private readonly ConcurrentDictionary<Guid, DocumentDto> _documents = new();

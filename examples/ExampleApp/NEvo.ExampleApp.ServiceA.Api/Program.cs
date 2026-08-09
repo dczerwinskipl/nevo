@@ -43,8 +43,10 @@ builder.Services.AddRestMessageDispatcher((opts) =>
 
 builder.Services.AddServiceADomain();
 builder.Services.AddEventSourcing(typeof(Document));
-// Overrides AddEventSourcing()'s FakeEventStore so GetDocumentQuery has a real
-// create-then-query round trip to demonstrate in this example.
+// WORKAROUND: overrides AddEventSourcing()'s FakeEventStore so GetDocumentQuery has a
+// real create-then-query round trip to demonstrate. Remove once PR #10 (real
+// event-sourcing repository) lands — see InMemoryDocumentEventStore for why this
+// exists and what should replace it.
 builder.Services.AddSingleton<IEventStore, InMemoryDocumentEventStore>();
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
