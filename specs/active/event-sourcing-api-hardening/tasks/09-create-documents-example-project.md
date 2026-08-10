@@ -42,12 +42,12 @@ proper namespace (not `NEvo.Ddd.EventSourcing.Tests.Mocks`), remove the domain f
 
 ## Dependencies
 
-- `harden-event-store-and-repository-contracts` (task 03) — the real repository path
+- `harden-event-store-and-repository-contracts` (task 02) — the real repository path
   this task wires in place of the workaround.
 
-This task's ordering relative to tasks 05/06/07/08/09 (which the *behavior* demo in task
-11 needs) is deliberately loose — this task only creates the project skeleton and moves
-the domain; task 11 adds the Level 2/authorization/registration-options/query-endpoint
+This task's ordering relative to tasks 04/05/06/07/08 (which the *behavior* demo in task
+10 needs) is deliberately loose — this task only creates the project skeleton and moves
+the domain; task 10 adds the Level 2/authorization/registration-options/query-endpoint
 demonstrations once those tasks land.
 
 ## Implementation constraints
@@ -60,8 +60,8 @@ demonstrations once those tasks land.
   `NEvo.ExampleApp.Documents.Api.Domain` or similar — not
   `NEvo.Ddd.EventSourcing.Tests.Mocks`). Update every reference.
 - Remove `InMemoryDocumentEventStore.cs` entirely; wire the real
-  `IAggregateRepository`/`IEventStreamStore` (task 03) via `AddEventSourcing(...)`
-  (task 07's options-based registration, if already landed at implementation time —
+  `IAggregateRepository`/`IEventStreamStore` (task 02) via `AddEventSourcing(...)`
+  (task 06's options-based registration, if already landed at implementation time —
   otherwise the current signature, updated in a later task if sequencing requires).
   Rewrite `GetDocumentQueryHandler` to read through the real repository path, and add a
   one-line doc comment on it stating this is an intermediate/simple read path used
@@ -91,10 +91,10 @@ dotnet build
 
 ## Documentation impact
 
-None in this task — task 12 links the finished example.
+None in this task — tasks 11 (user-facing) and 12 (internal) link the finished example.
 
 ## Out of scope
 
 - Level 2 explicit handler demonstration, permission metadata, aggregate-aware
-  authorization demonstration, `MapCommandEndpoint`/`MapQueryEndpoint` wiring (task 11).
+  authorization demonstration, `MapCommandEndpoint`/`MapQueryEndpoint` wiring (task 10).
 - Any test project for this service (D12).

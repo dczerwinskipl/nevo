@@ -48,8 +48,8 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
   Two or more Primary → configuration error. Multiple competing Fallback for the same
   top-level route → configuration error. Prefer failing at startup/registration time
   where practical, per the input specification's stated preference.
-- The convention aggregate-method route (task 04's executor via Level 1) is always
-  Fallback. An explicit Event Sourced handler (task 05, Level 2) and an ordinary
+- The convention aggregate-method route (task 03's executor via Level 1) is always
+  Fallback. An explicit Event Sourced handler (task 04, Level 2) and an ordinary
   `ICommandHandler<TCommand>` (Level 3) are always Primary — two of the latter for the
   same command is therefore always a configuration error, never a silent preference.
 - `AddEventSourcing(options => {...})` (or an additive overload preserving the existing
@@ -59,6 +59,18 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
   like "generic handler."
 - Fix `AddEventSourcing`'s registration to be idempotent (`TryAdd*`/`TryAddEnumerable`),
   matching `AddCommands`/`AddEvents`/`AddQueries`'s precedent.
+- **Protect general messaging behavior (review issue 6, 2026-08-10 spec-refine).**
+  Primary/Fallback role metadata touches shared handler-registration infrastructure
+  (`MessageHandlerDescription`/`MessageHandlerRegistry`) used by Command, Query, and
+  Event alike. Task 05 must prove, not merely assume, that: ordinary command handlers
+  retain today's single-handler semantics; Query handler resolution is completely
+  unaffected (no Primary/Fallback concept applies to Query at all); Event fan-out to
+  multiple handlers is unaffected; role logic only ever activates for a message type
+  that actually has a role-tagged handler registered; and every registration method's
+  existing idempotency guarantee survives. Do not let the mere existence of role
+  metadata make Query or Event resolution role-aware "for free" — that would be an
+  unrequested, unreviewed behavior change to two message kinds this specification does
+  not touch otherwise.
 
 ## Constraints
 
@@ -75,11 +87,11 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
 
 ## Interfaces and boundaries
 
-- Consumes: task 04/05's two route kinds (convention executor path, explicit handler).
-- Provides to task 08 (authorization): whichever route was actually selected, so
-  `ValidatePermissionMiddleware` (task 08) can find the correct `Method`/permission
+- Consumes: task 03/04's two route kinds (convention executor path, explicit handler).
+- Provides to task 07 (authorization): whichever route was actually selected, so
+  `ValidatePermissionMiddleware` (task 07) can find the correct `Method`/permission
   source regardless of role.
-- Provides to task 10/11 (Documents example): the public `AddEventSourcing(options =>
+- Provides to task 09/10 (Documents example): the public `AddEventSourcing(options =>
   {...})` surface and Primary/Fallback registration behavior the example demonstrates.
 
 ## Area-specific acceptance criteria
@@ -99,14 +111,17 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
 6. `AddEventSourcing()` called twice does not throw and does not duplicate registered
    services (idempotency test, matching `AddCommands`/`AddEvents`/`AddQueries`'s own
    idempotency tests).
+7. **(Review issue 6)** Query resolution, Event fan-out, and every existing
+   `AddCommands`/`AddEvents`/`AddQueries` idempotency guarantee are unaffected by this
+   area's changes — proven by regression tests, not by inspection alone.
 
 ## Dependencies
 
-- `shared-es-execution-and-explicit-handler` (tasks 04-05) — role assignment needs both
+- `shared-es-execution-and-explicit-handler` (tasks 03-04) — role assignment needs both
   route kinds to exist.
 
 ## Out of scope
 
 - Any change to `ValidatePermissionMiddleware`'s attribute-reading logic itself (area
-  `authorization-integration`, task 08) — this area only ensures the correct route/
+  `authorization-integration`, task 07) — this area only ensures the correct route/
   `Method` is selected and available for that logic to use.

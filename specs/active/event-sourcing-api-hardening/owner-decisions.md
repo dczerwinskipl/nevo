@@ -152,16 +152,35 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
 - **Rationale:** Preserves an existing, load-bearing semantic the messaging pipeline
   already depends on (`docs/development/transaction-model.md`), rather than
   reintroducing risk while hardening an unrelated layer.
-- **Consequences:** Discovery found no "flush"/`SaveChanges` primitive exists anywhere
-  in the repository (`grep` for `flush` returns nothing); synchronous dispatch already
-  re-enters `IMessageProcessor.ProcessMessageAsync` under the same ambient
-  `TransactionScope`
-  (`InternalSyncProcessDispatchStrategy.cs:8-9`) — the ES executor (task 04) must append
-  before triggering this re-entrant dispatch, and must not introduce a new flush
-  primitive that doesn't already exist in the pipeline.
-- **Date:** 2026-08-08 (recorded 2026-08-10)
+- **Consequences:** **Corrected 2026-08-10 (spec-refine, review issue 3) — the original
+  discovery claim below was factually wrong and is replaced, not merely restated.**
+  There is no primitive literally *named* "flush," but `DbContext.SaveChangesAsync()`
+  already **is** the repository's flush mechanism, already used exactly this way by
+  `EntityFrameworkMessageInbox.RegisterProcessedAsync` and
+  `EntityFrameworkMessageOutbox.SaveMessageAsync`
+  (`src/NEvo.Messaging.EntityFramework/EntityFrameworkMessageInbox.cs:18,25`,
+  `EntityFrameworkMessageOutbox.cs:38`) — both call it inline, once per call, enlisting
+  in the ambient `TransactionScope` without committing it
+  (`docs/development/transaction-model.md` § "Transaction ownership", questions 1-2:
+  "Whether a handler calls `SaveChangesAsync()` on its own `DbContext` is entirely up to
+  that handler's implementation; NEvo does not impose or coordinate a single save
+  point"). The ES executor (task 03, renumbered from 04) does not need to invent a new
+  primitive — for a future EF-backed store it follows the exact same established
+  pattern (call `SaveChangesAsync()` on its own append path before returning control to
+  the pipeline); for `FakeEventStore` (in-memory, no `DbContext`) the append is
+  synchronous and already visible immediately, so no explicit flush call is needed
+  there. Synchronous dispatch re-enters `IMessageProcessor.ProcessMessageAsync` under
+  the same ambient `TransactionScope`
+  (`InternalSyncProcessDispatchStrategy.cs:8-9`) — the ES executor must append (and,
+  for a future DbContext-backed store, save) before triggering this re-entrant
+  dispatch, ordering against the existing pipeline rather than introducing a new
+  cross-cutting mechanism.
+  ~~Original (incorrect) claim, kept here struck through for audit trail per this
+  document's append-only convention: "Discovery found no 'flush'/`SaveChanges`
+  primitive exists anywhere in the repository (`grep` for `flush` returns nothing)."~~
+- **Date:** 2026-08-08 (recorded 2026-08-10; consequences corrected 2026-08-10)
 - **Affected artifacts:** areas/shared-es-execution-and-explicit-handler.md,
-  tasks/04-es-command-executor-and-ambiguity-resolution.md
+  tasks/03-es-command-executor-and-ambiguity-resolution.md
 
 ## D8: `MapQueryEndpoint<TQuery, TResult>` HTTP mapping consistent with `MapCommandEndpoint`
 
@@ -213,6 +232,9 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
 
 ## D10: `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Cqrs` dependency — keep, separate at folder level only
 
+**Superseded by D15 (2026-08-10, spec-refine, review issue 5).** Kept below verbatim
+for audit trail — do not implement per this entry; see D15 for the current decision.
+
 - **Question:** `docs/development/event-sourcing.md` and `package-boundaries.md` both
   explicitly flag this project reference as an unresolved question for this
   specification. Should this change alter it?
@@ -239,6 +261,9 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   tasks/02-separate-core-and-integration-folders.md
 
 ## D11: `ICreateAggregateCommand<TAggregate,TId>` — wire it in, do not leave unused or delete
+
+**Superseded by D16 (2026-08-10, spec-refine, review issue 5).** Kept below verbatim
+for audit trail — do not implement per this entry; see D16 for the current decision.
 
 - **Question:** This marker interface is declared but never referenced in production
   code — create-vs-mutate dispatch is inferred purely from `Option<TAggregate>` being
@@ -304,14 +329,27 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
 - **Rationale:** Owner accepted the recommendation — consistent with NEvo's existing
   exception-per-failure-mode pattern; lets callers pattern-match a concurrency conflict
   specifically instead of string-matching `Exception.Message`.
-- **Consequences:** Task 03 introduces the type and updates every real/future
-  `IEventStreamStore` implementation (currently only `FakeEventStore`) to throw it on an
-  expected-version mismatch, surfaced through the existing `Either<Exception, T>`
-  convention (still an `Exception` subtype in the `Left`, per the input document's
-  Scope 2 acceptance criteria — not a new result-type shape).
-- **Date:** 2026-08-10
+- **Consequences:** **Corrected 2026-08-10 (spec-refine, review issue 2) — the original
+  wording below ambiguously said "throw"; confirmed current code never throws here.**
+  `IAggregateRepository.AppendEventsAsync`/`IEventStore.AppendEventsAsync` already
+  return `EitherAsync<Exception, Unit>` (`IAggregateRepository.cs:7,22`), not
+  `Task<Unit>` with CLR throw semantics. `FakeEventStore.AppendEventsAsync`
+  (`ServiceCollectionExtensions.cs:20-22`) already demonstrates the pattern this
+  decision continues: `return new Exception(...)` — a plain `return`, implicitly
+  converted into the `Left` case of `EitherAsync<Exception, Unit>` — never a thrown
+  exception propagating up the call stack. Task 02 (renumbered from 03) updates this
+  one `return` site (and any future real `IEventStreamStore` implementation's
+  equivalent) to `return new AggregateConcurrencyException(...)` instead of a plain
+  `Exception`, preserving the exact same return-not-throw shape. Every acceptance
+  criterion and task description in this change must say "returns
+  `AggregateConcurrencyException` as `Either<Exception, Unit>.Left`" — never
+  "throws/returns" — per this correction.
+  ~~Original (ambiguous) wording, kept here struck through for audit trail: "Task 03
+  introduces the type and updates every real/future `IEventStreamStore` implementation
+  (currently only `FakeEventStore`) to throw it on an expected-version mismatch..."~~
+- **Date:** 2026-08-10 (consequences corrected 2026-08-10, same day, during spec-refine)
 - **Affected artifacts:** areas/persistence-boundary.md,
-  tasks/03-harden-event-store-and-repository-contracts.md
+  tasks/02-harden-event-store-and-repository-contracts.md
 
 ## D14: Branch targeting — new `feature/event-sourcing-api-hardening` branch, PR #10 retargeted manually
 
@@ -341,3 +379,157 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   follow-up, not something any `/nevo-ai:*` command performs automatically.
 - **Date:** 2026-08-10
 - **Affected artifacts:** change.yaml, overview.md
+
+## D15: No folder/namespace reorganization — supersedes D10
+
+- **Question:** External review (spec-refine) challenged D10's folder-level
+  core/integration split as incidental scope: "the primary goal of this specification
+  is Event Sourcing API hardening and persistence readiness, not package beautification
+  ... unless current package boundaries actively block the planned API changes, remove
+  or substantially reduce folder/namespace reorganization that is only justified as
+  'cleaner for a future package split.'" Does any task in this change actually require
+  the reorganization to proceed?
+- **Options considered:** Keep D10's folder-level split (original decision) | Remove it
+  entirely — no folder/namespace changes in this specification, revisit only if a
+  concrete future need arises.
+- **Decision:** Remove it entirely. Task 02 (`separate-core-and-integration-folders`) is
+  deleted from the task list, not reduced. `NEvo.Ddd.EventSourcing`'s current folder
+  layout (`Evolving/`, `Deciding/`, `Handling/`, root) is unchanged by this
+  specification. The project reference to `NEvo.Messaging.Cqrs` is unchanged (this part
+  of D10 was never in question).
+- **Rationale:** Owner: no task in this change (executor extraction, repository
+  hardening, Primary/Fallback registration, authorization, HTTP mapping, the Documents
+  example) requires the folder boundary to exist first — every one of them can be
+  implemented against the current flat layout exactly as easily as against a
+  reorganized one. The reorganization's only justification was "cheaper to split later,"
+  which is speculative benefit for a hypothetical future change, not a requirement of
+  this one — inconsistent with this specification's own stated principle: "do not
+  introduce infrastructure whose only justification is a hypothetical future provider
+  unless the abstraction is required to avoid locking the public API now" (the same
+  reasoning applies to a folder boundary as to an abstraction).
+- **Consequences:** Task 02 is deleted. Every task that depended on it now depends
+  directly on task 01 (`fix-build-and-characterize-baseline`). All subsequent tasks are
+  renumbered down by one (former 03→02, 04→03, ... 11→10); the two documentation tasks
+  (formerly one task, 12) are split per D21-equivalent scope below and become 11-12. See
+  `change.yaml` for the final numbering.
+- **Date:** 2026-08-10
+- **Affected artifacts:** change.yaml, overview.md,
+  areas/characterization-and-reorganization.md (renamed
+  areas/characterization-and-baseline.md), tasks/02-separate-core-and-integration-folders.md
+  (deleted)
+
+## D16: `ICreateAggregateCommand<TAggregate,TId>` stays untouched, out of scope — supersedes D11
+
+- **Question:** External review challenged D11's decision to wire the unused marker
+  interface into create-vs-mutate resolution: "do not give this marker new semantics
+  merely because it exists... before including behavior based on it, the spec would
+  need to define [what happens if a create command targets an already-existing stream,
+  whether it changes command resolution, whether it changes aggregate initialization
+  semantics, or whether it is simply unused legacy/dead scaffolding]... if not required
+  for the current hardening work, keep it out of the behavior-changing scope... prefer
+  deleting an unnecessary task over inventing semantics to justify it." Does this
+  change's actual hardening work (executor extraction, ambiguity resolution, Primary/
+  Fallback registration) require `ICreateAggregateCommand` to be wired in?
+- **Options considered:** Keep D11's decision (wire it into task 02's resolution logic)
+  | Leave it completely untouched — no behavior based on it, note it as unused/legacy
+  scaffolding, defer any decision about it to a future change if one ever needs it |
+  Delete the interface now as dead code.
+- **Decision:** Leave it completely untouched in this specification. Not wired in, not
+  deleted. Recorded here as a known unused type for a future change to pick up only if
+  a concrete need for explicit create-vs-mutate marking actually materializes.
+- **Rationale:** Owner: D11's own unresolved questions (what happens on a create
+  command against an existing stream, whether it changes resolution/initialization
+  semantics) are exactly the kind of undesigned behavior a hardening change should not
+  invent answers for just because a marker interface happens to exist. The task that
+  carried this work (task 02) is deleted per D15 for an unrelated reason (folder reorg);
+  since `ICreateAggregateCommand` had no task of its own, this decision simply removes
+  it from scope rather than reassigning it elsewhere.
+- **Consequences:** No task in this change references, wires, or deletes
+  `ICreateAggregateCommand<TAggregate,TId>`. Create-vs-mutate dispatch continues to be
+  inferred purely from `Option<TAggregate>` being `None`/`Some`, exactly as today —
+  task 01's characterization tests cover this existing behavior and no task changes it.
+- **Date:** 2026-08-10
+- **Affected artifacts:** change.yaml, overview.md,
+  areas/characterization-and-reorganization.md (renamed
+  areas/characterization-and-baseline.md)
+
+## D17: Aggregate modeling style is a supported default, not the Event Sourcing core's permanent definition
+
+- **Question:** The currently implemented modeling style (immutable object-oriented
+  aggregate state, decision methods discovered on concrete state types) is the only
+  style this specification implements or documents as a feature. Should the core
+  contracts this change hardens (Event Store, aggregate repository, execution
+  lifecycle, persistence contracts) be designed in a way that would make this style
+  the Event Sourcing core's only possible future shape, or should room be explicitly
+  preserved for other styles (mutable aggregates, static/functional decider+evolver
+  functions) without designing or implementing them now?
+- **Options considered:** Design the core generically now, with an explicit strategy
+  abstraction (e.g. `IDecisionStrategy`, `IMutableAggregateStrategy`,
+  `IFunctionalDeciderStrategy`) anticipating future styles | Harden the core against
+  the current OO-immutable style only, revisit generality later if/when a second style
+  is actually needed | Add a documented compatibility constraint now (no new
+  abstraction), so the *contracts* (repository/store/executor) don't accidentally bake
+  in an assumption that decision/evolution logic must be an instance method on an
+  immutable aggregate object — without building any multi-style abstraction.
+- **Decision:** The third option — a documented compatibility constraint, no new
+  abstraction.
+- **Rationale:** Owner: "the desired outcome is direction and room to evolve, not a
+  finished multi-model architecture." A speculative strategy hierarchy has no current
+  consumer and no current evidence it's needed (violates this specification's own
+  "do not introduce infrastructure whose only justification is a hypothetical future
+  provider" principle) — but silently letting the hardened contracts assume
+  "decision/evolution = instance method on immutable state" would foreclose future
+  styles for free, at zero benefit to this change. A documented constraint costs
+  nothing to implement and prevents that foreclosure.
+- **Consequences:** Every task touching the Event Store/repository/executor contracts
+  (tasks 02-04, renumbered) must design those contracts so nothing in their *public
+  shape* requires decision/evolution logic to be an instance method on an immutable
+  aggregate-state object — e.g. the executor's decision-method discovery is itself
+  convention-specific and stays exactly as-is (that's fine, it's an explicit
+  Level-1/Level-2 concern, not a repository/store-level constraint), but the
+  repository/store contracts themselves (load/append/version) must remain agnostic to
+  *how* the caller produces the next state. The exact compatibility-constraint wording
+  is recorded in `overview.md` § "Architectural principles" and repeated in
+  `areas/shared-es-execution-and-explicit-handler.md`. No new type is introduced by
+  this decision.
+- **Date:** 2026-08-10
+- **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
+  areas/persistence-boundary.md, tasks/02-harden-event-store-and-repository-contracts.md,
+  tasks/03-es-command-executor-and-ambiguity-resolution.md
+
+## D18: Query GET binding resolved — `[AsParameters]` on the concrete `Query<TResult>` record, no contract change
+
+- **Question:** The spec previously hedged: "if the current Query contract prevents
+  ergonomic route/query binding, propose the smallest coherent adjustment" — external
+  review flagged this as an unresolved contradiction that must not be left for the
+  implementation task to invent. Does `[AsParameters]` binding on a concrete
+  `Query<TResult>`-derived record (e.g. `GetDocumentQuery(Guid DocumentId) :
+  Query<DocumentDto>`) actually require the inherited `Message`/`Message<TResult>`
+  fields (`Id`, `CreatedAt`) as bindable/required GET parameters, or not?
+- **Options considered:** Assume `[AsParameters]` binds every public property
+  (including inherited `Id`/`CreatedAt`) and therefore requires a `Query<TResult>`
+  contract adjustment to exclude them | Verify empirically against real ASP.NET Core
+  Minimal API binding behavior before deciding anything, then record whichever answer
+  the evidence gives.
+- **Decision:** Verified empirically. **No contract change is needed.** ASP.NET Core's
+  `[AsParameters]` binder, for a record type with exactly one public constructor, binds
+  that constructor's own parameters — not every public property of the type.
+  `GetDocumentQuery(Guid DocumentId) : Query<TResult>`'s only public constructor is
+  `GetDocumentQuery(Guid DocumentId)` (the base call to `Query<TResult>`'s parameterless
+  constructor is implicit and not part of the derived type's own public constructor
+  surface); `Id`/`CreatedAt` are inherited init-only properties, not parameters of that
+  constructor, so the binder never touches them.
+- **Rationale:** Confirmed by a minimal, disposable ASP.NET Core 9 probe project
+  (outside the repository, in the scratch working directory) mirroring the real
+  `Message`/`Message<TResult>`/`Query<TResult>` shapes: `app.MapGet("/api/documents/
+  {documentId:guid}", ([AsParameters] GetDocumentQuery query) => ...)` returned HTTP 200
+  with server-generated `Id`/`CreatedAt` values when the request supplied **only** the
+  route's `documentId` and no `id`/`createdAt` query-string values at all — proving
+  they are not required, exactly as this specification's constraint demands.
+- **Consequences:** `MapQueryEndpoint<TQuery, TResult>` (task 08, renumbered from 09)
+  binds `TQuery` via `[AsParameters]` with no further binding-contract design work
+  needed and no change to `Query<TResult>`/`Message<TResult>`. The task's own
+  acceptance criteria are updated to assert this directly rather than hedge on it.
+- **Date:** 2026-08-10
+- **Affected artifacts:** areas/http-query-endpoint.md,
+  tasks/08-map-query-endpoint-and-get-binding.md

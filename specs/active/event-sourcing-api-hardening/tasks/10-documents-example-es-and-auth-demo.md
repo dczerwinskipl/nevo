@@ -43,11 +43,11 @@ a documented manual walkthrough (D12), no dedicated test project.
 
 ## Dependencies
 
-- `create-documents-example-project` (task 10).
-- `explicit-event-sourced-command-handler` (task 05).
-- `event-sourcing-registration-options` (task 07).
-- `message-level-and-aggregate-authorization` (task 08).
-- `map-query-endpoint-and-get-binding` (task 09).
+- `create-documents-example-project` (task 09).
+- `explicit-event-sourced-command-handler` (task 04).
+- `event-sourcing-registration-options` (task 06).
+- `message-level-and-aggregate-authorization` (task 07).
+- `map-query-endpoint-and-get-binding` (task 08).
 
 ## Implementation constraints
 
@@ -57,19 +57,20 @@ a documented manual walkthrough (D12), no dedicated test project.
   specification's "prefer clarity over feature count") is handled via an explicit Level
   2 handler that delegates to Level 1's own decision-method discovery for the actual
   transition, not a duplicated implementation.
-- At least one Document command carries message-level permission metadata (task 08),
+- At least one Document command carries message-level permission metadata (task 07),
   wired with `.RequireAuthorization()` on its `MapCommandEndpoint` call.
 - Add an aggregate-aware authorization example only if it stays compact — e.g. "only the
   document's creator may approve it" — using the `IAggregateAuthorization<TCommand,
-  TAggregate>` extension point from task 08. If this makes the example noisy, omit it
+  TAggregate>` extension point from task 07. If this makes the example noisy, omit it
   and note why in this task's own PR description rather than forcing it in.
-- Use `AddEventSourcing(options => {...})` (task 07) with convention fallback enabled
-  (the default), and use `MapQueryEndpoint<GetDocumentQuery, DocumentDto>` (task 09) in
+- Use `AddEventSourcing(options => {...})` (task 06) with convention fallback enabled
+  (the default), and use `MapQueryEndpoint<GetDocumentQuery, DocumentDto>` (task 08) in
   place of the current hand-wired `MapGet`.
 - Write the manual walkthrough as a short, step-by-step doc comment or `README`-style
-  note inside the example project (not a new top-level doc — task 12 links to it),
-  covering: create → change → approve → query, reload-after-write, and a
-  version-conflict scenario (two concurrent changes against the same document version).
+  note inside the example project (not a new top-level doc — task 11 links to it as the
+  canonical sample), covering: create → change → approve → query, reload-after-write,
+  and a version-conflict scenario (two concurrent changes against the same document
+  version).
 
 ## Acceptance criteria
 
@@ -102,7 +103,8 @@ own walkthrough note.
 ## Documentation impact
 
 The walkthrough note lives in this task's own scope (inside the example project); task
-12 links to it from durable framework documentation.
+11 (user-facing) links to it as the canonical Event Sourcing example, and task 12
+(internal) links to it as a maintainer reference.
 
 ## Out of scope
 

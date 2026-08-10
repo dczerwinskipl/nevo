@@ -34,8 +34,8 @@ aggregate-method convention fallback (enabled by default), and fix the non-idemp
 
 ## Dependencies
 
-- `primary-fallback-handler-roles` (task 06) — the toggle this task adds controls
-  whether the Fallback route (task 06) gets registered at all.
+- `primary-fallback-handler-roles` (task 05) — the toggle this task adds controls
+  whether the Fallback route (task 05) gets registered at all.
 
 ## Implementation constraints
 
@@ -44,7 +44,7 @@ aggregate-method convention fallback (enabled by default), and fix the non-idemp
   names are this task's judgment call, grounded in existing NEvo options-pattern naming
   (check `NEvo.Messaging.Cqrs`/`NEvo.Messaging.Authorization` for precedent). Convention
   fallback is enabled by default. Disabling it must leave the explicit Level 2 handler
-  (task 05) and ordinary `ICommandHandler<T>` fully usable. Public terminology
+  (task 04) and ordinary `ICommandHandler<T>` fully usable. Public terminology
   describes developer-facing behavior ("aggregate method convention/fallback"), not an
   internal implementation name.
 - Preserve the existing `aggregateTypes` registration need (today's
@@ -85,10 +85,10 @@ dotnet test tests/NEvo.Ddd.EventSourcing.Tests
 
 ## Documentation impact
 
-None in this task — covered by task 12.
+None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 
 ## Out of scope
 
 - Any change to `AddCommands`/`AddEvents`/`AddQueries` themselves (already idempotent
   from the archived query-support change).
-- Handler role resolution logic itself (task 06, already done).
+- Handler role resolution logic itself (task 05, already done).

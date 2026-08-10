@@ -29,8 +29,8 @@ read-model projection by its own header comment and is stale against the current
 `IEventStore` interface (fixed for compilation only, not redesigned, by task 01).
 
 `GetDocumentQueryHandler` currently reads via `IEventStore.LoadProjectionAsync`, which
-task 03 removes from the repository/store contracts — this handler must be rewritten to
-read via the real, hardened `IAggregateRepository` path instead once task 03 lands.
+task 02 removes from the repository/store contracts — this handler must be rewritten to
+read via the real, hardened `IAggregateRepository` path instead once task 02 lands.
 
 ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 `Orchestration.AppHost`, `Orchestration.ServiceDefaults` — all under
@@ -49,7 +49,7 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
   example noisy; `MapCommandEndpoint`; `MapQueryEndpoint`; aggregate reload after writes
   reconstructing the correct concrete state.
 - Rewrite `GetDocumentQueryHandler` to read through the hardened `IAggregateRepository`
-  path (task 03), documenting this explicitly as an intermediate/simple read path used
+  path (task 02), documenting this explicitly as an intermediate/simple read path used
   before persisted projection support exists — not the final recommendation for all
   Event Sourcing read models (input specification's explicit documentation
   requirement).
@@ -70,11 +70,11 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 
 ## Interfaces and boundaries
 
-- Consumes: task 03 (repository/store contracts), task 05 (explicit handler contract),
-  task 06/07 (Primary/Fallback registration, `AddEventSourcing(options => {...})`), task
-  08 (message-level attribute + aggregate-aware authorization extension point), task 09
+- Consumes: task 02 (repository/store contracts), task 04 (explicit handler contract),
+  task 05/06 (Primary/Fallback registration, `AddEventSourcing(options => {...})`), task
+  07 (message-level attribute + aggregate-aware authorization extension point), task 08
   (`MapQueryEndpoint`).
-- Produces: the canonical Event Sourcing usage example that task 12's documentation
+- Produces: the canonical Event Sourcing usage example that tasks 11-12's documentation
   links to.
 
 ## Area-specific acceptance criteria
@@ -82,26 +82,26 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 1. `NEvo.ExampleApp.Documents.Api` exists as its own project, referenced from
    `NEvo.sln`, with the Document domain in its own namespace.
 2. Create → change → approve → query works end to end against the real
-   `IAggregateRepository`/`IEventStreamStore` path (task 03), not
+   `IAggregateRepository`/`IEventStreamStore` path (task 02), not
    `InMemoryDocumentEventStore` (removed).
 3. Reloading the aggregate after a write reconstructs the correct concrete state
    (`ApprovedDocument` after approval, not `EditableDocument`).
 4. At least one command is handled via Level 1 convention and at least one via an
    explicit Level 2 handler that delegates to Level 1's own decision-method discovery.
 5. At least one Document command carries message-level permission metadata, enforced
-   end to end (task 08).
+   end to end (task 07).
 6. `MapCommandEndpoint`/`MapQueryEndpoint` are both used for the Document endpoints.
 7. `ServiceA.Api` no longer contains any Document-related type.
-8. `dotnet build` succeeds; the manual walkthrough (documented in task 11) is the
+8. `dotnet build` succeeds; the manual walkthrough (documented in task 10) is the
    verification record in place of a dedicated test project (D12).
 
 ## Dependencies
 
-- `persistence-boundary` (task 03).
-- `shared-es-execution-and-explicit-handler` (task 05).
-- `handler-registration-and-options` (task 07).
-- `authorization-integration` (task 08).
-- `http-query-endpoint` (task 09).
+- `persistence-boundary` (task 02).
+- `shared-es-execution-and-explicit-handler` (task 04).
+- `handler-registration-and-options` (task 06).
+- `authorization-integration` (task 07).
+- `http-query-endpoint` (task 08).
 
 ## Out of scope
 

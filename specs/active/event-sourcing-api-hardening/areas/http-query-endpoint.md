@@ -28,7 +28,10 @@ are the only transport-metadata fields on the hierarchy.
 No `[AsParameters]`, custom `BindAsync`, or `IBindableFromHttpContext` usage exists
 anywhere in the repository today (confirmed by search) — TFM is `net9.0` repo-wide
 (`Directory.Build.props:3`), so these ASP.NET Core Minimal API mechanisms are available
-and unused. The current ExampleApp `GetDocumentQuery` (`GetDocumentQuery(Guid
+and unused. **Resolved during spec-refine (D18):** `[AsParameters]` binds a concrete
+Query record's own single public constructor, not its inherited `Message` properties —
+verified empirically, not merely assumed. This closes what was originally left as an
+open implementation question. The current ExampleApp `GetDocumentQuery` (`GetDocumentQuery(Guid
 DocumentId) : Query<DocumentDto>`,
 `examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/
 DocumentQueries.cs:13`) is hand-wired via `app.MapGet("/api/document/{documentId:guid}",
@@ -45,15 +48,17 @@ endpoints inline the same `Right`/`Left` `.Match` pattern.
 
 - `app.MapQueryEndpoint<TQuery, TResult>(route)` returning `RouteHandlerBuilder`
   (chainable with `.RequireAuthorization()` and other normal Minimal API configuration),
-  binding `TQuery` from route values and query-string values using existing ASP.NET Core
-  Minimal API binding mechanisms (`[AsParameters]` or another built-in mechanism —
-  verify actual behavior against `Query<TResult>`'s real shape rather than assuming) —
-  not a custom binder, not a GET body.
-- `Id`/`CreatedAt` (inherited from `Message`/`Message<TResult>`) must not become
-  required GET parameters. If the chosen binding mechanism would otherwise expose them
-  as bindable/required properties, resolve this with the smallest coherent adjustment —
-  proposing a `Query<TResult>` contract change if genuinely necessary, but not a
-  redesign of the messaging model.
+  binding `TQuery` via `[AsParameters]` (**resolved, D18** — confirmed empirically
+  during spec-refine, not a design question the implementing task re-opens) — not a
+  custom binder, not a GET body.
+- `Id`/`CreatedAt` (inherited from `Message`/`Message<TResult>`) do not become required
+  GET parameters. This is a closed, evidence-based fact (D18), not a risk to mitigate:
+  `[AsParameters]` binds a record type's own single public constructor, and a concrete
+  `Query<TResult>`-derived record's constructor never includes inherited `Message`
+  properties — confirmed by a disposable ASP.NET Core 9 probe mirroring the real type
+  hierarchy, which returned HTTP 200 with server-generated `Id`/`CreatedAt` when neither
+  was supplied. **No `Query<TResult>`/`Message<TResult>` contract change is needed or
+  in scope.**
 - Preserve `MapCommandEndpoint`'s established Right→200/Left→Problem behavior for the
   generic case. Do not infer domain-specific 404 semantics from arbitrary exception
   types in the generic infrastructure — document the escape hatch for resource-specific
@@ -68,19 +73,18 @@ endpoints inline the same `Right`/`Left` `.Match` pattern.
 
 ## Constraints
 
-- Reuse existing ASP.NET Core Minimal API binding rather than inventing a custom binder,
-  per the input specification's explicit preference — verify the chosen mechanism's
-  actual behavior against `Query<TResult>`'s current shape before relying on it.
+- Use `[AsParameters]` (D18, resolved) — do not re-litigate this choice or evaluate
+  alternatives during implementation.
 - Do not build a separate HTTP result-mapping framework — a tiny, coherent
   result-mapping helper is acceptable if it reduces duplication between
   `MapCommandEndpoint` and `MapQueryEndpoint`, but this is not a redesign of either.
 
 ## Interfaces and boundaries
 
-- Consumes: `Query<TResult>`/`Message<TResult>` (unchanged unless the binding-contract
-  requirement above forces a small adjustment), `IQueryDispatcher` (from the archived
-  query-support change).
-- Provides to task 11 (Documents example): `MapQueryEndpoint<GetDocumentQuery,
+- Consumes: `Query<TResult>`/`Message<TResult>` (unchanged — D18 closed the question of
+  whether a contract adjustment would be needed; it isn't), `IQueryDispatcher` (from the
+  archived query-support change).
+- Provides to task 10 (Documents example): `MapQueryEndpoint<GetDocumentQuery,
   DocumentDto>` as the example's query endpoint, replacing its current hand-wired
   `MapGet`.
 

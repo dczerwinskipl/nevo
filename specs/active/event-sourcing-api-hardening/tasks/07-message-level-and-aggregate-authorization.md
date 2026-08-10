@@ -39,23 +39,23 @@ receives zero permission enforcement (because `ValidatePermissionMiddleware` rea
 `[AllowPermission]` only from `HandlerDescription.Method`, which is `null` for
 decider-based descriptions); add message-level permission-attribute placement composed
 additively (AND) with handler-specific requirements; add the new
-aggregate/resource-aware authorization extension point invoked by task 04's executor
+aggregate/resource-aware authorization extension point invoked by task 03's executor
 after rehydration, before the decision (D5).
 
 ## Dependencies
 
-- `es-command-executor-and-ambiguity-resolution` (task 04) — provides the two ordered
+- `es-command-executor-and-ambiguity-resolution` (task 03) — provides the two ordered
   hook points this task implements the logic behind.
-- `primary-fallback-handler-roles` (task 06) — provides the resolved route/role so this
+- `primary-fallback-handler-roles` (task 05) — provides the resolved route/role so this
   task's fix targets the correct `Method`/permission source regardless of which route
   was selected.
 
 ## Implementation constraints
 
-- Fix `ValidatePermissionMiddleware` (or move the check into task 04's executor, if
+- Fix `ValidatePermissionMiddleware` (or move the check into task 03's executor, if
   that's the smaller coherent change once role resolution exists) so a Fallback-routed
   command is authorized against the command's actual required permission — ground the
-  fix in whichever route/`Method` task 06 makes available, not a hardcoded ES special
+  fix in whichever route/`Method` task 05 makes available, not a hardcoded ES special
   case.
 - Add a permission-attribute placement usable on the message/command type itself (an
   extension of `AllowPermissionAttribute`'s `AttributeTargets`, or a distinct
@@ -66,7 +66,7 @@ after rehydration, before the decision (D5).
 - Compose message-level and handler-specific requirements as AND — evaluate both sets,
   deny if either fails. Do not implement override/replacement semantics.
 - Add `IAggregateAuthorization<TCommand, TAggregate>` (or a refined equivalent name),
-  invoked by task 04's executor after rehydration, before the decision. It receives the
+  invoked by task 03's executor after rehydration, before the decision. It receives the
   user/security context, the command, and the rehydrated aggregate/current state. A
   denial prevents the decision/append from happening. It lives outside the aggregate
   domain model — never called from inside a decision method.
@@ -101,7 +101,7 @@ dotnet test tests/NEvo.Ddd.EventSourcing.Tests
 
 ## Documentation impact
 
-None in this task — covered by task 12.
+None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 
 ## Out of scope
 

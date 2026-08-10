@@ -32,22 +32,33 @@ Synchronous dispatch re-enters `IMessageProcessor.ProcessMessageAsync` under the
 ambient `TransactionScope` opened by `TransactionScopeMessageProcessingMiddleware`
 (`src/NEvo.Messaging/Handling/Middleware/TransactionScopeMessageProcessingMiddleware.cs:8-20`);
 `InternalSyncProcessDispatchStrategy`/`InternalSyncProcessPublishStrategy` both simply
-recurse into `ProcessMessageAsync` (`InternalSyncProcessDispatchStrategy.cs:8-9`). No
-"flush" primitive exists anywhere in the repository.
+recurse into `ProcessMessageAsync` (`InternalSyncProcessDispatchStrategy.cs:8-9`).
+**Corrected 2026-08-10 (spec-refine, review issue 3):** no primitive is literally
+*named* "flush," but `DbContext.SaveChangesAsync()` already **is** the repository's
+established flush mechanism — `EntityFrameworkMessageInbox.RegisterProcessedAsync`/
+`EntityFrameworkMessageOutbox.SaveMessageAsync`
+(`src/NEvo.Messaging.EntityFramework/`) already call it inline, enlisting in the
+ambient `TransactionScope` without committing it
+(`docs/development/transaction-model.md` § "Transaction ownership," questions 1-2).
+This area's executor does not need to invent a new primitive; it needs to order its
+own append (and, for a future `DbContext`-backed store, its own `SaveChangesAsync()`
+call) before the re-entrant synchronous dispatch shown above.
 
 ## Requirements
 
 - Extract a shared Event Sourced command executor (exact name owner-undecided, per the
   input specification) that owns: message/command validation happens upstream in the
-  normal pipeline (not duplicated here); static/message-level authorization (task 08's
+  normal pipeline (not duplicated here); static/message-level authorization (task 07's
   concern, invoked from here); load and rehydrate; aggregate/resource-aware
-  authorization (task 08's extension point, invoked from here after rehydration, before
-  decision); execute decision; append using expected version (task 03's store/exception
+  authorization (task 07's extension point, invoked from here after rehydration, before
+  decision); execute decision; append using expected version (task 02's store/exception
   types); ensure the append is durable/visible before triggering synchronous downstream
-  processing (D7 — no new flush primitive, just correct ordering against the existing
-  pipeline); allow downstream synchronous handlers to make their own changes visible;
-  leave final application transaction commit to the outer pipeline.
-- Both Level 1 (convention) and Level 2 (explicit handler, task 05) route through this
+  processing (D7, corrected — no new flush primitive; `SaveChangesAsync` is already the
+  established pattern for a future DbContext-backed store, and this task orders the
+  executor's append before the existing pipeline's re-entrant synchronous dispatch);
+  allow downstream synchronous handlers to make their own changes visible; leave final
+  application transaction commit to the outer pipeline.
+- Both Level 1 (convention) and Level 2 (explicit handler, task 04) route through this
   one executor — no duplicated load/replay/append/publish logic between them.
 - Implement deterministic state-method resolution: exact runtime type preferred,
   otherwise nearest compatible base-state implementation, equally-specific ambiguous
@@ -58,6 +69,11 @@ recurse into `ProcessMessageAsync` (`InternalSyncProcessDispatchStrategy.cs:8-9`
   use injected dependencies for orchestration/I-O before the decision, and may delegate
   to the same decision-method discovery Level 1 uses rather than duplicating the
   transition (D1). It must not force repository plumbing back onto the user.
+- Nothing in the executor's own public shape may require the aggregate's next state to
+  come from an instance method on an immutable state object (D17) — the executor's
+  load/append/version/publish responsibilities are framed in terms of events and
+  streams; Level 1/Level 2's own use of the OO-immutable convention is a consumer of
+  the executor, not a constraint baked into it.
 
 ## Constraints
 
@@ -67,18 +83,21 @@ recurse into `ProcessMessageAsync` (`InternalSyncProcessDispatchStrategy.cs:8-9`
   synchronous today).
 - Do not build a purity-enforcement subsystem — this is an API/design rule enforced by
   the shape of the extension points, not a runtime analyzer.
-- Concurrency mismatch surfaces through `Either<Exception, T>` using task 03's
-  `AggregateConcurrencyException` — do not introduce a different result-type shape.
+- Concurrency mismatch surfaces through `Either<Exception, T>` using task 02's
+  `AggregateConcurrencyException` — do not introduce a different result-type shape, and
+  never describe this as "thrown" (D13 correction — it is always returned as `Either`'s
+  `Left`).
 
 ## Interfaces and boundaries
 
-- Consumes: task 02's reorganized folders, task 03's `IEventStreamStore`/repository
-  split and `AggregateConcurrencyException`.
-- Provides to task 06 (registration): the two route kinds (convention/explicit) that
+- Consumes: task 01's fixed, characterized baseline (no folder reorganization precedes
+  this area — D15) and task 02's `IEventStreamStore`/repository split and
+  `AggregateConcurrencyException`.
+- Provides to task 05 (registration): the two route kinds (convention/explicit) that
   become Fallback/Primary respectively.
-- Provides to task 08 (authorization): the two ordered hook points (static/message-level
+- Provides to task 07 (authorization): the two ordered hook points (static/message-level
   before load; aggregate-aware after load, before decision).
-- Provides to task 11 (Documents example): the public `IEventSourcedCommandHandler<...>`
+- Provides to task 10 (Documents example): the public `IEventSourcedCommandHandler<...>`
   contract to implement.
 
 ## Area-specific acceptance criteria
@@ -94,16 +113,19 @@ recurse into `ProcessMessageAsync` (`InternalSyncProcessDispatchStrategy.cs:8-9`
    command runs; a test in which that handler reloads the aggregate observes the newly
    appended state.
 4. A concurrency conflict during append surfaces through the executor as
-   `Either<AggregateConcurrencyException, _>.Left`, not swallowed or rethrown as a
-   different type.
+   `Either<Exception, _>.Left` containing an `AggregateConcurrencyException` instance —
+   never thrown, never swallowed, never a different type (D13 correction).
 5. The explicit Level 2 handler can delegate to Level 1's own decision-method discovery
    without duplicating the aggregate's transition logic — proven by an example handler
    that does so.
+6. Neither the executor's public entry point(s) nor its internal contracts require the
+   aggregate's next state to come from an instance method on an immutable state object
+   (D17).
 
 ## Dependencies
 
-- `characterization-and-reorganization` (tasks 01-02).
-- `persistence-boundary` (task 03) — needs the hardened store/repository contracts and
+- `characterization-and-baseline` (task 01).
+- `persistence-boundary` (task 02) — needs the hardened store/repository contracts and
   the concurrency exception.
 
 ## Out of scope

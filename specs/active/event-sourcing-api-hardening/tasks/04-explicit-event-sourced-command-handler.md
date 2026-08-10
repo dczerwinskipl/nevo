@@ -30,12 +30,12 @@ forbidden_paths:
 Add a first-class explicit Event Sourced handler abstraction (conceptually
 `IEventSourcedCommandHandler<TCommand, TAggregate, TId>`) for commands that need
 orchestration but should still use the framework-managed ES lifecycle — routed through
-task 04's shared executor, able to delegate to Level 1's own decision-method discovery
+task 03's shared executor, able to delegate to Level 1's own decision-method discovery
 rather than duplicating the aggregate's transition logic (D1).
 
 ## Dependencies
 
-- `es-command-executor-and-ambiguity-resolution` (task 04) — this handler routes through
+- `es-command-executor-and-ambiguity-resolution` (task 03) — this handler routes through
   that executor for load/authorize/append/publish; it does not reimplement any of it.
 
 ## Implementation constraints
@@ -45,7 +45,7 @@ rather than duplicating the aggregate's transition logic (D1).
   dependencies for orchestration/I-O before delegating to a domain decision. It must not
   require the user to write repository/replay/version/append plumbing.
 - Provide a way for an explicit handler to delegate to the same decision-method
-  discovery Level 1 uses (task 04's resolution algorithm) — e.g. a helper the handler
+  discovery Level 1 uses (task 03's resolution algorithm) — e.g. a helper the handler
   can call with the rehydrated state and command, returning the same
   `Either<Exception, IEnumerable<TEvent>>` shape a convention decider method would
   produce — so the transition logic itself is written once, not duplicated between
@@ -59,7 +59,7 @@ rather than duplicating the aggregate's transition logic (D1).
 
 ## Acceptance criteria
 
-1. An explicit Level 2 handler for a command routes through task 04's executor for
+1. An explicit Level 2 handler for a command routes through task 03's executor for
    load/append/publish — proven by an integration test asserting identical
    load/append/publish ordering to a Level 1 convention command (automated).
 2. An example explicit handler in this task's own tests delegates to Level 1's decision-
@@ -79,10 +79,10 @@ dotnet test tests/NEvo.Ddd.EventSourcing.Tests
 
 ## Documentation impact
 
-None in this task — covered by task 12.
+None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 
 ## Out of scope
 
-- Handler registration/Primary role assignment (task 06).
-- Any change to task 04's executor itself beyond what's needed to invoke it from this
+- Handler registration/Primary role assignment (task 05).
+- Any change to task 03's executor itself beyond what's needed to invoke it from this
   new handler type.

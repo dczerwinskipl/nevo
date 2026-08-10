@@ -48,7 +48,7 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 - Fix `ValidatePermissionMiddleware` (or the ES executor itself, whichever is the
   smaller coherent change) so a command routed through the ES convention Fallback is
   authorized against the command's actual required permission, not silently skipped.
-  Ground this in whichever route/`Method` task 06's Primary/Fallback work makes
+  Ground this in whichever route/`Method` task 05's Primary/Fallback work makes
   available for the selected route.
 - Add message-level permission-attribute placement: the primary permission for an
   operation belongs on the message/command type, not copied onto every aggregate-state
@@ -60,7 +60,7 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
   message's own.
 - Add one clean aggregate/resource-aware authorization extension point (conceptually
   `IAggregateAuthorization<TCommand, TAggregate>` or an equivalent policy abstraction)
-  invoked by task 04's shared executor after rehydration, before the decision. It may
+  invoked by task 03's shared executor after rehydration, before the decision. It may
   inspect user/security context, the command, and the rehydrated aggregate/current
   state. It lives outside the aggregate domain model — never inside a decision method.
   A denial prevents the decision/append from happening.
@@ -77,10 +77,10 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 
 ## Interfaces and boundaries
 
-- Consumes: task 04's executor (the two ordered hook points: static/message-level before
-  load, aggregate-aware after load/before decision) and task 06's Primary/Fallback role
+- Consumes: task 03's executor (the two ordered hook points: static/message-level before
+  load, aggregate-aware after load/before decision) and task 05's Primary/Fallback role
   resolution (to find the correct `Method`/permission source for the selected route).
-- Provides to task 11 (Documents example): the message-level attribute, the
+- Provides to task 10 (Documents example): the message-level attribute, the
   handler-specific-requirement composition, and the aggregate-aware extension point the
   example demonstrates.
 
@@ -102,9 +102,9 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 
 ## Dependencies
 
-- `shared-es-execution-and-explicit-handler` (task 04) — needs the two ordered hook
+- `shared-es-execution-and-explicit-handler` (task 03) — needs the two ordered hook
   points to exist.
-- `handler-registration-and-options` (task 06) — needs Primary/Fallback role resolution
+- `handler-registration-and-options` (task 05) — needs Primary/Fallback role resolution
   to identify the correct route/`Method`.
 
 ## Out of scope
@@ -113,4 +113,4 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 - Redesigning `IDataScopeMessageValidator`'s own validation contract.
 - Non-ES message-level authorization (this task adds the message-level attribute
   mechanism generally, but does not retrofit it onto every existing non-ES command —
-  only where the Documents example (task 11) needs it to demonstrate the feature).
+  only where the Documents example (task 10) needs it to demonstrate the feature).

@@ -54,7 +54,7 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
   second id), stream/aggregate identity (already `StreamId`), stream version/revision
   (already tracked out-of-band as `expectedVersion`/return `Version` — decide whether to
   keep it out-of-band or add it to the envelope), and correlation/causation metadata
-  sourced from `IMessageContext.Headers` at append time if the executor (task 04) has
+  sourced from `IMessageContext.Headers` at append time if the executor (task 03) has
   context access there. Do not add a global position/checkpoint field.
 - Document the transaction/commit-ownership constraint (D6, D7): `AppendAsync`
   (or equivalent) must not be assumed to own the final application transaction commit;
@@ -76,10 +76,10 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
 ## Interfaces and boundaries
 
 - Consumes: task 01/02's fixed, reorganized baseline.
-- Exposes to task 04 (shared ES executor): the new `IEventStreamStore`/repository split,
+- Exposes to task 03 (shared ES executor): the new `IEventStreamStore`/repository split,
   `AggregateConcurrencyException`, and whatever envelope fields the executor needs at
   append time.
-- Exposes to task 10/11 (Documents example): the contracts a real repository consumer
+- Exposes to task 09/10 (Documents example): the contracts a real repository consumer
   implements against.
 
 ## Area-specific acceptance criteria
@@ -96,8 +96,8 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
 
 ## Dependencies
 
-- `characterization-and-reorganization` (tasks 01-02) — this area's task (03) starts
-  from the fixed, reorganized baseline.
+- `characterization-and-baseline` (task 01) — this area's task (02) starts from the
+  fixed, characterized baseline (D15: no folder reorganization precedes this area).
 
 ## Out of scope
 
