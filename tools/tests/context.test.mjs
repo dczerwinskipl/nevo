@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { computeRoutingWarnings, buildContextPacket, loadChange } from '../specs/service.mjs';
+import { computeRoutingWarnings, buildContextPacket, loadChange, ARCHIVE_DIR } from '../specs/service.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -179,7 +179,7 @@ describe('buildContextPacket\'s routingWarnings — reads only docs/routing.gene
   });
 
   test('buildContextPacket returns a well-formed routingWarnings array for a real task', () => {
-    const change = loadChange('nevo-ai-process-continuity-and-hardening');
+    const change = loadChange('nevo-ai-process-continuity-and-hardening', ARCHIVE_DIR);
     const task = change.tasks.find(t => t.id === 'context-completeness-and-routing-precedence');
     const packet = buildContextPacket(change, task);
     assert.ok(Array.isArray(packet.routingWarnings));

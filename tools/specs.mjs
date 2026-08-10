@@ -527,7 +527,6 @@ export function handleSuggestProvenance(changeSlug, taskId) {
 // pure, no repository I/O) — this handler only gates on --confirm and
 // performs the actual repository writes.
 export function handleApplyProvenance(changeSlug, taskIdOrList, options = {}) {
-  const change = requireChange(changeSlug);
   if (!options.confirm) {
     throw new CliError('apply-provenance requires --confirm — a persisted implementation block is written only after explicit owner confirmation, never unattended.');
   }
@@ -539,6 +538,7 @@ export function handleApplyProvenance(changeSlug, taskIdOrList, options = {}) {
     throw new CliError(error.message);
   }
 
+  const change = requireChange(changeSlug);
   for (const { taskId } of mappings) requireTask(change, taskId);
 
   for (const { taskId, baseline, changedPaths } of mappings) {
