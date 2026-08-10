@@ -1,0 +1,93 @@
+id: event-sourcing-api-hardening
+title: Event Sourcing API hardening and persistence readiness
+type: architectural
+status: draft
+priority: 10
+created: 2026-08-10
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: fix-build-and-characterize-baseline
+    order: 1
+    file: tasks/01-fix-build-and-characterize-baseline.md
+    status: draft
+  - id: separate-core-and-integration-folders
+    order: 2
+    file: tasks/02-separate-core-and-integration-folders.md
+    status: draft
+    depends_on:
+      - fix-build-and-characterize-baseline
+  - id: harden-event-store-and-repository-contracts
+    order: 3
+    file: tasks/03-harden-event-store-and-repository-contracts.md
+    status: draft
+    depends_on:
+      - separate-core-and-integration-folders
+  - id: es-command-executor-and-ambiguity-resolution
+    order: 4
+    file: tasks/04-es-command-executor-and-ambiguity-resolution.md
+    status: draft
+    depends_on:
+      - harden-event-store-and-repository-contracts
+  - id: explicit-event-sourced-command-handler
+    order: 5
+    file: tasks/05-explicit-event-sourced-command-handler.md
+    status: draft
+    depends_on:
+      - es-command-executor-and-ambiguity-resolution
+  - id: primary-fallback-handler-roles
+    order: 6
+    file: tasks/06-primary-fallback-handler-roles.md
+    status: draft
+    depends_on:
+      - es-command-executor-and-ambiguity-resolution
+      - explicit-event-sourced-command-handler
+  - id: event-sourcing-registration-options
+    order: 7
+    file: tasks/07-event-sourcing-registration-options.md
+    status: draft
+    depends_on:
+      - primary-fallback-handler-roles
+  - id: message-level-and-aggregate-authorization
+    order: 8
+    file: tasks/08-message-level-and-aggregate-authorization.md
+    status: draft
+    depends_on:
+      - es-command-executor-and-ambiguity-resolution
+      - primary-fallback-handler-roles
+  - id: map-query-endpoint-and-get-binding
+    order: 9
+    file: tasks/09-map-query-endpoint-and-get-binding.md
+    status: draft
+  - id: create-documents-example-project
+    order: 10
+    file: tasks/10-create-documents-example-project.md
+    status: draft
+    depends_on:
+      - harden-event-store-and-repository-contracts
+  - id: documents-example-es-and-auth-demo
+    order: 11
+    file: tasks/11-documents-example-es-and-auth-demo.md
+    status: draft
+    depends_on:
+      - create-documents-example-project
+      - explicit-event-sourced-command-handler
+      - event-sourcing-registration-options
+      - message-level-and-aggregate-authorization
+      - map-query-endpoint-and-get-binding
+  - id: update-durable-documentation
+    order: 12
+    file: tasks/12-update-durable-documentation.md
+    status: draft
+    depends_on:
+      - harden-event-store-and-repository-contracts
+      - es-command-executor-and-ambiguity-resolution
+      - explicit-event-sourced-command-handler
+      - primary-fallback-handler-roles
+      - event-sourcing-registration-options
+      - message-level-and-aggregate-authorization
+      - map-query-endpoint-and-get-binding
+      - documents-example-es-and-auth-demo
