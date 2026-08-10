@@ -1,0 +1,155 @@
+{
+  "generated": "2026-08-09T11:14:11.478Z",
+  "rules": [
+    {
+      "rule_id": "CIM-01",
+      "path_glob": "src/NEvo.Core/**",
+      "doc_ref": "docs/reference/packages/NEvo.Core.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-02",
+      "path_glob": "src/NEvo.Messaging/**",
+      "doc_ref": "docs/reference/packages/NEvo.Messaging.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-03",
+      "path_glob": "src/NEvo.Messaging.Cqrs/**",
+      "doc_ref": "docs/reference/packages/NEvo.Messaging.Cqrs.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-04",
+      "path_glob": "src/NEvo.Messaging.Authorization/**",
+      "doc_ref": "docs/reference/packages/NEvo.Messaging.Authorization.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-05",
+      "path_glob": "src/NEvo.Messaging.Web/**",
+      "doc_ref": "docs/reference/packages/NEvo.Messaging.Web.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-06",
+      "path_glob": "src/NEvo.Messaging.EntityFramework/**",
+      "doc_ref": "docs/reference/packages/NEvo.Messaging.EntityFramework.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-07",
+      "path_glob": "src/NEvo.Authorization/**",
+      "doc_ref": "docs/reference/packages/NEvo.Authorization.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-08",
+      "path_glob": "src/NEvo.Web.Authorization/**",
+      "doc_ref": "docs/reference/packages/NEvo.Web.Authorization.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-09",
+      "path_glob": "src/NEvo.Web/**",
+      "doc_ref": "docs/reference/packages/NEvo.Web.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-10",
+      "path_glob": "src/NEvo.EntityFramework/**",
+      "doc_ref": "docs/reference/packages/NEvo.EntityFramework.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-11",
+      "path_glob": "src/NEvo.Ddd.EventSourcing/**",
+      "doc_ref": "docs/reference/packages/NEvo.Ddd.EventSourcing.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-12",
+      "path_glob": "src/NEvo.Orchestrating/**",
+      "doc_ref": "docs/reference/packages/NEvo.Orchestrating.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "CIM-13",
+      "path_glob": "src/NEvo.Orchestrating.EntityFramework/**",
+      "doc_ref": "docs/reference/packages/NEvo.Orchestrating.EntityFramework.md",
+      "source": "docs/ai/change-impact-map.md"
+    },
+    {
+      "rule_id": "RT-01",
+      "path_glob": "src/NEvo.Messaging/**",
+      "doc_ref": "docs/development/messaging-pipeline.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-02",
+      "path_glob": "src/NEvo.Core/**",
+      "doc_ref": "docs/development/messaging-pipeline.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-03",
+      "path_glob": "src/NEvo.Messaging.Web/**",
+      "doc_ref": "docs/development/transport-development.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-04",
+      "path_glob": "src/NEvo.Web/**",
+      "doc_ref": "docs/development/transport-development.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-05",
+      "path_glob": "src/NEvo.EntityFramework/**",
+      "doc_ref": "docs/development/persistence-development.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-06",
+      "path_glob": "src/NEvo.Messaging.EntityFramework/**",
+      "doc_ref": "docs/development/persistence-development.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-07",
+      "path_glob": "src/NEvo.Orchestrating.EntityFramework/**",
+      "doc_ref": "docs/development/persistence-development.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-08",
+      "path_glob": "src/NEvo.Authorization/**",
+      "doc_ref": "docs/development/extension-points.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-09",
+      "path_glob": "src/NEvo.Messaging.Authorization/**",
+      "doc_ref": "docs/development/extension-points.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-10",
+      "path_glob": "src/NEvo.Web.Authorization/**",
+      "doc_ref": "docs/development/extension-points.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-11",
+      "path_glob": "src/NEvo.Messaging.EntityFramework/**",
+      "doc_ref": "docs/development/inbox-outbox.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-12",
+      "path_glob": "src/NEvo.Messaging.Cqrs/**",
+      "doc_ref": "docs/development/processing-model.md",
+      "source": "docs/ai/task-routing.md"
+    }
+  ]
+}

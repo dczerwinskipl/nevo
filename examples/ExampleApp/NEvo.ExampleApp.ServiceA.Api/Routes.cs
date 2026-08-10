@@ -1,6 +1,7 @@
 ﻿using NEvo.Ddd.EventSourcing.Tests.Mocks;
 using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
+using NEvo.Messaging.Cqrs.Queries;
 
 namespace Microsoft.AspNetCore.Routing;
 
@@ -16,6 +17,14 @@ public static class Routes
         app.MapCommandEndpoint<CreateDocument>("/api/document/create");
         app.MapCommandEndpoint<ChangeDocument>("/api/document/change");
         app.MapCommandEndpoint<ApproveDocument>("/api/document/approve");
+        app.MapGet("/api/document/{documentId:guid}", async (Guid documentId, IQueryDispatcher queryDispatcher, CancellationToken cancellationToken) =>
+        {
+            var result = await queryDispatcher.DispatchAsync(new GetDocumentQuery(documentId), cancellationToken);
+            return result.Match<IResult>(
+                Right: dto => Results.Ok(dto),
+                Left: exception => exception is DocumentNotFoundException ? Results.NotFound() : Results.Problem(exception.Message)
+            );
+        });
         return app;
     }
 }

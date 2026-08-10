@@ -1,0 +1,16 @@
+id: architecture-documentation
+title: Architecture documentation
+type: architectural
+status: in-implementation
+priority: 10
+created: 2026-08-01
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: core-architecture-docs
+    order: 1
+    file: tasks/01-core-architecture-docs.md
+    status: verified

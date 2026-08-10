@@ -3,12 +3,12 @@ using NEvo.Messaging.Handling;
 
 namespace NEvo.Messaging.Events;
 
-public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandlerLogger) : IMessageHandlerFactory
+public class EventHandlerAdapterFactory(ILogger<MessageHandlerAdapter> eventHandlerLogger) : IMessageHandlerFactory
 {
     public Type ForInterface => typeof(IEventHandler<>);
 
     public IMessageHandler Create(MessageHandlerDescription messageHandlerDescription)
-        => new EventHandlerAdapter(messageHandlerDescription, eventHandlerLogger);
+        => new MessageHandlerAdapter(messageHandlerDescription, eventHandlerLogger);
 
     public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface)
     {
@@ -18,7 +18,7 @@ public class EventHandlerAdapterFactory(ILogger<EventHandlerAdapter> eventHandle
             MessageType: handlerInterface.GetGenericArguments()[0],
             InterfaceType: handlerInterface,
             ReturnType: typeof(Unit),
-            Method: handlerType.GetInterfaceMap(handlerInterface).TargetMethods.First(m => m.Name == nameof(IEventHandler<Event>.HandleAsync))
+            Method: InterfaceMethodResolver.Resolve(handlerType, handlerInterface, nameof(IEventHandler<Event>.HandleAsync))
         );
     }
 }

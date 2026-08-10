@@ -1,0 +1,1194 @@
+{
+  "generated": "2026-08-09T11:14:11.206Z",
+  "changes": [
+    {
+      "id": "architecture-documentation",
+      "title": "Architecture documentation",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "core-architecture-docs",
+          "order": 1,
+          "file": "tasks/01-core-architecture-docs.md",
+          "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-operational-workflow",
+      "title": "NEvo AI operational workflow (Claude Code layer)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "add-operational-layer",
+          "order": 1,
+          "file": "tasks/01-add-operational-layer.md",
+          "status": "verified"
+        },
+        {
+          "id": "add-technical-decision-support",
+          "order": 2,
+          "file": "tasks/02-add-technical-decision-support.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        },
+        {
+          "id": "add-review-handoff",
+          "order": 3,
+          "file": "tasks/03-add-review-handoff.md",
+          "status": "verified",
+          "depends_on": [
+            "add-operational-layer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-process-continuity-and-hardening",
+      "title": "NEvo AI workflow process continuity and hardening",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-04",
+      "tasks": [
+        {
+          "id": "state-and-fingerprint-semantics",
+          "order": 1,
+          "file": "tasks/01-state-and-fingerprint-semantics.md",
+          "status": "verified"
+        },
+        {
+          "id": "recovery-classification-and-machine-readable-errors",
+          "order": 2,
+          "file": "tasks/02-recovery-classification-and-machine-readable-errors.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "resume-and-continue-controller",
+          "order": 3,
+          "file": "tasks/03-resume-and-continue-controller.md",
+          "status": "verified",
+          "depends_on": [
+            "recovery-classification-and-machine-readable-errors"
+          ]
+        },
+        {
+          "id": "conversational-approval-ergonomics",
+          "order": 4,
+          "file": "tasks/04-conversational-approval-ergonomics.md",
+          "status": "verified",
+          "depends_on": [
+            "resume-and-continue-controller"
+          ]
+        },
+        {
+          "id": "context-completeness-and-routing-precedence",
+          "order": 5,
+          "file": "tasks/05-context-completeness-and-routing-precedence.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "scope-and-follow-up-mechanisms",
+          "order": 6,
+          "file": "tasks/06-scope-and-follow-up-mechanisms.md",
+          "status": "verified",
+          "depends_on": [
+            "context-completeness-and-routing-precedence"
+          ]
+        },
+        {
+          "id": "mechanical-task-type",
+          "order": 7,
+          "file": "tasks/07-mechanical-task-type.md",
+          "status": "verified",
+          "depends_on": [
+            "scope-and-follow-up-mechanisms",
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "batch-execution-and-gating-review",
+          "order": 8,
+          "file": "tasks/08-batch-execution-and-gating-review.md",
+          "status": "verified",
+          "depends_on": [
+            "conversational-approval-ergonomics",
+            "state-and-fingerprint-semantics",
+            "scope-and-follow-up-mechanisms"
+          ]
+        },
+        {
+          "id": "finalization-hardening-and-migration",
+          "order": 9,
+          "file": "tasks/09-finalization-hardening-and-migration.md",
+          "status": "verified",
+          "depends_on": [
+            "batch-execution-and-gating-review",
+            "mechanical-task-type"
+          ]
+        },
+        {
+          "id": "workflow-e2e-tests",
+          "order": 10,
+          "file": "tasks/10-workflow-e2e-tests.md",
+          "status": "verified",
+          "depends_on": [
+            "finalization-hardening-and-migration"
+          ]
+        },
+        {
+          "id": "workflow-docs-and-adr-migration",
+          "order": 11,
+          "file": "tasks/11-workflow-docs-and-adr-migration.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-e2e-tests"
+          ]
+        },
+        {
+          "id": "implementation-review-orchestration",
+          "order": 12,
+          "file": "tasks/12-implementation-review-orchestration.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "scope-and-follow-up-mechanisms",
+            "batch-execution-and-gating-review",
+            "workflow-docs-and-adr-migration"
+          ],
+          "self_check": {
+            "fingerprint": "e1900fcc9f63734fb6c8a519a95a431052d2def1181d0f268e49aed59c76d3b6",
+            "revision": "2b956327fc44e3d0880e9dcdd5ff88ee37d9a7d1",
+            "commands": [
+              {
+                "command": "node --test tools/tests/implementation-review.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "review-report-compaction-and-scope-exceptions",
+          "order": 13,
+          "file": "tasks/13-review-report-compaction-and-scope-exceptions.md",
+          "status": "verified",
+          "depends_on": [
+            "implementation-review-orchestration",
+            "state-and-fingerprint-semantics"
+          ]
+        },
+        {
+          "id": "review-report-minimization",
+          "order": 14,
+          "file": "tasks/14-review-report-minimization.md",
+          "status": "verified",
+          "depends_on": [
+            "review-report-compaction-and-scope-exceptions"
+          ],
+          "self_check": {
+            "fingerprint": "2e37e51b852fbd21a7487c8087c06c0a4730ae8bbd2111188622bdacdd914e1a",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/review-compaction.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "deterministic-implementation-provenance",
+          "order": 15,
+          "file": "tasks/15-deterministic-implementation-provenance.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "recovery-classification-and-machine-readable-errors",
+            "batch-execution-and-gating-review"
+          ],
+          "self_check": {
+            "fingerprint": "bfaa1704353da9130836c68c5f810c540607726ca1b69650609f29a27a4d1c15",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/provenance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "semantic-cross-task-integration-and-consolidated-decisions",
+          "order": 16,
+          "file": "tasks/16-semantic-cross-task-integration-and-consolidated-decisions.md",
+          "status": "verified",
+          "depends_on": [
+            "implementation-review-orchestration",
+            "review-report-compaction-and-scope-exceptions",
+            "deterministic-implementation-provenance"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/implementation-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/semantic-integration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "0373e117ec9e4d15c90ea63fe7da0170f115eac4aac240504d073fa07ab0c2c6"
+          },
+          "self_check": {
+            "fingerprint": "770f8ecaba652622b9309de97d60064795c7f56dffd49a267049c31db52fd266",
+            "revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "commands": [
+              {
+                "command": "node --test tools/tests/semantic-integration.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "scoped-and-incremental-spec-review",
+          "order": 17,
+          "file": "tasks/17-scoped-and-incremental-spec-review.md",
+          "status": "verified",
+          "depends_on": [
+            "state-and-fingerprint-semantics",
+            "implementation-review-orchestration",
+            "review-report-minimization"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/context-policy.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/scoped-spec-review.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4199ae8f8f65536d703ab99f7d034e6f13d8728af5268c789164bfdd004a1a0a"
+          },
+          "self_check": {
+            "fingerprint": "8f7039ad1f16614412243ccf13c6156a893d1b91b8086c353601184ff3dc1b67",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/scoped-spec-review.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "compound-actions-and-dependency-aware-status",
+          "order": 18,
+          "file": "tasks/18-compound-actions-and-dependency-aware-status.md",
+          "status": "verified",
+          "depends_on": [
+            "conversational-approval-ergonomics",
+            "resume-and-continue-controller",
+            "batch-execution-and-gating-review"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-approve.md",
+              "docs/ai/task-execution-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/compound-actions.test.mjs",
+              "tools/tests/status-dependency-aware.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "03c30385b5004ef51d0bf14edf4db6e5aeafc25651b85508f5fcded85ef4eef4"
+          },
+          "self_check": {
+            "fingerprint": "bd5f415751378925eea46d6c19c6e302cf71147d611383adc486b57a919fe75c",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/compound-actions.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/status-dependency-aware.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "unowned-drift-correction-flow",
+          "order": 19,
+          "file": "tasks/19-unowned-drift-correction-flow.md",
+          "status": "verified",
+          "depends_on": [
+            "scope-and-follow-up-mechanisms",
+            "review-report-compaction-and-scope-exceptions"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-audit.md",
+              ".claude/commands/nevo-ai/task-review.md",
+              ".claude/skills/nevo-ai-spec-workflow/references/review-policy.md",
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs/lifecycle.mjs",
+              "tools/tests/unowned-drift.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "55674d34f11919fef2caa6f5e604f77ed6489eb083f2eb35ca0db497dcf833b6"
+          },
+          "self_check": {
+            "fingerprint": "79854244922ab64166922c7bc919f4f01ef45e7a4e2888633b1cf940858d906c",
+            "revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "commands": [
+              {
+                "command": "node --test tools/tests/unowned-drift.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "repository-bound-handler-testability",
+          "order": 20,
+          "file": "tasks/20-repository-bound-handler-testability.md",
+          "status": "verified",
+          "depends_on": [
+            "recovery-classification-and-machine-readable-errors",
+            "workflow-e2e-tests",
+            "compound-actions-and-dependency-aware-status"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "specs/active/nevo-ai-process-continuity-and-hardening/follow-ups.yaml",
+              "tools/specs.mjs",
+              "tools/specs/service.mjs",
+              "tools/tests/fixture-repo.test-helper.mjs",
+              "tools/tests/handler-testability.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "79d767db26be898b5cddaf255c258214eb21edb5bec21c3b699bb00d923e8def"
+          },
+          "self_check": {
+            "fingerprint": "832882c5c51d30b34739d307494b821789d9574aa0c0ce5384a42efcc5c1cf05",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/handler-testability.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "owner-workflow-acceptance-scenarios",
+          "order": 21,
+          "file": "tasks/21-owner-workflow-acceptance-scenarios.md",
+          "status": "verified",
+          "depends_on": [
+            "review-report-minimization",
+            "deterministic-implementation-provenance",
+            "semantic-cross-task-integration-and-consolidated-decisions",
+            "scoped-and-incremental-spec-review",
+            "compound-actions-and-dependency-aware-status",
+            "unowned-drift-correction-flow",
+            "repository-bound-handler-testability"
+          ],
+          "implementation": {
+            "baseline_revision": "c0009050db04b7e8773196af23a83bf09bf1ff74",
+            "review_revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "changed_paths": [
+              "docs/decisions/ADR-0006-process-continuity-and-hardening.md",
+              "tools/tests/owner-workflow-acceptance.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "c0f24b48ec1b1ed298b59159ea2cadfff032e503ef908d6334d0e37287a93cf1"
+          },
+          "self_check": {
+            "fingerprint": "630be62307c9f1b3a71d4719d26a061b612d8d3c19cb9ec1be6a9627e321ab2c",
+            "revision": "80e820909375abca2df449761ffb388d5514cee4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/owner-workflow-acceptance.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "nevo-ai-review-hardening",
+      "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
+      "status": "in-implementation",
+      "priority": 10,
+      "created": "2026-08-02",
+      "tasks": [
+        {
+          "id": "harden-approval-and-guard",
+          "order": 1,
+          "file": "tasks/01-harden-approval-and-guard.md",
+          "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "nevo-documentation-architecture",
+      "title": "NEvo documentation architecture",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-03",
+      "tasks": [
+        {
+          "id": "doc-taxonomy-and-templates",
+          "order": 1,
+          "file": "tasks/01-doc-taxonomy-and-templates.md",
+          "status": "verified"
+        },
+        {
+          "id": "development-core-pipeline-docs",
+          "order": 2,
+          "file": "tasks/02-development-core-pipeline-docs.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "development-transactions-and-failure-semantics",
+          "order": 3,
+          "file": "tasks/03-development-transactions-and-failure-semantics.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "development-extension-points-and-transport-persistence",
+          "order": 4,
+          "file": "tasks/04-development-extension-points-and-transport-persistence.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "development-inbox-outbox-eventsourcing-orchestration",
+          "order": 5,
+          "file": "tasks/05-development-inbox-outbox-eventsourcing-orchestration.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "development-testing-strategy-and-contributing",
+          "order": 6,
+          "file": "tasks/06-development-testing-strategy-and-contributing.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "known-issues-consolidation",
+          "order": 7,
+          "file": "tasks/07-known-issues-consolidation.md",
+          "status": "verified",
+          "depends_on": [
+            "doc-taxonomy-and-templates"
+          ]
+        },
+        {
+          "id": "package-reference-migration-and-trim",
+          "order": 8,
+          "file": "tasks/08-package-reference-migration-and-trim.md",
+          "status": "verified",
+          "depends_on": [
+            "development-core-pipeline-docs",
+            "development-transactions-and-failure-semantics",
+            "development-extension-points-and-transport-persistence",
+            "development-inbox-outbox-eventsourcing-orchestration",
+            "known-issues-consolidation"
+          ]
+        },
+        {
+          "id": "usage-quickstart-and-choosing-packages",
+          "order": 9,
+          "file": "tasks/09-usage-quickstart-and-choosing-packages.md",
+          "status": "verified",
+          "depends_on": [
+            "package-reference-migration-and-trim"
+          ]
+        },
+        {
+          "id": "usage-commands-and-events",
+          "order": 10,
+          "file": "tasks/10-usage-commands-and-events.md",
+          "status": "verified",
+          "depends_on": [
+            "package-reference-migration-and-trim"
+          ]
+        },
+        {
+          "id": "usage-cross-service-and-inbox-outbox",
+          "order": 11,
+          "file": "tasks/11-usage-cross-service-and-inbox-outbox.md",
+          "status": "verified",
+          "depends_on": [
+            "package-reference-migration-and-trim",
+            "development-inbox-outbox-eventsourcing-orchestration"
+          ]
+        },
+        {
+          "id": "usage-authorization-and-troubleshooting",
+          "order": 12,
+          "file": "tasks/12-usage-authorization-and-troubleshooting.md",
+          "status": "verified",
+          "depends_on": [
+            "package-reference-migration-and-trim",
+            "known-issues-consolidation"
+          ]
+        },
+        {
+          "id": "usage-example-app-walkthrough-migration",
+          "order": 13,
+          "file": "tasks/13-usage-example-app-walkthrough-migration.md",
+          "status": "verified",
+          "depends_on": [
+            "package-reference-migration-and-trim"
+          ]
+        },
+        {
+          "id": "entry-points-and-navigation-hub",
+          "order": 14,
+          "file": "tasks/14-entry-points-and-navigation-hub.md",
+          "status": "verified",
+          "depends_on": [
+            "development-testing-strategy-and-contributing",
+            "usage-quickstart-and-choosing-packages",
+            "usage-commands-and-events",
+            "usage-cross-service-and-inbox-outbox",
+            "usage-authorization-and-troubleshooting",
+            "usage-example-app-walkthrough-migration"
+          ]
+        },
+        {
+          "id": "ai-task-routing",
+          "order": 15,
+          "file": "tasks/15-ai-task-routing.md",
+          "status": "verified",
+          "depends_on": [
+            "entry-points-and-navigation-hub"
+          ]
+        },
+        {
+          "id": "final-cross-link-and-validation",
+          "order": 16,
+          "file": "tasks/16-final-cross-link-and-validation.md",
+          "status": "verified",
+          "depends_on": [
+            "ai-task-routing"
+          ]
+        },
+        {
+          "id": "post-implementation-doc-fixes",
+          "order": 17,
+          "file": "tasks/17-post-implementation-doc-fixes.md",
+          "status": "verified",
+          "depends_on": [
+            "final-cross-link-and-validation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-documentation-foundation",
+      "title": "NEvo documentation foundation",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-02",
+      "tasks": [
+        {
+          "id": "doc-taxonomy-and-tooling",
+          "order": 1,
+          "file": "tasks/01-doc-taxonomy-and-tooling.md",
+          "status": "implemented"
+        },
+        {
+          "id": "package-classification-and-navigation-hub",
+          "order": 2,
+          "file": "tasks/02-package-classification-and-navigation-hub.md",
+          "status": "implemented",
+          "depends_on": [
+            "doc-taxonomy-and-tooling"
+          ]
+        },
+        {
+          "id": "architecture-corrections",
+          "order": 3,
+          "file": "tasks/03-architecture-corrections.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-classification-and-navigation-hub"
+          ]
+        },
+        {
+          "id": "package-doc-orchestrating",
+          "order": 4,
+          "file": "tasks/04-package-doc-orchestrating.md",
+          "status": "implemented",
+          "depends_on": [
+            "architecture-corrections"
+          ]
+        },
+        {
+          "id": "package-doc-web-authorization",
+          "order": 5,
+          "file": "tasks/05-package-doc-web-authorization.md",
+          "status": "implemented",
+          "depends_on": [
+            "architecture-corrections"
+          ]
+        },
+        {
+          "id": "package-docs-core-and-messaging",
+          "order": 6,
+          "file": "tasks/06-package-docs-core-and-messaging.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-doc-orchestrating",
+            "package-doc-web-authorization"
+          ]
+        },
+        {
+          "id": "package-docs-messaging-extensions",
+          "order": 7,
+          "file": "tasks/07-package-docs-messaging-extensions.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-core-and-messaging"
+          ]
+        },
+        {
+          "id": "package-docs-auth-and-persistence",
+          "order": 8,
+          "file": "tasks/08-package-docs-auth-and-persistence.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-messaging-extensions"
+          ]
+        },
+        {
+          "id": "package-docs-web-and-experimental",
+          "order": 9,
+          "file": "tasks/09-package-docs-web-and-experimental.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-messaging-extensions"
+          ]
+        },
+        {
+          "id": "quickstart-and-installation-guide",
+          "order": 10,
+          "file": "tasks/10-quickstart-and-installation-guide.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-core-and-messaging"
+          ]
+        },
+        {
+          "id": "exampleapp-walkthrough-guide",
+          "order": 11,
+          "file": "tasks/11-exampleapp-walkthrough-guide.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-auth-and-persistence",
+            "package-docs-web-and-experimental"
+          ]
+        },
+        {
+          "id": "developer-and-extension-guides",
+          "order": 12,
+          "file": "tasks/12-developer-and-extension-guides.md",
+          "status": "implemented",
+          "depends_on": [
+            "package-docs-auth-and-persistence",
+            "package-docs-web-and-experimental"
+          ]
+        },
+        {
+          "id": "navigation-and-validation",
+          "order": 13,
+          "file": "tasks/13-navigation-and-validation.md",
+          "status": "implemented",
+          "depends_on": [
+            "exampleapp-walkthrough-guide",
+            "quickstart-and-installation-guide",
+            "developer-and-extension-guides"
+          ]
+        },
+        {
+          "id": "quickstart-end-to-end-narrative",
+          "order": 14,
+          "file": "tasks/14-quickstart-end-to-end-narrative.md",
+          "status": "implemented",
+          "depends_on": [
+            "quickstart-and-installation-guide",
+            "exampleapp-walkthrough-guide"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "query-support-and-handler-registration-hardening",
+      "title": "Query support and handler-registration hardening",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-08",
+      "tasks": [
+        {
+          "id": "command-event-adapter-characterization",
+          "order": 1,
+          "file": "tasks/01-command-event-adapter-characterization.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "37ecc4440cef06ea4a8ab4484859edb93bc24d9f",
+            "review_revision": "f8c88e29a029d401712fc55ec0139477e5ca7ea1",
+            "changed_paths": [
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandDispatcherTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandProcessingStrategyTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/GlobalUsings.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "8f2feb88fab67868b455415eb4d048d6c19beb8568b0432d552cb8cec44082f0",
+            "revision": "f8c88e29a029d401712fc55ec0139477e5ca7ea1",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "shared-handler-invocation-adapter",
+          "order": 2,
+          "file": "tasks/02-shared-handler-invocation-adapter.md",
+          "status": "verified",
+          "depends_on": [
+            "command-event-adapter-characterization"
+          ],
+          "implementation": {
+            "baseline_revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "review_revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapter.cs",
+              "src/NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapterFactory.cs",
+              "src/NEvo.Messaging/Events/EventHandlerAdapter.cs",
+              "src/NEvo.Messaging/Events/EventHandlerAdapterFactory.cs",
+              "src/NEvo.Messaging/Handling/MessageHandlerAdapter.cs",
+              "src/NEvo.Messaging/Handling/MessageHandlerAdapterBase.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterTests.cs",
+              "tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterFactoryTests.cs",
+              "tests/NEvo.Messaging.Tests/Events/EventHandlerAdapterTests.cs"
+            ],
+            "worktree_patch_fingerprint": "92673f61321be79d5cd3c238a021028a5f4f3ed4f1dadbdac4ea7c8033e07750"
+          },
+          "self_check": {
+            "fingerprint": "f18814b65901474980ce6ad2816d257a4fd7998c5157fe37a124517413b60bec",
+            "revision": "935dc8aba96d36eb4ddaede13ce0ceff386bbcc9",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "registration-idempotency-hardening",
+          "order": 3,
+          "file": "tasks/03-registration-idempotency-hardening.md",
+          "status": "verified",
+          "depends_on": [
+            "command-event-adapter-characterization"
+          ],
+          "implementation": {
+            "baseline_revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "review_revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Commands/ServiceCollectionExtensions.cs",
+              "src/NEvo.Messaging/Events/ServiceCollectionExtensions.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj",
+              "tests/NEvo.Messaging.Cqrs.Tests/ServiceCollectionExtensionsTests.cs"
+            ],
+            "worktree_patch_fingerprint": "6eef5c771f811f2092e2a5a6b2574ed330fec0e95bd73a2389557cf70b9e04f1"
+          },
+          "self_check": {
+            "fingerprint": "d476e517937cc4350b8b8b9708599e3af82c629d6ad0f96844c2cd228bd62ff8",
+            "revision": "ef0c4d3939c4d1c48a72a76106c7e373719627fc",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "query-abstractions-and-discovery",
+          "order": 4,
+          "file": "tasks/04-query-abstractions-and-discovery.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-handler-invocation-adapter"
+          ],
+          "implementation": {
+            "baseline_revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "review_revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/NEvo.Messaging.Cqrs.csproj",
+              "src/NEvo.Messaging.Cqrs/Queries/IQueryHandler.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/Query.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryHandlerAdapterFactory.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/MessageHandlerExtractorQuerySupportTests.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryHandlerAdapterFactoryTests.cs"
+            ],
+            "worktree_patch_fingerprint": "c5c512c34f4b555a2ac364c5744cded695f525bd9422e5d37466635b014ffe46"
+          },
+          "self_check": {
+            "fingerprint": "25f734b6c91a632996a352a261f14a4df54e22fd84d2661c78e62fda9bb5cfb2",
+            "revision": "1cec93188170b130c2f0c613b5af2cf3d52c9e57",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "query-dispatch-and-registration",
+          "order": 5,
+          "file": "tasks/05-query-dispatch-and-registration.md",
+          "status": "verified",
+          "depends_on": [
+            "query-abstractions-and-discovery",
+            "registration-idempotency-hardening"
+          ],
+          "implementation": {
+            "baseline_revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "review_revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "changed_paths": [
+              "src/NEvo.Messaging.Cqrs/Queries/IQueryDispatcher.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryDispatcher.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/QueryProcessingStrategy.cs",
+              "src/NEvo.Messaging.Cqrs/Queries/ServiceCollectionExtensions.cs",
+              "tests/NEvo.Messaging.Cqrs.Tests/Queries/QueryDispatchIntegrationTests.cs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "0e81b16db3b0e7ccaee18443cf0bf264408c10cb92df8f5f7e80478107547857",
+            "revision": "4b0d66f591da5d3c5c2e092634df0a1e29cb266b",
+            "commands": [
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet test tests/NEvo.Messaging.Cqrs.Tests",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "documentation-and-example",
+          "order": 6,
+          "file": "tasks/06-documentation-and-example.md",
+          "status": "verified",
+          "depends_on": [
+            "query-dispatch-and-registration"
+          ],
+          "implementation": {
+            "baseline_revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "review_revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "changed_paths": [
+              "docs/development/architecture-overview.md",
+              "docs/development/testing-strategy.md",
+              "docs/reference/packages/NEvo.Messaging.Cqrs.md",
+              "docs/reference/packages/NEvo.Messaging.md",
+              "docs/usage/commands.md",
+              "docs/usage/events.md",
+              "docs/usage/queries.md",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentQueries.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/InMemoryDocumentEventStore.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/MessageHandlerRegistryExtensions.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs",
+              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs"
+            ],
+            "worktree_patch_fingerprint": "3e2266e851ff1a9f013748de7548338935db96038cb167a5979b67e2aa6b520b"
+          },
+          "self_check": {
+            "fingerprint": "914302c3fdd1b4a50435b6f861b9e0a5ad100cdbdff2fb2f560727718a7c1e15",
+            "revision": "9f843d400ace446c8904758d16eb330274ab5fa0",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "dotnet build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    }
+  ]
+}

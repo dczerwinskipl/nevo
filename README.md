@@ -15,7 +15,7 @@ This is **.NET Evolution** — build only what matters, and scale when you're re
 | Package | Responsibility | Tags | Status |
 |---------|----------------|------|--------|
 | [`NEvo.Core`](src/NEvo.Core) | Core primitives and abstractions shared across the framework | ![Core](https://img.shields.io/badge/Core-blue) | Pre-Alpha |
-| [`NEvo.Web`](src/NEvo.Web) | HTTP middleware, request routing and integration with ASP.NET Core | ![Web](https://img.shields.io/badge/Web-lightgrey) | Pre-Alpha |
+| [`NEvo.Web`](src/NEvo.Web) | HTTP client wrapper with pluggable authentication strategies (OAuth, none) and a REST client base (`NEvo.Web.Client`) | ![Web](https://img.shields.io/badge/Web-lightgrey) | Pre-Alpha |
 | [`NEvo.Web.Authorization`](src/NEvo.Web.Authorization) | Authorization middleware and policies for web layer | ![Web](https://img.shields.io/badge/Web-lightgrey) ![Authorization](https://img.shields.io/badge/Authorization-orange) | Pre-Alpha |
 | [`NEvo.Authorization`](src/NEvo.Authorization) | Core abstractions and infrastructure for authorization logic | ![Core](https://img.shields.io/badge/Core-blue) ![Authorization](https://img.shields.io/badge/Authorization-orange) | Pre-Alpha |
 | [`NEvo.Messaging`](src/NEvo.Messaging) | Messaging infrastructure: event dispatching, base contracts | ![Messaging](https://img.shields.io/badge/Messaging-purple) | Pre-Alpha |
@@ -27,3 +27,28 @@ This is **.NET Evolution** — build only what matters, and scale when you're re
 | [`NEvo.EntityFramework`](src/NEvo.EntityFramework) | Shared EF infrastructure and base persistence types | ![Persistence](https://img.shields.io/badge/Persistence-brown) | Pre-Alpha |
 | [`NEvo.Orchestrating`](src/NEvo.Orchestrating) | Process orchestration, sagas, and workflow coordination | ![Orchestration](https://img.shields.io/badge/Orchestration-teal) ![Messaging](https://img.shields.io/badge/Messaging-purple) | In progress |
 | [`NEvo.Orchestrating.EntityFramework`](src/NEvo.Orchestrating.EntityFramework) | EF-based persistence for orchestrations | ![Orchestration](https://img.shields.io/badge/Orchestration-teal) ![Persistence](https://img.shields.io/badge/Persistence-brown) | In progress |
+
+---
+
+## Working with AI
+
+This repository uses a human-led, spec-anchored workflow for AI-assisted development —
+the owner makes architectural and scope decisions, agents propose options and implement
+approved work inside a declared context.
+
+- **Start here:** [`AGENTS.md`](AGENTS.md) — portable entry point for any AI agent
+  (change classes, decision policy, context loading rules).
+- **Full workflow:** [`docs/ai/specification-workflow.md`](docs/ai/specification-workflow.md)
+  — vendor-neutral description of discovery, specification, task decomposition, and
+  review.
+- **Tooling:** `node tools/specs.mjs <next|context|start|...>` and
+  `node tools/docs.mjs <validate|find|...>` drive specification and documentation
+  lifecycle deterministically — see the workflow doc for the full command list.
+- **Claude Code:** exposes this workflow through namespaced `/nevo-ai:*` commands
+  (`spec-create`, `spec-refine`, `spec-review`, `spec-approve`, `task-next`,
+  `task-start`, `task-review`) — see [`CLAUDE.md`](CLAUDE.md).
+- **Cursor / Copilot:** follow `AGENTS.md` and `docs/ai/specification-workflow.md`
+  directly via `.cursor/rules/` and `.github/copilot-instructions.md`.
+
+Specifications live in `specs/active/` (in progress) and `specs/archive/` (completed);
+durable architecture and process decisions live in `docs/development/` and `docs/decisions/`.
