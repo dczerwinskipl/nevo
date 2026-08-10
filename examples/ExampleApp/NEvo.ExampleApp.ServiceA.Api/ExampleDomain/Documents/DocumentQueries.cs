@@ -17,7 +17,7 @@ public class DocumentNotFoundException(Guid documentId) : Exception($"Document '
 // Reads through IEventStore.LoadProjectionAsync, currently backed by the
 // InMemoryDocumentEventStore workaround (see that class) pending PR #10's real
 // event-sourcing repository.
-public class GetDocumentQueryHandler(IEventStore eventStore) : IQueryHandler<GetDocumentQuery, DocumentDto>
+public class GetDocumentQueryHandler(InMemoryDocumentEventStore eventStore) : IQueryHandler<GetDocumentQuery, DocumentDto>
 {
     public Task<Either<Exception, DocumentDto>> HandleAsync(GetDocumentQuery query, IMessageContext messageContext, CancellationToken cancellationToken)
         => eventStore.LoadProjectionAsync<DocumentDto, Guid>(query.DocumentId).Match(

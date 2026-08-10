@@ -1,4 +1,6 @@
 using LanguageExt;
+using Microsoft.Extensions.Options;
+using NEvo.Ddd.EventSourcing.Deciding;
 using NEvo.Ddd.EventSourcing.Evolving;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Evolving;
@@ -11,7 +13,10 @@ public class AggregateEvolverTests
         // arrange
         var id = Guid.NewGuid();
         var aggregate = Option<Document>.None;
-        var evolver = new AggregateEvolver([typeof(Document)]);
+        var evolver = new AggregateEvolver(Options.Create(new AggregateExtractorConfiguration
+        {
+            AggregateTypes = { typeof(Document) }
+        }));
         var data = "Data";
 
         // act
@@ -32,7 +37,10 @@ public class AggregateEvolverTests
         // arrange
         var id = Guid.NewGuid();
         var aggregate = Option<Document>.None;
-        var evolver = new AggregateEvolver([typeof(Document)]);
+        var evolver = new AggregateEvolver(Options.Create(new AggregateExtractorConfiguration
+        {
+            AggregateTypes = { typeof(Document) }
+        }));
         var data = "Data";
 
         // act

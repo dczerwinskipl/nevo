@@ -18,7 +18,7 @@ public class AggregateDeciderEvolverIntegrationTests
         };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
         _decider = new AggregateDecider(deciderProvider);
-        _evolver = new AggregateEvolver([typeof(Document)]);
+        _evolver = new AggregateEvolver(Options.Create(configuration));
     }
 
     [Fact]

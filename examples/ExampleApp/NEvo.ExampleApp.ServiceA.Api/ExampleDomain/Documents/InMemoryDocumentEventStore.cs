@@ -17,13 +17,22 @@ namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 // instead.
 public class InMemoryDocumentEventStore : IEventStore
 {
+    private readonly ConcurrentDictionary<object, List<dynamic>> _store = new();
     private readonly ConcurrentDictionary<Guid, DocumentDto> _documents = new();
 
-    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, CancellationToken cancellationToken)
+    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, int expectedVersion, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        foreach (var @event in events)
+        var pendingEvents = events.ToList();
+        var stream = _store.GetOrAdd(streamId, _ => []);
+        if (expectedVersion != stream.Count)
+        {
+            return new Exception($"Expected version {expectedVersion} but found {stream.Count}");
+        }
+        stream.AddRange(pendingEvents);
+
+        foreach (var @event in pendingEvents)
         {
             switch (@event)
             {
@@ -42,10 +51,13 @@ public class InMemoryDocumentEventStore : IEventStore
         return Unit.Default;
     }
 
-    public OptionAsync<TAggregate> LoadAggregateAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
+    public EitherAsync<Exception, (IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)> LoadEventsStreamAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
-        => OptionAsync<TAggregate>.None;
+    {
+        var stream = _store.GetOrAdd(streamId, _ => []);
+        return (stream.Cast<IAggregateEvent<TAggregate, TId>>(), stream.Count);
+    }
 
     public OptionAsync<TProjection> LoadProjectionAsync<TProjection, TId>(TId projectionId)
         where TProjection : IProjectable<TId>
