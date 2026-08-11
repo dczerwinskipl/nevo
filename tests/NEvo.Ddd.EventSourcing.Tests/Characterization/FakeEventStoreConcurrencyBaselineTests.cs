@@ -3,12 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Originally characterized FakeEventStore's version-mismatch return shape (task 01,
-// AC6): a concurrency conflict flows through Either's Left, never a thrown CLR
-// exception. Task 02 (D13/D29) changes the exception *type* returned from a plain
-// Exception to the dedicated AggregateConcurrencyException, and the expected-version
-// parameter from a bare int to ExpectedStreamState — this test's call sites and type
-// assertion are updated accordingly; the return-vs-throw shape itself is unchanged.
+// Characterizes FakeEventStore's version-mismatch return shape: a concurrency conflict
+// flows through Either's Left, never a thrown CLR exception. The exception *type*
+// returned is the dedicated AggregateConcurrencyException (not a plain Exception), and
+// the expected-version parameter is ExpectedStreamState (not a bare int) — but the
+// return-vs-throw shape itself has never changed.
 public class FakeEventStoreConcurrencyBaselineTests
 {
     [Fact]

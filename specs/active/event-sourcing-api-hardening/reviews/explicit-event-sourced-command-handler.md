@@ -11,7 +11,30 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/explicit-event-sourced-command-handler
 
-Re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
+Second re-review (2026-08-11, owner code review of the pushed correction). Baseline:
+this file's prior content (`pass`). Owner found `IEventSourcedCommandHandler<,,>`'s own
+doc instructed callers to "inject `Deciding.IDecider` and call `DecideAsync`" to
+delegate to the aggregate-method convention — but `IDecider` is the *general* decision-
+mechanism abstraction `IDeciderRegistry` collects as `IEnumerable<IDecider>`, not a
+stable name for the convention specifically. This resolves correctly today only because
+`AggregateDecider` is the sole registered `IDecider`; it silently stops being
+unambiguous the moment a second decision mechanism is ever registered — exactly the
+kind of accidental coupling D17/D30 exist to prevent (the convention becoming
+indistinguishable from the core abstraction). Fixed, non-breaking (additive DI
+registration only): `AddEventSourcing` now also registers the concrete
+`AggregateDecider` as itself (`TryAddSingleton<AggregateDecider>()`), alongside its
+existing `IDecider` collection registration — a Level 2 handler can now inject
+`AggregateDecider` directly, unambiguous regardless of how many decision mechanisms
+exist. `IEventSourcedCommandHandler<,,>`'s doc, the `ApproveDocumentEventSourcedHandler`/
+`CreateDocumentEventSourcedHandler` test fixtures, and their constructing test now use
+the concrete type. Also cleaned up stale task/AC-number comments in the touched test
+files, matching this task's earlier documentation-hygiene pass but extended to tests
+this time (owner: code should be understandable without the spec, tests included).
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 46/46.
+
+---
+
+First re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
 content (`pass`). Owner code review requested a documentation-hygiene pass and one
 naming fix, no correctness bugs in this task's own diff:
 

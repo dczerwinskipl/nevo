@@ -4,16 +4,16 @@ using NEvo.Ddd.EventSourcing.Deciding;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// SUPERSEDED by task 03 (D2, es-command-executor-and-ambiguity-resolution): originally
-// characterized today's decider ambiguity resolution (task 01, AC4) as an undetected,
-// enumeration-order-dependent first match. Task 03 replaced that mechanism with
-// deterministic most-specific-wins resolution (Characterization/AmbiguityResolutionTests.cs,
+// SUPERSEDED: originally characterized decider ambiguity resolution as an undetected,
+// enumeration-order-dependent first match. That mechanism has since been replaced with
+// deterministic most-specific-wins resolution (see
+// Characterization/AmbiguityResolutionTests.cs,
 // MostSpecificDeclaringTypeWins/EquallySpecificCandidates_FailDeterministically). This
 // test still passes — for this particular fixture the new algorithm reaches the same
 // answer the old first-match happened to reach — but it no longer demonstrates
 // "ambiguity": under the new resolver this case is not ambiguous at all, it is a
 // correctly-resolved most-specific-wins case. Kept only as a historical record of the
-// pre-hardening baseline; task 03's own tests are the ones that gate this area now.
+// pre-hardening baseline; AmbiguityResolutionTests.cs is what gates this area now.
 public class AmbiguityResolutionBaselineTests
 {
     [Fact]

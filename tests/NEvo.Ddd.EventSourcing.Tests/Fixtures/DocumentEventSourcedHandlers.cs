@@ -4,9 +4,9 @@ using NEvo.Ddd.EventSourcing.Handling;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-// Task 04 example fixtures: explicit Level 2 handlers that delegate to Level 1's own
-// decision-method discovery (IDecider) rather than duplicating the aggregate's
-// transition logic (D1), for both the mutate (Approve) and create (Create) paths.
+// Explicit Level 2 handlers that delegate to the aggregate-method convention's own
+// decision-method discovery (the concrete AggregateDecider) rather than duplicating the
+// aggregate's transition logic, for both the mutate (Approve) and create (Create) paths.
 
 public interface IReviewNotesProvider
 {
@@ -25,8 +25,8 @@ public class FakeReviewNotesProvider : IReviewNotesProvider
 }
 
 // Orchestration/I-O (reading review notes via an injected dependency) before delegating
-// to Level 1's own Approve decider for the actual transition (AC2/AC3).
-public class ApproveDocumentEventSourcedHandler(IDecider decider, IReviewNotesProvider notesProvider)
+// to the convention's own Approve decider for the actual transition.
+public class ApproveDocumentEventSourcedHandler(AggregateDecider decider, IReviewNotesProvider notesProvider)
     : IEventSourcedCommandHandler<ApproveDocument, Document, Guid>
 {
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>> HandleAsync(ApproveDocument command, Option<Document> aggregate, CancellationToken cancellationToken)
@@ -36,8 +36,8 @@ public class ApproveDocumentEventSourcedHandler(IDecider decider, IReviewNotesPr
     }
 }
 
-// Pure delegation to Level 1's creation decision path for the None case (AC5).
-public class CreateDocumentEventSourcedHandler(IDecider decider)
+// Pure delegation to the convention's creation decision path for the None case.
+public class CreateDocumentEventSourcedHandler(AggregateDecider decider)
     : IEventSourcedCommandHandler<CreateDocument, Document, Guid>
 {
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>> HandleAsync(CreateDocument command, Option<Document> aggregate, CancellationToken cancellationToken)

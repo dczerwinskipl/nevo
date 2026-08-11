@@ -5,8 +5,8 @@ using NEvo.Messaging.Handling;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Characterizes AddEventSourcing's current DI registrations (area
-// characterization-and-baseline, task 01, AC5) before task 06 adds registration options.
+// Characterizes AddEventSourcing's current DI registrations, ahead of the additive
+// options overload that later configures the convention-fallback toggle.
 public class ServiceCollectionExtensionsBaselineTests
 {
     [Fact]

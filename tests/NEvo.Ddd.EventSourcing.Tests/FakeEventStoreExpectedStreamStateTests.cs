@@ -3,9 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace NEvo.Ddd.EventSourcing.Tests;
 
-// Task 02 (harden-event-store-and-repository-contracts): proves IEventStreamStore's
-// NoStream/Exact(version) append semantics and the explicit-missing-stream read
-// contract (D29), against FakeEventStore, the one shipped implementation.
+// Proves IEventStreamStore's NoStream/Exact(version) append semantics and the
+// explicit-missing-stream read contract against FakeEventStore, the one shipped
+// implementation.
 public class FakeEventStoreExpectedStreamStateTests
 {
     [Fact]
@@ -98,11 +98,11 @@ public class FakeEventStoreExpectedStreamStateTests
         result.Should().BeLeft().Which.Should().BeOfType<AggregateConcurrencyException>();
     }
 
-    // Owner code review (2026-08-11): the version check (TryGetValue -> compare) and the
-    // mutation (AddRange) were not one atomic unit — two genuinely concurrent Exact(1)
-    // appends could both observe version 1 and both pass. A Barrier forces both threads
-    // into the critical section as close to simultaneously as possible so this test
-    // actually exercises the race, not just a sequential re-enactment of it.
+    // The version check (TryGetValue -> compare) and the mutation (AddRange) must be one
+    // atomic unit, or two genuinely concurrent Exact(1) appends could both observe
+    // version 1 and both pass. A Barrier forces both threads into the critical section
+    // as close to simultaneously as possible so this test actually exercises the race,
+    // not just a sequential re-enactment of it.
     [Fact]
     public async Task AppendEventsAsync_TwoConcurrentAppendsAtTheSameExpectedVersion_ExactlyOneSucceeds()
     {
@@ -125,10 +125,10 @@ public class FakeEventStoreExpectedStreamStateTests
         loaded.Should().BeRight().Which.Should().BeSome().Which.Version.Should().Be(2);
     }
 
-    // Owner code review (2026-08-11): the store was keyed by streamId alone, so two
-    // different aggregate types sharing the same id value (e.g. Document(Guid X) and
-    // OtherAggregate(Guid X)) collided into a single stream — silently mixing
-    // incompatible event types (and eventually a bad cast on load).
+    // The store must not be keyed by streamId alone — two different aggregate types
+    // sharing the same id value (e.g. Document(Guid X) and OtherAggregate(Guid X)) would
+    // otherwise collide into a single stream, silently mixing incompatible event types
+    // (and eventually a bad cast on load).
     [Fact]
     public async Task AppendEventsAsync_SameStreamIdValue_DifferentAggregateTypes_DoNotCollide()
     {

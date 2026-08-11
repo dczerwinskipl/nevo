@@ -11,7 +11,31 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/es-command-executor-and-ambiguity-resolution
 
-Re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
+Second re-review (2026-08-11, owner code review of the pushed correction). Baseline:
+this file's prior content (`pass`). Owner found a real correctness gap:
+`IAggregateEvent<TAggregate,TId>` only requires `StreamId` — nothing constrains an
+implementer to also derive from `Event` — yet `EventSourcedCommandExecutor` cast every
+produced event to `Event` unconditionally (`(Event)@event`) before publishing. A
+compile-time-valid `IAggregateEvent` implementation that isn't an `Event` would only
+fail at first publish, as an opaque `InvalidCastException`. Owner chose the
+non-breaking fix (a compile-time contract change was the alternative, rejected as
+requiring a spec amendment and touching an already-stabilized public type). Fixed in
+two places: (1) the executor now checks `@event is not Event` and returns a clear
+`InvalidOperationException` via `Either.Left` instead of an unchecked cast — this is
+the only guard covering a hand-written Level 2 handler, since those aren't discovered
+via reflection; (2) `AggregateDeciderExtractor.WithValidReturnType` now rejects, at
+decider-discovery time, a decision method whose declared event type implements
+`IAggregateEvent<,>` but isn't `Event`-derived, naming the method and type in the
+exception, instead of silently excluding it (which would have surfaced later as an
+opaque "no decider found"). New tests:
+`EventSourcedCommandExecutorTests.ExecuteAsync_ProducedEventIsNotAnEvent_ReturnsLeftWithClearError_NeverThrows`
+and
+`AggregateDeciderExtractorTests.ExtractDeciders_DecisionMethodProducesAnIAggregateEventThatIsNotAnEvent_ThrowsWithAClearMessage`.
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 46/46 (44 + these 2).
+
+---
+
+First re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
 content (`pass`). Owner code review requested a documentation-hygiene pass only —
 `IEventSourcedCommandExecutor`, `EventSourcedCommandExecutor`,
 `MostSpecificCandidateResolver`, `ExpectedStreamState`, `AggregateConcurrencyException`,

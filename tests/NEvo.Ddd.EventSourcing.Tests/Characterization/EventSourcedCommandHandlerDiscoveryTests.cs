@@ -11,11 +11,9 @@ using NEvo.Messaging.Handling.Exceptions;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Owner code review (2026-08-11): IEventSourcedCommandHandler<,,>/
-// EventSourcedCommandHandlerAdapter existed but were never wired into
-// MessageHandlerExtractor's discovery — every prior Level 2 test constructed the
-// adapter/executor by hand, never proving the real discovery -> registry -> dispatch
-// flow. These tests exercise that real flow end-to-end via a genuine
+// IEventSourcedCommandHandler<,,>/EventSourcedCommandHandlerAdapter must be wired into
+// MessageHandlerExtractor's discovery, not just constructible by hand — these tests
+// exercise the real discovery -> registry -> dispatch flow end-to-end via a genuine
 // ServiceCollection/IMessageHandlerRegistry, the same way a real application would.
 public class EventSourcedCommandHandlerDiscoveryTests
 {
@@ -95,13 +93,13 @@ public class EventSourcedCommandHandlerDiscoveryTests
         publisher.PublishedEvents.Should().Contain(e => e is DocumentApproved);
     }
 
-    // Owner code review (2026-08-11): AggregateDecider can report one decider
-    // description per concrete state type that declares a decision method for a given
-    // command (here, EditableDocument.Change and ReviewableDocument.Change both exist
-    // for ChangeDocument) — grouping convention-route registration only by command type
-    // produced one competing Fallback candidate per description, so the registry
-    // rejected the command as an unresolvable two-Fallback conflict before runtime state
-    // ever got a chance to pick the applicable method.
+    // AggregateDecider can report one decider description per concrete state type that
+    // declares a decision method for a given command (here, EditableDocument.Change and
+    // ReviewableDocument.Change both exist for ChangeDocument) — convention-route
+    // registration must group by route, not just by command type, or it produces one
+    // competing Fallback candidate per description and the registry rejects the command
+    // as an unresolvable two-Fallback conflict before runtime state ever gets a chance
+    // to pick the applicable method.
     [Fact]
     public void GetMessageHandler_ForACommandWithMultipleStateSpecificDeciders_StillResolvesToOneFallbackRoute()
     {

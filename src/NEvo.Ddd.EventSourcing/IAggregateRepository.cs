@@ -19,8 +19,10 @@ public interface IAggregateRepository
 }
 
 /// <summary>
-/// Reads and appends raw event streams. Does not rehydrate aggregates and does not
-/// load projections — that is <see cref="IAggregateRepository"/>'s responsibility.
+/// Reads and appends raw event streams. Does not rehydrate aggregates — that is
+/// <see cref="IAggregateRepository"/>'s responsibility. Does not load projections
+/// either — no component in this design does; that responsibility was intentionally
+/// removed from the repository, not relocated here.
 /// </summary>
 public interface IEventStreamStore
 {
@@ -76,14 +78,16 @@ public class AggregateRepository(IEventStreamStore eventStore, IEvolverRegistry 
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        if (!events.Any())
+        using var enumerator = events.GetEnumerator();
+        if (!enumerator.MoveNext())
         {
             return Option<TAggregate>.None;
         }
 
-        var aggregate = evolver.Evolve(Option<TAggregate>.None, events.First());
-        foreach (var @event in events.Skip(1))
+        var aggregate = evolver.Evolve(Option<TAggregate>.None, enumerator.Current);
+        while (enumerator.MoveNext())
         {
+            var @event = enumerator.Current;
             aggregate = aggregate.Bind(agg => evolver.Evolve(agg, @event));
         }
 

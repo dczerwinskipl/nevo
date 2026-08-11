@@ -55,7 +55,19 @@ public class EventSourcedCommandExecutor(IAggregateRepository repository, IEvent
     {
         foreach (var @event in events)
         {
-            var result = await _eventPublisher.PublishAsync((Event)@event, cancellationToken);
+            // IAggregateEvent<,> only requires StreamId — it does not itself guarantee
+            // Event, so a hand-written Level 2 handler (no reflection discovery to catch
+            // this ahead of time, unlike the aggregate-method convention) could otherwise
+            // reach an unchecked cast here. Fail with a clear, typed error instead.
+            if (@event is not Event concreteEvent)
+            {
+                return new InvalidOperationException(
+                    $"'{@event.GetType().Name}' implements IAggregateEvent<{typeof(TAggregate).Name}, {typeof(TId).Name}> " +
+                    $"but does not derive from NEvo.Messaging.Events.Event, so it cannot be published. Every domain " +
+                    $"event must derive from Event.");
+            }
+
+            var result = await _eventPublisher.PublishAsync(concreteEvent, cancellationToken);
             if (result.IsLeft)
             {
                 return result;

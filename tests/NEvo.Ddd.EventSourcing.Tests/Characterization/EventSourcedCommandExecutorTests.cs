@@ -9,11 +9,10 @@ using NEvo.Messaging.Events;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Task 03 (es-command-executor-and-ambiguity-resolution): proves the shared executor's
-// own lifecycle guarantees — append-before-publish ordering (AC4/D7/D23), concurrency
-// surfacing through Either.Left (AC5/D13), the aggregate-aware authorization hook's
-// Option<TAggregate> shape (AC7/D24-D25), and the NoStream/Exact(version) mapping
-// (AC9/D29).
+// Proves the shared executor's own lifecycle guarantees — append-before-publish
+// ordering, concurrency surfacing through Either.Left, the aggregate-aware
+// authorization hook's Option<TAggregate> shape, and the NoStream/Exact(version)
+// mapping.
 public class EventSourcedCommandExecutorTests
 {
     private static (AggregateRepository Repository, AggregateDecider Decider) CreateRealDependencies()
@@ -167,5 +166,40 @@ public class EventSourcedCommandExecutorTests
         );
 
         repositoryMock.Verify(r => r.AppendEventsAsync(id, events, ExpectedStreamState.Exact(3), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // IAggregateEvent<,> only requires StreamId, so nothing stops a hand-written Level 2
+    // handler from producing one that isn't also an Event — this fixture is exactly
+    // that case, deliberately not derived from Event.
+    private record NonEventAggregateEvent(Guid StreamId) : IAggregateEvent<Document, Guid>;
+
+    [Fact]
+    public async Task ExecuteAsync_ProducedEventIsNotAnEvent_ReturnsLeftWithClearError_NeverThrows()
+    {
+        var repositoryMock = new Mock<IAggregateRepository>();
+        var id = Guid.NewGuid();
+        repositoryMock.Setup(r => r.LoadAggregateAsync<Document, Guid>(id, It.IsAny<CancellationToken>()))
+            .Returns(Option<(Document, int)>.None);
+        repositoryMock.Setup(r => r.AppendEventsAsync(id, It.IsAny<IEnumerable<IAggregateEvent<Document, Guid>>>(), It.IsAny<ExpectedStreamState>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(Unit.Default));
+        var publisher = new FakeEventPublisher();
+        var executor = new EventSourcedCommandExecutor(repositoryMock.Object, publisher);
+        var command = new CreateDocument(id, "Data");
+        IAggregateEvent<Document, Guid>[] badEvents = [new NonEventAggregateEvent(id)];
+
+        Func<Task> act = async () => await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
+            command, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)badEvents, CancellationToken.None
+        );
+        await act.Should().NotThrowAsync();
+
+        var result = await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
+            command, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)badEvents, CancellationToken.None
+        );
+
+        result.Should().BeLeft().Which.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Contain(nameof(NonEventAggregateEvent));
+        publisher.PublishedEvents.Should().BeEmpty();
     }
 }

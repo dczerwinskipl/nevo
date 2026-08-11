@@ -99,6 +99,14 @@ public static class ServiceCollectionExtensions
                 options.AggregateTypes.UnionWith(aggregateTypes);
             });
 
+            // Registered both as itself (so a Level 2 handler can inject the concrete
+            // aggregate-method convention unambiguously, per IEventSourcedCommandHandler's
+            // own doc) and as IDecider (so DeciderRegistry's IEnumerable<IDecider>
+            // collection sees it as one of possibly several decision mechanisms) — two
+            // independent singleton instances, since the DI container does not share an
+            // instance across two differently-typed registrations of the same
+            // implementation type; both do identical, cheap, deterministic setup work.
+            services.TryAddSingleton<AggregateDecider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>());
             services.TryAddSingleton<IAggregateDeciderProvider, AggregateDeciderProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IEvolver, AggregateEvolver>());

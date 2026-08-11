@@ -4,9 +4,8 @@ using NEvo.Ddd.EventSourcing.Deciding;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Task 03 (es-command-executor-and-ambiguity-resolution): proves the new deterministic
-// most-specific-wins decider resolution (D2), replacing the old first-match behavior
-// AmbiguityResolutionBaselineTests (task 01) characterized.
+// Proves the deterministic most-specific-wins decider resolution, replacing the old
+// first-match behavior AmbiguityResolutionBaselineTests characterized.
 public class AmbiguityResolutionTests
 {
     private static AggregateDecider CreateDecider()

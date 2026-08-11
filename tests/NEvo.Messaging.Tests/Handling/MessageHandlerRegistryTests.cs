@@ -59,10 +59,10 @@ public class MessageHandlerRegistryTests
     }
 
 
-    // Primary/Fallback role resolution (D3/D32, area handler-registration-and-options,
-    // task 05). HandlerRole is non-nullable and defaults to Primary — the tests above
-    // (no Role set anywhere) already prove that a description built without mentioning
-    // Role behaves as Primary, exactly as before this rule existed.
+    // Primary/Fallback role resolution. HandlerRole is non-nullable and defaults to
+    // Primary — the tests above (no Role set anywhere) already prove that a description
+    // built without mentioning Role behaves as Primary, exactly as before this rule
+    // existed.
 
     [Fact]
     public void GetMessageHandler_ReturnsFallback_WhenOnlyFallbackHandlerRegistered()
@@ -149,9 +149,9 @@ public class MessageHandlerRegistryTests
     [Fact]
     public void GetMessageHandler_ReturnsError_WhenAnExplicitPrimaryIsMixedWithADefaultPrimary()
     {
-        // Arrange — a description built without mentioning Role is Primary by default
-        // (D32), so it conflicts with an explicitly-tagged Primary exactly like any
-        // other two-Primary conflict, not as a special "mixed" case.
+        // Arrange — a description built without mentioning Role is Primary by default,
+        // so it conflicts with an explicitly-tagged Primary exactly like any other
+        // two-Primary conflict, not as a special "mixed" case.
         var messageType = typeof(IMessage);
         var explicitPrimaryMock = new Mock<IMessageHandler>();
         explicitPrimaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Primary });

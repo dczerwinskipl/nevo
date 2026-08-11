@@ -43,7 +43,27 @@ public static class AggregateDeciderExtractor
                 && m.ReturnType.GenericTypeArguments[1].GetGenericTypeDefinition() == typeof(IEnumerable<>)
                 && m.ReturnType.GenericTypeArguments[1].GetGenericArguments()[0].IsEvent()
             )
-            .Select(m => (m, m.ReturnType.GenericTypeArguments[1].GetGenericArguments()[0]));
+            .Select(m => (m, EventType: m.ReturnType.GenericTypeArguments[1].GetGenericArguments()[0]))
+            .Select(RequireEventDerivedType);
+
+    // IAggregateEvent<,> alone doesn't guarantee Event — a decision method producing a
+    // type that implements IAggregateEvent<,> but doesn't derive from Event would
+    // otherwise be silently excluded here (indistinguishable from "not a decider at
+    // all") and only fail much later, opaquely, when the executor tries to publish it.
+    // Reject it loudly, at discovery time, naming exactly what's wrong.
+    private static (MethodInfo Method, Type EventType) RequireEventDerivedType((MethodInfo Method, Type EventType) candidate)
+    {
+        if (!typeof(Event).IsAssignableFrom(candidate.EventType))
+        {
+            throw new InvalidOperationException(
+                $"'{candidate.Method.DeclaringType!.Name}.{candidate.Method.Name}' is discovered as an " +
+                $"aggregate-method convention decider producing '{candidate.EventType.Name}', which implements " +
+                $"IAggregateEvent<,> but does not derive from NEvo.Messaging.Events.Event. Every domain event " +
+                $"must derive from Event to be publishable — make '{candidate.EventType.Name}' derive from Event.");
+        }
+
+        return candidate;
+    }
 
     private static IEnumerable<(MethodInfo Method, Type EventType, Type CommandType)> WithCommandInputParameter(this IEnumerable<(MethodInfo Method, Type EventType)> methods)
         => methods.Where(m => m.Method.GetParameters().Length == 1)

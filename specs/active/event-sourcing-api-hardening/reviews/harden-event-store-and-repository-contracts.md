@@ -38,6 +38,24 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/harden-event-store-and-repository-contracts
 
+Third re-review (2026-08-11, owner code review of the pushed correction). Baseline:
+this file's prior content (`pass`). Owner found the doc-hygiene pass below had
+introduced a factual error: `IEventStreamStore`'s doc said it "does not rehydrate
+aggregates and does not load projections — that is `IAggregateRepository`'s
+responsibility," which is only half right — `IAggregateRepository` does rehydrate, but
+projection loading was intentionally removed from the design entirely (per this task's
+own D6 requirement), not relocated to the repository. Fixed: the doc now states
+rehydration is `IAggregateRepository`'s responsibility and projection loading is
+nobody's responsibility in this design, distinctly. Also fixed, same pass, unrelated to
+this doc bug: `AggregateRepository.ApplyEvents()` called `events.Any()`, `.First()`,
+then `.Skip(1)` — three separate enumerations of the same `IEnumerable`, harmless for
+`FakeEventStore`'s in-memory list but an unnecessary assumption for a future streaming
+provider. Rewritten to a single `IEnumerator` pass. No behavior change; `dotnet test
+tests/NEvo.Ddd.EventSourcing.Tests` passes 46/46 (44 + 2 new, both from the separate
+event-cast-safety fix under `es-command-executor-and-ambiguity-resolution`'s review).
+
+---
+
 Second re-review (2026-08-11, implementation-correction pass). Baseline: this file's
 prior content (`pass`, F2/F3 resolved below). Owner code review requested a
 documentation-hygiene pass only this time: `IAggregateRepository.cs`/`IEventStreamStore`

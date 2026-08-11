@@ -12,11 +12,11 @@ using NEvo.Messaging.Handling;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Task 04 (explicit-event-sourced-command-handler / Level 2): proves the explicit
-// handler and its adapter route through the same executor Level 1 uses (AC1), delegate
-// to Level 1's own decision-method discovery instead of duplicating a transition (AC2),
-// can use a constructor-injected dependency for orchestration (AC3), and receive
-// Option<TAggregate> correctly on both the mutate (AC4) and create (AC5) paths.
+// Proves the explicit Level 2 handler and its adapter route through the same executor
+// Level 1 uses, delegate to Level 1's own decision-method discovery instead of
+// duplicating a transition, can use a constructor-injected dependency for
+// orchestration, and receive Option<TAggregate> correctly on both the mutate and
+// create paths.
 public class EventSourcedCommandHandlerTests
 {
     private static AggregateDecider CreateLevel1Decider()
@@ -143,7 +143,7 @@ public class EventSourcedCommandHandlerTests
         services.AddSingleton<IAggregateRepository>(repository);
         services.AddSingleton(publisher);
         services.AddSingleton<IEventSourcedCommandExecutor, EventSourcedCommandExecutor>();
-        services.AddSingleton<IDecider>(CreateLevel1Decider());
+        services.AddSingleton(CreateLevel1Decider());
         services.AddSingleton<IEventSourcedCommandHandler<CreateDocument, Document, Guid>, CreateDocumentEventSourcedHandler>();
         services.AddSingleton(typeof(IAggregateAuthorization<,,>), typeof(AllowAllAggregateAuthorization<,,>));
         return services.BuildServiceProvider();

@@ -1,0 +1,15 @@
+follow_ups:
+  - id: infra-visibility-before-stabilization
+    source_task: primary-fallback-handler-roles
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: "AllowAllAggregateAuthorization<,,> and FakeEventStore are public
+      infrastructure (DI Null Object / in-memory default) that shouldn't leak
+      into the public surface; FakeEventStore also sits under namespace
+      Microsoft.Extensions.DependencyInjection by accident (file-scoped
+      namespace shared with ServiceCollectionExtensions in the same file).
+      Owner: not a blocker for tasks 1-5, clean up visibility/namespaces before
+      public API stabilization."
+    resolver_task: null
+    status: open
+    resolution: null

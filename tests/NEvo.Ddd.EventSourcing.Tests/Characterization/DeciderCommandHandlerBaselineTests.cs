@@ -10,11 +10,11 @@ using NEvo.Messaging.Cqrs.Commands;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
-// Originally characterized DeciderCommandHandler's create/mutate paths end-to-end
-// (task 01, AC3). Task 03 extracted the load/authorize/decide/append/publish lifecycle
-// into IEventSourcedCommandExecutor — HandleAsync now takes an IMessageContext and
-// routes through the executor instead of the repository directly; this test's behavior
-// and assertions are otherwise unchanged.
+// Characterizes DeciderCommandHandler's create/mutate paths end-to-end. The
+// load/authorize/decide/append/publish lifecycle now lives in
+// IEventSourcedCommandExecutor — HandleAsync takes an IMessageContext and routes
+// through the executor instead of the repository directly; this test's behavior and
+// assertions are otherwise unchanged from before that extraction.
 public class DeciderCommandHandlerBaselineTests
 {
     private readonly AggregateRepository _repository;
