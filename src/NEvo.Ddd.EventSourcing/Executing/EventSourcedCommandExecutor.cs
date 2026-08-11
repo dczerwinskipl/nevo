@@ -56,9 +56,10 @@ public class EventSourcedCommandExecutor(IAggregateRepository repository, IEvent
         foreach (var @event in events)
         {
             // IAggregateEvent<,> only requires StreamId — it does not itself guarantee
-            // Event, so a hand-written Level 2 handler (no reflection discovery to catch
-            // this ahead of time, unlike the aggregate-method convention) could otherwise
-            // reach an unchecked cast here. Fail with a clear, typed error instead.
+            // Event, so a hand-written explicit Event Sourced handler (no reflection
+            // discovery to catch this ahead of time, unlike the aggregate-method
+            // convention) could otherwise reach an unchecked cast here. Fail with a
+            // clear, typed error instead.
             if (@event is not Event concreteEvent)
             {
                 return new InvalidOperationException(

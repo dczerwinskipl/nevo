@@ -1,6 +1,13 @@
 namespace NEvo.Messaging.Authorization;
 
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+/// <summary>
+/// Placed on a handler method for a handler-specific requirement, or on a message
+/// type for the operation's primary permission — a command declares its permission
+/// once, at the message level, rather than copying it onto every aggregate-state
+/// method that could produce it. Message-level and handler-level requirements compose
+/// as AND, never override.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
 public class AllowPermissionAttribute : Attribute
 {
     public string PermissionName { get; }

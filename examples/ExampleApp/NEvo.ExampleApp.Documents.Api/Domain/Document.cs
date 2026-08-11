@@ -1,17 +1,12 @@
 using LanguageExt;
+using NEvo.Ddd.EventSourcing;
 
-namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
+namespace NEvo.ExampleApp.Documents.Api.Domain;
 
 public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
     public string Data { get; set; } = data;
-
-    public bool AcceptedByX { get; set; }
-
-    public bool AcceptedByY { get; set; }
-
-    public bool AcceptedByZ { get; set; }
 
     // Decider - create
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
@@ -25,7 +20,6 @@ public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
         return new EditableDocument(@event.DocumentId, @event.Data);
     }
 }
-
 
 public class EditableDocument(Guid id, string data) : Document(id, data)
 {

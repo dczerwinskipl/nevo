@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using LanguageExt;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Cqrs.Commands;
+using NEvo.Messaging.Cqrs.Queries;
 using NEvo.Messaging.Handling;
 using NEvo.Messaging.Transporting;
 
@@ -50,18 +52,32 @@ namespace Microsoft.AspNetCore.Routing
             {
                 var result = await commandDispatcher.DispatchAsync(command, token);
 
-                result.Match(
-                    Right: _ => Console.WriteLine($"Success: {command.Id}"),
-                    Left: ex => Console.WriteLine($"Failure: {command.Id}, message: {ex.Message}")
-                );
-
-                return result.Match(
-                    Right: result => Results.Ok(result),
-                    Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
-                );
+                return result.ToHttpResult();
             });
 
             return handler;
         }
+
+        public static RouteHandlerBuilder MapQueryEndpoint<TQuery, TResult>(this IEndpointRouteBuilder routeBuilder, string routeName)
+            where TQuery : Query<TResult>
+        {
+            var handler = routeBuilder.MapGet(routeName, async ([AsParameters] TQuery query, CancellationToken token, IQueryDispatcher queryDispatcher) =>
+            {
+                var result = await queryDispatcher.DispatchAsync(query, token);
+
+                return result.ToHttpResult();
+            });
+
+            return handler;
+        }
+
+        // Shared Right→200/Left→Problem mapping between MapCommandEndpoint and
+        // MapQueryEndpoint — not a general HTTP result-mapping framework, just removes
+        // the one duplicated Match between the two.
+        private static IResult ToHttpResult<TResult>(this Either<Exception, TResult> result)
+            => result.Match(
+                Right: value => Results.Ok(value),
+                Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
+            );
     }
 }

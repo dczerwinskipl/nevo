@@ -1,6 +1,7 @@
-using NEvo.Ddd.EventSourcing.Handling;
+using NEvo.Ddd.EventSourcing;
+using NEvo.Messaging.Cqrs.Commands;
 
-namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
+namespace NEvo.ExampleApp.Documents.Api.Domain;
 
 public record DocumentCommand(Guid DocumentId) : Command, IAggregateCommand<Document, Guid>
 {

@@ -3,8 +3,6 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using NEvo.Authorization.Permissions;
-using NEvo.Ddd.EventSourcing;
-using NEvo.Ddd.EventSourcing.Tests.Mocks;
 using NEvo.ExampleApp.ServiceA.Api;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
@@ -42,13 +40,6 @@ builder.Services.AddRestMessageDispatcher((opts) =>
 }, [typeof(ServiceBCommand)]);
 
 builder.Services.AddServiceADomain();
-builder.Services.AddEventSourcing(typeof(Document));
-// WORKAROUND: overrides AddEventSourcing()'s FakeEventStore so GetDocumentQuery has a
-// real create-then-query round trip to demonstrate. Remove once PR #10 (real
-// event-sourcing repository) lands — see InMemoryDocumentEventStore for why this
-// exists and what should replace it.
-builder.Services.AddSingleton<InMemoryDocumentEventStore>();
-builder.Services.AddSingleton<IEventStreamStore>(provider => provider.GetRequiredService<InMemoryDocumentEventStore>());
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());

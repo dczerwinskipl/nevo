@@ -132,6 +132,64 @@ public class EventSourcedCommandExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AuthorizationHookDenies_PreventsAppendAndDecision_OnBothCreateAndMutatePaths()
+    {
+        var (repository, decider) = CreateRealDependencies();
+        var id = Guid.NewGuid();
+        var publisher = new FakeEventPublisher();
+        var executor = new EventSourcedCommandExecutor(repository, publisher);
+        var denial = new Exception("denied");
+        var authorizationMock = new Mock<IAggregateAuthorization<DocumentCommand, Document, Guid>>();
+        authorizationMock
+            .Setup(a => a.AuthorizeAsync(It.IsAny<DocumentCommand>(), It.IsAny<Option<Document>>(), It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()))
+            .Returns(denial);
+        var decideInvoked = false;
+        Func<Option<Document>, EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>> decide = state =>
+        {
+            decideInvoked = true;
+            return decider.DecideAsync(state, new CreateDocument(id, "Data"), CancellationToken.None);
+        };
+
+        var createCommand = new CreateDocument(id, "Data");
+        var createResult = await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
+            createCommand, new Mock<IMessageContext>().Object, authorizationMock.Object, decide, CancellationToken.None
+        );
+
+        createResult.Should().BeLeft().Which.Should().BeSameAs(denial);
+        decideInvoked.Should().BeFalse();
+        var loadedAfterCreateDenial = await repository.LoadAggregateAsync<Document, Guid>(id, CancellationToken.None);
+        loadedAfterCreateDenial.Should().BeRight().Which.Should().BeNone();
+
+        // Establish an existing aggregate (authorization allowed this once) so the
+        // mutate-path denial below is exercised against a real Some state, not None.
+        var allowOnceMock = new Mock<IAggregateAuthorization<DocumentCommand, Document, Guid>>();
+        allowOnceMock
+            .Setup(a => a.AuthorizeAsync(It.IsAny<DocumentCommand>(), It.IsAny<Option<Document>>(), It.IsAny<IMessageContext>(), It.IsAny<CancellationToken>()))
+            .Returns(Unit.Default);
+        await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
+            createCommand, new Mock<IMessageContext>().Object, allowOnceMock.Object,
+            state => decider.DecideAsync(state, createCommand, CancellationToken.None), CancellationToken.None
+        );
+
+        decideInvoked = false;
+        var changeCommand = new ChangeDocument(id, "Updated");
+        var changeResult = await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
+            changeCommand, new Mock<IMessageContext>().Object, authorizationMock.Object,
+            state =>
+            {
+                decideInvoked = true;
+                return decider.DecideAsync(state, changeCommand, CancellationToken.None);
+            },
+            CancellationToken.None
+        );
+
+        changeResult.Should().BeLeft().Which.Should().BeSameAs(denial);
+        decideInvoked.Should().BeFalse();
+        var loadedAfterChangeDenial = await repository.LoadAggregateAsync<Document, Guid>(id, CancellationToken.None);
+        loadedAfterChangeDenial.Should().BeRight().Which.Should().BeSome().Which.Aggregate.Should().BeOfType<EditableDocument>().Which.Data.Should().Be("Data");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_MapsExpectedStreamState_NoStreamOnCreatePath_ExactOnMutatePath()
     {
         var repositoryMock = new Mock<IAggregateRepository>();

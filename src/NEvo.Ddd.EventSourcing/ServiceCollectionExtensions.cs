@@ -81,11 +81,32 @@ public class FakeEventStore : IEventStreamStore
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers Event Sourcing with the aggregate-method convention fallback enabled
+    /// (the default). Delegates to the additive
+    /// <see cref="AddEventSourcing(IServiceCollection, Action{EventSourcingOptions}, Type[])"/>
+    /// overload with default options — existing call sites keep compiling and behaving
+    /// unchanged.
+    /// </summary>
     public static IServiceCollection AddEventSourcing(this IServiceCollection services, params Type[] aggregateTypes)
+        => services.AddEventSourcing(static _ => { }, aggregateTypes);
+
+    public static IServiceCollection AddEventSourcing(this IServiceCollection services, Action<EventSourcingOptions> configure, params Type[] aggregateTypes)
     {
+        var options = new EventSourcingOptions();
+        configure(options);
+
         services.TryAddSingleton<IEventStreamStore, FakeEventStore>();
         services.TryAddScoped<IAggregateRepository, AggregateRepository>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessageHandlerProvider, DeciderCommandHandlerProvider>());
+        // The convention fallback route is what makes MessageHandlerRegistry
+        // auto-route a command to the aggregate-method convention — this is the one
+        // thing the toggle controls. The decider/evolver machinery below stays
+        // registered regardless, since an explicit Event Sourced handler may still
+        // delegate to IAggregateMethodDecider even with the fallback route disabled.
+        if (options.UseAggregateMethodFallback)
+        {
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessageHandlerProvider, DeciderCommandHandlerProvider>());
+        }
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMessageHandlerFactory, EventSourcedCommandHandlerAdapterFactory>());
         services.TryAddSingleton<IEvolverRegistry, EvolverRegistry>();
         services.TryAddSingleton<IDeciderRegistry, DeciderRegistry>();
@@ -94,9 +115,9 @@ public static class ServiceCollectionExtensions
 
         // aggregate based deciders/evolvers
         {
-            services.Configure<AggregateExtractorConfiguration>(options =>
+            services.Configure<AggregateExtractorConfiguration>(opts =>
             {
-                options.AggregateTypes.UnionWith(aggregateTypes);
+                opts.AggregateTypes.UnionWith(aggregateTypes);
             });
 
             // AggregateDecider is the current implementation of two distinct public
