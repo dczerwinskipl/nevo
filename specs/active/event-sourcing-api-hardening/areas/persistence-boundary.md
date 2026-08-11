@@ -3,10 +3,17 @@
 ## Responsibility
 
 Separate raw event-stream persistence from aggregate rehydration, remove the
-unfinished projection-loading responsibility from the aggregate repository, introduce a
-dedicated concurrency-conflict exception type, and add the minimum event envelope
-fields needed to avoid painting future real providers into a corner — without
-implementing a real provider.
+unfinished projection-loading responsibility from the aggregate repository, and
+introduce a dedicated concurrency-conflict exception type — without implementing a
+real provider and **without designing a persisted event envelope** (D20-D22; see
+scope note below).
+
+**Scope note (2026-08-11, final spec-refine):** this area's original responsibility
+also included "add the minimum event envelope fields." That is removed, not reduced —
+no envelope type, minimal or otherwise, is introduced. Domain event payload, runtime
+message-processing context (`IMessageContext`), and a future provider's own persisted
+representation are three distinct, undesigned-here concerns (D20-D22,
+`owner-decisions.md`; full statement in `overview.md` § "Architectural principles").
 
 ## Current state
 
@@ -27,14 +34,15 @@ folding events via `evolver.Evolve` (`IAggregateRepository.cs:53-69`). The only
 `expectedVersion != stream.Count` and returns a plain `new Exception(...)` on mismatch
 (lines 20-22) — no dedicated type.
 
-The event envelope: concrete events derive from `Event : Message`
+Domain events already derive from `Event : Message`
 (`src/NEvo.Messaging/Events/Event.cs:6-10`), and `Message(Guid Id, DateTime CreatedAt)`
 (`src/NEvo.Messaging/Message.cs:6-9`) supplies only `Id`/`CreatedAt`. `IAggregateEvent<
 TAggregate,TId>` adds only `StreamId` (`IAggregateEvent.cs:3-6`). No correlation/
-causation/global-position field exists on the event itself. `IMessageContext.Headers.
-CorrelationId`/`CausationId` (`Context/MessageContextHeaders.cs:19-56`) already exist as
-a per-message-processing-context source, populated by `CorrelationIdMessageProcessing
-Middleware`/`CausationIdMessageProcessingMiddleware`.
+causation/global-position field exists on the event itself, and **none is added by
+this area** (D20-D22) — `IMessageContext.Headers.CorrelationId`/`CausationId`
+(`Context/MessageContextHeaders.cs:19-56`) already exist as runtime
+message-processing-context metadata, populated by `CorrelationIdMessageProcessing
+Middleware`/`CausationIdMessageProcessingMiddleware`, and stay exactly there.
 
 ## Requirements
 
@@ -45,18 +53,17 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
   aggregate repository (D6) — it is not replaced by a projection mechanism in this
   change (persisted projections are out of scope entirely).
 - Introduce `AggregateConcurrencyException` (or an owner-naming-convention-consistent
-  equivalent) thrown by `IEventStreamStore`'s append implementation(s) on an
-  expected-version mismatch, surfaced through the existing `Either<Exception, T>`
-  convention (D13). Update `FakeEventStore` (the only current implementation) to throw
-  it.
-- Add only the minimum event envelope fields genuinely needed: a stable event id
-  (already available via `Message.Id`; confirm this is sufficient rather than adding a
-  second id), stream/aggregate identity (already `StreamId`), stream version/revision
-  (already tracked out-of-band as `expectedVersion`/return `Version` — decide whether to
-  keep it out-of-band or add it to the envelope), and correlation/causation metadata
-  sourced from `IMessageContext.Headers` at append time if the executor (task 03) has
-  context access there. Do not add a global position/checkpoint field.
-- Document the transaction/commit-ownership constraint (D6, D7): `AppendAsync`
+  equivalent) **returned** by `IEventStreamStore`'s append implementation(s) on an
+  expected-version mismatch, via the existing `Either<Exception, T>` convention (D13) —
+  never thrown. Update `FakeEventStore` (the only current implementation) to return it
+  in place of the current plain `Exception`.
+- **Do not add any event envelope, correlation/causation field, or persistence-metadata
+  type (D20-D22).** Stream version stays exactly where it is today — an out-of-band
+  `int` parameter/return value, not a field on any type. `Message.Id` remains the only
+  event identity; do not add a second id. If population of correlation/causation into
+  some future persisted representation ever becomes necessary, that is the next
+  real-provider specification's decision (D22), not this area's.
+- Document the transaction/commit-ownership constraint (D6, D7, D23): `AppendAsync`
   (or equivalent) must not be assumed to own the final application transaction commit;
   this must remain compatible with the four future persistence shapes the input
   specification names (single-transaction Event Store+inbox+outbox; EF/Marten sharing
@@ -75,10 +82,11 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
 
 ## Interfaces and boundaries
 
-- Consumes: task 01/02's fixed, reorganized baseline.
-- Exposes to task 03 (shared ES executor): the new `IEventStreamStore`/repository split,
-  `AggregateConcurrencyException`, and whatever envelope fields the executor needs at
-  append time.
+- Consumes: task 01's characterized baseline (D15/D19 — no folder reorganization or
+  build-fix work precedes this area).
+- Exposes to task 03 (shared ES executor): the new `IEventStreamStore`/repository split
+  and `AggregateConcurrencyException`. No envelope fields are exposed because none
+  exist (D20-D22).
 - Exposes to task 09/10 (Documents example): the contracts a real repository consumer
   implements against.
 
@@ -86,13 +94,16 @@ Middleware`/`CausationIdMessageProcessingMiddleware`.
 
 1. A dedicated stream-persistence interface and a dedicated rehydration interface exist,
    with no member requiring projection/read-model loading on either.
-2. An expected-version mismatch on append throws/returns `AggregateConcurrencyException`
-   (not a plain `Exception`), proven by a unit test against `FakeEventStore`.
+2. An expected-version mismatch on append **returns** `AggregateConcurrencyException`
+   as `Either<Exception, Unit>.Left` (not a plain `Exception`, never thrown), proven by
+   a unit test against `FakeEventStore`.
 3. `docs/development/event-sourcing.md` and the change's own persistence-boundary
    documentation explicitly state that append/flush and final transaction commit are
    distinct, and that this core does not require Event Store/inbox/outbox to share one
    physical transaction.
 4. No new global position/checkpoint/subscription field or type is introduced.
+5. No event envelope, correlation/causation field, or other persistence-metadata type
+   is introduced anywhere in this area's diff (D20-D22).
 
 ## Dependencies
 

@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - harden-event-store-and-repository-contracts
 semantic_references:
-  decisions: [D1, D2, D7, D17]
+  decisions: [D1, D2, D7, D17, D23, D24, D25]
   dependency_contracts: [harden-event-store-and-repository-contracts]
 context:
   required:
@@ -18,6 +18,7 @@ context:
     - src/NEvo.Messaging/Dispatching/Internal/InternalSyncProcessDispatchStrategy.cs
   optional:
     - docs/development/transaction-model.md
+    - docs/reference/packages/NEvo.Ddd.EventSourcing.md
 allowed_paths:
   - src/NEvo.Ddd.EventSourcing/**
   - tests/NEvo.Ddd.EventSourcing.Tests/**
@@ -44,23 +45,29 @@ correct ordering so the source event is appended/persisted (and, for a future
 
 ## Implementation constraints
 
-- The executor owns: load and rehydrate; invoke the two authorization hook points as
-  extension points it calls out to (task 07 implements the actual logic — this task
-  only defines *where* the calls happen and passes what they need: the command, the
-  rehydrated aggregate/state, and the message context); execute the decision; append
-  using expected version; ensure downstream synchronous handlers observe the appended
-  state.
-- On the flush/visibility point (D7, corrected): do not invent a new "flush" mechanism.
-  `DbContext.SaveChangesAsync()` is already the repository's established flush
-  primitive — `EntityFrameworkMessageInbox.RegisterProcessedAsync`/
-  `EntityFrameworkMessageOutbox.SaveMessageAsync` already call it inline, enlisting in
-  the ambient `TransactionScope` without committing it. For a future EF-backed
-  `IEventStreamStore` implementation, the append path follows that exact same pattern
-  (call `SaveChangesAsync()` before returning). For the current `FakeEventStore`
-  (in-memory, no `DbContext`), the append is synchronous and already immediately
-  visible — no explicit call is needed there. Either way, this task's job is *ordering*
-  the executor's append step before the re-entrant synchronous dispatch documented in
-  `InternalSyncProcessDispatchStrategy`, not building a new cross-cutting primitive.
+- The executor owns: load and rehydrate; invoke the **one** aggregate-aware
+  authorization hook point as an extension point it calls out to (task 07 implements
+  the actual logic — this task only defines *where* the call happens and passes what
+  it needs: the command, the current state as `Option<TAggregate>`, and the message
+  context, D24-D25); execute the decision; append using expected version; ensure
+  downstream synchronous handlers observe the appended state. **The executor does not
+  perform message/command validation and does not invoke normal message-level or
+  handler-level permission checks (`ValidatePermissionMiddleware`,
+  `IDataScopeMessageValidator`, or equivalents) — those already ran upstream in the
+  messaging pipeline before this executor's handler is ever invoked (D25). Do not add
+  a call to any of them inside the executor.**
+- On the flush/visibility point (D7/D23): this task's job is a provider-agnostic
+  *ordering* guarantee, not an EF-specific mechanism. The executor must order its own
+  append step before the re-entrant synchronous dispatch documented in
+  `InternalSyncProcessDispatchStrategy`, so that once append succeeds, the new state is
+  visible to synchronous downstream processing inside the current consistency
+  boundary. It must not itself call any provider-specific save method — that is each
+  `IEventStreamStore` implementation's own responsibility (a future EF-backed
+  implementation would follow the same established pattern
+  `EntityFrameworkMessageInbox`/`EntityFrameworkMessageOutbox` already use — calling
+  `SaveChangesAsync()` before its own append returns; the current `FakeEventStore`
+  needs no explicit call since it's synchronous and in-memory). Do not build a new
+  cross-cutting flush primitive.
 - Nothing in the executor's own public shape may require the aggregate's next state to
   be produced by an instance method on an immutable state object (D17) — the executor
   coordinates load/authorize/decide/append/publish around *whatever* decision mechanism
@@ -106,6 +113,12 @@ correct ordering so the source event is appended/persisted (and, for a future
    — inspection, per D17 (this task's Level 1/Level 2 implementation happens to use
    that mechanism; the constraint is that the executor's own load/append/publish
    responsibilities don't hard-code it).
+7. The aggregate-aware authorization hook point is invoked with the current state as
+   `Option<TAggregate>` — proven by a test asserting it receives `Some` when an
+   aggregate was rehydrated and `None` on the creation path (automated, per D24-D25).
+8. The executor's own code contains no call to `ValidatePermissionMiddleware`,
+   `IDataScopeMessageValidator`, or any other normal-permission-check type (inspection,
+   per D25).
 
 ## Verification
 
@@ -120,8 +133,11 @@ None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 
 ## Out of scope
 
-- The actual authorization logic behind the two hook points (task 07) — this task only
-  defines where they're called and what's passed to them.
+- The actual authorization logic behind the one aggregate-aware hook point (task 07) —
+  this task only defines where it's called and what's passed to it.
+- Normal message-level/handler-level permission checks — entirely a messaging-pipeline
+  concern (task 07's other half, in `NEvo.Messaging.Authorization`), never invoked by
+  this executor (D25).
 - The explicit Level 2 handler type itself (task 04).
 - Handler registration/role metadata (task 05).
 - Any folder/namespace reorganization, and wiring `ICreateAggregateCommand` into any

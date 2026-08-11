@@ -41,23 +41,27 @@ established flush mechanism — `EntityFrameworkMessageInbox.RegisterProcessedAs
 ambient `TransactionScope` without committing it
 (`docs/development/transaction-model.md` § "Transaction ownership," questions 1-2).
 This area's executor does not need to invent a new primitive; it needs to order its
-own append (and, for a future `DbContext`-backed store, its own `SaveChangesAsync()`
-call) before the re-entrant synchronous dispatch shown above.
+own append before the re-entrant synchronous dispatch shown above, satisfying the
+provider-agnostic storage-contract guarantee recorded in `overview.md` § "Architectural
+principles" → "Append/flush/commit" (D23) — a future `DbContext`-backed store's own
+`SaveChangesAsync()` call is that provider's way of satisfying the guarantee, not
+something the executor itself invokes.
 
 ## Requirements
 
 - Extract a shared Event Sourced command executor (exact name owner-undecided, per the
-  input specification) that owns: message/command validation happens upstream in the
-  normal pipeline (not duplicated here); static/message-level authorization (task 07's
-  concern, invoked from here); load and rehydrate; aggregate/resource-aware
-  authorization (task 07's extension point, invoked from here after rehydration, before
-  decision); execute decision; append using expected version (task 02's store/exception
-  types); ensure the append is durable/visible before triggering synchronous downstream
-  processing (D7, corrected — no new flush primitive; `SaveChangesAsync` is already the
-  established pattern for a future DbContext-backed store, and this task orders the
-  executor's append before the existing pipeline's re-entrant synchronous dispatch);
-  allow downstream synchronous handlers to make their own changes visible; leave final
-  application transaction commit to the outer pipeline.
+  input specification) that owns: load and rehydrate; aggregate/resource-aware
+  authorization (task 07's extension point — the executor's *only* authorization
+  concern, invoked from here after rehydration, before decision, receiving the current
+  state as `Option<TAggregate>`, D24-D25); execute decision; append using expected
+  version (task 02's store/exception types); ensure the append is durable/visible
+  before triggering synchronous downstream processing (the storage-contract guarantee,
+  D23 — see below); allow downstream synchronous handlers to make their own changes
+  visible; leave final application transaction commit to the outer pipeline. **The
+  executor does not perform message/command validation and does not invoke normal
+  message-level or handler-level permission checks — both already ran upstream in the
+  messaging pipeline before the executor's handler is ever invoked (D25). The executor
+  never duplicates that behavior.**
 - Both Level 1 (convention) and Level 2 (explicit handler, task 04) route through this
   one executor — no duplicated load/replay/append/publish logic between them.
 - Implement deterministic state-method resolution: exact runtime type preferred,
@@ -65,10 +69,13 @@ call) before the re-entrant synchronous dispatch shown above.
   candidates fail as a configuration/runtime error (D2). Applies to both decider and
   evolver resolution.
 - The explicit `IEventSourcedCommandHandler<TCommand, TAggregate, TId>` (or refined
-  equivalent name) receives the rehydrated aggregate/current state and the command, may
-  use injected dependencies for orchestration/I-O before the decision, and may delegate
-  to the same decision-method discovery Level 1 uses rather than duplicating the
-  transition (D1). It must not force repository plumbing back onto the user.
+  equivalent name) receives the current state as `Option<TAggregate>` — `Some` when an
+  existing stream/aggregate was rehydrated, `None` on the creation path — and the
+  command (D24; never a bare `TAggregate`, never `null`). It may use injected
+  dependencies for orchestration/I-O before the decision, and may delegate to the same
+  decision-method discovery Level 1 uses rather than duplicating the transition (D1),
+  including Level 1's existing creation decision path for the `None` case. It must not
+  force repository plumbing back onto the user.
 - Nothing in the executor's own public shape may require the aggregate's next state to
   come from an instance method on an immutable state object (D17) — the executor's
   load/append/version/publish responsibilities are framed in terms of events and
@@ -95,8 +102,10 @@ call) before the re-entrant synchronous dispatch shown above.
   `AggregateConcurrencyException`.
 - Provides to task 05 (registration): the two route kinds (convention/explicit) that
   become Fallback/Primary respectively.
-- Provides to task 07 (authorization): the two ordered hook points (static/message-level
-  before load; aggregate-aware after load, before decision).
+- Provides to task 07 (authorization): the **one** aggregate-aware authorization hook
+  point (after load, before decision, `Option<TAggregate>`-typed) — static/message-level
+  permission checks are not a hook this executor exposes; they already ran upstream in
+  the messaging pipeline before the executor is invoked (D25).
 - Provides to task 10 (Documents example): the public `IEventSourcedCommandHandler<...>`
   contract to implement.
 
@@ -117,10 +126,14 @@ call) before the re-entrant synchronous dispatch shown above.
    never thrown, never swallowed, never a different type (D13 correction).
 5. The explicit Level 2 handler can delegate to Level 1's own decision-method discovery
    without duplicating the aggregate's transition logic — proven by an example handler
-   that does so.
+   that does so, for both the `Some` (existing aggregate) and `None` (creation) cases
+   (D24).
 6. Neither the executor's public entry point(s) nor its internal contracts require the
    aggregate's next state to come from an instance method on an immutable state object
    (D17).
+7. The executor's own code never calls into `ValidatePermissionMiddleware`,
+   `IDataScopeMessageValidator`, or any other normal-permission-check type — inspection,
+   per D25.
 
 ## Dependencies
 
@@ -132,5 +145,6 @@ call) before the re-entrant synchronous dispatch shown above.
 
 - Handler registration role metadata / Primary-Fallback resolution rules (area
   `handler-registration-and-options`).
-- Authorization implementation details beyond the two ordered hook points this executor
-  exposes (area `authorization-integration`).
+- Normal message-level/handler-level permission checks and their implementation
+  (area `authorization-integration`, entirely in the messaging pipeline, D25) —
+  this area exposes only the one aggregate-aware hook point.

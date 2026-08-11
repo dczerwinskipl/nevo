@@ -25,8 +25,10 @@ implemented. No permission metadata exists on any Document command (contrast:
 `SayHelloCommand` already has `[AllowPermission(...)]` and `.RequireAuthorization()` in
 the same `ServiceA.Api`, showing the established pattern to extend). No tests exist for
 the Document example. `InMemoryDocumentEventStore` conflates event persistence with
-read-model projection by its own header comment and is stale against the current
-`IEventStore` interface (fixed for compilation only, not redesigned, by task 01).
+read-model projection by its own header comment and was, at spec-create time, stale
+against the current `IEventStore` interface — an external commit (`5804bb14b`, D19)
+already fixed it to compile, for compilation only, before any task in this change
+started; it has not been redesigned, and this area still removes it entirely (task 09).
 
 `GetDocumentQueryHandler` currently reads via `IEventStore.LoadProjectionAsync`, which
 task 02 removes from the repository/store contracts — this handler must be rewritten to

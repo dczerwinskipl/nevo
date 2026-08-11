@@ -5,7 +5,24 @@
 Fix the convention route's silent authorization bypass, add message-level permission
 attribute placement composed additively with handler-specific requirements, and add a
 new aggregate/resource-aware authorization extension point that runs after rehydration
-and before the domain decision.
+and before the domain decision. **Two clearly separated halves, in two packages, never
+crossing the boundary between them (D25, D26):**
+
+1. Normal message-level/handler-level permission checks — entirely a
+   `NEvo.Messaging.Authorization` concern, fixed in place inside the existing
+   messaging pipeline. The Event Sourcing executor (`shared-es-execution-and-
+   explicit-handler`, task 03) never invokes these and never duplicates this logic.
+2. The aggregate-aware authorization hook — a `NEvo.Ddd.EventSourcing`-side contract
+   (or another already-lower neutral abstraction), invoked by the executor after
+   rehydration, before the decision, with **no** new project reference from
+   `NEvo.Ddd.EventSourcing` to `NEvo.Messaging.Authorization` (D26).
+
+**Scope note (2026-08-11, final spec-refine):** the original wording left ownership
+between "fix `ValidatePermissionMiddleware`" and "move checks into the ES executor" as
+an open implementation choice, and left the aggregate-aware hook silently assuming an
+aggregate always exists. Both are now closed decisions (D25 for ownership, D24/D25 for
+the `Option<TAggregate>` current-state shape) — this area's task does not re-derive
+either.
 
 ## Current state
 
@@ -45,11 +62,14 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 
 ## Requirements
 
-- Fix `ValidatePermissionMiddleware` (or the ES executor itself, whichever is the
-  smaller coherent change) so a command routed through the ES convention Fallback is
-  authorized against the command's actual required permission, not silently skipped.
-  Ground this in whichever route/`Method` task 05's Primary/Fallback work makes
-  available for the selected route.
+**Part (a) — messaging pipeline (`NEvo.Messaging.Authorization`), D25 closed, not an
+open implementation choice:**
+
+- Fix `ValidatePermissionMiddleware` (in place — this is the decided answer, not one
+  of two options) so a command routed through the ES convention Fallback is authorized
+  against the command's actual required permission, not silently skipped. Ground this
+  in whichever route/`Method` task 05's Primary/Fallback work makes available for the
+  selected route.
 - Add message-level permission-attribute placement: the primary permission for an
   operation belongs on the message/command type, not copied onto every aggregate-state
   method that can produce it (input specification's explicit example:
@@ -58,12 +78,30 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
 - Compose message-level and handler-specific permission requirements as AND, never
   override — an explicit handler may add additional requirements on top of the
   message's own.
+- **The Event Sourcing executor (task 03) never invokes any of the above** — this part
+  runs entirely upstream in the messaging pipeline, before the executor's handler is
+  ever invoked. Do not add a call from the executor into
+  `ValidatePermissionMiddleware`/`IDataScopeMessageValidator` or duplicate this logic
+  inside `NEvo.Ddd.EventSourcing`.
+
+**Part (b) — aggregate-aware hook (`NEvo.Ddd.EventSourcing`), D24-D26:**
+
 - Add one clean aggregate/resource-aware authorization extension point (conceptually
-  `IAggregateAuthorization<TCommand, TAggregate>` or an equivalent policy abstraction)
-  invoked by task 03's shared executor after rehydration, before the decision. It may
-  inspect user/security context, the command, and the rehydrated aggregate/current
-  state. It lives outside the aggregate domain model — never inside a decision method.
-  A denial prevents the decision/append from happening.
+  `IAggregateAuthorization<TCommand, TAggregate>` or an equivalent policy abstraction),
+  invoked by task 03's shared executor after rehydration, before the decision. It
+  receives the current state as **`Option<TAggregate>`** — `Some` when an existing
+  aggregate was rehydrated, `None` on the creation path (D24) — plus the command and
+  `IMessageContext` for user/security context access. It lives outside the aggregate
+  domain model — never inside a decision method. A denial prevents the decision/append
+  from happening in either the `Some` or `None` case; it is never silently skipped on
+  create merely because no aggregate object exists yet.
+- **This contract's own package must not gain a new project reference to
+  `NEvo.Messaging.Authorization` (D26).** It is typed only in terms of the command,
+  `Option<TAggregate>`, and `IMessageContext` — all already available to
+  `NEvo.Ddd.EventSourcing`. A concrete implementation (e.g. inside the Documents
+  example, task 10) may reference `NEvo.Messaging.Authorization`/`NEvo.Authorization`
+  freely — the constraint binds the core contract's package, not application code
+  implementing it.
 
 ## Constraints
 
@@ -74,12 +112,16 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
   mechanism — extend where it's invoked from and what it's invoked against, not its
   internal contract, unless discovery during implementation shows that's insufficient
   (stop and report if so — this is a message-processing-behavior change, owner-gated).
+- Do not add a `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization` project
+  reference under any circumstance in this task (D26) — if implementation seems to
+  need one, stop and report it as new evidence contradicting D26 rather than adding it.
 
 ## Interfaces and boundaries
 
-- Consumes: task 03's executor (the two ordered hook points: static/message-level before
-  load, aggregate-aware after load/before decision) and task 05's Primary/Fallback role
-  resolution (to find the correct `Method`/permission source for the selected route).
+- Consumes: task 03's executor (the **one** aggregate-aware hook point, invoked after
+  load, before decision, `Option<TAggregate>`-typed) and task 05's Primary/Fallback
+  role resolution (to find the correct `Method`/permission source for the selected
+  route, used by part (a) only).
 - Provides to task 10 (Documents example): the message-level attribute, the
   handler-specific-requirement composition, and the aggregate-aware extension point the
   example demonstrates.
@@ -93,17 +135,24 @@ TransactionScope → Inbox (message-level), then strategy selection → handler 
    the message-level requirement (AND), proven by a test with a user who has one but not
    the other, denied either way.
 3. The aggregate-aware authorization extension point runs after rehydration and before
-   the decision — proven by a test asserting the extension point receives the actual
-   rehydrated aggregate state, and that a denial from it prevents any append.
+   the decision — proven by a test asserting the extension point receives `Some` with
+   the actual rehydrated aggregate state, and a separate test asserting it receives
+   `None` on the creation path; a denial from it prevents any append in either case
+   (D24).
 4. Permission resolution for the selected route does not depend on
    `HandlerDescription.Method` being the business/domain operation method when the
    selected route is the ES convention fallback (the exact defect named in the input
    specification's Scope 6).
+5. `NEvo.Ddd.EventSourcing.csproj` has no `ProjectReference` to
+   `NEvo.Messaging.Authorization` after this task (inspection, per D26).
+6. Part (a)'s tests live in a `NEvo.Messaging.Authorization`-owned test project (see
+   task 07's own "test target" note) — not in `tests/NEvo.Web.Authorization.Tests`,
+   which tests a different package.
 
 ## Dependencies
 
-- `shared-es-execution-and-explicit-handler` (task 03) — needs the two ordered hook
-  points to exist.
+- `shared-es-execution-and-explicit-handler` (task 03) — needs the one aggregate-aware
+  hook point to exist.
 - `handler-registration-and-options` (task 05) — needs Primary/Fallback role resolution
   to identify the correct route/`Method`.
 

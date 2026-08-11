@@ -3,7 +3,7 @@ id: event-sourcing-api-hardening.map-query-endpoint-and-get-binding
 status: draft
 change: event-sourcing-api-hardening
 semantic_references:
-  decisions: [D8, D18]
+  decisions: [D8, D18, D27]
 context:
   required:
     - specs/active/event-sourcing-api-hardening/areas/http-query-endpoint.md
@@ -13,7 +13,8 @@ context:
     - src/NEvo.Messaging.Cqrs/Queries/Query.cs
     - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentQueries.cs
     - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs
-  optional: []
+  optional:
+    - docs/reference/packages/NEvo.Messaging.Web.md
 allowed_paths:
   - src/NEvo.Messaging.Web/**
   - tests/NEvo.Messaging.Cqrs.Tests/**
@@ -69,31 +70,44 @@ with tasks 02-07.
 
 ## Acceptance criteria
 
-1. A representative Query (a record with a route-bindable id and at least one
-   query-string-bindable field) binds correctly through `MapQueryEndpoint` via
-   `[AsParameters]`, verified by an integration test using `WebApplicationFactory` or
-   equivalent (automated).
-2. No GET body is required for that endpoint (automated).
-3. `Id`/`CreatedAt` do not appear as required parameters for that endpoint — a request
-   omitting them from the query string still binds and dispatches successfully
-   (automated — this is the D18-resolved behavior, now a regression test rather than an
-   open question).
-4. `MapQueryEndpoint` returns `RouteHandlerBuilder`, proven by a test chaining
-   `.RequireAuthorization()` after it and confirming the requirement is enforced
-   (automated).
+**No new integration-test infrastructure (D27) — do not add a `WebApplicationFactory`-
+based test, a project reference from `NEvo.Messaging.Cqrs.Tests` to
+`NEvo.Messaging.Web`, or a new test project to satisfy any of the criteria below.**
+
+1. `MapQueryEndpoint<TQuery, TResult>` compiles as a `RouteHandlerBuilder`-returning
+   extension method using `[AsParameters]` binding (automated: `dotnet build`).
+2. `MapQueryEndpoint` remains chainable with `.RequireAuthorization()` and other normal
+   Minimal API configuration — proven by inspection of the method signature/return
+   type (`RouteHandlerBuilder`), not by hosting a test server.
+3. No GET body is used — inspection of the implementation (`routeBuilder.MapGet(...)`
+   with `[AsParameters]` binding, no body-bound parameter).
+4. `Id`/`CreatedAt` never being required GET parameters is D18's already-closed,
+   evidence-based conclusion (the empirical ASP.NET Core 9 probe run during
+   spec-refine) — this task does not re-verify it with new test infrastructure.
 5. Right/success → HTTP 200 with `TResult`; Left/exception → the existing Problem
-   response shape (automated).
+   response shape — implemented the same way `MapCommandEndpoint` already does
+   (inspection/code symmetry), verified concretely through the Documents example's
+   manual walkthrough (task 10) once `MapQueryEndpoint<GetDocumentQuery, DocumentDto>`
+   is wired there.
 6. `RoutesExtensions.cs` contains no `Console.WriteLine` call (inspection).
 7. `Query<TResult>`/`Message<TResult>` are unchanged by this task (inspection — D18
    closed this question; a diff touching either type without a newly-reported,
    contradicting finding is out of scope).
+8. `tests/NEvo.Messaging.Cqrs.Tests/NEvo.Messaging.Cqrs.Tests.csproj` gains no new
+   `ProjectReference`, and no new test project is created anywhere in this task's diff
+   (inspection, per D27).
 
 ## Verification
 
 ```
 dotnet build
-dotnet test tests/NEvo.Messaging.Cqrs.Tests
 ```
+
+If any part of `MapQueryEndpoint`'s own logic (e.g. a small result-mapping helper, if
+one is extracted) is naturally unit-testable without a hosted server, add ordinary unit
+tests for it under `tests/NEvo.Messaging.Cqrs.Tests` — but the endpoint-mapping/HTTP
+binding behavior itself is verified by `dotnet build` plus the Documents example's
+manual walkthrough (task 10), not by an automated integration test.
 
 ## Documentation impact
 

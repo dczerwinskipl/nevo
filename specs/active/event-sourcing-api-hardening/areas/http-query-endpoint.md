@@ -78,6 +78,15 @@ endpoints inline the same `Right`/`Left` `.Match` pattern.
 - Do not build a separate HTTP result-mapping framework — a tiny, coherent
   result-mapping helper is acceptable if it reduces duplication between
   `MapCommandEndpoint` and `MapQueryEndpoint`, but this is not a redesign of either.
+- **No new integration-test infrastructure (D27).** `tests/NEvo.Messaging.Cqrs.Tests`
+  does not reference `NEvo.Messaging.Web` (where `MapQueryEndpoint` lives), and this
+  repository has no `WebApplicationFactory`-based or other ASP.NET integration-test
+  harness today. Do not add a project reference or a new test project to manufacture
+  one. Verify what's naturally unit/component-testable (the endpoint extension
+  compiles and returns `RouteHandlerBuilder`); rely on D18's already-closed binding
+  evidence rather than re-proving it with new test infrastructure; verify the concrete
+  HTTP GET behavior manually through the Documents example walkthrough (task 10)
+  instead.
 
 ## Interfaces and boundaries
 
@@ -90,15 +99,19 @@ endpoints inline the same `Right`/`Left` `.Match` pattern.
 
 ## Area-specific acceptance criteria
 
-1. A representative Query with a route parameter and at least one query-string parameter
-   binds correctly via `MapQueryEndpoint`, with no GET body required.
-2. `Id`/`CreatedAt` do not appear as required parameters for that Query's GET endpoint.
-3. `MapQueryEndpoint` returns `RouteHandlerBuilder` and remains chainable with
-   `.RequireAuthorization()`.
-4. Right/success maps to HTTP 200 with `TResult`; Left/exception maps to the existing
+1. `MapQueryEndpoint<TQuery, TResult>` compiles, uses `[AsParameters]` binding, and
+   returns `RouteHandlerBuilder` chainable with `.RequireAuthorization()` (automated:
+   `dotnet build` plus any naturally unit-testable extracted logic).
+2. `Id`/`CreatedAt` never being required GET parameters is D18's already-closed,
+   evidence-based conclusion — not re-verified with new test infrastructure here.
+3. Right/success maps to HTTP 200 with `TResult`; Left/exception maps to the existing
    standard Problem response behavior, matching `MapCommandEndpoint`'s established
-   shape.
-5. `RoutesExtensions.cs` no longer contains a `Console.WriteLine` call.
+   shape — verified by the same code-reading/inspection standard as the rest of
+   `RoutesExtensions.cs`, and manually through the Documents example walkthrough
+   (task 10).
+4. `RoutesExtensions.cs` no longer contains a `Console.WriteLine` call.
+5. No new project reference or new test project is added to make GET binding
+   automatically testable (inspection, per D27).
 
 ## Dependencies
 

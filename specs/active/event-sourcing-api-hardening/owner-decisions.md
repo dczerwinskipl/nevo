@@ -22,11 +22,11 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   default while giving orchestration cases an explicit, framework-supported escape
   hatch instead of forcing more magic into the aggregate model.
 - **Consequences:** Drives `areas/shared-es-execution-and-explicit-handler.md` (tasks
-  04-05).
+  03-04).
 - **Date:** 2026-08-08 (input document date; recorded 2026-08-10)
 - **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
-  tasks/04-es-command-executor-and-ambiguity-resolution.md,
-  tasks/05-explicit-event-sourced-command-handler.md
+  tasks/03-es-command-executor-and-ambiguity-resolution.md,
+  tasks/04-explicit-event-sourced-command-handler.md
 
 ## D2: State-specific decision-method resolution — most-specific-wins, ambiguity is an error
 
@@ -40,11 +40,11 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   already has exactly this gap — both filter candidates by `IsAssignableFrom` and take
   whatever LanguageExt's `.ToOption()` returns first, with no specificity ranking and no
   ambiguity detection.
-- **Consequences:** Drives task 04's deterministic resolution algorithm and its
+- **Consequences:** Drives task 03's deterministic resolution algorithm and its
   ambiguity-error acceptance criteria.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/shared-es-execution-and-explicit-handler.md,
-  tasks/04-es-command-executor-and-ambiguity-resolution.md
+  tasks/03-es-command-executor-and-ambiguity-resolution.md
 
 ## D3: Primary/Fallback handler roles, no numeric priority
 
@@ -64,10 +64,10 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   (`NEvo.Messaging/Handling/IMessageHandler.cs:8`) has no role/kind field at all, and a
   decider-based handler already collides with a same-command `ICommandHandler<T>` today
   (both feed `MessageHandlerRegistry`'s single `MessageType`-keyed dictionary) —
-  confirms the gap this decision closes. Drives task 06.
+  confirms the gap this decision closes. Drives task 05.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/handler-registration-and-options.md,
-  tasks/06-primary-fallback-handler-roles.md
+  tasks/05-primary-fallback-handler-roles.md
 
 ## D4: `AddEventSourcing(options => {...})` with convention fallback enabled by default
 
@@ -83,12 +83,12 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   (`ServiceCollectionExtensions.cs:39-61`) currently wires the convention path
   unconditionally with no options object at all (`// TODO: add provider?` at line 56)
   and registers `IMessageHandlerProvider` with plain `AddSingleton`, not `TryAdd` —
-  both gaps are closed by task 07. Because `NEvo.Ddd.EventSourcing` is documented
+  both gaps are closed by task 06. Because `NEvo.Ddd.EventSourcing` is documented
   `status: experimental` and unreleased, changing `AddEventSourcing`'s signature is not
   treated as a compatibility-sensitive breaking change requiring a migration path.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/handler-registration-and-options.md,
-  tasks/07-event-sourcing-registration-options.md
+  tasks/06-event-sourcing-registration-options.md
 
 ## D5: Authorization — message-level static permission, additive handler-specific requirements, new aggregate-aware extension point
 
@@ -107,10 +107,15 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   command today receives **zero permission enforcement**, silently. No message-level
   permission mechanism, no requirement composition, and no resource-aware authorization
   extension point exist anywhere in the repository today — all three are new. Drives
-  task 08.
+  task 07.
+- **Sharpened by D25 (2026-08-11, final spec-refine)** — this decision left the ES
+  executor's relationship to the *normal* message/handler permission checks ambiguous
+  (the spec text allowed either "fix `ValidatePermissionMiddleware`" or "move checks
+  into the executor"). D25 closes that: normal checks stay entirely in the messaging
+  pipeline; the executor never invokes them, only the aggregate-aware hook.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/authorization-integration.md,
-  tasks/08-message-level-and-aggregate-authorization.md
+  tasks/07-message-level-and-aggregate-authorization.md
 
 ## D6: Event Store / Aggregate Repository boundary — separate stream persistence from rehydration, remove projection loading from the repository
 
@@ -119,25 +124,41 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
 - **Decision:** A low-level stream-persistence abstraction (`IEventStreamStore` or
   similar) handles read/append/expected-version only. `IAggregateRepository` (or its
   refined equivalent) handles obtaining a stream, rehydrating/evolving, and returning
-  current state + version — it must not become a projection repository. Minimum event
-  envelope additions only (stable EventId, stream identity, version, payload/type,
-  correlation/causation if an obvious source exists). No global position/checkpoint
-  machinery. `AppendAsync` must not be assumed to own the final application transaction
-  commit.
+  current state + version — it must not become a projection repository. No global
+  position/checkpoint machinery. `AppendAsync` must not be assumed to own the final
+  application transaction commit.
 - **Rationale:** Sets up the next persistence specification (real providers) without
   redesigning public aggregate/command APIs again, per the input document's explicit
   purpose for this change.
 - **Consequences:** Discovery found `IAggregateRepository` already mixes stream
   persistence, rehydration, **and** `LoadProjectionAsync` (real implementation throws
-  `NotImplementedException`, `IAggregateRepository.cs:72-75`) — task 03 removes the
-  projection responsibility from the repository per this decision. Discovery also found
-  `IMessageContext.Headers.CorrelationId`/`CausationId`
-  (`NEvo.Messaging/Context/MessageContextHeaders.cs:19-56`) already exist as the
-  "obvious source" this decision references for optional correlation/causation
-  envelope fields — no new correlation mechanism needs inventing.
-- **Date:** 2026-08-08 (recorded 2026-08-10)
+  `NotImplementedException`, `IAggregateRepository.cs:72-75`) — task 02 removes the
+  projection responsibility from the repository per this decision.
+- **Narrowed by D20-D22 (2026-08-11, final spec-refine) — the "minimum event envelope
+  additions" clause above is removed, not merely restated.** External review found this
+  decision's original "minimum envelope" language ("stable EventId, stream identity,
+  version, payload/type, correlation/causation if an obvious source exists") still
+  designed persistence metadata this middle step doesn't need — it left "decide whether
+  to keep version out-of-band or add it to the envelope" and "add correlation/causation
+  if the executor has context access" as open implementation choices, exactly the kind
+  of guessing at a future provider's storage shape this specification's own principles
+  argue against. **No envelope type is introduced at all** — not even a minimal one.
+  Domain event payload (`Event : Message`, `Id`/`CreatedAt` only), runtime
+  message-processing context (`IMessageContext`/`MessageContextHeaders`, already
+  carrying correlation/causation), and a future provider's own persisted representation
+  are three distinct, undesigned-here concerns — see `overview.md` § "Architectural
+  principles" → "Persistence-metadata layering" for the full three-layer statement and
+  the two compatibility sentences this decision now defers to. Stream version stays
+  exactly where it is today: an out-of-band `int` parameter/return value, never an
+  envelope field. `IMessageContext.Headers.CorrelationId`/`CausationId`
+  (`NEvo.Messaging/Context/MessageContextHeaders.cs:19-56`) remain runtime
+  infrastructure metadata, not promoted onto the domain event or any new type.
+  ~~Original (now-removed) clause, kept struck through for audit trail: "Minimum event
+  envelope additions only (stable EventId, stream identity, version, payload/type,
+  correlation/causation if an obvious source exists)."~~
+- **Date:** 2026-08-08 (recorded 2026-08-10; envelope clause removed 2026-08-11)
 - **Affected artifacts:** areas/persistence-boundary.md,
-  tasks/03-harden-event-store-and-repository-contracts.md
+  tasks/02-harden-event-store-and-repository-contracts.md, overview.md
 
 ## D7: Synchronous event visibility / flush semantics preserved, no inbox/outbox redesign
 
@@ -200,10 +221,10 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   ExampleApp `GetDocumentQuery` `MapGet` already branches `DocumentNotFoundException` →
   404 (`Routes.cs:25`) — a distinction the generic `MapQueryEndpoint` will not
   reproduce by default, consistent with this decision's "document the escape hatch"
-  clause. Drives task 09.
+  clause. Drives task 08.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/http-query-endpoint.md,
-  tasks/09-map-query-endpoint-and-get-binding.md
+  tasks/08-map-query-endpoint-and-get-binding.md
 
 ## D9: Dedicated `NEvo.ExampleApp.Documents.Api` example service
 
@@ -224,11 +245,12 @@ public-API/package-boundary/new-project/git-workflow question unresolved.
   also found the current solution **does not build**:
   `InMemoryDocumentEventStore` fails to implement the current `IEventStore` interface
   (`IEventStore.AppendEventsAsync`/`LoadEventsStreamAsync`, CS0535) — confirming it is
-  already stale, consistent with removing it. Drives tasks 10-11.
+  already stale, consistent with removing it (this build failure was transient during
+  discovery and was fixed before any task started — see D19). Drives tasks 09-10.
 - **Date:** 2026-08-08 (recorded 2026-08-10)
 - **Affected artifacts:** areas/documents-example-service.md,
-  tasks/10-create-documents-example-project.md,
-  tasks/11-documents-example-es-and-auth-demo.md
+  tasks/09-create-documents-example-project.md,
+  tasks/10-documents-example-es-and-auth-demo.md
 
 ## D10: `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Cqrs` dependency — keep, separate at folder level only
 
@@ -303,18 +325,22 @@ for audit trail — do not implement per this entry; see D16 for the current dec
   manual walkthrough only. A follow-up specification is expected to add integration
   tests for it later. The version/optimistic-concurrency acceptance criteria this
   change actually requires are covered by unit tests in
-  `tests/NEvo.Ddd.EventSourcing.Tests` (tasks 01/03/04), not by the example.
+  `tests/NEvo.Ddd.EventSourcing.Tests` (tasks 01/02/03), not by the example.
   This is a narrower scope than Scope 10's acceptance-criteria list in the original
   input document — see `overview.md` § "Compatibility and migration" note on this
   scope reduction.
 - **Rationale:** Owner: defer example-service integration tests to a follow-up
   specification rather than adding a new test project now.
-- **Consequences:** Task 11 (`documents-example-es-and-auth-demo`) is verified by
+- **Consequences:** Task 10 (`documents-example-es-and-auth-demo`) is verified by
   `dotnet build` plus a documented manual walkthrough, not `dotnet test` against a new
   project.
+- **Sharpened by D28 (2026-08-11, final spec-refine)** — the manual walkthrough
+  originally asked for a two-concurrent-writes HTTP race to demonstrate
+  `AggregateConcurrencyException`; D28 removes that, keeping only the deterministic
+  core-test coverage this entry already establishes.
 - **Date:** 2026-08-10
 - **Affected artifacts:** areas/documents-example-service.md,
-  tasks/11-documents-example-es-and-auth-demo.md, overview.md
+  tasks/10-documents-example-es-and-auth-demo.md, overview.md
 
 ## D13: Dedicated public exception type for optimistic-concurrency conflicts
 
@@ -408,7 +434,7 @@ for audit trail — do not implement per this entry; see D16 for the current dec
   unless the abstraction is required to avoid locking the public API now" (the same
   reasoning applies to a folder boundary as to an abstraction).
 - **Consequences:** Task 02 is deleted. Every task that depended on it now depends
-  directly on task 01 (`fix-build-and-characterize-baseline`). All subsequent tasks are
+  directly on task 01 (`characterize-event-sourcing-baseline`). All subsequent tasks are
   renumbered down by one (former 03→02, 04→03, ... 11→10); the two documentation tasks
   (formerly one task, 12) are split per D21-equivalent scope below and become 11-12. See
   `change.yaml` for the final numbering.
@@ -533,3 +559,368 @@ for audit trail — do not implement per this entry; see D16 for the current dec
 - **Date:** 2026-08-10
 - **Affected artifacts:** areas/http-query-endpoint.md,
   tasks/08-map-query-endpoint-and-get-binding.md
+
+## D19: No build-fix scope remains — the branch's current green build is the baseline
+
+- **Question:** At spec-create time (2026-08-10), `dotnet build NEvo.sln` failed with 5
+  errors, and the original task 01 (`fix-build-and-characterize-baseline`) existed
+  partly to fix them. An external commit (`5804bb14b`, "Fix build job compile failures
+  only," `copilot-swe-agent[bot]`) landed the mechanical fix on this branch before any
+  task in this change started implementation. Should the specification's active
+  artifacts (Problem, Current architecture, Proposed architecture, task scope/
+  acceptance criteria) continue to narrate the historical compile failure, or should
+  they treat the current green build as the baseline and move the history to git/this
+  record only?
+- **Options considered:** Keep the "branch does not build" narrative in active
+  artifacts for historical completeness | Remove it from active artifacts — the
+  specification describes the system to be built from *today's* state, not a
+  transient discovery-time condition; git history and this decision record are the
+  correct place for that chronology.
+- **Decision:** Remove it from active artifacts. `dotnet build`/`dotnet test
+  tests/NEvo.Ddd.EventSourcing.Tests` succeeding is this specification's baseline and
+  regression condition — task 01 (renamed `characterize-event-sourcing-baseline`,
+  D19-driven rename) verifies this rather than fixing it, and every other task treats a
+  passing build as a precondition it must not break, not a target it works toward.
+- **Rationale:** Owner (final spec-refine): "that history is not a system requirement
+  and should not remain as current architecture/problem/task scope... the resulting
+  spec should simply treat a green build as the baseline/regression condition."
+- **Consequences:** `overview.md`'s "Critical fact: the branch does not currently
+  build" paragraph, the "branch also does not currently compile" Problem-statement
+  clause, and task 01's original "fix 5 compile errors" goal are all removed. Task 01
+  is renamed `fix-build-and-characterize-baseline` → `characterize-event-sourcing-
+  baseline` (id, filename, `change.yaml`, and every `depends_on`/
+  `dependency_contracts` reference updated together, since all tasks were still
+  `draft`). D9's own "Discovery also found the current solution does not build"
+  sentence is left as dated historical evidence supporting that decision's original
+  rationale, not as active guidance — it is not repeated anywhere else.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, tasks/01-characterize-event-sourcing-baseline.md
+  (renamed), areas/characterization-and-baseline.md, change.yaml
+
+## D20: No persisted Event Envelope is designed in this specification
+
+- **Question:** D6's original "minimum event envelope additions" clause (stable
+  EventId, stream identity, version, payload/type, correlation/causation "if an
+  obvious source exists") still asked task 02 to design persistence metadata this
+  middle step doesn't need, and left open implementation choices ("decide whether to
+  keep version out-of-band or add it to the envelope," "add correlation/causation if
+  the executor has context access"). Should this specification define even a minimal
+  envelope/metadata type, or design none at all?
+- **Options considered:** Keep a minimal envelope (smallest possible additive type) |
+  Design no envelope type at all — distinguish domain event payload, runtime
+  message-processing context, and a future provider's own persisted representation as
+  three separate, undesigned-here concerns, and let the next real-provider
+  specification decide the envelope shape once concrete persistence requirements are
+  known.
+- **Decision:** No envelope type at all.
+- **Rationale:** Owner (final spec-refine): "the exact public/internal shape of the
+  persisted envelope does not need to be over-designed now... persistence-readiness
+  does not mean guessing Marten/PostgreSQL/Kurrent storage records before implementing
+  any of them." Even a "minimal" envelope is still a public type this specification
+  would need to justify and the next provider specification would then be constrained
+  by — the smaller, cheaper, more reversible choice is to add nothing and let the
+  provider that actually needs storage metadata define its own representation.
+- **Consequences:** Task 02 does not introduce any envelope/metadata type. The domain
+  event payload (`Event : Message`) is unchanged. `IAggregateEvent<TAggregate,TId>`
+  keeps carrying only `StreamId` beyond what `Message` already provides. Stream
+  version stays an out-of-band `int`. See `overview.md` § "Architectural principles" →
+  "Persistence-metadata layering" for the full three-layer statement and the two
+  compatibility sentences the next persistence specification can cite directly. This
+  narrows D6 — see D6's own amendment note.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, owner-decisions.md (D6 amendment),
+  areas/persistence-boundary.md, tasks/02-harden-event-store-and-repository-contracts.md
+
+## D21: Correlation/causation stay runtime infrastructure metadata, not domain-event fields
+
+- **Question:** `IMessageContext.Headers.CorrelationId`/`CausationId` already exist.
+  Should this specification add corresponding fields to the domain event or a new
+  envelope type "since a future Event Store may want to persist them," or leave them
+  exactly where they are?
+- **Options considered:** Add optional/nullable correlation/causation fields to the
+  event (or a new envelope) now, for a future provider to populate | Leave them as
+  `IMessageContext`/`MessageContextHeaders`-only runtime metadata; the Event Sourcing
+  executor may read `IMessageContext` (it already participates in the messaging
+  lifecycle) without promoting anything onto the domain event.
+- **Decision:** Leave them as runtime-context-only metadata. No optional/nullable
+  fields are added anywhere "for later."
+- **Rationale:** Owner (final spec-refine): "correlation and causation are
+  infrastructure/runtime metadata. They must not become domain-event business
+  properties merely because a future Event Store may persist them... do not invent a
+  second correlation mechanism."
+- **Consequences:** No new field on any domain event type or `IAggregateEvent<
+  TAggregate,TId>`. If a future real provider needs correlation/causation in its
+  persisted representation, it reads them from `IMessageContext` at append time and
+  maps them into its own storage record — a decision for that future specification,
+  not this one.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/persistence-boundary.md,
+  tasks/02-harden-event-store-and-repository-contracts.md
+
+## D22: This specification does not freeze the final persistence-provider SPI
+
+- **Question:** Given D20/D21 leave the low-level store contract intentionally
+  undesigned beyond `IEventStreamStore`'s current append/load/version shape, should
+  this specification claim that shape is final, or explicitly reserve room for the
+  next real-provider specification to refine it?
+- **Options considered:** Present `IEventStreamStore`'s shape from task 02 as the
+  final, frozen persistence SPI | Explicitly state it stabilizes only the
+  user-facing aggregate/command execution direction, not the low-level provider SPI,
+  which the next real-provider specification may still refine.
+- **Decision:** Explicitly reserve room — record the compatibility statement in
+  `overview.md` verbatim so the next specification can cite it directly rather than
+  re-deriving permission to adjust the store contract.
+- **Rationale:** Owner (final spec-refine): "this specification stabilizes the
+  user-facing aggregate/command execution direction. It does not freeze the final
+  persistence-provider SPI." This avoids a false promise that could otherwise block or
+  complicate the follow-up real-provider specification (Follow-up 1 in the original
+  brief) from adjusting `IEventStreamStore` once concrete PostgreSQL/Marten/Kurrent
+  requirements are known.
+- **Consequences:** `overview.md` carries the compatibility sentence verbatim. Public
+  aggregate decision APIs and the explicit Level 2 handler API are what this
+  specification does stabilize (per D1-D2, D24) — the distinction matters because it
+  tells the next specification exactly what it may still change (the store SPI) versus
+  what it may not (aggregate/command-handler public APIs) without another breaking
+  round of the latter.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md
+
+## D23: Append/flush/commit expressed as a storage-contract ordering guarantee, not an EF-specific note
+
+- **Question:** D7's correction (2026-08-10) established that `SaveChangesAsync()` is
+  already the repository's flush mechanism, used by inbox/outbox. Should the
+  specification describe the Event Sourcing executor's own obligation as "the executor
+  calls EF `SaveChangesAsync()`," or as a provider-agnostic ordering guarantee that an
+  EF-backed provider happens to satisfy via `SaveChangesAsync()`?
+- **Options considered:** Describe the requirement in EF-specific terms (call
+  `SaveChangesAsync()`) | Express it as a storage-contract visibility/ordering
+  guarantee that any provider (in-memory, EF, external Event Store) must satisfy in
+  its own way, citing `SaveChangesAsync()` only as the established *pattern* an
+  EF-backed provider would follow.
+- **Decision:** Express it as a provider-agnostic guarantee.
+- **Rationale:** Owner (final spec-refine): "keep the distinction: (1) append/write,
+  (2) make the source write visible/durable enough inside the supported current
+  consistency boundary, (3) final transaction commit... express the requirement as a
+  storage contract/ordering guarantee, not as 'the executor will call EF
+  SaveChanges.'" The Event Sourcing core must remain implementable by an in-memory
+  store, an EF/PostgreSQL-backed store, and an external Event Store alike (per the
+  original brief's "Future compatibility requirements") — describing the guarantee in
+  EF-specific terms would misstate that generality even though the *current* only
+  implementation (`FakeEventStore`) needs no explicit call at all.
+- **Consequences:** `overview.md` § "Architectural principles" records the exact
+  three-sentence guarantee (append visibility; synchronous publish only after
+  successful append; successful append does not imply final commit). Task 03's
+  executor orders its own append before the pipeline's re-entrant synchronous
+  dispatch; it does not itself call any provider-specific save method — that is each
+  `IEventStreamStore` implementation's own responsibility. This sharpens D7 without
+  reversing it.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
+  tasks/03-es-command-executor-and-ambiguity-resolution.md
+
+## D24: Explicit Level 2 handling supports both existing and creation paths via `Option<TAggregate>`, never `null`
+
+- **Question:** The original Level 2 wording said the explicit handler "receives the
+  already-rehydrated aggregate/current state," silently assuming every command targets
+  an existing aggregate. But `DeciderCommandHandler` already supports creation
+  (`Option<TAggregate>.None`) alongside mutation (`Option<TAggregate>.Some`). Must the
+  hardened Level 2 API define explicit create-vs-existing semantics before
+  implementation, and if so, using what shape?
+- **Options considered:** Leave the ambiguity for the implementing task to resolve
+  informally | Wire `ICreateAggregateCommand<TAggregate,TId>` into Level 2 dispatch to
+  distinguish the paths | Use `null` to represent a missing aggregate | Preserve the
+  existing `Option<TAggregate>` Some/None model explicitly in the Level 2 handler's own
+  signature (or an equivalent execution-context shape exposing the same Some/None
+  distinction).
+- **Decision:** Preserve `Option<TAggregate>` explicitly. The explicit Level 2 handler
+  receives the current state as `Option<TAggregate>` (or a minimal execution context
+  exposing the equivalent explicit Some/None state) — `Some` when an existing
+  stream/aggregate was rehydrated, `None` on the creation path.
+- **Rationale:** Owner (final spec-refine): "this is a real public-API semantic and
+  must be resolved in the specification before implementation... preserve the current
+  Some/None create-vs-existing model. Do not wire `ICreateAggregateCommand` into
+  dispatch in this specification. Do not introduce a second special create-handler
+  hierarchy merely to solve this. Do not use `null` to represent a missing aggregate."
+  This keeps Level 2 consistent with Level 1's already-working model rather than
+  inventing a parallel one, and keeps D16 (leave `ICreateAggregateCommand` untouched)
+  intact.
+- **Consequences:** Task 04's `IEventSourcedCommandHandler<TCommand, TAggregate, TId>`
+  (or refined name) signature takes `Option<TAggregate>`, not a bare `TAggregate`. A
+  Level 2 handler may still delegate to Level 1's decision discovery, including the
+  existing creation decision path. Task 04 gains explicit acceptance criteria for both
+  the `Some` and `None` cases. This does not reopen D16 — `ICreateAggregateCommand`
+  remains unwired.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
+  tasks/04-explicit-event-sourced-command-handler.md
+
+## D25: Authorization ownership split — messaging pipeline owns normal checks, the ES executor owns only the aggregate-aware hook, both share the same `Option<TAggregate>` semantics
+
+- **Question:** D5 left it open whether normal message/handler-level permission checks
+  should be fixed in place (`ValidatePermissionMiddleware`) or moved into the Event
+  Sourcing executor. Separately, D24 raised the same Some/None question for the
+  aggregate-aware authorization hook that D5 introduced: does it assume an aggregate
+  always exists? Both are the same underlying question — precisely which component
+  owns which authorization concern, and with what current-state shape — and the
+  specification must not leave either choice to implementation.
+- **Options considered (ownership):** Fix `ValidatePermissionMiddleware` in place,
+  keep normal checks entirely in the messaging pipeline | Move normal permission
+  checks into the Event Sourcing executor, duplicating general messaging authorization
+  behavior there.
+  **Options considered (Some/None):** Require the aggregate-aware hook to receive a
+  non-optional `TAggregate`, implicitly forcing every aggregate-aware policy to assume
+  an existing resource | Give it the same explicit `Option<TAggregate>` semantics as
+  the Level 2 handler (D24), letting a policy see and choose how to handle `None`.
+- **Decision:** Fix `ValidatePermissionMiddleware` in place (plus the new
+  message-level attribute placement) — normal message-level and handler-level checks
+  stay entirely in `NEvo.Messaging.Authorization`'s existing pipeline, composed AND,
+  and the Event Sourcing executor never invokes them. The executor owns exactly one
+  authorization concern: the aggregate-aware hook, invoked after rehydration and
+  before the decision, receiving the current state as the same `Option<TAggregate>`
+  shape D24 establishes for the Level 2 handler.
+- **Rationale:** Owner (final spec-refine): "the executor should not duplicate general
+  messaging authorization behavior... [aggregate-aware authorization] must not assume
+  an aggregate always exists... a policy that only makes sense for existing resources
+  can explicitly reject/ignore `None` according to its own use case. Do not silently
+  skip aggregate-aware authorization on create merely because there is no object yet."
+  Keeping normal checks in the pipeline avoids two implementations of the same
+  concern; sharing D24's Some/None shape avoids a second, inconsistent
+  optionality convention for the one authorization concern that does need current
+  state.
+- **Consequences:** `overview.md` § "Architectural principles" records the exact
+  conceptual pipeline-then-executor ordering. Task 03's executor description no longer
+  lists "static/message-level authorization" among what it invokes — only the
+  aggregate-aware hook. Task 07 is explicitly two parts in two packages: (a) fix
+  `ValidatePermissionMiddleware` + add the message-level attribute, in
+  `NEvo.Messaging.Authorization`; (b) add the aggregate-aware hook, in
+  `NEvo.Ddd.EventSourcing` (see D26 for why not in `NEvo.Messaging.Authorization`).
+  Task 07 gains acceptance criteria for both `Some` and `None` reaching the
+  aggregate-aware hook, and for denial preventing append in either case. Part (a)'s
+  tests move to a new, small `tests/NEvo.Messaging.Authorization.Tests` project
+  (owner-approved here, per the final-refinement input directly authorizing it,
+  matching the one-test-project-per-package precedent the archived query-support
+  change's D5 already set for `NEvo.Messaging.Cqrs.Tests`) — this is a "new project"
+  decision under `AGENTS.md`'s owner-approval list, and this entry is that approval;
+  `tests/NEvo.Web.Authorization.Tests` (a different package's tests) is not reused.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
+  areas/authorization-integration.md,
+  tasks/03-es-command-executor-and-ambiguity-resolution.md,
+  tasks/07-message-level-and-aggregate-authorization.md
+
+## D26: No new `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization` project dependency
+
+- **Question:** The aggregate-aware authorization hook (D5, D25) needs to run inside
+  the Event Sourcing executor, but `NEvo.Messaging.Authorization` (home of
+  `ValidatePermissionMiddleware`/`AllowPermissionAttribute`/
+  `IDataScopeMessageValidator`) is a lateral sibling package —
+  `docs/development/package-boundaries.md` shows `NEvo.Ddd.EventSourcing` depending
+  only on `NEvo.Messaging.Cqrs`, and extension packages depending on `NEvo.Messaging`
+  but explicitly "not on each other" (the one documented exception is
+  `NEvo.Messaging.Web`). Should this specification add a new `NEvo.Ddd.EventSourcing`
+  → `NEvo.Messaging.Authorization` reference to let the hook use authorization
+  services directly, or must the hook's core contract avoid that dependency?
+- **Options considered:** Add the new lateral dependency — simplest for the hook's own
+  implementation to reference `IDataScopeMessageValidator`/user-context types directly
+  | Keep the hook's core *contract* dependency-free of `NEvo.Messaging.Authorization`,
+  expressed only in terms of the command, the `Option<TAggregate>` current state, and
+  the already-available `IMessageContext` — leaving concrete implementations (written
+  by the consuming application, which already references whatever packages it needs)
+  free to call into `NEvo.Messaging.Authorization`/`NEvo.Authorization` themselves.
+- **Decision:** No new dependency. The core `IAggregateAuthorization<TCommand,
+  TAggregate>` (or equivalent) contract lives in `NEvo.Ddd.EventSourcing` (or another
+  already-lower neutral abstraction), typed only in terms of the command, `Option<
+  TAggregate>`, and `IMessageContext` — nothing from `NEvo.Messaging.Authorization`. A
+  concrete implementation (e.g. inside the Documents example) may reference
+  `NEvo.Messaging.Authorization`/`NEvo.Authorization` freely, since the package-
+  boundary constraint applies to the core contract's own project, not to consumers
+  implementing it.
+- **Rationale:** Owner (final spec-refine): "do not introduce an unnecessary project
+  dependency `NEvo.Ddd.EventSourcing -> NEvo.Messaging.Authorization` just to execute
+  aggregate-aware authorization. The current Event Sourcing project already depends on
+  lower messaging/CQRS infrastructure; it should not have to depend on the higher
+  authorization package solely for this extension point." Adding the dependency would
+  also need its own package-boundary owner-approval gate per
+  `docs/development/package-boundaries.md` § "Changing a dependency" — avoiding it
+  keeps this change inside the boundary decisions already made (D15).
+- **Consequences:** Task 07's aggregate-aware half stays inside
+  `NEvo.Ddd.EventSourcing`; its message-level half stays inside
+  `NEvo.Messaging.Authorization`; neither task adds a project reference between the
+  two packages. `overview.md`'s dependency graph statement and change-wide acceptance
+  criteria both assert this directly, not just imply it.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/authorization-integration.md,
+  tasks/07-message-level-and-aggregate-authorization.md
+
+## D27: No new integration-test infrastructure is introduced in this change
+
+- **Question:** Task 08's original verification asked for a `WebApplicationFactory`-
+  based automated test of `MapQueryEndpoint`'s GET binding, placed under
+  `tests/NEvo.Messaging.Cqrs.Tests` — but that project does not reference
+  `NEvo.Messaging.Web` (where `MapQueryEndpoint` lives), and the repository has no
+  ASP.NET integration-test infrastructure anywhere today. Should this specification
+  add a project reference (or a new test project) to make that automated test
+  possible, or verify `MapQueryEndpoint` a different way?
+- **Options considered:** Add a project reference from `NEvo.Messaging.Cqrs.Tests` to
+  `NEvo.Messaging.Web` | Create a new integration-test project/harness for
+  `NEvo.Messaging.Web` | Verify what's naturally unit/component-testable (the endpoint
+  extension compiles, returns `RouteHandlerBuilder`), rely on D18's already-closed
+  binding-mechanism evidence, and verify the concrete HTTP usage through the Documents
+  example's manual walkthrough instead of new automated integration-test
+  infrastructure.
+- **Decision:** The third option. No new project reference, no new integration-test
+  project or harness, anywhere in this change.
+- **Rationale:** Owner (final spec-refine): "the repository does not currently have
+  dedicated integration-test infrastructure for the ExampleApp or
+  `NEvo.Messaging.Web`, and the owner does not want this specification to introduce
+  such infrastructure merely to test examples/Minimal API binding end to end...
+  behavior that can be tested at package/core level should be unit/component tested
+  there, ExampleApp stays manually exercised/documented, broader HTTP/integration/e2e
+  test infrastructure can be a later testing-focused change." D18 already closed the
+  binding-mechanism question with empirical evidence outside the repository (a
+  disposable probe project) — that evidence doesn't need to be re-proven with new
+  in-repo test infrastructure.
+- **Consequences:** Task 08's verification section drops the
+  `WebApplicationFactory`/`NEvo.Messaging.Cqrs.Tests` combination entirely. Its
+  acceptance criteria are re-expressed as: the endpoint extension compiles and returns
+  `RouteHandlerBuilder` (verified via `dotnet build` plus ordinary unit tests of any
+  naturally-testable extracted logic), D18's binding conclusion is retained as the
+  grounded decision (not re-verified), and the concrete HTTP GET behavior is verified
+  manually through the Documents example walkthrough (task 10). This is the same
+  "no new test infrastructure" principle D12 already applied to the ExampleApp,
+  extended here to `NEvo.Messaging.Web`.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/http-query-endpoint.md,
+  tasks/08-map-query-endpoint-and-get-binding.md
+
+## D28: Manual ExampleApp concurrency racing is removed
+
+- **Question:** Task 10's manual walkthrough asked for reproducing two concurrent
+  writes against the Documents example over HTTP to surface
+  `AggregateConcurrencyException`. Given D12 already keeps the example verification
+  manual/non-automated, and optimistic-concurrency behavior is exactly the kind of
+  thing a deterministic unit test proves more reliably than a manually-reproduced HTTP
+  race, should the walkthrough keep this requirement?
+- **Options considered:** Keep the manual concurrent-write race as part of the
+  walkthrough's required steps | Remove it — the walkthrough covers the ordinary
+  CRUD + query flow and links to the user guide's explanation of optimistic
+  concurrency; deterministic concurrency-conflict coverage lives entirely in Event
+  Sourcing core tests (task 02's `AggregateConcurrencyException` unit test, task 03's
+  executor-level concurrency test).
+- **Decision:** Remove it from the walkthrough's required steps.
+- **Rationale:** Owner (final spec-refine): "do not use an in-memory example race as
+  the acceptance test for concurrency semantics. Optimistic concurrency belongs in
+  deterministic Event Sourcing core tests against the stream-store/repository/executor
+  behavior... it may explain that the repository uses expected-version optimistic
+  concurrency and link to the user guide, but it does not need to manufacture a
+  concurrent HTTP race." A manually-reproduced race is inherently flaky/timing-
+  dependent and adds no coverage beyond what tasks 02-03's automated tests already
+  prove deterministically.
+- **Consequences:** Task 10's walkthrough covers: create, change, approve, query,
+  reload produces the expected current state, Level 1 vs Level 2 usage, permissions,
+  query/command endpoint mapping — and may mention expected-version optimistic
+  concurrency in prose with a link to the user guide, but does not reproduce a race.
+  Task 10's acceptance criteria drop the version-conflict-over-HTTP requirement.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/documents-example-service.md,
+  tasks/10-documents-example-es-and-auth-demo.md

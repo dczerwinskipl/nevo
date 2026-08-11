@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-10T20:21:18.451Z",
+  "generated": "2026-08-11T10:49:05.828Z",
   "changes": [
     {
       "id": "event-sourcing-api-hardening",
@@ -9,9 +9,9 @@
       "created": "2026-08-10",
       "tasks": [
         {
-          "id": "fix-build-and-characterize-baseline",
+          "id": "characterize-event-sourcing-baseline",
           "order": 1,
-          "file": "tasks/01-fix-build-and-characterize-baseline.md",
+          "file": "tasks/01-characterize-event-sourcing-baseline.md",
           "status": "draft"
         },
         {
@@ -20,7 +20,7 @@
           "file": "tasks/02-harden-event-store-and-repository-contracts.md",
           "status": "draft",
           "depends_on": [
-            "fix-build-and-characterize-baseline"
+            "characterize-event-sourcing-baseline"
           ]
         },
         {

@@ -12,7 +12,7 @@ depends_on:
   - map-query-endpoint-and-get-binding
   - documents-example-es-and-auth-demo
 semantic_references:
-  decisions: [D17, D18]
+  decisions: [D17, D18, D20, D21, D22, D23, D24, D25, D28]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -113,23 +113,34 @@ shipped, final shape. Sequenced last alongside task 12.
    on-multiple-states resolution (most-specific-wins, task 03), domain invariants vs.
    application/security concerns, when concrete state types are useful vs. excessive.
 4. **Command handling choices** — all three levels, explicitly **when to use each**
-   (a decision table or equivalent), what plumbing NEvo provides for each.
+   (a decision table or equivalent), what plumbing NEvo provides for each, and how
+   Level 2 represents "existing aggregate" vs. "creation" explicitly via
+   `Option<TAggregate>` (`Some`/`None`, D24) rather than assuming one or the other.
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.
 6. **Authorization and permissions** — operation permission on the message,
-   handler-specific additional requirement (AND), aggregate/resource-aware
-   authorization after rehydration (task 07), domain invariant stays in the decision
-   method, explicit guidance against duplicating permission attributes across
-   concrete state methods.
+   handler-specific additional requirement (AND) — both enforced entirely by the
+   messaging pipeline, before Event Sourcing execution even begins — and
+   aggregate/resource-aware authorization after rehydration (task 07), which is the
+   *only* authorization concern Event Sourcing itself owns and which sees the same
+   explicit `Some`/`None` current-state distinction as Level 2 (D24-D25). Domain
+   invariant stays in the decision method. Explicit guidance against duplicating
+   permission attributes across concrete state methods.
 7. **Persistence and concurrency** — Event Store vs. repository responsibilities
-   (task 02), replay, stream version, optimistic concurrency,
-   `AggregateConcurrencyException` returned via `Either` (never thrown — D13/D19
-   correction), domain event payload vs. persisted envelope metadata distinction,
-   append/flush vs. final commit (D7 correction — cite the real `SaveChangesAsync`
-   pattern, not a claim that no flush mechanism exists), synchronous event visibility
-   guarantee, current in-memory-only status, explicit "real provider is a follow-up"
-   statement.
+   (task 02), replay, stream version (out-of-band, not an envelope field),
+   optimistic concurrency, `AggregateConcurrencyException` **returned** via `Either`
+   (never thrown — D13). Explain the three distinct layers plainly (D20-D22): the
+   domain event payload (unchanged `Event : Message`), runtime message-processing
+   context (`IMessageContext`, already carrying correlation/causation), and a future
+   provider's own persisted representation — **no envelope type exists in this
+   version of NEvo**, and none is implied as coming "soon." Explain append/flush vs.
+   final commit as the storage-contract guarantee (D23): append succeeds → visible to
+   synchronous downstream processing → does not imply final transaction commit; cite
+   the real `SaveChangesAsync` pattern already used by inbox/outbox, not a claim that
+   no flush mechanism exists. State plainly that a real persistence provider is a
+   follow-up specification's work, and that this version does not freeze the final
+   store SPI (D22).
 8. **Query/read side** — the intermediate `Query → QueryHandler → AggregateRepository →
    DTO` path, `MapQueryEndpoint` usage and GET route/query-string binding (D18 — state
    plainly that `Id`/`CreatedAt` are never required GET parameters and why), explicit

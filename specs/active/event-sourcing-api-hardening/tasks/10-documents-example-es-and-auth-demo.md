@@ -9,7 +9,7 @@ depends_on:
   - message-level-and-aggregate-authorization
   - map-query-endpoint-and-get-binding
 semantic_references:
-  decisions: [D9, D12]
+  decisions: [D9, D12, D24, D28]
   dependency_contracts:
     - create-documents-example-project
     - explicit-event-sourced-command-handler
@@ -69,8 +69,12 @@ a documented manual walkthrough (D12), no dedicated test project.
 - Write the manual walkthrough as a short, step-by-step doc comment or `README`-style
   note inside the example project (not a new top-level doc — task 11 links to it as the
   canonical sample), covering: create → change → approve → query, reload-after-write,
-  and a version-conflict scenario (two concurrent changes against the same document
-  version).
+  Level 1 vs Level 2 usage, permissions, and query/command endpoint mapping. **Do not
+  include a manufactured concurrent-write/HTTP-race scenario (D28)** — optimistic
+  concurrency is covered deterministically in Event Sourcing core tests (tasks 02-03);
+  the walkthrough may mention, in prose, that the repository uses expected-version
+  optimistic concurrency and link to `docs/usage/event-sourcing.md`'s explanation,
+  without reproducing a race.
 
 ## Acceptance criteria
 
@@ -86,10 +90,10 @@ a documented manual walkthrough (D12), no dedicated test project.
    walkthrough).
 5. `MapCommandEndpoint`/`MapQueryEndpoint` are both used for Document endpoints
    (inspection).
-6. A version-conflict scenario (two concurrent writes against the same loaded version)
-   surfaces `AggregateConcurrencyException` through the HTTP layer's existing Problem
-   response shape (manual, recorded in the walkthrough).
-7. `dotnet build` succeeds (automated).
+6. `dotnet build` succeeds (automated).
+7. The walkthrough does not include a manufactured concurrent-write/HTTP-race scenario
+   (inspection, per D28) — optimistic-concurrency coverage lives entirely in
+   `tests/NEvo.Ddd.EventSourcing.Tests` (tasks 02-03).
 
 ## Verification
 

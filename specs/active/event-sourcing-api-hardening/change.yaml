@@ -10,16 +10,16 @@ branch:
   prefix: feature
 
 tasks:
-  - id: fix-build-and-characterize-baseline
+  - id: characterize-event-sourcing-baseline
     order: 1
-    file: tasks/01-fix-build-and-characterize-baseline.md
+    file: tasks/01-characterize-event-sourcing-baseline.md
     status: draft
   - id: harden-event-store-and-repository-contracts
     order: 2
     file: tasks/02-harden-event-store-and-repository-contracts.md
     status: draft
     depends_on:
-      - fix-build-and-characterize-baseline
+      - characterize-event-sourcing-baseline
   - id: es-command-executor-and-ambiguity-resolution
     order: 3
     file: tasks/03-es-command-executor-and-ambiguity-resolution.md

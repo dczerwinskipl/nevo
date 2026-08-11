@@ -35,9 +35,17 @@ is "defined in `src/NEvo.Messaging/Processing/`" — the actual location is
 Cover, for a maintainer audience: the Event Sourced command executor's lifecycle and
 ordering; convention discovery internals and most-specific-wins resolution; Primary/
 Fallback registration internals; the `IEventStreamStore`/`IAggregateRepository`
-boundary; concurrency flow; authorization pipeline position; transaction/flush
-assumptions (corrected per D7); and extension points/compatibility constraints for
-future persistence providers and modeling styles (D17). Also correct the three stale
+boundary; concurrency flow (`AggregateConcurrencyException` returned via `Either`,
+never thrown, D13); the authorization ownership split — normal message/handler checks
+entirely in `NEvo.Messaging.Authorization`'s pipeline, the executor invoking only the
+aggregate-aware hook, with no `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization`
+dependency (D25-D26); the explicit `Option<TAggregate>` Some/None semantics shared by
+the Level 2 handler and the aggregate-aware hook (D24); the append/flush/commit
+storage-contract guarantee (D23, corrected from the earlier EF-specific framing); the
+three-layer persistence-metadata distinction — domain event, runtime message context,
+future persisted representation — and why this version does not freeze the final
+store SPI (D20-D22); and extension points/compatibility constraints for future
+persistence providers and modeling styles (D17). Also correct the three stale
 `messaging-pipeline.md` statements above.
 
 ## Constraints

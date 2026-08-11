@@ -1,5 +1,5 @@
 ---
-id: event-sourcing-api-hardening.fix-build-and-characterize-baseline
+id: event-sourcing-api-hardening.characterize-event-sourcing-baseline
 status: draft
 change: event-sourcing-api-hardening
 context:
@@ -26,7 +26,7 @@ forbidden_paths:
   - examples/**
 ---
 
-# Task: Characterize baseline behavior
+# Task: Characterize Event Sourcing baseline
 
 ## Goal
 

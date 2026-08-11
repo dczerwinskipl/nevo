@@ -3,10 +3,10 @@ id: event-sourcing-api-hardening.harden-event-store-and-repository-contracts
 status: draft
 change: event-sourcing-api-hardening
 depends_on:
-  - fix-build-and-characterize-baseline
+  - characterize-event-sourcing-baseline
 semantic_references:
-  decisions: [D6, D13, D17]
-  dependency_contracts: [fix-build-and-characterize-baseline]
+  decisions: [D6, D13, D17, D19, D20, D21]
+  dependency_contracts: [characterize-event-sourcing-baseline]
 context:
   required:
     - specs/active/event-sourcing-api-hardening/areas/persistence-boundary.md
@@ -36,15 +36,15 @@ Split raw stream persistence from aggregate rehydration, remove the unfinished
 projection-loading responsibility from the aggregate repository, and introduce a
 dedicated `AggregateConcurrencyException` for expected-version mismatches (D6, D13) —
 while keeping the contracts agnostic to *how* a caller produces the next aggregate
-state (D17), and keeping the domain event payload conceptually distinct from
-persisted-envelope metadata.
+state (D17). **Do not design a persisted event envelope of any kind, minimal or
+otherwise (D20-D22)** — this task's scope on that front is to preserve today's
+separation (domain event payload vs. out-of-band stream version), not to extend it.
 
 ## Dependencies
 
-- `fix-build-and-characterize-baseline` (task 01) — this task's changes land on top of
-  the fixed, characterized baseline. (Note: the folder/namespace reorganization
-  previously planned as a separate task 02 was removed per D15 — this task now depends
-  directly on task 01.)
+- `characterize-event-sourcing-baseline` (task 01) — this task's changes land on top of
+  the characterized baseline (D15: no folder reorganization precedes this task; D19:
+  the baseline is the branch's current green build, not a build this task fixes).
 
 ## Implementation constraints
 
@@ -60,20 +60,17 @@ persisted-envelope metadata.
   `EitherAsync<Exception, Unit>`'s `Left`, per D13's corrected wording; this task
   changes only the exception *type*, not the return-vs-throw shape) on an
   expected-version mismatch.
-- Do not add a global position/checkpoint field. If a correlation/causation field is
-  added to the event envelope, source it from `IMessageContext.Headers.CorrelationId`/
-  `CausationId` at the point the executor (task 03) has context access — do not invent a
-  new correlation mechanism. If task 03's executor doesn't yet exist to supply this at
-  append time, it is acceptable for this task to add the envelope field(s) as optional/
-  nullable and leave population to task 03, documenting that explicitly.
+- **Do not add any envelope, correlation/causation field, or persistence-metadata type
+  (D20-D22, closed — not an open implementation choice).** Stream version stays exactly
+  where it is today: an out-of-band `int` parameter/return value on the store/
+  repository contracts, never a field on any type. `Message.Id` remains the only event
+  identity; do not add a second one. If this task's implementation finds a concrete
+  reason an envelope is unavoidable, stop and report it as new evidence contradicting
+  D20-D22 — do not silently add one.
 - Keep the domain event payload (e.g. `DocumentApproved`, a concrete `IAggregateEvent<
-  TAggregate,TId>` implementation) conceptually and structurally separate from
-  persisted-envelope/storage metadata (stream version/revision, any added correlation/
-  causation fields) — a domain event class must not itself be responsible for carrying
-  provider-specific storage concerns. If the current `IAggregateEvent<TAggregate,TId>`
-  shape already keeps these separate (it does today — version is an out-of-band
-  parameter, not a field on the event), preserve that; do not merge them while adding
-  the concurrency exception or any envelope field.
+  TAggregate,TId>` implementation) exactly as it is today — `Event : Message` plus
+  `StreamId`, nothing added. This task must not touch `IAggregateEvent<TAggregate,TId>`
+  or any concrete domain event type to add storage-metadata fields.
 - Design the new interfaces so nothing in their public shape requires the caller's next
   state to be produced by an instance method on an immutable aggregate-state object
   (D17) — load/append/version semantics are about the *event stream*, not about how the
@@ -102,6 +99,8 @@ persisted-envelope metadata.
 5. Neither `IEventStreamStore` nor `IAggregateRepository`'s public members reference or
    require any specific aggregate-state modeling style (e.g. no member typed in terms
    of "an object with an `Evolve` method") — inspection, per D17.
+6. No event envelope, correlation/causation field, or other persistence-metadata type
+   exists anywhere in this task's diff (inspection, per D20-D22).
 
 ## Verification
 
@@ -120,7 +119,8 @@ rewrites are sequenced after every functional task lands.
 - A real persistence provider.
 - Persisted projections, checkpoints, subscriptions.
 - Cross-resource transaction coordination.
-- Populating correlation/causation fields end-to-end (task 03, if the envelope field is
-  added here as optional).
+- Any event envelope, correlation/causation field, or persistence-metadata type
+  (D20-D22) — this is not deferred to a later task in this change, it is not designed
+  at all here.
 - Any folder/namespace reorganization, and wiring `ICreateAggregateCommand` into any
   resolution logic — both out of scope for the whole change (D15, D16).
