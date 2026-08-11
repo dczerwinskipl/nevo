@@ -924,3 +924,174 @@ for audit trail — do not implement per this entry; see D16 for the current dec
 - **Date:** 2026-08-11
 - **Affected artifacts:** overview.md, areas/documents-example-service.md,
   tasks/10-documents-example-es-and-auth-demo.md
+
+## D29: Explicit expected stream state (`NoStream`/`Exact(version)`) — no magic create version
+
+- **Question:** Today's creation path means `Option<TAggregate>.None` →
+  `AppendEventsAsync(..., expectedVersion: 0, ...)`, while an existing aggregate means
+  `Option<TAggregate>.Some` → `AppendEventsAsync(..., expectedVersion: loaded.Version,
+  ...)`. The numeric literal `0` is carrying two different concepts at once — "the
+  stream must not already exist" and "the expected version happens to be zero." A
+  comparison against mature .NET Event Sourcing designs (Eventuous, Marten) found this
+  exact pattern called out as worth avoiding, because a real provider (PostgreSQL/
+  Marten/Kurrent-style) naturally distinguishes "start a new stream" from "append at a
+  known revision," and forcing that distinction to be reverse-engineered from a numeric
+  coincidence later is exactly the kind of contradiction task 02's own boundary-hardening
+  work should prevent now, while the contract is already being touched. Should this
+  change introduce an explicit expected-stream-state concept, or leave the numeric
+  `expectedVersion` convention as-is for the next persistence specification to address?
+- **Options considered:** Leave `expectedVersion: int` as-is, defer the semantic split to
+  the future real-provider specification | Introduce an explicit two-case expected-
+  stream-state concept (`NoStream` / `Exact(version)`) in task 02's own contract work,
+  since the boundary is already being hardened there | Go further and add a general
+  `Any`/unconditional-append mode alongside the two cases, matching some mature
+  frameworks' fuller option set.
+- **Decision:** The second option. `IEventStreamStore`'s append contract distinguishes
+  at least `NoStream` (valid only if the stream does not exist — the `Option.None`
+  creation path) from `Exact(version)` (valid only if the stream is at exactly the
+  observed version — the `Option.Some` mutation path). **No `Any`/`IgnoreVersion`/
+  unconditional-append mode, and no automatic retry/rebase semantics** — the third
+  option is explicitly rejected; NEvo has no current use case for it, and it can be
+  designed later against a real use case if one ever appears. Exact type/case naming
+  is not owner-fixed (`ExpectedStreamState.NoStream`/`.Exact(version)` or
+  `ExpectedStreamVersion.NoStream`/`.Exact(version)` are both acceptable directions —
+  pick whichever reads most consistently with existing NEvo naming). The low-level
+  stream read result must preserve stream existence explicitly enough for the
+  repository to map missing stream → `Option<TAggregate>.None` and existing stream →
+  rehydrated `Some` plus observed version — it must not collapse "stream does not
+  exist" into the same shape as "stream exists with zero events" (`events: []`,
+  `version: 0`) if that erases the distinction the append contract now makes. Both
+  `NoStream` and `Exact(version)` failures remain the exact same
+  `AggregateConcurrencyException` returned via `Either<Exception, T>.Left` (D13) — this
+  is not a new error hierarchy, just a richer expectation the same error type responds
+  to. `FakeEventStore`'s read path must not create a stream as a side effect of being
+  read — a read of a nonexistent stream stays observably "no stream" until an append
+  actually creates it.
+- **Rationale:** Owner, after comparing the current direction against Eventuous/Marten/
+  Wolverine/Equinox: "the current numeric `0` create convention is cheap to remove now
+  while task 02 is already changing the stream-store boundary, and explicit semantics
+  adapt more naturally to future real stores... do not let a future provider have to
+  reverse-engineer that intent from a magic integer." This is the one concrete
+  persistence-contract improvement those reference designs motivate — not an invitation
+  to adopt any of their broader API shapes (D31's non-goals list is explicit about
+  this).
+- **Consequences:** Task 02 gains the `NoStream`/`Exact(version)` contract, the
+  existence-preserving read-result shape, and `FakeEventStore` behavior/tests proving
+  no side-effect stream creation on read. Task 03/04 map `Option.None` → `NoStream` and
+  loaded `Option.Some` → `Exact(loadedVersion)` through the shared executor, for both
+  Level 1 and Level 2 identically. D22 remains in force — this is a semantic
+  improvement to intent, not a claim that the low-level provider SPI is now frozen; the
+  next real-provider specification may still refine the concrete storage/revision
+  representation as concrete provider constraints become known.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/persistence-boundary.md,
+  areas/shared-es-execution-and-explicit-handler.md,
+  tasks/02-harden-event-store-and-repository-contracts.md,
+  tasks/03-es-command-executor-and-ambiguity-resolution.md,
+  tasks/04-explicit-event-sourced-command-handler.md
+
+## D30: The shared lifecycle executor is convention-agnostic — reflection discovery is not its responsibility
+
+- **Question:** Task 03 bundles "extract the shared executor" and "harden state-method
+  ambiguity resolution" into one task, and its implementation-constraints text lists the
+  state-method resolution algorithm directly among the executor's own work. Read
+  literally, this risks making reflection/state-method discovery — the aggregate-method
+  convention's own concern — sound intrinsic to the shared lifecycle executor itself,
+  which would make the executor synonymous with "the class that knows how to find and
+  invoke `aggregate.Approve(command)`." A comparison against mature designs (Eventuous
+  separates command/application orchestration from aggregate/state restoration from
+  persistence; Wolverine demonstrates a framework-managed lifecycle without the
+  application handler repeating load/version/append plumbing, independent of any one
+  modeling convention) surfaced this as worth confirming explicitly, consistent with
+  D17's own principle. Should the specification leave this ambiguous, or state
+  explicitly that the executor depends on a supplied decision mechanism rather than
+  performing reflection itself?
+- **Options considered:** Leave the current task 03 wording as-is (reflection resolution
+  described as the executor's own implementation work) | State explicitly that the
+  executor owns lifecycle orchestration only, and depends on/invokes an existing
+  decision abstraction (already `IDecider`/`IDeciderRegistry` in current code, per
+  `DeciderCommandHandler.HandleAsync`'s own structure) supplied by the aggregate-method
+  convention path, without introducing any new abstraction | Go further and design a
+  general pluggable decision-strategy hierarchy (`IDecisionStrategy`,
+  `IMutableAggregateStrategy`, `IFunctionalDeciderStrategy`, etc.) so future modeling
+  styles can register themselves.
+- **Decision:** The second option. The shared executor owns: load stream/rehydrate,
+  invoke the aggregate-aware authorization hook, invoke a supplied decision operation,
+  append using the correct expected stream state, synchronous publish ordering, and
+  error propagation. It does **not** own reflection/discovery or choosing the
+  state-specific decision method — that remains the aggregate-method convention's own
+  concern (already separated in current code: `AggregateDecider`/`AggregateEvolver`
+  perform the reflection, `IDecider`/`IEvolver` are what the orchestration layer
+  actually depends on). The most-specific-wins resolution algorithm task 03 already
+  specifies is hardening to the *convention's own* discovery logic
+  (`AggregateDecider`/`AggregateEvolver`), not new responsibility added to the
+  executor class itself — task 03's own diff should keep this boundary visible in the
+  code structure it lands, even though both changes are still delivered in one task
+  (per the "prefer modifying existing tasks" instruction). **The third option — any
+  speculative decision-strategy/plugin hierarchy — is explicitly rejected.** No such
+  type is introduced in this change.
+- **Rationale:** Owner: "this is mainly a contract/code-boundary guardrail, not a
+  request for another abstraction framework... D17 remains exactly the right
+  principle... use the smallest current-code boundary that achieves this." Current code
+  already has the right shape (`IDecider`/`IDeciderRegistry`/`IEvolver` as the
+  orchestration layer's dependency, `AggregateDecider`/`AggregateEvolver` as the
+  reflection-performing implementations) — this decision is about not regressing that
+  shape while hardening it, not about building something new.
+- **Consequences:** Task 03's own text is clarified so a reader cannot conclude the
+  executor performs reflection — the acceptance requirement is architectural: reflection/
+  state-method discovery must not be a responsibility intrinsic to the shared lifecycle
+  executor. No new type is introduced. Level 1 stays exactly as ergonomic as before (no
+  added boilerplate merely to make the separation visible). Level 2 stays
+  framework-managed and may still delegate to the same convention decision mechanism
+  (D1, D24 unaffected).
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, areas/shared-es-execution-and-explicit-handler.md,
+  tasks/03-es-command-executor-and-ambiguity-resolution.md
+
+## D31: An explicit Event Sourced handler manages exactly one Event Sourced write target
+
+- **Question:** Level 2's explicit handler may use DI, call external services, and load
+  read-only facts before deciding — but the specification did not previously state
+  whether the framework-managed append/version/concurrency lifecycle that handler
+  participates in could, now or later, be stretched to cover more than one Event
+  Sourced aggregate stream in a single command execution. Left unstated, this could
+  gradually turn Level 2 into a hidden multi-aggregate transaction coordinator, which
+  none of the reference designs reviewed (Eventuous, Marten/Wolverine, Equinox) treat as
+  part of their own core command/aggregate lifecycle — that capability belongs to a
+  saga/process-manager/workflow layer in all of them. Should this specification state
+  a boundary now, and if so, where does a genuinely multi-aggregate use case belong
+  instead?
+- **Options considered:** Leave it unstated, let a future task/implementation decide
+  whether Level 2 can span multiple aggregate writes | State explicitly that the shared
+  executor (and therefore Level 2) manages exactly one target aggregate stream per
+  command execution, and name where genuine multi-aggregate orchestration belongs
+  instead | Design a multi-aggregate atomic write capability now, since the executor
+  already manages append/version/concurrency for one stream.
+- **Decision:** The second option. The shared Event Sourced executor manages one target
+  aggregate stream for one command execution. An explicit Level 2 handler may read
+  external services/facts/policies via DI before deciding — that's unrestricted — but
+  the framework-managed write lifecycle (append/version/concurrency) it participates in
+  covers only that one stream. A use case genuinely needing writes to two or more
+  independently-versioned Event Sourced aggregate streams, cross-aggregate
+  orchestration, or saga-like coordination belongs to Level 3 (ordinary
+  `ICommandHandler<T>`, full application-owned orchestration) today, or to a future
+  dedicated saga/process-manager/workflow capability — never designed or implemented in
+  this specification.
+- **Rationale:** Owner: "clarify this now so Level 2 does not gradually become a hidden
+  transaction coordinator... it is fine for Level 2 to *read* information from
+  elsewhere; the restriction concerns the write lifecycle the executor manages." Stating
+  the boundary now costs nothing (no code change, no new type) and keeps Level 2's
+  expected-version/concurrency semantics understandable as the change actually ships,
+  rather than leaving an implementer to guess whether "just one more `AppendEventsAsync`
+  call in the same handler" is in-scope.
+- **Consequences:** `docs/usage/event-sourcing.md` (task 11) documents this explicitly
+  as part of the Level 1/2/3 "when to use each" guidance — Level 3 is named as where
+  multi-aggregate write orchestration belongs, not framed as a lesser or "non-Event-
+  Sourced" option. `docs/development/event-sourcing.md` (task 12) states the same
+  boundary for maintainers. No multi-aggregate atomic-write capability, saga/process-
+  manager/workflow capability, or automatic-retry-after-conflict behavior is
+  implemented anywhere in this change.
+- **Date:** 2026-08-11
+- **Affected artifacts:** overview.md, tasks/04-explicit-event-sourced-command-handler.md,
+  tasks/11-user-facing-event-sourcing-guide.md,
+  tasks/12-internal-event-sourcing-architecture-docs.md

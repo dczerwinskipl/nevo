@@ -8,7 +8,7 @@ change: event-sourcing-api-hardening
 
 # Event Sourcing API hardening and persistence readiness
 
-**Refined twice.** 2026-08-10 against owner comments and an external review
+**Refined three times.** 2026-08-10 against owner comments and an external review
 (`nevo-event-sourcing-spec-refinement-prompt.md`, PR #20): fixed factual errors in the
 original discovery, reduced incidental scope (folder reorganization,
 `ICreateAggregateCommand` wiring), resolved the Query GET-binding question
@@ -27,8 +27,22 @@ create-vs-existing semantics for the Level 2 handler and aggregate-aware authori
 removed the manual ExampleApp concurrency-race requirement in favor of deterministic
 core tests; and removed a testing-strategy mismatch that would have required new
 integration-test infrastructure this repository doesn't have and the owner does not
-want introduced here. See `owner-decisions.md` (D15-D28) for the specific decisions;
-superseded entries (D10, D11) are kept, clearly marked, for audit trail.
+want introduced here. **2026-08-11, narrow reference-pattern refinement** before spec
+review/approval (`nevo-event-sourcing-reference-patterns-final-refine.md`): compared
+the hardened design against mature .NET Event Sourcing frameworks (Eventuous, Marten/
+Wolverine, Equinox) for architectural inspiration only — no dependency on or
+integration with any of them is introduced — and added three cheap compatibility
+guardrails so this hardening work does not create contradictions for a future
+persistence/modeling specification: an explicit `NoStream`/`Exact(version)`
+expected-stream-state concept replacing the magic `expectedVersion = 0` convention,
+with no `Any`/`IgnoreVersion` mode and no automatic retry/rebase (D29); an explicit
+separation between the shared executor's lifecycle-orchestration responsibility and
+the aggregate-method convention's own reflection/state-method-discovery responsibility
+(D30); and a stated single-write-target boundary for the Level 2 handler, with
+multi-aggregate orchestration left to Level 3 or a future saga/process-manager
+capability (D31). None of D19-D28 were reopened. See `owner-decisions.md` (D15-D31)
+for the specific decisions; superseded entries (D10, D11) are kept, clearly marked,
+for audit trail.
 
 ## Context
 
@@ -59,7 +73,7 @@ not in this document — see `owner-decisions.md` D19 if the "why" is ever neede
 ## Current architecture
 
 Grounded in repository discovery (file:line citations; four parallel read-only research
-passes, and two spec-refine re-verification passes that corrected several factual
+passes, and three spec-refine re-verification passes that corrected several factual
 errors and closed open design questions with empirical evidence or explicit owner
 direction):
 
@@ -200,8 +214,11 @@ user a task-oriented path to using Event Sourcing without reading framework sour
   subscription/checkpoint machinery, no snapshotting, no event upcasting, no distributed
   transaction coordination, no inbox/outbox redesign, no new permission DSL, no universal
   HTTP error-mapping framework, no folder/namespace reorganization, no speculative
-  multi-modeling-style abstraction, no persisted Event Envelope type — see "Out of
-  scope".
+  multi-modeling-style abstraction, no persisted Event Envelope type, no
+  `Any`/`IgnoreVersion` expected-stream-state mode, no automatic retry/rebase after a
+  concurrency conflict, no decision-strategy/plugin hierarchy, no multi-aggregate atomic
+  writes, no dependency on or integration with Eventuous/Marten/Wolverine/Equinox — see
+  "Out of scope".
 
 ## Affected modules
 
@@ -235,19 +252,21 @@ user a task-oriented path to using Event Sourcing without reading framework sour
 The command-handling model, registration semantics, persistence boundary,
 authorization integration, and HTTP mapping approach are owner-supplied direction
 (D1-D9, `owner-decisions.md`) from the originating specification brief. Genuine options
-were presented and resolved interactively across two refinement passes for gaps the
+were presented and resolved interactively across three refinement passes for gaps the
 brief left open — package-dependency handling (D10→D15), the unused
 `ICreateAggregateCommand` marker (D11→D16), the example service's test strategy (D12),
 the concurrency-conflict error shape (D13), branch targeting (D14), Query GET binding
-(D18), and, in this final pass, persistence-metadata layering (D20-D22), the
+(D18), and, in the second, final-narrow pass, persistence-metadata layering (D20-D22), the
 append/flush/commit storage contract (D23), authorization ownership (D25-D26), Level
 2/aggregate-aware Some/None semantics (D24-D25), ExampleApp concurrency verification
-(D28), and test-infrastructure scope (D27). See
+(D28), test-infrastructure scope (D27), and, in the narrow reference-pattern pass,
+explicit expected-stream-state semantics (D29), the executor/convention responsibility
+separation (D30), and the Level 2 single-write-target boundary (D31). See
 `owner-decisions.md` for full details on each.
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1-D28; D10 and D11 are superseded by D15 and D16
+See `owner-decisions.md` (D1-D31; D10 and D11 are superseded by D15 and D16
 respectively — kept for audit trail, not deleted).
 
 ## Proposed architecture
@@ -264,7 +283,11 @@ respectively — kept for audit trail, not deleted).
    event payload, runtime message-processing context, and a future provider's own
    persisted representation are kept as three distinct, undesigned-here concerns
    (D20-D22). It documents the transaction/commit-ownership constraint (D6, D7) and the
-   modeling-style-agnostic compatibility constraint (D17).
+   modeling-style-agnostic compatibility constraint (D17). It also replaces the magic
+   `expectedVersion = 0` create convention with an explicit `NoStream`/`Exact(version)`
+   expected-stream-state concept — no `Any`/`IgnoreVersion` mode, no automatic
+   retry/rebase — and fixes `FakeEventStore`'s read-creates-a-stream side effect so a
+   missing stream stays observably missing (D29).
 3. **Shared ES execution + explicit handler.** Task 03 extracts the shared
    load→decide→append→publish executor with the full ordering semantics (D1, D2, D7)
    and the deterministic most-specific-state-wins resolution (D2), agnostic to
@@ -272,10 +295,17 @@ respectively — kept for audit trail, not deleted).
    authorization hook after rehydration/before decision — normal message-level and
    handler-level permission checks already ran upstream in the messaging pipeline
    before the executor is ever invoked (D25 — see "Architectural principles" §
-   authorization ownership). Task 04 adds the explicit `IEventSourcedCommandHandler<
-   TCommand, TAggregate, TId>` (Level 2, D1), receiving the current state as an
-   explicit `Option<TAggregate>` (`Some` = existing aggregate, `None` = creation path,
-   D24), reusing task 03's executor and Level 1's own decision-method discovery.
+   authorization ownership). The executor maps `Option<TAggregate>.None` to `NoStream`
+   and loaded `Option<TAggregate>.Some` to `Exact(loaded.Version)` (D29), and its own
+   class stays free of reflection/state-method-discovery logic — that responsibility
+   stays with `AggregateDecider`/`AggregateEvolver`, the aggregate-method convention's
+   own concern, not something the executor performs itself (D30). Task 04 adds the
+   explicit `IEventSourcedCommandHandler<TCommand, TAggregate, TId>` (Level 2, D1),
+   receiving the current state as an explicit `Option<TAggregate>` (`Some` = existing
+   aggregate, `None` = creation path, D24), reusing task 03's executor and Level 1's own
+   decision-method discovery, and managing exactly one Event Sourced write target per
+   command — multi-aggregate orchestration belongs to Level 3 or a future
+   saga/process-manager capability, not this handler (D31).
 4. **Registration semantics.** Task 05 adds Primary/Fallback role metadata and the
    configuration-error rules (D3), with explicit regression coverage proving Query
    resolution and Event fan-out are unaffected (review issue 6). Task 06 adds
@@ -441,6 +471,57 @@ does not wire `ICreateAggregateCommand` into either path (D16 stands), does not 
 `null` to represent a missing aggregate, and does not introduce a second special
 create-handler hierarchy.
 
+**Explicit expected-stream-state replaces the magic `0` (D29).** The current
+`DeciderCommandHandler.HandleAsync` calls `AppendEventsAsync(..., expectedVersion: 0,
+...)` on the creation path and `AppendEventsAsync(..., expectedVersion:
+loaded.Version, ...)` on the mutation path — the literal `0` is overloaded to mean
+both "the stream must not already exist" and "the expected version happens to be
+zero," a distinction a real provider (PostgreSQL/Marten/Kurrent-style) naturally keeps
+separate, referenced from the mature-framework comparison that motivated this pass
+(Eventuous' `ExpectedState.New`/`Exact`, Marten/Wolverine's stream-append
+overloads, Equinox's decider-load contract — cited for inspiration only, not
+integrated or depended upon). This specification introduces an explicit
+`NoStream`/`Exact(version)` expected-stream-state concept: `NoStream` is valid only if
+the stream does not yet exist, `Exact(version)` only if the stream is at exactly that
+version. **No `Any`/`IgnoreVersion`/unconditional-append mode, and no automatic
+retry/rebase semantics** — both explicitly rejected; there is no current use case for
+either, and both would materially change the concurrency-conflict contract this
+specification otherwise keeps unchanged (D13). The low-level stream read result must
+also preserve stream existence explicitly — a missing stream and an existing-but-empty
+stream are no longer collapsed into the same `(events: [], version: 0)` shape — and
+`FakeEventStore`'s current `GetOrAdd`-on-read side effect (which silently creates an
+empty stream merely by being read) is fixed so a missing stream stays observably
+missing until an actual append creates it. This is a store/executor-contract hardening,
+not a new persistence-metadata type (D20-D22 still apply) and not a relaxation of D22 —
+the next real-provider specification may still refine the concrete storage/revision
+representation.
+
+**The shared executor is convention-agnostic; reflection/discovery stays the
+aggregate-method convention's own concern (D30).** The shared Event Sourced executor
+(task 03) owns lifecycle orchestration only — load/rehydrate, invoke the aggregate-aware
+authorization hook, invoke a *supplied* decision operation, append (using the D29
+mapping), synchronous publish ordering, and error propagation. It does not itself
+perform reflection or state-method discovery; that already lives, and continues to
+live, in `AggregateDecider`/`AggregateEvolver`, with the executor depending on/invoking
+only the resulting `IDecider`/`IEvolver` shape those types already implement today. This
+mirrors how the mature frameworks surveyed for this pass separate a generic
+command/decision-handling pipeline from a specific decision-derivation mechanism
+(again, cited for inspiration only). No speculative `IDecisionStrategy`/
+`IMutableAggregateStrategy`/`IFunctionalDeciderStrategy`-style plugin hierarchy is
+introduced — this is a documented separation of existing responsibilities, not a new
+extensibility surface.
+
+**Level 2 manages exactly one Event Sourced write target per command (D31).** The
+explicit Level 2 handler may read external data freely via injected dependencies for
+orchestration, but the framework-managed write lifecycle it delegates to task 03's
+executor covers exactly one aggregate stream. A use case genuinely needing coordinated,
+atomic writes to two or more independently-versioned Event Sourced aggregate streams
+belongs to Level 3 (an ordinary `ICommandHandler<T>`, ordinary application-level
+transaction handling) or to a future dedicated saga/process-manager/workflow capability
+— never designed or implemented in this specification. This keeps Level 2's contract
+simple and matches every mature framework surveyed for this pass, none of which frames
+a single command-handling abstraction as an atomic multi-stream write mechanism.
+
 ## Compatibility and migration
 
 `NEvo.Ddd.EventSourcing` is documented `status: experimental` and has not reached
@@ -449,12 +530,13 @@ Expected breaking changes within this still-unreleased package: `AddEventSourcin
 signature (D4), `IAggregateRepository`/`IEventStore` member shape (D6), a new
 `AggregateConcurrencyException` replacing a plain `Exception` for concurrency conflicts
 — returned via `Either`, never thrown (D13), the explicit Level 2 handler's `Option<
-TAggregate>` current-state parameter (D24), and `MessageHandlerDescription`'s shape if
-task 05 requires a new field (D3). None of these affect `NEvo.Messaging`/
-`NEvo.Messaging.Cqrs`'s existing public surface, which this change does not alter
-outside the new message-level permission-attribute placement and `MapQueryEndpoint`
-addition (both additive) — and, per D18, **not** `Query<TResult>`/`Message<TResult>`,
-which are confirmed unchanged.
+TAggregate>` current-state parameter (D24), the replacement of `int expectedVersion`
+with an explicit `NoStream`/`Exact(version)` expected-stream-state type (D29), and
+`MessageHandlerDescription`'s shape if task 05 requires a new field (D3). None of these
+affect `NEvo.Messaging`/`NEvo.Messaging.Cqrs`'s existing public surface, which this
+change does not alter outside the new message-level permission-attribute placement and
+`MapQueryEndpoint` addition (both additive) — and, per D18, **not**
+`Query<TResult>`/`Message<TResult>`, which are confirmed unchanged.
 
 Scope reductions recorded across both refinement passes: D12 narrows the original
 brief's "at least in tests" requirement to manual walkthrough for the example service
@@ -466,7 +548,10 @@ scope. D20-D22 remove the "minimum event envelope" design work that was original
 task 02's scope — no envelope type is introduced at all, not even a minimal one. D27
 removes the `WebApplicationFactory`-based integration test that was originally in task
 08's scope. D28 removes the manual concurrent-HTTP-race requirement that was originally
-in task 10's scope.
+in task 10's scope. D29-D31 (narrow reference-pattern refinement) add compatibility
+guardrails rather than reduce scope: an explicit expected-stream-state concept (D29),
+an executor/convention responsibility separation (D30), and a single-write-target
+boundary for Level 2 (D31) — none reopen or narrow D19-D28.
 
 ## Areas
 
@@ -474,10 +559,13 @@ in task 10's scope.
   current green build (task 01). No reorganization, no `ICreateAggregateCommand`
   wiring (D15, D16).
 - `areas/persistence-boundary.md` — Event Store/repository contract hardening,
-  concurrency exception (returned, never thrown), D17/D20-D22 constraints (task 02).
+  concurrency exception (returned, never thrown), explicit `NoStream`/`Exact(version)`
+  expected-stream-state semantics and existence-preserving reads (D29), D17/D20-D22
+  constraints (task 02).
 - `areas/shared-es-execution-and-explicit-handler.md` — the shared executor
-  (aggregate-aware authorization hook only, D25), ambiguity resolution, the
-  explicit Level 2 handler with Some/None semantics (D24) (tasks 03-04).
+  (aggregate-aware authorization hook only, D25; convention-agnostic lifecycle
+  orchestration, D30), ambiguity resolution, the explicit Level 2 handler with
+  Some/None semantics (D24) and single-write-target boundary (D31) (tasks 03-04).
 - `areas/handler-registration-and-options.md` — Primary/Fallback roles, ES registration
   options, and explicit non-ES regression coverage (tasks 05-06).
 - `areas/authorization-integration.md` — message-level/handler-level permission fix
@@ -547,7 +635,25 @@ in task 10's scope.
     event-sourcing.md` is rewritten for maintainers (task 12); neither document presents
     an unimplemented capability (mutable aggregates, functional deciders, persisted
     projections, or a persisted envelope) as available.
-19. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` pass.
+19. No call site anywhere in this change constructs the expected-stream-state value from
+    a bare integer literal `0` to mean "create" (D29).
+20. A read of a stream that has never been appended to returns an explicit "missing"
+    result and does not create a backing-store entry as a side effect (D29).
+21. A `NoStream` append fails with `AggregateConcurrencyException` when the stream
+    already exists; an `Exact(version)` append preserves today's optimistic-concurrency
+    behavior, now expressed through the explicit case instead of a bare integer (D29).
+22. Both Level 1 (convention) and Level 2 (explicit handler) produce the identical
+    `NoStream`/`Exact(version)` mapping from the same `Option<TAggregate>` state,
+    proven by a shared test exercising both routes (D29).
+23. The shared executor's own class contains no reflection/state-method-discovery code
+    — that logic lives only in `AggregateDecider`/`AggregateEvolver` — and the
+    aggregate-method convention (Level 1) still requires no explicit handler
+    registration or extra boilerplate beyond today's aggregate-method discovery (D30).
+24. No mutable-aggregate or static/functional-decider modeling style, no persisted-
+    projection API or mechanism, no `Any`/`IgnoreVersion` expected-stream-state mode,
+    and no multi-aggregate/multi-stream atomic-write capability is introduced anywhere
+    in this change (D17, D29, D30, D31).
+25. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` pass.
 
 ## Verification strategy
 
@@ -581,4 +687,12 @@ repository contracts (D20-D22); a final persistence-provider SPI design (the nex
 real-provider specification owns that); a `NEvo.Ddd.EventSourcing` →
 `NEvo.Messaging.Authorization` project dependency (D26); new integration/e2e test
 infrastructure of any kind (D27); a manufactured concurrent-HTTP-race acceptance test
-in the Documents example (D28).
+in the Documents example (D28); an `ExpectedState.Any`/`IgnoreVersion`/unconditional-
+append mode and any automatic retry/rebase logic after a concurrency conflict (D29); a
+provider-specific stream-revision representation (left to the next real-provider
+specification, D22/D29); any `IDecisionStrategy`/`IMutableAggregateStrategy`/
+`IFunctionalDeciderStrategy`-style plugin/strategy hierarchy (D30); multi-stream atomic
+command execution and any Eventuous-style functional `CommandService<T>` base-class
+abstraction (D31); and any dependency on, or integration with, Eventuous, Marten,
+Wolverine, or Equinox — each was consulted only as architectural inspiration for this
+refinement pass, never as a package this change depends on or wraps.

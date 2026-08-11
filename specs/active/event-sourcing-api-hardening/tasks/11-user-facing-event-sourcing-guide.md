@@ -12,7 +12,7 @@ depends_on:
   - map-query-endpoint-and-get-binding
   - documents-example-es-and-auth-demo
 semantic_references:
-  decisions: [D17, D18, D20, D21, D22, D23, D24, D25, D28]
+  decisions: [D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -115,7 +115,13 @@ shipped, final shape. Sequenced last alongside task 12.
 4. **Command handling choices** — all three levels, explicitly **when to use each**
    (a decision table or equivalent), what plumbing NEvo provides for each, and how
    Level 2 represents "existing aggregate" vs. "creation" explicitly via
-   `Option<TAggregate>` (`Some`/`None`, D24) rather than assuming one or the other.
+   `Option<TAggregate>` (`Some`/`None`, D24) rather than assuming one or the other. State
+   the decision boundary plainly: Level 2 manages exactly one Event Sourced aggregate
+   write per command and may read other data freely for orchestration; a use case
+   needing coordinated writes across two or more independently-versioned aggregate
+   streams belongs to Level 3 or a future saga/process-manager capability (D31) — frame
+   Level 3 as "the right tool for anything that doesn't fit," never as an inferior or
+   legacy option.
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.
@@ -130,7 +136,12 @@ shipped, final shape. Sequenced last alongside task 12.
 7. **Persistence and concurrency** — Event Store vs. repository responsibilities
    (task 02), replay, stream version (out-of-band, not an envelope field),
    optimistic concurrency, `AggregateConcurrencyException` **returned** via `Either`
-   (never thrown — D13). Explain the three distinct layers plainly (D20-D22): the
+   (never thrown — D13). Explain the create-vs-update mental model plainly: creating a
+   new aggregate expects no existing stream, updating an existing one expects it to be
+   at exactly the version last observed — no unconditional/"don't check" append mode and
+   no automatic retry after a conflict exists (D29); this is a concept-level explanation
+   for readers, not a requirement to name the internal expected-stream-state type.
+   Explain the three distinct layers plainly (D20-D22): the
    domain event payload (unchanged `Event : Message`), runtime message-processing
    context (`IMessageContext`, already carrying correlation/causation), and a future
    provider's own persisted representation — **no envelope type exists in this

@@ -34,6 +34,18 @@ folding events via `evolver.Evolve` (`IAggregateRepository.cs:53-69`). The only
 `expectedVersion != stream.Count` and returns a plain `new Exception(...)` on mismatch
 (lines 20-22) — no dedicated type.
 
+**The "magic `0`" problem (D29).** `DeciderCommandHandler.HandleAsync`
+(`Handling/DeciderCommandHandler.cs`) calls `AppendEventsAsync(..., expectedVersion: 0,
+...)` for the creation path (`Option<TAggregate>.None`) and `AppendEventsAsync(...,
+expectedVersion: loaded.Version, ...)` for the mutation path
+(`Option<TAggregate>.Some`) — the literal `0` is overloaded to mean both "the stream
+must not already exist" and "the expected version happens to be zero," a distinction a
+real provider (PostgreSQL/Marten/Kurrent-style) naturally keeps separate.
+`FakeEventStore.LoadEventsStreamAsync` (`ServiceCollectionExtensions.cs`) also
+side-effects a stream into existence merely by being read
+(`_store.GetOrAdd(streamId, _ => [])`) — a missing stream and an existing-but-empty
+stream are currently indistinguishable at the read boundary.
+
 Domain events already derive from `Event : Message`
 (`src/NEvo.Messaging/Events/Event.cs:6-10`), and `Message(Guid Id, DateTime CreatedAt)`
 (`src/NEvo.Messaging/Message.cs:6-9`) supplies only `Id`/`CreatedAt`. `IAggregateEvent<
@@ -69,6 +81,23 @@ Middleware`/`CausationIdMessageProcessingMiddleware`, and stay exactly there.
   specification names (single-transaction Event Store+inbox+outbox; EF/Marten sharing
   one physical transaction; external Event Store with no shared ACID transaction;
   modular monolith with per-module persistence).
+- **Replace the magic `expectedVersion = 0` create convention with an explicit expected-
+  stream-state concept (D29).** `IEventStreamStore`'s append contract distinguishes
+  `NoStream` (valid only if the stream does not exist) from `Exact(version)` (valid only
+  if the stream is at exactly that version) — exact naming not owner-fixed (e.g.
+  `ExpectedStreamState`/`ExpectedStreamVersion`, each with `NoStream`/`Exact(version)`
+  cases). **Do not add `Any`/`IgnoreVersion`/unconditional-append, and do not add
+  automatic retry/rebase semantics** — D29 explicitly rejects both; there is no current
+  use case for either.
+- **The stream read contract must preserve stream existence (D29).** The low-level read
+  result must let the repository distinguish "missing stream" from "existing stream at
+  a particular revision" explicitly — not merely `events: [], version: 0` for both. Use
+  the smallest coherent shape (e.g. an `Option<StreamData>`-style result) — do not
+  introduce a full provider event-envelope/storage-record abstraction to achieve this
+  (D20-D22 still apply).
+- **`FakeEventStore`'s read path must not create a stream as a side effect of being
+  read (D29).** A read of a nonexistent stream stays observably "no stream" until an
+  append actually creates it — fix the current `GetOrAdd`-on-read behavior.
 
 ## Constraints
 
@@ -79,6 +108,9 @@ Middleware`/`CausationIdMessageProcessingMiddleware`, and stay exactly there.
   (concurrency control, snapshots, event schema versioning, projection rebuild, EF store
   intent) as still-open beyond what this change explicitly resolves (concurrency control
   is resolved here; the rest remain open for later specs).
+- D22 remains in force — introducing `NoStream`/`Exact(version)` semantics does not
+  freeze the low-level provider SPI; the next real-provider specification may still
+  refine the concrete storage/revision representation.
 
 ## Interfaces and boundaries
 
@@ -104,6 +136,15 @@ Middleware`/`CausationIdMessageProcessingMiddleware`, and stay exactly there.
 4. No new global position/checkpoint/subscription field or type is introduced.
 5. No event envelope, correlation/causation field, or other persistence-metadata type
    is introduced anywhere in this area's diff (D20-D22).
+6. The append contract expresses `NoStream`/`Exact(version)` distinctly — no member or
+   caller relies on the numeric literal `0` to mean "create" (inspection + a unit test
+   asserting a `NoStream` append against an existing stream fails with
+   `AggregateConcurrencyException`, per D29).
+7. A read of a stream that was never appended to returns an explicit "missing"
+   result and does not create an entry in `FakeEventStore`'s backing store as a side
+   effect (automated, per D29).
+8. No `Any`/`IgnoreVersion`/unconditional-append mode and no automatic retry/rebase
+   behavior exists anywhere in this area's diff (inspection, per D29).
 
 ## Dependencies
 

@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - characterize-event-sourcing-baseline
 semantic_references:
-  decisions: [D6, D13, D17, D19, D20, D21]
+  decisions: [D6, D13, D17, D19, D20, D21, D29]
   dependency_contracts: [characterize-event-sourcing-baseline]
 context:
   required:
@@ -33,12 +33,14 @@ forbidden_paths:
 ## Goal
 
 Split raw stream persistence from aggregate rehydration, remove the unfinished
-projection-loading responsibility from the aggregate repository, and introduce a
-dedicated `AggregateConcurrencyException` for expected-version mismatches (D6, D13) —
-while keeping the contracts agnostic to *how* a caller produces the next aggregate
-state (D17). **Do not design a persisted event envelope of any kind, minimal or
-otherwise (D20-D22)** — this task's scope on that front is to preserve today's
-separation (domain event payload vs. out-of-band stream version), not to extend it.
+projection-loading responsibility from the aggregate repository, introduce a
+dedicated `AggregateConcurrencyException` for expected-version mismatches (D6, D13),
+and replace the magic `expectedVersion = 0` create convention with an explicit
+`NoStream`/`Exact(version)` expected-stream-state concept (D29) — while keeping the
+contracts agnostic to *how* a caller produces the next aggregate state (D17). **Do not
+design a persisted event envelope of any kind, minimal or otherwise (D20-D22)** — this
+task's scope on that front is to preserve today's separation (domain event payload vs.
+out-of-band stream version), not to extend it.
 
 ## Dependencies
 
@@ -83,6 +85,30 @@ separation (domain event payload vs. out-of-band stream version), not to extend 
 - Rename members only where doing so materially clarifies the split (e.g. `AppendEventsAsync`
   staying on both the stream store and, if still needed, the repository's pass-through)
   — do not rename for its own sake beyond what the interface split requires.
+- **Replace `int expectedVersion` with an explicit expected-stream-state concept (D29):**
+  a `NoStream` case (valid only if the stream does not yet exist) and an `Exact(version)`
+  case (valid only if the stream is at exactly that version). Exact type/case naming is
+  this task's judgment call (e.g. `ExpectedStreamState.NoStream`/
+  `ExpectedStreamState.Exact(int version)`) — ground it in existing NEvo naming
+  conventions. Update `DeciderCommandHandler`'s (or its task-03 successor's) call sites
+  so the creation path (`Option<TAggregate>.None`) passes `NoStream` and the mutation
+  path (`Option<TAggregate>.Some`) passes `Exact(loaded.Version)` — no call site may
+  construct this from a bare integer literal `0` to mean "create." **Do not add an
+  `Any`/`IgnoreVersion`/unconditional-append case, and do not add retry/rebase
+  semantics** — both explicitly rejected by D29.
+- **Make the stream read result preserve existence (D29):** `LoadEventsStreamAsync` (or
+  its refined equivalent) must let the caller distinguish "this stream has never been
+  appended to" from "this stream exists with N events" — do not collapse both into
+  `(events: [], version: 0)`. Use the smallest coherent shape (e.g. wrapping the current
+  tuple in an `Option<...>`, or an equivalent explicit result) — do not build a general
+  provider event-envelope/storage-record type to achieve this (D20-D22 still apply).
+- **Fix `FakeEventStore`'s read-creates-a-stream side effect (D29):**
+  `LoadEventsStreamAsync`'s current `_store.GetOrAdd(streamId, _ => [])` implicitly
+  creates an empty stream entry merely by being read. After this task, reading a stream
+  that has never been appended to must return the explicit "missing" result without
+  mutating `FakeEventStore`'s backing dictionary — verify with a test that reads the
+  same nonexistent stream twice and then asserts a subsequent `NoStream` append still
+  succeeds (proving the second read didn't silently "create" it).
 
 ## Acceptance criteria
 
@@ -92,8 +118,10 @@ separation (domain event payload vs. out-of-band stream version), not to extend 
 2. `AggregateConcurrencyException` is **returned** as `Either<Exception, Unit>.Left` on
    an expected-version mismatch (never thrown), proven by a unit test against the
    updated `FakeEventStore` (automated).
-3. Every existing characterization test from task 01 covering append/load still passes
-   unmodified in its assertions (automated).
+3. Every existing characterization test from task 01 covering append/load still passes,
+   with its *assertions* unchanged — call sites necessarily adapt to the new
+   `NoStream`/`Exact(version)` parameter type in place of a bare `int` (D29), but no
+   test's expected outcome changes (automated).
 4. No global position/checkpoint field or subscription-related type is introduced
    (inspection).
 5. Neither `IEventStreamStore` nor `IAggregateRepository`'s public members reference or
@@ -101,6 +129,23 @@ separation (domain event payload vs. out-of-band stream version), not to extend 
    of "an object with an `Evolve` method") — inspection, per D17.
 6. No event envelope, correlation/causation field, or other persistence-metadata type
    exists anywhere in this task's diff (inspection, per D20-D22).
+7. A read of a stream that has never been appended to returns an explicit "missing"
+   result (automated).
+8. That same read does not create a backing-store entry as a side effect — proven by
+   reading a nonexistent stream, then successfully appending to it with `NoStream`
+   (automated; a prior side-effect creation would make this fail with a concurrency
+   conflict instead).
+9. A `NoStream` append succeeds when the stream does not exist, and fails with
+   `AggregateConcurrencyException` (returned, never thrown) when it already exists
+   (automated).
+10. An `Exact(version)` append succeeds at the observed version and fails with
+    `AggregateConcurrencyException` after another writer has advanced the stream
+    (automated — this is the existing optimistic-concurrency behavior, now expressed
+    through the explicit case instead of a bare integer).
+11. No `Any`/`IgnoreVersion`/unconditional-append case and no automatic retry/rebase
+    logic exists anywhere in this task's diff (inspection, per D29).
+12. No call site constructs the expected-stream-state value from a bare integer literal
+    `0` to mean "create" (inspection).
 
 ## Verification
 

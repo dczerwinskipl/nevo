@@ -7,6 +7,18 @@ the aggregate-method convention (Level 1) and the explicit Event Sourced handler
 2), with deterministic most-specific-state-method resolution and the full ordering
 semantics the input specification requires.
 
+**Scope note (2026-08-11, narrow reference-design refinement):** two guardrails added,
+neither changing the area's core shape. First (D29): the executor maps
+`Option<TAggregate>.None` to task 02's new `NoStream` expected-stream-state and loaded
+`Option<TAggregate>.Some` to `Exact(loaded.Version)` — replacing the old bare-`0`
+convention. Second (D30): the executor's own responsibility is lifecycle orchestration
+only — it depends on/invokes a supplied decision mechanism (already `IDecider`/
+`IEvolver` in current code); reflection/state-method discovery stays the aggregate-
+method convention's own concern (`AggregateDecider`/`AggregateEvolver`), not something
+intrinsic to the executor class. This area's most-specific-wins resolution work (D2)
+still lands in this area/task, but as hardening to the convention's own discovery
+logic, not as new executor responsibility.
+
 ## Current state
 
 `DeciderCommandHandler.HandleAsync` (`Handling/DeciderCommandHandler.cs:14-34`) today
@@ -53,21 +65,36 @@ something the executor itself invokes.
   input specification) that owns: load and rehydrate; aggregate/resource-aware
   authorization (task 07's extension point — the executor's *only* authorization
   concern, invoked from here after rehydration, before decision, receiving the current
-  state as `Option<TAggregate>`, D24-D25); execute decision; append using expected
-  version (task 02's store/exception types); ensure the append is durable/visible
-  before triggering synchronous downstream processing (the storage-contract guarantee,
-  D23 — see below); allow downstream synchronous handlers to make their own changes
-  visible; leave final application transaction commit to the outer pipeline. **The
-  executor does not perform message/command validation and does not invoke normal
-  message-level or handler-level permission checks — both already ran upstream in the
-  messaging pipeline before the executor's handler is ever invoked (D25). The executor
-  never duplicates that behavior.**
+  state as `Option<TAggregate>`, D24-D25); invoke a *supplied* decision operation (D30 —
+  see below, not reflection the executor performs itself); append using the correct
+  expected stream state, mapping `Option<TAggregate>.None` → `NoStream` and loaded
+  `Option<TAggregate>.Some` → `Exact(loaded.Version)` (D29, task 02's contract); ensure
+  the append is durable/visible before triggering synchronous downstream processing
+  (the storage-contract guarantee, D23 — see below); allow downstream synchronous
+  handlers to make their own changes visible; leave final application transaction
+  commit to the outer pipeline. **The executor does not perform message/command
+  validation and does not invoke normal message-level or handler-level permission
+  checks — both already ran upstream in the messaging pipeline before the executor's
+  handler is ever invoked (D25). The executor never duplicates that behavior.**
+- **The executor is convention-agnostic (D30) — reflection/state-method discovery is
+  not its responsibility.** It depends on/invokes a supplied decision mechanism —
+  already `IDecider`/`IDeciderRegistry`/`IEvolver` in current code
+  (`DeciderCommandHandler.HandleAsync` already resolves `IDecider` and calls
+  `decider.DecideAsync` rather than performing reflection inline) — and this area's own
+  hardening work preserves that shape rather than folding reflection into the executor
+  class itself. The most-specific-wins resolution algorithm below is hardening to
+  `AggregateDecider`/`AggregateEvolver`'s own discovery logic (the aggregate-method
+  convention's concern), not new responsibility added to the executor. No speculative
+  decision-strategy/plugin hierarchy (`IDecisionStrategy`, `IMutableAggregateStrategy`,
+  `IFunctionalDeciderStrategy`, or similar) is introduced — D30 explicitly rejects that
+  option.
 - Both Level 1 (convention) and Level 2 (explicit handler, task 04) route through this
   one executor — no duplicated load/replay/append/publish logic between them.
 - Implement deterministic state-method resolution: exact runtime type preferred,
   otherwise nearest compatible base-state implementation, equally-specific ambiguous
   candidates fail as a configuration/runtime error (D2). Applies to both decider and
-  evolver resolution.
+  evolver resolution. This hardens `AggregateDecider`/`AggregateEvolver` themselves
+  (the convention's discovery components), consistent with D30.
 - The explicit `IEventSourcedCommandHandler<TCommand, TAggregate, TId>` (or refined
   equivalent name) receives the current state as `Option<TAggregate>` — `Some` when an
   existing stream/aggregate was rehydrated, `None` on the creation path — and the
@@ -134,6 +161,14 @@ something the executor itself invokes.
 7. The executor's own code never calls into `ValidatePermissionMiddleware`,
    `IDataScopeMessageValidator`, or any other normal-permission-check type — inspection,
    per D25.
+8. The executor maps `Option<TAggregate>.None` to `NoStream` and loaded
+   `Option<TAggregate>.Some` to `Exact(loaded.Version)` when appending — proven by a test
+   exercising both the creation path and the mutation path and asserting the expected-
+   stream-state value passed to the store in each case (D29).
+9. The executor class itself contains no reflection/state-method-discovery logic — that
+   code lives only in `AggregateDecider`/`AggregateEvolver` — and no
+   `IDecisionStrategy`-style plugin/strategy hierarchy exists anywhere in this area's
+   diff (inspection, per D30).
 
 ## Dependencies
 
@@ -148,3 +183,9 @@ something the executor itself invokes.
 - Normal message-level/handler-level permission checks and their implementation
   (area `authorization-integration`, entirely in the messaging pipeline, D25) —
   this area exposes only the one aggregate-aware hook point.
+- Any decision-strategy/plugin hierarchy (`IDecisionStrategy` or similar) intended to
+  make the executor host multiple decision mechanisms — the executor depends on the
+  existing `IDecider`/`IEvolver` shape only (D30).
+- An `Any`/`IgnoreVersion` expected-stream-state case and automatic retry/rebase logic
+  on concurrency conflict (D29) — a conflict always surfaces as `Either.Left`, never
+  retried by the executor.

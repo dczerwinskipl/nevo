@@ -12,7 +12,7 @@ depends_on:
   - map-query-endpoint-and-get-binding
   - documents-example-es-and-auth-demo
 semantic_references:
-  decisions: [D17, D20, D21, D22, D23, D24, D25, D26]
+  decisions: [D17, D20, D21, D22, D23, D24, D25, D26, D29, D30]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -80,6 +80,19 @@ shipped, final shape. Sequenced last alongside task 11.
   directly referenced here so a maintainer implementing a future provider or modeling
   style finds it without cross-referencing the spec history). Do not make a maintainer
   reverse-engineer any of this from source or from user-facing documentation.
+- Document two additional guardrails from the reference-pattern refinement, both framed
+  as protecting future work from requiring a lifecycle rewrite — not as describing a
+  capability that exists today: (1) the explicit `NoStream`/`Exact(version)`
+  expected-stream-state concept replacing the old bare-`0` create convention, and the
+  read contract's existence-preserving guarantee (D29); (2) the separation between the
+  executor's lifecycle-orchestration responsibility and the aggregate-method
+  convention's own reflection/state-method-discovery responsibility (`AggregateDecider`/
+  `AggregateEvolver`) — the executor depends on/invokes `IDecider`/`IEvolver` without
+  itself performing reflection, so a future non-reflection-based modeling style could in
+  principle supply its own `IDecider`/`IEvolver` implementation without requiring
+  changes to the executor's lifecycle code (D30). State plainly that no such alternative
+  modeling style exists today — this is a documented compatibility property of the
+  boundary, not an announced feature.
 - Update the `status:` front-matter field from `experimental` with a one-line note on
   why (or keep it `experimental` with a note on what's now hardened vs. still open) —
   do not silently drop the status without explanation; this specification does not ship
@@ -123,6 +136,14 @@ shipped, final shape. Sequenced last alongside task 11.
 8. The document describes the Level 2 handler's and aggregate-aware hook's current-
    state parameter as explicit `Option<TAggregate>` (`Some`/`None`), never a bare
    `TAggregate` or `null` (inspection, per D24).
+9. The document describes the `NoStream`/`Exact(version)` expected-stream-state concept
+   and the existence-preserving read contract, replacing the old magic-`0` description
+   (inspection, per D29).
+10. The document describes the executor/convention separation — lifecycle orchestration
+    in the executor vs. reflection/discovery in `AggregateDecider`/`AggregateEvolver` —
+    and states plainly that no alternative (non-reflection-based) modeling style exists
+    today, framing the separation as a compatibility property rather than an announced
+    feature (inspection, per D30).
 
 ## Verification
 

@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - harden-event-store-and-repository-contracts
 semantic_references:
-  decisions: [D1, D2, D7, D17, D23, D24, D25]
+  decisions: [D1, D2, D7, D17, D23, D24, D25, D29, D30]
   dependency_contracts: [harden-event-store-and-repository-contracts]
 context:
   required:
@@ -37,6 +37,12 @@ Level 1 (convention) and Level 2 (explicit handler, task 04), with deterministic
 most-specific-state-method resolution replacing today's first-match behavior (D2), and
 correct ordering so the source event is appended/persisted (and, for a future
 `DbContext`-backed store, saved) before any synchronous downstream handler runs (D7).
+Two narrow guardrails from the reference-pattern refinement land in this task: the
+executor appends using an explicit `NoStream`/`Exact(version)` expected-stream-state
+instead of a bare `0` (D29), and the executor's own class stays free of reflection/
+state-method-discovery logic — that stays `AggregateDecider`/`AggregateEvolver`'s
+concern, with the executor only depending on/invoking the `IDecider`/`IEvolver` shape
+those types already implement (D30).
 
 ## Dependencies
 
@@ -49,8 +55,11 @@ correct ordering so the source event is appended/persisted (and, for a future
   authorization hook point as an extension point it calls out to (task 07 implements
   the actual logic — this task only defines *where* the call happens and passes what
   it needs: the command, the current state as `Option<TAggregate>`, and the message
-  context, D24-D25); execute the decision; append using expected version; ensure
-  downstream synchronous handlers observe the appended state. **The executor does not
+  context, D24-D25); invoke the decision operation supplied by task 02's
+  `IDecider`/`IEvolver` shape; append, mapping `Option<TAggregate>.None` to `NoStream`
+  and loaded `Option<TAggregate>.Some` to `Exact(loaded.Version)` — never a bare integer
+  literal `0` (D29, task 02's `IEventStreamStore` contract); ensure downstream
+  synchronous handlers observe the appended state. **The executor does not
   perform message/command validation and does not invoke normal message-level or
   handler-level permission checks (`ValidatePermissionMiddleware`,
   `IDataScopeMessageValidator`, or equivalents) — those already ran upstream in the
@@ -77,14 +86,19 @@ correct ordering so the source event is appended/persisted (and, for a future
   in terms of "calling `.Evolve()` on an object." This is the same constraint task 02
   applies to the repository/store — this task carries it through to the executor that
   consumes those contracts.
-- State-method resolution algorithm: collect every candidate decider/evolver method
-  whose declaring type `IsAssignableFrom` the current runtime aggregate type; if exactly
-  one candidate has no more-specific candidate among the others (i.e. no other
-  candidate's declaring type is itself assignable to it), that one wins; if two or more
-  remain tied at the most-specific level, fail with a deterministic
-  configuration/runtime error naming the command/event and the tied candidate types —
-  never rely on enumeration order or `.First()`/`.ToOption()`-style first-match
-  behavior.
+- **This hardens the aggregate-method convention's own discovery logic, not the
+  executor (D30).** State-method resolution algorithm — implemented in
+  `AggregateDecider.GetDeciderDelegate`/`AggregateEvolver.GetEvolverDelegate`, not in the
+  executor class: collect every candidate decider/evolver method whose declaring type
+  `IsAssignableFrom` the current runtime aggregate type; if exactly one candidate has no
+  more-specific candidate among the others (i.e. no other candidate's declaring type is
+  itself assignable to it), that one wins; if two or more remain tied at the
+  most-specific level, fail with a deterministic configuration/runtime error naming the
+  command/event and the tied candidate types — never rely on enumeration order or
+  `.First()`/`.ToOption()`-style first-match behavior. The executor depends on the
+  resulting `IDecider`/`IEvolver` only through the same interfaces it already uses today
+  — it gains no new reflection responsibility of its own, and no
+  `IDecisionStrategy`-style plugin/strategy hierarchy is introduced (D30).
 - Both the convention route (this task, invoked by whatever DI wiring task 05/06 use)
   and the explicit Level 2 handler (task 04) call into this one executor — no duplicated
   load/decide/append logic between them.
@@ -119,6 +133,15 @@ correct ordering so the source event is appended/persisted (and, for a future
 8. The executor's own code contains no call to `ValidatePermissionMiddleware`,
    `IDataScopeMessageValidator`, or any other normal-permission-check type (inspection,
    per D25).
+9. The executor's append call passes `NoStream` on the creation path and
+   `Exact(loaded.Version)` on the mutation path — proven by a test asserting the
+   expected-stream-state value passed to the store for each path, and by inspection that
+   no call site constructs it from a bare integer literal `0` (automated + inspection,
+   per D29).
+10. No reflection/state-method-discovery code exists in the executor class itself, and no
+    `IDecisionStrategy`-style plugin/strategy hierarchy exists anywhere in this task's
+    diff — inspection confirms that logic lives only in `AggregateDecider`/
+    `AggregateEvolver` (per D30).
 
 ## Verification
 
@@ -142,3 +165,7 @@ None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 - Handler registration/role metadata (task 05).
 - Any folder/namespace reorganization, and wiring `ICreateAggregateCommand` into any
   resolution logic — both out of scope for the whole change (D15, D16).
+- Any decision-strategy/plugin hierarchy (`IDecisionStrategy` or similar) — the executor
+  depends on the existing `IDecider`/`IEvolver` shape only (D30).
+- An `Any`/`IgnoreVersion` expected-stream-state case and automatic retry/rebase logic on
+  concurrency conflict (D29).
