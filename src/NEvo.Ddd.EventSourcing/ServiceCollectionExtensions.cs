@@ -99,15 +99,17 @@ public static class ServiceCollectionExtensions
                 options.AggregateTypes.UnionWith(aggregateTypes);
             });
 
-            // Registered both as itself (so a Level 2 handler can inject the concrete
-            // aggregate-method convention unambiguously, per IEventSourcedCommandHandler's
-            // own doc) and as IDecider (so DeciderRegistry's IEnumerable<IDecider>
-            // collection sees it as one of possibly several decision mechanisms) — two
-            // independent singleton instances, since the DI container does not share an
-            // instance across two differently-typed registrations of the same
-            // implementation type; both do identical, cheap, deterministic setup work.
+            // AggregateDecider is the current implementation of two distinct public
+            // roles, both resolving to the same singleton instance: IAggregateMethodDecider
+            // (the stable capability an explicit Event Sourced handler delegates to) and
+            // IDecider (one of possibly several decision mechanisms DeciderRegistry's
+            // IEnumerable<IDecider> collection sees). The concrete AggregateDecider type
+            // itself is registered only so the two factories below can resolve the same
+            // instance — it is not a public dependency application code should inject.
             services.TryAddSingleton<AggregateDecider>();
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>());
+            Func<IServiceProvider, AggregateDecider> resolveAggregateDecider = sp => sp.GetRequiredService<AggregateDecider>();
+            services.TryAddSingleton<IAggregateMethodDecider>(resolveAggregateDecider);
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider>(resolveAggregateDecider));
             services.TryAddSingleton<IAggregateDeciderProvider, AggregateDeciderProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IEvolver, AggregateEvolver>());
         }

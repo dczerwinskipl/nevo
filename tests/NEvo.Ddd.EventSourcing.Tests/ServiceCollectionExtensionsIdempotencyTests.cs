@@ -35,9 +35,12 @@ public class ServiceCollectionExtensionsIdempotencyTests
 
         services.Count(d => d.ServiceType == typeof(IMessageHandlerProvider) && d.ImplementationType == typeof(DeciderCommandHandlerProvider))
             .Should().Be(1);
-        services.Count(d => d.ServiceType == typeof(IDecider) && d.ImplementationType == typeof(AggregateDecider))
-            .Should().Be(1);
         services.Should().ContainSingle(d => d.ServiceType == typeof(AggregateDecider));
+        // IDecider/IAggregateMethodDecider are registered via a factory delegating to the
+        // AggregateDecider singleton above, not a typed descriptor, so ImplementationType
+        // is not checked here.
+        services.Count(d => d.ServiceType == typeof(IDecider)).Should().Be(1);
+        services.Should().ContainSingle(d => d.ServiceType == typeof(IAggregateMethodDecider));
         services.Count(d => d.ServiceType == typeof(IEvolver) && d.ImplementationType == typeof(AggregateEvolver))
             .Should().Be(1);
         services.Should().ContainSingle(d => d.ServiceType == typeof(IAggregateDeciderProvider));
@@ -49,15 +52,21 @@ public class ServiceCollectionExtensionsIdempotencyTests
     }
 
     [Fact]
-    public void AddEventSourcing_ConcreteAggregateDecider_IsResolvableDirectly()
+    public void AddEventSourcing_IAggregateMethodDecider_IsResolvableAndSharesTheSameInstanceAsIDecider()
     {
-        // The explicit Level 2 handler doc recommends injecting the concrete
-        // AggregateDecider directly rather than the general IDecider — this proves that
-        // registration actually resolves, independent of the IDecider collection.
+        // IAggregateMethodDecider is the stable public capability an explicit Event
+        // Sourced handler delegates to — this proves it resolves, and that it and
+        // IDecider's own registration share one physical AggregateDecider instance
+        // rather than doing the same discovery/setup work twice.
         var services = new ServiceCollection();
         services.AddEventSourcing(typeof(Document));
         var provider = services.BuildServiceProvider();
 
-        provider.GetRequiredService<AggregateDecider>().Should().NotBeNull();
+        var capability = provider.GetRequiredService<IAggregateMethodDecider>();
+        var viaRegistry = provider.GetRequiredService<IDecider>();
+        var concrete = provider.GetRequiredService<AggregateDecider>();
+
+        capability.Should().BeSameAs(concrete);
+        viaRegistry.Should().BeSameAs(concrete);
     }
 }

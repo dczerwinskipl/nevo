@@ -2,9 +2,12 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 
 /// <summary>
 /// Resolves and invokes the aggregate-method decision for a command by inspecting the
-/// current aggregate instance's runtime type.
+/// current aggregate instance's runtime type. The current implementation of both
+/// <see cref="Deciding.IDecider"/> (the general decision-mechanism registry
+/// abstraction) and <see cref="IAggregateMethodDecider"/> (the stable, purpose-specific
+/// capability an explicit Event Sourced handler delegates to).
 /// </summary>
-public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider
+public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider, IAggregateMethodDecider
 {
     public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command)
         where TAggregate : IAggregateRoot<TId>

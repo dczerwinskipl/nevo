@@ -38,6 +38,21 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/harden-event-store-and-repository-contracts
 
+Fourth re-review (2026-08-11, final API cleanup pass — narrow implementation
+correction, no spec refinement; task fingerprint unchanged at
+`f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b`, confirming this).
+`ApplyEvents`'s explicit `IEnumerator`/`MoveNext`/`Current` loop (the previous pass's
+fix for multiple enumeration) was replaced with a plain `foreach` over an
+`Either<Exception, Option<TAggregate>>` accumulator — same single-enumeration/
+short-circuit guarantee, expressed as the actual fold instead of an
+enumerator-mechanics workaround. See `es-command-executor-and-ambiguity-resolution`'s
+review for the full detail and the new `AggregateRepositoryApplyEventsTests.cs`
+coverage (empty/one/multiple events, plus a failure-short-circuits-without-enumerating-
+the-remainder proof). `IEventStreamStore`'s doc (this task's own prior fix, below) was
+re-checked and remains correct, no further change needed.
+
+---
+
 Third re-review (2026-08-11, owner code review of the pushed correction). Baseline:
 this file's prior content (`pass`). Owner found the doc-hygiene pass below had
 introduced a factual error: `IEventStreamStore`'s doc said it "does not rehydrate

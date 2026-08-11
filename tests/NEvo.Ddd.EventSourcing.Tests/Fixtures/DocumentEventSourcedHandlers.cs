@@ -4,9 +4,9 @@ using NEvo.Ddd.EventSourcing.Handling;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
-// Explicit Level 2 handlers that delegate to the aggregate-method convention's own
-// decision-method discovery (the concrete AggregateDecider) rather than duplicating the
-// aggregate's transition logic, for both the mutate (Approve) and create (Create) paths.
+// Explicit Level 2 handlers that delegate to the aggregate-method convention (via
+// IAggregateMethodDecider) rather than duplicating the aggregate's transition logic,
+// for both the mutate (Approve) and create (Create) paths.
 
 public interface IReviewNotesProvider
 {
@@ -25,21 +25,21 @@ public class FakeReviewNotesProvider : IReviewNotesProvider
 }
 
 // Orchestration/I-O (reading review notes via an injected dependency) before delegating
-// to the convention's own Approve decider for the actual transition.
-public class ApproveDocumentEventSourcedHandler(AggregateDecider decider, IReviewNotesProvider notesProvider)
+// to the convention's own Approve decision for the actual transition.
+public class ApproveDocumentEventSourcedHandler(IAggregateMethodDecider aggregateDecider, IReviewNotesProvider notesProvider)
     : IEventSourcedCommandHandler<ApproveDocument, Document, Guid>
 {
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>> HandleAsync(ApproveDocument command, Option<Document> aggregate, CancellationToken cancellationToken)
     {
         _ = notesProvider.GetNotes(command.DocumentId);
-        return decider.DecideAsync(aggregate, command, cancellationToken);
+        return aggregateDecider.DecideAsync(aggregate, command, cancellationToken);
     }
 }
 
 // Pure delegation to the convention's creation decision path for the None case.
-public class CreateDocumentEventSourcedHandler(AggregateDecider decider)
+public class CreateDocumentEventSourcedHandler(IAggregateMethodDecider aggregateDecider)
     : IEventSourcedCommandHandler<CreateDocument, Document, Guid>
 {
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>> HandleAsync(CreateDocument command, Option<Document> aggregate, CancellationToken cancellationToken)
-        => decider.DecideAsync(aggregate, command, cancellationToken);
+        => aggregateDecider.DecideAsync(aggregate, command, cancellationToken);
 }

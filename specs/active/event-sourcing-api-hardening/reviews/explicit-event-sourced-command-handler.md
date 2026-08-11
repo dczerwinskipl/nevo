@@ -11,6 +11,59 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/explicit-event-sourced-command-handler
 
+Third re-review (2026-08-11, final API cleanup pass — narrow implementation
+correction, no spec refinement; task fingerprint unchanged at
+`c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66`, confirming this —
+matches task 04's own text, which already asked for "a helper the handler can call...
+so the transition logic itself is written once," without naming a concrete type, so
+introducing this interface implements that existing requirement rather than changing
+it). Baseline: this file's prior content (`pass`). The previous pass's fix (inject the
+concrete `AggregateDecider` directly) corrected the ambiguity risk but turned a
+reflection/discovery implementation detail into the Level 2 public dependency — the
+public use case is "execute the aggregate-method decision convention," not "give me
+this concrete class." Fixed:
+
+- Added `IAggregateMethodDecider` (`Deciding/`) — a small, purpose-specific interface
+  for exactly the aggregate-method convention capability, distinct from `IDecider`
+  (the general, possibly-multi-implementation registry abstraction). `AggregateDecider`
+  now implements both; its own `DecideAsync<TAggregate,TId>` signature already matched
+  what `IAggregateMethodDecider` needed, so no new method was written, only the
+  additional interface declaration.
+- `IEventSourcedCommandHandler<,,>`'s doc, and the `ApproveDocumentEventSourcedHandler`/
+  `CreateDocumentEventSourcedHandler` test fixtures, now reference
+  `IAggregateMethodDecider` — never the concrete `AggregateDecider`, never the general
+  `IDecider`.
+- `AddEventSourcing` registers `AggregateDecider` as itself only so
+  `IAggregateMethodDecider`'s and `IDecider`'s factories can resolve the same
+  instance — not as a public dependency (see
+  `es-command-executor-and-ambiguity-resolution`'s review for the DI registration
+  shape and why the delegate-covariance factory approach was needed).
+- New test
+  (`Adapter_ResolvesTheHandlerThroughDI_WithOnlyIAggregateMethodDeciderRegistered_NoConcreteAggregateDeciderNeeded`)
+  builds a `ServiceProvider` registering only `IAggregateMethodDecider` (no concrete
+  `AggregateDecider` anywhere in that container) and resolves
+  `IEventSourcedCommandHandler<CreateDocument,Document,Guid>` successfully — proving
+  consumer code genuinely does not need the concrete type, not just asserting it by
+  inspection.
+- Separately, `AllowAllAggregateAuthorization<,,>` (this task's own prior rename) is
+  now `internal sealed` — the earlier pass investigated this and kept it `public`
+  reasoning there was no `internal`/`InternalsVisibleTo` precedent in `src/`; the owner
+  has since decided the default-Null-Object-as-public-dependency concern outweighs
+  that precedent gap. Every test that previously constructed
+  `AllowAllAggregateAuthorization<,,>` directly (four files, same reason as
+  `IAggregateMethodDecider` above — a stub needed to satisfy a constructor parameter,
+  not testing authorization itself) was moved to a new test-only
+  `AlwaysAllowAuthorization<,,>` fixture instead of adding `InternalsVisibleTo` — this
+  proves the internal type's own behavior only through the public
+  `IAggregateAuthorization<,,>` registration/resolution path
+  (`AllowAllAggregateAuthorizationTests.cs`), matching this task's own established
+  "prove through public execution" pattern rather than depending on the concrete
+  default. No `InternalsVisibleTo` was added anywhere.
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 50/50.
+
+---
+
 Second re-review (2026-08-11, owner code review of the pushed correction). Baseline:
 this file's prior content (`pass`). Owner found `IEventSourcedCommandHandler<,,>`'s own
 doc instructed callers to "inject `Deciding.IDecider` and call `DecideAsync`" to

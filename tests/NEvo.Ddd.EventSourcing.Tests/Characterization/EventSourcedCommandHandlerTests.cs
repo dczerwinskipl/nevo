@@ -86,6 +86,21 @@ public class EventSourcedCommandHandlerTests
     }
 
     [Fact]
+    public void Adapter_ResolvesTheHandlerThroughDI_WithOnlyIAggregateMethodDeciderRegistered_NoConcreteAggregateDeciderNeeded()
+    {
+        var repository = CreateRepository(out var publisher);
+        var provider = BuildServiceProvider(repository, publisher);
+
+        // BuildServiceProvider registers only IAggregateMethodDecider, never the
+        // concrete AggregateDecider type — this proves CreateDocumentEventSourcedHandler
+        // (which depends on IAggregateMethodDecider) is fully resolvable through DI
+        // without it.
+        provider.GetService(typeof(AggregateDecider)).Should().BeNull();
+        var handler = provider.GetRequiredService<IEventSourcedCommandHandler<CreateDocument, Document, Guid>>();
+        handler.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Adapter_CreatePath_ExecutesThroughSharedExecutor_PersistingTheNewStream()
     {
         var repository = CreateRepository(out var publisher);
@@ -143,9 +158,9 @@ public class EventSourcedCommandHandlerTests
         services.AddSingleton<IAggregateRepository>(repository);
         services.AddSingleton(publisher);
         services.AddSingleton<IEventSourcedCommandExecutor, EventSourcedCommandExecutor>();
-        services.AddSingleton(CreateLevel1Decider());
+        services.AddSingleton<IAggregateMethodDecider>(CreateLevel1Decider());
         services.AddSingleton<IEventSourcedCommandHandler<CreateDocument, Document, Guid>, CreateDocumentEventSourcedHandler>();
-        services.AddSingleton(typeof(IAggregateAuthorization<,,>), typeof(AllowAllAggregateAuthorization<,,>));
+        services.AddSingleton(typeof(IAggregateAuthorization<,,>), typeof(AlwaysAllowAuthorization<,,>));
         return services.BuildServiceProvider();
     }
 }

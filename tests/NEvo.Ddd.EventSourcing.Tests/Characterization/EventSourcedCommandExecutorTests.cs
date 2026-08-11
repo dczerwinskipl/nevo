@@ -52,7 +52,7 @@ public class EventSourcedCommandExecutorTests
         var result = await executor.ExecuteAsync<CreateDocument, Document, Guid>(
             command,
             new Mock<IMessageContext>().Object,
-            new AllowAllAggregateAuthorization<CreateDocument, Document, Guid>(),
+            new AlwaysAllowAuthorization<CreateDocument, Document, Guid>(),
             state => decider.DecideAsync(state, command, CancellationToken.None),
             CancellationToken.None
         );
@@ -83,14 +83,14 @@ public class EventSourcedCommandExecutorTests
         var createCommand = new CreateDocument(id, "Data");
 
         Func<Task> act = async () => await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            createCommand, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            createCommand, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)(DocumentDomainEvent[])[new DocumentCreated(id, "Data")],
             CancellationToken.None
         );
 
         await act.Should().NotThrowAsync();
         var result = await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            createCommand, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            createCommand, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)(DocumentDomainEvent[])[new DocumentCreated(id, "Data")],
             CancellationToken.None
         );
@@ -148,7 +148,7 @@ public class EventSourcedCommandExecutorTests
 
         var createCommand = new CreateDocument(id, "Data");
         await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            createCommand, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            createCommand, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)events, CancellationToken.None
         );
 
@@ -161,7 +161,7 @@ public class EventSourcedCommandExecutorTests
 
         var changeCommand = new ChangeDocument(id, "Data");
         await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            changeCommand, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            changeCommand, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)events, CancellationToken.None
         );
 
@@ -188,13 +188,13 @@ public class EventSourcedCommandExecutorTests
         IAggregateEvent<Document, Guid>[] badEvents = [new NonEventAggregateEvent(id)];
 
         Func<Task> act = async () => await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            command, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            command, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)badEvents, CancellationToken.None
         );
         await act.Should().NotThrowAsync();
 
         var result = await executor.ExecuteAsync<DocumentCommand, Document, Guid>(
-            command, new Mock<IMessageContext>().Object, new AllowAllAggregateAuthorization<DocumentCommand, Document, Guid>(),
+            command, new Mock<IMessageContext>().Object, new AlwaysAllowAuthorization<DocumentCommand, Document, Guid>(),
             _ => (EitherAsync<Exception, IEnumerable<IAggregateEvent<Document, Guid>>>)badEvents, CancellationToken.None
         );
 

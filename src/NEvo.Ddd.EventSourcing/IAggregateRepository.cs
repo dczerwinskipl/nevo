@@ -78,19 +78,18 @@ public class AggregateRepository(IEventStreamStore eventStore, IEvolverRegistry 
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        using var enumerator = events.GetEnumerator();
-        if (!enumerator.MoveNext())
+        Either<Exception, Option<TAggregate>> state = Prelude.Right<Exception, Option<TAggregate>>(Option<TAggregate>.None);
+
+        foreach (var @event in events)
         {
-            return Option<TAggregate>.None;
+            state = state.Bind(current => evolver.Evolve(current, @event).Map(Option<TAggregate>.Some));
+
+            if (state.IsLeft)
+            {
+                return state;
+            }
         }
 
-        var aggregate = evolver.Evolve(Option<TAggregate>.None, enumerator.Current);
-        while (enumerator.MoveNext())
-        {
-            var @event = enumerator.Current;
-            aggregate = aggregate.Bind(agg => evolver.Evolve(agg, @event));
-        }
-
-        return aggregate.Bind<Option<TAggregate>>(agg => Option<TAggregate>.Some(agg));
+        return state;
     }
 }

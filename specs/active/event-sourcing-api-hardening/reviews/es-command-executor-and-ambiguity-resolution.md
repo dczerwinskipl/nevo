@@ -11,6 +11,45 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/es-command-executor-and-ambiguity-resolution
 
+Third re-review (2026-08-11, final API cleanup pass — narrow implementation
+correction, no spec refinement; task fingerprint unchanged at
+`d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3`, confirming this).
+Baseline: this file's prior content (`pass`). Two corrections, neither changing
+executor behavior:
+
+- `AggregateDecider` now also implements the new `IAggregateMethodDecider` (added
+  under `explicit-event-sourced-command-handler`'s review — see that file), alongside
+  its existing `IDecider`. `AddEventSourcing`'s registration for `IDecider` changed
+  from a typed `TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>())`
+  to a factory sharing the same singleton `AggregateDecider` instance the
+  `IAggregateMethodDecider` registration also resolves to
+  (`Func<IServiceProvider, AggregateDecider>` passed to `ServiceDescriptor.Singleton<IDecider>(...)` —
+  C#/CLR delegate covariance keeps the factory's actual `Method.ReturnType` as
+  `AggregateDecider`, which is what lets `TryAddEnumerable`'s distinguishability check
+  accept it; a directly `IDecider`-typed lambda does not survive that check, confirmed
+  by hitting exactly that `ArgumentException` before landing on this shape). One
+  physical `AggregateDecider` instance now backs all three of `AggregateDecider`,
+  `IAggregateMethodDecider`, and `IDecider` — proven by a new idempotency test
+  (`AddEventSourcing_IAggregateMethodDecider_IsResolvableAndSharesTheSameInstanceAsIDecider`).
+  No change to the executor itself, ambiguity resolution, or `IDecider`'s own contract.
+- `AggregateRepository.ApplyEvents` (task 02's file, not this task's, but the same
+  correctness class the owner grouped with this review) was further simplified from
+  the prior pass's explicit `IEnumerator`/`MoveNext`/`Current` loop to a plain
+  `foreach` over an `Either<Exception, Option<TAggregate>>` accumulator — the actual
+  domain semantics (start with no state, evolve per event, short-circuit on the first
+  error, empty stream is `Right(None)`) expressed directly rather than through
+  first-event-special-cased enumerator mechanics. Same single-enumeration,
+  short-circuit-on-failure guarantee as before, now provable without an explicit
+  enumerator. New tests in `AggregateRepositoryApplyEventsTests.cs` cover empty/one/
+  multiple events and prove a failure on event N leaves the remaining lazy events
+  unenumerated.
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 50/50 (46 + 4 new
+`ApplyEvents` tests). `IAggregateEvent<TAggregate,TId>` itself was not touched —
+confirmed messaging-agnostic, unchanged.
+
+---
+
 Second re-review (2026-08-11, owner code review of the pushed correction). Baseline:
 this file's prior content (`pass`). Owner found a real correctness gap:
 `IAggregateEvent<TAggregate,TId>` only requires `StreamId` — nothing constrains an
