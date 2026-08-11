@@ -38,6 +38,36 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/harden-event-store-and-repository-contracts
 
+Re-review (2026-08-11). Baseline: this file's prior content (`pass`). Owner code review
+found two unresolved `FakeEventStore` defects this task's own acceptance criteria (2, 9,
+10) should have caught:
+
+- **F2 (resolved)**: the version check (`TryGetValue` → compare) and the mutation
+  (`AddRange`) were two separate steps, not one atomic unit — two genuinely concurrent
+  `Exact(1)` appends could both observe version 1 and both pass the check;
+  `List<dynamic>` itself is also not thread-safe for concurrent mutation. The only
+  existing concurrency test was sequential (writer 1 completes, then writer 2 uses a
+  stale `Exact`), which cannot expose this. Fixed: a single `lock` now guards every
+  read/append as one atomic critical section. New test
+  (`AppendEventsAsync_TwoConcurrentAppendsAtTheSameExpectedVersion_ExactlyOneSucceeds`,
+  `FakeEventStoreExpectedStreamStateTests.cs`) uses a `Barrier` to force two threads into
+  the critical section simultaneously and asserts exactly one `Right`/one
+  `AggregateConcurrencyException`; stable across 5 repeated runs.
+- **F3 (resolved)**: the store was keyed by `streamId` alone
+  (`ConcurrentDictionary<object, List<dynamic>>`), so two different aggregate types
+  sharing the same id value (e.g. `Document(Guid X)` and `OtherAggregate(Guid X)`)
+  collided into a single stream — silently mixing incompatible event types (and risking
+  a bad cast on load), despite `IEventStreamStore`'s own contract already being generic
+  per `TAggregate`. Fixed: keyed by `(Type AggregateType, object StreamId)`. New test
+  (`AppendEventsAsync_SameStreamIdValue_DifferentAggregateTypes_DoNotCollide`) proves two
+  aggregate types with the same id value get independent streams.
+
+Both fixes are confined to `FakeEventStore` (`ServiceCollectionExtensions.cs`) — no
+`IEventStreamStore`/`IAggregateRepository` contract change. `dotnet test
+tests/NEvo.Ddd.EventSourcing.Tests` passes 38/38 after the fix (up from 21; the
+remaining growth is later tasks' own tests, already accounted for in their own review
+files).
+
 ## Verdict
 
 `pass` — `IEventStore` renamed to `IEventStreamStore` (D6) with `ExpectedStreamState`

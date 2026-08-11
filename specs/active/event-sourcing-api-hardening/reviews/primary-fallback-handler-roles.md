@@ -29,6 +29,48 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/primary-fallback-handler-roles
 
+Re-review (2026-08-11). Baseline: this file's prior content (`pass`). Owner code review
+found one blocking gap this task's own text had already named but the implementation
+never built:
+
+- **F4 (resolved, was BLOCKER)**: Level 2 (`IEventSourcedCommandHandler<,,>`/
+  `EventSourcedCommandHandlerAdapter`, task 04) was never actually discoverable as a
+  message handler. `MessageHandlerExtractor` only recognizes a generic handler interface
+  when some registered `IMessageHandlerFactory.ForInterface` matches it —
+  `CommandHandlerAdapterFactory` only handles `ICommandHandler<>`, and
+  `DeciderCommandHandlerProvider` only produces the convention Fallback. No factory
+  existed for `IEventSourcedCommandHandler<,,>`, even though this task's own
+  Implementation Constraints text explicitly names "task 04's new explicit-handler
+  factory" as something that should exist and carry `Role: Primary`. Every prior Level 2
+  test constructed `EventSourcedCommandHandlerAdapter` and registered
+  `IEventSourcedCommandHandler<,,>` by hand — proving the adapter/executor work, never
+  the real discovery → registry → dispatch path.
+
+  Fixed: added `EventSourcedCommandHandlerAdapterFactory` (`Handling/`), mirroring
+  `CommandHandlerAdapterFactory`'s shape — `ForInterface =>
+  typeof(IEventSourcedCommandHandler<,,>)`, every produced description tagged
+  `Role.Primary`, registered via `AddEventSourcing` as `IMessageHandlerFactory`
+  (`TryAddEnumerable`, matching `AddCommands`'s own idempotent registration precedent). A
+  concrete Level 2 handler becomes discoverable by adding its type to
+  `MessageHandlerExtractorConfiguration.Handlers` — the exact same mechanism every other
+  handler kind in this codebase already uses (`AddServiceADomain`/`AddExampleDomain` in
+  the example apps), no new configuration surface introduced. New test file
+  `EventSourcedCommandHandlerDiscoveryTests.cs` builds a real `ServiceCollection`
+  (`AddMessages()` + `AddEventSourcing()` + the handler registration), resolves
+  `IMessageHandlerRegistry` for real, and proves: a command with a registered Level 2
+  handler resolves to it as `Primary` (not the convention `Fallback`); a command with
+  only a convention decider still resolves to `Fallback`; and a full dispatch through the
+  real registry (`CreateDocument` via Fallback, then `ApproveDocument` via the resolved
+  Level 2 handler) actually invokes the injected orchestration dependency and appends the
+  correct event.
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 38/38 after the fix.
+
+**Not fixed (owner: non-blocking, MEDIUM):** Primary/Fallback conflicts still surface at
+`GetMessageHandler()` resolution time, not at `MessageHandlerRegistry` construction/
+startup — the spec's stated preference was "fail at startup/registration time where
+practical." Left as a follow-up; not addressed in this pass.
+
 ## Verdict
 
 `pass` — `HandlerRole` (`Primary`/`Fallback`, no numeric priority, D3) added;

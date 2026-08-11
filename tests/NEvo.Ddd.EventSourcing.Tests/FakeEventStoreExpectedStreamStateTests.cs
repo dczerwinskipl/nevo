@@ -97,4 +97,60 @@ public class FakeEventStoreExpectedStreamStateTests
 
         result.Should().BeLeft().Which.Should().BeOfType<AggregateConcurrencyException>();
     }
+
+    // Owner code review (2026-08-11): the version check (TryGetValue -> compare) and the
+    // mutation (AddRange) were not one atomic unit — two genuinely concurrent Exact(1)
+    // appends could both observe version 1 and both pass. A Barrier forces both threads
+    // into the critical section as close to simultaneously as possible so this test
+    // actually exercises the race, not just a sequential re-enactment of it.
+    [Fact]
+    public async Task AppendEventsAsync_TwoConcurrentAppendsAtTheSameExpectedVersion_ExactlyOneSucceeds()
+    {
+        var store = new FakeEventStore();
+        var id = Guid.NewGuid();
+        await store.AppendEventsAsync<Document, Guid>(id, [new DocumentCreated(id, "Data")], ExpectedStreamState.NoStream, CancellationToken.None);
+        using var barrier = new Barrier(2);
+
+        async Task<Either<Exception, Unit>> AppendAsync(string data)
+        {
+            barrier.SignalAndWait();
+            return await store.AppendEventsAsync<Document, Guid>(id, [new DocumentChanged(id, data)], ExpectedStreamState.Exact(1), CancellationToken.None);
+        }
+
+        var results = await Task.WhenAll(Task.Run(() => AppendAsync("A")), Task.Run(() => AppendAsync("B")));
+
+        results.Count(r => r.IsRight).Should().Be(1);
+        results.Where(r => r.IsLeft).Should().ContainSingle().Which.Should().BeLeft().Which.Should().BeOfType<AggregateConcurrencyException>();
+        var loaded = await store.LoadEventsStreamAsync<Document, Guid>(id, CancellationToken.None);
+        loaded.Should().BeRight().Which.Should().BeSome().Which.Version.Should().Be(2);
+    }
+
+    // Owner code review (2026-08-11): the store was keyed by streamId alone, so two
+    // different aggregate types sharing the same id value (e.g. Document(Guid X) and
+    // OtherAggregate(Guid X)) collided into a single stream — silently mixing
+    // incompatible event types (and eventually a bad cast on load).
+    [Fact]
+    public async Task AppendEventsAsync_SameStreamIdValue_DifferentAggregateTypes_DoNotCollide()
+    {
+        var store = new FakeEventStore();
+        var id = Guid.NewGuid();
+
+        var documentResult = await store.AppendEventsAsync<Document, Guid>(id, [new DocumentCreated(id, "Data")], ExpectedStreamState.NoStream, CancellationToken.None);
+        var otherResult = await store.AppendEventsAsync<OtherAggregate, Guid>(id, [new OtherAggregateCreated(id)], ExpectedStreamState.NoStream, CancellationToken.None);
+
+        // Both succeed as NoStream creates — if the streams collided, the second append
+        // would instead fail with AggregateConcurrencyException (stream already exists).
+        documentResult.Should().BeRight();
+        otherResult.Should().BeRight();
+
+        var documentStream = await store.LoadEventsStreamAsync<Document, Guid>(id, CancellationToken.None);
+        var (documentEvents, documentVersion) = documentStream.Should().BeRight().Which.Should().BeSome().Which;
+        documentVersion.Should().Be(1);
+        documentEvents.Should().ContainSingle().Which.Should().BeOfType<DocumentCreated>();
+
+        var otherStream = await store.LoadEventsStreamAsync<OtherAggregate, Guid>(id, CancellationToken.None);
+        var (otherEvents, otherVersion) = otherStream.Should().BeRight().Which.Should().BeSome().Which;
+        otherVersion.Should().Be(1);
+        otherEvents.Should().ContainSingle().Which.Should().BeOfType<OtherAggregateCreated>();
+    }
 }
