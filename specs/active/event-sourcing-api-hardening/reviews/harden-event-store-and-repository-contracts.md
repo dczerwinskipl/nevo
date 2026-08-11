@@ -38,6 +38,18 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/harden-event-store-and-repository-contracts
 
+Fifth re-review (2026-08-11, process check only). None of the three small owner
+findings from this round (DI registration simplification, XML doc shortening, guard
+wording) touch this task's own files — no new content here. Self-check re-run and
+passed; `implementation.review_revision`/`self_check.revision` refreshed from the
+stale `a72b085…` to current HEAD (`b1730c643d9b12fbf1421f20d98283d093bb4c9c`), closing
+the process gap the owner flagged (change.yaml hadn't been refreshed since the prior
+two correction rounds landed, even though `dotnet test` kept passing throughout). Task
+fingerprint unchanged (`f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b`)
+— the recorded `scope_exceptions` entries above remain valid against it, re-verified.
+
+---
+
 Fourth re-review (2026-08-11, final API cleanup pass — narrow implementation
 correction, no spec refinement; task fingerprint unchanged at
 `f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b`, confirming this).

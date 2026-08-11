@@ -100,16 +100,14 @@ public static class ServiceCollectionExtensions
             });
 
             // AggregateDecider is the current implementation of two distinct public
-            // roles, both resolving to the same singleton instance: IAggregateMethodDecider
-            // (the stable capability an explicit Event Sourced handler delegates to) and
-            // IDecider (one of possibly several decision mechanisms DeciderRegistry's
-            // IEnumerable<IDecider> collection sees). The concrete AggregateDecider type
-            // itself is registered only so the two factories below can resolve the same
-            // instance — it is not a public dependency application code should inject.
-            services.TryAddSingleton<AggregateDecider>();
-            Func<IServiceProvider, AggregateDecider> resolveAggregateDecider = sp => sp.GetRequiredService<AggregateDecider>();
-            services.TryAddSingleton<IAggregateMethodDecider>(resolveAggregateDecider);
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider>(resolveAggregateDecider));
+            // roles: IAggregateMethodDecider (the stable capability an explicit Event
+            // Sourced handler delegates to) and IDecider (one of possibly several
+            // decision mechanisms DeciderRegistry's IEnumerable<IDecider> collection
+            // sees). Each is its own singleton — a small, cheap, deterministic object —
+            // rather than one instance shared via a factory alias, so the concrete
+            // AggregateDecider type is never itself resolvable as a dependency.
+            services.TryAddSingleton<IAggregateMethodDecider, AggregateDecider>();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>());
             services.TryAddSingleton<IAggregateDeciderProvider, AggregateDeciderProvider>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IEvolver, AggregateEvolver>());
         }

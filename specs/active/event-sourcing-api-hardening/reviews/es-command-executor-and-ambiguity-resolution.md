@@ -11,6 +11,47 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/es-command-executor-and-ambiguity-resolution
 
+Fourth re-review (2026-08-11, three small owner findings on the previous pass).
+Baseline: this file's prior content (`pass`). Task fingerprint unchanged
+(`d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3`) — no spec
+refinement, self-check re-run and passed, `implementation.review_revision`/
+`self_check.revision` refreshed from the stale `a72b085…` to current HEAD
+(`b1730c643d9b12fbf1421f20d98283d093bb4c9c`), closing the process gap the owner
+flagged separately (change.yaml hadn't been refreshed since the prior two rounds
+landed).
+
+- **DI registration simplified back down.** The previous round's factory-based
+  `IDecider` registration (a `Func<IServiceProvider, AggregateDecider>` relying on
+  C#/CLR delegate covariance to satisfy `TryAddEnumerable`'s distinguishability check,
+  so `IAggregateMethodDecider`/`IDecider`/the concrete type all shared one instance)
+  was, correctly, flagged as more mechanism than the payoff justified — a four-line
+  comment to explain a delegate-covariance trick for saving one small, deterministic
+  object's construction cost. Reverted to two independent, plainly-typed
+  registrations: `TryAddSingleton<IAggregateMethodDecider, AggregateDecider>()` and
+  `TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>())` — two
+  `AggregateDecider` instances, each doing the same cheap, deterministic setup. The
+  concrete `AggregateDecider` type itself is no longer registered at all, so (unlike
+  the previous round) it is not resolvable as a dependency by any path — strictly
+  tighter than before, not just simpler. Updated idempotency test to match (drops the
+  same-instance assertion, adds a direct check that `AggregateDecider` itself is
+  unresolvable).
+- **Event-cast guard wording softened, behavior unchanged.** Both the executor's
+  runtime guard and `AggregateDeciderExtractor`'s discovery-time guard said "every
+  domain event must derive from Event" — stated as if it were a fundamental domain
+  rule, when it is actually a requirement of the current NEvo Messaging integration
+  specifically (deliberately not baked into `IAggregateEvent<,>` itself, so a future
+  standalone `NEvo.Ddd.EventSourcing` core keeps room to exist without this
+  constraint). Both messages now read "the current NEvo Messaging integration
+  requires publishable aggregate events to derive from Event." No code path, guard
+  condition, or exception type changed — only the message text.
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 50/50 (message-content test
+assertions in `EventSourcedCommandExecutorTests.cs`/`AggregateDeciderExtractorTests.cs`
+check for the relevant type name substring, not full message text, so neither needed
+updating).
+
+---
+
 Third re-review (2026-08-11, final API cleanup pass — narrow implementation
 correction, no spec refinement; task fingerprint unchanged at
 `d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3`, confirming this).

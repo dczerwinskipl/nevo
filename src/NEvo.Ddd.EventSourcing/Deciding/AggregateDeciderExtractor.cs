@@ -58,8 +58,9 @@ public static class AggregateDeciderExtractor
             throw new InvalidOperationException(
                 $"'{candidate.Method.DeclaringType!.Name}.{candidate.Method.Name}' is discovered as an " +
                 $"aggregate-method convention decider producing '{candidate.EventType.Name}', which implements " +
-                $"IAggregateEvent<,> but does not derive from NEvo.Messaging.Events.Event. Every domain event " +
-                $"must derive from Event to be publishable — make '{candidate.EventType.Name}' derive from Event.");
+                $"IAggregateEvent<,> but does not derive from NEvo.Messaging.Events.Event. The current NEvo " +
+                $"Messaging integration requires publishable aggregate events to derive from Event — make " +
+                $"'{candidate.EventType.Name}' derive from Event.");
         }
 
         return candidate;

@@ -11,6 +11,36 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/explicit-event-sourced-command-handler
 
+Fourth re-review (2026-08-11, three small owner findings on the previous pass).
+Baseline: this file's prior content (`pass`). Task fingerprint unchanged
+(`c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66`) — no spec
+refinement; `implementation.review_revision`/`self_check.revision` refreshed to
+current HEAD (`b1730c643d9b12fbf1421f20d98283d093bb4c9c`), same process fix noted in
+`es-command-executor-and-ambiguity-resolution`'s review.
+
+- **`IEventSourcedCommandHandler<,,>`'s doc shortened.** It still told readers "inject
+  `Deciding.IDecider` only when genuinely decider-mechanism-agnostic" — a path with no
+  actual reason to exist now that `IAggregateMethodDecider` gives application code an
+  unambiguous contract; `IDecider` remains what `IDeciderRegistry` collects and may
+  have several implementations, so suggesting it to a Level 2 handler author at all
+  just reopens the ambiguity `IAggregateMethodDecider` exists to close. Cut down to:
+  "An explicit Event Sourced handler may return events directly or delegate domain
+  decision logic to `IAggregateMethodDecider`." No `IDecider` mention remains anywhere
+  in this doc.
+- **DI registration simplified** (see `es-command-executor-and-ambiguity-resolution`'s
+  review for the full before/after and rationale) — `ServiceCollectionExtensions.cs`
+  is shared/attributed across this task and that one; the concrete `AggregateDecider`
+  type is no longer registered at all, so it is not resolvable as a dependency by any
+  path (stricter than the previous round, which registered it so two factories could
+  share its instance).
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 50/50 — including
+`Adapter_ResolvesTheHandlerThroughDI_WithOnlyIAggregateMethodDeciderRegistered_NoConcreteAggregateDeciderNeeded`,
+which was already asserting the concrete type is absent from that test's own
+hand-rolled container and needed no change.
+
+---
+
 Third re-review (2026-08-11, final API cleanup pass — narrow implementation
 correction, no spec refinement; task fingerprint unchanged at
 `c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66`, confirming this —

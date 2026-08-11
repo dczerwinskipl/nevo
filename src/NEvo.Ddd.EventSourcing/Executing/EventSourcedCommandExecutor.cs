@@ -63,8 +63,8 @@ public class EventSourcedCommandExecutor(IAggregateRepository repository, IEvent
             {
                 return new InvalidOperationException(
                     $"'{@event.GetType().Name}' implements IAggregateEvent<{typeof(TAggregate).Name}, {typeof(TId).Name}> " +
-                    $"but does not derive from NEvo.Messaging.Events.Event, so it cannot be published. Every domain " +
-                    $"event must derive from Event.");
+                    $"but does not derive from NEvo.Messaging.Events.Event, so it cannot be published. The current " +
+                    $"NEvo Messaging integration requires publishable aggregate events to derive from Event.");
             }
 
             var result = await _eventPublisher.PublishAsync(concreteEvent, cancellationToken);

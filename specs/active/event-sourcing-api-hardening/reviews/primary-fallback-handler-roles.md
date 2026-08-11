@@ -28,6 +28,18 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/primary-fallback-handler-roles
 
+Fourth re-review (2026-08-11, process check only). None of the three small owner
+findings from this round (DI registration simplification, XML doc shortening, guard
+wording) touch this task's own `HandlerRole`/`MessageHandlerRegistry` concern — no new
+content here. Self-check re-run and passed; `implementation.review_revision`/
+`self_check.revision` refreshed from the stale `a72b085…` to current HEAD
+(`b1730c643d9b12fbf1421f20d98283d093bb4c9c`), same process fix noted across the other
+three affected tasks' reviews. Task fingerprint unchanged
+(`18941bf853c5d0b3c73a96ad68c61bfce41f9c80d93ed07ca0c22dad98d39633`) — the recorded
+`scope_exceptions` entry above remains valid against it, re-verified.
+
+---
+
 Third re-review (2026-08-11, D32 post-implementation correction pass). Baseline: this
 file's prior content (`pass`, F1 exception recorded against the pre-D32 task
 fingerprint `978adff5...`). Per the review-policy re-review rule, that exception's
