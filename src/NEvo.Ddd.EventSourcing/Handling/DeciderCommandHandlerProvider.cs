@@ -19,7 +19,8 @@ public class DeciderCommandHandlerProvider(IServiceProvider serviceProvider, IDe
                     handlerType,
                     d.CommandType,
                     null!, // interface?
-                    typeof(Unit)
+                    typeof(Unit),
+                    Role: HandlerRole.Fallback
                 );
                 var handler = (IMessageHandler)ActivatorUtilities.CreateInstance(_serviceProvider, handlerType, handlerDescription)!;
                 return new { d.CommandType, Handler = handler };

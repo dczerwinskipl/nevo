@@ -27,8 +27,6 @@ public class EditableDocument(Guid id, string data) : Document(id, data)
 
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command)
     {
-        Either<Exception, IEnumerable<object>> result = Approve(command);
-
         return new[] { new DocumentApproved(Id) };
     }
 

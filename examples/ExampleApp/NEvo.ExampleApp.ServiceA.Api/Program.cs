@@ -48,7 +48,7 @@ builder.Services.AddEventSourcing(typeof(Document));
 // event-sourcing repository) lands — see InMemoryDocumentEventStore for why this
 // exists and what should replace it.
 builder.Services.AddSingleton<InMemoryDocumentEventStore>();
-builder.Services.AddSingleton<IEventStore>(provider => provider.GetRequiredService<InMemoryDocumentEventStore>());
+builder.Services.AddSingleton<IEventStreamStore>(provider => provider.GetRequiredService<InMemoryDocumentEventStore>());
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());

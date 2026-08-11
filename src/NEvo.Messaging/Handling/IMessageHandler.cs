@@ -5,7 +5,7 @@ using System.Reflection;
 namespace NEvo.Messaging.Handling;
 
 [ExcludeFromCodeCoverage]
-public record MessageHandlerDescription(string Key, Type HandlerType, Type MessageType, Type InterfaceType, Type? ReturnType = null, MethodInfo? Method = null);
+public record MessageHandlerDescription(string Key, Type HandlerType, Type MessageType, Type InterfaceType, Type? ReturnType = null, MethodInfo? Method = null, HandlerRole? Role = null);
 
 public interface IMessageHandler
 {

@@ -38,8 +38,45 @@ public class MessageHandlerRegistry : IMessageHandlerRegistry
             ? handlers
             : Enumerable.Empty<IMessageHandler>();
 
-    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers) =>
-        handlers.Count > 1
-            ? new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription))
-            : Prelude.Right<Exception, IMessageHandler>(handlers.Single());
+    // Role-aware resolution (D3) activates only when at least one candidate for this
+    // message type actually carries a Role tag — a message type where every handler is
+    // untagged (Query, Event, and every pre-existing Command registration) resolves
+    // exactly as before this rule existed. A role-tagged handler mixed with an untagged
+    // one for the same message type is not a combination D3 defines a rule for, so it is
+    // treated as a conflict rather than silently guessing which one wins.
+    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers)
+    {
+        // Count <= 1 never needs to inspect Role — matches pre-D3 behavior exactly, and
+        // avoids touching HandlerDescription at all for the single-handler common case.
+        if (handlers.Count <= 1)
+        {
+            return Prelude.Right<Exception, IMessageHandler>(handlers.Single());
+        }
+
+        if (!handlers.Any(h => h.HandlerDescription.Role is not null))
+        {
+            return new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription));
+        }
+
+        if (handlers.Any(h => h.HandlerDescription.Role is null))
+        {
+            return new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription));
+        }
+
+        var primaries = handlers.Where(h => h.HandlerDescription.Role == HandlerRole.Primary).ToList();
+        if (primaries.Count > 1)
+        {
+            return new MoreThanOneHandlerFoundException(messageType, primaries.Select(h => h.HandlerDescription));
+        }
+
+        if (primaries.Count == 1)
+        {
+            return Prelude.Right<Exception, IMessageHandler>(primaries[0]);
+        }
+
+        var fallbacks = handlers.Where(h => h.HandlerDescription.Role == HandlerRole.Fallback).ToList();
+        return fallbacks.Count > 1
+            ? new MoreThanOneHandlerFoundException(messageType, fallbacks.Select(h => h.HandlerDescription))
+            : Prelude.Right<Exception, IMessageHandler>(fallbacks.Single());
+    }
 }

@@ -15,21 +15,32 @@ namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 // versioning and real replay — once that lands, delete this class and have
 // GetDocumentQueryHandler read through the real repository/projection mechanism
 // instead.
-public class InMemoryDocumentEventStore : IEventStore
+public class InMemoryDocumentEventStore : IEventStreamStore
 {
     private readonly ConcurrentDictionary<object, List<dynamic>> _store = new();
     private readonly ConcurrentDictionary<Guid, DocumentDto> _documents = new();
 
-    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, int expectedVersion, CancellationToken cancellationToken)
+    public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, ExpectedStreamState expectedState, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
         var pendingEvents = events.ToList();
-        var stream = _store.GetOrAdd(streamId, _ => []);
-        if (expectedVersion != stream.Count)
+        var exists = _store.TryGetValue(streamId, out var existingStream);
+        var currentVersion = exists ? existingStream!.Count : 0;
+
+        var mismatch = expectedState switch
         {
-            return new Exception($"Expected version {expectedVersion} but found {stream.Count}");
+            ExpectedStreamState.NoStreamState => exists,
+            ExpectedStreamState.ExactState exact => !exists || exact.Version != currentVersion,
+            _ => throw new NotSupportedException($"Unsupported expected stream state '{expectedState.GetType().Name}'.")
+        };
+
+        if (mismatch)
+        {
+            return new AggregateConcurrencyException(streamId.ToString() ?? streamId.GetType().Name, expectedState, currentVersion);
         }
+
+        var stream = _store.GetOrAdd(streamId, _ => []);
         stream.AddRange(pendingEvents);
 
         foreach (var @event in pendingEvents)
@@ -51,12 +62,18 @@ public class InMemoryDocumentEventStore : IEventStore
         return Unit.Default;
     }
 
-    public EitherAsync<Exception, (IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)> LoadEventsStreamAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
+    public EitherAsync<Exception, Option<(IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)>> LoadEventsStreamAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
     {
-        var stream = _store.GetOrAdd(streamId, _ => []);
-        return (stream.Cast<IAggregateEvent<TAggregate, TId>>(), stream.Count);
+        if (!_store.TryGetValue(streamId, out var stream))
+        {
+            return Option<(IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)>.None;
+        }
+
+        return Option<(IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)>.Some(
+            (stream.Cast<IAggregateEvent<TAggregate, TId>>(), stream.Count)
+        );
     }
 
     public OptionAsync<TProjection> LoadProjectionAsync<TProjection, TId>(TId projectionId)

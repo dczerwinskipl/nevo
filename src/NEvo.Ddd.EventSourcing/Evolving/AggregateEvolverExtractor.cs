@@ -45,8 +45,14 @@ public static class AggregateEvolverExtractor
     private static IEnumerable<(Type EventType, Type DeclaringType, Delegate Decider)> InternalExtractEvolvers<TAggregate, TId>()
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
+        // DeclaredOnly: every assignable type is already its own entry in
+        // GetAllAggregateImplementations, so an inherited instance method would
+        // otherwise be re-extracted once per subclass, producing duplicate candidates
+        // that all report the same (base) DeclaringType — silently tolerated by the old
+        // first-match resolution, but a spurious same-type "tie" for D2's most-specific
+        // resolution once a state type is three or more levels deep.
         => GetAllAggregateImplementations(typeof(TAggregate))
-            .SelectMany(type => type.GetMethods())
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .WithValidReturnType(typeof(TAggregate))
             .WithEventInputParameter()
             .Select(input => ToEvolver<TAggregate, TId>(input.Method, input.EventType));
