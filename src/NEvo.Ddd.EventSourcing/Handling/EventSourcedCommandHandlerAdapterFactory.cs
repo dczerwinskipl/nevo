@@ -20,6 +20,8 @@ public class EventSourcedCommandHandlerAdapterFactory(IServiceProvider servicePr
 
     public Type ForInterface => typeof(IEventSourcedCommandHandler<,,>);
 
+    private const string HandleMethodName = "HandleAsync";
+
     public IEnumerable<MessageHandlerDescription> GetMessageHandlerDescriptions(Type handlerType, Type handlerInterface)
     {
         var commandType = handlerInterface.GetGenericArguments()[0];
@@ -28,7 +30,8 @@ public class EventSourcedCommandHandlerAdapterFactory(IServiceProvider servicePr
             HandlerType: handlerType,
             MessageType: commandType,
             InterfaceType: handlerInterface,
-            ReturnType: typeof(Unit)
+            ReturnType: typeof(Unit),
+            Method: InterfaceMethodResolver.Resolve(handlerType, handlerInterface, HandleMethodName)
         );
     }
 

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-11T22:36:39.139Z",
+  "generated": "2026-08-11T23:16:59.000Z",
   "changes": [
     {
       "id": "event-sourcing-api-hardening",
@@ -15,20 +15,38 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
-            "review_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
+              "tests/NEvo.Ddd.EventSourcing.Tests/AggregateRepositoryApplyEventsTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionBaselineTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/DeciderCommandHandlerBaselineTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderExtractorTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/DeciderCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Executing/AllowAllAggregateAuthorizationTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/FakeEventStoreExpectedStreamStateTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AlwaysAllowAuthorization.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AmbiguousDocument.cs",
-              "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj"
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/DocumentEventSourcedHandlers.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/FakeEventPublisher.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/MisconfiguredAggregate.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs"
             ],
-            "worktree_patch_fingerprint": "7f6961895e5de2fdf1d7ba1fffadcf489d05e94eb1d6fcb63aeaa8c498d8c5d1"
+            "worktree_patch_fingerprint": "e648aca2a52c5a5036e50971849cda6660dddf7a2c134c5c90166bbcc03b530a"
           },
           "self_check": {
             "fingerprint": "cadd6a0f99d3ced7addcded3e1fc01a57a4d24615d0dd7ca3325eab63f3a4aaf",
-            "revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -52,12 +70,13 @@
           ],
           "implementation": {
             "baseline_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
-            "review_revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/IAggregateMethodDecider.cs",
+              "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs",
@@ -81,6 +100,7 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderExtractorTests.cs",
@@ -95,13 +115,14 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/MisconfiguredAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
-              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs"
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs"
             ],
-            "worktree_patch_fingerprint": "88bc9686bf26b0c3535fd38e7f00bad5de9d332f4ea0bcaafadb1b09031c26d9"
+            "worktree_patch_fingerprint": "4a3f49fe3167f2d06bb895d7571fcd95098bdad67f6945ed27d405cd2d23e544"
           },
           "self_check": {
             "fingerprint": "f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b",
-            "revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -125,12 +146,13 @@
           ],
           "implementation": {
             "baseline_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
-            "review_revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/IAggregateMethodDecider.cs",
+              "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs",
@@ -154,6 +176,7 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderExtractorTests.cs",
@@ -168,13 +191,14 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/MisconfiguredAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
-              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs"
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs"
             ],
-            "worktree_patch_fingerprint": "88bc9686bf26b0c3535fd38e7f00bad5de9d332f4ea0bcaafadb1b09031c26d9"
+            "worktree_patch_fingerprint": "4a3f49fe3167f2d06bb895d7571fcd95098bdad67f6945ed27d405cd2d23e544"
           },
           "self_check": {
             "fingerprint": "d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3",
-            "revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -198,12 +222,13 @@
           ],
           "implementation": {
             "baseline_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
-            "review_revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/IAggregateMethodDecider.cs",
+              "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs",
@@ -227,6 +252,7 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderExtractorTests.cs",
@@ -241,13 +267,14 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/MisconfiguredAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
-              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs"
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs"
             ],
-            "worktree_patch_fingerprint": "88bc9686bf26b0c3535fd38e7f00bad5de9d332f4ea0bcaafadb1b09031c26d9"
+            "worktree_patch_fingerprint": "4a3f49fe3167f2d06bb895d7571fcd95098bdad67f6945ed27d405cd2d23e544"
           },
           "self_check": {
             "fingerprint": "c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66",
-            "revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -272,12 +299,13 @@
           ],
           "implementation": {
             "baseline_revision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
-            "review_revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Deciding/IAggregateMethodDecider.cs",
+              "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs",
               "src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs",
@@ -304,6 +332,7 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderExtractorTests.cs",
@@ -319,15 +348,16 @@
               "tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
               "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs",
               "tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs",
               "tests/NEvo.Messaging.Tests/Handling/MessageHandlerDescriptionTests.cs",
               "tests/NEvo.Messaging.Tests/Handling/MessageHandlerRegistryTests.cs"
             ],
-            "worktree_patch_fingerprint": "88bc9686bf26b0c3535fd38e7f00bad5de9d332f4ea0bcaafadb1b09031c26d9"
+            "worktree_patch_fingerprint": "4a3f49fe3167f2d06bb895d7571fcd95098bdad67f6945ed27d405cd2d23e544"
           },
           "self_check": {
             "fingerprint": "18941bf853c5d0b3c73a96ad68c61bfce41f9c80d93ed07ca0c22dad98d39633",
-            "revision": "b1730c643d9b12fbf1421f20d98283d093bb4c9c",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -359,19 +389,23 @@
           ],
           "implementation": {
             "baseline_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
-            "review_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs",
+              "src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapterFactory.cs",
               "src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
               "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs"
             ],
-            "worktree_patch_fingerprint": "7db7137ff78c605f9be5aa9cd1a39db0bd637076fc07ba273bd16b137a00cc5d"
+            "worktree_patch_fingerprint": "4a3f49fe3167f2d06bb895d7571fcd95098bdad67f6945ed27d405cd2d23e544"
           },
           "self_check": {
             "fingerprint": "5b307997529d40ebb7235355ba06a371e3a7947cc45bdd9d60d4ac908f58aa61",
-            "revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -396,15 +430,18 @@
           ],
           "implementation": {
             "baseline_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
-            "review_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "NEvo.sln",
               "src/NEvo.Ddd.EventSourcing/EventSourcingOptions.cs",
               "src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs",
+              "src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapterFactory.cs",
               "src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs",
               "src/NEvo.Messaging.Authorization/AllowPermissionAttribute.cs",
               "src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs",
+              "tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj",
               "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs",
               "tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsOptionsTests.cs",
               "tests/NEvo.Messaging.Authorization.Tests/Fixtures.cs",
@@ -412,11 +449,11 @@
               "tests/NEvo.Messaging.Authorization.Tests/NEvo.Messaging.Authorization.Tests.csproj",
               "tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs"
             ],
-            "worktree_patch_fingerprint": "2e32b5d1444b706b67f8b9a2f6ddd44d95a0771dda52504b68cf45d6a5527648"
+            "worktree_patch_fingerprint": "d8ce167505ae7b5188d1ed08f5d1ee52b98fa9ac4ddf78e6bb78bc586b3bb843"
           },
           "self_check": {
             "fingerprint": "b3d4d3aad82df3ca637a79eba7283033e4cc6cb652e3f63c25dd11c08259146c",
-            "revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -441,15 +478,15 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
-            "review_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "src/NEvo.Messaging.Web/RoutesExtensions.cs"
             ],
-            "worktree_patch_fingerprint": "2e0f905025b77a3d2ea73c1afa83a02809f3481f10ec0f6b165e81bbec6d0856"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "28a2251fcefffd0b769b6c0eef17a30b68852a4629cfa2f378a8781ab29999ed",
-            "revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",
@@ -469,7 +506,7 @@
           ],
           "implementation": {
             "baseline_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
-            "review_revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "review_revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "changed_paths": [
               "NEvo.sln",
               "examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs",
@@ -479,19 +516,16 @@
               "examples/ExampleApp/NEvo.ExampleApp.Documents.Api/NEvo.ExampleApp.Documents.Api.csproj",
               "examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Program.cs",
               "examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs",
-              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/Document.cs",
-              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentCommands.cs",
-              "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentEvents.cs",
               "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/DocumentQueries.cs",
               "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/ExampleDomain/Documents/InMemoryDocumentEventStore.cs",
               "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs",
               "examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs"
             ],
-            "worktree_patch_fingerprint": "de0c29a02f697d6f51a90006b969b3499fdf8f32c5733ce39e7db0e9e1e471fb"
+            "worktree_patch_fingerprint": "ea48c7684cfe3d6b4c6ea7b4b8b658fde511da9751160104587666fc5816e651"
           },
           "self_check": {
             "fingerprint": "772f66cd20eadc0a82c0dc3cbaa9ba07e05f4ab961930d8a58050e17adcc683f",
-            "revision": "ba440c53480aa824fc0bc92ba73eea34ff7861fb",
+            "revision": "985cd13a1befe493e705514f0bc26b6d8e92d96f",
             "commands": [
               {
                 "command": "dotnet build",

@@ -11,6 +11,37 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/explicit-event-sourced-command-handler
 
+Fifth re-review (2026-08-12, pre-task-10 correction pass). Baseline: this file's prior
+content (`pass`). `review_revision`/`self_check.revision` refreshed to current HEAD
+(`985cd13a1befe493e705514f0bc26b6d8e92d96f` plus this pass's own uncommitted patch) via
+the normal `self-check` workflow — not hand-edited.
+
+**MAJOR, fixed here:** `EventSourcedCommandHandlerAdapterFactory.GetMessageHandlerDescriptions`
+left `Method` unset (`null`), unlike `CommandHandlerAdapterFactory`, which resolves it
+via `InterfaceMethodResolver`. Since `ValidatePermissionMiddleware`
+(`message-level-and-aggregate-authorization`, task 07) reads handler-specific
+`[AllowPermission]` from exactly this field, an explicit Event Sourced handler's own
+method-level permission was silently invisible to it — the composition task 07 built
+(message AND handler) degraded to message-only for every explicit ES handler. Fixed by
+resolving `Method` the same way `CommandHandlerAdapterFactory` does — same
+`InterfaceMethodResolver.Resolve(handlerType, handlerInterface, "HandleAsync")` call,
+no duplicated reflection logic. `Role` is unaffected — still the property default
+(`Primary`), not explicitly restated.
+
+New tests in `tests/NEvo.Ddd.EventSourcing.Tests/Characterization/
+ExplicitHandlerPermissionCompositionTests.cs` (not task 07's own test project — this
+fix and its test both live where the factory itself lives) prove, through the real
+discovery/registration path (`AddEventSourcing` + `AddMessages`, not a hand-built
+`MessageHandlerDescription`): the discovered description's `Method` is non-null and
+names `HandleAsync`; a user with both the command-level and handler-level permission is
+authorized; a user with only one of the two is denied; a user with neither is denied.
+See `message-level-and-aggregate-authorization`'s review for the full detail on the AND
+composition itself (unchanged by this fix — only the missing input was added).
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 65/65 (60 + 5 new).
+
+---
+
 Fourth re-review (2026-08-11, three small owner findings on the previous pass).
 Baseline: this file's prior content (`pass`). Task fingerprint unchanged
 (`c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66`) — no spec

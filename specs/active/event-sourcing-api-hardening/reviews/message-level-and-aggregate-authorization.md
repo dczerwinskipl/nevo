@@ -11,6 +11,40 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/message-level-and-aggregate-authorization
 
+Second re-review (2026-08-12, pre-task-10 correction pass). Baseline: this file's prior
+content (`pass`). `review_revision`/`self_check.revision` refreshed to current HEAD
+(`985cd13a1befe493e705514f0bc26b6d8e92d96f` plus this pass's own uncommitted patch) via
+the normal `self-check` workflow.
+
+**This is the revision containing the explicit ES handler permission fix**, per the
+owner's explicit request for review evidence at this point. The fix itself lives in
+`explicit-event-sourced-command-handler`'s own file
+(`EventSourcedCommandHandlerAdapterFactory.cs`, not this task's) — see that task's
+review for the full detail. This task's own AND-composition logic
+(`ValidatePermissionMiddleware` reading message-level and handler-level attributes
+independently) was already correct; it simply had no handler-level input to read for
+an explicit ES handler before that fix landed, since `Method` was always null there.
+New cross-package proof in `tests/NEvo.Ddd.EventSourcing.Tests/Characterization/
+ExplicitHandlerPermissionCompositionTests.cs` (references both
+`NEvo.Ddd.EventSourcing` and `NEvo.Messaging.Authorization` — consumer-side only, no
+new reference from `NEvo.Ddd.EventSourcing` itself, D26 unaffected) exercises this
+task's own `ValidatePermissionMiddleware` against a real discovered explicit ES
+handler, closing the gap between "the two packages each work correctly in isolation"
+and "they actually compose correctly for this specific route."
+
+Also: `AllowPermissionAttribute`'s XML doc clarified — it now states explicitly that
+only message-type and handler-method placements are read, and that handler-class
+placement (technically compiles, since the attribute's `AttributeTargets` already
+includes `Class` for the message-type case) has no effect. No model change —
+`AttributeUsage` unchanged, no new attribute type, no handler-class resolution added.
+
+`dotnet test tests/NEvo.Messaging.Authorization.Tests` passes 8/8 (unchanged — this
+pass added no tests here; the new coverage lives with the fix, in
+`NEvo.Ddd.EventSourcing.Tests`). `dotnet test tests/NEvo.Ddd.EventSourcing.Tests`
+passes 65/65.
+
+---
+
 No reliable previous-file baseline is available. Performing a fresh review of the
 current task implementation.
 

@@ -32,6 +32,42 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/create-documents-example-project
 
+Second re-review (2026-08-12, pre-task-10 correction pass). Baseline: this file's prior
+content (`pass`). `review_revision`/`self_check.revision` refreshed to current HEAD
+(`985cd13a1befe493e705514f0bc26b6d8e92d96f` plus this pass's own uncommitted patch) via
+the normal `self-check` workflow. Task fingerprint unchanged
+(`772f66cd20eadc0a82c0dc3cbaa9ba07e05f4ab961930d8a58050e17adcc683f`) — the recorded
+scope exception above remains valid against it, re-verified. Three corrections, all in
+service of the example actually demonstrating what it's meant to teach before task 10
+builds on it:
+
+- **`Document` aggregate state is now genuinely immutable.** `Id`/`Data` were `{ get;
+  set; }` despite every `Apply` already constructing a new concrete state object — the
+  setters were unused dead surface that contradicted the OO-immutable modeling style
+  this example is the canonical demonstration of. Now `{ get; }`-only, set once via the
+  constructor. `EditableDocument.Apply` now returns the correctly-typed
+  `EditableDocument`/`ApprovedDocument` (previously widened to the base `Document`) —
+  confirmed compatible with `AggregateEvolverExtractor`'s own return-type check
+  (`aggregateType.IsAssignableFrom(m.ReturnType)`, satisfied either way, since a
+  narrower return type is still assignable to the base). `EditableDocument`/
+  `ApprovedDocument` are now `sealed` (no example subclassing was happening or
+  intended).
+- **`AddDocumentsDomain` moved out of `NEvo.Messaging.Handling`** (a real NEvo
+  framework namespace) **into `NEvo.ExampleApp.Documents.Api`** — an example-specific
+  DI extension living in a framework namespace read as part of the framework's own
+  public API, which it is not. `Program.cs` updated to match; no longer `partial`
+  (that convention existed only for `ServiceA.Api`'s framework-namespace pattern, which
+  no longer applies here).
+- **Removed the one task-sequencing comment** in `Program.cs` ("HTTP endpoints ...
+  are added once their own tasks land") — replaced with a comment stating what's
+  actually true right now (the aggregate-method convention handles Document commands
+  via `AddEventSourcing`), not what hasn't been built yet. Repo-wide search of this
+  project found no other task/spec-chronology comments.
+
+`dotnet build` succeeds for the whole solution.
+
+---
+
 No reliable previous-file baseline is available. Performing a fresh review of the
 current task implementation.
 

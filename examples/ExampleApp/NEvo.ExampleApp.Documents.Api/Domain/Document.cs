@@ -5,8 +5,8 @@ namespace NEvo.ExampleApp.Documents.Api.Domain;
 
 public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 {
-    public Guid Id { get; set; } = id;
-    public string Data { get; set; } = data;
+    public Guid Id { get; } = id;
+    public string Data { get; } = data;
 
     // Decider - create
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
@@ -21,7 +21,7 @@ public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
     }
 }
 
-public class EditableDocument(Guid id, string data) : Document(id, data)
+public sealed class EditableDocument(Guid id, string data) : Document(id, data)
 {
     // Decider
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Change(ChangeDocument command)
@@ -34,18 +34,15 @@ public class EditableDocument(Guid id, string data) : Document(id, data)
         return new[] { new DocumentApproved(Id) };
     }
 
-    // Evolver
-    public Document Apply(DocumentChanged @event)
-    {
-        return new EditableDocument(Id, @event.Data);
-    }
+    // Evolver — each application returns a new, independent state object rather than
+    // mutating this one.
+    public EditableDocument Apply(DocumentChanged @event)
+        => new(Id, @event.Data);
 
-    public Document Apply(DocumentApproved @event)
-    {
-        return new ApprovedDocument(Id, Data);
-    }
+    public ApprovedDocument Apply(DocumentApproved @event)
+        => new(Id, Data);
 }
 
-public class ApprovedDocument(Guid id, string data) : Document(id, data)
+public sealed class ApprovedDocument(Guid id, string data) : Document(id, data)
 {
 }

@@ -1,5 +1,5 @@
+using NEvo.ExampleApp.Documents.Api;
 using NEvo.ExampleApp.Documents.Api.Domain;
-using NEvo.Messaging.Handling;
 using NEvo.Messaging.Handling.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,10 +11,8 @@ builder.Services.AddLogging(logging =>
     logging.AddConsole();
 });
 
-// nEvo — Level 1 convention handling for Document commands is wired via
-// AddEventSourcing(typeof(Document)); HTTP endpoints (MapCommandEndpoint/
-// MapQueryEndpoint), the explicit Level 2 handler, and authorization are added once
-// their own tasks land.
+// The aggregate-method convention handles Document commands via
+// AddEventSourcing(typeof(Document)) — no explicit handler registration needed for it.
 builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
 builder.Services.AddCommands();
