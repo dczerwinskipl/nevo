@@ -36,7 +36,7 @@ public class DeciderCommandHandlerBaselineTests
 
     private DeciderCommandHandler<TCommand, Document, Guid> CreateHandler<TCommand>()
         where TCommand : Command, IAggregateCommand<Document, Guid>
-        => new(_deciderRegistry, _executor, new NoOpAggregateAuthorization<TCommand, Document, Guid>());
+        => new(_deciderRegistry, _executor, new AllowAllAggregateAuthorization<TCommand, Document, Guid>());
 
     [Fact]
     public async Task HandleAsync_CreatePath_NoExistingAggregate_PersistsNewStreamAtVersionZero()

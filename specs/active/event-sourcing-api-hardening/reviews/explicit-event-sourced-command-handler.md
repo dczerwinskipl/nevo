@@ -11,6 +11,30 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/explicit-event-sourced-command-handler
 
+Re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
+content (`pass`). Owner code review requested a documentation-hygiene pass and one
+naming fix, no correctness bugs in this task's own diff:
+
+- The default aggregate-aware authorization implementation was renamed
+  `NoOpAggregateAuthorization` → `AllowAllAggregateAuthorization` — its prior name and
+  doc comment ("works before task 07 adds real policy logic; task 07 replaces this
+  registration") made a legitimate default policy read as temporary scaffolding.
+  Investigated making it `internal` (the codebase has no existing `internal`
+  type/`InternalsVisibleTo` precedent anywhere in `src/`, and several tests construct it
+  directly) — kept it `public`, matching the codebase's existing convention, and
+  documented it as what it is: the default aggregate-aware authorization used when no
+  command-specific policy is supplied. DI registration and every test reference updated
+  (mechanical rename).
+- `IEventSourcedCommandHandler<,,>`, `EventSourcedCommandHandlerAdapter`, and
+  `IAggregateAuthorization<,,>`'s XML docs no longer cite decision IDs (`D1`, `D24`,
+  `D31`) or "Level 1/Level 2" — they describe the durable contract (what
+  `Option<TAggregate>` means, the single-managed-write-target constraint, when the
+  authorization hook runs and what returning `Left` does) instead of the task graph that
+  produced them.
+
+`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` passes 43/43 after this pass (no test
+assertions changed, only the type rename).
+
 ## Verdict
 
 `pass` — `IEventSourcedCommandHandler<TCommand,TAggregate,TId>` (Level 2, D1) added:

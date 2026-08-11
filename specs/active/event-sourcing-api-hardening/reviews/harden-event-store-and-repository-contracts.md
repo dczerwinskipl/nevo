@@ -38,9 +38,19 @@ scope_exceptions:
 
 # Review: event-sourcing-api-hardening/harden-event-store-and-repository-contracts
 
-Re-review (2026-08-11). Baseline: this file's prior content (`pass`). Owner code review
-found two unresolved `FakeEventStore` defects this task's own acceptance criteria (2, 9,
-10) should have caught:
+Second re-review (2026-08-11, implementation-correction pass). Baseline: this file's
+prior content (`pass`, F2/F3 resolved below). Owner code review requested a
+documentation-hygiene pass only this time: `IAggregateRepository.cs`/`IEventStreamStore`
+no longer cite decision IDs (`D6`, `D29`) — they document the storage boundary directly
+(`IEventStreamStore` reads/appends raw streams and does not rehydrate or load
+projections; `None` means missing, `Some` carries events and observed version;
+`IAggregateRepository` composes a store with an evolver). No functional change.
+
+---
+
+First re-review (2026-08-11). Baseline: this file's prior content (`pass`). Owner code
+review found two unresolved `FakeEventStore` defects this task's own acceptance criteria
+(2, 9, 10) should have caught:
 
 - **F2 (resolved)**: the version check (`TryGetValue` → compare) and the mutation
   (`AddRange`) were two separate steps, not one atomic unit — two genuinely concurrent

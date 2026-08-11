@@ -42,17 +42,17 @@ tasks:
       - characterize-event-sourcing-baseline
     implementation:
       baseline_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
-      review_revision: a25b76ed970156f6d42398c66732a47be9d2ec95
+      review_revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IEventSourcedCommandExecutor.cs
-        - src/NEvo.Ddd.EventSourcing/Executing/NoOpAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerAdapter.cs
@@ -72,6 +72,7 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/DeciderCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Executing/AllowAllAggregateAuthorizationTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/FakeEventStoreExpectedStreamStateTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AmbiguousDocument.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs
@@ -80,10 +81,10 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj
         - tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs
-      worktree_patch_fingerprint: 30cdbd0d4bf93cdae77fdc9f9b70f7af1b2e4ad34323069f6185139c80777df5
+      worktree_patch_fingerprint: cdb606e188d08653b5db82515d2012d95f0dfd65917c4bb4a0a71fca9f9ae936
     self_check:
       fingerprint: f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b
-      revision: a25b76ed970156f6d42398c66732a47be9d2ec95
+      revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       commands:
         - command: dotnet build
           exit_code: 0
@@ -98,20 +99,24 @@ tasks:
       - harden-event-store-and-repository-contracts
     implementation:
       baseline_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
-      review_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
+      review_revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IEventSourcedCommandExecutor.cs
-        - src/NEvo.Ddd.EventSourcing/Executing/NoOpAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerAdapter.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerProvider.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapter.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapterFactory.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/IEventSourcedCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/IAggregateRepository.cs
         - src/NEvo.Ddd.EventSourcing/MostSpecificCandidateResolver.cs
         - src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs
@@ -119,17 +124,24 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/DeciderCommandHandlerBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/DeciderCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Executing/AllowAllAggregateAuthorizationTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/FakeEventStoreExpectedStreamStateTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AmbiguousDocument.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/DocumentEventSourcedHandlers.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/FakeEventPublisher.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj
-      worktree_patch_fingerprint: d12f7604c672b42b981bb8bd1506f775897075d1973d7b3c53bb0877e0d7990b
+        - tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs
+      worktree_patch_fingerprint: cdb606e188d08653b5db82515d2012d95f0dfd65917c4bb4a0a71fca9f9ae936
     self_check:
       fingerprint: d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3
-      revision: ad2a26b34a1242850828344fa82b002caa76d3b5
+      revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       commands:
         - command: dotnet build
           exit_code: 0
@@ -144,21 +156,23 @@ tasks:
       - es-command-executor-and-ambiguity-resolution
     implementation:
       baseline_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
-      review_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
+      review_revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IEventSourcedCommandExecutor.cs
-        - src/NEvo.Ddd.EventSourcing/Executing/NoOpAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerAdapter.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerProvider.cs
         - src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapter.cs
+        - src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapterFactory.cs
         - src/NEvo.Ddd.EventSourcing/Handling/IEventSourcedCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/IAggregateRepository.cs
         - src/NEvo.Ddd.EventSourcing/MostSpecificCandidateResolver.cs
@@ -167,20 +181,24 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/DeciderCommandHandlerBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerDiscoveryTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/DeciderCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Executing/AllowAllAggregateAuthorizationTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/FakeEventStoreExpectedStreamStateTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AmbiguousDocument.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/DocumentEventSourcedHandlers.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/FakeEventPublisher.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/OtherAggregate.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj
-      worktree_patch_fingerprint: 9181633159e22b3b3c8947b958a303e620dfa741cb5ea12703af229cb0e93067
+        - tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs
+      worktree_patch_fingerprint: cdb606e188d08653b5db82515d2012d95f0dfd65917c4bb4a0a71fca9f9ae936
     self_check:
       fingerprint: a9a6c512c21e06de515801e69315462082057f7ce188a0fa4be73964a1c4c3f1
-      revision: ad2a26b34a1242850828344fa82b002caa76d3b5
+      revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       commands:
         - command: dotnet build
           exit_code: 0
@@ -196,17 +214,17 @@ tasks:
       - explicit-event-sourced-command-handler
     implementation:
       baseline_revision: ad2a26b34a1242850828344fa82b002caa76d3b5
-      review_revision: a25b76ed970156f6d42398c66732a47be9d2ec95
+      review_revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolver.cs
         - src/NEvo.Ddd.EventSourcing/Evolving/AggregateEvolverExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Executing/AllowAllAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/Executing/IEventSourcedCommandExecutor.cs
-        - src/NEvo.Ddd.EventSourcing/Executing/NoOpAggregateAuthorization.cs
         - src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandler.cs
         - src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerAdapter.cs
@@ -229,6 +247,7 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/FakeEventStoreConcurrencyBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ServiceCollectionExtensionsBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/DeciderCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Executing/AllowAllAggregateAuthorizationTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/FakeEventStoreExpectedStreamStateTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/AmbiguousDocument.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs
@@ -238,11 +257,12 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/NEvo.Ddd.EventSourcing.Tests.csproj
         - tests/NEvo.Ddd.EventSourcing.Tests/ServiceCollectionExtensionsIdempotencyTests.cs
         - tests/NEvo.Messaging.Cqrs.Tests/Commands/CommandHandlerAdapterFactoryTests.cs
+        - tests/NEvo.Messaging.Tests/Handling/MessageHandlerDescriptionTests.cs
         - tests/NEvo.Messaging.Tests/Handling/MessageHandlerRegistryTests.cs
-      worktree_patch_fingerprint: 30cdbd0d4bf93cdae77fdc9f9b70f7af1b2e4ad34323069f6185139c80777df5
+      worktree_patch_fingerprint: 303660bd76f45a77f6d8ba016109478ce3f5b157f59846778f12887321c8858b
     self_check:
-      fingerprint: 978adff57fa22852716e883510fdfc534c64a47619fd5c861fbff40eaa0ec0dc
-      revision: a25b76ed970156f6d42398c66732a47be9d2ec95
+      fingerprint: 18941bf853c5d0b3c73a96ad68c61bfce41f9c80d93ed07ca0c22dad98d39633
+      revision: a72b085bfafe3183b6c328ff65b925ae76c21212
       commands:
         - command: dotnet build
           exit_code: 0

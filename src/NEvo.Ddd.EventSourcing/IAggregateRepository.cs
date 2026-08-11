@@ -2,6 +2,11 @@ using NEvo.Ddd.EventSourcing.Evolving;
 
 namespace NEvo.Ddd.EventSourcing;
 
+/// <summary>
+/// Obtains an aggregate's event stream, rehydrates it, and returns the current state
+/// and its observed version. Composes an <see cref="IEventStreamStore"/> with an
+/// evolver rather than reading raw events itself.
+/// </summary>
 public interface IAggregateRepository
 {
     public EitherAsync<Exception, Unit> AppendEventsAsync<TAggregate, TId>(TId streamId, IEnumerable<IAggregateEvent<TAggregate, TId>> events, ExpectedStreamState expectedState, CancellationToken cancellationToken)
@@ -14,7 +19,8 @@ public interface IAggregateRepository
 }
 
 /// <summary>
-/// Raw event-stream persistence only — no rehydration, no projection loading (D6).
+/// Reads and appends raw event streams. Does not rehydrate aggregates and does not
+/// load projections — that is <see cref="IAggregateRepository"/>'s responsibility.
 /// </summary>
 public interface IEventStreamStore
 {
@@ -23,8 +29,8 @@ public interface IEventStreamStore
         where TId : notnull;
 
     /// <summary>
-    /// None means the stream has never been appended to; Some means it exists at the
-    /// given version (D29) — the two are never collapsed into the same shape.
+    /// <c>None</c> means the stream does not exist; <c>Some</c> contains its events and
+    /// observed version — the two are never collapsed into the same shape.
     /// </summary>
     public EitherAsync<Exception, Option<(IEnumerable<IAggregateEvent<TAggregate, TId>> Events, int Version)>> LoadEventsStreamAsync<TAggregate, TId>(TId streamId, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>

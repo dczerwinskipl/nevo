@@ -34,3 +34,10 @@ public class ReviewableDocument(Guid id, string data) : EditableDocument(id, dat
 public record ReviewDocument(Guid DocumentId) : DocumentCommand(DocumentId);
 
 public record DocumentReviewed(Guid DocumentId) : DocumentDomainEvent(DocumentId);
+
+// Reaches ReviewableDocument through ordinary replay (EditableDocument.Apply, in
+// Document.cs) rather than direct construction, so tests can exercise most-specific
+// decider resolution against a rehydrated aggregate via the real dispatch path.
+public record FlagDocumentForReview(Guid DocumentId) : DocumentCommand(DocumentId);
+
+public record DocumentFlaggedForReview(Guid DocumentId) : DocumentDomainEvent(DocumentId);

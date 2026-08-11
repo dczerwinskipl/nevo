@@ -92,7 +92,7 @@ public class EventSourcedCommandHandlerTests
         var provider = BuildServiceProvider(repository, publisher);
         var contextMock = new Mock<IMessageContext>();
         contextMock.Setup(c => c.ServiceProvider).Returns(provider);
-        var handlerDescription = new MessageHandlerDescription("create-document", typeof(EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>), typeof(CreateDocument), null!, typeof(Unit));
+        var handlerDescription = new MessageHandlerDescription("create-document", typeof(EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>), typeof(CreateDocument), null, typeof(Unit));
         var adapter = new EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>(NullLogger<EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>>.Instance, handlerDescription);
         var id = Guid.NewGuid();
 
@@ -119,7 +119,7 @@ public class EventSourcedCommandHandlerTests
         var provider = BuildServiceProvider(repository, recordingPublisher);
         var contextMock = new Mock<IMessageContext>();
         contextMock.Setup(c => c.ServiceProvider).Returns(provider);
-        var handlerDescription = new MessageHandlerDescription("create-document", typeof(EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>), typeof(CreateDocument), null!, typeof(Unit));
+        var handlerDescription = new MessageHandlerDescription("create-document", typeof(EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>), typeof(CreateDocument), null, typeof(Unit));
         var adapter = new EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>(NullLogger<EventSourcedCommandHandlerAdapter<CreateDocument, Document, Guid>>.Instance, handlerDescription);
 
         var result = await adapter.HandleAsync(new CreateDocument(id, "Data"), contextMock.Object, CancellationToken.None);
@@ -145,7 +145,7 @@ public class EventSourcedCommandHandlerTests
         services.AddSingleton<IEventSourcedCommandExecutor, EventSourcedCommandExecutor>();
         services.AddSingleton<IDecider>(CreateLevel1Decider());
         services.AddSingleton<IEventSourcedCommandHandler<CreateDocument, Document, Guid>, CreateDocumentEventSourcedHandler>();
-        services.AddSingleton(typeof(IAggregateAuthorization<,,>), typeof(NoOpAggregateAuthorization<,,>));
+        services.AddSingleton(typeof(IAggregateAuthorization<,,>), typeof(AllowAllAggregateAuthorization<,,>));
         return services.BuildServiceProvider();
     }
 }

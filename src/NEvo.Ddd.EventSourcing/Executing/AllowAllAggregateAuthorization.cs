@@ -3,11 +3,10 @@ using NEvo.Messaging.Context;
 namespace NEvo.Ddd.EventSourcing.Executing;
 
 /// <summary>
-/// Default aggregate-aware authorization: allows everything. Registered so Level 1/
-/// Level 2 execution works before task 07 adds real policy logic; task 07 replaces this
-/// registration for commands that need one.
+/// The default aggregate-aware authorization used when no command-specific policy is
+/// supplied; it allows execution.
 /// </summary>
-public class NoOpAggregateAuthorization<TCommand, TAggregate, TId> : IAggregateAuthorization<TCommand, TAggregate, TId>
+public class AllowAllAggregateAuthorization<TCommand, TAggregate, TId> : IAggregateAuthorization<TCommand, TAggregate, TId>
     where TCommand : Command, IAggregateCommand<TAggregate, TId>
     where TAggregate : IAggregateRoot<TId>
     where TId : notnull

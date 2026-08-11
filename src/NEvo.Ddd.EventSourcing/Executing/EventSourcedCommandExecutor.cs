@@ -23,10 +23,8 @@ public class EventSourcedCommandExecutor(IAggregateRepository repository, IEvent
            from __ in AppendAndPublish(command.StreamId, loaded, events, cancellationToken)
            select Unit.Default;
 
-    // Append must complete — making the new state durable/visible within the current
-    // consistency boundary — before publish triggers any synchronous downstream
-    // handler, so a handler that reloads the aggregate observes the just-appended state
-    // (D7/D23).
+    // Append must complete before synchronous event publication, so a downstream
+    // handler that reloads the aggregate observes the newly appended state.
     private EitherAsync<Exception, Unit> AppendAndPublish<TAggregate, TId>(
         TId streamId,
         Option<(TAggregate Aggregate, int Version)> loaded,

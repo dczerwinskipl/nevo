@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - primary-fallback-handler-roles
 semantic_references:
-  decisions: [D4]
+  decisions: [D4, D32]
   dependency_contracts: [primary-fallback-handler-roles]
 context:
   required:
@@ -27,9 +27,12 @@ forbidden_paths:
 
 ## Goal
 
-Replace `AddEventSourcing(params Type[] aggregateTypes)`'s unconditional wiring with
-`AddEventSourcing(options => {...})`, exposing a clearly named toggle for the
-aggregate-method convention fallback (enabled by default), and fix the non-idempotent
+Add an additive `AddEventSourcing(Action<EventSourcingOptions> configure, params Type[]
+aggregateTypes)` overload exposing a clearly named toggle for the aggregate-method
+convention fallback (enabled by default), while keeping the existing
+`AddEventSourcing(params Type[] aggregateTypes)` overload available with its current
+developer-facing behavior and unchanged call sites (D32, superseding D4's accepted-
+breaking-change framing for this signature specifically), and fix the non-idempotent
 `AddSingleton` registration found in discovery (D4).
 
 ## Dependencies
@@ -39,14 +42,21 @@ aggregate-method convention fallback (enabled by default), and fix the non-idemp
 
 ## Implementation constraints
 
-- `services.AddEventSourcing(options => {...})` with a toggle such as
-  `options.CommandHandling.UseAggregateMethodsAsFallback()` — exact property/method
-  names are this task's judgment call, grounded in existing NEvo options-pattern naming
-  (check `NEvo.Messaging.Cqrs`/`NEvo.Messaging.Authorization` for precedent). Convention
-  fallback is enabled by default. Disabling it must leave the explicit Level 2 handler
-  (task 04) and ordinary `ICommandHandler<T>` fully usable. Public terminology
-  describes developer-facing behavior ("aggregate method convention/fallback"), not an
-  internal implementation name.
+- Add `services.AddEventSourcing(Action<EventSourcingOptions> configure, params Type[]
+  aggregateTypes)` with a flat `EventSourcingOptions` carrying one toggle for the one
+  configurable behavior that currently exists — e.g. `UseAggregateMethodFallback`
+  (`bool` property or method-style toggle, consistent with existing NEvo options-pattern
+  naming; exact naming is this task's judgment call) — enabled by default. Do not
+  introduce a nested `CommandHandlingOptions`-style hierarchy for a single boolean (D32)
+  — extend to a richer shape only when a second independent configuration group actually
+  exists. Disabling the toggle must leave the explicit Level 2 handler (task 04) and
+  ordinary `ICommandHandler<T>` fully usable. Public terminology describes
+  developer-facing behavior ("aggregate method convention/fallback"), not an internal
+  implementation name.
+- `services.AddEventSourcing(params Type[] aggregateTypes)` remains available, unchanged
+  for existing callers, and delegates to the new overload with default options (D32) —
+  do not require `AddEventSourcing(null, ...)` or any nullable-configure-callback call
+  pattern to reach the old behavior.
 - Preserve the existing `aggregateTypes` registration need (today's
   `params Type[] aggregateTypes` populates `AggregateExtractorConfiguration
   .AggregateTypes`) — fold it into the new options shape rather than dropping the
@@ -56,25 +66,24 @@ aggregate-method convention fallback (enabled by default), and fix the non-idemp
   currently plain `Add`) to `TryAdd`-based idempotent registration, matching
   `AddCommands`/`AddEvents`/`AddQueries`'s precedent from the archived query-support
   change.
-- This changes `AddEventSourcing`'s public signature — acceptable per D4 (package is
-  `status: experimental`, unreleased). Do not add a backward-compatible overload unless
-  doing so is trivial; if it adds real complexity, drop the old signature outright and
-  say so in this task's diff.
 
 ## Acceptance criteria
 
-1. `services.AddEventSourcing(options => options.CommandHandling
-   .UseAggregateMethodsAsFallback())` (or the task's finalized naming) registers the
-   convention Fallback route (automated).
-2. Convention fallback disabled at registration time means a command with only a
+1. `services.AddEventSourcing(options => options.UseAggregateMethodFallback = false)`
+   (or the task's finalized naming) via the new additive overload registers/withholds
+   the convention Fallback route (automated).
+2. `services.AddEventSourcing(typeof(SomeAggregate))` (the existing overload, unchanged
+   call site) continues to compile and behave exactly as before — convention fallback
+   enabled, `aggregateTypes` registered (automated).
+3. Convention fallback disabled at registration time means a command with only a
    convention-eligible aggregate method has no registered handler
    (`NoHandlerFoundException`), while an explicit Level 2 handler or ordinary command
    handler for a different command remains usable (automated).
-3. `AddEventSourcing()` called twice does not throw and does not duplicate registered
-   services, proven by an idempotency test matching the pattern established for
-   `AddCommands`/`AddEvents`/`AddQueries` (automated).
-4. `AggregateExtractorConfiguration.AggregateTypes` is still populated correctly through
-   the new options shape (automated).
+4. Each overload of `AddEventSourcing` called twice does not throw and does not
+   duplicate registered services, proven by an idempotency test matching the pattern
+   established for `AddCommands`/`AddEvents`/`AddQueries` (automated).
+5. `AggregateExtractorConfiguration.AggregateTypes` is still populated correctly through
+   both overloads (automated).
 
 ## Verification
 

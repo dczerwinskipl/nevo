@@ -1095,3 +1095,85 @@ for audit trail — do not implement per this entry; see D16 for the current dec
 - **Affected artifacts:** overview.md, tasks/04-explicit-event-sourced-command-handler.md,
   tasks/11-user-facing-event-sourcing-guide.md,
   tasks/12-internal-event-sourcing-architecture-docs.md
+
+## D32: `HandlerRole` is non-nullable, defaults to `Primary` — narrows D3's implementation
+shape; `AddEventSourcing(params Type[])` stays a compatible overload — supersedes D4's
+breaking-change acceptance
+
+- **Question:** Task 05's implementation of D3 modeled role absence as a third state —
+  `HandlerRole? Role = null` on `MessageHandlerDescription`, with `MessageHandlerRegistry`
+  branching on "all untagged" / "mixed tagged and untagged" / "fully tagged" before
+  applying D3's actual Primary/Fallback rules. Separately, task 06 (D4) was written to
+  accept changing `AddEventSourcing`'s signature outright, reasoning that the package's
+  `experimental` status makes this non-breaking. Owner review of the landed task 05 code
+  found both choices add compatibility machinery beyond what D3/D4 actually require: for
+  `HandlerRole`, absence is not a real semantic state — every handler is either an
+  intentional fallback or a normal candidate, so there is nothing for `null` to mean that
+  `Primary` doesn't already mean. For `AddEventSourcing`, the owner wants backward
+  compatibility preserved wherever it is cheap, superseding D4's "acceptable breaking
+  change" framing for this one signature specifically. Should the specification keep
+  nullable/opt-in `HandlerRole` and an accepted breaking `AddEventSourcing` signature, or
+  replace both with default-based compatibility?
+- **Options considered (`HandlerRole`):** Keep `HandlerRole? Role = null` with
+  untagged/mixed/tagged resolution branches in `MessageHandlerRegistry` (task 05's landed
+  shape) | Make `HandlerRole` non-nullable, defaulting to `Primary`, with
+  `MessageHandlerRegistry` implementing D3's Primary/Fallback rules directly and no
+  absence-based branching at all.
+  **Options considered (`AddEventSourcing`):** Replace `AddEventSourcing(params Type[])`
+  with `AddEventSourcing(options => {...})` outright, accepting the breaking change per
+  D4 | Keep `AddEventSourcing(params Type[])` as a compatible overload delegating to a new
+  `AddEventSourcing(Action<EventSourcingOptions> configure, params Type[] aggregateTypes)`
+  (or equivalent additive shape) with default options.
+- **Decision:** `HandlerRole` is a non-nullable enum. `MessageHandlerDescription.Role`
+  defaults to `HandlerRole.Primary` — as a normal `init` property with that default, not
+  as a new positional constructor parameter — so the existing six-parameter positional
+  constructor (`Key, HandlerType, MessageType, InterfaceType, ReturnType, Method`) keeps
+  compiling unchanged for every existing call site. Only the aggregate-method convention
+  provider (`DeciderCommandHandlerProvider`) sets `Role = HandlerRole.Fallback`
+  explicitly; every other factory (ordinary command, Query, Event, the explicit Event
+  Sourced handler) gets `Primary` for free and must not restate it merely because task 05
+  introduced the property. `MessageHandlerRegistry.SelectMessageHandler` implements D3's
+  rules directly on `Role` — no branch for "all untagged," "mixed tagged/untagged," or
+  "role-aware activated because a tag exists" — per the algorithm in
+  `areas/handler-registration-and-options.md`. Separately, `AddEventSourcing(params
+  Type[] aggregateTypes)` remains available with its current developer-facing behavior,
+  unchanged call sites, as a thin overload delegating to a new additive
+  `AddEventSourcing(Action<EventSourcingOptions> configure, params Type[] aggregateTypes)`
+  with default options (convention fallback enabled). This narrows D4's original text
+  accordingly — D4's "acceptable breaking change" framing no longer applies to
+  `AddEventSourcing`'s signature specifically; its "enabled by default" toggle behavior
+  and idempotency fix are unaffected and remain in force.
+- **Rationale:** Owner: "the owner does want backward compatibility. The preferred
+  pattern is: existing callers keep the old behavior because newly added
+  configuration/metadata has a sensible default... do not model backward compatibility by
+  introducing nullable state that means 'old behavior' ... if absence is a real semantic
+  state, nullable may still be correct... for `HandlerRole`, absence is NOT a real
+  semantic state." Nullable/optional types remain correct where "not present" is a real
+  domain state (e.g. `InterfaceType` genuinely absent for a convention-generated handler,
+  `Option<TAggregate>.None` for a genuinely nonexistent aggregate, per D24) — this
+  decision narrows only the `HandlerRole` and `AddEventSourcing` shapes, and does not
+  reopen or generalize to any other nullable field task 05/06 or the prior correction
+  pass already settled (notably not `InterfaceType`, which stays nullable for its own,
+  legitimate reason).
+- **Consequences:** Task 05's already-landed code is corrected in place (not
+  re-implemented from scratch): `HandlerRole? Role = null` → `HandlerRole Role { get; init;
+  } = HandlerRole.Primary`; `MessageHandlerRegistry.SelectMessageHandler`'s
+  untagged/mixed/tagged branches are replaced by direct Primary/Fallback counting;
+  factories that only set `Role: HandlerRole.Primary` because task 05 introduced the
+  property drop that explicit assignment (`CommandHandlerAdapterFactory`, the explicit
+  Event Sourced handler factory from the prior correction pass); `DeciderCommandHandlerProvider`
+  keeps its explicit `Role = HandlerRole.Fallback`. Tests asserting untagged-mode or
+  mixed-tag behavior are removed; tests asserting the `Primary` default and the direct
+  resolution algorithm replace them. Task 06's implementation constraints and acceptance
+  criteria are rewritten to require the compatible-overload shape instead of accepting a
+  breaking signature change, and to keep `EventSourcingOptions` flat (a single
+  `UseAggregateMethodFallback`-style toggle) rather than the previously-illustrated
+  nested `options.CommandHandling.UseAggregateMethodsAsFallback()` hierarchy, since only
+  one configurable behavior currently exists. `overview.md`'s "Compatibility and
+  migration" section no longer lists `AddEventSourcing`'s signature or
+  `MessageHandlerDescription`'s shape among this change's expected breaking changes —
+  both are now additive/compatible.
+- **Date:** 2026-08-11 (narrow post-implementation correction)
+- **Affected artifacts:** overview.md, areas/handler-registration-and-options.md,
+  tasks/05-primary-fallback-handler-roles.md,
+  tasks/06-event-sourcing-registration-options.md

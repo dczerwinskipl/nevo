@@ -38,29 +38,13 @@ public class MessageHandlerRegistry : IMessageHandlerRegistry
             ? handlers
             : Enumerable.Empty<IMessageHandler>();
 
-    // Role-aware resolution (D3) activates only when at least one candidate for this
-    // message type actually carries a Role tag — a message type where every handler is
-    // untagged (Query, Event, and every pre-existing Command registration) resolves
-    // exactly as before this rule existed. A role-tagged handler mixed with an untagged
-    // one for the same message type is not a combination D3 defines a rule for, so it is
-    // treated as a conflict rather than silently guessing which one wins.
+    // Every handler is Primary by default; only the aggregate-method convention route
+    // is explicitly Fallback. One Primary always wins over any Fallback present.
     private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers)
     {
-        // Count <= 1 never needs to inspect Role — matches pre-D3 behavior exactly, and
-        // avoids touching HandlerDescription at all for the single-handler common case.
         if (handlers.Count <= 1)
         {
             return Prelude.Right<Exception, IMessageHandler>(handlers.Single());
-        }
-
-        if (!handlers.Any(h => h.HandlerDescription.Role is not null))
-        {
-            return new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription));
-        }
-
-        if (handlers.Any(h => h.HandlerDescription.Role is null))
-        {
-            return new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription));
         }
 
         var primaries = handlers.Where(h => h.HandlerDescription.Role == HandlerRole.Primary).ToList();

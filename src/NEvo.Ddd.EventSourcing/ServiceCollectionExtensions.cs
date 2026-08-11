@@ -90,7 +90,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IEvolverRegistry, EvolverRegistry>();
         services.TryAddSingleton<IDeciderRegistry, DeciderRegistry>();
         services.TryAddScoped<IEventSourcedCommandExecutor, EventSourcedCommandExecutor>();
-        services.TryAddTransient(typeof(IAggregateAuthorization<,,>), typeof(NoOpAggregateAuthorization<,,>));
+        services.TryAddTransient(typeof(IAggregateAuthorization<,,>), typeof(AllowAllAggregateAuthorization<,,>));
 
         // aggregate based deciders/evolvers
         {
@@ -101,7 +101,6 @@ public static class ServiceCollectionExtensions
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IDecider, AggregateDecider>());
             services.TryAddSingleton<IAggregateDeciderProvider, AggregateDeciderProvider>();
-            // TODO: add provider?
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IEvolver, AggregateEvolver>());
         }
 

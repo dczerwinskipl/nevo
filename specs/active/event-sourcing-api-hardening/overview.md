@@ -266,8 +266,9 @@ separation (D30), and the Level 2 single-write-target boundary (D31). See
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1-D31; D10 and D11 are superseded by D15 and D16
-respectively — kept for audit trail, not deleted).
+See `owner-decisions.md` (D1-D32; D10 and D11 are superseded by D15 and D16
+respectively, and D4's `AddEventSourcing`-signature framing is narrowed by D32 — all
+kept for audit trail, not deleted).
 
 ## Proposed architecture
 
@@ -307,11 +308,15 @@ respectively — kept for audit trail, not deleted).
    command — multi-aggregate orchestration belongs to Level 3 or a future
    saga/process-manager capability, not this handler (D31).
 4. **Registration semantics.** Task 05 adds Primary/Fallback role metadata and the
-   configuration-error rules (D3), with explicit regression coverage proving Query
-   resolution and Event fan-out are unaffected (review issue 6). Task 06 adds
-   `AddEventSourcing(options => {...})` with the aggregate-method-convention-as-fallback
-   toggle, enabled by default (D4), and fixes the non-idempotent `AddSingleton`
-   registration found in discovery.
+   configuration-error rules (D3) as a non-nullable `HandlerRole` defaulting to
+   `Primary` via a normal `init` property — preserving `MessageHandlerDescription`'s
+   existing positional constructor — with explicit regression coverage proving Query
+   resolution and Event fan-out are unaffected by construction, not by a role-detection
+   branch (review issue 6, D32). Task 06 adds an additive `AddEventSourcing(Action<
+   EventSourcingOptions>, params Type[])` overload with a flat
+   `EventSourcingOptions.UseAggregateMethodFallback`-style toggle, enabled by default
+   (D4), keeps the existing `AddEventSourcing(params Type[])` overload compatible (D32),
+   and fixes the non-idempotent `AddSingleton` registration found in discovery.
 5. **Authorization.** Task 07 has two distinct parts, both in
    `NEvo.Messaging.Authorization` and `NEvo.Ddd.EventSourcing` respectively, never
    crossing the package boundary between them (D26): (a) fix
@@ -526,17 +531,23 @@ a single command-handling abstraction as an atomic multi-stream write mechanism.
 
 `NEvo.Ddd.EventSourcing` is documented `status: experimental` and has not reached
 `main` — this change treats its public surface as not yet compatibility-sensitive.
-Expected breaking changes within this still-unreleased package: `AddEventSourcing`'s
-signature (D4), `IAggregateRepository`/`IEventStore` member shape (D6), a new
+Expected breaking changes within this still-unreleased package:
+`IAggregateRepository`/`IEventStore` member shape (D6), a new
 `AggregateConcurrencyException` replacing a plain `Exception` for concurrency conflicts
 — returned via `Either`, never thrown (D13), the explicit Level 2 handler's `Option<
-TAggregate>` current-state parameter (D24), the replacement of `int expectedVersion`
-with an explicit `NoStream`/`Exact(version)` expected-stream-state type (D29), and
-`MessageHandlerDescription`'s shape if task 05 requires a new field (D3). None of these
-affect `NEvo.Messaging`/`NEvo.Messaging.Cqrs`'s existing public surface, which this
-change does not alter outside the new message-level permission-attribute placement and
-`MapQueryEndpoint` addition (both additive) — and, per D18, **not**
-`Query<TResult>`/`Message<TResult>`, which are confirmed unchanged.
+TAggregate>` current-state parameter (D24), and the replacement of `int expectedVersion`
+with an explicit `NoStream`/`Exact(version)` expected-stream-state type (D29).
+**`AddEventSourcing`'s existing `params Type[]` signature and
+`MessageHandlerDescription`'s existing positional constructor are explicitly preserved,
+not broken (D32, superseding D4's original acceptance of a breaking
+`AddEventSourcing` signature change) —** the former gains only an additive overload,
+and the latter gains only a defaulted `init` property (`Role`, defaulting to
+`HandlerRole.Primary`), never a new positional parameter. None of these affect
+`NEvo.Messaging`/`NEvo.Messaging.Cqrs`'s existing public surface, which this change does
+not alter outside the new message-level permission-attribute placement,
+`MapQueryEndpoint` addition, and `MessageHandlerDescription.Role` addition (all
+additive/compatible) — and, per D18, **not** `Query<TResult>`/`Message<TResult>`, which
+are confirmed unchanged.
 
 Scope reductions recorded across both refinement passes: D12 narrows the original
 brief's "at least in tests" requirement to manual walkthrough for the example service
@@ -551,7 +562,11 @@ removes the `WebApplicationFactory`-based integration test that was originally i
 in task 10's scope. D29-D31 (narrow reference-pattern refinement) add compatibility
 guardrails rather than reduce scope: an explicit expected-stream-state concept (D29),
 an executor/convention responsibility separation (D30), and a single-write-target
-boundary for Level 2 (D31) — none reopen or narrow D19-D28.
+boundary for Level 2 (D31) — none reopen or narrow D19-D28. D32 (narrow
+post-implementation correction) replaces task 05's landed nullable/opt-in `HandlerRole`
+compatibility mode with a non-nullable, `Primary`-defaulted shape, and narrows D4's
+accepted-breaking-change framing so `AddEventSourcing`'s existing `params Type[]`
+overload stays compatible — it does not reopen any other D1-D31 decision.
 
 ## Areas
 

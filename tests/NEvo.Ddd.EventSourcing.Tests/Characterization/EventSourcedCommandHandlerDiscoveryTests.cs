@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NEvo.Ddd.EventSourcing.Handling;
 using NEvo.Messaging.Context;
+using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Events;
 using NEvo.Messaging.Handling;
+using NEvo.Messaging.Handling.Exceptions;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
@@ -91,5 +93,81 @@ public class EventSourcedCommandHandlerDiscoveryTests
         var loaded = await repository.LoadAggregateAsync<Document, Guid>(id, CancellationToken.None);
         loaded.Should().BeRight().Which.Should().BeSome().Which.Aggregate.Should().BeOfType<ApprovedDocument>();
         publisher.PublishedEvents.Should().Contain(e => e is DocumentApproved);
+    }
+
+    // Owner code review (2026-08-11): AggregateDecider can report one decider
+    // description per concrete state type that declares a decision method for a given
+    // command (here, EditableDocument.Change and ReviewableDocument.Change both exist
+    // for ChangeDocument) — grouping convention-route registration only by command type
+    // produced one competing Fallback candidate per description, so the registry
+    // rejected the command as an unresolvable two-Fallback conflict before runtime state
+    // ever got a chance to pick the applicable method.
+    [Fact]
+    public void GetMessageHandler_ForACommandWithMultipleStateSpecificDeciders_StillResolvesToOneFallbackRoute()
+    {
+        var provider = BuildProvider(new FakeEventPublisher(), new FakeReviewNotesProvider());
+        var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
+
+        var result = registry.GetMessageHandler(typeof(ChangeDocument));
+
+        var handler = result.Should().BeRight().Which;
+        handler.HandlerDescription.Role.Should().Be(HandlerRole.Fallback);
+    }
+
+    [Fact]
+    public async Task Dispatch_ChangeDocumentAgainstARehydratedReviewableDocument_SelectsTheMostSpecificDeciderThroughTheRealPipeline()
+    {
+        var publisher = new FakeEventPublisher();
+        var provider = BuildProvider(publisher, new FakeReviewNotesProvider());
+        var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
+        var contextMock = new Mock<IMessageContext>();
+        contextMock.Setup(c => c.ServiceProvider).Returns(provider);
+        var id = Guid.NewGuid();
+
+        var createHandler = registry.GetMessageHandler(typeof(CreateDocument)).Should().BeRight().Which;
+        await createHandler.HandleAsync(new CreateDocument(id, "Data"), contextMock.Object, CancellationToken.None);
+        var flagHandler = registry.GetMessageHandler(typeof(FlagDocumentForReview)).Should().BeRight().Which;
+        await flagHandler.HandleAsync(new FlagDocumentForReview(id), contextMock.Object, CancellationToken.None);
+
+        // The stream now rehydrates to a ReviewableDocument. ChangeDocument is resolved
+        // and dispatched entirely through the real registry — if the executor's decider
+        // picked EditableDocument.Change (less specific) instead, the appended event's
+        // Data would be missing the "-Reviewable" suffix.
+        var changeHandler = registry.GetMessageHandler(typeof(ChangeDocument)).Should().BeRight().Which;
+        var changeResult = await changeHandler.HandleAsync(new ChangeDocument(id, "Updated"), contextMock.Object, CancellationToken.None);
+
+        changeResult.Should().BeRight();
+        publisher.PublishedEvents.OfType<DocumentChanged>().Should().ContainSingle().Which.Data.Should().Be("Updated-Reviewable");
+    }
+
+    [Fact]
+    public void GetMessageHandler_OrdinaryCommandHandlerAndExplicitHandlerForTheSameCommand_IsATwoPrimaryConflict()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        services.AddMessages();
+        services.AddCommands();
+        services.AddEventSourcing(typeof(Document));
+        services.AddSingleton<IEventPublisher>(new FakeEventPublisher());
+        services.AddSingleton<IReviewNotesProvider>(new FakeReviewNotesProvider());
+        services.AddScoped<IEventSourcedCommandHandler<ApproveDocument, Document, Guid>, ApproveDocumentEventSourcedHandler>();
+        services.AddScoped<ICommandHandler<ApproveDocument>, OrdinaryApproveDocumentCommandHandler>();
+        services.Configure<MessageHandlerExtractorConfiguration>(options =>
+        {
+            options.Handlers.Add(typeof(ApproveDocumentEventSourcedHandler));
+            options.Handlers.Add(typeof(OrdinaryApproveDocumentCommandHandler));
+        });
+        var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
+
+        var result = registry.GetMessageHandler(typeof(ApproveDocument));
+
+        result.Should().BeLeft().Which.Should().BeOfType<MoreThanOneHandlerFoundException>();
+    }
+
+    private class OrdinaryApproveDocumentCommandHandler : ICommandHandler<ApproveDocument>
+    {
+        public Task<Either<Exception, Unit>> HandleAsync(ApproveDocument message, IMessageContext messageContext, CancellationToken cancellationToken)
+            => Task.FromResult(Either<Exception, Unit>.Right(Unit.Default));
     }
 }

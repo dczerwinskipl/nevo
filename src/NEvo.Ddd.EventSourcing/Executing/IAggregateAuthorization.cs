@@ -3,14 +3,13 @@ using NEvo.Messaging.Context;
 namespace NEvo.Ddd.EventSourcing.Executing;
 
 /// <summary>
-/// The one aggregate-aware authorization hook point (D5, D24-D25): invoked by the
-/// executor after rehydration, before the decision. Receives the current state as
-/// <see cref="Option{T}"/> — <c>Some</c> when an aggregate was rehydrated, <c>None</c>
-/// on the creation path — so a policy that only makes sense for existing resources can
-/// explicitly reject/ignore <c>None</c> according to its own use case; nothing here
-/// silently skips this hook merely because there is no aggregate yet. Real policy logic
-/// is task 07's concern — this task only defines where the call happens and what it
-/// receives.
+/// Authorizes a command against the currently loaded aggregate state. Invoked after
+/// rehydration and before the domain decision, receiving the current state as
+/// <see cref="Option{T}"/> — <c>Some</c> for an existing aggregate, <c>None</c> on the
+/// creation path — so a policy that only makes sense for existing resources can
+/// explicitly reject or ignore <c>None</c> according to its own use case rather than the
+/// hook being silently skipped. Returning <c>Left</c> denies execution before any event
+/// is produced or appended.
 /// </summary>
 public interface IAggregateAuthorization<TCommand, TAggregate, TId>
     where TCommand : Command, IAggregateCommand<TAggregate, TId>

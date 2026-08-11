@@ -59,9 +59,8 @@ public static class AggregateDeciderExtractor
         // DeclaredOnly: every assignable type is already its own entry in
         // GetAllAggregateImplementations, so an inherited instance method would
         // otherwise be re-extracted once per subclass, producing duplicate candidates
-        // that all report the same (base) DeclaringType — silently tolerated by the old
-        // first-match resolution, but a spurious same-type "tie" for D2's most-specific
-        // resolution once a state type is three or more levels deep.
+        // that all report the same (base) DeclaringType — a spurious same-type tie for
+        // most-specific-wins resolution once a state type is three or more levels deep.
         => GetAllAggregateImplementations(typeof(TAggregate))
             .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .WithValidReturnType()

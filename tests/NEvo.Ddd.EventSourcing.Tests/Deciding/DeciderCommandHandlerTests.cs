@@ -19,7 +19,7 @@ public class DeciderCommandHandlerTests
         // Arrange
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var executorMock = new Mock<IEventSourcedCommandExecutor>();
-        var authorization = new NoOpAggregateAuthorization<MockCommand, MockAggregate, int>();
+        var authorization = new AllowAllAggregateAuthorization<MockCommand, MockAggregate, int>();
         var contextMock = new Mock<IMessageContext>();
         var deciderMock = new Mock<IDecider>();
         var command = new MockCommand(1);
@@ -61,7 +61,7 @@ public class DeciderCommandHandlerTests
         // Arrange
         var deciderRegistryMock = new Mock<IDeciderRegistry>();
         var executorMock = new Mock<IEventSourcedCommandExecutor>();
-        var authorization = new NoOpAggregateAuthorization<MockCommand, MockAggregate, int>();
+        var authorization = new AllowAllAggregateAuthorization<MockCommand, MockAggregate, int>();
         var contextMock = new Mock<IMessageContext>();
         var command = new MockCommand(1);
 

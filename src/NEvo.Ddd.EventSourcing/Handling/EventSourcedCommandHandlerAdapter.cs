@@ -8,13 +8,12 @@ using NEvo.Messaging.Handling;
 namespace NEvo.Ddd.EventSourcing.Handling;
 
 /// <summary>
-/// Adapts a Level 2 <see cref="IEventSourcedCommandHandler{TCommand,TAggregate,TId}"/>
-/// into an <see cref="IMessageHandler"/>, routing it through the same
-/// <see cref="IEventSourcedCommandExecutor"/> Level 1's
-/// <see cref="DeciderCommandHandlerAdapter{TCommand,TAggregate,TId}"/> uses — no
-/// load/append/publish logic is duplicated between the two adapters. Registration/
-/// discovery (making this the effective handler for a command type) is task 05's
-/// concern, not this type's.
+/// Adapts an explicit <see cref="IEventSourcedCommandHandler{TCommand,TAggregate,TId}"/>
+/// to the messaging <see cref="IMessageHandler"/> contract, delegating all Event
+/// Sourcing lifecycle work — load, authorize, append, publish — to
+/// <see cref="IEventSourcedCommandExecutor"/>, the same coordinator
+/// <see cref="DeciderCommandHandlerAdapter{TCommand,TAggregate,TId}"/> uses. The
+/// explicit handler itself therefore never repeats that plumbing.
 /// </summary>
 public class EventSourcedCommandHandlerAdapter<TCommand, TAggregate, TId>(
     ILogger<EventSourcedCommandHandlerAdapter<TCommand, TAggregate, TId>> logger,

@@ -6,7 +6,7 @@ depends_on:
   - es-command-executor-and-ambiguity-resolution
   - explicit-event-sourced-command-handler
 semantic_references:
-  decisions: [D3]
+  decisions: [D3, D32]
   dependency_contracts:
     - es-command-executor-and-ambiguity-resolution
     - explicit-event-sourced-command-handler
@@ -51,36 +51,44 @@ fallback from a genuine duplicate-handler conflict, using semantic roles
 
 ## Implementation constraints
 
-- Add role metadata to the smallest coherent point in the existing model — evaluate
-  whether a new field on `MessageHandlerDescription`
-  (`NEvo.Messaging/Handling/IMessageHandler.cs:8`), a wrapping registration record, or
-  another shape is least invasive to `IMessageHandlerFactory`/`IMessageHandlerProvider`/
-  `MessageHandlerRegistry`'s existing contracts, and use that. `MessageHandlerRegistry`'s
-  `SelectMessageHandler` (`MessageHandlerRegistry.cs`) is the resolution point to change
-  — it currently throws `MoreThanOneHandlerFoundException` on any `Count > 1` for a
-  message type; it must instead apply the role rules before concluding a conflict.
-- `DeciderCommandHandlerProvider` (`Handling/DeciderCommandHandlerProvider.cs`) marks
-  its descriptions `Fallback`. `CommandHandlerAdapterFactory`
-  (`NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapterFactory.cs`) and task 04's new
-  explicit-handler factory mark their descriptions `Primary`.
+- `HandlerRole` (`NEvo.Messaging/Handling/HandlerRole.cs`) is a non-nullable enum
+  (`Primary`/`Fallback`, no numeric priority). `MessageHandlerDescription.Role`
+  (`NEvo.Messaging/Handling/IMessageHandler.cs:8`) is a normal `init` property
+  defaulting to `HandlerRole.Primary` — not a new positional constructor parameter — so
+  the existing six-parameter positional constructor (`Key, HandlerType, MessageType,
+  InterfaceType, ReturnType, Method`) keeps compiling unchanged for every existing call
+  site (D32). Do not add `Unspecified`/`Legacy`/a nullable role — absence is not a real
+  semantic state here (D32).
+- `MessageHandlerRegistry`'s `SelectMessageHandler` (`MessageHandlerRegistry.cs`) is the
+  resolution point to change, implementing D3's rules directly against `Role` — no
+  branch for "all untagged," "mixed tagged/untagged," or "role-aware activated because a
+  tag exists" (D32): zero handlers → existing no-handler behavior; one handler → use it;
+  multiple handlers → more than one Primary is `MoreThanOneHandlerFoundException`,
+  exactly one Primary wins over any Fallback present, no Primary + exactly one Fallback
+  uses it, no Primary + multiple Fallback is `MoreThanOneHandlerFoundException`. No
+  registration-order tiebreaker.
+- `DeciderCommandHandlerProvider` (`Handling/DeciderCommandHandlerProvider.cs`)
+  explicitly sets `Role = HandlerRole.Fallback`. `CommandHandlerAdapterFactory`
+  (`NEvo.Messaging.Cqrs/Commands/CommandHandlerAdapterFactory.cs`) and the explicit
+  Event Sourced handler factory get `Primary` from the property default and must not
+  restate `Role: HandlerRole.Primary` merely because task 05 introduced the property
+  (D32) — remove any such explicit assignment that exists only for that reason.
 - Prefer failing at registration/startup time over first-request time where the DI
   container's own validation hooks make that practical — do not force a runtime-only
   check if a startup check is straightforward.
 - Do not weaken `MoreThanOneHandlerFoundException`'s existing behavior for any
   non-ES command with two ordinary `ICommandHandler<T>` registrations — that must still
-  fail exactly as it does today (both are Primary).
-- **Role resolution applies only to command handler-selection flows where a single
-  effective handler is expected — Query and Event resolution are explicitly untouched**
-  (review issue 6). `MessageHandlerRegistry.SelectMessageHandler`'s change must be
-  scoped so it only alters behavior for message types that actually have a
-  Primary/Fallback-tagged handler registered; a message type where every registered
-  handler carries no role tag (or the same default role) must resolve exactly as
-  before this task. `QueryHandlerAdapterFactory`-produced descriptions and event
-  handler fan-out (`SequentialEventProcessingStrategy`/`ParallelEventProcessingStrategy`,
-  which intentionally invoke *every* registered handler) must not be affected by this
-  change at all — do not introduce a code path that could make Query resolution or
-  Event fan-out role-aware "for free" without an explicit test proving it wasn't
-  accidentally coupled in.
+  fail exactly as it does today (both are Primary by default).
+- **Query and Event resolution are unaffected by construction, not by a role-detection
+  branch** (review issue 6, sharpened by D32). Query behavior is preserved because a
+  Query type's handlers are all Primary by default: one Query handler → one Primary →
+  selected (unchanged); two Query handlers → two Primary →
+  `MoreThanOneHandlerFoundException` (same conflict as today). No Query-specific role
+  handling is added anywhere. Event fan-out (`GetMessageHandlers`,
+  `SequentialEventProcessingStrategy`/`ParallelEventProcessingStrategy`, which
+  intentionally invoke *every* registered handler) never calls `SelectMessageHandler` at
+  all, so it is unaffected regardless of what `Role` an Event handler's description
+  carries — do not add role filtering to the fan-out path.
 
 ## Acceptance criteria
 
@@ -106,6 +114,13 @@ fallback from a genuine duplicate-handler conflict, using semantic roles
      Event coverage.
    - `AddCommands()`/`AddEvents()`/`AddQueries()`'s existing idempotency guarantees
      (repeated registration does not throw or duplicate) are unaffected.
+7. **(D32)** `MessageHandlerDescription`'s pre-existing six-parameter positional
+   constructor (`Key, HandlerType, MessageType, InterfaceType, ReturnType, Method`,
+   omitting `Role`) still compiles and produces `Role == HandlerRole.Primary` by default
+   — proven by a construction test, not merely by inspection (automated).
+8. **(D32)** An ordinary explicit command handler description
+   (`CommandHandlerAdapterFactory`) and the explicit Event Sourced handler description
+   are each `Primary` without any factory restating it explicitly (automated).
 
 ## Verification
 
@@ -122,7 +137,8 @@ None in this task — covered by tasks 11 (user-facing) and 12 (internal).
 
 ## Out of scope
 
-- `AddEventSourcing(options => {...})`'s enable/disable toggle (task 06) — this task
-  only makes role resolution correct once both a Primary and Fallback (or either alone)
-  are registered; whether the Fallback is registered at all is task 06's concern.
+- `AddEventSourcing`'s additive options overload and enable/disable toggle (task 06) —
+  this task only makes role resolution correct once both a Primary and Fallback (or
+  either alone) are registered; whether the Fallback is registered at all is task 06's
+  concern.
 - `ValidatePermissionMiddleware`'s attribute-reading logic (task 07).

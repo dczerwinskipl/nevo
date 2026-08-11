@@ -59,10 +59,10 @@ public class MessageHandlerRegistryTests
     }
 
 
-    // Primary/Fallback role resolution (D3, area handler-registration-and-options,
-    // task 05). Role-aware resolution activates only when at least one candidate
-    // carries a Role tag — the tests above (no Role anywhere) already prove that an
-    // untagged message type resolves exactly as before this rule existed.
+    // Primary/Fallback role resolution (D3/D32, area handler-registration-and-options,
+    // task 05). HandlerRole is non-nullable and defaults to Primary — the tests above
+    // (no Role set anywhere) already prove that a description built without mentioning
+    // Role behaves as Primary, exactly as before this rule existed.
 
     [Fact]
     public void GetMessageHandler_ReturnsFallback_WhenOnlyFallbackHandlerRegistered()
@@ -70,7 +70,7 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var fallbackMock = new Mock<IMessageHandler>();
-        fallbackMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Fallback));
+        fallbackMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Fallback });
         var providerMock = new Mock<IMessageHandlerProvider>();
         providerMock.Setup(p => p.GetMessageHandlers())
             .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [fallbackMock.Object] } });
@@ -89,9 +89,9 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var primaryMock = new Mock<IMessageHandler>();
-        primaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Primary));
+        primaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary", typeof(IMessageHandler), messageType, typeof(IMessageHandler)));
         var fallbackMock = new Mock<IMessageHandler>();
-        fallbackMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Fallback));
+        fallbackMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Fallback });
         var providerMock = new Mock<IMessageHandlerProvider>();
         providerMock.Setup(p => p.GetMessageHandlers())
             .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [fallbackMock.Object, primaryMock.Object] } });
@@ -110,9 +110,9 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var primary1 = new Mock<IMessageHandler>();
-        primary1.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary1", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Primary));
+        primary1.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary1", typeof(IMessageHandler), messageType, typeof(IMessageHandler)));
         var primary2 = new Mock<IMessageHandler>();
-        primary2.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary2", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Primary));
+        primary2.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary2", typeof(IMessageHandler), messageType, typeof(IMessageHandler)));
         var providerMock = new Mock<IMessageHandlerProvider>();
         providerMock.Setup(p => p.GetMessageHandlers())
             .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [primary1.Object, primary2.Object] } });
@@ -131,9 +131,9 @@ public class MessageHandlerRegistryTests
         // Arrange
         var messageType = typeof(IMessage);
         var fallback1 = new Mock<IMessageHandler>();
-        fallback1.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback1", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Fallback));
+        fallback1.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback1", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Fallback });
         var fallback2 = new Mock<IMessageHandler>();
-        fallback2.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback2", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Fallback));
+        fallback2.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Fallback2", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Fallback });
         var providerMock = new Mock<IMessageHandlerProvider>();
         providerMock.Setup(p => p.GetMessageHandlers())
             .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [fallback1.Object, fallback2.Object] } });
@@ -147,17 +147,19 @@ public class MessageHandlerRegistryTests
     }
 
     [Fact]
-    public void GetMessageHandler_ReturnsError_WhenARoleTaggedHandlerIsMixedWithAnUntaggedOne()
+    public void GetMessageHandler_ReturnsError_WhenAnExplicitPrimaryIsMixedWithADefaultPrimary()
     {
-        // Arrange
+        // Arrange — a description built without mentioning Role is Primary by default
+        // (D32), so it conflicts with an explicitly-tagged Primary exactly like any
+        // other two-Primary conflict, not as a special "mixed" case.
         var messageType = typeof(IMessage);
-        var primaryMock = new Mock<IMessageHandler>();
-        primaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary", typeof(IMessageHandler), messageType, typeof(IMessageHandler), Role: HandlerRole.Primary));
-        var untaggedMock = new Mock<IMessageHandler>();
-        untaggedMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Untagged", typeof(IMessageHandler), messageType, typeof(IMessageHandler)));
+        var explicitPrimaryMock = new Mock<IMessageHandler>();
+        explicitPrimaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Primary", typeof(IMessageHandler), messageType, typeof(IMessageHandler)) { Role = HandlerRole.Primary });
+        var defaultPrimaryMock = new Mock<IMessageHandler>();
+        defaultPrimaryMock.Setup(m => m.HandlerDescription).Returns(new MessageHandlerDescription("Default", typeof(IMessageHandler), messageType, typeof(IMessageHandler)));
         var providerMock = new Mock<IMessageHandlerProvider>();
         providerMock.Setup(p => p.GetMessageHandlers())
-            .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [primaryMock.Object, untaggedMock.Object] } });
+            .Returns(new Dictionary<Type, IEnumerable<IMessageHandler>> { { messageType, [explicitPrimaryMock.Object, defaultPrimaryMock.Object] } });
         var registry = new MessageHandlerRegistry([providerMock.Object]);
 
         // Act

@@ -11,6 +11,17 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/es-command-executor-and-ambiguity-resolution
 
+Re-review (2026-08-11, implementation-correction pass). Baseline: this file's prior
+content (`pass`). Owner code review requested a documentation-hygiene pass only —
+`IEventSourcedCommandExecutor`, `EventSourcedCommandExecutor`,
+`MostSpecificCandidateResolver`, `ExpectedStreamState`, `AggregateConcurrencyException`,
+and the `AggregateDeciderExtractor`/`AggregateEvolverExtractor` `DeclaredOnly` comments
+no longer cite decision IDs (`D2`, `D7`, `D13`, `D17`, `D23`, `D24`, `D25`, `D29`, `D30`)
+or "Level 1/Level 2" — they describe the durable contracts and invariants (append-before-
+publish ordering, most-specific-wins resolution, the `NoStream`/`Exact` mapping)
+directly. No functional change; `dotnet test tests/NEvo.Ddd.EventSourcing.Tests`
+continues to pass (43/43 after this pass's other, task 05-attributed fixes).
+
 ## Verdict
 
 `pass` — `IEventSourcedCommandExecutor`/`EventSourcedCommandExecutor` (`Executing/`)

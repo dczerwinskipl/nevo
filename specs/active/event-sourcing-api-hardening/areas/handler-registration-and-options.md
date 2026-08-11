@@ -39,24 +39,39 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
 
 ## Requirements
 
-- Add semantic Primary/Fallback role metadata to the registration model (exact
-  mechanism — a `MessageHandlerDescription` field, a wrapping registration record, or
-  another shape — is this task's design decision, grounded in what's least invasive to
-  the existing `IMessageHandlerFactory`/`IMessageHandlerProvider`/`MessageHandlerRegistry`
-  contracts). No numeric priority (D3).
-- Resolution rules: one Primary → use Primary. No Primary + one Fallback → use Fallback.
-  Two or more Primary → configuration error. Multiple competing Fallback for the same
-  top-level route → configuration error. Prefer failing at startup/registration time
-  where practical, per the input specification's stated preference.
+- `HandlerRole` is a non-nullable enum (`Primary`/`Fallback`, no numeric priority, D3).
+  `MessageHandlerDescription.Role` is a normal `init` property defaulting to
+  `HandlerRole.Primary` — not a new positional constructor parameter — so the existing
+  six-parameter positional constructor (`Key, HandlerType, MessageType, InterfaceType,
+  ReturnType, Method`) keeps compiling unchanged for every existing call site (D32).
+  Absence of a role is never modeled — every handler is either an explicit Fallback or,
+  by default, a Primary; there is no `Unspecified`/`Legacy`/untagged mode (D32).
+- Resolution rules, implemented directly against `Role` — no branch for "untagged," or
+  "role-aware activated because a tag exists" (D32): zero handlers → existing
+  no-handler behavior. One handler → use it. Multiple handlers: more than one Primary →
+  `MoreThanOneHandlerFoundException`. Exactly one Primary → use it (a Primary always
+  wins over any Fallback present). No Primary + exactly one Fallback → use it. No
+  Primary + multiple Fallback → `MoreThanOneHandlerFoundException`. No registration-order
+  tiebreaker.
 - The convention aggregate-method route (task 03's executor via Level 1) is always
-  Fallback. An explicit Event Sourced handler (task 04, Level 2) and an ordinary
-  `ICommandHandler<TCommand>` (Level 3) are always Primary — two of the latter for the
-  same command is therefore always a configuration error, never a silent preference.
-- `AddEventSourcing(options => {...})` (or an additive overload preserving the existing
-  `params Type[]` shape if that composition is cleaner) with a clearly named toggle
-  (e.g. `options.CommandHandling.UseAggregateMethodsAsFallback()`), enabled by default
-  (D4). Public terminology: "aggregate method convention/fallback," not an internal name
-  like "generic handler."
+  Fallback — `DeciderCommandHandlerProvider` sets `Role = HandlerRole.Fallback`
+  explicitly. Every other factory (ordinary command, Query, Event, the explicit Event
+  Sourced handler) gets `Primary` by default and must not restate it merely because task
+  05 introduced the property (D32) — an explicit Event Sourced handler (task 04, Level 2)
+  and an ordinary `ICommandHandler<TCommand>` (Level 3) are therefore both Primary by
+  default, so two of the latter for the same command is always a configuration error,
+  never a silent preference.
+- `AddEventSourcing(params Type[] aggregateTypes)` remains available with its current
+  developer-facing behavior and unchanged call sites (D32, superseding D4's accepted-
+  breaking-change framing for this signature specifically). A new, additive
+  `AddEventSourcing(Action<EventSourcingOptions> configure, params Type[] aggregateTypes)`
+  overload carries the convention-fallback toggle; the old overload delegates to it with
+  default options. No nullable configure callback, and no `AddEventSourcing(null, ...)`
+  call pattern. `EventSourcingOptions` stays flat — one `UseAggregateMethodFallback`-style
+  toggle for the one configurable behavior that currently exists, not a nested
+  `CommandHandlingOptions` hierarchy (D32) — enabled by default (D4, toggle behavior
+  unchanged). Public terminology: "aggregate method convention/fallback," not an internal
+  name like "generic handler."
 - Fix `AddEventSourcing`'s registration to be idempotent (`TryAdd*`/`TryAddEnumerable`),
   matching `AddCommands`/`AddEvents`/`AddQueries`'s precedent.
 - **Protect general messaging behavior (review issue 6, 2026-08-10 spec-refine).**
@@ -64,13 +79,14 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
   (`MessageHandlerDescription`/`MessageHandlerRegistry`) used by Command, Query, and
   Event alike. Task 05 must prove, not merely assume, that: ordinary command handlers
   retain today's single-handler semantics; Query handler resolution is completely
-  unaffected (no Primary/Fallback concept applies to Query at all); Event fan-out to
-  multiple handlers is unaffected; role logic only ever activates for a message type
-  that actually has a role-tagged handler registered; and every registration method's
-  existing idempotency guarantee survives. Do not let the mere existence of role
-  metadata make Query or Event resolution role-aware "for free" — that would be an
-  unrequested, unreviewed behavior change to two message kinds this specification does
-  not touch otherwise.
+  unaffected (a Query type with one handler still resolves — one Primary by default —
+  and two Query handlers still fail with `MoreThanOneHandlerFoundException` exactly as
+  today, two Primary by default, with no Query-specific role handling anywhere); Event
+  fan-out to multiple handlers is unaffected because fan-out (`GetMessageHandlers`) never
+  calls `SelectMessageHandler` at all, independent of any handler's `Role`; and every
+  registration method's existing idempotency guarantee survives. Behavior is preserved
+  through dispatch semantics and the `Primary` default, not through absent metadata
+  (D32).
 
 ## Constraints
 
@@ -91,8 +107,9 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
 - Provides to task 07 (authorization): whichever route was actually selected, so
   `ValidatePermissionMiddleware` (task 07) can find the correct `Method`/permission
   source regardless of role.
-- Provides to task 09/10 (Documents example): the public `AddEventSourcing(options =>
-  {...})` surface and Primary/Fallback registration behavior the example demonstrates.
+- Provides to task 09/10 (Documents example): the public `AddEventSourcing(params
+  Type[])`/`AddEventSourcing(Action<EventSourcingOptions>, params Type[])` surface and
+  Primary/Fallback registration behavior the example demonstrates.
 
 ## Area-specific acceptance criteria
 
@@ -104,13 +121,16 @@ unconditionally with no options object (`// TODO: add provider?` at line 56).
    registration/startup time.
 4. Two competing Fallback candidates for the same top-level command route fail as a
    configuration error.
-5. `options.CommandHandling.UseAggregateMethodsAsFallback()` disabled at registration
-   time means a command with only a convention-eligible aggregate method has no
-   registered handler (`NoHandlerFoundException`), while an explicit ES handler or
-   ordinary command handler for a different command remains usable.
-6. `AddEventSourcing()` called twice does not throw and does not duplicate registered
+5. The convention-fallback toggle disabled at registration time (via the additive
+   `AddEventSourcing(Action<EventSourcingOptions>, params Type[])` overload) means a
+   command with only a convention-eligible aggregate method has no registered handler
+   (`NoHandlerFoundException`), while an explicit ES handler or ordinary command handler
+   for a different command remains usable.
+6. `AddEventSourcing(params Type[])` and `AddEventSourcing(Action<EventSourcingOptions>,
+   params Type[])` each called twice do not throw and do not duplicate registered
    services (idempotency test, matching `AddCommands`/`AddEvents`/`AddQueries`'s own
-   idempotency tests).
+   idempotency tests). The old `AddEventSourcing(params Type[])` overload's existing call
+   sites and behavior are unchanged.
 7. **(Review issue 6)** Query resolution, Event fan-out, and every existing
    `AddCommands`/`AddEvents`/`AddQueries` idempotency guarantee are unaffected by this
    area's changes — proven by regression tests, not by inspection alone.

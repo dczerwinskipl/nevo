@@ -1,12 +1,12 @@
 namespace NEvo.Ddd.EventSourcing;
 
 /// <summary>
-/// Deterministic most-specific-wins resolution (D2) among candidates already filtered to
-/// "declaring type is assignable from the runtime aggregate type": the candidate with no
-/// other, strictly more-specific candidate among the others wins. Two or more candidates
-/// tied at the most-specific level (including two candidates sharing the exact same
-/// declaring type) fail as a configuration/runtime error naming every tied candidate.
-/// Never relies on enumeration order or a first-match.
+/// Deterministic most-specific-wins resolution among candidates already filtered to
+/// "declaring type is assignable from the runtime aggregate type": the most-specific
+/// compatible declaring type wins. Two or more candidates tied at the most-specific
+/// level (including two candidates sharing the exact same declaring type) are ambiguous
+/// and fail as a configuration/runtime error naming every tied candidate. Enumeration
+/// order is never a tiebreaker.
 /// </summary>
 internal static class MostSpecificCandidateResolver
 {

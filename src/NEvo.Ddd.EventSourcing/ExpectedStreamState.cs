@@ -1,10 +1,11 @@
 namespace NEvo.Ddd.EventSourcing;
 
 /// <summary>
-/// Replaces a bare expected-version integer with an explicit creation-vs-mutation
-/// intent (D29): <see cref="NoStream"/> is valid only if the stream does not yet exist;
-/// <see cref="Exact"/> is valid only if the stream is at exactly the given version. No
-/// unconditional-append ("Any") case exists by design.
+/// The expected state of a stream at append time. <see cref="NoStream"/> expresses a
+/// create-only append, valid only if the stream does not yet exist.
+/// <see cref="Exact"/> expresses optimistic concurrency against an observed version,
+/// valid only if the stream is at exactly that version. There is no unconditional-append
+/// case.
 /// </summary>
 public abstract record ExpectedStreamState
 {

@@ -1,7 +1,8 @@
 namespace NEvo.Ddd.EventSourcing.Deciding;
 
 /// <summary>
-/// Decider that use Aggregate instance to handle the command.
+/// Resolves and invokes the aggregate-method decision for a command by inspecting the
+/// current aggregate instance's runtime type.
 /// </summary>
 public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider
 {
