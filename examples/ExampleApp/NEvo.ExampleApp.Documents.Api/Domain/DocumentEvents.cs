@@ -10,4 +10,4 @@ public abstract record DocumentDomainEvent(Guid DocumentId) : Event, IAggregateE
 
 public record DocumentCreated(Guid DocumentId, string Data) : DocumentDomainEvent(DocumentId);
 public record DocumentChanged(Guid DocumentId, string Data) : DocumentDomainEvent(DocumentId);
-public record DocumentApproved(Guid DocumentId) : DocumentDomainEvent(DocumentId);
+public record DocumentApproved(Guid DocumentId, Guid ApprovedBy) : DocumentDomainEvent(DocumentId);

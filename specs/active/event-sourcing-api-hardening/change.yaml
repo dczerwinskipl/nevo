@@ -441,13 +441,15 @@ tasks:
   - id: documents-example-es-and-auth-demo
     order: 10
     file: tasks/10-documents-example-es-and-auth-demo.md
-    status: approved
+    status: in-implementation
     depends_on:
       - create-documents-example-project
       - explicit-event-sourced-command-handler
       - event-sourcing-registration-options
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding
+    implementation:
+      baseline_revision: d6dc7414c63ba31d03bcd95cd064c28eff4f7818
   - id: user-facing-event-sourcing-guide
     order: 11
     file: tasks/11-user-facing-event-sourcing-guide.md

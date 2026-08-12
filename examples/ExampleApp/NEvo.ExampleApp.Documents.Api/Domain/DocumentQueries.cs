@@ -5,7 +5,7 @@ using NEvo.Messaging.Cqrs.Queries;
 
 namespace NEvo.ExampleApp.Documents.Api.Domain;
 
-public record DocumentDto(Guid DocumentId, string Data, bool Approved) : IProjectable<Guid>
+public record DocumentDto(Guid DocumentId, string Data, bool Approved, Guid? ApprovedBy) : IProjectable<Guid>
 {
     public Guid Id => DocumentId;
 }
@@ -24,5 +24,9 @@ public class GetDocumentQueryHandler(IAggregateRepository repository) : IQueryHa
         => await repository.LoadAggregateAsync<Document, Guid>(query.DocumentId, cancellationToken)
             .MapAsync(Some: loaded => ToDto(loaded.Aggregate), None: () => new DocumentNotFoundException(query.DocumentId));
 
-    private static DocumentDto ToDto(Document document) => new(document.Id, document.Data, document is ApprovedDocument);
+    private static DocumentDto ToDto(Document document) => document switch
+    {
+        ApprovedDocument approved => new(approved.Id, approved.Data, Approved: true, approved.ApprovedBy),
+        _ => new(document.Id, document.Data, Approved: false, ApprovedBy: null)
+    };
 }

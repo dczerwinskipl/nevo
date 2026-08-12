@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authorization" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
@@ -19,7 +20,9 @@
     <ProjectReference Include="..\..\..\src\NEvo.Core\NEvo.Core.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Ddd.EventSourcing\NEvo.Ddd.EventSourcing.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging\NEvo.Messaging.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging.Authorization\NEvo.Messaging.Authorization.csproj" />
     <ProjectReference Include="..\..\..\src\NEvo.Messaging.Cqrs\NEvo.Messaging.Cqrs.csproj" />
+    <ProjectReference Include="..\..\..\src\NEvo.Messaging.Web\NEvo.Messaging.Web.csproj" />
     <ProjectReference Include="..\NEvo.ExampleApp.Orchestration\NEvo.ExampleApp.Orchestration.ServiceDefaults\NEvo.ExampleApp.Orchestration.ServiceDefaults.csproj" />
   </ItemGroup>
 

@@ -11,17 +11,26 @@ builder.Services.AddLogging(logging =>
     logging.AddConsole();
 });
 
-// The aggregate-method convention handles Document commands via
-// AddEventSourcing(typeof(Document)) — no explicit handler registration needed for it.
 builder.Services.AddMessages();
 builder.Services.AddMessageProcessingMiddleware<LoggingMessageProcessingMiddleware>();
+builder.Services.AddEvents();
 builder.Services.AddCommands();
 builder.Services.AddQueries();
-builder.Services.AddEventSourcing(typeof(Document));
+
+// Convention fallback stays enabled (the default, task 06) — CreateDocument and
+// ChangeDocument route through it (Level 1); only ApproveDocument has an explicit
+// Level 2 handler registered via AddDocumentsDomain below.
+builder.Services.AddEventSourcing(options => options.UseAggregateMethodFallback = true, typeof(Document));
 builder.Services.AddDocumentsDomain();
+builder.Services.AddDocumentsAuthorization();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapDocumentsRoutes();
 
 app.Run();
