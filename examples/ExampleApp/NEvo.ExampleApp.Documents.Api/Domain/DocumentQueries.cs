@@ -21,16 +21,8 @@ public class DocumentNotFoundException(Guid documentId) : Exception($"Document '
 public class GetDocumentQueryHandler(IAggregateRepository repository) : IQueryHandler<GetDocumentQuery, DocumentDto>
 {
     public async Task<Either<Exception, DocumentDto>> HandleAsync(GetDocumentQuery query, IMessageContext messageContext, CancellationToken cancellationToken)
-    {
-        var result = await repository.LoadAggregateAsync<Document, Guid>(query.DocumentId, cancellationToken);
-        return result.Match(
-            Right: option => option.Match(
-                Some: loaded => Either<Exception, DocumentDto>.Right(ToDto(loaded.Aggregate)),
-                None: () => Either<Exception, DocumentDto>.Left(new DocumentNotFoundException(query.DocumentId))
-            ),
-            Left: ex => Either<Exception, DocumentDto>.Left(ex)
-        );
-    }
+        => await repository.LoadAggregateAsync<Document, Guid>(query.DocumentId, cancellationToken)
+            .MapAsync(Some: loaded => ToDto(loaded.Aggregate), None: () => new DocumentNotFoundException(query.DocumentId));
 
     private static DocumentDto ToDto(Document document) => new(document.Id, document.Data, document is ApprovedDocument);
 }
