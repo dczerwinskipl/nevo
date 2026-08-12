@@ -17,9 +17,6 @@ builder.Services.AddEvents();
 builder.Services.AddCommands();
 builder.Services.AddQueries();
 
-// Convention fallback stays enabled (the default, task 06) — CreateDocument and
-// ChangeDocument route through it (Level 1); only ApproveDocument has an explicit
-// Level 2 handler registered via AddDocumentsDomain below.
 builder.Services.AddEventSourcing(options => options.UseAggregateMethodFallback = true, typeof(Document));
 builder.Services.AddDocumentsDomain();
 builder.Services.AddDocumentsAuthorization();

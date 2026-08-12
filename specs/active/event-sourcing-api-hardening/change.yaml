@@ -444,7 +444,6 @@ tasks:
     status: in-implementation
     depends_on:
       - create-documents-example-project
-      - explicit-event-sourced-command-handler
       - event-sourcing-registration-options
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding

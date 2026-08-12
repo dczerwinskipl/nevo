@@ -3,54 +3,62 @@ using NEvo.Ddd.EventSourcing;
 
 namespace NEvo.ExampleApp.Documents.Api.Domain;
 
+/// <summary>
+/// A document aggregate root. Its concrete runtime type reflects the document's current
+/// lifecycle state: <see cref="EditableDocument"/> before approval, <see
+/// cref="ApprovedDocument"/> after.
+/// </summary>
 public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 {
     public Guid Id { get; } = id;
     public string Data { get; } = data;
 
-    // Decider - create
+    /// <summary>Creates a new document.</summary>
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
     {
         return new[] { new DocumentCreated(command.DocumentId, command.Data) };
     }
 
-    // Evolver - initial state
+    /// <summary>Applies <see cref="DocumentCreated"/>, producing the document's initial state.</summary>
     public static Document Apply(DocumentCreated @event)
     {
         return new EditableDocument(@event.DocumentId, @event.Data);
     }
 }
 
+/// <summary>A document that has not yet been approved and can still be changed.</summary>
 public sealed class EditableDocument(Guid id, string data) : Document(id, data)
 {
-    // Decider
+    /// <summary>Changes the document's data.</summary>
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Change(ChangeDocument command)
     {
         return new[] { new DocumentChanged(Id, command.Data) };
     }
 
-    // Level 1 convention decider for ApproveDocument. Never actually routed to at
-    // runtime — ApproveDocumentHandler (Level 2) is registered as Primary for
-    // ApproveDocument, so this convention route stays Fallback and unused (D3) — but it
-    // still needs to exist, because the explicit handler delegates to it via
-    // IAggregateMethodDecider for the actual transition instead of duplicating it.
-    // ApprovedBy is not knowable here (a decision method has no orchestration/DI
-    // capability, only the command and current state); it is resolved from the
-    // current-user context and applied by the explicit handler after this call returns.
+    /// <summary>Transitions an editable document to <see cref="ApprovedDocument"/>.</summary>
+    /// <remarks>
+    /// Generates the approver identifier here (<see cref="Guid.NewGuid"/>) as a
+    /// temporary placeholder: an aggregate-method convention decision method receives
+    /// only the command and the current aggregate state, with no way to resolve the
+    /// current caller. This should instead come from a current-user/context capability
+    /// once one exists for decision methods to depend on — until then, this value is not
+    /// a real identity.
+    /// </remarks>
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command)
     {
-        return new[] { new DocumentApproved(Id, ApprovedBy: Guid.Empty) };
+        return new[] { new DocumentApproved(Id, ApprovedBy: Guid.NewGuid()) };
     }
 
-    // Evolver — each application returns a new, independent state object rather than
-    // mutating this one.
+    /// <summary>Applies <see cref="DocumentChanged"/>, returning the updated state.</summary>
     public EditableDocument Apply(DocumentChanged @event)
         => new(Id, @event.Data);
 
+    /// <summary>Applies <see cref="DocumentApproved"/>, transitioning to <see cref="ApprovedDocument"/>.</summary>
     public ApprovedDocument Apply(DocumentApproved @event)
         => new(Id, Data, @event.ApprovedBy);
 }
 
+/// <summary>A document that has been approved.</summary>
 public sealed class ApprovedDocument(Guid id, string data, Guid approvedBy) : Document(id, data)
 {
     public Guid ApprovedBy { get; } = approvedBy;

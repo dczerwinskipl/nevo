@@ -1,9 +1,7 @@
 # Documents.Api walkthrough
 
-Manual verification record for this example (D12 — no dedicated test project; this note
-plus `dotnet build` is the acceptance evidence for task 10 of the
-`event-sourcing-api-hardening` change). Task 11's user-facing guide and task 12's
-internal architecture doc link here as the canonical Event Sourcing example.
+Manual verification record for this example — there is no dedicated test project, so this
+note plus `dotnet build` is how the example is verified.
 
 Run the service directly — no other example project or Identity.Api needs to be
 running:
@@ -19,40 +17,26 @@ commands below use `http://localhost:5299` — substitute your own port.
 
 | Concept | Where |
 |---|---|
-| Level 1 — aggregate-method convention | `CreateDocument`, `ChangeDocument` (`Document.cs`) |
-| Level 2 — explicit handler delegating to Level 1 | `ApproveDocument` → `ApproveDocumentHandler.cs` |
+| Aggregate-method convention | `CreateDocument`, `ChangeDocument`, `ApproveDocument` (`Document.cs`) |
 | Message-level permission metadata | `[AllowPermission]` on `ApproveDocument` (`DocumentCommands.cs`) |
 | `AddEventSourcing(options => {...})` | `Program.cs` |
 | `MapCommandEndpoint` / `MapQueryEndpoint` | `Routes.cs` |
 | Reload-after-write reconstructing concrete state | Query steps 2 and 4 below |
+
+Every Document command is handled through the aggregate-method convention — no explicit
+Event Sourced handler is demonstrated in this example. The one command
+(`ApproveDocument`) that could plausibly need one only needs it to resolve the caller's
+identity, and the framework has no current-user/context capability a decision method or
+an explicit handler could use for that yet (see "About the generated `approvedBy`"
+below) — wrapping that gap in an explicit handler wouldn't demonstrate genuine
+orchestration, only add indirection around a placeholder.
 
 Aggregate-aware authorization (`IAggregateAuthorization<TCommand, TAggregate>`, e.g.
 "only the creator may approve") is **not** demonstrated here: this domain has no
 creator/owner concept, and message-level permission already demonstrates the
 authorization integration end to end. Adding a second, resource-aware authorization
 mechanism on top would mean growing the domain (a `CreatedBy` field with no other use)
-just to exercise the extension point — the input specification explicitly allows
-omitting this when it would make the example noisy rather than clearer.
-
-## Level 1 vs Level 2
-
-`CreateDocument` and `ChangeDocument` have no explicit handler — the aggregate-method
-convention (Level 1, Fallback role) routes them straight to `Document.Create` /
-`EditableDocument.Change`.
-
-`ApproveDocument` has `ApproveDocumentHandler` registered as an explicit
-`IEventSourcedCommandHandler<ApproveDocument, Document, Guid>` (Level 2, Primary role).
-The genuine reason it needs Level 2: the resulting `DocumentApproved` event must record
-*who* approved the document, and a decision method only ever sees the command and the
-current aggregate state — it has no way to resolve caller identity. The handler resolves
-the approver from the same current-user context `UserContextMiddleware` populates for
-the permission check below (via `IMessageContextAccessor`), delegates the actual
-`EditableDocument -> ApprovedDocument` transition to `EditableDocument.Approve` through
-`IAggregateMethodDecider` — the transition rule stays defined exactly once — and enriches
-the returned event with the resolved approver. `EditableDocument.Approve` itself is
-still discovered as a convention (Fallback) candidate for `ApproveDocument`, but is never
-selected, because the explicit handler is registered as Primary (one Primary always wins
-over a Fallback).
+just to exercise the extension point.
 
 ## Step by step
 
@@ -62,7 +46,7 @@ Set an id to reuse across requests:
 DOC_ID=$(uuidgen)   # or any GUID
 ```
 
-### 1. Create (Level 1, `POST /api/documents`)
+### 1. Create (`POST /api/documents`)
 
 ```
 curl -X POST http://localhost:5299/api/documents \
@@ -78,10 +62,10 @@ Expect `200 {}`.
 curl http://localhost:5299/api/documents/$DOC_ID
 ```
 
-Expect `{"documentId":"...","data":"hello","approved":false,"approvedBy":null,"id":"..."}`
+Expect `{"documentId":"...","data":"hello","approved":false,"approvedBy":null}`
 — `EditableDocument`-shaped (`approved: false`).
 
-### 3. Change (Level 1, `POST /api/documents/change`)
+### 3. Change (`POST /api/documents/change`)
 
 ```
 curl -X POST http://localhost:5299/api/documents/change \
@@ -117,8 +101,9 @@ curl -X POST http://localhost:5299/api/documents/approve \
 Expect a `500` Problem response with `"detail":"Permission denied"` —
 `ValidatePermissionMiddleware` denies the request because `ApproveDocument`'s
 `[AllowPermission(DocumentPermissions.ApproveDocument, ...)]` requirement isn't met (no
-`Approver` role, hence no `APPROVE_DOCUMENT` permission). This is the message-level
-permission enforcement task 07 added, exercised end to end.
+`Approver` role, hence no `APPROVE_DOCUMENT` permission). The `500` status is the
+framework's current behavior for a denied permission, not a deliberately chosen
+authorization status code.
 
 ### 5. Approve with the required permission
 
@@ -138,12 +123,12 @@ Expect `200 {}`.
 curl http://localhost:5299/api/documents/$DOC_ID
 ```
 
-Expect
-`{"documentId":"...","data":"updated","approved":true,"approvedBy":"22222222-2222-2222-2222-222222222222","id":"..."}`
-— `approved: true` and `approvedBy` set to the identity resolved in step 5, proving the
-aggregate reloaded from its event stream as `ApprovedDocument`, not the previous
-`EditableDocument` state, and that the Level 2 handler's enrichment reached the
-persisted event.
+Expect a response shaped like
+`{"documentId":"...","data":"updated","approved":true,"approvedBy":"<non-empty guid>"}`
+— `approved: true` and a non-empty `approvedBy`, proving the aggregate reloaded from its
+event stream as `ApprovedDocument`, not the previous `EditableDocument` state.
+`approvedBy` is a generated placeholder id (see below), not the authenticated caller's
+id — it will differ from `22222222-2222-2222-2222-222222222222`.
 
 ### About the demo authentication scheme
 
@@ -154,6 +139,14 @@ walkthrough is self-contained — no Identity.Api/JWT bearer dependency, unlike
 `ServiceA.Api`'s `SayHelloCommand` example, which shows the real JWT-based integration.
 A real service should use a real authentication scheme.
 
+### About the generated `approvedBy`
+
+`EditableDocument.Approve` generates `ApprovedBy` with `Guid.NewGuid()` rather than
+resolving the authenticated caller's id, because aggregate decision methods cannot yet
+receive contextual dependencies such as the current user (see the `<remarks>` on
+`Approve` in `Document.cs`). Treat `approvedBy` as "a non-empty id was recorded," not as
+the identity of who called the endpoint.
+
 ## Optimistic concurrency
 
 Not demonstrated here. A manually-reproduced concurrent-write race would be
@@ -161,5 +154,4 @@ flaky/timing-dependent and adds no coverage beyond what
 `tests/NEvo.Ddd.EventSourcing.Tests` already proves deterministically (the repository
 returns `AggregateConcurrencyException` on an expected-version mismatch). The Documents
 repository uses exactly that expected-version optimistic-concurrency scheme; see the
-Event Sourcing user guide (`docs/usage/event-sourcing.md`, added by this change's
-documentation task) for the full explanation.
+Event Sourcing user guide (`docs/usage/event-sourcing.md`) for the full explanation.

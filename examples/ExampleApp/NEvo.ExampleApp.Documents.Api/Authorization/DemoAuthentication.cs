@@ -10,13 +10,14 @@ using NEvo.Authorization.Users;
 
 namespace NEvo.ExampleApp.Documents.Api.Authorization;
 
-// Minimal demo-only authentication scheme: a request is authenticated when it carries
-// the X-Demo-User-Id header. This lets the example demonstrate RequireAuthorization()
-// together with NEvo's own message-level permission pipeline (AllowPermission /
-// ValidatePermissionMiddleware / UserContextMiddleware) end to end from a single
-// `dotnet run`, without standing up Identity.Api/JWT bearer auth the way ServiceA.Api
-// does — that would pull in a real identity-provider dependency this compact example
-// doesn't need. A real service should use a real scheme instead.
+/// <summary>
+/// Minimal demo-only authentication scheme: a request is authenticated when it carries
+/// the <see cref="UserIdHeader"/> header, with <see cref="RolesHeader"/> mapped to
+/// claims-based roles. This lets the example demonstrate <c>RequireAuthorization()</c>
+/// together with NEvo's message-level permission pipeline end to end from a single
+/// <c>dotnet run</c>, without standing up a real identity provider.
+/// </summary>
+/// <remarks>This is not intended as a production authentication mechanism.</remarks>
 public class DemoAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
@@ -48,10 +49,7 @@ public class DemoAuthenticationHandler(
     }
 }
 
-// Reads the identity DemoAuthenticationHandler put on HttpContext.User. Kept local
-// rather than reusing NEvo.Web.Authorization's ClaimUserProvider/ClaimRoleProvider,
-// since those expect roles as a JSON-encoded Role<T> claim value — this demo scheme
-// uses plain role-name claims instead, for a walkthrough that stays curl-friendly.
+/// <summary>Adapts the identity <see cref="DemoAuthenticationHandler"/> puts on <c>HttpContext.User</c> to a NEvo <see cref="User{TId}"/> for authorization.</summary>
 public class DemoUserProvider(IHttpContextAccessor httpContextAccessor) : IUserProvider<Guid>
 {
     public Option<User<Guid>> GetUser()
@@ -63,6 +61,7 @@ public class DemoUserProvider(IHttpContextAccessor httpContextAccessor) : IUserP
     }
 }
 
+/// <summary>Adapts the role claims <see cref="DemoAuthenticationHandler"/> puts on <c>HttpContext.User</c> to NEvo roles for authorization.</summary>
 public class DemoRoleProvider(IHttpContextAccessor httpContextAccessor) : IRoleProvider<DocumentDataScope>
 {
     public IEnumerable<Role<DocumentDataScope>> GetRoles()

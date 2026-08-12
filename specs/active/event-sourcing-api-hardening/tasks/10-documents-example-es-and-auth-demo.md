@@ -4,15 +4,13 @@ status: draft
 change: event-sourcing-api-hardening
 depends_on:
   - create-documents-example-project
-  - explicit-event-sourced-command-handler
   - event-sourcing-registration-options
   - message-level-and-aggregate-authorization
   - map-query-endpoint-and-get-binding
 semantic_references:
-  decisions: [D9, D12, D24, D28]
+  decisions: [D9, D12, D33, D28]
   dependency_contracts:
     - create-documents-example-project
-    - explicit-event-sourced-command-handler
     - event-sourcing-registration-options
     - message-level-and-aggregate-authorization
     - map-query-endpoint-and-get-binding
@@ -34,29 +32,36 @@ forbidden_paths:
 
 ## Goal
 
-Wire the Documents example service to demonstrate every hardened concept end to end:
-Level 1 convention handling, an explicit Level 2 handler delegating to Level 1's
-decision-method discovery, message-level permission metadata, aggregate-aware
-authorization (if it fits without making the example noisy), `MapCommandEndpoint` +
-`MapQueryEndpoint`, and `AddEventSourcing(options => {...})` registration — verified by
-a documented manual walkthrough (D12), no dedicated test project.
+Wire the Documents example service to demonstrate the hardened concepts that fit this
+compact domain honestly end to end: Level 1 aggregate-method convention handling,
+message-level permission metadata, aggregate-aware authorization (if it fits without
+making the example noisy), `MapCommandEndpoint` + `MapQueryEndpoint`, and
+`AddEventSourcing(options => {...})` registration — verified by a documented manual
+walkthrough (D12), no dedicated test project.
+
+**Narrowed by D33.** This example no longer demonstrates an explicit Level 2 handler.
+`ApproveDocument`'s only candidate orchestration need — capturing the approver's
+identity — is not a genuine one today: the framework has no current-user/context
+capability an aggregate decision method or an explicit handler could use to resolve it,
+so an explicit handler here would only wrap a placeholder value, not real orchestration.
+See D33 for the full rationale.
 
 ## Dependencies
 
 - `create-documents-example-project` (task 09).
-- `explicit-event-sourced-command-handler` (task 04).
 - `event-sourcing-registration-options` (task 06).
 - `message-level-and-aggregate-authorization` (task 07).
 - `map-query-endpoint-and-get-binding` (task 08).
 
 ## Implementation constraints
 
-- At least one Document command (e.g. `ChangeDocument`) stays on the Level 1 convention
-  path. At least one command (e.g. `ApproveDocument`, if it has a genuine orchestration
-  need — otherwise pick whichever command can motivate one honestly, per the input
-  specification's "prefer clarity over feature count") is handled via an explicit Level
-  2 handler that delegates to Level 1's own decision-method discovery for the actual
-  transition, not a duplicated implementation.
+- All Document commands (`CreateDocument`, `ChangeDocument`, `ApproveDocument`) stay on
+  the Level 1 aggregate-method convention path — no explicit
+  `IEventSourcedCommandHandler<...>` is registered for any of them (D33).
+  `EditableDocument.Approve` generates the approver identifier directly
+  (`Guid.NewGuid()`), documented with a prominent `<remarks>` stating this is a
+  placeholder for a not-yet-available current-user/context capability the aggregate
+  decision method cannot use today.
 - At least one Document command carries message-level permission metadata (task 07),
   wired with `.RequireAuthorization()` on its `MapCommandEndpoint` call.
 - Add an aggregate-aware authorization example only if it stays compact — e.g. "only the
@@ -69,7 +74,8 @@ a documented manual walkthrough (D12), no dedicated test project.
 - Write the manual walkthrough as a short, step-by-step doc comment or `README`-style
   note inside the example project (not a new top-level doc — task 11 links to it as the
   canonical sample), covering: create → change → approve → query, reload-after-write,
-  Level 1 vs Level 2 usage, permissions, and query/command endpoint mapping. **Do not
+  the Level 1 aggregate-method convention, permissions, and query/command endpoint
+  mapping. **Do not
   include a manufactured concurrent-write/HTTP-race scenario (D28)** — optimistic
   concurrency is covered deterministically in Event Sourcing core tests (tasks 02-03);
   the walkthrough may mention, in prose, that the repository uses expected-version
@@ -83,8 +89,11 @@ a documented manual walkthrough (D12), no dedicated test project.
    per D12, not `automated`).
 2. Reloading the aggregate after approval returns `ApprovedDocument`-shaped data via the
    query, not `EditableDocument`-shaped data (manual, recorded in the walkthrough).
-3. At least one command uses Level 1 and at least one uses Level 2 delegating to Level
-   1's discovery (inspection).
+3. All Document commands are handled via the Level 1 aggregate-method convention; no
+   explicit `IEventSourcedCommandHandler<...>` is registered for any Document command
+   (inspection, D33). `EditableDocument.Approve` generates the approver identifier
+   directly, documented with a `<remarks>` describing the current missing capability
+   (inspection).
 4. At least one command enforces message-level permission end to end, demonstrated by a
    request without the required permission being denied (manual, recorded in the
    walkthrough).

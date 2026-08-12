@@ -43,13 +43,15 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 - Create `NEvo.ExampleApp.Documents.Api` (or a naming form consistent with the existing
   `NEvo.ExampleApp.*` projects), moving the Document domain into it with its own proper
   namespace (not `NEvo.Ddd.EventSourcing.Tests.Mocks`).
-- Demonstrate: Level 1 convention handling for at least one command; the
-  `EditableDocument -> ApprovedDocument` transition; at least one explicit Level 2
-  `IEventSourcedCommandHandler<...>` demonstrating genuine orchestration need, reusing
-  Level 1's decision-method discovery rather than duplicating the transition; message-
-  level permission metadata; aggregate-aware authorization if it fits without making the
-  example noisy; `MapCommandEndpoint`; `MapQueryEndpoint`; aggregate reload after writes
-  reconstructing the correct concrete state.
+- Demonstrate: Level 1 convention handling for every Document command; the
+  `EditableDocument -> ApprovedDocument` transition; message-level permission metadata;
+  aggregate-aware authorization if it fits without making the example noisy;
+  `MapCommandEndpoint`; `MapQueryEndpoint`; aggregate reload after writes reconstructing
+  the correct concrete state. **Narrowed by D33**: no explicit Level 2
+  `IEventSourcedCommandHandler<...>` is demonstrated — `ApproveDocument`'s only
+  candidate orchestration need (capturing the approver's identity) is not genuine today,
+  since no current-user/context capability exists for either a decision method or an
+  explicit handler to resolve it from.
 - Rewrite `GetDocumentQueryHandler` to read through the hardened `IAggregateRepository`
   path (task 02), documenting this explicitly as an intermediate/simple read path used
   before persisted projection support exists — not the final recommendation for all
@@ -72,10 +74,9 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 
 ## Interfaces and boundaries
 
-- Consumes: task 02 (repository/store contracts), task 04 (explicit handler contract),
-  task 05/06 (Primary/Fallback registration, `AddEventSourcing(options => {...})`), task
-  07 (message-level attribute + aggregate-aware authorization extension point), task 08
-  (`MapQueryEndpoint`).
+- Consumes: task 02 (repository/store contracts), task 05/06 (Primary/Fallback
+  registration, `AddEventSourcing(options => {...})`), task 07 (message-level attribute
+  + aggregate-aware authorization extension point), task 08 (`MapQueryEndpoint`).
 - Produces: the canonical Event Sourcing usage example that tasks 11-12's documentation
   links to.
 
@@ -88,8 +89,8 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
    `InMemoryDocumentEventStore` (removed).
 3. Reloading the aggregate after a write reconstructs the correct concrete state
    (`ApprovedDocument` after approval, not `EditableDocument`).
-4. At least one command is handled via Level 1 convention and at least one via an
-   explicit Level 2 handler that delegates to Level 1's own decision-method discovery.
+4. Every Document command is handled via the Level 1 aggregate-method convention; no
+   explicit Level 2 handler is registered for any Document command (D33).
 5. At least one Document command carries message-level permission metadata, enforced
    end to end (task 07).
 6. `MapCommandEndpoint`/`MapQueryEndpoint` are both used for the Document endpoints.
@@ -100,7 +101,6 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
 ## Dependencies
 
 - `persistence-boundary` (task 02).
-- `shared-es-execution-and-explicit-handler` (task 04).
 - `handler-registration-and-options` (task 06).
 - `authorization-integration` (task 07).
 - `http-query-endpoint` (task 08).

@@ -1177,3 +1177,64 @@ breaking-change acceptance
 - **Affected artifacts:** overview.md, areas/handler-registration-and-options.md,
   tasks/05-primary-fallback-handler-roles.md,
   tasks/06-event-sourcing-registration-options.md
+
+## D33: Documents example drops the explicit Level 2 handler — narrows D9
+
+- **Question:** Post-implementation correction of task 10 (moving `ApprovedBy`
+  generation from a post-decision event rewrite in `ApproveDocumentHandler` to a
+  pre-decision input) prompted a review of `ApproveDocumentHandler` itself: is wrapping
+  `Guid.NewGuid()` in an explicit Level 2 handler — reusing Level 1's own decision-method
+  discovery via `IAggregateMethodDecider`, exactly as D1/D24 describe — a genuine
+  orchestration need, or does it only dress up a placeholder value as orchestration?
+  Should the Documents example keep an explicit Level 2 handler for `ApproveDocument`, or
+  should the approver identifier be generated directly inside the aggregate-method
+  convention decision method instead?
+- **Options considered:** Keep `ApproveDocumentHandler` as the example's Level 2
+  demonstration, generating the placeholder approver id before delegating to
+  `IAggregateMethodDecider` (the shape landed by the prior correction pass) | Remove
+  `ApproveDocumentHandler` entirely; generate the placeholder approver id directly inside
+  `EditableDocument.Approve` (the Level 1 aggregate-method convention decision method),
+  with a prominent `<remarks>` documenting the missing current-user/context capability |
+  Keep some other command on Level 2 purely to satisfy the "at least one Level 2
+  example" requirement, without a genuine orchestration need behind it.
+- **Decision:** The second option. `ApproveDocumentHandler` and
+  `ApproveDocumentDecision` are removed. `ApproveDocument` is handled entirely through
+  the Level 1 aggregate-method convention; `EditableDocument.Approve(ApproveDocument
+  command)` generates `Guid.NewGuid()` directly, with a `<remarks>` stating this is a
+  placeholder for a not-yet-available current-user/context capability the aggregate
+  decision method cannot use today. The Documents example no longer demonstrates an
+  explicit Level 2 handler for any command. The third option is rejected outright —
+  manufacturing an orchestration need on an unrelated command purely to keep a checklist
+  item satisfied is exactly the kind of showcase-over-clarity example this change's own
+  area constraint ("prefer clarity over feature count") already rules out.
+- **Rationale:** Owner: the explicit handler this correction pass had already narrowed
+  to "build an `ApproveDocumentDecision` and delegate to Level 1" no longer does any
+  real orchestration — every event of substance still comes from
+  `EditableDocument.Approve`, and the handler's only remaining job is generating a
+  value the aggregate method could just as well generate itself. Wrapping that in a
+  Level 2 handler doesn't demonstrate a genuine capability difference between the two
+  paths; it only adds a layer of indirection around a temporary placeholder. The
+  framework still lacks a current-user/context capability an aggregate decision method
+  could use (unchanged — out of scope for this correction, per the prior pass's own
+  scope boundary); until that capability exists, `ApproveDocument` has no honest
+  orchestration need distinguishing it from `CreateDocument`/`ChangeDocument`, so it
+  should not pretend to via an explicit handler. This narrows D9's "demonstrates ... an
+  explicit ES handler" consequence for the Documents example specifically — D9's
+  broader decision (a dedicated example project moving the Document domain out of
+  `ServiceA.Api`) is otherwise unaffected. It does not reopen D1/D24 (the Level 2 API
+  contract itself, and its `Option<TAggregate>` semantics, are defined and tested by
+  task 04's own area, independent of whether this specific example uses them) or D5/D25
+  (message-level and aggregate-aware authorization are unaffected and stay demonstrated
+  via `ApproveDocument`'s `[AllowPermission]`).
+- **Consequences:** `areas/documents-example-service.md`'s requirements and
+  area-specific acceptance criterion 4 are rewritten: every Document command uses Level
+  1; no explicit Level 2 handler is registered for any of them. Task 10's goal,
+  implementation constraints, and acceptance criterion 3 are rewritten to match, and its
+  `depends_on`/`dependency_contracts` drop `explicit-event-sourced-command-handler`
+  (task 04) — the Documents example no longer consumes that task's API surface, though
+  task 04 itself, its own area, and its own tests are entirely unaffected and remain in
+  scope. `WALKTHROUGH.md` drops its Level 1/Level 2 comparison in favor of documenting
+  the single convention path plus the generated-approver-id limitation.
+- **Date:** 2026-08-12 (post-task-10-implementation correction)
+- **Affected artifacts:** areas/documents-example-service.md,
+  tasks/10-documents-example-es-and-auth-demo.md

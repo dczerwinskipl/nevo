@@ -5,19 +5,21 @@ using NEvo.Messaging.Cqrs.Queries;
 
 namespace NEvo.ExampleApp.Documents.Api.Domain;
 
-public record DocumentDto(Guid DocumentId, string Data, bool Approved, Guid? ApprovedBy) : IProjectable<Guid>
-{
-    public Guid Id => DocumentId;
-}
+/// <summary>Read-model representation of a document.</summary>
+public record DocumentDto(Guid DocumentId, string Data, bool Approved, Guid? ApprovedBy);
 
+/// <summary>Retrieves a document by id.</summary>
 public record GetDocumentQuery(Guid DocumentId) : Query<DocumentDto>;
 
+/// <summary>Thrown when the requested document does not exist.</summary>
 public class DocumentNotFoundException(Guid documentId) : Exception($"Document '{documentId}' was not found.");
 
-// Intermediate/simple read path: reads the current aggregate state directly through
-// IAggregateRepository rather than a persisted projection. Sufficient for this compact
-// example — not the general recommendation for Event Sourcing read models once
-// persisted-projection support exists.
+/// <summary>Handles <see cref="GetDocumentQuery"/>.</summary>
+/// <remarks>
+/// This compact example reads current aggregate state directly through <see
+/// cref="IAggregateRepository"/> rather than a persisted projection — persisted
+/// projection infrastructure is intentionally not part of this example yet.
+/// </remarks>
 public class GetDocumentQueryHandler(IAggregateRepository repository) : IQueryHandler<GetDocumentQuery, DocumentDto>
 {
     public async Task<Either<Exception, DocumentDto>> HandleAsync(GetDocumentQuery query, IMessageContext messageContext, CancellationToken cancellationToken)
