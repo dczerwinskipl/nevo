@@ -15,9 +15,7 @@ namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
 // Proves message-level and explicit-handler-method permissions compose (AND) through
 // the real explicit Event Sourced handler discovery/registration path — not a
-// hand-built MessageHandlerDescription. The gap this guards: an explicit ES handler's
-// discovered description previously left Method null, so ValidatePermissionMiddleware
-// could never see a handler-specific [AllowPermission] on it.
+// hand-built MessageHandlerDescription.
 public class ExplicitHandlerPermissionCompositionTests
 {
     public record CommandPermissionScope : AuthDataScope;
