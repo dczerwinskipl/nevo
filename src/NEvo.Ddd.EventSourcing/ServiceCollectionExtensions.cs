@@ -4,6 +4,7 @@ using NEvo.Ddd.EventSourcing.Deciding;
 using NEvo.Ddd.EventSourcing.Evolving;
 using NEvo.Ddd.EventSourcing.Executing;
 using NEvo.Ddd.EventSourcing.Handling;
+using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -96,6 +97,12 @@ public static class ServiceCollectionExtensions
         var options = new EventSourcingOptions();
         configure(options);
 
+        // AggregateDecider's parameter-injection resolver reads the current invocation's
+        // scope through this accessor (already NEvo.Messaging infrastructure, no new
+        // project reference) — TryAdd so a consumer that separately calls
+        // NEvo.Messaging's own AddMessaging() first is unaffected (D4/D32 idempotency
+        // convention).
+        services.TryAddSingleton<IMessageContextAccessor, MessageContextAccessor>();
         services.TryAddSingleton<IEventStreamStore, FakeEventStore>();
         services.TryAddScoped<IAggregateRepository, AggregateRepository>();
         // The convention fallback route is what makes MessageHandlerRegistry

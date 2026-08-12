@@ -19,7 +19,7 @@ public class EventSourcedCommandExecutorTests
     {
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { typeof(Document) } };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        var decider = new AggregateDecider(deciderProvider);
+        var decider = new AggregateDecider(deciderProvider, new MessageContextAccessor());
         var evolver = new AggregateEvolver(Options.Create(configuration));
         var evolverRegistry = new EvolverRegistry([evolver]);
         var repository = new AggregateRepository(new FakeEventStore(), evolverRegistry);

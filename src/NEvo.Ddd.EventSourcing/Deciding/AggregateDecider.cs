@@ -1,3 +1,5 @@
+using NEvo.Messaging.Context;
+
 namespace NEvo.Ddd.EventSourcing.Deciding;
 
 /// <summary>
@@ -7,13 +9,20 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 /// abstraction) and <see cref="IAggregateMethodDecider"/> (the stable, purpose-specific
 /// capability an explicit Event Sourced handler delegates to).
 /// </summary>
-public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider) : IDecider, IAggregateMethodDecider
+public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider, IMessageContextAccessor messageContextAccessor) : IDecider, IAggregateMethodDecider
 {
-    public delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command)
+    // Internal machinery only (never referenced outside this assembly) — free to change
+    // shape as this task's own parameter-resolution plumbing requires, distinct from
+    // IAggregateMethodDecider's stabilized public contract (D38).
+    internal delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command, IDecisionMethodParameterResolver parameterResolver)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull;
 
     private readonly IDictionary<Type, List<(Type AggregateType, Type DeclaringType, Type IdType, Delegate Decide)>> _deciders = aggregateDeciderProvider.GetAggregateDeciders();
+    // Constructed once (this class is Singleton) but reads the current invocation's
+    // scope at resolve-time via IMessageContextAccessor, not at construction time — see
+    // DecisionMethodParameterResolver.
+    private readonly IDecisionMethodParameterResolver _parameterResolver = new DecisionMethodParameterResolver(messageContextAccessor);
 
     public EitherAsync<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> DecideAsync<TAggregate, TId>(Option<TAggregate> aggregateOption, IAggregateCommand<TAggregate, TId> command, CancellationToken cancellationToken)
         where TAggregate : IAggregateRoot<TId>
@@ -21,7 +30,7 @@ public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider
     {
         var aggregateType = aggregateOption.Map(a => a.GetType()).IfNone(typeof(TAggregate));
         return from decider in GetDeciderDelegate(aggregateType, command).ToAsync()
-               from events in decider(aggregateOption, command).ToAsync()
+               from events in decider(aggregateOption, command, _parameterResolver).ToAsync()
                select events;
     }
 

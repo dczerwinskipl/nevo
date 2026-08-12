@@ -1,4 +1,5 @@
 using LanguageExt;
+using NEvo.Core;
 using NEvo.Ddd.EventSourcing;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Cqrs.Queries;
@@ -24,7 +25,8 @@ public class GetDocumentQueryHandler(IAggregateRepository repository) : IQueryHa
 {
     public async Task<Either<Exception, DocumentDto>> HandleAsync(GetDocumentQuery query, IMessageContext messageContext, CancellationToken cancellationToken)
         => await repository.LoadAggregateAsync<Document, Guid>(query.DocumentId, cancellationToken)
-            .MapAsync(Some: loaded => ToDto(loaded.Aggregate), None: () => new DocumentNotFoundException(query.DocumentId));
+            .RequireSome(() => new DocumentNotFoundException(query.DocumentId))
+            .Map(loaded => ToDto(loaded.Aggregate));
 
     private static DocumentDto ToDto(Document document) => document switch
     {

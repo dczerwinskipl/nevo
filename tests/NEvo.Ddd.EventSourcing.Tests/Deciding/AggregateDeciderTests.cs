@@ -1,6 +1,7 @@
 using LanguageExt;
 using Microsoft.Extensions.Options;
 using NEvo.Ddd.EventSourcing.Deciding;
+using NEvo.Messaging.Context;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Deciding;
 
@@ -15,7 +16,7 @@ public class AggregateDeciderTests
             AggregateTypes = { typeof(Document) }
         };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        _decider = new AggregateDecider(deciderProvider);
+        _decider = new AggregateDecider(deciderProvider, new MessageContextAccessor());
     }
 
     [Fact]

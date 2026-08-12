@@ -26,7 +26,7 @@ public class ValidatePermissionMiddleware<TId>(IServiceProvider serviceProvider)
         if (!IsAuthorized(message, context, messageLevelAttributes) || !IsAuthorized(message, context, handlerLevelAttributes))
         {
             return Task.FromResult(Either<Exception, object>.Left(
-                                new Exception("Permission denied")
+                                new PermissionDeniedException()
                             ));
         }
 

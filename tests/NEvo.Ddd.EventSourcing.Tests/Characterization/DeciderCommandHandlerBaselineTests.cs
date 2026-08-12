@@ -26,7 +26,7 @@ public class DeciderCommandHandlerBaselineTests
     {
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { typeof(Document) } };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        var decider = new AggregateDecider(deciderProvider);
+        var decider = new AggregateDecider(deciderProvider, new MessageContextAccessor());
         _deciderRegistry = new DeciderRegistry([decider]);
         var evolver = new AggregateEvolver(Options.Create(configuration));
         var evolverRegistry = new EvolverRegistry([evolver]);

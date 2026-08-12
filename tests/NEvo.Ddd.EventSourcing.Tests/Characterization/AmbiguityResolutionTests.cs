@@ -1,6 +1,7 @@
 using LanguageExt;
 using Microsoft.Extensions.Options;
 using NEvo.Ddd.EventSourcing.Deciding;
+using NEvo.Messaging.Context;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Characterization;
 
@@ -12,7 +13,7 @@ public class AmbiguityResolutionTests
     {
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { typeof(Document) } };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        return new AggregateDecider(deciderProvider);
+        return new AggregateDecider(deciderProvider, new MessageContextAccessor());
     }
 
     [Fact]

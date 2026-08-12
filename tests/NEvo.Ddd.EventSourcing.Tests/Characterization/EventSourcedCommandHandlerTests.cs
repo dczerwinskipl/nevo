@@ -23,7 +23,7 @@ public class EventSourcedCommandHandlerTests
     {
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { typeof(Document) } };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        return new AggregateDecider(deciderProvider);
+        return new AggregateDecider(deciderProvider, new MessageContextAccessor());
     }
 
     private static AggregateRepository CreateRepository(out FakeEventPublisher publisher)

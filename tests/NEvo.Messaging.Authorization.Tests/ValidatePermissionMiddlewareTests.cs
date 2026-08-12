@@ -139,4 +139,20 @@ public class ValidatePermissionMiddlewareTests
 
         result.Should().BeRight();
     }
+
+    // Regression-proof for task 15: fails against pre-task code, which returned a plain
+    // Exception — NEvo.Messaging.Web's HTTP mapping recognizes denial by type
+    // (UnauthorizedAccessException), so the returned type matters, not just BeLeft().
+    [Fact]
+    public async Task ExecuteAsync_PermissionDenied_ReturnsUnauthorizedAccessExceptionDerivedType_NotThrown()
+    {
+        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method: null);
+        var context = BuildContext();
+
+        var result = await middleware.ExecuteAsync(handler, new RequiresMessagePermissionCommand(), context, Next(), CancellationToken.None);
+
+        result.Should().BeLeft().Which.Should().BeOfType<PermissionDeniedException>()
+            .Which.Should().BeAssignableTo<UnauthorizedAccessException>();
+    }
 }

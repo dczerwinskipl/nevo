@@ -23,11 +23,10 @@ commands below use `http://localhost:5299` — substitute your own port.
 | Reload-after-write reconstructing concrete state | Query steps 2 and 4 below |
 
 Every Document command is handled through the aggregate-method convention — no explicit
-Event Sourced handler is demonstrated in this example. Aggregate decision methods cannot
-yet receive contextual dependencies such as the current user. An explicit handler could
-access lower-level messaging context to resolve the caller's identity, but using one
-solely for that purpose would add orchestration indirection this example does not need
-(see "About the generated `approvedBy`" below).
+Event Sourced handler is demonstrated in this example. `EditableDocument.Approve`
+receives the current user's identity as a framework-resolved additional parameter
+(`ICurrentUser<Guid>`, aggregate-method convention parameter injection) rather than
+through an explicit handler — see "About the resolved `approvedBy`" below.
 
 Aggregate-aware authorization (`IAggregateAuthorization<TCommand, TAggregate>`, e.g.
 "only the creator may approve") is **not** demonstrated here: this domain has no
@@ -96,12 +95,12 @@ curl -X POST http://localhost:5299/api/documents/approve \
   -d "{\"documentId\":\"$DOC_ID\"}"
 ```
 
-Expect a `500` Problem response with `"detail":"Permission denied"` —
+Expect a `403` Problem response with `"detail":"Permission denied."` —
 `ValidatePermissionMiddleware` denies the request because `ApproveDocument`'s
 `[AllowPermission(DocumentPermissions.ApproveDocument, ...)]` requirement isn't met (no
-`Approver` role, hence no `APPROVE_DOCUMENT` permission). The `500` status is the
-framework's current behavior for a denied permission, not a deliberately chosen
-authorization status code.
+`Approver` role, hence no `APPROVE_DOCUMENT` permission), returning a
+`PermissionDeniedException` (`UnauthorizedAccessException`-derived) that
+`NEvo.Messaging.Web`'s HTTP mapping recognizes by type and maps to `403`.
 
 ### 5. Approve with the required permission
 
@@ -122,11 +121,21 @@ curl http://localhost:5299/api/documents/$DOC_ID
 ```
 
 Expect a response shaped like
-`{"documentId":"...","data":"updated","approved":true,"approvedBy":"<non-empty guid>"}`
-— `approved: true` and a non-empty `approvedBy`, proving the aggregate reloaded from its
-event stream as `ApprovedDocument`, not the previous `EditableDocument` state.
-`approvedBy` is a generated placeholder id (see below), not the authenticated caller's
-id — it will differ from `22222222-2222-2222-2222-222222222222`.
+`{"documentId":"...","data":"updated","approved":true,"approvedBy":"22222222-2222-2222-2222-222222222222"}`
+— `approved: true`, proving the aggregate reloaded from its event stream as
+`ApprovedDocument`, not the previous `EditableDocument` state, and `approvedBy` matches
+the authenticated caller's id from step 5 (see below), not a fabricated value.
+
+### 7. Query a non-existent document (ordinary failure, unaffected by task 15)
+
+```
+curl -i http://localhost:5299/api/documents/$(uuidgen)
+```
+
+Expect `500` with `"detail":"Document '...' was not found."` —
+`DocumentNotFoundException` is an ordinary `Exception`, not
+`UnauthorizedAccessException`-derived, so it still maps to `500`, unchanged by the 403
+mapping added above.
 
 ### About the demo authentication scheme
 
@@ -136,13 +145,14 @@ NEvo permissions (`Authorization/DocumentPermissions.cs`). This exists only so t
 walkthrough is self-contained, with no Identity.Api/JWT bearer dependency. A real service
 should use a real authentication scheme.
 
-### About the generated `approvedBy`
+### About the resolved `approvedBy`
 
-`EditableDocument.Approve` generates `ApprovedBy` with `Guid.NewGuid()` rather than
-resolving the authenticated caller's id, because aggregate decision methods cannot yet
-receive contextual dependencies such as the current user (see the `<remarks>` on
-`Approve` in `Document.cs`). Treat `approvedBy` as "a non-empty id was recorded," not as
-the identity of who called the endpoint.
+`EditableDocument.Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)`
+resolves `currentUser` per-invocation through the aggregate-method convention's
+parameter-injection mechanism; `ApprovedBy` is set from `currentUser.User`'s id — the
+same id `DemoUserProvider` resolved from the request's `X-Demo-User-Id` header (see
+`Document.cs`). If no current user is resolved, `Approve` returns a `Left` instead of
+fabricating an identity.
 
 ## Optimistic concurrency
 

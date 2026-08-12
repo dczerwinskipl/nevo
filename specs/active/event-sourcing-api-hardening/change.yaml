@@ -486,27 +486,35 @@ tasks:
   - id: aggregate-decision-method-parameter-injection
     order: 13
     file: tasks/13-aggregate-decision-method-parameter-injection.md
-    status: approved
+    status: implemented
     depends_on:
       - es-command-executor-and-ambiguity-resolution
+    implementation:
+      baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
   - id: current-user-capability-and-documents-integration
     order: 14
     file: tasks/14-current-user-capability-and-documents-integration.md
-    status: approved
+    status: implemented
     depends_on:
       - aggregate-decision-method-parameter-injection
       - documents-example-es-and-auth-demo
       - message-level-and-aggregate-authorization
+    implementation:
+      baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
   - id: typed-authorization-failure-and-403-mapping
     order: 15
     file: tasks/15-typed-authorization-failure-and-403-mapping.md
-    status: approved
+    status: implemented
     depends_on:
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding
+    implementation:
+      baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
   - id: query-either-ergonomics-cleanup
     order: 16
     file: tasks/16-query-either-ergonomics-cleanup.md
-    status: approved
+    status: implemented
     depends_on:
       - documents-example-es-and-auth-demo
+    implementation:
+      baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5

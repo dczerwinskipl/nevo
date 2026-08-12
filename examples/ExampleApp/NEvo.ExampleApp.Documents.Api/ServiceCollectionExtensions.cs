@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         serviceCollection.AddScoped<IRoleProvider<DocumentDataScope>, DemoRoleProvider>();
         serviceCollection.AddScoped<IPermissionProvider<DocumentDataScope>, PermissionProvider<DocumentDataScope>>();
         serviceCollection.AddSingleton<IPermissionMapper<DocumentDataScope>, ApproverPermissionMapper>();
+        serviceCollection.AddCurrentUser<Guid>();
 
         serviceCollection.AddMessageProcessingMiddleware<UserContextMiddleware<Guid, DocumentDataScope>>();
         serviceCollection.AddMessageProcessingHandlerMiddleware<ValidatePermissionMiddleware<Guid>>();

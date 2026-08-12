@@ -1,5 +1,6 @@
 using LanguageExt;
 using NEvo.Ddd.EventSourcing;
+using NEvo.Messaging.Authorization;
 
 namespace NEvo.ExampleApp.Documents.Api.Domain;
 
@@ -37,17 +38,15 @@ public sealed class EditableDocument(Guid id, string data) : Document(id, data)
 
     /// <summary>Approves an editable document by emitting a <see cref="DocumentApproved"/> event.</summary>
     /// <remarks>
-    /// Generates the approver identifier here (<see cref="Guid.NewGuid"/>) as a
-    /// temporary placeholder: an aggregate-method convention decision method receives
-    /// only the command and the current aggregate state, with no way to resolve the
-    /// current caller. This should instead come from a current-user/context capability
-    /// once one exists for decision methods to depend on — until then, this value is not
-    /// a real identity.
+    /// <see cref="DocumentApproved.ApprovedBy"/> is the resolved <see
+    /// cref="ICurrentUser{TId}"/>'s id — resolved per-invocation through the
+    /// aggregate-method convention's parameter injection. Returns a <c>Left</c> when no
+    /// current user is resolved, rather than fabricating an identity.
     /// </remarks>
-    public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command)
-    {
-        return new[] { new DocumentApproved(Id, ApprovedBy: Guid.NewGuid()) };
-    }
+    public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)
+        => currentUser.User.Match<Either<Exception, IEnumerable<DocumentDomainEvent>>>(
+            Some: user => new[] { new DocumentApproved(Id, ApprovedBy: user.Id) },
+            None: () => new InvalidOperationException("ApproveDocument requires a resolved current user."));
 
     /// <summary>Applies <see cref="DocumentChanged"/>, returning the updated state.</summary>
     public EditableDocument Apply(DocumentChanged @event)

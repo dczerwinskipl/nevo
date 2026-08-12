@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-11T23:16:59.000Z",
+  "generated": "2026-08-12T16:10:42.559Z",
   "changes": [
     {
       "id": "event-sourcing-api-hardening",
@@ -539,20 +539,22 @@
           "id": "documents-example-es-and-auth-demo",
           "order": 10,
           "file": "tasks/10-documents-example-es-and-auth-demo.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "create-documents-example-project",
-            "explicit-event-sourced-command-handler",
             "event-sourcing-registration-options",
             "message-level-and-aggregate-authorization",
             "map-query-endpoint-and-get-binding"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d6dc7414c63ba31d03bcd95cd064c28eff4f7818"
+          }
         },
         {
           "id": "user-facing-event-sourcing-guide",
           "order": 11,
           "file": "tasks/11-user-facing-event-sourcing-guide.md",
-          "status": "approved",
+          "status": "draft",
           "depends_on": [
             "harden-event-store-and-repository-contracts",
             "es-command-executor-and-ambiguity-resolution",
@@ -561,14 +563,18 @@
             "event-sourcing-registration-options",
             "message-level-and-aggregate-authorization",
             "map-query-endpoint-and-get-binding",
-            "documents-example-es-and-auth-demo"
+            "documents-example-es-and-auth-demo",
+            "aggregate-decision-method-parameter-injection",
+            "current-user-capability-and-documents-integration",
+            "typed-authorization-failure-and-403-mapping",
+            "query-either-ergonomics-cleanup"
           ]
         },
         {
           "id": "internal-event-sourcing-architecture-docs",
           "order": 12,
           "file": "tasks/12-internal-event-sourcing-architecture-docs.md",
-          "status": "approved",
+          "status": "draft",
           "depends_on": [
             "harden-event-store-and-repository-contracts",
             "es-command-executor-and-ambiguity-resolution",
@@ -577,8 +583,63 @@
             "event-sourcing-registration-options",
             "message-level-and-aggregate-authorization",
             "map-query-endpoint-and-get-binding",
-            "documents-example-es-and-auth-demo"
+            "documents-example-es-and-auth-demo",
+            "aggregate-decision-method-parameter-injection",
+            "current-user-capability-and-documents-integration",
+            "typed-authorization-failure-and-403-mapping",
+            "query-either-ergonomics-cleanup"
           ]
+        },
+        {
+          "id": "aggregate-decision-method-parameter-injection",
+          "order": 13,
+          "file": "tasks/13-aggregate-decision-method-parameter-injection.md",
+          "status": "implemented",
+          "depends_on": [
+            "es-command-executor-and-ambiguity-resolution"
+          ],
+          "implementation": {
+            "baseline_revision": "5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5"
+          }
+        },
+        {
+          "id": "current-user-capability-and-documents-integration",
+          "order": 14,
+          "file": "tasks/14-current-user-capability-and-documents-integration.md",
+          "status": "implemented",
+          "depends_on": [
+            "aggregate-decision-method-parameter-injection",
+            "documents-example-es-and-auth-demo",
+            "message-level-and-aggregate-authorization"
+          ],
+          "implementation": {
+            "baseline_revision": "5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5"
+          }
+        },
+        {
+          "id": "typed-authorization-failure-and-403-mapping",
+          "order": 15,
+          "file": "tasks/15-typed-authorization-failure-and-403-mapping.md",
+          "status": "implemented",
+          "depends_on": [
+            "message-level-and-aggregate-authorization",
+            "map-query-endpoint-and-get-binding"
+          ],
+          "implementation": {
+            "baseline_revision": "5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5"
+          }
+        },
+        {
+          "id": "query-either-ergonomics-cleanup",
+          "order": 16,
+          "file": "tasks/16-query-either-ergonomics-cleanup.md",
+          "status": "implemented",
+          "depends_on": [
+            "documents-example-es-and-auth-demo"
+          ],
+          "implementation": {
+            "baseline_revision": "5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5"
+          }
         }
       ]
     },

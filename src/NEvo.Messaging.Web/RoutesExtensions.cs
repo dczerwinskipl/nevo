@@ -73,11 +73,16 @@ namespace Microsoft.AspNetCore.Routing
 
         // Shared Right→200/Left→Problem mapping between MapCommandEndpoint and
         // MapQueryEndpoint — not a general HTTP result-mapping framework, just removes
-        // the one duplicated Match between the two.
+        // the one duplicated Match between the two. Matches on the base BCL
+        // UnauthorizedAccessException, not NEvo.Messaging.Authorization's derived
+        // PermissionDeniedException — this file has, and gains, no project reference to
+        // that package.
         private static IResult ToHttpResult<TResult>(this Either<Exception, TResult> result)
             => result.Match(
                 Right: value => Results.Ok(value),
-                Left: ex => Results.Problem(detail: ex.Message, statusCode: 500)
+                Left: ex => ex is UnauthorizedAccessException
+                    ? Results.Problem(detail: ex.Message, statusCode: 403)
+                    : Results.Problem(detail: ex.Message, statusCode: 500)
             );
     }
 }
