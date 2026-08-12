@@ -32,13 +32,19 @@ new subdirectory structure): the Event Sourcing mental model; configuration
 (`AddEventSourcing(options => {...})`); modeling aggregates (the current OO-immutable
 convention, explicitly framed as the supported default per D17, not the core's
 permanent definition); all three command-handling levels with explicit "when to use
-each" guidance; Primary/Fallback handler registration and fallback semantics;
-authorization (message-level, handler-specific additive, aggregate-aware); persistence
-and concurrency (Event Store/repository split, `AggregateConcurrencyException` via
-`Either`, append/flush-vs-commit per the corrected D7 facts); the Query/read side
-(`MapQueryEndpoint`, GET binding per D18, the intermediate read-path framing, and a
-future-projections direction-only note); and a link to the Documents example as the
-canonical walkthrough.
+each" guidance; **decision-method parameter injection** (task 13) — how and when a
+decision method may declare additional, framework-resolved parameters beyond the
+command, and `ICurrentUser<TId>` (task 14) as the concrete, identity-only example;
+Primary/Fallback handler registration and fallback semantics; authorization
+(message-level, handler-specific additive, aggregate-aware, **and the 401/403/500 HTTP
+semantics from task 15** — unauthenticated → 401 via the existing ASP.NET path,
+authenticated-but-denied → 403 via the typed `PermissionDeniedException`, anything else →
+500); persistence and concurrency (Event Store/repository split,
+`AggregateConcurrencyException` via `Either`, append/flush-vs-commit per the corrected D7
+facts); the Query/read side (`MapQueryEndpoint`, GET binding per D18, the intermediate
+read-path framing, **the final `RequireSome`-based query-handler shape from task 16**,
+and a future-projections direction-only note); and a link to the Documents example
+(reflecting its final `ApprovedBy` behavior, task 14) as the canonical walkthrough.
 
 ## Constraints
 
@@ -54,8 +60,8 @@ canonical walkthrough.
 
 ## Interfaces and boundaries
 
-- Consumes: every functional task's shipped shape (tasks 02-07, 09-10) and the
-  Documents example (tasks 09-10) as the canonical walkthrough.
+- Consumes: every functional task's shipped shape (tasks 02-07, 09-10, 13-16) and the
+  Documents example (tasks 09-10, updated by 14-15) as the canonical walkthrough.
 - Produces: `docs/usage/event-sourcing.md`, plus targeted updates to
   `docs/usage/README.md`, `docs/usage/queries.md`, `docs/usage/choosing-packages.md`,
   `docs/usage/example-app-walkthrough.md`.
@@ -68,7 +74,7 @@ reader questions" a reviewer must be able to answer from the guide alone, and th
 
 ## Dependencies
 
-Every functional task in this change (02-07, 09-10).
+Every functional task in this change (02-07, 09-10, 13-16).
 
 ## Out of scope
 

@@ -11,8 +11,12 @@ depends_on:
   - message-level-and-aggregate-authorization
   - map-query-endpoint-and-get-binding
   - documents-example-es-and-auth-demo
+  - aggregate-decision-method-parameter-injection
+  - current-user-capability-and-documents-integration
+  - typed-authorization-failure-and-403-mapping
+  - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31]
+  decisions: [D13, D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31, D34, D35, D36, D37]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -22,6 +26,10 @@ semantic_references:
     - message-level-and-aggregate-authorization
     - map-query-endpoint-and-get-binding
     - documents-example-es-and-auth-demo
+    - aggregate-decision-method-parameter-injection
+    - current-user-capability-and-documents-integration
+    - typed-authorization-failure-and-403-mapping
+    - query-either-ergonomics-cleanup
 context:
   required:
     - specs/active/event-sourcing-api-hardening/areas/user-facing-documentation.md
@@ -66,7 +74,7 @@ separate for a different audience).
 
 ## Dependencies
 
-Every functional task in this change (02-07, 09-10) — this guide documents their
+Every functional task in this change (02-07, 09-10, 13-16) — this guide documents their
 shipped, final shape. Sequenced last alongside task 12.
 
 ## Implementation constraints
@@ -121,7 +129,12 @@ shipped, final shape. Sequenced last alongside task 12.
    needing coordinated writes across two or more independently-versioned aggregate
    streams belongs to Level 3 or a future saga/process-manager capability (D31) — frame
    Level 3 as "the right tool for anything that doesn't fit," never as an inferior or
-   legacy option.
+   legacy option. Also cover **decision-method parameter injection** (task 13, D34):
+   a Level 1 decision method may declare additional, framework-resolved parameters after
+   the command (e.g. `ICurrentUser<Guid>`, or a business-policy type) — explain this is
+   for contextual/service dependencies the framework resolves, not a general
+   service-locator (no `IServiceProvider` parameter is ever supported), and that the
+   single-command-parameter form keeps working unchanged.
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.
@@ -132,7 +145,14 @@ shipped, final shape. Sequenced last alongside task 12.
    *only* authorization concern Event Sourcing itself owns and which sees the same
    explicit `Some`/`None` current-state distinction as Level 2 (D24-D25). Domain
    invariant stays in the decision method. Explicit guidance against duplicating
-   permission attributes across concrete state methods.
+   permission attributes across concrete state methods. Also cover the **HTTP
+   consequence** (task 15, D36): an unauthenticated request is rejected with 401 by the
+   existing ASP.NET authentication/authorization gate before NEvo's own checks run; an
+   authenticated request denied by a NEvo permission check returns 403 via a typed
+   `PermissionDeniedException`; any other unexpected failure returns 500 — and
+   `ICurrentUser<TId>` (task 14, D35): an identity-only capability (`Option<User<TId>>`)
+   a decision method may request via parameter injection, distinct from and never a
+   substitute for the authorization pipeline itself.
 7. **Persistence and concurrency** — Event Store vs. repository responsibilities
    (task 02), replay, stream version (out-of-band, not an envelope field),
    optimistic concurrency, `AggregateConcurrencyException` **returned** via `Either`
@@ -153,10 +173,11 @@ shipped, final shape. Sequenced last alongside task 12.
    follow-up specification's work, and that this version does not freeze the final
    store SPI (D22).
 8. **Query/read side** — the intermediate `Query → QueryHandler → AggregateRepository →
-   DTO` path, `MapQueryEndpoint` usage and GET route/query-string binding (D18 — state
-   plainly that `Id`/`CreatedAt` are never required GET parameters and why), explicit
-   "not the final recommendation for complex read models" framing, and the future
-   projections direction-only note.
+   DTO` path (now shown using `RequireSome`/`.Map`, task 16, D37, not the earlier
+   `MapAsync` shape), `MapQueryEndpoint` usage and GET route/query-string binding (D18 —
+   state plainly that `Id`/`CreatedAt` are never required GET parameters and why),
+   explicit "not the final recommendation for complex read models" framing, and the
+   future projections direction-only note.
 9. **Example** — link to `NEvo.ExampleApp.Documents.Api` and its walkthrough note
    (task 10) as the canonical sample.
 
@@ -187,6 +208,10 @@ shipped, final shape. Sequenced last alongside task 12.
    - How does handler fallback work?
    - Where do permissions belong?
    - How do resource-aware permissions work?
+   - What HTTP status does a request get when it's unauthenticated vs. authenticated-
+     but-denied vs. an unexpected failure?
+   - How can a decision method receive the current user or another framework-resolved
+     dependency?
    - How does optimistic concurrency work?
    - What does append/flush guarantee?
    - How do I expose/read an aggregate through Query today?

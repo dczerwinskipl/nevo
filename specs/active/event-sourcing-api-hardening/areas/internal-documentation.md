@@ -33,20 +33,30 @@ is "defined in `src/NEvo.Messaging/Processing/`" — the actual location is
 ## Requirements
 
 Cover, for a maintainer audience: the Event Sourced command executor's lifecycle and
-ordering; convention discovery internals and most-specific-wins resolution; Primary/
+ordering; convention discovery internals and most-specific-wins resolution; **decision-
+method parameter injection internals** — the `IDecisionMethodParameterResolver` seam,
+DI-backed per-invocation resolution, and why it stays inside the convention's own
+discovery path rather than the shared executor (D30, D34); Primary/
 Fallback registration internals; the `IEventStreamStore`/`IAggregateRepository`
 boundary; concurrency flow (`AggregateConcurrencyException` returned via `Either`,
 never thrown, D13); the authorization ownership split — normal message/handler checks
 entirely in `NEvo.Messaging.Authorization`'s pipeline, the executor invoking only the
 aggregate-aware hook, with no `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization`
-dependency (D25-D26); the explicit `Option<TAggregate>` Some/None semantics shared by
-the Level 2 handler and the aggregate-aware hook (D24); the append/flush/commit
-storage-contract guarantee (D23, corrected from the earlier EF-specific framing); the
-three-layer persistence-metadata distinction — domain event, runtime message context,
-future persisted representation — and why this version does not freeze the final
-store SPI (D20-D22); and extension points/compatibility constraints for future
-persistence providers and modeling styles (D17). Also correct the three stale
-`messaging-pipeline.md` statements above.
+dependency (D25-D26); **the current-user/authorization boundary** — `ICurrentUser<TId>`
+lives in `NEvo.Messaging.Authorization`, adapts `UserContext<TId>` internally, and is
+resolved into aggregate decision methods purely by DI `Type`, never by a compile-time
+reference from `NEvo.Ddd.EventSourcing` (D35); **typed authorization-failure/HTTP-
+mapping boundary** — `PermissionDeniedException` (`NEvo.Messaging.Authorization`) is
+recognized in `NEvo.Messaging.Web` via its `UnauthorizedAccessException` base type, with
+no project reference added in either direction (D36); the explicit `Option<TAggregate>`
+Some/None semantics shared by the Level 2 handler and the aggregate-aware hook (D24);
+the append/flush/commit storage-contract guarantee (D23, corrected from the earlier
+EF-specific framing); the three-layer persistence-metadata distinction — domain event,
+runtime message context, future persisted representation — and why this version does
+not freeze the final store SPI (D20-D22); extension points/compatibility constraints for
+future persistence providers and modeling styles (D17); and the final query/Either
+ergonomics helper, `RequireSome` (`NEvo.Core`), replacing `EitherExtensions.MapAsync`
+(D37). Also correct the three stale `messaging-pipeline.md` statements above.
 
 ## Constraints
 
@@ -58,7 +68,7 @@ persistence providers and modeling styles (D17). Also correct the three stale
 
 ## Interfaces and boundaries
 
-- Consumes: every functional task's shipped shape (tasks 02-07, 09-10).
+- Consumes: every functional task's shipped shape (tasks 02-07, 09-10, 13-16).
 - Produces: `docs/development/event-sourcing.md`, corrected
   `docs/development/messaging-pipeline.md`.
 
@@ -68,7 +78,7 @@ See task 12's own acceptance criteria.
 
 ## Dependencies
 
-Every functional task in this change (02-07, 09-10).
+Every functional task in this change (02-07, 09-10, 13-16).
 
 ## Out of scope
 

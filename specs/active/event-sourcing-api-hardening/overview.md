@@ -40,9 +40,22 @@ separation between the shared executor's lifecycle-orchestration responsibility 
 the aggregate-method convention's own reflection/state-method-discovery responsibility
 (D30); and a stated single-write-target boundary for the Level 2 handler, with
 multi-aggregate orchestration left to Level 3 or a future saga/process-manager
-capability (D31). None of D19-D28 were reopened. See `owner-decisions.md` (D15-D31)
-for the specific decisions; superseded entries (D10, D11) are kept, clearly marked,
-for audit trail.
+capability (D31). None of D19-D28 were reopened. **2026-08-12, post-task-10 refinement**
+(review of the landed Documents example, task 10, D33): added four framework/example
+tasks (13-16) discovered while closing gaps task 10's own implementation surfaced —
+aggregate decision-method parameter injection (D34), an identity-only `ICurrentUser<TId>`
+capability replacing the Documents example's `ApprovedBy` placeholder (D35), typed
+authorization-failure semantics with HTTP 403 mapping (D36), and a renamed/relocated
+`EitherAsync<TLeft, Option<TRight>>` query-ergonomics helper (D37) — and resequenced
+tasks 11-12 (documentation) to depend on all four, so the user-facing and internal guides
+describe the framework's actual final shape rather than the placeholder/pre-fix state.
+Tasks 11-12 keep their original task numbers/filenames (owner instruction: preserve them
+as-is) even though tasks 13-16 must now implement first — `order`/filename numbering in
+this change reflects when each task was *added* to the spec, not execution sequence;
+`depends_on` is the authoritative sequencing signal, and tasks 11-12's status reverted
+from `approved` to `draft` accordingly, since their previously-reviewed scope no longer
+matches their current dependency set. See `owner-decisions.md` (D15-D37) for the specific
+decisions; superseded entries (D10, D11) are kept, clearly marked, for audit trail.
 
 ## Context
 
@@ -224,22 +237,28 @@ user a task-oriented path to using Event Sourcing without reading framework sour
 
 - `src/NEvo.Ddd.EventSourcing/` (hardened repository/store contracts; shared ES
   executor; explicit handler with Some/None semantics; Primary/Fallback registration;
-  options; the aggregate-aware authorization extension-point contract — **no folder
-  reorganization**, D15, and **no new dependency on `NEvo.Messaging.Authorization`**,
-  D26)
+  options; the aggregate-aware authorization extension-point contract; decision-method
+  parameter injection, D34 — **no folder reorganization**, D15, and **no new dependency
+  on `NEvo.Messaging.Authorization`**, D26)
 - `src/NEvo.Messaging.Authorization/` (fix `ValidatePermissionMiddleware`'s
   `HandlerDescription.Method`-only assumption; message-level permission attribute
   placement; requirement composition — all normal/static permission enforcement stays
-  here, not in the ES executor, D25)
-- `src/NEvo.Messaging.Web/` (`MapQueryEndpoint`, `RoutesExtensions` cleanup)
+  here, not in the ES executor, D25; `ICurrentUser<TId>`, D35; `PermissionDeniedException`,
+  D36)
+- `src/NEvo.Messaging.Web/` (`MapQueryEndpoint`, `RoutesExtensions` cleanup; 403 mapping
+  branch in `ToHttpResult`, D36)
+- `src/NEvo.Core/` (`EitherExtensions`'s `MapAsync` renamed/relocated to `RequireSome`,
+  D37)
 - `src/NEvo.Messaging/Handling/` (`MessageHandlerDescription` role metadata, if the
   chosen design requires a field there rather than a wrapping concept — task 05
   determines the smallest coherent change)
 - `examples/ExampleApp/NEvo.ExampleApp.Documents.Api/` (new project)
 - `examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/` (Document domain removed)
-- `tests/NEvo.Ddd.EventSourcing.Tests/` (characterization + new coverage), possibly a
-  new small `tests/NEvo.Messaging.Authorization.Tests/` (D25 — none exists today; the
-  package has zero dedicated tests)
+- `tests/NEvo.Ddd.EventSourcing.Tests/` (characterization + new coverage; parameter
+  injection, task 13), `tests/NEvo.Messaging.Authorization.Tests/` (D25 — added by
+  task 07; extended by tasks 14-15 for `ICurrentUser<TId>` and
+  `PermissionDeniedException`), `tests/NEvo.Core.Tests/` (`RequireSome`, task 16) — no
+  new test project is added by tasks 13-16 (D34-D37)
 - `docs/usage/event-sourcing.md` (**new** — first-class user-facing guide, task 11),
   `docs/usage/README.md`, `docs/usage/queries.md`, `docs/usage/choosing-packages.md`,
   `docs/usage/example-app-walkthrough.md`
@@ -261,12 +280,15 @@ append/flush/commit storage contract (D23), authorization ownership (D25-D26), L
 2/aggregate-aware Some/None semantics (D24-D25), ExampleApp concurrency verification
 (D28), test-infrastructure scope (D27), and, in the narrow reference-pattern pass,
 explicit expected-stream-state semantics (D29), the executor/convention responsibility
-separation (D30), and the Level 2 single-write-target boundary (D31). See
+separation (D30), and the Level 2 single-write-target boundary (D31), and, in the
+post-task-10 refinement, decision-method parameter-injection design (D34), the
+`ICurrentUser<TId>` package/exposure boundary (D35), the permission-denied type/HTTP-
+mapping mechanism (D36), and the query-ergonomics helper naming/placement (D37). See
 `owner-decisions.md` for full details on each.
 
 ## Owner decisions
 
-See `owner-decisions.md` (D1-D32; D10 and D11 are superseded by D15 and D16
+See `owner-decisions.md` (D1-D37; D10 and D11 are superseded by D15 and D16
 respectively, and D4's `AddEventSourcing`-signature framing is narrowed by D32 — all
 kept for audit trail, not deleted).
 
@@ -340,16 +362,47 @@ kept for audit trail, not deleted).
    query flow; deterministic optimistic-concurrency coverage lives in Event Sourcing
    core tests (task 02/03), not as a manufactured concurrent-HTTP race in the example
    (D28).
-8. **Documentation — two first-class deliverables.** Task 11 writes
-   `docs/usage/event-sourcing.md`, a comprehensive user-facing guide (per the existing
-   `docs/usage/*.md` flat-file convention) covering configuration, modeling, all three
-   command-handling levels with explicit "when to use each" guidance, authorization,
-   persistence/concurrency — using the domain-event/runtime-context/future-provider
-   three-layer framing, not a persisted-envelope framing — and the Query/read side.
-   Task 12 rewrites `docs/development/event-sourcing.md` for maintainers, covering the
-   same three-layer distinction plus Some/None semantics and the authorization
-   ownership split, and corrects the three stale `messaging-pipeline.md` statements
-   found during discovery.
+8. **Aggregate decision-method parameter injection.** Task 13 extends the
+   aggregate-method convention so a decision method may declare additional,
+   framework-resolved parameters after the command (e.g. `Approve(ApproveDocument
+   command, ICurrentUser<Guid> currentUser)`), DI-backed and per-invocation, behind a
+   small internal `IDecisionMethodParameterResolver` seam — the existing
+   single-command-parameter convention is preserved exactly, discovery/resolution stays
+   inside `AggregateDeciderExtractor`/`AggregateDecider` (D30 unaffected), and no
+   `IServiceProvider`/generic context bag is ever exposed to aggregate code (D34).
+9. **Current-user capability and Documents integration.** Task 14 adds an
+   identity-only `ICurrentUser<TId>` (`Option<User<TId>> User`) in
+   `NEvo.Messaging.Authorization`, adapting the existing `UserContext<TId>`/
+   `IMessageContextAccessor` machinery internally, and uses task 13's mechanism to
+   replace the Documents example's `ApprovedBy: Guid.NewGuid()` placeholder with the
+   real authenticated user's id — closing the exact gap D33 named without recreating an
+   explicit Level 2 handler (D35).
+10. **Typed authorization failure and HTTP 403 mapping.** Task 15 replaces
+    `ValidatePermissionMiddleware`'s generic `Exception("Permission denied")` with a
+    dedicated `PermissionDeniedException : UnauthorizedAccessException` in
+    `NEvo.Messaging.Authorization`, and adds one branch to `NEvo.Messaging.Web`'s shared
+    `ToHttpResult` mapping the BCL base type to 403 — zero new project reference in
+    either direction, no new test project, HTTP-mapping behavior verified through the
+    Documents example's walkthrough per the existing D12/D27 precedent (D36).
+11. **Query/Either ergonomics cleanup.** Task 16 renames/relocates
+    `EitherExtensions.MapAsync` (currently, confusingly, inside `namespace LanguageExt`)
+    to `RequireSome`, a single-purpose `EitherAsync<TLeft, Option<TRight>>` unwrap that
+    composes with ordinary `.Map` afterward, confirmed via the installed LanguageExt
+    4.4.8 package's own member surface to have no built-in equivalent for this exact
+    shape (D37).
+12. **Documentation — two first-class deliverables.** Task 11 writes
+    `docs/usage/event-sourcing.md`, a comprehensive user-facing guide (per the existing
+    `docs/usage/*.md` flat-file convention) covering configuration, modeling, all three
+    command-handling levels with explicit "when to use each" guidance, authorization
+    (including the 401/403/500 HTTP semantics from task 15), persistence/concurrency —
+    using the domain-event/runtime-context/future-provider three-layer framing, not a
+    persisted-envelope framing — and the Query/read side (including task 16's final
+    handler shape). Task 12 rewrites `docs/development/event-sourcing.md` for
+    maintainers, covering the same three-layer distinction plus Some/None semantics,
+    the authorization ownership split, decision-method parameter resolution (task 13),
+    the current-user/authorization boundary (task 14), and the typed-failure/HTTP-mapping
+    boundary (task 15), and corrects the three stale `messaging-pipeline.md` statements
+    found during discovery.
 
 ## Architectural principles
 
@@ -535,8 +588,11 @@ Expected breaking changes within this still-unreleased package:
 `IAggregateRepository`/`IEventStore` member shape (D6), a new
 `AggregateConcurrencyException` replacing a plain `Exception` for concurrency conflicts
 — returned via `Either`, never thrown (D13), the explicit Level 2 handler's `Option<
-TAggregate>` current-state parameter (D24), and the replacement of `int expectedVersion`
-with an explicit `NoStream`/`Exact(version)` expected-stream-state type (D29).
+TAggregate>` current-state parameter (D24), the replacement of `int expectedVersion`
+with an explicit `NoStream`/`Exact(version)` expected-stream-state type (D29), and
+whatever shape change to `IDecider`/`IAggregateMethodDecider`/`AggregateDecideDelegate`
+task 13 needs to plumb per-invocation parameter-resolution context through (D34) — same
+"experimental, not yet compatibility-sensitive" basis as the others.
 **`AddEventSourcing`'s existing `params Type[]` signature and
 `MessageHandlerDescription`'s existing positional constructor are explicitly preserved,
 not broken (D32, superseding D4's original acceptance of a breaking
@@ -547,7 +603,17 @@ and the latter gains only a defaulted `init` property (`Role`, defaulting to
 not alter outside the new message-level permission-attribute placement,
 `MapQueryEndpoint` addition, and `MessageHandlerDescription.Role` addition (all
 additive/compatible) — and, per D18, **not** `Query<TResult>`/`Message<TResult>`, which
-are confirmed unchanged.
+are confirmed unchanged. Tasks 13-16 add further purely-additive public surface: the
+aggregate-method convention's *extended* parameter shape (existing single-command-
+parameter methods keep compiling and behaving identically, D34); `ICurrentUser<TId>`,
+new in `NEvo.Messaging.Authorization` (D35); `PermissionDeniedException`, new in
+`NEvo.Messaging.Authorization`, and one new mapping branch in `NEvo.Messaging.Web`'s
+`ToHttpResult` — the existing `ex.Message`/500-for-everything-else behavior is
+unaffected for every other exception type (D36); and `RequireSome` in `NEvo.Core`,
+replacing `EitherExtensions.MapAsync` outright rather than adding it alongside — `MapAsync`
+has exactly one call site in the whole repository (`GetDocumentQueryHandler`, itself
+part of this same still-unreleased ExampleApp), updated in the same task, so this is not
+treated as a breaking change requiring a compatibility shim (D37).
 
 Scope reductions recorded across both refinement passes: D12 narrows the original
 brief's "at least in tests" requirement to manual walkthrough for the example service
@@ -591,6 +657,15 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
   (task 08).
 - `areas/documents-example-service.md` — the dedicated example service, manual
   walkthrough without a concurrency race (D28) (tasks 09-10).
+- `areas/decision-method-parameter-injection.md` — the general parameter-injection
+  mechanism for aggregate decision methods, DI-backed, internal seam, no new package
+  dependency (D34) (task 13).
+- `areas/current-user-capability.md` — `ICurrentUser<TId>`, identity-only, and the
+  Documents example's final `ApprovedBy` behavior (D35) (task 14).
+- `areas/typed-authorization-failures.md` — `PermissionDeniedException` and the 403 HTTP
+  mapping, zero new package dependency (D36) (task 15).
+- `areas/query-either-ergonomics.md` — the renamed/relocated `RequireSome` helper (D37)
+  (task 16).
 - `areas/user-facing-documentation.md` — the first-class `docs/usage/event-sourcing.md`
   guide (task 11).
 - `areas/internal-documentation.md` — maintainer-facing architecture documentation
@@ -669,18 +744,42 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
     and no multi-aggregate/multi-stream atomic-write capability is introduced anywhere
     in this change (D17, D29, D30, D31).
 25. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` pass.
+26. A decision method may declare additional, DI-resolved parameters after the command
+    (e.g. `ICurrentUser<Guid>`, an arbitrary business-policy type), resolved
+    per-invocation, without exposing `IServiceProvider` or a generic context bag to
+    aggregate code, and without adding any new `NEvo.Ddd.EventSourcing` project
+    reference (D34).
+27. `ICurrentUser<TId>` exposes identity only (`Option<User<TId>> User`) — no roles,
+    permissions, `IServiceProvider`, raw headers/`IMessageContext`, feature-bag access,
+    correlation/causation, or mutable state (D35). The Documents example's
+    `DocumentApproved.ApprovedBy` reflects the real authenticated user, not
+    `Guid.NewGuid()`, with no `ApproveDocumentHandler` reintroduced (D33, D35).
+28. Permission denial is signaled as an `UnauthorizedAccessException`-derived type,
+    returned via `Either.Left`, never thrown; `NEvo.Messaging.Web` maps it to HTTP 403
+    by recognizing the BCL base type, with no new `ProjectReference` between
+    `NEvo.Messaging.Authorization` and `NEvo.Messaging.Web` in either direction, and no
+    new automated test project for `NEvo.Messaging.Web` (D36).
+29. The query-handler "found or not found" read pattern uses a correctly named,
+    correctly homed `RequireSome` helper — not `namespace LanguageExt`, not a
+    plain-`Map`-looking name for stronger-than-`Map` semantics (D37).
+30. `docs/usage/event-sourcing.md` and `docs/development/event-sourcing.md` (tasks 11-12)
+    describe the framework's final shape after tasks 13-16 — decision-method parameter
+    injection, `ICurrentUser<TId>`, the real `ApprovedBy` behavior, 401/403/500 HTTP
+    semantics, and the final query-handler ergonomics — not the pre-task-13-16
+    placeholder/always-500 state.
 
 ## Verification strategy
 
 `dotnet build` across the solution after every task; `dotnet test` across
 `tests/NEvo.Ddd.EventSourcing.Tests` (and any other test project a task's own
-"Verification" section names, e.g. a new small `NEvo.Messaging.Authorization.Tests`
-for task 07) after every task touching it; `node tools/specs.mjs validate`; `node
-tools/docs.mjs validate` for tasks touching docs; manual walkthrough of the Documents
-example service (task 10, per D12) covering create → change → approve → query and
-reload-after-write — no manufactured concurrent-HTTP race (D28); deterministic
-optimistic-concurrency coverage instead lives in `tests/NEvo.Ddd.EventSourcing.Tests`
-(tasks 02-03).
+"Verification" section names, e.g. `NEvo.Messaging.Authorization.Tests` for tasks 07,
+14-15, and `NEvo.Core.Tests` for task 16) after every task touching it; `node
+tools/specs.mjs validate`; `node tools/docs.mjs validate` for tasks touching docs;
+manual walkthrough of the Documents example service (task 10, per D12; extended by
+tasks 14-15) covering create → change → approve → query, reload-after-write, the real
+`ApprovedBy` value, and the 403/401 authorization behavior — no manufactured
+concurrent-HTTP race (D28); deterministic optimistic-concurrency coverage instead lives
+in `tests/NEvo.Ddd.EventSourcing.Tests` (tasks 02-03).
 
 ## Out of scope
 

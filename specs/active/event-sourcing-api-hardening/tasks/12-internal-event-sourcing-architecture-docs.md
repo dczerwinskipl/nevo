@@ -11,8 +11,12 @@ depends_on:
   - message-level-and-aggregate-authorization
   - map-query-endpoint-and-get-binding
   - documents-example-es-and-auth-demo
+  - aggregate-decision-method-parameter-injection
+  - current-user-capability-and-documents-integration
+  - typed-authorization-failure-and-403-mapping
+  - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D17, D20, D21, D22, D23, D24, D25, D26, D29, D30]
+  decisions: [D13, D17, D20, D21, D22, D23, D24, D25, D26, D29, D30, D34, D35, D36, D37]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -22,6 +26,10 @@ semantic_references:
     - message-level-and-aggregate-authorization
     - map-query-endpoint-and-get-binding
     - documents-example-es-and-auth-demo
+    - aggregate-decision-method-parameter-injection
+    - current-user-capability-and-documents-integration
+    - typed-authorization-failure-and-403-mapping
+    - query-either-ergonomics-cleanup
 context:
   required:
     - specs/active/event-sourcing-api-hardening/areas/internal-documentation.md
@@ -52,34 +60,45 @@ separately) — and correct the three stale statements found in
 
 ## Dependencies
 
-Every functional task in this change (02-07, 09-10) — this document describes their
-shipped, final shape. Sequenced last alongside task 11.
+Every functional task in this change (02-07, 09-10, 13-16) — this document describes
+their shipped, final shape. Sequenced last alongside task 11.
 
 ## Implementation constraints
 
 - `docs/development/event-sourcing.md`: rewrite to cover, for a maintainer audience —
   the Event Sourced command executor's lifecycle and ordering (task 03), convention
-  discovery internals and most-specific-wins resolution (task 03), Primary/Fallback
+  discovery internals and most-specific-wins resolution (task 03), **decision-method
+  parameter injection internals** — the `IDecisionMethodParameterResolver` seam,
+  DI-backed per-invocation resolution, why it stays inside `AggregateDeciderExtractor`/
+  `AggregateDecider` rather than the shared executor (D30, D34, task 13); Primary/Fallback
   registration internals (task 05), the `IEventStreamStore`/`IAggregateRepository`
   boundary (task 02), concurrency flow (`AggregateConcurrencyException` **returned**
   via `Either`, never thrown, D13); the authorization ownership split — normal message/
   handler-level checks entirely in `NEvo.Messaging.Authorization`'s pipeline, the
   executor invoking only the **one** aggregate-aware hook, no
   `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization` project reference (D25-D26,
-  task 07); the explicit `Option<TAggregate>` Some/None semantics shared by the Level 2
-  handler (task 04) and the aggregate-aware hook (D24) — `Some` for an existing
+  task 07); **the current-user/authorization boundary** — `ICurrentUser<TId>`
+  (`NEvo.Messaging.Authorization`) adapts `UserContext<TId>` internally and is resolved
+  into decision methods purely by DI `Type` (D35, task 14); **the typed authorization-
+  failure/HTTP-mapping boundary** — `PermissionDeniedException`
+  (`NEvo.Messaging.Authorization`) recognized in `NEvo.Messaging.Web` via its
+  `UnauthorizedAccessException` base type, zero new project reference in either direction
+  (D36, task 15); the explicit `Option<TAggregate>` Some/None semantics shared by the
+  Level 2 handler (task 04) and the aggregate-aware hook (D24) — `Some` for an existing
   aggregate, `None` for the creation path, never `null`; the append/flush/commit
   storage-contract guarantee, expressed provider-agnostically (D23, not "the executor
   calls EF `SaveChanges`"); the persistence-metadata three-layer distinction — domain
   event payload (`Event : Message`, unchanged), runtime message-processing context
   (`IMessageContext`), and a future provider's own persisted representation, with **no
   envelope type existing in this version** (D20-D22) and an explicit statement that the
-  low-level store SPI is not frozen (D22); and the extension points/compatibility
-  constraints for future persistence providers and modeling styles (D17 — the exact
-  constraint wording from `overview.md` § "Architectural principles," reproduced or
-  directly referenced here so a maintainer implementing a future provider or modeling
-  style finds it without cross-referencing the spec history). Do not make a maintainer
-  reverse-engineer any of this from source or from user-facing documentation.
+  low-level store SPI is not frozen (D22); the final query/Either ergonomics helper,
+  `RequireSome` (`NEvo.Core`), replacing `EitherExtensions.MapAsync` (D37, task 16); and
+  the extension points/compatibility constraints for future persistence providers and
+  modeling styles (D17 — the exact constraint wording from `overview.md` §
+  "Architectural principles," reproduced or directly referenced here so a maintainer
+  implementing a future provider or modeling style finds it without cross-referencing
+  the spec history). Do not make a maintainer reverse-engineer any of this from source
+  or from user-facing documentation.
 - Document two additional guardrails from the reference-pattern refinement, both framed
   as protecting future work from requiring a lifecycle rewrite — not as describing a
   capability that exists today: (1) the explicit `NoStream`/`Exact(version)`

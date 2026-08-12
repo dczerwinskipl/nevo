@@ -1238,3 +1238,200 @@ breaking-change acceptance
 - **Date:** 2026-08-12 (post-task-10-implementation correction)
 - **Affected artifacts:** areas/documents-example-service.md,
   tasks/10-documents-example-es-and-auth-demo.md
+
+## D34: Aggregate decision-method parameter injection — DI-backed, internal seam, no new package dependency; `NEvo.Ddd.EventSourcing`'s experimental status covers the resulting API-shape change
+
+- **Question:** D33 named a real, still-open gap: an aggregate-method convention
+  decision method (`EditableDocument.Approve(ApproveDocument command)`) has no way to
+  receive contextual/service dependencies such as the current user, so the Documents
+  example could only fabricate `ApprovedBy: Guid.NewGuid()`. Should the aggregate-method
+  convention gain a general parameter-injection mechanism, and if so, with what shape,
+  ownership boundary, and compatibility treatment?
+- **Options considered:** Leave decision methods limited to exactly one command
+  parameter forever, forcing any contextual need into an explicit Level 2 handler (the
+  option D33 already rejected as needless indirection for a placeholder-only need) |
+  Add general parameter injection behind a small internal `IDecisionMethodParameterResolver`
+  seam, DI-backed for the first implementation, discovered/resolved entirely inside the
+  existing `AggregateDeciderExtractor`/`AggregateDecider` (no move into the shared
+  executor) | Design a public, pluggable resolver/provider hierarchy so third parties can
+  register custom resolution strategies now.
+- **Decision:** The second option, per the owner's own explicit direction for this
+  refinement pass. A decision method's parameter list becomes: exactly one command
+  parameter, always first (unchanged for every existing method), followed by zero or
+  more additional parameters resolved by the framework. Resolution is DI-backed by
+  parameter `Type`, per-invocation (not cached at discovery time), behind the small
+  internal `IDecisionMethodParameterResolver` seam — never a generic `IServiceProvider`
+  parameter exposed to aggregate code, never a public resolver/plugin hierarchy. Decision-
+  method discovery and parameter resolution both stay inside the aggregate-method
+  convention's own path (`AggregateDeciderExtractor`/`AggregateDecider`) — this task does
+  not move any of it into `EventSourcedCommandExecutor`, preserving D30's
+  executor/convention separation, which this refinement's own instructions require
+  explicitly. `NEvo.Ddd.EventSourcing`'s public `IDecider`/`IAggregateMethodDecider`/
+  `AggregateDecideDelegate<TAggregate,TId>` surface may change shape as needed to plumb
+  per-invocation resolution context through; this is treated the same way D4, D6, D13,
+  D24, D29, and D32 already treated changes to this same package's public surface — not
+  yet compatibility-sensitive, because the package remains `status: experimental` and
+  unreleased.
+- **Rationale:** DI-backed resolution by `Type` requires no compile-time reference from
+  `NEvo.Ddd.EventSourcing` to whatever package defines a given contextual capability —
+  confirmed by re-applying the exact reasoning D26 already established for the
+  aggregate-aware authorization hook (typed only in terms of already-available
+  abstractions, resolved by the consumer's own DI registration, never a new lateral
+  project reference). This is what lets task 14 introduce `ICurrentUser<TId>` in
+  `NEvo.Messaging.Authorization` — a package `NEvo.Ddd.EventSourcing` has never
+  referenced and does not start referencing here — while still being resolvable inside a
+  decision method declared in `NEvo.Ddd.EventSourcing`'s own convention. A public
+  resolver/plugin hierarchy has no current consumer need (only one resolution strategy —
+  DI-backed — is required by any task in this change) and would repeat the same
+  speculative-abstraction mistake D17/D30 already rejected for modeling styles and
+  decision-derivation mechanisms.
+- **Consequences:** Task 13 implements the mechanism generically (proven by its own
+  acceptance criteria requiring an arbitrary registered dependency to resolve
+  successfully, not anything current-user-specific). Task 14 is the first, but not
+  privileged, consumer. `NEvo.Ddd.EventSourcing.csproj` gains no new `ProjectReference`
+  as part of either task.
+- **Date:** 2026-08-12
+- **Affected artifacts:** overview.md, areas/decision-method-parameter-injection.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md
+
+## D35: `ICurrentUser<TId>` lives in `NEvo.Messaging.Authorization`, identity-only, adapts `UserContext<TId>` internally
+
+- **Question:** D33/D34 establish that a current-user capability is needed and how a
+  decision method receives it — but not which package owns the capability's definition,
+  what it may expose, or how it relates to the existing `UserContext<TId>`/
+  `IMessageContextAccessor` machinery already used by the authorization pipeline.
+- **Options considered:** Define `ICurrentUser<TId>` inside `NEvo.Ddd.EventSourcing`
+  (co-located with the parameter-injection mechanism that consumes it) | Define it in
+  `NEvo.Messaging.Authorization` (the existing home of identity/authorization context —
+  `UserContext<TId>`, `UserContextMiddleware`), adapting the existing feature-bag-backed
+  `UserContext<TId>` internally | Design a broader `IContext`/`IUserContext` abstraction
+  now that could also carry correlation/causation and other future facts.
+- **Decision:** The second option, per the owner's explicit direction. `ICurrentUser<TId>`
+  (`Option<User<TId>> User { get; }` only) is defined and registered in
+  `NEvo.Messaging.Authorization`. Its implementation adapts
+  `IMessageContextAccessor`/`UserContext<TId>.User` internally — confirmed by discovery
+  to already be shaped as `Option<User<TId>>`, so the adapter is a thin wrapper, not a
+  new mapping design. The third option (a general `IContext`/`IUserContext` god object)
+  is explicitly rejected now; a future contextual capability (e.g. correlation/causation)
+  gets its own dedicated abstraction later, reusing task 13's injection mechanism rather
+  than being folded into this one.
+- **Rationale:** `NEvo.Ddd.EventSourcing` must not gain a new dependency on
+  `NEvo.Messaging.Authorization` (D26, reaffirmed by D34) — defining the capability in
+  Event Sourcing and populating it from Authorization internals would either violate that
+  boundary or require an awkward inversion; defining it where the underlying identity
+  data already lives, and letting Event Sourcing resolve it purely by DI `Type` (D34), is
+  the only option that adds zero new project references anywhere. Keeping it
+  identity-only (no roles/permissions/`IServiceProvider`/headers/feature-bag/
+  correlation/causation/mutable state) preserves the existing single responsibility of
+  the authorization pipeline for anything beyond "who is this."
+- **Consequences:** Task 14 adds `ICurrentUser<TId>` and its DI registration to
+  `NEvo.Messaging.Authorization` only; the Documents example is the first consumer.
+  `EditableDocument.Approve` gains `ICurrentUser<Guid> currentUser` as its second
+  parameter; its placeholder `<remarks>` is removed once no longer true.
+- **Date:** 2026-08-12
+- **Affected artifacts:** overview.md, areas/current-user-capability.md,
+  tasks/14-current-user-capability-and-documents-integration.md
+
+## D36: Permission-denied signaled via `UnauthorizedAccessException`-derived type; Web recognizes the BCL base type — zero new package dependency; no new `NEvo.Messaging.Web` test project
+
+- **Question:** `ValidatePermissionMiddleware` returns a plain `Exception("Permission
+  denied")`, and `NEvo.Messaging.Web`'s `ToHttpResult` maps every `Left` to HTTP 500
+  regardless of type — confirmed by discovery, not hypothetical. This refinement's own
+  input flagged the risk directly: recognizing the failure precisely might require
+  `NEvo.Messaging.Web` to reference `NEvo.Messaging.Authorization`'s concrete exception
+  type, which `docs/development/package-boundaries.md` does not currently allow without
+  its own owner-approval gate (`NEvo.Messaging.Web`'s one documented lateral exception is
+  `NEvo.Messaging.Cqrs`/`NEvo.Web`, not `NEvo.Messaging.Authorization`). Separately,
+  proving the resulting HTTP status codes requires exercising `NEvo.Messaging.Web` code
+  that has no dedicated test project today. How should both be resolved without a new
+  package dependency or a new "new project" owner-approval round-trip?
+- **Options considered (type recognition):** Add a `NEvo.Messaging.Web` →
+  `NEvo.Messaging.Authorization` project reference so `ToHttpResult` can match the
+  concrete `PermissionDeniedException` type directly | Have `ValidatePermissionMiddleware`
+  return the BCL `System.UnauthorizedAccessException` directly, with `ToHttpResult`
+  matching that same BCL base type — no NEvo-specific type, no new dependency in either
+  direction | Return a dedicated `NEvo.Messaging.Authorization`-owned type deriving from
+  `UnauthorizedAccessException`, with `ToHttpResult` matching the inherited BCL base type
+  rather than the derived NEvo type — precise typing inside Authorization, zero-dependency
+  recognition in Web.
+  **Options considered (test coverage):** Add a new `tests/NEvo.Messaging.Web.Tests`
+  project to exercise `ToHttpResult` directly | Verify the HTTP-mapping behavior
+  (403/500/200/401) manually through the Documents example's walkthrough, matching the
+  D12/D27 precedent already established in this same specification for
+  `NEvo.Messaging.Web`-level behavior, plus a narrower automated test in the existing
+  `tests/NEvo.Messaging.Authorization.Tests` proving only that the returned exception
+  *type* changed (not the HTTP behavior, which that project cannot exercise).
+- **Decision:** The third type-recognition option: `PermissionDeniedException :
+  UnauthorizedAccessException` is defined in `NEvo.Messaging.Authorization` (for precise,
+  typed handling and testing inside that package); `NEvo.Messaging.Web`'s `ToHttpResult`
+  recognizes the inherited BCL base type (`is UnauthorizedAccessException`) rather than
+  the derived NEvo type, requiring no new `ProjectReference` in either direction.
+  Confirmed safe by a repository-wide search: `UnauthorizedAccessException` is not used
+  anywhere else in the codebase today, so this introduces no risk of an unrelated failure
+  being misclassified as 403. For test coverage: the second option — manual verification
+  through the Documents walkthrough for the HTTP-mapping behavior itself, plus one unit
+  test in the existing `NEvo.Messaging.Authorization.Tests` proving the exception type
+  changed. No new test project.
+- **Rationale:** Matching on the BCL base type is the literal mechanism the owner's own
+  conditional instruction pointed to ("prefer a transport-neutral type... if
+  `UnauthorizedAccessException` would map too broadly, introduce a dedicated type
+  instead") — empirical evidence (the zero-usage search) resolves the "would it map too
+  broadly" condition the same way D18 resolved its own conditional with empirical
+  evidence rather than another owner round-trip. `NEvo.Messaging.Web`-level HTTP behavior
+  already has a direct, on-point precedent in this specification: D12/D27 already decided
+  this exact package's HTTP behavior is verified manually via the Documents example
+  rather than by adding new automated test infrastructure — applying that same reasoning
+  here avoids reopening a question this specification already settled twice.
+- **Consequences:** Task 15 adds `PermissionDeniedException` to
+  `NEvo.Messaging.Authorization` and one new branch to `ToHttpResult`; neither
+  `NEvo.Messaging.Authorization.csproj` nor `NEvo.Messaging.Web.csproj` gains a
+  `ProjectReference`. No `tests/NEvo.Messaging.Web.Tests` (or equivalent) project is
+  created anywhere in this change.
+- **Date:** 2026-08-12
+- **Affected artifacts:** overview.md, areas/typed-authorization-failures.md,
+  tasks/15-typed-authorization-failure-and-403-mapping.md
+
+## D37: `RequireSome` — renamed, relocated `EitherAsync<TLeft, Option<TRight>>` helper; no LanguageExt 4.4.8 built-in covers this shape
+
+- **Question:** `EitherExtensions.MapAsync` (`src/NEvo.Core/EitherExtensions.cs:17-29`)
+  already does what this refinement's input describes wanting — preserves an existing
+  `Left`, unwraps `Some`, converts `None` to a supplied `Left` — but under a name that
+  reads as plain `Map` and inside `namespace LanguageExt`, indistinguishable from
+  first-party library API. Does LanguageExt 4.4.8 already provide an equally readable
+  built-in for this exact shape (an already-`EitherAsync`-wrapped `Option`, not a bare
+  one), and if not, what should the NEvo-owned replacement be named and where should it
+  live?
+- **Options considered:** Keep `MapAsync`'s existing name/namespace/shape unchanged | Find
+  and adopt a LanguageExt 4.4.8 built-in equivalent, removing the NEvo extension entirely
+  | Rename/relocate/reshape the extension into a NEvo namespace with a name communicating
+  "unwrap `Some`, require it or fail" (`RequireSome`, the refinement input's first
+  suggested name) — a single-purpose unwrap that composes with ordinary `.Map` afterward,
+  rather than folding the DTO projection into the same call.
+- **Decision:** The third option. Checked against the installed LanguageExt 4.4.8
+  package's own shipped XML member-list (the actual binary was not decompiled — no
+  `ildasm`/equivalent available in the research pass's tool set, so this is not a
+  100%-certain negative, but no matching member was found by name or by signature
+  scanning): `EitherAsync<L,R>` already has its own differently-shaped `MapAsync`
+  overload (`Func<R, Task<R2>>`, no `Option` involved), and the closest built-ins
+  (`OptionAsyncExtensions`/`TaskOptionAsyncExtensions`'s `ToEitherAsync`) operate one
+  level down, on a bare `Option<R>`/`Task<Option<R>>`, not on an already-`EitherAsync`-
+  wrapped one that may already be `Left`. No built-in covers the exact shape needed, so a
+  small NEvo extension remains justified — renamed to `RequireSome`, moved out of
+  `namespace LanguageExt` into `NEvo.Core`'s own namespace, reshaped to a single-purpose
+  unwrap (`Func<TLeft> None` only, dropping the `Func<TRight,TResult> Some` parameter in
+  favor of ordinary `.Map` composition afterward), and given focused XML documentation of
+  its exact three-case behavior.
+- **Rationale:** A same-named-but-different-shape extension method living in
+  `namespace LanguageExt` is confusing regardless of whether it duplicates a real
+  built-in — this specification's own quality bar (`overview.md` § "Canonical
+  comments/documentation quality" and this refinement's explicit instruction) requires
+  NEvo's own extensions to be identifiable as NEvo's own. Splitting the unwrap from the
+  projection (`RequireSome` then `.Map`) is more composable than the original two-
+  callback `MapAsync` and reads closer to the refinement input's own target call-site
+  shape.
+- **Consequences:** Task 16 renames/relocates/reshapes the extension and updates its one
+  current call site, `GetDocumentQueryHandler`. No LanguageExt v5 migration; no new
+  Result/monad abstraction; `EitherExtensions.Do` is unaffected.
+- **Date:** 2026-08-12
+- **Affected artifacts:** overview.md, areas/query-either-ergonomics.md,
+  tasks/16-query-either-ergonomics-cleanup.md

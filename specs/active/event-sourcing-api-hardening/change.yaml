@@ -452,7 +452,7 @@ tasks:
   - id: user-facing-event-sourcing-guide
     order: 11
     file: tasks/11-user-facing-event-sourcing-guide.md
-    status: approved
+    status: draft
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution
@@ -462,10 +462,14 @@ tasks:
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding
       - documents-example-es-and-auth-demo
+      - aggregate-decision-method-parameter-injection
+      - current-user-capability-and-documents-integration
+      - typed-authorization-failure-and-403-mapping
+      - query-either-ergonomics-cleanup
   - id: internal-event-sourcing-architecture-docs
     order: 12
     file: tasks/12-internal-event-sourcing-architecture-docs.md
-    status: approved
+    status: draft
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution
@@ -474,4 +478,35 @@ tasks:
       - event-sourcing-registration-options
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding
+      - documents-example-es-and-auth-demo
+      - aggregate-decision-method-parameter-injection
+      - current-user-capability-and-documents-integration
+      - typed-authorization-failure-and-403-mapping
+      - query-either-ergonomics-cleanup
+  - id: aggregate-decision-method-parameter-injection
+    order: 13
+    file: tasks/13-aggregate-decision-method-parameter-injection.md
+    status: draft
+    depends_on:
+      - es-command-executor-and-ambiguity-resolution
+  - id: current-user-capability-and-documents-integration
+    order: 14
+    file: tasks/14-current-user-capability-and-documents-integration.md
+    status: draft
+    depends_on:
+      - aggregate-decision-method-parameter-injection
+      - documents-example-es-and-auth-demo
+      - message-level-and-aggregate-authorization
+  - id: typed-authorization-failure-and-403-mapping
+    order: 15
+    file: tasks/15-typed-authorization-failure-and-403-mapping.md
+    status: draft
+    depends_on:
+      - message-level-and-aggregate-authorization
+      - map-query-endpoint-and-get-binding
+  - id: query-either-ergonomics-cleanup
+    order: 16
+    file: tasks/16-query-either-ergonomics-cleanup.md
+    status: draft
+    depends_on:
       - documents-example-es-and-auth-demo
