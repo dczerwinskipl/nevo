@@ -1,7 +1,6 @@
 # Documents.Api walkthrough
 
-Manual verification record for this example — there is no dedicated test project, so this
-note plus `dotnet build` is how the example is verified.
+This walkthrough demonstrates the Documents Event Sourcing example end to end.
 
 Run the service directly — no other example project or Identity.Api needs to be
 running:
@@ -24,12 +23,11 @@ commands below use `http://localhost:5299` — substitute your own port.
 | Reload-after-write reconstructing concrete state | Query steps 2 and 4 below |
 
 Every Document command is handled through the aggregate-method convention — no explicit
-Event Sourced handler is demonstrated in this example. The one command
-(`ApproveDocument`) that could plausibly need one only needs it to resolve the caller's
-identity, and the framework has no current-user/context capability a decision method or
-an explicit handler could use for that yet (see "About the generated `approvedBy`"
-below) — wrapping that gap in an explicit handler wouldn't demonstrate genuine
-orchestration, only add indirection around a placeholder.
+Event Sourced handler is demonstrated in this example. Aggregate decision methods cannot
+yet receive contextual dependencies such as the current user. An explicit handler could
+access lower-level messaging context to resolve the caller's identity, but using one
+solely for that purpose would add orchestration indirection this example does not need
+(see "About the generated `approvedBy`" below).
 
 Aggregate-aware authorization (`IAggregateAuthorization<TCommand, TAggregate>`, e.g.
 "only the creator may approve") is **not** demonstrated here: this domain has no
@@ -135,9 +133,8 @@ id — it will differ from `22222222-2222-2222-2222-222222222222`.
 `Authorization/DemoAuthentication.cs` treats any request carrying `X-Demo-User-Id` as
 authenticated, with `X-Demo-Roles` (comma-separated) mapped to roles and, from there, to
 NEvo permissions (`Authorization/DocumentPermissions.cs`). This exists only so the
-walkthrough is self-contained — no Identity.Api/JWT bearer dependency, unlike
-`ServiceA.Api`'s `SayHelloCommand` example, which shows the real JWT-based integration.
-A real service should use a real authentication scheme.
+walkthrough is self-contained, with no Identity.Api/JWT bearer dependency. A real service
+should use a real authentication scheme.
 
 ### About the generated `approvedBy`
 
@@ -149,9 +146,6 @@ the identity of who called the endpoint.
 
 ## Optimistic concurrency
 
-Not demonstrated here. A manually-reproduced concurrent-write race would be
-flaky/timing-dependent and adds no coverage beyond what
-`tests/NEvo.Ddd.EventSourcing.Tests` already proves deterministically (the repository
-returns `AggregateConcurrencyException` on an expected-version mismatch). The Documents
-repository uses exactly that expected-version optimistic-concurrency scheme; see the
+The example uses expected-version optimistic concurrency. Concurrency conflicts are
+covered by the Event Sourcing core tests (`tests/NEvo.Ddd.EventSourcing.Tests`); see the
 Event Sourcing user guide (`docs/usage/event-sourcing.md`) for the full explanation.

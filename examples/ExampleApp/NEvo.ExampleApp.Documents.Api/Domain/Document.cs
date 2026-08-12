@@ -13,7 +13,7 @@ public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
     public Guid Id { get; } = id;
     public string Data { get; } = data;
 
-    /// <summary>Creates a new document.</summary>
+    /// <summary>Decides document creation by emitting a <see cref="DocumentCreated"/> event.</summary>
     public static Either<Exception, IEnumerable<DocumentDomainEvent>> Create(CreateDocument command)
     {
         return new[] { new DocumentCreated(command.DocumentId, command.Data) };
@@ -29,13 +29,13 @@ public abstract class Document(Guid id, string data) : IAggregateRoot<Guid>
 /// <summary>A document that has not yet been approved and can still be changed.</summary>
 public sealed class EditableDocument(Guid id, string data) : Document(id, data)
 {
-    /// <summary>Changes the document's data.</summary>
+    /// <summary>Decides a document data change by emitting a <see cref="DocumentChanged"/> event.</summary>
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Change(ChangeDocument command)
     {
         return new[] { new DocumentChanged(Id, command.Data) };
     }
 
-    /// <summary>Transitions an editable document to <see cref="ApprovedDocument"/>.</summary>
+    /// <summary>Approves an editable document by emitting a <see cref="DocumentApproved"/> event.</summary>
     /// <remarks>
     /// Generates the approver identifier here (<see cref="Guid.NewGuid"/>) as a
     /// temporary placeholder: an aggregate-method convention decision method receives

@@ -441,7 +441,7 @@ tasks:
   - id: documents-example-es-and-auth-demo
     order: 10
     file: tasks/10-documents-example-es-and-auth-demo.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - create-documents-example-project
       - event-sourcing-registration-options

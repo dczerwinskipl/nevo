@@ -7,28 +7,38 @@ verdict: pass
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-task_fingerprint: dfda1eece1d26fd75f20530c9181e3fbb6f2139fc5457f09311a36f12c16a3f8
+task_fingerprint: d72cdcd8508165cd149e22537bffcda976e284e60b7c1865a3707f09d7cb4c06
 ---
 
 # Review: event-sourcing-api-hardening/documents-example-es-and-auth-demo
 
-Second review (2026-08-12). Baseline: this file's prior content (`pass`, 7/7 AC,
-`task_fingerprint: 97dc8a72...`). Task fingerprint changed because the task itself was
-amended (D33, this same session): the explicit Level 2 handler
-(`ApproveDocumentHandler`/`ApproveDocumentDecision`) is removed per an explicit owner
-request (owner: "I don't like what you did with the Handler — I'd throw it away
-entirely, and put `Guid.NewGuid()` directly in the Aggregate with a strong remark that
-we should have `IUserContext`, awaiting implementation"). `ApproveDocument` is now
-handled entirely by the Level 1 aggregate-method convention;
-`EditableDocument.Approve(ApproveDocument command)` generates `ApprovedBy` directly, with
-a `<remarks>` documenting the missing current-user/context capability. Task 10's own
-acceptance criterion 3 and the area's acceptance criterion 4 were rewritten to match
-(D33) before this implementation change, per the normal `/nevo-ai:spec-refine` path —
-not silently reinterpreted here.
+Third review (2026-08-12). Baseline: this file's prior content (`pass`, 7/7 AC,
+`task_fingerprint: dfda1eece1d...`). Task fingerprint changed because task 10's own
+prose was corrected (wording only, no scope/decision change — D33 itself was already
+accurate and untouched):
 
-Baseline findings re-verified: the prior review's one recorded item (the
-`ApproveDocumentDecision`/`Command`-base runtime gap) is moot — that type no longer
-exists. No new findings.
+- The false claim that "the framework has no current-user/context capability a decision
+  method **or an explicit handler** could use" is corrected in `WALKTHROUGH.md` and task
+  10's own Goal section — an explicit handler *could* reach caller identity via
+  lower-level messaging context (the prior, now-removed `ApproveDocumentHandler` did
+  exactly that via `IMessageContextAccessor`); the accurate constraint is that *aggregate
+  decision methods* lack this capability, and an explicit handler used solely to work
+  around that would add orchestration indirection this example doesn't need.
+- `WALKTHROUGH.md` reworded to read as canonical example documentation rather than a
+  review artifact: the opening no longer frames itself as a "verification record," and
+  the optimistic-concurrency section states the current behavior instead of justifying
+  why a race scenario was excluded. The `ServiceA.Api`/`SayHelloCommand` comparison is
+  dropped from the demo-auth section (not load-bearing for understanding this example).
+- `Document.cs` XML docs on `Create`/`Change`/`Approve` now describe what a decision
+  method actually does (decides, emits an event) rather than describing the state
+  transition that only `Apply` performs — `Apply(DocumentApproved)`'s wording was already
+  correct and is unchanged.
+- `DocumentCommands.cs`'s `ApproveDocument` summary drops the redundant "the attribute
+  below is the source of truth" code-layout narration.
+
+No behavior changed (doc comments and Markdown only) — re-verified by `dotnet build`
+only, no new manual walkthrough run needed on top of the prior pass's already-verified
+behavior for this exact code path.
 
 - [x] Acceptance criteria: 7/7
 - [x] Scope: compliant
@@ -39,8 +49,3 @@ exists. No new findings.
 - `dotnet build` (whole solution) — passed
 - `node tools/specs.mjs validate` — passed
 - `node tools/docs.mjs validate` — passed
-- `node tools/specs.mjs check` / `node tools/docs.mjs check` — stale (`specs/index.generated.json`, `docs/index.generated.md`); non-gating and pre-existing — this task's diff touches only `examples/ExampleApp/NEvo.ExampleApp.Documents.Api/**`, no `docs/**`/`specs/**` sources
-- Manual walkthrough (`WALKTHROUGH.md` steps 1-6), re-run against a fresh instance after
-  the handler removal: create (200), approve with permission (200), query reloads
-  `ApprovedDocument`-shaped with a non-empty generated `approvedBy` — confirms the
-  convention-only path still produces the same observable behavior

@@ -18,8 +18,7 @@ public record ChangeDocument(Guid DocumentId, string Data) : DocumentCommand(Doc
 
 /// <summary>
 /// Requests approval of a document. Requires the <see
-/// cref="DocumentPermissions.ApproveDocument"/> permission — enforced before the handler
-/// runs; the attribute below is the source of truth for that requirement.
+/// cref="DocumentPermissions.ApproveDocument"/> permission.
 /// </summary>
 [AllowPermission(DocumentPermissions.ApproveDocument, typeof(ApproveDocumentPermissionValidator))]
 public record ApproveDocument(Guid DocumentId) : DocumentCommand(DocumentId);

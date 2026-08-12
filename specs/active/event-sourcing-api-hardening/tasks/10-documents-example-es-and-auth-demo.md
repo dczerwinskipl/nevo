@@ -41,10 +41,10 @@ walkthrough (D12), no dedicated test project.
 
 **Narrowed by D33.** This example no longer demonstrates an explicit Level 2 handler.
 `ApproveDocument`'s only candidate orchestration need — capturing the approver's
-identity — is not a genuine one today: the framework has no current-user/context
-capability an aggregate decision method or an explicit handler could use to resolve it,
-so an explicit handler here would only wrap a placeholder value, not real orchestration.
-See D33 for the full rationale.
+identity — is not a genuine one today: aggregate decision methods cannot yet receive
+contextual dependencies such as the current user. An explicit handler could access
+lower-level messaging context, but using one solely for that purpose would add
+orchestration indirection this example does not need. See D33 for the full rationale.
 
 ## Dependencies
 
