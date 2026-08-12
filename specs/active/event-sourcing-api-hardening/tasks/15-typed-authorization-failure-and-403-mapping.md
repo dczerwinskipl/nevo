@@ -83,26 +83,45 @@ mapping recognize it as 403 — with zero new project reference in either direct
   - Add a unit test in the existing `tests/NEvo.Messaging.Authorization.Tests` proving
     `ValidatePermissionMiddleware` now returns `Either.Left` containing an
     `UnauthorizedAccessException`-derived type (not a plain `Exception`) on denial.
-  - Verify the 403/500/200/401 HTTP behavior manually through the Documents example's
-    walkthrough note (task 10's, extended) — 401 stays through the existing
-    `.RequireAuthorization()`/ASP.NET path, unaffected by this task.
+  - Verify the HTTP behavior manually through the Documents example's walkthrough note
+    (task 10's, extended), covering all four cases: a successful `ApproveDocument`
+    request → 200; an unauthenticated request → 401 (existing ASP.NET path, unaffected
+    by this task); an authenticated request lacking the required permission → 403; an
+    ordinary application/framework failure not representing permission denial (e.g. a
+    missing/non-existent document) → 500, unchanged.
 
 ## Acceptance criteria
 
+**Corrected (post-review).** The original draft marked criteria 2-4 below `(test)`,
+implying an automated test directly exercising `ToHttpResult`'s 403/500/200 mapping —
+but `ToHttpResult` is a private method inside `NEvo.Messaging.Web`, and this task's own
+declared strategy forbids a new `NEvo.Messaging.Web` test project. No automated test
+could satisfy those criteria as originally worded without contradicting the task's own
+scope. Criteria 2-4 are now `(manual)`, verified through the Documents walkthrough,
+consistent with criteria 6-7 and with the D12/D27 precedent this task already cites.
+
 1. `ValidatePermissionMiddleware` returns `PermissionDeniedException` (or another
    `UnauthorizedAccessException`-derived NEvo type) via `Either.Left` on denial — never a
-   plain `Exception`, never thrown (test, must fail against pre-task code).
-2. `ToHttpResult` maps any `UnauthorizedAccessException`-derived `Left` to HTTP 403
-   (test).
-3. `ToHttpResult` maps every other `Exception`-derived `Left` to HTTP 500, unchanged
-   (test — regression).
-4. `ToHttpResult` maps `Right` to HTTP 200, unchanged (test — regression).
-5. `NEvo.Messaging.Authorization.csproj` and `NEvo.Messaging.Web.csproj` each have no new
+   plain `Exception`, never thrown (test, in `tests/NEvo.Messaging.Authorization.Tests`;
+   must fail against pre-task code).
+2. A successful `ApproveDocument` request (authenticated, has the required permission)
+   returns HTTP 200 (manual, Documents walkthrough).
+3. An unauthenticated request to `ApproveDocument`'s endpoint (`.RequireAuthorization()`)
+   returns 401 through the existing ASP.NET path, unaffected by this task (manual,
+   Documents walkthrough).
+4. An authenticated request lacking the required NEvo permission returns 403 (manual,
+   Documents walkthrough — this is the behavior criterion 1's unit test proves the
+   underlying exception type for; this criterion proves the resulting HTTP status the
+   walkthrough actually observes).
+5. An ordinary application/framework `Left` that does not represent permission denial
+   still returns 500, unchanged (manual, Documents walkthrough — a request for a
+   missing/non-existent document, already `DocumentNotFoundException`-shaped per the
+   existing endpoint behavior, is an acceptable example of this case; no new failure
+   mode needs to be manufactured for this criterion).
+6. `NEvo.Messaging.Authorization.csproj` and `NEvo.Messaging.Web.csproj` each have no new
    `ProjectReference` after this task (inspection).
-6. An unauthenticated request to `ApproveDocument`'s endpoint (`.RequireAuthorization()`)
-   still returns 401 through the existing ASP.NET path (manual, Documents walkthrough).
-7. The Documents example's walkthrough note documents a request to `ApproveDocument`
-   without the required permission returning 403 (manual).
+7. The Documents example's walkthrough note documents all four cases above (200 / 401 /
+   403 / 500) explicitly, not only the 403 case (manual).
 8. `dotnet build` succeeds; `dotnet test tests/NEvo.Messaging.Authorization.Tests`
    passes.
 
@@ -113,8 +132,10 @@ dotnet build
 dotnet test tests/NEvo.Messaging.Authorization.Tests
 ```
 
-Manual walkthrough update per acceptance criteria 6-7 (extends task 10's existing
-walkthrough note).
+Manual walkthrough update per acceptance criteria 2-5, 7 (extends task 10's existing
+walkthrough note) — this is where all HTTP-transport-level behavior (200/401/403/500)
+for this task is actually verified; no automated test exists or is added for it, by this
+task's own declared strategy (no new `NEvo.Messaging.Web` test project).
 
 ## Documentation impact
 

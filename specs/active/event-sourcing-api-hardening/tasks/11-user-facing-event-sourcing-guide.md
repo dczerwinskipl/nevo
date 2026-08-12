@@ -16,7 +16,7 @@ depends_on:
   - typed-authorization-failure-and-403-mapping
   - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D13, D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31, D34, D35, D36, D37]
+  decisions: [D13, D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31, D33, D34, D35, D36, D37, D38, D39]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -129,12 +129,18 @@ shipped, final shape. Sequenced last alongside task 12.
    needing coordinated writes across two or more independently-versioned aggregate
    streams belongs to Level 3 or a future saga/process-manager capability (D31) — frame
    Level 3 as "the right tool for anything that doesn't fit," never as an inferior or
-   legacy option. Also cover **decision-method parameter injection** (task 13, D34):
-   a Level 1 decision method may declare additional, framework-resolved parameters after
-   the command (e.g. `ICurrentUser<Guid>`, or a business-policy type) — explain this is
-   for contextual/service dependencies the framework resolves, not a general
-   service-locator (no `IServiceProvider` parameter is ever supported), and that the
-   single-command-parameter form keeps working unchanged.
+   legacy option. Also cover **decision-method parameter injection** (task 13, D34,
+   D38, D39): a Level 1 decision method — both a `static` creation method and an
+   instance method on existing state — may declare additional, framework-resolved
+   parameters after the command (e.g. `ICurrentUser<Guid>`, or a business-policy type),
+   resolved from the current invocation's scope, not a general service-locator (no
+   `IServiceProvider` parameter is ever supported); the single-command-parameter form
+   keeps working unchanged. State the **supported-use contract** plainly (D39):
+   additional parameters represent already-available contextual facts or synchronous,
+   side-effect-free business policies (`ICurrentUser<Guid>`, `IClock`, a precomputed
+   policy object) — orchestration or external I/O (a `DbContext`, an `HttpClient`, a
+   service that calls out) belongs to an explicit `IEventSourcedCommandHandler<...>`
+   (Level 2) instead, which remains fully supported for exactly that purpose (D33).
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.

@@ -47,11 +47,18 @@ ExampleApp project layout: `Identity.Api`, `ServiceA.Api`, `ServiceB.Api`,
   `EditableDocument -> ApprovedDocument` transition; message-level permission metadata;
   aggregate-aware authorization if it fits without making the example noisy;
   `MapCommandEndpoint`; `MapQueryEndpoint`; aggregate reload after writes reconstructing
-  the correct concrete state. **Narrowed by D33**: no explicit Level 2
-  `IEventSourcedCommandHandler<...>` is demonstrated — `ApproveDocument`'s only
-  candidate orchestration need (capturing the approver's identity) is not genuine today,
-  since no current-user/context capability exists for either a decision method or an
-  explicit handler to resolve it from.
+  the correct concrete state. **Narrowed by D33, corrected by D41 (post-review):** no
+  explicit Level 2 `IEventSourcedCommandHandler<...>` is demonstrated for
+  `ApproveDocument`. The durable distinction is: an aggregate-method convention decision
+  method could not, at task-10 time, declare a contextual dependency such as the current
+  user at all — that gap is real and is what tasks 13-14 close. An explicit Level 2
+  handler *could* already reach lower-level Messaging context (e.g. `IMessageContext`/
+  `UserContext<TId>`) to obtain the current user — that path was never technically
+  unavailable — but doing so solely to obtain identity for an otherwise-Level-1-shaped
+  decision introduces orchestration indirection the example does not need, once tasks
+  13-14 give the aggregate-method convention its own, more direct way to ask for the
+  same fact. This is a design-fit judgment (which path is the honest, canonical one for
+  this specific need), not a claim that Level 2 lacked the technical capability.
 - Rewrite `GetDocumentQueryHandler` to read through the hardened `IAggregateRepository`
   path (task 02), documenting this explicitly as an intermediate/simple read path used
   before persisted projection support exists — not the final recommendation for all

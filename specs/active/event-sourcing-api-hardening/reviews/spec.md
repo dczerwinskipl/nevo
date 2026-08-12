@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 79de427cfe73afdb5502d07c8296615e9fd77180be711bc1d69bd6b8ca437119
+spec_fingerprint: 07cce113c4a2481b5f8d280e75f9c3dbe99d4868889575af91c16ecae595c631
 task_fingerprints:
   characterize-event-sourcing-baseline: cadd6a0f99d3ced7addcded3e1fc01a57a4d24615d0dd7ca3325eab63f3a4aaf
   harden-event-store-and-repository-contracts: f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b
@@ -20,157 +20,183 @@ task_fingerprints:
   map-query-endpoint-and-get-binding: 28a2251fcefffd0b769b6c0eef17a30b68852a4629cfa2f378a8781ab29999ed
   create-documents-example-project: 772f66cd20eadc0a82c0dc3cbaa9ba07e05f4ab961930d8a58050e17adcc683f
   documents-example-es-and-auth-demo: 624e670433a358089442679c1c36bb541ec21d3c2f864442e3e8f073104b91d0
-  user-facing-event-sourcing-guide: 5a6b2afb9b0e9e7ddb0f301dbf533acc64d9960ec58015dc80d24e068db018ec
-  internal-event-sourcing-architecture-docs: 8f7894544f9014be2c1a54d2ce7e3ba1cac044b89b0256ab925b98c25c211322
-  aggregate-decision-method-parameter-injection: 499791595a4d4dcb3ff0c58c33baf83ba45067f22caf1579892ff22ba8e03559
-  current-user-capability-and-documents-integration: ee753bc9cfd77d563a93b3886d22a91c64c61c12ee241f9d3033c61fef003175
-  typed-authorization-failure-and-403-mapping: d3232b16ac1c6f36ddd2e8c067ca2cd67d5dc342a8ca408bc1ccd8b25b4b0deb
-  query-either-ergonomics-cleanup: edf3de1d5396766df8a13e4a3515195a4c85614485245d2b895a1ba586487f79
+  user-facing-event-sourcing-guide: 992b95c99984abc8bd8ec82c0c09f0cc939ba88d0f6eb89b124b1d3955f5c8f2
+  internal-event-sourcing-architecture-docs: 8c5701ddcc612618a12db523810bd159d2d23eb9fcd6b848d784800c9fb94042
+  aggregate-decision-method-parameter-injection: 3ed02d1586b07566de970b4417fd90c25815093b1bf8c40163084c33efd483d9
+  current-user-capability-and-documents-integration: ee331d1f084e4a9cee757eb065522c0dbb6a41ca90a5c3117263314004ab714c
+  typed-authorization-failure-and-403-mapping: 8f2029e82e250fc0a496fefe7a21a58ba11a4540aec59165d4030e44dde75f46
+  query-either-ergonomics-cleanup: 4a2fbe139e58a226699e9613ccb07006b88152a3d0ab715619ae00a06f26e5e1
 ---
 
 # Review: event-sourcing-api-hardening
 
-Baseline: the previous `reviews/spec.md` (generated 2026-08-11, end of the D32
-post-implementation-correction pass) reported `approved-for-implementation` with zero
-findings. Since then: tasks 06-10 were implemented (including task 10's own D33
-post-implementation correction), and this refinement pass added four new tasks —
-`aggregate-decision-method-parameter-injection` (13),
-`current-user-capability-and-documents-integration` (14),
-`typed-authorization-failure-and-403-mapping` (15), `query-either-ergonomics-cleanup`
-(16) — recording D34-D37, and re-pointed tasks 11-12's `depends_on` at all four,
-reverting their status from `approved` back to `draft`. This report reflects a first
-review pass of this refinement (5 `AUTO_FIX` findings, `changes-required`) and the
-corrections applied immediately after, in the same pass, per those findings' own
-mechanical/unambiguous nature — every file below was re-read in full, fresh, after the
-corrections, for the verdict this report actually carries.
+Baseline: the previous `reviews/spec.md` (generated 2026-08-12, end of the refinement
+pass that added tasks 13-16) reported `ready-for-approval` with zero findings, after
+fixing 5 `AUTO_FIX` semantic-reference gaps. This run reviews a **specification
+correction pass** applied to that same refinement, before any implementation started —
+owner review of tasks 13-16's own drafted content, not new functional scope. Every file
+below was re-read in full, fresh, for this run.
 
 ## Verdict
 
-`ready-for-approval` — zero unresolved findings of any kind. No `OWNER_DECISION`/
-`NEEDS_CLARIFICATION`. Tasks 11-16 are `status: draft` in `change.yaml`, so
-`implementation_allowed` is `false` per row 4 of the decision table, not row 5.
+`ready-for-approval` — zero unresolved findings of any kind. Tasks 11-16 remain
+`status: draft`, so `implementation_allowed` is `false` (row 4, not row 5).
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Are the relevant tasks `approved` in `change.yaml`? No — tasks 11-16 are all
-  `status: draft`.
-- What has to happen first? Owner approval of the refined tasks (starting with task 13,
-  the next in dependency order), via `/nevo-ai:spec-approve`.
+- Are the relevant tasks `approved` in `change.yaml`? No — tasks 11-16 are all `draft`.
+- What has to happen first? Owner approval of the corrected tasks, via
+  `/nevo-ai:spec-approve`, starting with task 13 (next in dependency order).
 
 ## Gating and non-gating checks
 
 ```
 Gating validation: passed
   node tools/specs.mjs validate — 8 changes, no errors
+  node tools/docs.mjs validate  — 61 documents, no errors
 Non-gating repository check:
-  node tools/specs.mjs check — stale: specs/index.generated.json
-    (expected — this pass only edits specs/active/event-sourcing-api-hardening/**;
-    generation is not part of spec-refine/spec-review's own scope.)
-  node tools/docs.mjs check  — stale: docs/index.generated.md
-    (same cause; no docs/** content changed by this pass.)
+  node tools/specs.mjs check — stale: specs/index.generated.json (expected; this pass
+    only edits specs/active/event-sourcing-api-hardening/**)
+  node tools/docs.mjs check  — stale: docs/index.generated.md (same cause)
 ```
-
-`node tools/docs.mjs validate` was not re-run in this exact pass (no `docs/**` file was
-touched by either the refinement or the fixes below) — it passed (61 documents, no
-errors) earlier in this same session, against the same unchanged `docs/**` tree.
 
 ## Findings
 
 No findings.
 
-Five `AUTO_FIX` findings from this review's first pass were resolved before this report
-was finalized (mechanical, unambiguous — added missing decision numbers, already cited
-by number in each task's own prose, to that task's `semantic_references.decisions`):
+## What this correction pass changed (summary, not findings — each item below was a
+real defect in the prior draft, corrected in this same pass)
 
-- Task 13 was missing `D4`, `D6`, `D13`, `D21`, `D23`, `D24`, `D29`, `D32` (the
-  "not-yet-compatibility-sensitive" precedent list, and the `IMessageContext.
-  ServiceProvider` access precedent) — now declared alongside `D26`/`D30`/`D34`.
-- Task 14 was missing `D4`, `D32` (the DI-registration/`TryAdd*` convention) — now
-  declared alongside `D33`/`D34`/`D35`.
-- Task 15 was missing `D12`, `D27` (the "no new test project" precedent) — now declared
-  alongside `D36`.
-- Tasks 11 and 12 were each missing `D13` (`AggregateConcurrencyException` returned via
-  `Either`, never thrown) — a pre-existing gap, not introduced by this refinement,
-  surfaced by this review's full re-read and fixed in the same pass.
+**Task 13 — `IAggregateMethodDecider` public contract preserved (D38).** The prior draft
+allowed `IDecider`/`IAggregateMethodDecider`/`AggregateDecideDelegate`'s shape to change,
+reasoning from the package's `experimental` status. Re-reviewed against
+`Deciding/IAggregateMethodDecider.cs` (current signature confirmed unchanged) and
+`ServiceCollectionExtensions.cs` (confirmed `AggregateDecider`/`AggregateDeciderProvider`
+are registered `Singleton`) — the correction requires the exact current signature to
+stay unchanged, and specifies a concrete, validated internal mechanism
+(`IMessageContextAccessor`/`IMessageContext.ServiceProvider`, both already `Singleton`-
+safe by design) that avoids the root-provider/captive-dependency trap a naive singleton-
+constructor-injected `IServiceProvider` would otherwise create — with an explicit "stop
+and report as an owner decision" escape valve if no clean path is found. Verified: task
+13's own text now states this precisely (`tasks/13-...md`, "Public contract — unchanged"
+and "Internal mechanism" subsections), and acceptance criterion 1 makes the contract-
+preservation requirement directly testable by inspection.
 
-Confirmed, by direct re-check, that no other decision number appears in any of tasks
-11-16's own prose without a matching `semantic_references.decisions` entry. Two
-citations were checked and correctly left undeclared, matching this change's own
-existing precedent (task 04's `D16 unaffected by this task`, never declared): task 13's
-"Any change to most-specific-wins state-method resolution (D2)" and task 14's "A
-dedicated test project for the Documents example (D12, unaffected by this task)" are
-boundary-only ("this decision doesn't apply here") statements, not load-bearing content
-the task's own design relies on.
+**Task 13 — supported-use contract added (D39).** The mechanism now carries an explicit,
+documented (not mechanically enforced) boundary: contextual facts/pure policies are
+supported; orchestration/I/O belongs to Level 2 (D1). Verified present in both the task
+and its area file, with the good/bad examples from the correction request reproduced
+verbatim, and acceptance criterion 11 requires the text to exist.
+
+**Task 13 — both invocation paths covered.** Acceptance criteria 3-4 now require
+separate, independent tests for a `static` creation method and an instance method on
+existing state — re-verified against `AggregateDeciderExtractor.CreateDecide`'s actual
+two branches (`methodInfo.IsStatic` true/false), confirming both are real, currently-
+existing code paths this task's mechanism must cover identically, not a hypothetical
+distinction.
+
+**Task 15 — acceptance criteria/verification aligned with declared strategy (D40).** The
+prior draft's criteria 2-4 were tagged `(test)` for `ToHttpResult`'s 403/500/200
+mapping, while the task's own "Implementation constraints" already forbade a new
+`NEvo.Messaging.Web` test project — re-confirmed by re-reading
+`RoutesExtensions.ToHttpResult` (still `private`) and the task's own constraints
+verbatim. All HTTP-transport criteria are now `(manual, Documents walkthrough)`,
+explicitly covering all four cases (200/401/403/500), with the missing-document case
+named as the acceptable 500 example (matches `DocumentNotFoundException`'s existing,
+unchanged behavior). The one remaining `(test)` criterion (the typed-exception behavior
+in `NEvo.Messaging.Authorization.Tests`) is achievable within that project, unlike the
+criteria it replaces.
+
+**Stale task-10-era narrative corrected (D41).** `overview.md` no longer states the
+Documents example "wires Level 1 + Level 2 handling" (it wires Level 1 only; Level 2
+remains fully supported and tested via task 04, unaffected). `areas/documents-example-
+service.md`'s D33-narrowing bullet no longer overstates that no current-user/context
+capability was ever reachable from an explicit handler — it now states the durable
+distinction precisely (decision methods couldn't declare contextual dependencies;
+explicit handlers could already reach lower-level context, but doing so solely for
+identity was unnecessary orchestration once tasks 13-14 exist). Task 10's own file was
+checked directly and already used the correct framing — no change needed there.
 
 ## Specification readiness criteria (per `references/review-policy.md`)
 
-- **Owner-approval gate**: D34 (parameter-injection mechanism/public-API-shape
-  precedent), D35 (`ICurrentUser<TId>` package/exposure boundary), D36 (permission-denied
-  type/HTTP-mapping — resolved specifically by adding zero new package dependencies), and
-  D37 (query-ergonomics helper naming/placement) each carry a real option analysis in
-  `owner-decisions.md` — question, ≥2 genuinely different options, a recorded decision
-  reflecting the owner's own refinement instructions plus empirical evidence gathered
-  during this pass (a repository-wide search confirming `UnauthorizedAccessException` is
-  unused elsewhere, and the installed LanguageExt 4.4.8 package's own member surface),
-  rationale, and consequences naming every affected artifact.
-- **`depends_on` graph**: acyclic, every reference resolves — `node tools/specs.mjs
-  validate` (8 changes, no errors) and `node tools/specs.mjs context <change> <task>`
-  succeed for all four new tasks.
-- **`allowed_paths`/`forbidden_paths`**: present and unambiguous for tasks 13-16;
-  overlap between task 14 and task 15 (`src/NEvo.Messaging.Authorization/**`, its tests,
-  the Documents example) is real but non-conflicting — disjoint concerns inside a shared
-  package, consistent with the larger overlap already accepted across tasks 02-05.
-- **Acceptance-criteria testability**: every criterion in tasks 13-16 is tagged
-  `(test)`, `(inspection)`, or `(manual)`; none is aspirational.
-- **No open owner decision blocks the next step**: none — D34-D37 are closed, recorded.
-- **Documentation impact**: tasks 11-12 (still `draft`) now depend on 13-16, and their
-  own required-sections/implementation-constraints text was updated in this pass to
-  describe parameter injection, `ICurrentUser<TId>`, 401/403/500 semantics, and
-  `RequireSome`.
-- **No task requires package splitting**: confirmed — tasks 13-16 add types to existing
-  packages only; D36 specifically resolves its question by adding zero new
-  `ProjectReference` entries in either direction.
-- **`IAggregateEvent<TAggregate,TId>` independence from Messaging `Event`**: unaffected
-  by tasks 13-16.
-- **Explicit Event Sourced handlers remain supported**: unaffected — task 04's area,
-  task, and tests are untouched by this pass.
-- **Documents no longer needs an artificial explicit approval handler after task 14**:
-  confirmed — task 14 forbids reintroducing `ApproveDocumentHandler`/
-  `ApproveDocumentDecision`.
-- **403 handling is transport mapping of a typed semantic failure, not HTTP logic
-  inside Authorization**: confirmed — `PermissionDeniedException` carries no HTTP
-  awareness; the mapping decision lives entirely in `NEvo.Messaging.Web`.
-- **Roles/permissions not exposed through `ICurrentUser`**: confirmed by task 14's own
-  constraints and acceptance criteria.
-- **Parameter injection does not expose `IServiceProvider` to aggregate methods**:
-  confirmed by task 13's own constraints and acceptance criterion 7.
-- **LanguageExt v5 migration out of scope**: confirmed, explicit in task 16 and D37.
-- **Tasks 01-10 remain historically intact**: confirmed — no `tasks/01-*.md` through
-  `tasks/10-*.md` file was modified by this pass.
-- **Semantic-reference completeness**: clean after the fixes above — re-verified by a
-  fresh, direct scan of every decision number cited in tasks 11-16's own prose against
-  their declared `semantic_references.decisions`, immediately before this report was
-  written.
+Addressing the five explicit re-review requirements from this pass's own instructions:
+
+1. **New tasks do not unintentionally change an already-stabilized public contract from
+   previously implemented tasks.** Confirmed — task 13 acceptance criterion 1 makes
+   `IAggregateMethodDecider`/`IDecider` contract-preservation directly checkable; no
+   other task in 13-16 touches any previously-implemented task's public surface (task 14
+   adds a new type, task 15 adds a new type plus one new branch in an existing private
+   method, task 16 replaces a same-package, single-call-site internal extension).
+2. **Each AC has an achievable verification method within the task's declared
+   paths/projects.** Confirmed for task 15 (the main defect this pass fixed — see above).
+   Re-checked task 13's own 12 criteria against its `allowed_paths`
+   (`src/NEvo.Ddd.EventSourcing/**`, `tests/NEvo.Ddd.EventSourcing.Tests/**`) — all
+   `(test)`/`(inspection)` criteria target that project or direct file inspection, none
+   claims coverage outside it. Task 14/16 unchanged by this pass, previously verified.
+3. **All behaviorally distinct existing implementation paths affected by a new
+   mechanism are covered.** Confirmed for task 13's static-creation/instance-existing-
+   state split (acceptance criteria 3-4, each independently required). No other task in
+   13-16 introduces a mechanism with multiple existing invocation paths.
+4. **Newly added generic capabilities do not blur documented architecture boundaries.**
+   Confirmed — task 13's supported-use contract (D39) explicitly reinforces the Level
+   1/Level 2 boundary D1 already established, rather than letting parameter injection
+   quietly become a second orchestration mechanism.
+5. **Overview/areas/tasks no longer contradict the latest owner decisions.** Confirmed
+   for the two locations named in this pass's own instructions (`overview.md`,
+   `areas/documents-example-service.md`) — both corrected (D41) and re-read after
+   editing to confirm the fix.
+
+Additional checks re-run from the standard readiness criteria:
+- **`depends_on` graph**: acyclic, resolves — `node tools/specs.mjs validate` (8
+  changes, no errors); `node tools/specs.mjs context <change> <task>` succeeds for
+  tasks 13 and 15.
+- **Semantic-reference completeness**: re-swept for all of tasks 11-16 after this pass's
+  edits — every decision number cited by name in each task's own prose is declared in
+  that task's `semantic_references.decisions`, with the same two boundary-only
+  exceptions already established as correctly undeclared in the prior review (task 13's
+  "D2 unaffected," task 14's "D12 unaffected," both matching task 04's own precedent).
+  Task 13 gained `D1`/`D24` (cited for why `IAggregateMethodDecider` is "intentionally
+  stabilized" and Level 2's orchestration ownership) during this pass's own edits — found
+  and fixed before this report was written, not left as a fresh `AUTO_FIX`.
+- **Owner-approval gate**: D38 (`IAggregateMethodDecider` contract preservation), D39
+  (supported-use contract), and D40 (test-strategy/AC alignment) are all public-API-shape
+  or architecture-boundary decisions with recorded rationale and consequences in
+  `owner-decisions.md`, resolved directly from this pass's own explicit, detailed
+  instructions (matching the pattern already used for D18/D28/D29/D34-D37 in this same
+  specification) — not left as open questions requiring a further round-trip. D41 is a
+  narrative correction, not a new design choice.
+- **No new task introduced**: confirmed — this pass fits entirely within tasks 13 and 15
+  plus their area files and `overview.md`/`owner-decisions.md`; no seventh new task was
+  needed.
+- **Tasks 01-10, 14, 16 remain intact**: confirmed by `git status` — only
+  `overview.md`, `owner-decisions.md`, `areas/decision-method-parameter-injection.md`,
+  `areas/documents-example-service.md`, `tasks/11-*.md`, `tasks/12-*.md`,
+  `tasks/13-*.md`, and `tasks/15-*.md` changed in this pass.
 
 ## Consistency sweep (this pass's own scope)
 
-- No task in 13-16 declares an `IServiceProvider` parameter on any aggregate decision
-  method, exposes roles/permissions through `ICurrentUser<TId>`, or introduces a new
-  `.csproj`/`ProjectReference`.
-- `owner-decisions.md` D34-D37 are additive appends after D33 — D1-D33's own text is
-  unchanged.
-- `overview.md`'s "Proposed architecture," "Areas," "Change-wide acceptance criteria"
-  (items 26-30), "Compatibility and migration," and "Affected modules" sections were all
-  updated consistently to reference tasks 13-16 and D34-D37.
-- Mechanical fingerprint drift: every task's `--task` fingerprint (including tasks
-  01-10, already `implemented`) differs from the prior review's recorded value because
-  `owner-decisions.md` is in `context.required` for nearly every task and this pass
-  appended ~400 lines to it (D34-D37) — the same phenomenon the prior review already
-  documented for D32's append. Not a content change to tasks 01-10 themselves.
+- `IAggregateMethodDecider`'s current signature was re-read directly
+  (`Deciding/IAggregateMethodDecider.cs`) and matches exactly what task 13 now requires
+  to remain unchanged.
+- `AggregateDecider`/`AggregateDeciderProvider`'s `Singleton` registrations were
+  re-confirmed directly in `ServiceCollectionExtensions.cs` — the captive-dependency risk
+  task 13 now names is real, not a hypothetical concern.
+- `IMessageContextAccessor`'s `Singleton`/`AsyncLocal`-backed registration was
+  re-confirmed directly in `NEvo.Messaging/ServiceCollectionExtensions.cs` — the
+  validated mechanism task 13 names is available today, not proposed speculatively.
+- `RoutesExtensions.ToHttpResult` was re-confirmed `private`, and no
+  `tests/NEvo.Messaging.Web.*` project exists — task 15's corrected criteria are
+  achievable exactly as now worded.
+- `overview.md`'s "Compatibility and migration" section previously listed
+  `IDecider`/`IAggregateMethodDecider`/`AggregateDecideDelegate` among this package's
+  expected breaking changes for task 13 — this stale entry (a direct consequence of the
+  same defect D38 corrects) was found and removed in the same pass, not left
+  contradicting the corrected task.
 
 ## Architecture and documentation
 
-No new architecture-doc/ADR conflict introduced. Tasks 11-12 (both `draft`) are the
-only architecture-documentation deliverables in this change; their own text already
-reflects tasks 13-16.
+No new architecture-doc/ADR conflict introduced. Tasks 11-12 (still `draft`) were
+updated in this pass to cite the corrected decisions (D38-D39) and carry the
+supported-use contract into their own required-documentation sections, so no
+future stale-doc risk is introduced by this correction.

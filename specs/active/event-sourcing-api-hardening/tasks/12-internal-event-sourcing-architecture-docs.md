@@ -16,7 +16,7 @@ depends_on:
   - typed-authorization-failure-and-403-mapping
   - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D13, D17, D20, D21, D22, D23, D24, D25, D26, D29, D30, D34, D35, D36, D37]
+  decisions: [D13, D17, D20, D21, D22, D23, D24, D25, D26, D29, D30, D34, D35, D36, D37, D38, D39]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -69,8 +69,14 @@ their shipped, final shape. Sequenced last alongside task 11.
   the Event Sourced command executor's lifecycle and ordering (task 03), convention
   discovery internals and most-specific-wins resolution (task 03), **decision-method
   parameter injection internals** — the `IDecisionMethodParameterResolver` seam,
-  DI-backed per-invocation resolution, why it stays inside `AggregateDeciderExtractor`/
-  `AggregateDecider` rather than the shared executor (D30, D34, task 13); Primary/Fallback
+  DI-backed per-invocation resolution reading the current invocation's scope (not the
+  root/startup container) via `IMessageContextAccessor`/`IMessageContext.ServiceProvider`
+  or an equivalent mechanism, why it stays inside `AggregateDeciderExtractor`/
+  `AggregateDecider`/`AggregateDeciderProvider` rather than the shared executor (D30,
+  D34, D38, task 13) — **explicitly stating `IAggregateMethodDecider`'s public contract
+  is unchanged by this mechanism** (D38), and the supported-use contract distinguishing
+  contextual facts/pure policies (Level 1) from orchestration/external I/O (Level 2,
+  D39); Primary/Fallback
   registration internals (task 05), the `IEventStreamStore`/`IAggregateRepository`
   boundary (task 02), concurrency flow (`AggregateConcurrencyException` **returned**
   via `Either`, never thrown, D13); the authorization ownership split — normal message/

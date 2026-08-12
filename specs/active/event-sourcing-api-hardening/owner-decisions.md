@@ -1435,3 +1435,191 @@ breaking-change acceptance
 - **Date:** 2026-08-12
 - **Affected artifacts:** overview.md, areas/query-either-ergonomics.md,
   tasks/16-query-either-ergonomics-cleanup.md
+
+## D38: Task 13 preserves `IAggregateMethodDecider`'s/`IDecider`'s public contract exactly — narrows D34
+
+- **Question:** D34's original text treated a shape change to `IDecider`/
+  `IAggregateMethodDecider`/`AggregateDecideDelegate<TAggregate,TId>` as an acceptable,
+  casual consequence of adding decision-method parameter injection, reasoning from
+  `NEvo.Ddd.EventSourcing`'s `experimental` status (the same basis D4/D6/D13/D24/D29/D32
+  already used for other changes in this package). Owner review of the drafted task 13
+  rejected that reasoning specifically for `IAggregateMethodDecider`: is this interface
+  different in kind from the other public surface those decisions changed, and if so,
+  can the mechanism be built without touching it at all?
+- **Options considered:** Keep D34's original framing — allow `IAggregateMethodDecider`'s
+  shape to change if that turns out to be the simplest way to plumb per-invocation
+  parameter-resolution context through | Require the existing public signature
+  (`DecideAsync(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId>
+  command, CancellationToken cancellationToken)`) to stay exactly as it is, and find an
+  internal-only mechanism for parameter resolution, even if that costs more implementation
+  effort than a signature change would | Require the same for `IDecider` but leave
+  `AggregateDecideDelegate`/`AggregateDeciderExtractor.ExtractDeciders`'s shape open,
+  since neither is `IAggregateMethodDecider`/`IDecider` itself.
+- **Decision:** The second and third options together. `IAggregateMethodDecider.
+  DecideAsync`'s signature and `IDecider`'s own contract are unchanged by this task —
+  unlike `AggregateConcurrencyException`'s replacement of a plain `Exception` (D13) or
+  `HandlerRole`'s defaulting (D32), `IAggregateMethodDecider` is the one public capability
+  in this package explicitly called out as already, intentionally stabilized (the same
+  one an explicit Level 2 handler delegates to, D1/D24) — this task does not get to widen
+  it merely because the package is experimental elsewhere. A concrete, evidence-backed
+  internal mechanism exists that avoids the signature change entirely:
+  `IMessageContextAccessor` (`NEvo.Messaging`, already `TryAddSingleton`,
+  `AsyncLocal`-backed) and `IMessageContext.ServiceProvider` let a resolver — itself
+  constructed once, like `AggregateDecider`/`AggregateDeciderProvider` already are
+  (`Singleton`, confirmed in `ServiceCollectionExtensions.cs`) — read the *current*
+  invocation's DI scope at resolve-time instead of a scope captured at construction time,
+  without either object needing a new constructor dependency carrying per-request state.
+  `AggregateDecideDelegate`/`AggregateDeciderExtractor.ExtractDeciders`/
+  `AggregateDeciderProvider`'s own internal shapes remain implementation-flexible — they
+  are wiring between `AggregateDeciderExtractor` and `AggregateDecider`, not the
+  documented, consumer-facing contract D1/D24 stabilized.
+- **Rationale:** Owner: "the existing public capability was intentionally stabilized...
+  parameter injection is an internal concern of the aggregate-method convention... if
+  implementation cannot preserve the existing `IAggregateMethodDecider` public contract
+  cleanly, treat that as an owner decision rather than silently changing the API." The
+  `experimental` label was never meant to license changing *every* type in the package on
+  demand — D13/D24/D29/D32 each changed a type whose shape genuinely needed to change to
+  express a new capability (a dedicated exception, explicit Some/None, an explicit
+  stream-state case, a non-nullable role); this task's own goal (parameter injection) does
+  not inherently require `IAggregateMethodDecider` itself to change, once a viable
+  internal alternative exists — and one does, validated by direct inspection of
+  `IMessageContextAccessor`'s/`AggregateDecider`'s/`AggregateDeciderProvider`'s actual
+  current registrations, not assumed.
+- **Consequences:** Task 13's "Implementation constraints" require `IAggregateMethodDecider`/
+  `IDecider` to be byte-identical after the task (acceptance criterion 1), name the
+  `IMessageContextAccessor`/`IMessageContext.ServiceProvider` approach as one validated,
+  available mechanism (not the only permissible one), and keep the "stop and report as an
+  owner decision if this cannot be done cleanly" escape valve explicit, rather than
+  defaulting to a breaking change. `EventSourcedCommandExecutor` needs no new parameter or
+  dependency to support this mechanism (D30 unaffected).
+- **Date:** 2026-08-12 (post-task-13-draft correction)
+- **Affected artifacts:** overview.md, areas/decision-method-parameter-injection.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md
+
+## D39: Task 13's supported-use contract — contextual facts/pure policies only, not general I/O
+
+- **Question:** D34 established the parameter-injection *mechanism* (DI-backed,
+  per-invocation, internal). It did not state what kinds of dependencies an aggregate
+  decision method should actually declare through it. Left unstated, does the mechanism
+  implicitly invite arbitrary application services (a `DbContext`, an `HttpClient`) into
+  aggregate decision methods, blurring the Level 1/Level 2 boundary D1 already
+  established (Level 1 = pure decision, Level 2 = orchestration/I/O)?
+- **Options considered:** Leave the mechanism's intended scope unstated, let usage
+  precedent define it organically | State an explicit supported-use contract — additional
+  parameters represent already-available contextual facts or synchronous, side-effect-free
+  business policies; orchestration/external I/O stays a Level 2 concern — documented, not
+  mechanically enforced | Mechanically enforce the boundary by inspecting parameter types
+  (an allow-list, a marker interface requirement, or similar runtime check).
+- **Decision:** The second option. Additional decision-method parameters represent
+  already-available contextual facts or synchronous, side-effect-free business
+  policies/capabilities (`ICurrentUser<Guid>`, `IClock`, a precomputed policy object) —
+  not a general dependency-injection escape hatch. Dependencies requiring application
+  orchestration or external I/O (a `DbContext`, an `HttpClient`, a service that calls out)
+  belong to an explicit `IEventSourcedCommandHandler<...>` (Level 2), unless the supplied
+  object is itself precomputed/pure and performs no I/O during the decision. This is
+  stated as an architectural usage contract in task 13's own text and is required content
+  for tasks 11/12's later documentation — it is not mechanically enforced by type
+  inspection or any runtime check.
+- **Rationale:** Owner: "parameter injection is not permission to perform arbitrary I/O
+  from aggregate decision methods... do not attempt to enforce this by inspecting service
+  types. This is an architectural usage contract." Mechanical enforcement would need to
+  distinguish "pure" from "I/O-performing" types reliably, which nothing in .NET's type
+  system expresses generically — attempting it would either be trivially bypassable (any
+  interface can wrap I/O) or reject legitimate pure types by accident. A documented
+  contract, reinforced by usage/developer documentation (tasks 11/12) and code review, is
+  the honest mechanism available, consistent with how this specification already treats
+  several other boundaries as documented constraints rather than new abstractions (D17,
+  D30).
+- **Consequences:** Task 13 gains a "Supported-use contract" section with the good/bad
+  examples above and a acceptance criterion requiring this text to exist; the area file
+  mirrors it. Tasks 11/12 carry the same distinction into user-facing/developer
+  documentation. No runtime validation, allow-list, or marker-interface requirement is
+  implemented anywhere in this change.
+- **Date:** 2026-08-12 (post-task-13-draft correction)
+- **Affected artifacts:** overview.md, areas/decision-method-parameter-injection.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md,
+  tasks/11-user-facing-event-sourcing-guide.md,
+  tasks/12-internal-event-sourcing-architecture-docs.md
+
+## D40: Task 15's acceptance criteria/verification corrected to match its own declared test strategy
+
+- **Question:** Task 15's "Implementation constraints" already committed to a specific
+  strategy — a unit test in the existing `NEvo.Messaging.Authorization.Tests` for the
+  typed-exception behavior, manual Documents-walkthrough verification for HTTP behavior,
+  and explicitly no new `NEvo.Messaging.Web` test project (per the D12/D27 precedent). But
+  the drafted acceptance criteria 2-4 marked the 403/500/200 `ToHttpResult` mapping
+  `(test)` — `ToHttpResult` is a private method inside `NEvo.Messaging.Web`, which has no
+  test project by this same task's own decision, so no automated test could exist to
+  satisfy those criteria as worded. Should the acceptance criteria be corrected to match
+  the declared strategy, or should the strategy change to make the criteria achievable as
+  originally worded?
+- **Options considered:** Change the criteria to `(manual)`, verified through the
+  Documents walkthrough, matching the already-decided strategy | Reopen the "no new Web
+  test project" decision and add one so the criteria can stay `(test)` as originally
+  worded.
+- **Decision:** The first option. Acceptance criteria for the 200/401/403/500 HTTP
+  behavior are `(manual, Documents walkthrough)` — the walkthrough must explicitly verify
+  all four cases (success → 200; unauthenticated → 401 via the existing ASP.NET path;
+  authenticated-but-denied → 403; an ordinary application/framework failure not
+  representing permission denial, e.g. a missing/non-existent document → 500). The
+  existing typed-exception unit test in `NEvo.Messaging.Authorization.Tests` (proving
+  `ValidatePermissionMiddleware` returns an `UnauthorizedAccessException`-derived type,
+  not a plain `Exception`) remains the one automated test for this task. The "no new Web
+  test project" direction is explicitly **not** reopened.
+- **Rationale:** Owner: "do not claim an AC is covered by an automated test when the
+  specification simultaneously forbids/omits the location where that test would live."
+  The already-decided strategy (D12/D27 precedent, reaffirmed by D36) has its own
+  rationale independent of this correction; the fix here is narrowly to make the
+  acceptance criteria honest about where verification actually happens, not to relitigate
+  where it happens.
+- **Consequences:** Task 15's acceptance criteria are renumbered and reworded (see the
+  task file); its "Verification" section states plainly that no automated test exists for
+  the HTTP-mapping behavior, by this task's own declared strategy. `PermissionDeniedException`,
+  the `ToHttpResult` 403 branch, and the zero-new-dependency design (D36) are otherwise
+  unchanged.
+- **Date:** 2026-08-12 (post-task-15-draft correction)
+- **Affected artifacts:** areas/typed-authorization-failures.md,
+  tasks/15-typed-authorization-failure-and-403-mapping.md
+
+## D41: Corrected stale task-10-era narrative in `overview.md` and `areas/documents-example-service.md`
+
+- **Question:** `overview.md`'s "Proposed architecture" step 7 stated Task 10 "wires
+  Level 1 + Level 2 handling" into the Documents example — but D33 (recorded before this
+  correction, dated the same day as task 10's own post-implementation correction) already
+  removed the explicit Level 2 handler (`ApproveDocumentHandler`/
+  `ApproveDocumentDecision`) from that example. Separately, `areas/documents-example-
+  service.md`'s D33-narrowing bullet stated "no current-user/context capability exists
+  for **either** a decision method **or** an explicit handler to resolve it from" — but an
+  explicit Level 2 handler already had a way to reach lower-level Messaging context (e.g.
+  `IMessageContext`/`UserContext<TId>`) even before this refinement; the real, narrower
+  gap was that an aggregate-method convention *decision method* could not. Do these
+  overstatements need correcting, and does the framework's explicit-handler support need
+  restating anywhere they might otherwise read as removed?
+- **Options considered:** Leave both statements as historical color from the task-10
+  correction pass | Correct both to describe the current, intended system precisely: Level
+  2 remains fully supported by the framework (task 04, unaffected); the Documents example
+  specifically doesn't use it for `ApproveDocument`; and an explicit handler's ability to
+  reach lower-level context was never technically absent — using it solely for identity
+  was the indirection D33 removed, not a capability gap in Level 2 itself.
+- **Decision:** The second option. `overview.md` step 7 states Task 10 wires **Level 1**
+  handling into the example, with an explicit sentence that the framework's Level 2
+  capability (task 04) remains fully supported and tested elsewhere — the canonical
+  Documents flow simply doesn't manufacture one for this need, which tasks 13-14 now
+  address directly. `areas/documents-example-service.md`'s D33 bullet is corrected to
+  state the durable distinction precisely: decision methods could not (and, before task
+  13, still cannot) declare contextual dependencies; an explicit handler could already
+  reach lower-level context but doing so solely for identity added unnecessary
+  orchestration once a more direct path exists.
+- **Rationale:** Owner: "the framework still supports explicit Event Sourced handlers;
+  the canonical Documents approval flow simply does not manufacture one solely to obtain
+  contextual identity... make the active specification read as the description of the
+  current intended system, not as a history of earlier implementation iterations." Neither
+  correction changes any decided behavior (D33's actual decision — no explicit handler in
+  the Documents example — is unchanged); both are precision fixes so a reader of the
+  active spec does not conclude Level 2 itself lost a capability.
+- **Consequences:** No task's scope changes. `overview.md` and
+  `areas/documents-example-service.md` read accurately against the current, intended
+  system. Task 10's own file already used the correct framing (spot-checked directly) and
+  needed no change.
+- **Date:** 2026-08-12 (post-review narrative correction)
+- **Affected artifacts:** overview.md, areas/documents-example-service.md

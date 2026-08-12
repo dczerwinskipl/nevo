@@ -38,11 +38,25 @@ command)` (`examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
 generates `ApprovedBy: Guid.NewGuid()` because it has no way to ask the framework for the
 current user — this area's mechanism is what task 14 uses to fix that placeholder.
 
-`NEvo.Ddd.EventSourcing` is documented `status: experimental` and unreleased (D4, D6,
-D13, D24, D29, D32 already changed public surface in this package on that basis) —
-narrowing `WithCommandInputParameter`'s "exactly one parameter" filter, and any resulting
-shape change to `IDecider`/`IAggregateMethodDecider`/`AggregateDecideDelegate`, is treated
-the same way: not yet compatibility-sensitive.
+**Corrected by D38 (post-review).** `NEvo.Ddd.EventSourcing`'s `experimental` status
+already justified other public-surface changes in this package (D4, D6, D13, D24, D29,
+D32), but `IAggregateMethodDecider`/`IDecider` are the one part of that surface owner
+review singled out as intentionally stabilized already — the same capability an explicit
+Level 2 handler delegates to (D1/D24). This area's mechanism does **not** rely on that
+precedent: `IAggregateMethodDecider.DecideAsync`'s signature and `IDecider`'s own
+contract stay exactly as they are. Only `WithCommandInputParameter`'s discovery filter
+(widening from "exactly one parameter" to "one command parameter, then zero or more
+resolved ones") and the fully internal resolution machinery behind it change.
+
+`AggregateDecider` and `AggregateDeciderProvider` are both registered `Singleton`
+(`ServiceCollectionExtensions.cs`) — any internal resolver design must read the
+*current invocation's* DI scope, not a scope captured at singleton-construction time,
+or it silently becomes a captive-dependency bug (a scoped service like task 14's
+`ICurrentUser<TId>` would resolve from the root container instead of the actual
+request). `IMessageContextAccessor` (`NEvo.Messaging`, already `TryAddSingleton`,
+`AsyncLocal`-backed) and `IMessageContext.ServiceProvider` are a validated way to let a
+singleton-held resolver still read the correct current scope at resolve-time — this is
+one validated approach the task may use, not a mandate that it is the only one.
 
 ## Requirements
 
@@ -70,20 +84,40 @@ the same way: not yet compatibility-sensitive.
   ```csharp
   internal interface IDecisionMethodParameterResolver
   {
-      Either<Exception, object> Resolve(ParameterInfo parameter, /* current invocation context as needed */);
+      Either<Exception, object> Resolve(ParameterInfo parameter);
   }
   ```
 
-  Exact member shape (sync vs. the `Either<Exception, object>` above, what "current
-  invocation context" concretely is — e.g. an `IServiceProvider` obtained via
-  `IMessageContext.ServiceProvider`, since the executor already has access to
-  `IMessageContext` per D21/D23, or a scoped `IServiceProvider` provided another way) is
-  an implementation decision for this task, not fixed by this spec — the constraint is
-  the shape of the *contract* (small, internal, one resolution unit at a time), not its
-  wiring details.
+  Exact member shape (this synchronous form, or an equivalent async/context-aware
+  internal shape if actually required) is an implementation decision for this task, not
+  fixed by this spec — the constraint is the shape of the *contract* (small, internal,
+  one resolution unit at a time, reading the current invocation's DI scope — see above),
+  not its exact wiring details. `IMessageContext.ServiceProvider`, reached via
+  `IMessageContextAccessor` (per D21/D23), is a validated way to get a per-invocation
+  scope without changing `IAggregateMethodDecider`'s signature.
 - The default/only implementation for this task is DI-backed (`IServiceProvider`-based
   resolution by parameter type). No plugin/provider chain, no attribute-based resolver
   selection, no public extension point for third-party resolvers.
+- Both decision-method invocation shapes `AggregateDeciderExtractor.CreateDecide` already
+  handles today — the `static` creation path (`methodInfo.IsStatic`, invoked with
+  `target: null`) and the instance path on existing state (invoked with `target:
+  aggregate`) — must resolve additional parameters identically. Neither path is
+  privileged; a fix or test covering only one is incomplete.
+
+## Supported-use contract (D39)
+
+Additional decision-method parameters represent **already-available contextual facts or
+synchronous, side-effect-free business policies/capabilities** — not a general
+dependency-injection escape hatch. Supported: `ICurrentUser<Guid>`, `IClock`, a
+precomputed/pure policy object (`DocumentApprovalPolicy`). Not supported as
+aggregate-method usage — belongs to an explicit `IEventSourcedCommandHandler<...>`
+(Level 2, which already owns orchestration/external I/O, D1): a `DbContext`, an
+`HttpClient`, a service that performs I/O during the call — unless the supplied object
+is itself precomputed/pure and performs no I/O during the decision. This is an
+architectural usage contract, not a mechanically enforced one — no type inspection, no
+allow-list, no runtime "is this I/O" check. It governs what a decision method *should*
+declare (enforced by documentation/review), not what the mechanism *can* resolve (it
+resolves any registered type).
 
 ## Constraints
 
@@ -105,10 +139,17 @@ the same way: not yet compatibility-sensitive.
     specific, actionable message rather than being silently skipped as "not a decider."
 - Do not move decision-method discovery into `EventSourcedCommandExecutor` (the shared
   executor) — it stays inside the aggregate-method convention's own discovery/dispatch
-  path (`AggregateDeciderExtractor`/`AggregateDecider`), preserving D30's
-  executor/convention separation. The executor may still need to make whatever
-  per-invocation context the resolver needs (e.g. `IMessageContext`) reachable to
-  `AggregateDecider`, but it does not itself perform parameter resolution or reflection.
+  path (`AggregateDeciderExtractor`/`AggregateDecider`/`AggregateDeciderProvider`),
+  preserving D30's executor/convention separation. The executor requires **no new
+  parameter or dependency** to support this mechanism — the resolver reaches the current
+  invocation's scope itself (e.g. via the already-existing `IMessageContextAccessor`),
+  not through anything the executor passes down. If no way is found to achieve this
+  without either changing `IAggregateMethodDecider`'s signature or having the executor
+  perform resolution/reflection itself, stop and report it as an owner decision (D38)
+  rather than changing either boundary silently.
+- Do not change `IAggregateMethodDecider`'s or `IDecider`'s public contract for any
+  reason short of an explicit owner decision authorizing it (D38) — none exists for this
+  task.
 - Do not build this mechanism as current-user-specific. It must work for an arbitrary
   service or business-policy type (the spec's own examples: `ICurrentUser<Guid>`,
   `SomeBusinessPolicy`, both together) and must remain usable, without change, by a
@@ -119,38 +160,47 @@ the same way: not yet compatibility-sensitive.
 
 ## Interfaces and boundaries
 
-- Consumes: task 03's executor (whatever minimal per-invocation context, e.g.
-  `IMessageContext`, it can make available to the decider without performing resolution
-  itself) and existing DI registration (`AddEventSourcing`, task 06).
+- Consumes: `IMessageContextAccessor`/`IMessageContext` (`NEvo.Messaging`, already an
+  existing dependency — read directly by the resolver, not plumbed through task 03's
+  executor) and existing DI registration (`AddEventSourcing`, task 06).
 - Produces: the parameter-injection mechanism task 14 (`ICurrentUser<TId>`) and any
-  future contextual-parameter capability build on, without changing the aggregate-method
-  convention's own shape again.
+  future contextual-parameter capability build on, without changing
+  `IAggregateMethodDecider`'s/`IDecider`'s shape again.
 
 ## Area-specific acceptance criteria
 
-1. A decision method declared as `Approve(ApproveDocument command)` (single parameter)
+1. `IAggregateMethodDecider.DecideAsync`'s signature and `IDecider`'s own contract are
+   unchanged by this task (inspection).
+2. A decision method declared as `Approve(ApproveDocument command)` (single parameter)
    is discovered and invoked exactly as before this task (regression, characterization
    test from task 01 baseline still passes).
-2. A decision method declared as `Approve(ApproveDocument command, TDependency
-   dependency)`, where `TDependency` is registered in DI, is discovered and invoked with
-   `dependency` resolved from the current invocation's scope (proven by a test whose
-   registered dependency varies per resolved scope/request, not a singleton constant, so
-   the test cannot pass by accident via discovery-time caching).
-3. A decision method declaring an additional parameter type that is **not** registered
+3. A **static creation** decision method (e.g. `static Create(CreateDocument command,
+   TDependency dependency)`) and an **instance** decision method on existing state (e.g.
+   `Approve(ApproveDocument command, TDependency dependency)`) both resolve `dependency`
+   from the current invocation's scope — each with its own passing test; one instance-
+   method test alone does not cover this criterion.
+4. A resolved dependency varies across separate invocations/scopes using a scoped
+   registration (test) — proving current-invocation-scope resolution, not a value
+   captured once from the root/startup container (distinct from criterion 3's "resolved
+   at all" proof).
+5. A decision method declaring an additional parameter type that is **not** registered
    in DI fails at invocation with a clear, specific error naming the method and the
    unresolvable parameter type — not a generic unhandled exception.
-4. A method whose first parameter is not a command type is not discovered as a decider
+6. A method whose first parameter is not a command type is not discovered as a decider
    (unchanged from today); a method whose command parameter is not first (e.g.
    `Approve(TDependency dependency, ApproveDocument command)`) fails with a specific,
    actionable discovery-time error distinguishing this from "not a decider at all."
-5. `EventSourcedCommandExecutor`'s own class contains no new reflection/parameter-
-   resolution logic — that logic lives only in the aggregate-method convention's own
+7. `EventSourcedCommandExecutor`'s own class contains no new reflection/parameter-
+   resolution logic and no new dependency added only to transport per-invocation
+   context — that logic lives only in the aggregate-method convention's own
    discovery/decide path (inspection, extends D30).
-6. `NEvo.Ddd.EventSourcing.csproj` gains no new `ProjectReference` as part of this task
+8. `NEvo.Ddd.EventSourcing.csproj` gains no new `ProjectReference` as part of this task
    (inspection) — DI-backed resolution requires no compile-time reference to any
    specific capability's defining package.
-7. No aggregate decision method anywhere in the repository (including the Documents
+9. No aggregate decision method anywhere in the repository (including the Documents
    example, once task 14 lands) declares an `IServiceProvider` parameter (inspection).
+10. The supported-use contract (facts/pure policies supported; orchestration/I/O
+    belongs to Level 2) is stated in this task's own text (inspection).
 
 ## Dependencies
 
