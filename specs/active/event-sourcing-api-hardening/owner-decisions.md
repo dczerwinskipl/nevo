@@ -1623,3 +1623,167 @@ breaking-change acceptance
   needed no change.
 - **Date:** 2026-08-12 (post-review narrative correction)
 - **Affected artifacts:** overview.md, areas/documents-example-service.md
+
+## D42: `ICurrentUser<TId>` is required, not optional — declaring it as a decision-method parameter means the decision requires a current user; generalizes task 13's parameter-injection invariant to "every declared parameter is required" — narrows D35 (see also D43, the separate generic-user-type refinement)
+
+- **Question:** D35 shaped `ICurrentUser<TId>` as `Option<User<TId>> User { get; }`,
+  requiring `EditableDocument.Approve` to branch on `Some`/`None` itself (`Match`,
+  returning a `Left` on `None`). Does declaring `ICurrentUser<TId>` as a decision-method
+  parameter mean "give me identity if one happens to be available" (optional, aggregate
+  handles absence) or "this decision requires a current authenticated user" (required,
+  the framework refuses to invoke the decision at all without one)? Separately, task 13's
+  resolver only names one failure mode explicitly ("nothing registered for this type") —
+  does "registered, but no current value is actually available for this invocation" (an
+  activation exception, or `ICurrentUser<TId>` resolving successfully as a *type* but
+  having no user to report) need its own explicit handling, or does it already fall out
+  of the existing contract?
+- **Options considered:** Keep `Option<User<TId>> User` and require each consuming
+  decision method to handle `None` itself, as task 14 originally shipped it | Make
+  `ICurrentUser<TId>.User` non-optional (`User<TId>`); resolving it without an actual
+  current user fails contextual-parameter resolution before the decision method runs,
+  through the same failure path an unregistered dependency already uses — generalized so
+  any exception raised while resolving or activating a contextual parameter (not only
+  "type not registered") is caught and represented as a typed `Left`, never left to
+  escape reflection/DI uncontrolled | Introduce a second, explicitly optional parameter-
+  injection convention alongside the required one, so some decision methods could declare
+  a contextual dependency as genuinely optional.
+- **Decision:** The second option. `ICurrentUser<TId>` becomes (shown here at the
+  generic-user-type shape D43 separately establishes; the required/non-optional change
+  this decision makes applies identically either way):
+
+  ```csharp
+  public interface ICurrentUser<TId, TUser> where TUser : User<TId>
+  {
+      TUser User { get; }
+  }
+  ```
+
+  Declaring `ICurrentUser<TId, TUser>` (or any other type) as a decision-method parameter
+  is itself the assertion "this decision requires this contextual fact/capability" — the
+  framework resolves it successfully, or the decision method is not invoked at all, for
+  any reason resolution can fail: the type is unregistered, activation throws, or (as
+  with `ICurrentUser<TId, TUser>` specifically) the capability resolves as a *type* but has no
+  actual current value to report for this invocation. Task 13's resolver contract is
+  generalized accordingly: it must not only report "not registered" but also catch any
+  exception raised while resolving/activating a parameter (including one a contextual
+  capability's own implementation throws to signal "no current value") and represent it
+  as a typed decision-method-parameter-resolution failure, preserving the original
+  exception as diagnostic context, never letting it escape as an uncontrolled reflection/
+  DI exception. The third option (a second, explicitly optional injection convention) is
+  rejected for this change — no task in this specification needs it, and inventing it now
+  would be exactly the kind of speculative, no-current-consumer abstraction D17/D30/D34
+  already reject elsewhere in this same specification. If a genuinely optional contextual
+  dependency is needed later, it gets its own explicit, typed representation (e.g. a
+  capability whose own declared shape is `Option<T>`) then, not a general optionality
+  convention added to parameter injection now.
+- **Rationale:** Owner: exposing `Option<User<TId>>` to the aggregate leaks
+  identity-absence/authentication-state handling — an infrastructure concern — into
+  domain decision logic, which contradicts D39's own framing of additional parameters as
+  "already-available contextual facts," not something the decision method must itself
+  interrogate for availability. A decision method that genuinely requires identity should
+  receive it or not run — exactly how an unregistered dependency already behaves (D34);
+  `ICurrentUser<TId>` needing its own `None`-handling was really a second, inconsistent
+  failure convention hiding behind a value that happened to type-check. Generalizing "any
+  resolution/activation failure is a clear typed `Left`, decision method not invoked" as
+  task 13's own invariant removes that inconsistency without adding new public surface —
+  it tightens an existing contract rather than building a new one.
+- **Consequences:** `ICurrentUser<TId, TUser>.User` returns `TUser` (non-optional).
+  `CurrentUser<TId, TUser>` (`NEvo.Messaging.Authorization`) fails clearly — via the
+  parameter-resolution failure path, not a null/`None` value — when no current user is
+  available for the invocation; the exact mechanism (an exception the resolver catches
+  and wraps, or an equivalent construction-time check) is an implementation choice, not
+  fixed by this decision. `EditableDocument.Approve` no longer branches on `None`/calls
+  `Match`; `DocumentApproved.ApprovedBy` is set directly from `currentUser.User.Id`.
+  Task 13's `IDecisionMethodParameterResolver`/its concrete resolver wraps any exception
+  raised while resolving or activating a parameter (not only "unregistered") as a
+  decision-method-parameter-resolution failure, naming the parameter and preserving the
+  original exception. This failure has no dedicated HTTP mapping — it is an ordinary
+  application/framework `Left`, mapped to 500 by the existing default (D36 unaffected:
+  only `UnauthorizedAccessException`-derived types map to 403, and a resolution failure
+  is not one — normal authentication/authorization, 401/403, is unaffected and unrelated
+  to this decision). No optional-contextual-parameter convention is introduced. (The
+  `TUser` generic parameter itself — as opposed to the required/non-optional change this
+  decision makes — is D43's own, separate decision.)
+- **Date:** 2026-08-12 (targeted correction pass)
+- **Affected artifacts:** overview.md, areas/current-user-capability.md,
+  areas/decision-method-parameter-injection.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md,
+  tasks/14-current-user-capability-and-documents-integration.md,
+  tasks/11-user-facing-event-sourcing-guide.md,
+  tasks/12-internal-event-sourcing-architecture-docs.md
+
+## D43: `ICurrentUser<TId, TUser>` and the authorization user-context stack are generic over the concrete user type — extends D35, applied consistently to `UserContext`/`UserContextMiddleware`/`IUserProvider`/`ClaimUserProvider`
+
+- **Question:** D35 shaped `ICurrentUser<TId>` (and the existing `UserContext<TId>`,
+  `IUserProvider<TId>`, `ClaimUserProvider<TId>`) around the base `User<TId>` record only.
+  The Documents example's own user has no fields beyond `User<TId>`'s `Id`/`UserName`
+  today, but a consumer with a genuinely richer user shape (e.g. profile fields specific
+  to its own domain) would have no way to carry them through `ICurrentUser`/
+  `UserContext`/the DI-resolved user-provider chain without duplicating the whole
+  pipeline. Should this authorization stack stay fixed to `User<TId>`, or become generic
+  over the concrete user type consistently end to end?
+- **Options considered:** Keep every type in the chain (`UserContext<TId>`,
+  `ICurrentUser<TId>`, `IUserProvider<TId>`, `ClaimUserProvider<TId>`,
+  `UserContextMiddleware<TId, TRoleDataScope>`) fixed to the base `User<TId>` record —
+  simplest, but forces any consumer needing richer user data to bypass this pipeline
+  entirely | Introduce a `TUser : User<TId>` generic parameter consistently across the
+  whole chain — `UserContext<TId, TUser>`, `ICurrentUser<TId, TUser>`,
+  `IUserProvider<TUser, TId>`, `ClaimUserProvider<TUser, TId>` (now abstract — a consumer
+  supplies its own `ToUser(IEnumerable<Claim>)` mapping — with a `DefaultClaimUserProvider<TId>
+  : ClaimUserProvider<User<TId>, TId>` covering the base-`User<TId>` case any existing
+  consumer without a custom user type already relies on), `UserContextMiddleware<TId,
+  TUser, TRoleDataScope>` (consuming `IUserProvider<TUser, TId>` directly, the same
+  pattern already used for `IRoleProvider<TRoleDataScope>`/`IPermissionProvider<TRoleDataScope>`
+  — never a concrete provider type as a constructor parameter, which DI cannot resolve
+  without also registering the concrete type itself) | Add a second, parallel
+  generic-over-`TUser` API surface alongside the existing `User<TId>`-only one.
+- **Decision:** The second option. Every type in the authorization user-context chain
+  becomes consistently generic over `TUser : User<TId>`. The Documents example
+  introduces its own `DemoUser : User<Guid>` (currently identical in shape to
+  `User<Guid>`, establishing the pattern for a future domain-specific field without a
+  second migration) and registers `IUserProvider<DemoUser, Guid>`/
+  `UserContextMiddleware<Guid, DemoUser, DocumentDataScope>`/
+  `ICurrentUser<Guid, DemoUser>` throughout. `ServiceA.Api` (unaffected by this change's
+  own task scope, but a real consumer of the same shared infrastructure) is updated
+  mechanically to keep building: it has no custom user type, so it uses `User<Guid>`
+  itself as `TUser`, via the new `DefaultClaimUserProvider<Guid>`. The third option
+  (a parallel, non-generic surface kept alongside) is rejected — two ways to reach the
+  same capability is exactly the inconsistency this specification's own principles
+  (D17/D30/D34) already argue against elsewhere.
+- **Rationale:** Owner: extended `ICurrentUser`'s own generic-user-type direction to the
+  rest of the chain it adapts, rather than stopping at `ICurrentUser` alone and leaving
+  `UserContext`/`IUserProvider`/`ClaimUserProvider` fixed to the base record underneath
+  it — a mismatch that would otherwise force a future richer-user consumer to bypass
+  `ICurrentUser` and reach the lower-level types directly, defeating the point of the
+  narrow capability D35 established. Making `UserContextMiddleware` consume
+  `IUserProvider<TUser, TId>` (an interface) rather than a concrete `TUserProvider` type
+  parameter is a correctness fix discovered while wiring this through, not a style
+  preference: DI resolves interfaces from `AddClaimsAuthorization`'s own
+  `TryAddScoped<IUserProvider<TUser, TId>, TUserProvider>()` registration; asking the
+  container for the concrete `TUserProvider` type directly (the shape first tried) has
+  nothing registered for it and fails at runtime — the same interface-based pattern
+  `IRoleProvider`/`IPermissionProvider` already use avoids this entirely.
+- **Consequences:** `src/NEvo.Messaging.Authorization/{UserContext,UserContextMiddleware,
+  ICurrentUser,CurrentUser,MessageContextExtensions}.cs`, `src/NEvo.Authorization/Users/
+  IUserProvider.cs`, and `src/NEvo.Web.Authorization/{Users/ClaimUserProvider,
+  ServiceCollectionExtensions}.cs` all gain a `TUser : User<TId>` (or `TUser` alone, where
+  `TId` isn't otherwise a separate parameter) generic parameter. `ClaimUserProvider<TUser,
+  TId>` becomes `abstract` (`ToUser` no longer has a default base-record implementation);
+  `NEvo.Web.Authorization.Users.DefaultClaimUserProvider<TId> : ClaimUserProvider<User<TId>,
+  TId>` is added, reproducing the previous default `sub`/`name`-claim mapping, so an
+  existing consumer needing only the base `User<TId>` shape (`ServiceA.Api`) keeps working
+  with one additional generic argument at each call site, not a rewritten provider.
+  `examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Authorization/DemoAuthentication.cs`
+  introduces `DemoUser`. This is a public-surface change to already-`status: current`
+  (non-experimental) `NEvo.Messaging.Authorization`/`NEvo.Authorization`/
+  `NEvo.Web.Authorization` types, unlike `NEvo.Ddd.EventSourcing`'s `experimental` status
+  covering D34's changes — treated as acceptable here because every one of these types
+  is either new in this same specification (D35) or, for the pre-existing `IUserProvider<TId>`/
+  `ClaimUserProvider<TId>`/`UserContextMiddleware<TId, TRoleDataScope>`, has exactly one
+  known consumer in this repository (`ServiceA.Api`), fixed in the same pass, with no
+  external consumer to break.
+- **Date:** 2026-08-12 (targeted correction pass)
+- **Affected artifacts:** areas/current-user-capability.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md,
+  tasks/14-current-user-capability-and-documents-integration.md,
+  tasks/11-user-facing-event-sourcing-guide.md, overview.md

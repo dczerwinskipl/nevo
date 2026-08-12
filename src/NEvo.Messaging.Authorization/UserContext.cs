@@ -7,9 +7,9 @@ using NEvo.Authorization.Users;
 
 namespace NEvo.Messaging.Authorization;
 
-public class UserContext<TId>
+public class UserContext<TId, TUser> where TUser : User<TId>
 {
-    public Option<User<TId>> User { get; set; }
+    public Option<TUser> User { get; set; }
 
     public IEnumerable<IRole> UserRoles { get; set; } = [];
 

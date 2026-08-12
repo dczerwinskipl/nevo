@@ -16,6 +16,8 @@ public class AggregateDeciderParameterInjectionTests
     {
         var services = new ServiceCollection();
         services.AddScoped<IParameterInjectionDependency, ParameterInjectionDependency>();
+        services.AddScoped<IActivationThrowingDependency>(_ => throw new InvalidOperationException("Activation always fails for this test dependency."));
+        services.AddScoped<ILazyThrowingDependency, LazyThrowingDependency>();
         var rootProvider = services.BuildServiceProvider();
 
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { aggregateType } };
@@ -131,10 +133,56 @@ public class AggregateDeciderParameterInjectionTests
             CancellationToken.None);
 
         result.Should().BeLeft().Which
-            .Should().BeOfType<InvalidOperationException>().Which
+            .Should().BeOfType<DecisionMethodParameterResolutionException>().Which
             .Message.Should()
             .Contain(nameof(ParameterInjectingAggregate.MutateWithUnresolvedDependency))
             .And.Contain(nameof(IUnregisteredParameterInjectionDependency));
+    }
+
+    // Proves DI activation failures (the registered type's own construction throwing) are
+    // caught and represented the same way an unregistered type is — not an uncontrolled
+    // exception escaping DI/reflection — with the original exception preserved.
+    [Fact]
+    public async Task DecideAsync_DependencyActivationThrows_FailsWithSpecificErrorPreservingTheOriginalException()
+    {
+        var (decider, rootProvider, accessor) = CreateDecider(typeof(ParameterInjectingAggregate));
+        using var scope = rootProvider.CreateScope();
+        EnterScope(accessor, scope.ServiceProvider);
+        var id = Guid.NewGuid();
+
+        var result = await decider.DecideAsync<ParameterInjectingAggregate, Guid>(
+            Option<ParameterInjectingAggregate>.Some(new ParameterInjectingAggregate(id)),
+            new MutateParameterInjectingAggregateWithActivationThrowingDependency(id),
+            CancellationToken.None);
+
+        var error = result.Should().BeLeft().Which.Should().BeOfType<DecisionMethodParameterResolutionException>().Which;
+        error.Message.Should()
+            .Contain(nameof(ParameterInjectingAggregate.MutateWithActivationThrowingDependency))
+            .And.Contain(nameof(IActivationThrowingDependency));
+        error.InnerException.Should().NotBeNull();
+    }
+
+    // A parameter can resolve successfully as a *type* (DI construction succeeds) but
+    // still have no current value once the decision method actually reads it — the
+    // general mechanism a required contextual capability (e.g. a current-user capability)
+    // relies on. Reflection wraps the resulting exception; this proves it surfaces as a
+    // Left, not an uncontrolled exception, and — because the method's only statement is
+    // the throwing read — no event is ever produced.
+    [Fact]
+    public async Task DecideAsync_DependencyValueThrowsWhenRead_FailsWithoutProducingAnEvent()
+    {
+        var (decider, rootProvider, accessor) = CreateDecider(typeof(ParameterInjectingAggregate));
+        using var scope = rootProvider.CreateScope();
+        EnterScope(accessor, scope.ServiceProvider);
+        var id = Guid.NewGuid();
+
+        var result = await decider.DecideAsync<ParameterInjectingAggregate, Guid>(
+            Option<ParameterInjectingAggregate>.Some(new ParameterInjectingAggregate(id)),
+            new MutateParameterInjectingAggregateWithLazyThrowingDependency(id),
+            CancellationToken.None);
+
+        result.Should().BeLeft().Which.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("No current value available for this invocation.");
     }
 
     [Fact]

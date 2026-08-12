@@ -64,6 +64,16 @@ one validated approach the task may use, not a mandate that it is the only one.
   convention) or `(TCommand command, TParam1 p1, ...)` — the command is always the first
   parameter; every parameter after it is resolved by the framework, not supplied by the
   caller.
+- **Every declared non-command parameter is required (D42).** Declaring a parameter is
+  itself the assertion "this decision requires this contextual fact/capability" — the
+  framework resolves every declared parameter successfully, or the decision method is
+  not invoked at all. This holds regardless of *why* resolution fails: the type is
+  unregistered, activation throws, or a resolved capability's own implementation reports
+  "no current value" for this invocation (e.g. `ICurrentUser<TId>`, area
+  `current-user-capability`, when no user is available). No optional-parameter
+  convention exists — a required dependency that cannot be produced always fails the
+  invocation before the decision method runs; it is never translated into `null`,
+  `default`, or an `Option.None` passed to the method.
 - Parameter resolution is **per-invocation**, not resolved once at discovery/startup time
   — a parameter such as the current user must reflect the invocation that is actually
   running, not whatever was in scope when the aggregate type was first reflected over
@@ -129,9 +139,14 @@ resolves any registered type).
   with only `(TCommand command)` compiles, discovers, and executes identically to today,
   with no new required registration or attribute.
 - Discovery/invocation fails clearly, not silently, when:
-  - a required additional parameter cannot be resolved (e.g. nothing registered for its
-    type) — surfaced as a discovery-time or decide-time error naming the method and the
-    unresolvable parameter type, not a generic DI exception bubbling up unexplained;
+  - a required additional parameter cannot be resolved — whether nothing is registered
+    for its type, an exception is raised while resolving/activating it (including one a
+    contextual capability's own implementation throws to signal "no current value
+    available," per D42), or any other resolution failure — surfaced as a discovery-time
+    or decide-time error naming the method and the unresolvable parameter type, with the
+    original exception preserved as diagnostic context, never a generic DI exception
+    bubbling up unexplained and never silently converted into `null`/`default`/
+    `Option.None`;
   - a decision method's parameter shape is ambiguous or unsupported (e.g. the first
     parameter is not a command type at all) — the existing "not discovered as a decider"
     behavior for a completely unrecognized shape is preserved; a shape that looks
@@ -157,6 +172,14 @@ resolves any registered type).
   introduce.
 - No public resolver/plugin hierarchy, no `IServiceProvider` exposed to aggregate code,
   no generic "context bag" parameter type.
+- No optional-contextual-parameter semantics (D42) — every declared parameter is
+  required, with no per-parameter opt-in/opt-out convention. A genuinely optional
+  contextual capability, if ever needed, gets its own explicit, typed representation in a
+  future change (e.g. a capability whose own declared shape is `Option<T>`), not a
+  weakening of this mechanism's default semantics.
+- An unresolvable required contextual dependency has no dedicated HTTP status mapping —
+  it is an ordinary application/framework failure, following whatever generic mapping
+  already applies to an unexpected `Left` (D42) — never conflated with permission denial.
 
 ## Interfaces and boundaries
 
@@ -185,7 +208,10 @@ resolves any registered type).
    at all" proof).
 5. A decision method declaring an additional parameter type that is **not** registered
    in DI fails at invocation with a clear, specific error naming the method and the
-   unresolvable parameter type — not a generic unhandled exception.
+   unresolvable parameter type — not a generic unhandled exception. A contextual
+   dependency that *is* registered but throws while being resolved/activated fails the
+   same way — the original exception is preserved as diagnostic context, never escaping
+   as an uncontrolled reflection/DI exception (test, D42).
 6. A method whose first parameter is not a command type is not discovered as a decider
    (unchanged from today); a method whose command parameter is not first (e.g.
    `Approve(TDependency dependency, ApproveDocument command)`) fails with a specific,
@@ -215,3 +241,7 @@ resolves any registered type).
   decision-method (decider) discovery only.
 - Any change to most-specific-wins state-method resolution (D2) — parameter injection is
   a per-candidate concern, orthogonal to which candidate is selected.
+- An optional-contextual-parameter convention, a generic processing-context/correlation
+  parameter resolver, or a "dedicated resolver if registered, otherwise DI-backed"
+  extension seam (D42) — the internal seam may remain structured so a future change could
+  add one without redesigning this mechanism, but none of that is built now.

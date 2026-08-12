@@ -1,5 +1,6 @@
 using LanguageExt;
 using NEvo.Ddd.EventSourcing;
+using NEvo.ExampleApp.Documents.Api.Authorization;
 using NEvo.Messaging.Authorization;
 
 namespace NEvo.ExampleApp.Documents.Api.Domain;
@@ -39,14 +40,13 @@ public sealed class EditableDocument(Guid id, string data) : Document(id, data)
     /// <summary>Approves an editable document by emitting a <see cref="DocumentApproved"/> event.</summary>
     /// <remarks>
     /// <see cref="DocumentApproved.ApprovedBy"/> is the resolved <see
-    /// cref="ICurrentUser{TId}"/>'s id — resolved per-invocation through the
-    /// aggregate-method convention's parameter injection. Returns a <c>Left</c> when no
-    /// current user is resolved, rather than fabricating an identity.
+    /// cref="ICurrentUser{TId, TUser}"/>'s id — resolved per-invocation through the
+    /// aggregate-method convention's parameter injection. Declaring
+    /// <see cref="ICurrentUser{TId, TUser}"/> here means this decision requires a current
+    /// user: the framework resolves one or does not invoke this method at all.
     /// </remarks>
-    public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)
-        => currentUser.User.Match<Either<Exception, IEnumerable<DocumentDomainEvent>>>(
-            Some: user => new[] { new DocumentApproved(Id, ApprovedBy: user.Id) },
-            None: () => new InvalidOperationException("ApproveDocument requires a resolved current user."));
+    public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command, ICurrentUser<Guid, DemoUser> currentUser)
+        => new[] { new DocumentApproved(Id, ApprovedBy: currentUser.User.Id) };
 
     /// <summary>Applies <see cref="DocumentChanged"/>, returning the updated state.</summary>
     public EditableDocument Apply(DocumentChanged @event)

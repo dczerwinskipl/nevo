@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NEvo.Authorization;
 using NEvo.Authorization.Permissions;
+using NEvo.Authorization.Users;
 using NEvo.Ddd.EventSourcing.Handling;
 using NEvo.Messaging;
 using NEvo.Messaging.Authorization;
@@ -54,8 +55,8 @@ public class ExplicitHandlerPermissionCompositionTests
     private static IMessageContext BuildContext(params IPermission[] permissions)
     {
         var contextMock = new Mock<IMessageContext>();
-        contextMock.Setup(c => c.GetFeature<UserContext<Guid>>())
-            .Returns(new UserContext<Guid> { UserPermissions = permissions });
+        contextMock.Setup(c => c.GetFeature<UserContext<Guid, User<Guid>>>())
+            .Returns(new UserContext<Guid, User<Guid>> { UserPermissions = permissions });
         return contextMock.Object;
     }
 
@@ -80,7 +81,7 @@ public class ExplicitHandlerPermissionCompositionTests
         var provider = BuildProvider();
         var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
         var handler = registry.GetMessageHandler(typeof(SecuredCommand)).Should().BeRight().Which;
-        var middleware = new ValidatePermissionMiddleware<Guid>(provider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(provider);
         var context = BuildContext(
             new Permission<CommandPermissionScope>("command.permission", new CommandPermissionScope()),
             new Permission<HandlerPermissionScope>("handler.permission", new HandlerPermissionScope())
@@ -97,7 +98,7 @@ public class ExplicitHandlerPermissionCompositionTests
         var provider = BuildProvider();
         var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
         var handler = registry.GetMessageHandler(typeof(SecuredCommand)).Should().BeRight().Which;
-        var middleware = new ValidatePermissionMiddleware<Guid>(provider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(provider);
         var context = BuildContext(new Permission<CommandPermissionScope>("command.permission", new CommandPermissionScope()));
 
         var result = await middleware.ExecuteAsync(handler, new SecuredCommand(Guid.NewGuid()), context, Next(), CancellationToken.None);
@@ -111,7 +112,7 @@ public class ExplicitHandlerPermissionCompositionTests
         var provider = BuildProvider();
         var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
         var handler = registry.GetMessageHandler(typeof(SecuredCommand)).Should().BeRight().Which;
-        var middleware = new ValidatePermissionMiddleware<Guid>(provider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(provider);
         var context = BuildContext(new Permission<HandlerPermissionScope>("handler.permission", new HandlerPermissionScope()));
 
         var result = await middleware.ExecuteAsync(handler, new SecuredCommand(Guid.NewGuid()), context, Next(), CancellationToken.None);
@@ -125,7 +126,7 @@ public class ExplicitHandlerPermissionCompositionTests
         var provider = BuildProvider();
         var registry = provider.GetRequiredService<IMessageHandlerRegistry>();
         var handler = registry.GetMessageHandler(typeof(SecuredCommand)).Should().BeRight().Which;
-        var middleware = new ValidatePermissionMiddleware<Guid>(provider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(provider);
         var context = BuildContext();
 
         var result = await middleware.ExecuteAsync(handler, new SecuredCommand(Guid.NewGuid()), context, Next(), CancellationToken.None);

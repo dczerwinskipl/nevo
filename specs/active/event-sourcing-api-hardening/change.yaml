@@ -491,10 +491,11 @@ tasks:
       - es-command-executor-and-ambiguity-resolution
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
-      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      review_revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Deciding/DecisionMethodParameterResolutionException.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/DecisionMethodParameterResolver.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/IDecisionMethodParameterResolver.cs
         - src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs
@@ -504,13 +505,14 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/DeciderCommandHandlerBaselineTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderParameterInjectionTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/ParameterInjectingAggregate.cs
-      worktree_patch_fingerprint: 17cb8955f639b2b10cc85124ae9d81d16e6fe4b4cd94f20979d7c857b1a72ab1
+      worktree_patch_fingerprint: 8a6b935e5aeaefe2d91d7ad3d4bcdc4d32a5c1c1eb2242ba537ba9314fddef70
     self_check:
-      fingerprint: 3ed02d1586b07566de970b4417fd90c25815093b1bf8c40163084c33efd483d9
-      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      fingerprint: 8deaf89fd31b5174b81ddcc8201ce29c2d20871a905ec375c87c18f43a56c373
+      revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       commands:
         - command: dotnet build
           exit_code: 0
@@ -527,23 +529,28 @@ tasks:
       - message-level-and-aggregate-authorization
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
-      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      review_revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       changed_paths:
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Authorization/DemoAuthentication.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
         - src/NEvo.Messaging.Authorization/CurrentUser.cs
+        - src/NEvo.Messaging.Authorization/CurrentUserUnavailableException.cs
         - src/NEvo.Messaging.Authorization/ICurrentUser.cs
+        - src/NEvo.Messaging.Authorization/MessageContextExtensions.cs
         - src/NEvo.Messaging.Authorization/PermissionDeniedException.cs
         - src/NEvo.Messaging.Authorization/ServiceCollectionExtensions.cs
+        - src/NEvo.Messaging.Authorization/UserContext.cs
+        - src/NEvo.Messaging.Authorization/UserContextMiddleware.cs
         - src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs
         - tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs
         - tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs
-      worktree_patch_fingerprint: a3eac811503fd3598ba976730a7e26aade40d7b0e1be310d6123133cc2e02118
+      worktree_patch_fingerprint: e1d85d5c34f79a03d07e49860eedf94d5a15908132c667265cbe474f25b5edc8
     self_check:
-      fingerprint: ee331d1f084e4a9cee757eb065522c0dbb6a41ca90a5c3117263314004ab714c
-      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      fingerprint: 9b9a115c1558dd8166f4280b3c748dd93064a412e1bc2e2484a06e9676cd57a0
+      revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       commands:
         - command: dotnet build
           exit_code: 0
@@ -559,24 +566,29 @@ tasks:
       - map-query-endpoint-and-get-binding
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
-      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      review_revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       changed_paths:
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Authorization/DemoAuthentication.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
         - src/NEvo.Messaging.Authorization/CurrentUser.cs
+        - src/NEvo.Messaging.Authorization/CurrentUserUnavailableException.cs
         - src/NEvo.Messaging.Authorization/ICurrentUser.cs
+        - src/NEvo.Messaging.Authorization/MessageContextExtensions.cs
         - src/NEvo.Messaging.Authorization/PermissionDeniedException.cs
         - src/NEvo.Messaging.Authorization/ServiceCollectionExtensions.cs
+        - src/NEvo.Messaging.Authorization/UserContext.cs
+        - src/NEvo.Messaging.Authorization/UserContextMiddleware.cs
         - src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs
         - src/NEvo.Messaging.Web/RoutesExtensions.cs
         - tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs
         - tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs
-      worktree_patch_fingerprint: a3eac811503fd3598ba976730a7e26aade40d7b0e1be310d6123133cc2e02118
+      worktree_patch_fingerprint: e1d85d5c34f79a03d07e49860eedf94d5a15908132c667265cbe474f25b5edc8
     self_check:
       fingerprint: 8f2029e82e250fc0a496fefe7a21a58ba11a4540aec59165d4030e44dde75f46
-      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
       commands:
         - command: dotnet build
           exit_code: 0

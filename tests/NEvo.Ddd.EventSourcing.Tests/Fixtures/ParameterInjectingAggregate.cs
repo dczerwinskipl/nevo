@@ -23,6 +23,28 @@ public interface IUnregisteredParameterInjectionDependency
 {
 }
 
+// Registered via a factory that always throws — proves an exception raised while
+// resolving/activating a parameter (not merely "unregistered") is caught and
+// represented as the same typed resolution failure, never escaping uncontrolled.
+public interface IActivationThrowingDependency
+{
+}
+
+// Registered normally (construction succeeds), but its own value getter always throws —
+// the generic stand-in for any contextual capability (e.g. a required current-user
+// capability) that resolves as a type but has no current value for this invocation. The
+// framework has no compile-time knowledge of this shape; the throw only surfaces once
+// the decision method itself reads the property.
+public interface ILazyThrowingDependency
+{
+    Guid Value { get; }
+}
+
+public class LazyThrowingDependency : ILazyThrowingDependency
+{
+    public Guid Value => throw new InvalidOperationException("No current value available for this invocation.");
+}
+
 public class ParameterInjectingAggregate(Guid id) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
@@ -40,6 +62,12 @@ public class ParameterInjectingAggregate(Guid id) : IAggregateRoot<Guid>
     public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithUnresolvedDependency(MutateParameterInjectingAggregateWithUnresolvedDependency command, IUnregisteredParameterInjectionDependency dependency)
         => new[] { new ParameterInjectingAggregateMutated(Id, Guid.Empty) };
 
+    public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithActivationThrowingDependency(MutateParameterInjectingAggregateWithActivationThrowingDependency command, IActivationThrowingDependency dependency)
+        => new[] { new ParameterInjectingAggregateMutated(Id, Guid.Empty) };
+
+    public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithLazyThrowingDependency(MutateParameterInjectingAggregateWithLazyThrowingDependency command, ILazyThrowingDependency dependency)
+        => new[] { new ParameterInjectingAggregateMutated(Id, dependency.Value) };
+
     public ParameterInjectingAggregate Apply(ParameterInjectingAggregateMutated @event)
     {
         ResolvedDependencyValue = @event.ResolvedDependencyValue;
@@ -55,6 +83,8 @@ public record ParameterInjectingAggregateCommand(Guid ParameterInjectingAggregat
 public record CreateParameterInjectingAggregate(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 public record MutateParameterInjectingAggregate(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 public record MutateParameterInjectingAggregateWithUnresolvedDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
+public record MutateParameterInjectingAggregateWithActivationThrowingDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
+public record MutateParameterInjectingAggregateWithLazyThrowingDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 
 public abstract record ParameterInjectingAggregateDomainEvent(Guid ParameterInjectingAggregateId) : Event, IAggregateEvent<ParameterInjectingAggregate, Guid>
 {

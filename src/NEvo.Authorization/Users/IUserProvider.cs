@@ -1,6 +1,6 @@
 namespace NEvo.Authorization.Users;
 
-public interface IUserProvider<TId>
+public interface IUserProvider<TUser, TId> where TUser : User<TId>
 {
-    public Option<User<TId>> GetUser();
+    public Option<TUser> GetUser();
 }

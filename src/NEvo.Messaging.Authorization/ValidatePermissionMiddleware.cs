@@ -1,5 +1,6 @@
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
+using NEvo.Authorization.Users;
 using NEvo.Core;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
@@ -7,7 +8,7 @@ using NEvo.Messaging.Handling.Middleware;
 
 namespace NEvo.Messaging.Authorization;
 
-public class ValidatePermissionMiddleware<TId>(IServiceProvider serviceProvider) : IMessageProcessingHandlerMiddleware
+public class ValidatePermissionMiddleware<TId, TUser>(IServiceProvider serviceProvider) : IMessageProcessingHandlerMiddleware where TUser : User<TId>
 {
     // TODO: avoid using IServiceProvider?
     private readonly IServiceProvider _serviceProvider = Check.Null(serviceProvider);
@@ -58,7 +59,7 @@ public class ValidatePermissionMiddleware<TId>(IServiceProvider serviceProvider)
     private bool IsValid(IMessage message, IMessageContext context, AllowPermissionAttribute allowPermissionAttribute)
     {
         var validator = (IDataScopeMessageValidator)ActivatorUtilities.CreateInstance(_serviceProvider, allowPermissionAttribute.ValidatorType);
-        foreach (var userPermission in context.GetUserContext<TId>().UserPermissions)
+        foreach (var userPermission in context.GetUserContext<TId, TUser>().UserPermissions)
         {
             if (validator.Validate(userPermission, message))
             {

@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - es-command-executor-and-ambiguity-resolution
 semantic_references:
-  decisions: [D1, D21, D23, D24, D26, D30, D34, D38, D39]
+  decisions: [D1, D21, D23, D24, D26, D30, D34, D38, D39, D42]
   dependency_contracts:
     - es-command-executor-and-ambiguity-resolution
 context:
@@ -38,7 +38,7 @@ forbidden_paths:
 
 Extend the aggregate-method convention's decision-method discovery so a decision method
 may declare additional, framework-resolved parameters after the command — e.g.
-`Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)` or
+`Approve(ApproveDocument command, ICurrentUser<Guid, DemoUser> currentUser)` or
 `Approve(ApproveDocument command, SomeBusinessPolicy policy)` — while the existing
 single-command-parameter convention (`Approve(ApproveDocument command)`) keeps working
 unchanged. This is the general mechanism task 14 uses for current-user access; it is not
@@ -115,13 +115,18 @@ convention's own discovery/dispatch implementation.
   by the chosen wiring — the interface's exact member signature is an implementation
   choice; its role — one small, internal, per-parameter resolution seam, never a
   scattered `GetRequiredService` call inline in `AggregateDecider`/
-  `AggregateDeciderExtractor` — is not.)
+  `AggregateDeciderExtractor` — is not.) A focused internal exception type (e.g.
+  `DecisionMethodParameterResolutionException`, naming the declaring method, the
+  parameter, and preserving any underlying activation exception) is the recommended
+  shape for the `Exception` this returns, so callers/tests can distinguish this failure
+  from an arbitrary application exception without string-matching a message — exact type
+  name/constructor shape is an implementation choice, not fixed by this spec.
 - **The resolver must read the current invocation's DI scope, never the root/startup
   provider.** `AggregateDecider` (and `AggregateDeciderProvider`, which performs
   discovery once at startup) are registered `Singleton`
   (`ServiceCollectionExtensions.cs`) — a resolver that captures or is constructed from
   an `IServiceProvider` injected directly into either of those singletons would resolve
-  scoped dependencies (e.g. task 14's `ICurrentUser<TId>`) from the *root* container, a
+  scoped dependencies (e.g. task 14's `ICurrentUser<TId, TUser>`) from the *root* container, a
   captive-dependency bug, not the actual current request/message scope. A validated,
   available way to avoid this: `IMessageContextAccessor` (`NEvo.Messaging`, already
   `TryAddSingleton`, `AsyncLocal`-backed) and `IMessageContext.ServiceProvider`
@@ -148,13 +153,23 @@ convention's own discovery/dispatch implementation.
   of it into `EventSourcedCommandExecutor` (preserves D30).
 - `NEvo.Ddd.EventSourcing` gains no new project reference as part of this task — DI-based
   resolution by `Type` needs no compile-time reference to any specific capability's
-  defining package (this is what keeps task 14's `ICurrentUser<TId>`, added in
+  defining package (this is what keeps task 14's `ICurrentUser<TId, TUser>`, added in
   `NEvo.Messaging.Authorization`, usable here without violating D26's package-boundary
   reasoning). `IMessageContextAccessor`/`IMessageContext` are already referenced
   (`NEvo.Messaging`, an existing dependency) — using them is not a new dependency.
 - Fail clearly and specifically:
-  - a required additional parameter that cannot be resolved (nothing registered for its
-    type) → an error naming the declaring method and the unresolvable parameter type;
+  - a required additional parameter that cannot be resolved — nothing registered for its
+    type, **or** an exception is raised while resolving/activating it (including one a
+    contextual capability's own implementation throws to report "no current value," per
+    D42 — e.g. task 14's `ICurrentUser<TId, TUser>` with no current user) → a decision-method-
+    parameter-resolution error naming the declaring method and the parameter type,
+    preserving the original exception as diagnostic context where one exists. The
+    resolver's `Resolve` implementation catches any exception raised during resolution/
+    activation and represents it as this same typed `Left` — it must never escape as an
+    uncontrolled reflection/DI exception, and a required dependency that cannot be
+    produced is never converted into `null`/`default`/`Option.None` passed to the
+    decision method (D42 generalizes this task's original "nothing registered" case to
+    "resolution/activation failed for any reason");
   - an unsupported/ambiguous decision-method shape → a specific discovery-time error, not
     a silent "not discovered" or an unrelated runtime crash.
 
@@ -167,7 +182,7 @@ dependency-injection escape hatch into arbitrary application services.
 Supported (contextual fact or pure/precomputed policy):
 
 ```csharp
-Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)
+Approve(ApproveDocument command, ICurrentUser<Guid, DemoUser> currentUser)
 Approve(ApproveDocument command, IClock clock)
 Approve(ApproveDocument command, DocumentApprovalPolicy policy)
 ```
@@ -214,7 +229,11 @@ documentation.
    instance-method test alone does not satisfy this criterion; both the static/creation
    and instance/existing-state paths must each have their own passing test.
 5. A decision method declaring an unregistered additional parameter type fails at
-   invocation with a specific error naming the method and the parameter type (test).
+   invocation with a specific error naming the method and the parameter type (test). A
+   decision method declaring a *registered* additional parameter type whose activation
+   throws also fails at invocation, through the same error path, with the original
+   exception preserved as diagnostic context — not an uncontrolled reflection/DI
+   exception escaping the call (test, D42).
 6. A method whose command parameter is not first fails at discovery time with a specific,
    actionable error (test) — distinct from a method that is legitimately not a decider at
    all (unchanged: no error, simply not discovered).
@@ -262,3 +281,5 @@ this task.
   any runtime "is this I/O" check) — it is a documented usage contract, not code.
 - Changing `IAggregateMethodDecider`'s or `IDecider`'s public contract for any reason
   other than an owner decision explicitly authorizing it (none exists for this task).
+- An optional-contextual-parameter convention (D42) — every declared parameter is
+  required; no per-parameter opt-in/opt-out shape is introduced.

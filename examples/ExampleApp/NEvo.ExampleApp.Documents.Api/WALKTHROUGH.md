@@ -25,8 +25,8 @@ commands below use `http://localhost:5299` — substitute your own port.
 Every Document command is handled through the aggregate-method convention — no explicit
 Event Sourced handler is demonstrated in this example. `EditableDocument.Approve`
 receives the current user's identity as a framework-resolved additional parameter
-(`ICurrentUser<Guid>`, aggregate-method convention parameter injection) rather than
-through an explicit handler — see "About the resolved `approvedBy`" below.
+(`ICurrentUser<Guid, DemoUser>`, aggregate-method convention parameter injection) rather
+than through an explicit handler — see "About the resolved `approvedBy`" below.
 
 Aggregate-aware authorization (`IAggregateAuthorization<TCommand, TAggregate>`, e.g.
 "only the creator may approve") is **not** demonstrated here: this domain has no
@@ -147,12 +147,13 @@ should use a real authentication scheme.
 
 ### About the resolved `approvedBy`
 
-`EditableDocument.Approve(ApproveDocument command, ICurrentUser<Guid> currentUser)`
+`EditableDocument.Approve(ApproveDocument command, ICurrentUser<Guid, DemoUser> currentUser)`
 resolves `currentUser` per-invocation through the aggregate-method convention's
-parameter-injection mechanism; `ApprovedBy` is set from `currentUser.User`'s id — the
-same id `DemoUserProvider` resolved from the request's `X-Demo-User-Id` header (see
-`Document.cs`). If no current user is resolved, `Approve` returns a `Left` instead of
-fabricating an identity.
+parameter-injection mechanism; `ApprovedBy` is set from `currentUser.User.Id` — the same
+id `DemoUserProvider` resolved from the request's `X-Demo-User-Id` header (see
+`Document.cs`). Declaring `ICurrentUser<Guid, DemoUser>` means the decision requires a
+current user: if none is available, the framework never invokes `Approve` at all, rather
+than the aggregate fabricating an identity or handling the absence itself.
 
 ## Optimistic concurrency
 

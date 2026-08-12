@@ -38,3 +38,15 @@ permission → 403 (`PermissionDeniedException`), authenticated with permission 
 querying a non-existent document → 500 — all four cases unchanged. Self-check re-run
 and passed. Acceptance-criteria coverage and scope compliance unchanged from the
 original review.
+
+---
+
+Re-review (2026-08-12, design correction pass — D42/D43, mechanical follow-through
+only). Baseline: this file's prior content (`pass`, no findings). `ValidatePermissionMiddleware<TId>`
+became `ValidatePermissionMiddleware<TId, TUser>` as part of D43's generic-user-type
+change (`current-user-capability-and-documents-integration`'s own re-review has the full
+design rationale) — this task's own `PermissionDeniedException`/403-mapping logic is
+untouched; only the middleware's generic arity and its test call sites
+(`ValidatePermissionMiddlewareTests.cs`) changed mechanically to match. `dotnet build`
+and `dotnet test tests/NEvo.Messaging.Authorization.Tests` re-run clean (13/13). Self-
+check re-run and passed. Acceptance-criteria coverage and scope compliance unchanged.

@@ -16,7 +16,7 @@ depends_on:
   - typed-authorization-failure-and-403-mapping
   - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D13, D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31, D33, D34, D35, D36, D37, D38, D39]
+  decisions: [D13, D17, D18, D20, D21, D22, D23, D24, D25, D28, D29, D31, D33, D34, D35, D36, D37, D38, D39, D42, D43]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -130,17 +130,21 @@ shipped, final shape. Sequenced last alongside task 12.
    streams belongs to Level 3 or a future saga/process-manager capability (D31) — frame
    Level 3 as "the right tool for anything that doesn't fit," never as an inferior or
    legacy option. Also cover **decision-method parameter injection** (task 13, D34,
-   D38, D39): a Level 1 decision method — both a `static` creation method and an
+   D38, D39, D42): a Level 1 decision method — both a `static` creation method and an
    instance method on existing state — may declare additional, framework-resolved
-   parameters after the command (e.g. `ICurrentUser<Guid>`, or a business-policy type),
+   parameters after the command (e.g. `ICurrentUser<Guid, TUser>`, or a business-policy type),
    resolved from the current invocation's scope, not a general service-locator (no
    `IServiceProvider` parameter is ever supported); the single-command-parameter form
-   keeps working unchanged. State the **supported-use contract** plainly (D39):
-   additional parameters represent already-available contextual facts or synchronous,
-   side-effect-free business policies (`ICurrentUser<Guid>`, `IClock`, a precomputed
-   policy object) — orchestration or external I/O (a `DbContext`, an `HttpClient`, a
-   service that calls out) belongs to an explicit `IEventSourcedCommandHandler<...>`
-   (Level 2) instead, which remains fully supported for exactly that purpose (D33).
+   keeps working unchanged. State plainly that **every declared parameter is required**
+   (D42) — declaring one is the assertion "this decision needs this contextual fact";
+   the framework resolves it or does not invoke the decision method at all, and a
+   resolution failure is never turned into `null` or `Option.None` passed to the method.
+   State the **supported-use contract** plainly (D39): additional parameters represent
+   already-available contextual facts or synchronous, side-effect-free business policies
+   (`ICurrentUser<Guid, TUser>`, `IClock`, a precomputed policy object) — orchestration or
+   external I/O (a `DbContext`, an `HttpClient`, a service that calls out) belongs to an
+   explicit `IEventSourcedCommandHandler<...>` (Level 2) instead, which remains fully
+   supported for exactly that purpose (D33).
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.
@@ -156,9 +160,11 @@ shipped, final shape. Sequenced last alongside task 12.
    existing ASP.NET authentication/authorization gate before NEvo's own checks run; an
    authenticated request denied by a NEvo permission check returns 403 via a typed
    `PermissionDeniedException`; any other unexpected failure returns 500 — and
-   `ICurrentUser<TId>` (task 14, D35): an identity-only capability (`Option<User<TId>>`)
-   a decision method may request via parameter injection, distinct from and never a
-   substitute for the authorization pipeline itself.
+   `ICurrentUser<TId, TUser>` (task 14, D35, D42): an identity-only, **required** capability
+   (`User<TId> User`, never `Option`-wrapped) a decision method may request via
+   parameter injection — resolving it without a current user fails the invocation before
+   the decision method runs, rather than handing the aggregate an absence to check —
+   distinct from and never a substitute for the authorization pipeline itself.
 7. **Persistence and concurrency** — Event Store vs. repository responsibilities
    (task 02), replay, stream version (out-of-band, not an envelope field),
    optimistic concurrency, `AggregateConcurrencyException` **returned** via `Either`

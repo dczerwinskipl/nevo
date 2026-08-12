@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NEvo.Authorization;
 using NEvo.Authorization.Permissions;
@@ -12,11 +11,13 @@ namespace Microsoft.Extensions.DependencyInjection;
 
 public static class ServiceCollectionExtensions
 {
-    public static void AddClaimsAuthorization<TId, TRoleDataScope>(this IServiceCollection services)
+    public static void AddClaimsAuthorization<TId, TUser, TUserProvider, TRoleDataScope>(this IServiceCollection services)
+        where TUser : User<TId>
+        where TUserProvider : class, IUserProvider<TUser, TId>
         where TRoleDataScope : AuthDataScope
     {
         services.TryAddScoped<IUserClaimsProvider, UserClaimsProvider>();
-        services.TryAddScoped<IUserProvider<TId>, ClaimUserProvider<TId>>();
+        services.TryAddScoped<IUserProvider<TUser, TId>, TUserProvider>();
         services.TryAddScoped<IRoleProvider<TRoleDataScope>, ClaimRoleProvider<TRoleDataScope>>();
         services.TryAddScoped<IPermissionProvider<TRoleDataScope>, PermissionProvider<TRoleDataScope>>();
     }

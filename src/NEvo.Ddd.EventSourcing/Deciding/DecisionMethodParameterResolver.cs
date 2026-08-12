@@ -16,21 +16,24 @@ internal sealed class DecisionMethodParameterResolver(IMessageContextAccessor me
         var serviceProvider = messageContextAccessor.MessageContext?.ServiceProvider;
         if (serviceProvider is null)
         {
-            return new InvalidOperationException(
-                $"Cannot resolve decision-method parameter '{parameter.Name}' of type " +
-                $"'{parameter.ParameterType.Name}' declared on " +
-                $"'{parameter.Member.DeclaringType?.Name}.{parameter.Member.Name}' — no current message context is " +
-                "available.");
+            return new DecisionMethodParameterResolutionException(parameter, "no current message context is available.");
         }
 
-        var service = serviceProvider.GetService(parameter.ParameterType);
+        object? service;
+        try
+        {
+            service = serviceProvider.GetService(parameter.ParameterType);
+        }
+        catch (Exception exception)
+        {
+            return new DecisionMethodParameterResolutionException(
+                parameter, $"resolving/activating '{parameter.ParameterType.Name}' threw.", exception);
+        }
+
         if (service is null)
         {
-            return new InvalidOperationException(
-                $"Cannot resolve decision-method parameter '{parameter.Name}' of type " +
-                $"'{parameter.ParameterType.Name}' declared on " +
-                $"'{parameter.Member.DeclaringType?.Name}.{parameter.Member.Name}' — no service registered for " +
-                $"'{parameter.ParameterType.Name}'.");
+            return new DecisionMethodParameterResolutionException(
+                parameter, $"no service is registered for '{parameter.ParameterType.Name}'.");
         }
 
         return service;

@@ -43,7 +43,7 @@ multi-aggregate orchestration left to Level 3 or a future saga/process-manager
 capability (D31). None of D19-D28 were reopened. **2026-08-12, post-task-10 refinement**
 (review of the landed Documents example, task 10, D33): added four framework/example
 tasks (13-16) discovered while closing gaps task 10's own implementation surfaced —
-aggregate decision-method parameter injection (D34), an identity-only `ICurrentUser<TId>`
+aggregate decision-method parameter injection (D34), an identity-only `ICurrentUser<TId, TUser>`
 capability replacing the Documents example's `ApprovedBy` placeholder (D35), typed
 authorization-failure semantics with HTTP 403 mapping (D36), and a renamed/relocated
 `EitherAsync<TLeft, Option<TRight>>` query-ergonomics helper (D37) — and resequenced
@@ -257,7 +257,7 @@ user a task-oriented path to using Event Sourcing without reading framework sour
 - `src/NEvo.Messaging.Authorization/` (fix `ValidatePermissionMiddleware`'s
   `HandlerDescription.Method`-only assumption; message-level permission attribute
   placement; requirement composition — all normal/static permission enforcement stays
-  here, not in the ES executor, D25; `ICurrentUser<TId>`, D35; `PermissionDeniedException`,
+  here, not in the ES executor, D25; `ICurrentUser<TId, TUser>`, D35; `PermissionDeniedException`,
   D36)
 - `src/NEvo.Messaging.Web/` (`MapQueryEndpoint`, `RoutesExtensions` cleanup; 403 mapping
   branch in `ToHttpResult`, D36)
@@ -270,7 +270,7 @@ user a task-oriented path to using Event Sourcing without reading framework sour
 - `examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/` (Document domain removed)
 - `tests/NEvo.Ddd.EventSourcing.Tests/` (characterization + new coverage; parameter
   injection, task 13), `tests/NEvo.Messaging.Authorization.Tests/` (D25 — added by
-  task 07; extended by tasks 14-15 for `ICurrentUser<TId>` and
+  task 07; extended by tasks 14-15 for `ICurrentUser<TId, TUser>` and
   `PermissionDeniedException`), `tests/NEvo.Core.Tests/` (`RequireSome`, task 16) — no
   new test project is added by tasks 13-16 (D34-D37)
 - `docs/usage/event-sourcing.md` (**new** — first-class user-facing guide, task 11),
@@ -296,7 +296,7 @@ append/flush/commit storage contract (D23), authorization ownership (D25-D26), L
 explicit expected-stream-state semantics (D29), the executor/convention responsibility
 separation (D30), and the Level 2 single-write-target boundary (D31), and, in the
 post-task-10 refinement, decision-method parameter-injection design (D34), the
-`ICurrentUser<TId>` package/exposure boundary (D35), the permission-denied type/HTTP-
+`ICurrentUser<TId, TUser>` package/exposure boundary (D35), the permission-denied type/HTTP-
 mapping mechanism (D36), and the query-ergonomics helper naming/placement (D37), and, in
 the spec-correction pass that reviewed 13-16 themselves, preserving
 `IAggregateMethodDecider`'s/`IDecider`'s public contract (D38), the parameter-injection
@@ -391,7 +391,7 @@ respectively, D4's `AddEventSourcing`-signature framing is narrowed by D32, and 
    aggregate-method convention so a decision method (both a `static` creation method and
    an instance method on existing state) may declare additional, framework-resolved
    parameters after the command (e.g. `Approve(ApproveDocument command,
-   ICurrentUser<Guid> currentUser)`), DI-backed, resolved from the current invocation's
+   ICurrentUser<Guid, TUser> currentUser)`), DI-backed, resolved from the current invocation's
    scope, behind a small internal `IDecisionMethodParameterResolver` seam — the existing
    single-command-parameter convention is preserved exactly, discovery/resolution stays
    inside `AggregateDeciderExtractor`/`AggregateDecider`/`AggregateDeciderProvider` (D30
@@ -402,12 +402,12 @@ respectively, D4's `AddEventSourcing`-signature framing is narrowed by D32, and 
    side-effect-free policies — orchestration/external I/O stays a Level 2 concern,
    documented as a usage contract, not mechanically enforced (D39).
 9. **Current-user capability and Documents integration.** Task 14 adds an
-   identity-only `ICurrentUser<TId>` (`Option<User<TId>> User`) in
-   `NEvo.Messaging.Authorization`, adapting the existing `UserContext<TId>`/
-   `IMessageContextAccessor` machinery internally, and uses task 13's mechanism to
-   replace the Documents example's `ApprovedBy: Guid.NewGuid()` placeholder with the
-   real authenticated user's id — closing the exact gap D33 named without recreating an
-   explicit Level 2 handler (D35).
+   identity-only, **required** `ICurrentUser<TId, TUser>` (`TUser User`, never
+   `Option`-wrapped, D42) in `NEvo.Messaging.Authorization`, adapting the existing
+   `UserContext<TId, TUser>`/`IMessageContextAccessor` machinery internally, and uses
+   task 13's mechanism to replace the Documents example's `ApprovedBy: Guid.NewGuid()`
+   placeholder with the real authenticated user's id — closing the exact gap D33 named
+   without recreating an explicit Level 2 handler (D35, D42).
 10. **Typed authorization failure and HTTP 403 mapping.** Task 15 replaces
     `ValidatePermissionMiddleware`'s generic `Exception("Permission denied")` with a
     dedicated `PermissionDeniedException : UnauthorizedAccessException` in
@@ -640,7 +640,7 @@ not alter outside the new message-level permission-attribute placement,
 additive/compatible) — and, per D18, **not** `Query<TResult>`/`Message<TResult>`, which
 are confirmed unchanged. Tasks 13-16 add further purely-additive public surface: the
 aggregate-method convention's *extended* parameter shape (existing single-command-
-parameter methods keep compiling and behaving identically, D34); `ICurrentUser<TId>`,
+parameter methods keep compiling and behaving identically, D34); `ICurrentUser<TId, TUser>`,
 new in `NEvo.Messaging.Authorization` (D35); `PermissionDeniedException`, new in
 `NEvo.Messaging.Authorization`, and one new mapping branch in `NEvo.Messaging.Web`'s
 `ToHttpResult` — the existing `ex.Message`/500-for-everything-else behavior is
@@ -696,7 +696,7 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
 - `areas/decision-method-parameter-injection.md` — the general parameter-injection
   mechanism for aggregate decision methods, DI-backed, internal seam, no new package
   dependency (D34) (task 13).
-- `areas/current-user-capability.md` — `ICurrentUser<TId>`, identity-only, and the
+- `areas/current-user-capability.md` — `ICurrentUser<TId, TUser>`, identity-only, and the
   Documents example's final `ApprovedBy` behavior (D35) (task 14).
 - `areas/typed-authorization-failures.md` — `PermissionDeniedException` and the 403 HTTP
   mapping, zero new package dependency (D36) (task 15).
@@ -782,7 +782,7 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
 25. `node tools/specs.mjs validate` and `node tools/docs.mjs validate` pass.
 26. A decision method (both a `static` creation method and an instance method on
     existing state) may declare additional, DI-resolved parameters after the command
-    (e.g. `ICurrentUser<Guid>`, an arbitrary business-policy type), resolved
+    (e.g. `ICurrentUser<Guid, TUser>`, an arbitrary business-policy type), resolved
     per-invocation from the current invocation's DI scope (never the root/startup
     container), without exposing `IServiceProvider` or a generic context bag to
     aggregate code, without adding any new `NEvo.Ddd.EventSourcing` project reference,
@@ -791,9 +791,11 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
     side-effect-free business policies, not a general I/O escape hatch — orchestration/
     external I/O remains an explicit `IEventSourcedCommandHandler<...>` (Level 2)
     concern, documented as a usage contract rather than mechanically enforced (D39).
-27. `ICurrentUser<TId>` exposes identity only (`Option<User<TId>> User`) — no roles,
-    permissions, `IServiceProvider`, raw headers/`IMessageContext`, feature-bag access,
-    correlation/causation, or mutable state (D35). The Documents example's
+27. `ICurrentUser<TId, TUser>` exposes identity only (`TUser User`, required — never
+    `Option`-wrapped, D42) — no roles, permissions, `IServiceProvider`, raw headers/
+    `IMessageContext`, feature-bag access, correlation/causation, or mutable state (D35).
+    Resolving it without a current user fails contextual-parameter resolution before the
+    decision method is invoked (D42). The Documents example's
     `DocumentApproved.ApprovedBy` reflects the real authenticated user, not
     `Guid.NewGuid()`, with no `ApproveDocumentHandler` reintroduced (D33, D35).
 28. Permission denial is signaled as an `UnauthorizedAccessException`-derived type,
@@ -809,7 +811,7 @@ overload stays compatible — it does not reopen any other D1-D31 decision.
     plain-`Map`-looking name for stronger-than-`Map` semantics (D37).
 30. `docs/usage/event-sourcing.md` and `docs/development/event-sourcing.md` (tasks 11-12)
     describe the framework's final shape after tasks 13-16 — decision-method parameter
-    injection (with its supported-use contract), `ICurrentUser<TId>`, the real
+    injection (with its supported-use contract), `ICurrentUser<TId, TUser>`, the real
     `ApprovedBy` behavior, 401/403/500 HTTP semantics, and the final query-handler
     ergonomics — not the pre-task-13-16 placeholder/always-500 state.
 31. No active specification artifact states that the Documents example wires an

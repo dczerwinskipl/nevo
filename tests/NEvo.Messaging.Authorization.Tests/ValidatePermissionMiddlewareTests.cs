@@ -1,6 +1,7 @@
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using NEvo.Authorization.Permissions;
+using NEvo.Authorization.Users;
 using NEvo.Messaging.Context;
 using NEvo.Messaging.Handling;
 
@@ -13,8 +14,8 @@ public class ValidatePermissionMiddlewareTests
     private static IMessageContext BuildContext(params IPermission[] permissions)
     {
         var contextMock = new Mock<IMessageContext>();
-        contextMock.Setup(c => c.GetFeature<UserContext<Guid>>())
-            .Returns(new UserContext<Guid> { UserPermissions = permissions });
+        contextMock.Setup(c => c.GetFeature<UserContext<Guid, User<Guid>>>())
+            .Returns(new UserContext<Guid, User<Guid>> { UserPermissions = permissions });
         return contextMock.Object;
     }
 
@@ -35,7 +36,7 @@ public class ValidatePermissionMiddlewareTests
     [Fact]
     public async Task ExecuteAsync_MessageLevelPermissionRequired_NoHandlerMethod_UserLacksPermission_Denies()
     {
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method: null);
         var context = BuildContext();
 
@@ -47,7 +48,7 @@ public class ValidatePermissionMiddlewareTests
     [Fact]
     public async Task ExecuteAsync_MessageLevelPermissionRequired_NoHandlerMethod_UserHasPermission_Allows()
     {
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method: null);
         var context = BuildContext(new Permission<MessageLevelScope>("message-permission", new MessageLevelScope()));
 
@@ -60,7 +61,7 @@ public class ValidatePermissionMiddlewareTests
     public async Task ExecuteAsync_MessageAndHandlerPermissionsRequired_UserHasOnlyMessageLevel_DeniesOnTheHandlerLevelRequirement()
     {
         var method = typeof(HandlerWithPermission).GetMethod(nameof(HandlerWithPermission.HandleAsync));
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method);
         var context = BuildContext(new Permission<MessageLevelScope>("message-permission", new MessageLevelScope()));
 
@@ -73,7 +74,7 @@ public class ValidatePermissionMiddlewareTests
     public async Task ExecuteAsync_MessageAndHandlerPermissionsRequired_UserHasOnlyHandlerLevel_DeniesOnTheMessageLevelRequirement()
     {
         var method = typeof(HandlerWithPermission).GetMethod(nameof(HandlerWithPermission.HandleAsync));
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method);
         var context = BuildContext(new Permission<HandlerLevelScope>("handler-permission", new HandlerLevelScope()));
 
@@ -86,7 +87,7 @@ public class ValidatePermissionMiddlewareTests
     public async Task ExecuteAsync_MessageAndHandlerPermissionsRequired_UserHasBoth_Allows()
     {
         var method = typeof(HandlerWithPermission).GetMethod(nameof(HandlerWithPermission.HandleAsync));
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method);
         var context = BuildContext(
             new Permission<MessageLevelScope>("message-permission", new MessageLevelScope()),
@@ -106,7 +107,7 @@ public class ValidatePermissionMiddlewareTests
     public async Task ExecuteAsync_OnlyHandlerLevelPermissionRequired_UserLacksIt_Denies()
     {
         var method = typeof(HandlerWithPermission).GetMethod(nameof(HandlerWithPermission.HandleAsync));
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(PlainCommand), method);
         var context = BuildContext();
 
@@ -119,7 +120,7 @@ public class ValidatePermissionMiddlewareTests
     public async Task ExecuteAsync_OnlyHandlerLevelPermissionRequired_UserHasIt_Allows()
     {
         var method = typeof(HandlerWithPermission).GetMethod(nameof(HandlerWithPermission.HandleAsync));
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(PlainCommand), method);
         var context = BuildContext(new Permission<HandlerLevelScope>("handler-permission", new HandlerLevelScope()));
 
@@ -131,7 +132,7 @@ public class ValidatePermissionMiddlewareTests
     [Fact]
     public async Task ExecuteAsync_NoAttributesAnywhere_Allows()
     {
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(PlainCommand), method: null);
         var context = BuildContext();
 
@@ -146,7 +147,7 @@ public class ValidatePermissionMiddlewareTests
     [Fact]
     public async Task ExecuteAsync_PermissionDenied_ReturnsUnauthorizedAccessExceptionDerivedType_NotThrown()
     {
-        var middleware = new ValidatePermissionMiddleware<Guid>(ServiceProvider);
+        var middleware = new ValidatePermissionMiddleware<Guid, User<Guid>>(ServiceProvider);
         var handler = BuildHandler(typeof(RequiresMessagePermissionCommand), method: null);
         var context = BuildContext();
 

@@ -154,7 +154,28 @@ public static class AggregateDeciderExtractor
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
         => ResolveArguments(methodInfo.GetParameters(), command, parameterResolver)
-            .Bind(arguments => methodInfo.Invoke(target, arguments).ToDeciderResult<TAggregate, TId>());
+            .Bind(arguments => Invoke<TAggregate, TId>(methodInfo, target, arguments));
+
+    // A resolved parameter's own type can still fail once actually read (e.g. a
+    // contextual capability whose value getter reports "no current value available" for
+    // this invocation, such as ICurrentUser<TId,TUser>). Reflection wraps any such
+    // exception in TargetInvocationException — unwrapped here so it surfaces as the same
+    // typed Left the resolver itself uses, never a partially-produced result and never an
+    // uncontrolled reflection exception escaping the call.
+    private static Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> Invoke<TAggregate, TId>(
+        MethodInfo methodInfo, object? target, object?[] arguments)
+        where TAggregate : IAggregateRoot<TId>
+        where TId : notnull
+    {
+        try
+        {
+            return methodInfo.Invoke(target, arguments).ToDeciderResult<TAggregate, TId>();
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            return exception.InnerException;
+        }
+    }
 
     private static Either<Exception, object?[]> ResolveArguments(
         ParameterInfo[] parameters,

@@ -49,15 +49,18 @@ public class DemoAuthenticationHandler(
     }
 }
 
+/// <summary> A demo user for the Documents example, with a <see cref="Guid"/> ID and a name. </summary>
+public record DemoUser(Guid Id, string Name) : User<Guid>(Id, Name);
+
 /// <summary>Adapts the identity <see cref="DemoAuthenticationHandler"/> puts on <c>HttpContext.User</c> to a NEvo <see cref="User{TId}"/> for authorization.</summary>
-public class DemoUserProvider(IHttpContextAccessor httpContextAccessor) : IUserProvider<Guid>
+public class DemoUserProvider(IHttpContextAccessor httpContextAccessor) : IUserProvider<DemoUser, Guid>
 {
-    public Option<User<Guid>> GetUser()
+    public Option<DemoUser> GetUser()
     {
         var idClaim = httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return idClaim is not null && Guid.TryParse(idClaim, out var id)
-            ? Option<User<Guid>>.Some(new User<Guid>(id, idClaim))
-            : Option<User<Guid>>.None;
+            ? Option<DemoUser>.Some(new DemoUser(id, idClaim))
+            : Option<DemoUser>.None;
     }
 }
 
