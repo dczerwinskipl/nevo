@@ -11,9 +11,8 @@ namespace NEvo.Ddd.EventSourcing.Deciding;
 /// </summary>
 public class AggregateDecider(IAggregateDeciderProvider aggregateDeciderProvider, IMessageContextAccessor messageContextAccessor) : IDecider, IAggregateMethodDecider
 {
-    // Internal machinery only (never referenced outside this assembly) — free to change
-    // shape as this task's own parameter-resolution plumbing requires, distinct from
-    // IAggregateMethodDecider's stabilized public contract (D38).
+    // Internal machinery only, never referenced outside this assembly — free to evolve
+    // independently of IAggregateMethodDecider's stable public contract.
     internal delegate Either<Exception, IEnumerable<IAggregateEvent<TAggregate, TId>>> AggregateDecideDelegate<TAggregate, TId>(Option<TAggregate> aggregate, IAggregateCommand<TAggregate, TId> command, IDecisionMethodParameterResolver parameterResolver)
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull;

@@ -6,9 +6,8 @@ namespace Microsoft.Extensions.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers <see cref="ICurrentUser{TId}"/>, scoped (matching
-    /// <see cref="NEvo.Messaging.Context.IMessageContextAccessor"/>'s own ambient-per-
-    /// operation lifetime), idempotently.
+    /// Registers a scoped <see cref="ICurrentUser{TId}"/> that reads the ambient
+    /// authorization context for the current message invocation, idempotently.
     /// </summary>
     public static IServiceCollection AddCurrentUser<TId>(this IServiceCollection services)
     {

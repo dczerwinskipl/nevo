@@ -140,9 +140,9 @@ public class ValidatePermissionMiddlewareTests
         result.Should().BeRight();
     }
 
-    // Regression-proof for task 15: fails against pre-task code, which returned a plain
-    // Exception — NEvo.Messaging.Web's HTTP mapping recognizes denial by type
-    // (UnauthorizedAccessException), so the returned type matters, not just BeLeft().
+    // Permission denial uses a typed failure so transports can distinguish it from
+    // ordinary application errors without inspecting exception messages — asserting the
+    // concrete type matters here, not just BeLeft().
     [Fact]
     public async Task ExecuteAsync_PermissionDenied_ReturnsUnauthorizedAccessExceptionDerivedType_NotThrown()
     {

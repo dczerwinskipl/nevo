@@ -491,6 +491,32 @@ tasks:
       - es-command-executor-and-ambiguity-resolution
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
+      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      changed_paths:
+        - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
+        - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
+        - src/NEvo.Ddd.EventSourcing/Deciding/DecisionMethodParameterResolver.cs
+        - src/NEvo.Ddd.EventSourcing/Deciding/IDecisionMethodParameterResolver.cs
+        - src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/AggregateDeciderEvolverIntegrationTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionBaselineTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/AmbiguityResolutionTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/DeciderCommandHandlerBaselineTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandExecutorTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/EventSourcedCommandHandlerTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderParameterInjectionTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderTests.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/ParameterInjectingAggregate.cs
+      worktree_patch_fingerprint: 17cb8955f639b2b10cc85124ae9d81d16e6fe4b4cd94f20979d7c857b1a72ab1
+    self_check:
+      fingerprint: 3ed02d1586b07566de970b4417fd90c25815093b1bf8c40163084c33efd483d9
+      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Ddd.EventSourcing.Tests
+          exit_code: 0
+      status: passed
   - id: current-user-capability-and-documents-integration
     order: 14
     file: tasks/14-current-user-capability-and-documents-integration.md
@@ -501,6 +527,29 @@ tasks:
       - message-level-and-aggregate-authorization
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
+      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      changed_paths:
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
+        - src/NEvo.Messaging.Authorization/CurrentUser.cs
+        - src/NEvo.Messaging.Authorization/ICurrentUser.cs
+        - src/NEvo.Messaging.Authorization/PermissionDeniedException.cs
+        - src/NEvo.Messaging.Authorization/ServiceCollectionExtensions.cs
+        - src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs
+        - tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs
+        - tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs
+      worktree_patch_fingerprint: a3eac811503fd3598ba976730a7e26aade40d7b0e1be310d6123133cc2e02118
+    self_check:
+      fingerprint: ee331d1f084e4a9cee757eb065522c0dbb6a41ca90a5c3117263314004ab714c
+      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Authorization.Tests
+          exit_code: 0
+      status: passed
   - id: typed-authorization-failure-and-403-mapping
     order: 15
     file: tasks/15-typed-authorization-failure-and-403-mapping.md
@@ -510,6 +559,30 @@ tasks:
       - map-query-endpoint-and-get-binding
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
+      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      changed_paths:
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
+        - src/NEvo.Messaging.Authorization/CurrentUser.cs
+        - src/NEvo.Messaging.Authorization/ICurrentUser.cs
+        - src/NEvo.Messaging.Authorization/PermissionDeniedException.cs
+        - src/NEvo.Messaging.Authorization/ServiceCollectionExtensions.cs
+        - src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs
+        - src/NEvo.Messaging.Web/RoutesExtensions.cs
+        - tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs
+        - tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs
+      worktree_patch_fingerprint: a3eac811503fd3598ba976730a7e26aade40d7b0e1be310d6123133cc2e02118
+    self_check:
+      fingerprint: 8f2029e82e250fc0a496fefe7a21a58ba11a4540aec59165d4030e44dde75f46
+      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Messaging.Authorization.Tests
+          exit_code: 0
+      status: passed
   - id: query-either-ergonomics-cleanup
     order: 16
     file: tasks/16-query-either-ergonomics-cleanup.md
@@ -518,3 +591,22 @@ tasks:
       - documents-example-es-and-auth-demo
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
+      review_revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      changed_paths:
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
+        - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
+        - src/NEvo.Core/EitherAsyncExtensions.cs
+        - src/NEvo.Core/EitherExtensions.cs
+        - tests/NEvo.Core.Tests/EitherAsyncExtensionsTests.cs
+      worktree_patch_fingerprint: d11ba4f6ff1ec032f342a8c077d322583244703999ef2b7ae9c0d88e242675b8
+    self_check:
+      fingerprint: 4a2fbe139e58a226699e9613ccb07006b88152a3d0ab715619ae00a06f26e5e1
+      revision: d3bbdf78f63c9138e94aa7fccef64ceb0141c245
+      commands:
+        - command: dotnet build
+          exit_code: 0
+        - command: dotnet test tests/NEvo.Core.Tests
+          exit_code: 0
+      status: passed

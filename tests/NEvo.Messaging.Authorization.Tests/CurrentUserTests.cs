@@ -7,9 +7,9 @@ namespace NEvo.Messaging.Authorization.Tests;
 
 public class CurrentUserTests
 {
-    // CurrentUser<TId> is internal (AddCurrentUser<TId> is the public registration
-    // surface, ICurrentUser<TId> the public consumption surface) — resolved through DI,
-    // same precedent AggregateDecider's own registration test already established.
+    // CurrentUser<TId> is internal — AddCurrentUser<TId> is the public registration
+    // surface and ICurrentUser<TId> is the public consumption surface, so it is
+    // resolved through DI rather than constructed directly.
     private static ICurrentUser<Guid> Build(IMessageContextAccessor accessor)
     {
         var services = new ServiceCollection();

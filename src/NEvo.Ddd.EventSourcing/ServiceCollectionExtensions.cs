@@ -100,8 +100,7 @@ public static class ServiceCollectionExtensions
         // AggregateDecider's parameter-injection resolver reads the current invocation's
         // scope through this accessor (already NEvo.Messaging infrastructure, no new
         // project reference) — TryAdd so a consumer that separately calls
-        // NEvo.Messaging's own AddMessaging() first is unaffected (D4/D32 idempotency
-        // convention).
+        // NEvo.Messaging's own AddMessaging() first is unaffected.
         services.TryAddSingleton<IMessageContextAccessor, MessageContextAccessor>();
         services.TryAddSingleton<IEventStreamStore, FakeEventStore>();
         services.TryAddScoped<IAggregateRepository, AggregateRepository>();

@@ -6,11 +6,10 @@ using NEvo.Messaging.Context;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Deciding;
 
-// Covers task 13 (aggregate-decision-method-parameter-injection): a decision method may
-// declare additional, DI-resolved parameters after the command, resolved per-invocation
-// from the current message-context scope — for both the static-creation and
-// instance-on-existing-state discovery shapes — while an unresolvable type or a
-// misplaced command parameter fail clearly instead of silently.
+// A decision method may declare additional, DI-resolved parameters after the command,
+// resolved per-invocation from the current message-context scope — for both the
+// static-creation and instance-on-existing-state discovery shapes — while an
+// unresolvable type or a misplaced command parameter fail clearly instead of silently.
 public class AggregateDeciderParameterInjectionTests
 {
     private static (AggregateDecider Decider, ServiceProvider RootProvider, MessageContextAccessor Accessor) CreateDecider(Type aggregateType)

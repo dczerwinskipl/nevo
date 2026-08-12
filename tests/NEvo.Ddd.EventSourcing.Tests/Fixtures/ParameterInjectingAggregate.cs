@@ -6,7 +6,7 @@ namespace NEvo.Ddd.EventSourcing.Tests.Mocks;
 
 // A scoped-lifetime dependency used to prove decision-method parameter resolution reads
 // the current invocation's DI scope, not a value captured once at discovery/startup
-// time (task 13, D34/D38/D39) — each DI scope produces a different Guid.
+// time — each DI scope produces a different Guid.
 public interface IParameterInjectionDependency
 {
     Guid Value { get; }
@@ -67,7 +67,7 @@ public record ParameterInjectingAggregateMutated(Guid ParameterInjectingAggregat
 // A deliberately misconfigured aggregate: its decision method declares a command-typed
 // parameter that is not first — used only to prove AggregateDeciderExtractor rejects
 // this at discovery time with a specific, actionable error, distinct from "not a
-// decider at all" (task 13, D34/D38/D39).
+// decider at all".
 public class MisplacedCommandParameterAggregate(Guid id) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;

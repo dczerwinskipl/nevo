@@ -126,7 +126,7 @@ Expect a response shaped like
 `ApprovedDocument`, not the previous `EditableDocument` state, and `approvedBy` matches
 the authenticated caller's id from step 5 (see below), not a fabricated value.
 
-### 7. Query a non-existent document (ordinary failure, unaffected by task 15)
+### 7. Query a non-existent document (ordinary application failure)
 
 ```
 curl -i http://localhost:5299/api/documents/$(uuidgen)
