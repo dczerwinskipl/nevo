@@ -144,22 +144,32 @@ justifying new test infrastructure"), this task adds:
 
 ## Area-specific acceptance criteria
 
+**Corrected by D40 (post-review) — matches task 15's own corrected criteria exactly.**
+`ToHttpResult` is `private` inside `NEvo.Messaging.Web`, which has no test project by
+this area's own "no new `NEvo.Messaging.Web.Tests`" decision — the 403/500/200 mapping
+behavior cannot be proven by an automated test that has nowhere to live. Only the typed-
+failure behavior (inside `NEvo.Messaging.Authorization`, which does have a test project)
+is automated; the resulting HTTP behavior is verified manually.
+
 1. `ValidatePermissionMiddleware` returns `PermissionDeniedException` (or another
    `UnauthorizedAccessException`-derived NEvo type) via `Either.Left` on denial, never a
-   plain `Exception`, never thrown (test).
-2. `ToHttpResult` maps any `UnauthorizedAccessException`-derived `Left` to HTTP 403
-   (test).
-3. `ToHttpResult` maps every other `Exception`-derived `Left` to HTTP 500, unchanged
-   (test — regression).
-4. `ToHttpResult` maps `Right` to HTTP 200, unchanged (test — regression).
-5. `NEvo.Messaging.Authorization.csproj` gains no `ProjectReference` to
+   plain `Exception`, never thrown (test, in `tests/NEvo.Messaging.Authorization.Tests`).
+2. A successful `ApproveDocument` request returns HTTP 200 (manual, Documents
+   walkthrough).
+3. An unauthenticated request to a `.RequireAuthorization()`-protected endpoint returns
+   401 through the existing ASP.NET Core path, unaffected by this task (manual,
+   Documents walkthrough).
+4. An authenticated request lacking the required NEvo permission returns 403 (manual,
+   Documents walkthrough).
+5. An ordinary application/framework `Left` not representing permission denial still
+   returns 500, unchanged (manual, Documents walkthrough — a missing/non-existent
+   document, already `DocumentNotFoundException`-shaped, is an acceptable example; no
+   new failure mode needs to be manufactured).
+6. `NEvo.Messaging.Authorization.csproj` gains no `ProjectReference` to
    `NEvo.Messaging.Web`; `NEvo.Messaging.Web.csproj` gains no `ProjectReference` to
    `NEvo.Messaging.Authorization` (inspection).
-6. An unauthenticated request to a `.RequireAuthorization()`-protected endpoint still
-   returns 401 through the existing ASP.NET Core path, unaffected by this task (manual,
-   Documents walkthrough).
-7. The Documents example's walkthrough note documents the 403 behavior for
-   `ApproveDocument` without the required permission (manual).
+7. The Documents example's walkthrough note documents all four cases above (200 / 401 /
+   403 / 500), not only the 403 case (manual).
 
 ## Dependencies
 
