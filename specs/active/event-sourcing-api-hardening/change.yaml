@@ -486,13 +486,13 @@ tasks:
   - id: aggregate-decision-method-parameter-injection
     order: 13
     file: tasks/13-aggregate-decision-method-parameter-injection.md
-    status: draft
+    status: approved
     depends_on:
       - es-command-executor-and-ambiguity-resolution
   - id: current-user-capability-and-documents-integration
     order: 14
     file: tasks/14-current-user-capability-and-documents-integration.md
-    status: draft
+    status: approved
     depends_on:
       - aggregate-decision-method-parameter-injection
       - documents-example-es-and-auth-demo
@@ -500,13 +500,13 @@ tasks:
   - id: typed-authorization-failure-and-403-mapping
     order: 15
     file: tasks/15-typed-authorization-failure-and-403-mapping.md
-    status: draft
+    status: approved
     depends_on:
       - message-level-and-aggregate-authorization
       - map-query-endpoint-and-get-binding
   - id: query-either-ergonomics-cleanup
     order: 16
     file: tasks/16-query-either-ergonomics-cleanup.md
-    status: draft
+    status: approved
     depends_on:
       - documents-example-es-and-auth-demo
