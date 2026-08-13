@@ -183,7 +183,7 @@ public class AggregateDeciderParameterInjectionTests : IDisposable
         error.InnerException.Should().NotBeNull();
     }
 
-    // ICurrentUser<,> (D44) is the real-world case a required contextual capability that
+    // ICurrentUser<,> is the real-world case a required contextual capability that
     // resolves as a type but has no current value must satisfy: CurrentUser<,> validates
     // user availability during its own construction, so DI activation itself throws and
     // the decision method is never entered — proven here by the invocation counter

@@ -53,9 +53,9 @@ public class ParameterInjectingAggregate(Guid id) : IAggregateRoot<Guid>
         => new[] { new ParameterInjectingAggregateMutated(Id, Guid.Empty) };
 
     // ICurrentUser<,> is the concrete, real-world stand-in for a required contextual
-    // capability that resolves as a type but has no current value for this invocation
-    // (D44). The invocation counter proves the decision method's body is never entered
-    // when CurrentUser<,> fails during its own construction/activation.
+    // capability that resolves as a type but has no current value for this invocation.
+    // The invocation counter proves the decision method's body is never entered when
+    // CurrentUser<,> fails during its own construction/activation.
     public int MutateWithCurrentUserInvocationCount { get; private set; }
 
     public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithCurrentUser(MutateParameterInjectingAggregateWithCurrentUser command, ICurrentUser<Guid, User<Guid>> currentUser)

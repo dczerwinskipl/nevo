@@ -42,10 +42,17 @@ boundary; concurrency flow (`AggregateConcurrencyException` returned via `Either
 never thrown, D13); the authorization ownership split — normal message/handler checks
 entirely in `NEvo.Messaging.Authorization`'s pipeline, the executor invoking only the
 aggregate-aware hook, with no `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization`
-dependency (D25-D26); **the current-user/authorization boundary** — `ICurrentUser<TId>`
-lives in `NEvo.Messaging.Authorization`, adapts `UserContext<TId>` internally, and is
-resolved into aggregate decision methods purely by DI `Type`, never by a compile-time
-reference from `NEvo.Ddd.EventSourcing` (D35); **typed authorization-failure/HTTP-
+dependency (D25-D26); **the required-contextual-dependency invariant** (D44): a required
+contextual decision-method dependency must be successfully resolved *and validated*
+during DI resolution/activation, before the decision method is invoked — a dependency
+that resolves as a type but only reports unavailability once the decision method starts
+running is an invocation/application failure, not a parameter-resolution failure;
+**the current-user/authorization boundary** — `ICurrentUser<TId, TUser>`
+lives in `NEvo.Messaging.Authorization`, adapts `UserContext<TId, TUser>` internally, and
+is resolved into aggregate decision methods purely by DI `Type`, never by a compile-time
+reference from `NEvo.Ddd.EventSourcing` (D35, D43); its required user is obtained and
+validated during `CurrentUser<TId, TUser>`'s own construction, not lazily from the `User`
+getter (D44); **typed authorization-failure/HTTP-
 mapping boundary** — `PermissionDeniedException` (`NEvo.Messaging.Authorization`) is
 recognized in `NEvo.Messaging.Web` via its `UnauthorizedAccessException` base type, with
 no project reference added in either direction (D36); the explicit `Option<TAggregate>`

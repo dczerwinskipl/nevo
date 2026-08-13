@@ -33,9 +33,9 @@ public class CurrentUserTests
     }
 
     // Resolving ICurrentUser<,> (constructing CurrentUser<,>) must itself fail when no
-    // user is available — not merely reading .User afterward — so a DI-backed resolver
-    // (e.g. task 13's decision-method parameter resolver) observes the failure during
-    // activation, before any caller could hold a partially-usable instance.
+    // user is available — not merely reading .User afterward — so a DI-backed consumer
+    // observes the failure during activation, before it could hold a partially-usable
+    // instance.
     [Fact]
     public void Resolve_MessageContextHasNoUser_ThrowsCurrentUserUnavailableDuringActivation()
     {

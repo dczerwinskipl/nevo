@@ -452,7 +452,7 @@ tasks:
   - id: user-facing-event-sourcing-guide
     order: 11
     file: tasks/11-user-facing-event-sourcing-guide.md
-    status: draft
+    status: approved
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution
@@ -469,7 +469,7 @@ tasks:
   - id: internal-event-sourcing-architecture-docs
     order: 12
     file: tasks/12-internal-event-sourcing-architecture-docs.md
-    status: draft
+    status: approved
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution

@@ -16,7 +16,7 @@ depends_on:
   - typed-authorization-failure-and-403-mapping
   - query-either-ergonomics-cleanup
 semantic_references:
-  decisions: [D13, D17, D20, D21, D22, D23, D24, D25, D26, D29, D30, D34, D35, D36, D37, D38, D39]
+  decisions: [D13, D17, D20, D21, D22, D23, D24, D25, D26, D29, D30, D34, D35, D36, D37, D38, D39, D42, D43, D44]
   dependency_contracts:
     - harden-event-store-and-repository-contracts
     - es-command-executor-and-ambiguity-resolution
@@ -76,16 +76,25 @@ their shipped, final shape. Sequenced last alongside task 11.
   D34, D38, task 13) — **explicitly stating `IAggregateMethodDecider`'s public contract
   is unchanged by this mechanism** (D38), and the supported-use contract distinguishing
   contextual facts/pure policies (Level 1) from orchestration/external I/O (Level 2,
-  D39); Primary/Fallback
+  D39); **the required-contextual-dependency invariant** (D44): a required contextual
+  decision-method dependency must be successfully resolved *and validated* during DI
+  resolution/activation, before the aggregate decision method is invoked — a dependency
+  that resolves successfully as a type but only reports unavailability once the decision
+  method starts running is an invocation/application failure, not a parameter-resolution
+  failure; Primary/Fallback
   registration internals (task 05), the `IEventStreamStore`/`IAggregateRepository`
   boundary (task 02), concurrency flow (`AggregateConcurrencyException` **returned**
   via `Either`, never thrown, D13); the authorization ownership split — normal message/
   handler-level checks entirely in `NEvo.Messaging.Authorization`'s pipeline, the
   executor invoking only the **one** aggregate-aware hook, no
   `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Authorization` project reference (D25-D26,
-  task 07); **the current-user/authorization boundary** — `ICurrentUser<TId>`
-  (`NEvo.Messaging.Authorization`) adapts `UserContext<TId>` internally and is resolved
-  into decision methods purely by DI `Type` (D35, task 14); **the typed authorization-
+  task 07); **the current-user/authorization boundary** — `ICurrentUser<TId, TUser>`
+  (`NEvo.Messaging.Authorization`) adapts `UserContext<TId, TUser>` internally and is
+  resolved into decision methods purely by DI `Type` (D35, D43, task 14); its required
+  user is obtained and validated during `CurrentUser<TId, TUser>`'s own construction
+  (D44), not lazily from the `User` getter — so a missing current user fails while the
+  capability is being activated and becomes a decision-method parameter-resolution
+  failure, never a value the aggregate must itself check for absence; **the typed authorization-
   failure/HTTP-mapping boundary** — `PermissionDeniedException`
   (`NEvo.Messaging.Authorization`) recognized in `NEvo.Messaging.Web` via its
   `UnauthorizedAccessException` base type, zero new project reference in either direction
@@ -169,6 +178,14 @@ their shipped, final shape. Sequenced last alongside task 11.
     and states plainly that no alternative (non-reflection-based) modeling style exists
     today, framing the separation as a compatibility property rather than an announced
     feature (inspection, per D30).
+11. The document states `ICurrentUser<TId, TUser>`'s actual generic shape (`TUser User`,
+    never `User<TId>`) and the required-contextual-dependency invariant plainly: a
+    required decision-method dependency must be resolved *and validated* during DI
+    resolution/activation, before the decision method runs — for `ICurrentUser<TId,
+    TUser>` this means `CurrentUser<TId, TUser>` validates user availability during its
+    own construction, not lazily from the `User` getter, so a missing current user
+    becomes a decision-method parameter-resolution failure and the aggregate is never
+    invoked (inspection, per D42, D43, D44).
 
 ## Verification
 

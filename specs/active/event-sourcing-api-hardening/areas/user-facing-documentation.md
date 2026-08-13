@@ -34,7 +34,9 @@ convention, explicitly framed as the supported default per D17, not the core's
 permanent definition); all three command-handling levels with explicit "when to use
 each" guidance; **decision-method parameter injection** (task 13) — how and when a
 decision method may declare additional, framework-resolved parameters beyond the
-command, and `ICurrentUser<TId>` (task 14) as the concrete, identity-only example;
+command and every declared parameter being required and resolved/validated before the
+decision method runs (D44), and `ICurrentUser<TId, TUser>` (task 14) as the concrete,
+identity-only example;
 Primary/Fallback handler registration and fallback semantics; authorization
 (message-level, handler-specific additive, aggregate-aware, **and the 401/403/500 HTTP
 semantics from task 15** — unauthenticated → 401 via the existing ASP.NET path,

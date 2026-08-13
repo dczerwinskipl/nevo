@@ -2,63 +2,92 @@
 review-of: spec
 change: event-sourcing-api-hardening
 generated: 2026-08-13
-scope: --tasks 13-14
-verdict: changes-required
-ready_for_approval: false
+scope: --all
+verdict: ready-for-approval
+ready_for_approval: true
 implementation_allowed: false
-unresolved_required_fixes: 1
+unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 40e6c834e5ff007fbdceedcaaff6e5ff6b144791972924566076491cbbedb59c
 task_fingerprints:
   characterize-event-sourcing-baseline: cadd6a0f99d3ced7addcded3e1fc01a57a4d24615d0dd7ca3325eab63f3a4aaf
-  harden-event-store-and-repository-contracts: f374779210d55a6d864f9c09423faa85ecb46535e4400c7bde5e54c37cae8b7b
-  es-command-executor-and-ambiguity-resolution: d954fe7b2fc230a6c80e80ef03af1653f16e19c238053f6bfa2d22df1bfbefd3
-  explicit-event-sourced-command-handler: c2bb7a58f177719c16e0ed18d11421defd394cb802f68c45ac4e3bd18ae95e66
-  primary-fallback-handler-roles: 25382f55f820946ea8536ec08827d30c574f7a00155c1d6f9a34b9b2668736fa
-  event-sourcing-registration-options: 55c44e2782640371bd65a3a2781ecf496354b3efde1fd5adbeeaeaea2a4322c7
-  message-level-and-aggregate-authorization: 646b681ffc449299ad3f7170d17c7a9da5e822b7879f19860d6fcaebaa8001b3
-  map-query-endpoint-and-get-binding: 28a2251fcefffd0b769b6c0eef17a30b68852a4629cfa2f378a8781ab29999ed
-  create-documents-example-project: 772f66cd20eadc0a82c0dc3cbaa9ba07e05f4ab961930d8a58050e17adcc683f
-  documents-example-es-and-auth-demo: 624e670433a358089442679c1c36bb541ec21d3c2f864442e3e8f073104b91d0
-  user-facing-event-sourcing-guide: 992b95c99984abc8bd8ec82c0c09f0cc939ba88d0f6eb89b124b1d3955f5c8f2
-  internal-event-sourcing-architecture-docs: 6bc9a3df71cec8663e3b3dac761f40dea5beb25373563ca635afec27a0af1a29
-  aggregate-decision-method-parameter-injection: b855c8ac8eca5e8cef056071e6a98a57e6901c9a2ce23186d4398cf8f721140e
-  current-user-capability-and-documents-integration: cb6cc68b652038db4a7ec3173c3d1ef04c3297ca54269adde933078439c030ae
-  typed-authorization-failure-and-403-mapping: 8f2029e82e250fc0a496fefe7a21a58ba11a4540aec59165d4030e44dde75f46
-  query-either-ergonomics-cleanup: 4a2fbe139e58a226699e9613ccb07006b88152a3d0ab715619ae00a06f26e5e1
+  harden-event-store-and-repository-contracts: e1f179b2b8ab34f4facce7f20c195baee38a1c0678bb17a8feafdc5e80dd0ef3
+  es-command-executor-and-ambiguity-resolution: 917f3ec2cb1dfdc9dc54a24d4241588167984755d339c8271c97978671b99df0
+  explicit-event-sourced-command-handler: 6cf9009d5f2f83487701288cae94950ba7b845c72948b310983e1254a3de9333
+  primary-fallback-handler-roles: 76ca7f757b7ae3f1bee0fea4b6ada2d5c04c1440d0b409c20f7b7810f03a7ac4
+  event-sourcing-registration-options: b854569e5578e8d0eee56eab927fd622d058eb4c6d9a658e189041dbddbe200e
+  message-level-and-aggregate-authorization: 6818a7fec21ed571a53bb7a71755a0faa28e558ff31c90520a9d7059f8d75aec
+  map-query-endpoint-and-get-binding: 3184bd3797466ab40b1f5e641881ed0830fd96d3501838b643ab60ce24e33c18
+  create-documents-example-project: 47ace675846c2b8132bf60a37cd73a3a15e54bcb512ca7e0956949ab08ca2a8b
+  documents-example-es-and-auth-demo: b529fa5444b8b45cfd7525d252d3657e77c90d8838f9bfbe0d9ad62fd7ac9d7b
+  user-facing-event-sourcing-guide: 063b2f4509f09d8d60c530cd30352df29f969c86b8309c5fb55b41b5c18049b7
+  internal-event-sourcing-architecture-docs: dd98ba3b7c3142cd6bca1fa0333f1a3074d054228bd3c791d7396b14ec7ebb6a
+  aggregate-decision-method-parameter-injection: 48ae450c65db42e8a344a572292bcf4b19e1eca5d49613eeaebd3aa3e2fd5e58
+  current-user-capability-and-documents-integration: 56f144802636fe48d40f78aaed5473b53a07d555384a2c07a2460445e3c4ef57
+  typed-authorization-failure-and-403-mapping: 2556aa79368f11cbe0958b8f001588c7b5ce54d8b01f0202298712d0d21d5b4f
+  query-either-ergonomics-cleanup: 27f119bbb211f38afc81c11d5b92aa56db0a5c0bb59e1cb74c92061f668e8ff5
 ---
 
-# Review: event-sourcing-api-hardening (scoped: tasks 13-14)
+# Review: event-sourcing-api-hardening
 
-Baseline: the previous `reviews/spec.md` (generated 2026-08-12, commit `8f60cfc`)
-reported `ready-for-approval`. This run is a targeted correction pass, prompted by owner
-review, on tasks 13/14's required-contextual-parameter invariant: `ICurrentUser<TId,
-TUser>` could resolve successfully as a *type* (DI construction succeeds) and only fail
-when its `User` getter was read — by which point `AggregateDeciderExtractor.Invoke` had
-already entered the decision method's body (`methodInfo.Invoke`). That satisfies D42's
-"resolution/activation failed for any reason" wording but not its intent ("the decision
-method is not invoked at all").
+Baseline: the previous `reviews/spec.md` (generated 2026-08-13, scoped `--tasks 13-14`,
+`changes-required`, resolved by that pass's implementation follow-up). This run is `--all`
+per the owner's request to replace that stale review with one reflecting the current
+state — narrow in content (only tasks 11/12 and their directly-related area text changed
+since the last full review), full in scope so the scoped-verdict guard doesn't apply.
 
-## What changed this pass
+## Why every task's fingerprint changed even though only four files were edited
 
-- `owner-decisions.md`: appended **D44**, sharpening D42 — a required contextual
-  capability must validate its own availability during resolution/activation (for a
-  DI-backed capability, during construction), not from a value read after the decision
-  method has started executing.
-- `areas/decision-method-parameter-injection.md`: added the D44 invariant to
-  Requirements/Constraints and area-acceptance-criterion 5.
-- `areas/current-user-capability.md`: narrowed the "exact mechanism is an implementation
-  choice" wording — the check must be construction-time, not from the `User` getter;
-  updated area-acceptance-criterion 2 accordingly.
-- `tasks/13-*.md`: added a "Corrected by D44" note (same placement pattern as the
-  existing D38 note), tightened the "Fail clearly" constraint and acceptance criterion 5,
-  added D44 to `semantic_references.decisions`.
-- `tasks/14-*.md`: added a "Corrected by D44" note, tightened the construction-time-check
-  requirement and acceptance criteria 1/2, added D44 to `semantic_references.decisions`.
+Every `task_fingerprints` entry differs from the last full baseline (2026-08-12), not
+only tasks 11/12. Traced directly, not assumed: the prior correction pass's commit
+(`7d62403`) normalized several spec files — including `owner-decisions.md` — from LF to
+CRLF line endings (confirmed: `git show HEAD~2:.../owner-decisions.md` has no CRLF;
+the current committed version does, per `file`'s own report). `computeTaskFingerprint`
+hashes each cited decision's raw resolved text verbatim (`tools/specs/service.mjs:487-491`),
+which is line-ending-sensitive — so every task citing any decision in that file gets a new
+fingerprint from the byte-level normalization alone, with no semantic change. Confirmed
+directly: `git diff --stat HEAD` against the working tree shows only the four files this
+pass actually edited (`tasks/11-*.md`, `tasks/12-*.md`,
+`areas/user-facing-documentation.md`, `areas/internal-documentation.md`) — tasks 01-10 and
+13-16 have zero diff against their already-implemented, already-reviewed revision. This is
+a pre-existing tooling fragility (fingerprint hashing not normalizing line endings), noted
+here for the record — out of scope to fix in this narrow pass.
 
-Code/tests are not yet updated — that is this pass's next step (task-review will produce
-current evidence once the implementation fix lands).
+## What was checked and what was found
+
+**Tests (item 1, prior conversation turn).** `tests/NEvo.Ddd.EventSourcing.Tests/Deciding/
+AggregateDeciderParameterInjectionTests.cs`, `.../Fixtures/ParameterInjectingAggregate.cs`,
+and `tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs` no longer reference
+"task 13" or "D44" — `grep` for both patterns across `tests/` returns nothing. The removed
+implementation-history comments were replaced with durable technical wording (what the
+test proves and why) where a comment remained useful, or removed outright where the
+comment's only content was the historical reference itself.
+
+**Tasks 11/12 corrected (items 2-3).** Both task files, and their two directly-related
+area files (`areas/user-facing-documentation.md`, `areas/internal-documentation.md`), no
+longer describe `ICurrentUser<TId>`/`UserContext<TId>` (missing the `TUser` generic
+parameter) or `User<TId> User` (the pre-D43/pre-D42 shape) — `grep` for both patterns
+across all four files returns nothing. All four now state the actual current contract
+(`ICurrentUser<TId, TUser> where TUser : User<TId>`, `TUser User { get; }`,
+`UserContext<TId, TUser>`) and the D44 invariant: a required contextual decision-method
+dependency must be successfully resolved *and validated* during DI resolution/activation,
+before the aggregate decision method is invoked; for `ICurrentUser<TId, TUser>` this means
+`CurrentUser<TId, TUser>` validates user availability during its own construction (not the
+`User` getter), so a missing current user becomes a decision-method parameter-resolution
+failure and the aggregate is never invoked. Both tasks preserve the existing contextual-
+fact/pure-policy (Level 1) vs. orchestration/I-O (Level 2, explicit
+`IEventSourcedCommandHandler`) distinction unchanged (D39) — neither task's edits touch
+that boundary. `overview.md` was checked and already stated the correct generic shape and
+non-optional semantics (`TUser User`, D42/D43) before this pass — no edit needed there.
+Both tasks' `semantic_references.decisions` now include D44 (and task 12 additionally
+D42/D43, which its body newly cites); `node tools/specs.mjs validate` confirms every
+reference resolves (see Gating checks below).
+
+**Tasks 13-16 architecture/implementation — untouched.** Confirmed by `git diff` (see
+above): zero content difference against the already-`implemented`, already-reviewed
+revision. This pass did not reopen `IAggregateMethodDecider`/`IDecider`, the parameter-
+injection architecture, D43's generic-user design, or the Documents authorization model.
 
 ## Gating and non-gating checks
 
@@ -72,51 +101,39 @@ Non-gating repository check:
 
 ## Semantic-reference completeness (D26, D29)
 
-Both in-scope tasks declare `D44` in `semantic_references.decisions` and D44 exists in
-`owner-decisions.md` with matching content — no missing load-bearing reference for either
-task.
+Task 11 cites D13, D17, D18, D20-D25, D28, D29, D31, D33-D39, D42-D44 — all resolve in
+`owner-decisions.md` (`validate` confirms integrity; each new D44 citation reviewed
+directly above for content accuracy, not just presence). Task 12 cites D13, D17,
+D20-D26, D29, D30, D34-D39, D42-D44 — same. No missing load-bearing reference found for
+either task.
 
 ## Findings
 
-| ID | Category | Predicate | Finding | Resolution |
-|---|---|---|---|---|
-| F1 | AUTO_FIX | Tasks 13/14's implementation (`CurrentUser<TId,TUser>`, its tests, and `AggregateDeciderParameterInjectionTests`'s `ILazyThrowingDependency` fixture) matches the just-corrected D44 invariant | Not yet true — `CurrentUser<TId,TUser>.User` still throws lazily from the getter; `AggregateDeciderParameterInjectionTests.DecideAsync_DependencyValueThrowsWhenRead_FailsWithoutProducingAnEvent` still asserts the now-rejected behavior as correct | Implementation fix (this pass, next step): make `CurrentUser<TId,TUser>` validate during construction; remove the `ILazyThrowingDependency`-based test; add a regression test proving invocation count stays 0 |
+No findings remaining — none raised this run.
 
-No `OWNER_DECISION`/`NEEDS_CLARIFICATION` findings — the correction was fully specified
-by the owner's own instructions for this pass, per D44's rationale.
+## Specification readiness (tasks 11/12, the only non-`implemented` tasks)
 
-## Scoped-run out-of-scope baseline check (step 7a)
-
-`internal-event-sourcing-architecture-docs` (task 12, order 12, first task not
-grandfathered by D32) has a fingerprint drift: prior `8c5701ddcc61...` → current
-`6bc9a3df71ce...`. This is expected and traced directly: task 12 depends on tasks 13/14
-as `dependency_contracts`, and `computeTaskFingerprint` folds `semantic_references`
-recursively — editing `owner-decisions.md` (D44) and the two area files task 12 will
-eventually need to document changes its fingerprint even though `tasks/12-*.md` itself
-is untouched. Every other out-of-scope task from task 12 onward (`typed-authorization-
-failure-and-403-mapping`, `query-either-ergonomics-cleanup`) has an unchanged
-fingerprint, matching the prior baseline exactly.
-
-Per the scoped-verdict guard, this means `scopedReviewBaselineValid` reports `valid:
-false`, naming `internal-event-sourcing-architecture-docs` as potentially impacted, not
-re-reviewed in this scope — rows 4/5 of the decision table are unavailable for a
-whole-change verdict regardless of tasks 13/14's own outcome. This is not a blocker for
-this pass: tasks 11/12 are explicitly out of scope here (owner instruction: "do not start
-tasks 11 or 12 in this pass") and remain `status: draft`/unstarted; task 12 will pick up
-the D44-corrected area text whenever it actually starts.
+- `depends_on` for both resolve and are non-cyclic (tasks 02-10, 13-16, all
+  `implemented`) — `validate` confirms.
+- `allowed_paths`/`forbidden_paths` present and unambiguous for both (docs-only paths,
+  disjoint from `src/**`/`examples/**`).
+- Acceptance criteria are testable: task 11's are `node tools/docs.mjs validate`/`check`
+  plus inspection against the explicit "required reader questions" list; task 12's are
+  `node tools/docs.mjs validate` plus inspection against the current final code shape —
+  neither is aspirational language.
+- No owner decision needed for either task is open.
+- Documentation impact is the tasks' entire scope, already identified.
+- Neither task touches an owner-approval-gated architectural decision requiring a fresh
+  option analysis — both are corrections to already-decided (D42-D44) contract wording.
 
 ## Verdict
 
-`changes-required` (F1: implementation not yet updated to match the corrected spec).
-`ready_for_approval: false`, `implementation_allowed: false`. Tasks 13/14 are already
-past the `draft`→`approved` CLI gate (`change.yaml` status: `implemented`) — `node
-tools/specs.mjs approve` only transitions `draft`→`approved` and does not apply here;
-"reapproval" for this pass takes the form of fresh `task-review` evidence once the
-implementation fix lands (next step), not a CLI `approve` call.
+`ready-for-approval`. `ready_for_approval: true`, `implementation_allowed: false` (tasks
+11/12 are still `draft` in `change.yaml`, checked directly, not assumed — approval is a
+separate, explicit step).
 
 ## Architecture and documentation
 
-No new architecture-doc/ADR conflict. `IAggregateMethodDecider`/`IDecider`, D43's
-generic-user design, the parameter-injection architecture, tasks 15/16, and the Documents
-authorization model are all unaffected by D44 — confirmed by inspection of every edited
-file above; none of them touch those surfaces.
+No new architecture-doc/ADR conflict. This pass corrected wording only — no task's scope,
+acceptance criteria count (beyond the one added AC12.11 documenting the D44 invariant
+plainly), or dependency graph changed.
