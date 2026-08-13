@@ -77,10 +77,11 @@ orchestration need — D33's own text names the missing capability this area now
   context is active, or the current `UserContext<TId, TUser>` carries no user, resolving
   `ICurrentUser<TId, TUser>` fails clearly (D42) — through task 13's decision-method-
   parameter-resolution failure path, not by returning a value the aggregate must itself
-  check for absence. The exact mechanism (throwing from the `User` getter, a
-  construction-time check, or an equivalent) is an implementation choice; the observable
-  contract is what matters — a resolved `ICurrentUser<TId, TUser>` always carries a real
-  user.
+  check for absence. **The check must happen during construction/activation (D44), not
+  from the `User` getter** — a decision method must never be entered before the current
+  user's availability has been validated. `User` is a plain, already-validated property
+  read once a `CurrentUser<TId, TUser>` instance exists; the observable contract is what
+  matters either way — a resolved `ICurrentUser<TId, TUser>` always carries a real user.
 - Register `ICurrentUser<TId, TUser>` via an addition to `NEvo.Messaging.Authorization`'s
   `ServiceCollectionExtensions` (currently an empty stub class,
   `src/NEvo.Messaging.Authorization/ServiceCollectionExtensions.cs`) — e.g. an
@@ -148,9 +149,10 @@ folded into `ICurrentUser<TId, TUser>`.
 1. `ICurrentUser<TId, TUser>.User` returns `TUser` matching the currently authenticated
    user when the current `IMessageContext`'s `UserContext<TId, TUser>` carries one (test).
 2. When no current user is available (no active message context, or an unpopulated
-   `UserContext<TId, TUser>`), resolving `ICurrentUser<TId, TUser>` as a decision-method
-   parameter fails clearly — the decision method is not invoked, and the caller observes
-   a parameter-resolution failure (`Left`), not a fabricated or default user (test, D42).
+   `UserContext<TId, TUser>`), resolving `ICurrentUser<TId, TUser>` fails during
+   construction/activation — before the decision method is invoked at all (test, D44) —
+   and the caller observes a parameter-resolution failure (`Left`), not a fabricated or
+   default user (test, D42).
 3. `ICurrentUser<TId, TUser>` exposes no member beyond `User` (inspection).
 4. `EditableDocument.Approve` declares `ICurrentUser<Guid, DemoUser> currentUser` as its
    second parameter and produces `DocumentApproved` with `ApprovedBy` set from the

@@ -7,7 +7,7 @@ depends_on:
   - documents-example-es-and-auth-demo
   - message-level-and-aggregate-authorization
 semantic_references:
-  decisions: [D4, D32, D33, D34, D35, D42, D43]
+  decisions: [D4, D32, D33, D34, D35, D42, D43, D44]
   dependency_contracts:
     - aggregate-decision-method-parameter-injection
     - documents-example-es-and-auth-demo
@@ -55,6 +55,20 @@ the gap D33 named when it removed the example's explicit Level 2 handler.
 - `message-level-and-aggregate-authorization` (task 07) — same package boundary,
   existing authorization pipeline this capability sits alongside.
 
+**Corrected by D44 (targeted correction pass).** As initially implemented,
+`CurrentUser<TId, TUser>`'s constructor accepted `IMessageContextAccessor` unconditionally
+and only threw `CurrentUserUnavailableException` from the `User` getter. Because
+`DecisionMethodParameterResolver` resolves this task's `ICurrentUser<TId, TUser>` by
+constructing it (construction always succeeds), the decision method was already being
+invoked — the CLR had already entered `Approve`'s body — by the time reading
+`currentUser.User` threw. That satisfies D42's *type* but not its intent: "the decision
+method is not invoked at all" was not literally true. This task now requires
+`CurrentUser<TId, TUser>` to obtain and validate the required user during construction,
+throwing `CurrentUserUnavailableException` from the constructor when unavailable, so
+`Approve` is never entered without one. `ICurrentUser<TId, TUser>`'s public shape
+(`TUser User { get; }`) and every other part of this task (D43's generic-user design,
+identity-only surface, registration shape) are unaffected.
+
 ## Implementation constraints
 
 - Add, in `NEvo.Messaging.Authorization`:
@@ -77,12 +91,13 @@ the gap D33 named when it removed the example's explicit Level 2 handler.
   NEvo naming convention that is clearly better — none was found during refinement.)
 - Implementation adapts `IMessageContextAccessor`/`UserContext<TId, TUser>` internally,
   and fails clearly (D42) when no message context is active or the current
-  `UserContext<TId, TUser>` carries no user — e.g. by throwing a focused exception from
-  the `User` getter (or an
-  equivalent construction-time check) that task 13's parameter resolver catches and
-  represents as its own typed resolution failure. Consumers never call `GetFeature`/
-  `GetUserContext` themselves, and never receive a value they must check for absence —
-  a resolved `ICurrentUser<TId, TUser>` always carries a real user.
+  `UserContext<TId, TUser>` carries no user — by throwing
+  `CurrentUserUnavailableException` from the constructor (D44), a construction-time
+  check, not from the `User` getter, so task 13's parameter resolver catches it during
+  activation and represents it as its own typed resolution failure before the decision
+  method is ever invoked. Consumers never call `GetFeature`/`GetUserContext` themselves,
+  and never receive a value they must check for absence — a resolved `ICurrentUser<TId,
+  TUser>` always carries a real user.
 - Register via an addition to `NEvo.Messaging.Authorization`'s
   `ServiceCollectionExtensions` (currently an empty stub — add an
   `AddCurrentUser<TId, TUser>()` or equivalent), scoped lifetime, `TryAdd*` for
@@ -120,10 +135,11 @@ the gap D33 named when it removed the example's explicit Level 2 handler.
 1. `ICurrentUser<TId, TUser>.User` returns `TUser` reflecting the current
    `IMessageContext`'s `UserContext<TId, TUser>` when one is populated (test).
 2. When no current user is available (no active message context, or an unpopulated
-   `UserContext<TId, TUser>`), resolving `ICurrentUser<TId, TUser>` as a decision-method
-   parameter fails clearly — the decision method is not invoked, no event is appended,
-   and the caller observes a parameter-resolution failure (`Left`), not a fabricated or
-   default user (test, D42).
+   `UserContext<TId, TUser>`), resolving `ICurrentUser<TId, TUser>` itself fails —
+   during construction/activation, before the `User` getter is ever reached (test, D44)
+   — so the decision method is not invoked, no event is appended, and the caller
+   observes a parameter-resolution failure (`Left`), not a fabricated or default user
+   (test, D42).
 3. `ICurrentUser<TId, TUser>` exposes no member beyond `User` (inspection).
 4. `EditableDocument.Approve` takes `ICurrentUser<Guid, DemoUser> currentUser` as its second
    parameter; `DocumentApproved.ApprovedBy` reflects the resolved user's id, not

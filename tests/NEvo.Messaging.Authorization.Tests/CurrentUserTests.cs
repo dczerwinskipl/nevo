@@ -32,25 +32,25 @@ public class CurrentUserTests
         currentUser.User.Should().Be(expected);
     }
 
+    // Resolving ICurrentUser<,> (constructing CurrentUser<,>) must itself fail when no
+    // user is available — not merely reading .User afterward — so a DI-backed resolver
+    // (e.g. task 13's decision-method parameter resolver) observes the failure during
+    // activation, before any caller could hold a partially-usable instance.
     [Fact]
-    public void User_MessageContextHasNoUser_ThrowsCurrentUserUnavailable()
+    public void Resolve_MessageContextHasNoUser_ThrowsCurrentUserUnavailableDuringActivation()
     {
         var contextMock = new Mock<IMessageContext>();
         contextMock.Setup(c => c.GetFeature<UserContext<Guid, User<Guid>>>())
             .Returns(new UserContext<Guid, User<Guid>>());
         var accessor = new MessageContextAccessor { MessageContext = contextMock.Object };
 
-        var currentUser = Build(accessor);
-
-        FluentActions.Invoking(() => currentUser.User).Should().Throw<CurrentUserUnavailableException>();
+        FluentActions.Invoking(() => Build(accessor)).Should().Throw<CurrentUserUnavailableException>();
     }
 
     [Fact]
-    public void User_NoCurrentMessageContext_ThrowsCurrentUserUnavailable()
+    public void Resolve_NoCurrentMessageContext_ThrowsCurrentUserUnavailableDuringActivation()
     {
-        var currentUser = Build(new MessageContextAccessor());
-
-        FluentActions.Invoking(() => currentUser.User).Should().Throw<CurrentUserUnavailableException>();
+        FluentActions.Invoking(() => Build(new MessageContextAccessor())).Should().Throw<CurrentUserUnavailableException>();
     }
 
     [Fact]

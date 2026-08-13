@@ -1787,3 +1787,93 @@ breaking-change acceptance
   tasks/13-aggregate-decision-method-parameter-injection.md,
   tasks/14-current-user-capability-and-documents-integration.md,
   tasks/11-user-facing-event-sourcing-guide.md, overview.md
+
+## D44: A required contextual parameter must validate its availability during
+resolution/activation, not lazily from a value read after the decision method starts
+executing — sharpens D42
+
+- **Question:** D42 requires that a required contextual parameter either resolves
+  successfully or the decision method is never invoked "for any reason resolution can
+  fail: the type is unregistered, activation throws, or ... the capability resolves as a
+  *type* but has no actual current value to report for this invocation." As shipped,
+  `CurrentUser<TId, TUser>` (`NEvo.Messaging.Authorization/CurrentUser.cs`) satisfies DI
+  construction unconditionally (its constructor only stores
+  `IMessageContextAccessor`) and throws `CurrentUserUnavailableException` only from the
+  `User` property getter. `DecisionMethodParameterResolver.Resolve`
+  (`NEvo.Ddd.EventSourcing/Deciding/DecisionMethodParameterResolver.cs`) calls
+  `serviceProvider.GetService(parameter.ParameterType)`, which succeeds — construction
+  never touches `User` — so the resolver returns `Right`, `ResolveArguments` completes,
+  and `AggregateDeciderExtractor.Invoke` calls `methodInfo.Invoke(target, arguments)`,
+  which is the CLR entering the decision method's body. Only then, when the method body
+  reads `currentUser.User`, does the getter throw; `Invoke`'s existing
+  `TargetInvocationException` unwrapping converts it to the same typed `Left`
+  (`tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderParameterInjectionTests.cs`'s
+  `DecideAsync_DependencyValueThrowsWhenRead_FailsWithoutProducingAnEvent`, and its
+  `ILazyThrowingDependency` fixture, exist specifically to document and assert this
+  ordering as correct). Does this satisfy the required-parameter invariant D42
+  establishes, given the decision method has already been entered/invoked by the time the
+  failure is observed?
+- **Options considered:** Treat "resolves as a Left before the decision method produces
+  a result" as sufficient — keep `CurrentUser<TId, TUser>`'s lazy-getter design and the
+  `ILazyThrowingDependency` test as correct, since the aggregate itself never has to
+  branch on absence and no event is ever produced either way | Tighten the invariant:
+  a required contextual parameter must be fully validated during DI
+  resolution/activation — i.e. before `AggregateDeciderExtractor.Invoke` calls
+  `methodInfo.Invoke` at all — so "the decision method is not invoked" is literally true,
+  not merely "invoked but its side effect is discarded."
+- **Decision:** The second option. All contextual parameters must be successfully
+  resolved before the aggregate decision method is invoked. A required contextual
+  capability validates its availability during dependency resolution/activation — for a
+  DI-backed capability, that means during service construction. A dependency that
+  resolves successfully (construction succeeds) but throws only after the decision
+  method's body has started executing is an ordinary invocation/application failure, not
+  a parameter-resolution failure — indistinguishable, from the framework's point of view,
+  from any other exception a decision method might throw for an unrelated business
+  reason. For `ICurrentUser<TId, TUser>` specifically: `CurrentUser<TId, TUser>` obtains
+  and validates the required user during construction (throwing
+  `CurrentUserUnavailableException` from the constructor when no message context is
+  active or the current `UserContext<TId, TUser>` carries no user), not from the `User`
+  getter. `User` becomes a plain, already-validated property read.
+- **Rationale:** Owner (targeted correction pass): the whole point of D42's "required,
+  not optional" invariant is that a decision method genuinely never runs without its
+  declared contextual facts — not that it runs and its output happens to be discarded.
+  Entering the method body before the failure is observed means the aggregate's own code
+  executes under a precondition the framework was supposed to guarantee already held;
+  today it happens to be harmless only because `Approve`'s one statement is the throwing
+  read itself, but the invariant as documented does not depend on that coincidence, and a
+  future decision method that reads other state before touching the contextual parameter
+  would silently violate it. Fixing this at the resolver level is unnecessary —
+  `DecisionMethodParameterResolver` already catches any exception `GetService` raises
+  during activation (`DecisionMethodParameterResolver.cs:22-31`) and wraps it as
+  `DecisionMethodParameterResolutionException`; the only change required is moving
+  `CurrentUser<TId, TUser>`'s validation from its (lazy) property getter into its
+  (eager) constructor, which activation already reaches through the existing catch.
+- **Consequences:** `CurrentUser<TId, TUser>` validates user availability inside its
+  constructor; `User` no longer throws. `DecisionMethodParameterResolver` and
+  `AggregateDeciderExtractor.InvokeDecide`/`Invoke` are unchanged — they already catch
+  and convert an activation-time throw correctly; this decision only relocates *when*
+  `CurrentUser<TId, TUser>` itself signals unavailability. The `ILazyThrowingDependency`/
+  `LazyThrowingDependency` fixture and
+  `DecideAsync_DependencyValueThrowsWhenRead_FailsWithoutProducingAnEvent` test in
+  `AggregateDeciderParameterInjectionTests` are removed — they existed solely to assert
+  the now-rejected "throws after invocation begins counts as resolution failure"
+  behavior as correct. A new regression test proves the real boundary instead: a required
+  contextual dependency unavailable at activation time yields
+  `DecisionMethodParameterResolutionException`, the decision method's own invocation
+  count stays at zero, and no event is produced.
+  `tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs`'s missing-context/
+  missing-user cases assert failure at resolution (`GetRequiredService` throws), not
+  merely that `.User` throws afterward. This does not change `ICurrentUser<TId, TUser>`'s
+  public shape (still `TUser User { get; }`), does not introduce a custom type resolver,
+  and does not reopen `IAggregateMethodDecider`/`IDecider`/D43's generic-user design/the
+  parameter-injection architecture/tasks 15-16/the Documents authorization model — all
+  stay exactly as D38/D42/D43 already established.
+- **Date:** 2026-08-13 (targeted correction pass)
+- **Affected artifacts:** areas/decision-method-parameter-injection.md,
+  areas/current-user-capability.md,
+  tasks/13-aggregate-decision-method-parameter-injection.md,
+  tasks/14-current-user-capability-and-documents-integration.md,
+  src/NEvo.Messaging.Authorization/CurrentUser.cs,
+  tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs,
+  tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderParameterInjectionTests.cs,
+  tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/ParameterInjectingAggregate.cs

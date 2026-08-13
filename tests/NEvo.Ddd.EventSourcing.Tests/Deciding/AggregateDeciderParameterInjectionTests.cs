@@ -1,7 +1,9 @@
 using LanguageExt;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using NEvo.Authorization.Users;
 using NEvo.Ddd.EventSourcing.Deciding;
+using NEvo.Messaging.Authorization;
 using NEvo.Messaging.Context;
 
 namespace NEvo.Ddd.EventSourcing.Tests.Deciding;
@@ -10,19 +12,38 @@ namespace NEvo.Ddd.EventSourcing.Tests.Deciding;
 // resolved per-invocation from the current message-context scope — for both the
 // static-creation and instance-on-existing-state discovery shapes — while an
 // unresolvable type or a misplaced command parameter fail clearly instead of silently.
-public class AggregateDeciderParameterInjectionTests
+public class AggregateDeciderParameterInjectionTests : IDisposable
 {
-    private static (AggregateDecider Decider, ServiceProvider RootProvider, MessageContextAccessor Accessor) CreateDecider(Type aggregateType)
+    // MessageContextAccessor's AsyncLocal-backed storage is process-wide (static, by
+    // design — see MessageContextAccessor.cs), so a scope entered here must be cleared
+    // afterward or it can leak into an unrelated test's own ambient message context.
+    private readonly List<MessageContextAccessor> _accessors = [];
+
+    public void Dispose()
     {
+        foreach (var accessor in _accessors)
+        {
+            accessor.MessageContext = null;
+        }
+    }
+
+    private (AggregateDecider Decider, ServiceProvider RootProvider, MessageContextAccessor Accessor) CreateDecider(Type aggregateType)
+    {
+        var accessor = new MessageContextAccessor();
+        _accessors.Add(accessor);
         var services = new ServiceCollection();
+        // Registered so a scoped capability resolved from within the current message
+        // scope (e.g. CurrentUser<,>) can itself depend on IMessageContextAccessor,
+        // exactly as it does in production DI — singleton, matching its ambient,
+        // AsyncLocal-backed lifetime, not scoped.
+        services.AddSingleton<IMessageContextAccessor>(accessor);
         services.AddScoped<IParameterInjectionDependency, ParameterInjectionDependency>();
         services.AddScoped<IActivationThrowingDependency>(_ => throw new InvalidOperationException("Activation always fails for this test dependency."));
-        services.AddScoped<ILazyThrowingDependency, LazyThrowingDependency>();
+        services.AddCurrentUser<Guid, User<Guid>>();
         var rootProvider = services.BuildServiceProvider();
 
         var configuration = new AggregateExtractorConfiguration { AggregateTypes = { aggregateType } };
         var deciderProvider = new AggregateDeciderProvider(Options.Create(configuration));
-        var accessor = new MessageContextAccessor();
         var decider = new AggregateDecider(deciderProvider, accessor);
         return (decider, rootProvider, accessor);
     }
@@ -162,27 +183,40 @@ public class AggregateDeciderParameterInjectionTests
         error.InnerException.Should().NotBeNull();
     }
 
-    // A parameter can resolve successfully as a *type* (DI construction succeeds) but
-    // still have no current value once the decision method actually reads it — the
-    // general mechanism a required contextual capability (e.g. a current-user capability)
-    // relies on. Reflection wraps the resulting exception; this proves it surfaces as a
-    // Left, not an uncontrolled exception, and — because the method's only statement is
-    // the throwing read — no event is ever produced.
+    // ICurrentUser<,> (D44) is the real-world case a required contextual capability that
+    // resolves as a type but has no current value must satisfy: CurrentUser<,> validates
+    // user availability during its own construction, so DI activation itself throws and
+    // the decision method is never entered — proven here by the invocation counter
+    // staying at zero and no event being produced, not merely by the Left's shape.
     [Fact]
-    public async Task DecideAsync_DependencyValueThrowsWhenRead_FailsWithoutProducingAnEvent()
+    public async Task DecideAsync_RequiredCurrentUserUnavailableAtActivation_FailsBeforeInvocation()
     {
         var (decider, rootProvider, accessor) = CreateDecider(typeof(ParameterInjectingAggregate));
         using var scope = rootProvider.CreateScope();
         EnterScope(accessor, scope.ServiceProvider);
         var id = Guid.NewGuid();
+        var aggregate = new ParameterInjectingAggregate(id);
 
         var result = await decider.DecideAsync<ParameterInjectingAggregate, Guid>(
-            Option<ParameterInjectingAggregate>.Some(new ParameterInjectingAggregate(id)),
-            new MutateParameterInjectingAggregateWithLazyThrowingDependency(id),
+            Option<ParameterInjectingAggregate>.Some(aggregate),
+            new MutateParameterInjectingAggregateWithCurrentUser(id),
             CancellationToken.None);
 
-        result.Should().BeLeft().Which.Should().BeOfType<InvalidOperationException>()
-            .Which.Message.Should().Be("No current value available for this invocation.");
+        var error = result.Should().BeLeft().Which.Should().BeOfType<DecisionMethodParameterResolutionException>().Which;
+        error.Message.Should()
+            .Contain(nameof(ParameterInjectingAggregate.MutateWithCurrentUser))
+            .And.Contain(nameof(ICurrentUser<Guid, User<Guid>>));
+        error.InnerException.Should().NotBeNull();
+        ExceptionChain(error.InnerException!).Should().Contain(e => e is CurrentUserUnavailableException);
+        aggregate.MutateWithCurrentUserInvocationCount.Should().Be(0);
+
+        static IEnumerable<Exception> ExceptionChain(Exception exception)
+        {
+            for (var current = exception; current is not null; current = current.InnerException)
+            {
+                yield return current;
+            }
+        }
     }
 
     [Fact]

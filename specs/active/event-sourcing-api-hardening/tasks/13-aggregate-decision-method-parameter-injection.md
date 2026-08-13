@@ -5,7 +5,7 @@ change: event-sourcing-api-hardening
 depends_on:
   - es-command-executor-and-ambiguity-resolution
 semantic_references:
-  decisions: [D1, D21, D23, D24, D26, D30, D34, D38, D39, D42]
+  decisions: [D1, D21, D23, D24, D26, D30, D34, D38, D39, D42, D44]
   dependency_contracts:
     - es-command-executor-and-ambiguity-resolution
 context:
@@ -54,6 +54,24 @@ delegates to, D1/D24), and this task must not change its shape merely to transpo
 parameter-resolution plumbing. This task now requires the public contract to stay
 exactly as it is today — parameter resolution is entirely internal to the aggregate-method
 convention's own discovery/dispatch implementation.
+
+**Corrected by D44 (targeted correction pass).** D42 requires a required contextual
+parameter to resolve successfully or the decision method is not invoked at all. As
+initially implemented, `IDecisionMethodParameterResolver.Resolve`/`AggregateDeciderExtractor.Invoke`
+already satisfy the *letter* of that for "type unregistered" and "activation throws" —
+but a contextual capability that resolves successfully as a type (construction succeeds)
+and only reports "no current value" from a value getter the decision method reads is not
+caught until *after* `methodInfo.Invoke` has already entered the decision method's body.
+That is an invocation/application failure being reported through the same `Left` shape,
+not a genuine "not invoked at all." This task's resolver/executor implementation is
+unaffected by this correction — `DecisionMethodParameterResolver` already catches any
+exception `GetService` raises during activation and wraps it correctly. What changes is
+which failures are treated as valid parameter-resolution tests: a fixture proving "a
+dependency that resolves as a type but throws when its value is read after invocation is
+a resolution failure" is no longer a valid test of this task's invariant (task 14's
+`ICurrentUser<TId, TUser>` is the concrete capability this correction targets — see its own
+D44 note). A required dependency that throws during DI activation remains exactly the
+correct shape for this task's tests.
 
 ## Dependencies
 
@@ -170,6 +188,14 @@ convention's own discovery/dispatch implementation.
     produced is never converted into `null`/`default`/`Option.None` passed to the
     decision method (D42 generalizes this task's original "nothing registered" case to
     "resolution/activation failed for any reason");
+  - **the failure must occur before the decision method is invoked, not merely before it
+    produces a result (D44).** A capability reporting "no current value" must do so
+    during resolution/activation itself (e.g. a DI-backed capability's own constructor) —
+    not from a value the decision method reads only after `methodInfo.Invoke` has already
+    entered its body. The resolver/executor need no change to satisfy this — they already
+    catch and convert an activation-time throw correctly; this constraint governs what a
+    contextual-capability test fixture is allowed to prove, not this task's own resolver
+    logic;
   - an unsupported/ambiguous decision-method shape → a specific discovery-time error, not
     a silent "not discovered" or an unrelated runtime crash.
 
@@ -233,7 +259,10 @@ documentation.
    decision method declaring a *registered* additional parameter type whose activation
    throws also fails at invocation, through the same error path, with the original
    exception preserved as diagnostic context — not an uncontrolled reflection/DI
-   exception escaping the call (test, D42).
+   exception escaping the call (test, D42). This failure occurs before the decision
+   method is invoked: a regression test proves the declaring method's own invocation
+   count stays at zero and no event is produced when a required contextual dependency is
+   unavailable at activation time (test, D44).
 6. A method whose command parameter is not first fails at discovery time with a specific,
    actionable error (test) — distinct from a method that is legitimately not a decider at
    all (unchanged: no error, simply not discovered).

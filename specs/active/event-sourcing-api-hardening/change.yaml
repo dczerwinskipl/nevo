@@ -491,7 +491,7 @@ tasks:
       - es-command-executor-and-ambiguity-resolution
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
-      review_revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
+      review_revision: 014cafcf924b7a8a1bcb130065505002b45de3d6
       changed_paths:
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDecider.cs
         - src/NEvo.Ddd.EventSourcing/Deciding/AggregateDeciderExtractor.cs
@@ -509,10 +509,10 @@ tasks:
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderParameterInjectionTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Deciding/AggregateDeciderTests.cs
         - tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/ParameterInjectingAggregate.cs
-      worktree_patch_fingerprint: 8a6b935e5aeaefe2d91d7ad3d4bcdc4d32a5c1c1eb2242ba537ba9314fddef70
+      worktree_patch_fingerprint: 18c180b13934687eded10696c175946cb872bfd5c3ec66ec8f2df20996099c92
     self_check:
-      fingerprint: 8deaf89fd31b5174b81ddcc8201ce29c2d20871a905ec375c87c18f43a56c373
-      revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
+      fingerprint: 48ae450c65db42e8a344a572292bcf4b19e1eca5d49613eeaebd3aa3e2fd5e58
+      revision: 014cafcf924b7a8a1bcb130065505002b45de3d6
       commands:
         - command: dotnet build
           exit_code: 0
@@ -529,13 +529,15 @@ tasks:
       - message-level-and-aggregate-authorization
     implementation:
       baseline_revision: 5c5e4be2d8f8fe58ddd97e3c7a7cdb6fed4009d5
-      review_revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
+      review_revision: 014cafcf924b7a8a1bcb130065505002b45de3d6
       changed_paths:
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Authorization/DemoAuthentication.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/Document.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Domain/DocumentQueries.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/ServiceCollectionExtensions.cs
         - examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md
+        - examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Program.cs
+        - src/NEvo.Authorization/Users/IUserProvider.cs
         - src/NEvo.Messaging.Authorization/CurrentUser.cs
         - src/NEvo.Messaging.Authorization/CurrentUserUnavailableException.cs
         - src/NEvo.Messaging.Authorization/ICurrentUser.cs
@@ -545,12 +547,17 @@ tasks:
         - src/NEvo.Messaging.Authorization/UserContext.cs
         - src/NEvo.Messaging.Authorization/UserContextMiddleware.cs
         - src/NEvo.Messaging.Authorization/ValidatePermissionMiddleware.cs
+        - src/NEvo.Web.Authorization/ServiceCollectionExtensions.cs
+        - src/NEvo.Web.Authorization/Users/ClaimUserProvider.cs
+        - src/NEvo.Web.Authorization/Users/DefaultClaimUserProvider.cs
+        - tests/NEvo.Ddd.EventSourcing.Tests/Characterization/ExplicitHandlerPermissionCompositionTests.cs
         - tests/NEvo.Messaging.Authorization.Tests/CurrentUserTests.cs
         - tests/NEvo.Messaging.Authorization.Tests/ValidatePermissionMiddlewareTests.cs
-      worktree_patch_fingerprint: e1d85d5c34f79a03d07e49860eedf94d5a15908132c667265cbe474f25b5edc8
+        - tests/NEvo.Web.Authorization.Tests/Users/ClaimUserProviderTests.cs
+      worktree_patch_fingerprint: 9cf28d1903f86c03848560fff5b9c4c09f134366acfb164a0adcf07441f807a1
     self_check:
-      fingerprint: 9b9a115c1558dd8166f4280b3c748dd93064a412e1bc2e2484a06e9676cd57a0
-      revision: 6efeb5c76f377bf81a76d02e768ba416f79bdbfe
+      fingerprint: 56f144802636fe48d40f78aaed5473b53a07d555384a2c07a2460445e3c4ef57
+      revision: 014cafcf924b7a8a1bcb130065505002b45de3d6
       commands:
         - command: dotnet build
           exit_code: 0

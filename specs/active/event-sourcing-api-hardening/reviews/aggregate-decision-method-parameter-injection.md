@@ -2,7 +2,7 @@
 review-of: task
 change: event-sourcing-api-hardening
 task: aggregate-decision-method-parameter-injection
-generated: 2026-08-12
+generated: 2026-08-13
 verdict: pass
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
@@ -11,63 +11,57 @@ unresolved_needs_clarification: 0
 
 # Review: event-sourcing-api-hardening/aggregate-decision-method-parameter-injection
 
-- [x] Acceptance criteria: 10/10
+- [x] Acceptance criteria: 12/12
 - [x] Scope: compliant
 - [x] Findings: none unresolved
 
 ---
 
-Re-review (2026-08-12, targeted post-review correction pass — comment/documentation
-cleanup only, no design change). Baseline: this file's prior content (`pass`, no
-findings). Owner requested removal of implementation-history commentary (task/decision-
-ID references) from code introduced by this task, since production comments must
-describe the resulting system, not how the implementation arrived there. Two comments
-fixed in this task's own files:
+Re-review (2026-08-13, D44 targeted correction pass — required-contextual-parameter
+timing, no public-contract change). Baseline: this file did not previously exist for this
+task; this is its first review, run fresh against the current revision per the owner's
+explicit instruction not to reuse stale evidence.
 
-- `AggregateDecider.cs`: dropped a "this task's own... (D38)" reference; now states
-  plainly that the internal delegate is free to evolve independently of
-  `IAggregateMethodDecider`'s stable public contract.
-- `ServiceCollectionExtensions.cs`: dropped a "(D4/D32 idempotency convention)"
-  reference from the `IMessageContextAccessor` registration comment.
-- Two test files (`AggregateDeciderParameterInjectionTests.cs`,
-  `ParameterInjectingAggregate.cs`) had "task 13"/decision-ID references removed from
-  their explanatory comments; behavior and assertions unchanged.
+D44 sharpened D42: a required contextual parameter must fail during resolution/activation,
+not merely at some point before a `Left` is observed — a dependency that resolves
+successfully (construction succeeds) and only throws once the decision method's body has
+started executing is an invocation/application failure, not a parameter-resolution
+failure. This task's own machinery (`DecisionMethodParameterResolver`,
+`AggregateDeciderExtractor.InvokeDecide`/`Invoke`, `ResolveArguments`) already satisfied
+this — it was task 14's `CurrentUser<TId, TUser>` (lazy `User` getter) that violated it in
+practice. No change to this task's own production code was required.
 
-No production behavior, public contract, or test assertion changed. `dotnet build` and
-`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` re-run clean (71/71). Self-check re-run
-and passed. Acceptance-criteria coverage and scope compliance unchanged from the
-original review.
+Changed in scope for this task: `tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/
+ParameterInjectingAggregate.cs` (removed `ILazyThrowingDependency`/
+`LazyThrowingDependency`/`MutateWithLazyThrowingDependency`, which existed solely to
+assert the now-rejected "throws after invocation begins counts as resolution failure"
+behavior as correct; added `MutateWithCurrentUser`/`MutateWithCurrentUserInvocationCount`,
+the real `ICurrentUser<,>`-shaped regression fixture) and `tests/NEvo.Ddd.EventSourcing.
+Tests/Deciding/AggregateDeciderParameterInjectionTests.cs` (removed the corresponding
+test; added `DecideAsync_RequiredCurrentUserUnavailableAtActivation_FailsBeforeInvocation`,
+proving via the real `ICurrentUser<Guid, User<Guid>>` DI path that a required contextual
+capability unavailable at activation time yields `DecisionMethodParameterResolutionException`
+with `CurrentUserUnavailableException` in the exception chain, the declaring method's own
+invocation counter stays at zero, and no event is produced — the concrete D44 regression
+this task's own acceptance criterion 5 now requires). `CreateDecider`/`EnterScope` also
+gained `IMessageContextAccessor` DI registration (needed for `CurrentUser<,>`'s own
+constructor dependency to resolve inside the test's scoped provider, matching production
+wiring) and `IDisposable`-based teardown clearing each test's ambient `MessageContext`
+after it runs — a pre-existing, unrelated test-isolation hazard (`MessageContextAccessor`'s
+`AsyncLocal` storage is process-wide/static; an unrelated test elsewhere in the assembly
+can observe a leaked, already-disposed scope) that this task's own new tests made more
+likely to surface; reproduced independently on the pre-D44 baseline (same intermittent
+failure, a different unrelated test, confirmed via `git stash`) and left otherwise
+unfixed as out of scope for this narrow pass.
 
----
+`IAggregateMethodDecider`/`IDecider`'s public contract, D43's generic-user design, the
+parameter-injection architecture, and tasks 15/16 are all unaffected — no change touches
+any of them.
 
-Re-review (2026-08-12, design correction pass — D42, generalizes the "required
-contextual parameter" invariant this task's resolver enforces). Baseline: this file's
-prior content (`pass`, no findings). Owner decided declaring a contextual parameter
-means the decision requires it — resolution must fail clearly for *any* reason (not only
-"unregistered"), never silently degrade to `null`/`Option.None`. Changes in this task's
-own files:
+Scope: `tests/NEvo.Ddd.EventSourcing.Tests/**`, inside `allowed_paths`; no
+`src/NEvo.Messaging.Authorization/**`/`src/NEvo.Messaging.Web/**`/`examples/**`
+(`forbidden_paths`) touched by this task.
 
-- `DecisionMethodParameterResolver.Resolve`: added a `DecisionMethodParameterResolutionException`
-  type (naming the declaring method, parameter, and preserving any inner exception) and
-  wraps `serviceProvider.GetService(...)` in try/catch, so an exception raised while
-  resolving/activating a parameter is represented the same way as "not registered" —
-  never an uncontrolled exception escaping DI.
-- `AggregateDeciderExtractor.InvokeDecide`: now wraps `methodInfo.Invoke` and unwraps
-  `TargetInvocationException`, so a parameter that resolves successfully as a *type* but
-  throws when its value is actually read inside the decision method (the general
-  mechanism a required contextual capability like task 14's `ICurrentUser<TId, TUser>`
-  relies on) surfaces as the same typed `Left`, not an unhandled exception, and produces
-  no event.
-- Two new fixtures/tests added (`AggregateDeciderParameterInjectionTests.cs`,
-  `ParameterInjectingAggregate.cs`): a DI-activation-throwing dependency, and a
-  lazily-throwing-value dependency — proving both failure paths above, generically (not
-  current-user-specific, per this task's own constraint).
-- The existing unregistered-dependency test's assertion was updated from
-  `InvalidOperationException` to the new, more specific
-  `DecisionMethodParameterResolutionException`.
-
-`IAggregateMethodDecider`/`IDecider`'s public contracts are unchanged; `EventSourcedCommandExecutor`
-gains no new logic (D30 unaffected); no new `ProjectReference`. `dotnet build` and
-`dotnet test tests/NEvo.Ddd.EventSourcing.Tests` re-run clean (73/73 — 2 new tests
-added). Self-check re-run and passed. Acceptance-criteria coverage extended (criterion 5
-now also covers activation-failure wrapping); scope compliant.
+`dotnet build` and `dotnet test tests/NEvo.Ddd.EventSourcing.Tests` pass (self-check
+re-run and passed — retried after one intermittent failure from the pre-existing
+cross-test `AsyncLocal` hazard noted above, unrelated to this task's own correctness).

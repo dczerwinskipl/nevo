@@ -1,4 +1,6 @@
 using LanguageExt;
+using NEvo.Authorization.Users;
+using NEvo.Messaging.Authorization;
 using NEvo.Messaging.Cqrs.Commands;
 using NEvo.Messaging.Events;
 
@@ -30,21 +32,6 @@ public interface IActivationThrowingDependency
 {
 }
 
-// Registered normally (construction succeeds), but its own value getter always throws —
-// the generic stand-in for any contextual capability (e.g. a required current-user
-// capability) that resolves as a type but has no current value for this invocation. The
-// framework has no compile-time knowledge of this shape; the throw only surfaces once
-// the decision method itself reads the property.
-public interface ILazyThrowingDependency
-{
-    Guid Value { get; }
-}
-
-public class LazyThrowingDependency : ILazyThrowingDependency
-{
-    public Guid Value => throw new InvalidOperationException("No current value available for this invocation.");
-}
-
 public class ParameterInjectingAggregate(Guid id) : IAggregateRoot<Guid>
 {
     public Guid Id { get; set; } = id;
@@ -65,8 +52,17 @@ public class ParameterInjectingAggregate(Guid id) : IAggregateRoot<Guid>
     public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithActivationThrowingDependency(MutateParameterInjectingAggregateWithActivationThrowingDependency command, IActivationThrowingDependency dependency)
         => new[] { new ParameterInjectingAggregateMutated(Id, Guid.Empty) };
 
-    public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithLazyThrowingDependency(MutateParameterInjectingAggregateWithLazyThrowingDependency command, ILazyThrowingDependency dependency)
-        => new[] { new ParameterInjectingAggregateMutated(Id, dependency.Value) };
+    // ICurrentUser<,> is the concrete, real-world stand-in for a required contextual
+    // capability that resolves as a type but has no current value for this invocation
+    // (D44). The invocation counter proves the decision method's body is never entered
+    // when CurrentUser<,> fails during its own construction/activation.
+    public int MutateWithCurrentUserInvocationCount { get; private set; }
+
+    public Either<Exception, IEnumerable<ParameterInjectingAggregateDomainEvent>> MutateWithCurrentUser(MutateParameterInjectingAggregateWithCurrentUser command, ICurrentUser<Guid, User<Guid>> currentUser)
+    {
+        MutateWithCurrentUserInvocationCount++;
+        return new[] { new ParameterInjectingAggregateMutated(Id, currentUser.User.Id) };
+    }
 
     public ParameterInjectingAggregate Apply(ParameterInjectingAggregateMutated @event)
     {
@@ -84,7 +80,7 @@ public record CreateParameterInjectingAggregate(Guid ParameterInjectingAggregate
 public record MutateParameterInjectingAggregate(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 public record MutateParameterInjectingAggregateWithUnresolvedDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 public record MutateParameterInjectingAggregateWithActivationThrowingDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
-public record MutateParameterInjectingAggregateWithLazyThrowingDependency(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
+public record MutateParameterInjectingAggregateWithCurrentUser(Guid ParameterInjectingAggregateId) : ParameterInjectingAggregateCommand(ParameterInjectingAggregateId);
 
 public abstract record ParameterInjectingAggregateDomainEvent(Guid ParameterInjectingAggregateId) : Event, IAggregateEvent<ParameterInjectingAggregate, Guid>
 {

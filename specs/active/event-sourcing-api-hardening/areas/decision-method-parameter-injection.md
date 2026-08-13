@@ -74,6 +74,17 @@ one validated approach the task may use, not a mandate that it is the only one.
   convention exists — a required dependency that cannot be produced always fails the
   invocation before the decision method runs; it is never translated into `null`,
   `default`, or an `Option.None` passed to the method.
+- **All contextual parameters must be successfully resolved before the aggregate
+  decision method is invoked (D44).** A required contextual capability must validate its
+  own availability during dependency resolution/activation — for a DI-backed capability,
+  that means during service construction, not lazily from a value getter the decision
+  method happens to read. A dependency that resolves successfully (construction
+  succeeds) but throws only after the decision method has started executing is an
+  ordinary invocation/application failure, not a parameter-resolution failure — the
+  method has already been entered by then, which is exactly what "not invoked at all"
+  rules out. For `ICurrentUser<TId, TUser>` (area `current-user-capability`), this means
+  current-user availability is validated while DI constructs/resolves the capability,
+  not when `.User` is read.
 - Parameter resolution is **per-invocation**, not resolved once at discovery/startup time
   — a parameter such as the current user must reflect the invocation that is actually
   running, not whatever was in scope when the aggregate type was first reflected over
@@ -142,11 +153,12 @@ resolves any registered type).
   - a required additional parameter cannot be resolved — whether nothing is registered
     for its type, an exception is raised while resolving/activating it (including one a
     contextual capability's own implementation throws to signal "no current value
-    available," per D42), or any other resolution failure — surfaced as a discovery-time
-    or decide-time error naming the method and the unresolvable parameter type, with the
-    original exception preserved as diagnostic context, never a generic DI exception
-    bubbling up unexplained and never silently converted into `null`/`default`/
-    `Option.None`;
+    available," per D42, and — per D44 — must throw during that resolution/activation
+    step itself, not from a value read later inside the decision method), or any other
+    resolution failure — surfaced as a discovery-time or decide-time error naming the
+    method and the unresolvable parameter type, with the original exception preserved as
+    diagnostic context, never a generic DI exception bubbling up unexplained and never
+    silently converted into `null`/`default`/`Option.None`;
   - a decision method's parameter shape is ambiguous or unsupported (e.g. the first
     parameter is not a command type at all) — the existing "not discovered as a decider"
     behavior for a completely unrecognized shape is preserved; a shape that looks
@@ -211,7 +223,12 @@ resolves any registered type).
    unresolvable parameter type — not a generic unhandled exception. A contextual
    dependency that *is* registered but throws while being resolved/activated fails the
    same way — the original exception is preserved as diagnostic context, never escaping
-   as an uncontrolled reflection/DI exception (test, D42).
+   as an uncontrolled reflection/DI exception (test, D42). This failure occurs before the
+   decision method is invoked — proven by a regression test asserting the decision
+   method's own invocation count stays at zero and no event is produced (test, D44); a
+   dependency that resolves/activates successfully and only throws when a value it
+   exposes is read *inside* the decision method's body is an ordinary application
+   failure, not this kind of resolution failure, and is not exercised as one.
 6. A method whose first parameter is not a command type is not discovered as a decider
    (unchanged from today); a method whose command parameter is not first (e.g.
    `Approve(TDependency dependency, ApproveDocument command)`) fails with a specific,
