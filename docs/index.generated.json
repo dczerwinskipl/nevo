@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-09T11:14:11.475Z",
+  "generated": "2026-08-13T18:48:58.478Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -56,6 +56,14 @@
       "title": "Cross-service messaging",
       "status": "current",
       "summary": "Dispatching a command from one service to another over REST, generalized from the example app's cross-service scenario."
+    },
+    {
+      "file": "docs/usage/event-sourcing.md",
+      "id": "guides.event-sourcing",
+      "type": "guide",
+      "title": "Event Sourcing",
+      "status": "current",
+      "summary": "Modeling an aggregate, choosing a command-handling level, authorization, optimistic concurrency, and reading state back through Query — using NEvo.Ddd.EventSourcing's aggregate-method convention, decision-method parameter injection, and MapQueryEndpoint."
     },
     {
       "file": "docs/usage/events.md",

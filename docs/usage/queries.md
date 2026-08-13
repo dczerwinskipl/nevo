@@ -56,10 +56,18 @@ Directly, via `IQueryDispatcher`:
 var result = await queryDispatcher.DispatchAsync(new GetOrderStatus("order-1"), cancellationToken);
 ```
 
-Or over HTTP, from a minimal API endpoint that resolves `IQueryDispatcher` and maps the
-`Either<Exception, TResult>` result to a response — see
-`examples/ExampleApp/NEvo.ExampleApp.ServiceA.Api/Routes.cs`'s `GetDocumentQuery`
-endpoint for a complete, runnable example.
+Or over HTTP, via `NEvo.Messaging.Web`'s `MapQueryEndpoint<TQuery, TResult>` — the
+recommended HTTP Query pattern, binding the query from route/query-string values via
+`[AsParameters]` (no request body):
+
+```csharp
+app.MapQueryEndpoint<GetOrderStatus, OrderStatusDto>("/api/orders/{orderId}/status");
+```
+
+See `examples/ExampleApp/NEvo.ExampleApp.Documents.Api/Routes.cs`'s `GetDocumentQuery`
+mapping for a complete, runnable example, and
+[Event Sourcing](event-sourcing.md) § "Query and read side" for the full binding
+details (including why `Id`/`CreatedAt` are never required parameters).
 
 ## Constraints and failure modes
 
