@@ -1,10 +1,12 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowUpRight,
   BookOpenText,
   Boxes,
   CalendarClock,
   CheckCircle2,
+  ChevronRight,
   CircleDotDashed,
   FileCode2,
   GitPullRequest,
@@ -334,24 +336,97 @@ function AreasPanel({
   error: string | null;
   onRetry: () => void;
 }) {
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const areaTriggerIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (selectedAreaId && !content?.areas.some(area => area.id === selectedAreaId)) {
+      setSelectedAreaId(null);
+    }
+  }, [content, selectedAreaId]);
+
   if (loading) return <ContentLoading />;
   if (error) return <ContentError message={error} onRetry={onRetry} />;
   if (!content?.areas.length) {
     return <EmptyDocument title="Brak dokumentów obszarów" detail="Ta specyfikacja nie ma dodatkowych dokumentów w katalogu areas/." />;
   }
-  return (
-    <div className="space-y-4">
-      {content.areas.map(area => (
-        <Card key={area.id} className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 sm:px-8">
-            <span className="text-xs font-semibold text-[var(--foreground)]">{area.title}</span>
-            <span className="text-[10px] text-[var(--muted)]">{area.path}</span>
+  const selectedArea = selectedAreaId
+    ? content.areas.find(area => area.id === selectedAreaId) ?? null
+    : null;
+
+  if (selectedArea) {
+    return (
+      <div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2"
+            onClick={() => {
+              const triggerId = areaTriggerIdRef.current;
+              setSelectedAreaId(null);
+              requestAnimationFrame(() => { if (triggerId) document.getElementById(triggerId)?.focus(); });
+            }}
+          >
+            <ArrowLeft className="mr-2 size-3.5" /> Wróć do obszarów
+          </Button>
+          <span className="max-w-full truncate text-[10px] text-[var(--muted)] sm:max-w-[60%]">{selectedArea.path}</span>
+        </div>
+
+        <Card className="overflow-hidden">
+          <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszar</p>
+            <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{selectedArea.title}</h2>
           </div>
           <article className="px-5 py-7 sm:px-8 sm:py-9">
-            <MarkdownContent markdown={area.markdown} />
+            <MarkdownContent markdown={selectedArea.markdown} />
           </article>
         </Card>
-      ))}
+      </div>
+    );
+  }
+
+  const areaCountLabel = content.areas.length === 1
+    ? '1 obszar'
+    : content.areas.length < 5
+      ? `${content.areas.length} obszary`
+      : `${content.areas.length} obszarów`;
+
+  return (
+    <div>
+      <div className="mb-4">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszary</p>
+        <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{areaCountLabel}</h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">Wybierz obszar, aby otworzyć jego dokument.</p>
+      </div>
+
+      <div className="space-y-3">
+        {content.areas.map(area => {
+          const triggerId = `area-trigger-${area.id}`;
+          return (
+            <Card key={area.id} className="overflow-hidden transition-colors hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--border))]">
+              <button
+                id={triggerId}
+                type="button"
+                className="flex w-full items-center gap-3 p-4 text-left sm:p-5"
+                onClick={() => {
+                  areaTriggerIdRef.current = triggerId;
+                  setSelectedAreaId(area.id);
+                }}
+              >
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted)]">
+                  <Boxes className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold leading-5 text-[var(--foreground)] sm:text-base">{area.title}</h3>
+                  {area.path && <p className="mt-2 truncate font-mono text-[10px] text-[var(--muted)]">{area.path}</p>}
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />
+              </button>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
