@@ -278,6 +278,10 @@ FakesAssemblies/
 .ntvs_analysis.dat
 node_modules/
 
+# NEvo specification dashboard build output
+tools/dashboard/dist/
+tools/dashboard/*.tsbuildinfo
+
 # Visual Studio 6 build log
 *.plg
 

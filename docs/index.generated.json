@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-09T11:14:11.475Z",
+  "generated": "2026-08-14T16:06:58.128Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -434,9 +434,10 @@
       "status": "current",
       "read_when": [
         "setting up the development environment",
-        "running the example applications"
+        "running the example applications",
+        "running the specification dashboard"
       ],
-      "summary": "Prerequisites, build commands, and how to run the example applications locally.",
+      "summary": "Prerequisites, build commands, and how to run the example applications and the local specification dashboard.",
       "related": [
         "development.testing"
       ]
