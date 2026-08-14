@@ -812,7 +812,9 @@ export function handleArchive(changeSlug) {
   if (!allDone) throw new CliError('Not all tasks are in a terminal status. Cannot archive.');
 
   ensureDir(ARCHIVE_DIR);
-  moveDir(change._dir, join(ARCHIVE_DIR, changeSlug));
+  const archiveDir = join(ARCHIVE_DIR, changeSlug);
+  moveDir(change._dir, archiveDir);
+  updateYamlFile(join(archiveDir, 'change.yaml'), doc => doc.set('status', 'archived'));
   writeSpecsIndexes(buildSpecsIndexes());
   console.log(`Change '${changeSlug}' archived to specs/archive/.`);
 }

@@ -44,6 +44,9 @@ approved work inside a declared context.
 - **Tooling:** `node tools/specs.mjs <next|context|start|...>` and
   `node tools/docs.mjs <validate|find|...>` drive specification and documentation
   lifecycle deterministically — see the workflow doc for the full command list.
+- **Dashboard:** `npm run dashboard:dev` opens the local, live-updating view of current
+  and archived specifications. See [`docs/development/local-setup.md`](docs/development/local-setup.md)
+  for installation and production-build commands.
 - **Claude Code:** exposes this workflow through namespaced `/nevo-ai:*` commands
   (`spec-create`, `spec-refine`, `spec-review`, `spec-approve`, `task-next`,
   `task-start`, `task-review`) — see [`CLAUDE.md`](CLAUDE.md).

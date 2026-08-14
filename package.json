@@ -9,7 +9,11 @@
   "scripts": {
     "test": "node --test tools/tests/*.test.mjs",
     "specs:check": "node tools/specs.mjs check",
-    "docs:check": "node tools/docs.mjs check"
+    "docs:check": "node tools/docs.mjs check",
+    "dashboard:dev": "node tools/dashboard/server/dev.mjs",
+    "dashboard:test": "npm --prefix tools/dashboard test",
+    "dashboard:build": "npm --prefix tools/dashboard run build",
+    "dashboard:start": "node tools/dashboard/server/index.mjs"
   },
   "dependencies": {
     "commander": "^15.0.0",
