@@ -1,0 +1,31 @@
+id: nevo-spec-dashboard
+title: Local specification workflow dashboard
+status: draft
+priority: 20
+created: 2026-08-14
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: dashboard-data-runtime
+    order: 1
+    file: tasks/01-dashboard-data-runtime.md
+    status: verified
+    execution:
+      suspension:
+        kind: owner-decision
+        code: REC-06
+        previous_action: start
+        created_at: 2026-08-14T15:00:47.502Z
+  - id: dashboard-interface
+    order: 2
+    file: tasks/02-dashboard-interface.md
+    status: verified
+    depends_on: [ dashboard-data-runtime ]
+  - id: dashboard-distribution
+    order: 3
+    file: tasks/03-dashboard-distribution.md
+    status: verified
+    depends_on: [ dashboard-interface ]

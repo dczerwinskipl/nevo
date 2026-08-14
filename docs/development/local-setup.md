@@ -6,8 +6,10 @@ status: current
 read_when:
   - setting up the development environment
   - running the example applications
+  - running the specification dashboard
 summary: >
-  Prerequisites, build commands, and how to run the example applications locally.
+  Prerequisites, build commands, and how to run the example applications and the
+  local specification dashboard.
 related:
   - development.testing
 ---
@@ -46,7 +48,60 @@ node tools/specs.mjs list
 node tools/docs.mjs validate
 ```
 
-No `npm install` needed — tools use only Node built-ins.
+The specs and docs commands use the root dependencies already restored for the
+repository. They do not require the dashboard dependencies below.
+
+## Specification dashboard
+
+The local dashboard visualizes the canonical files under `specs/active/` and
+`specs/archive/`. YAML and Markdown remain the source of truth; the dashboard is
+read-only and refreshes automatically when a relevant file changes.
+
+Install its isolated frontend dependencies once:
+
+```bash
+npm --prefix tools/dashboard install
+```
+
+Start the development dashboard (React UI and file-backed API together):
+
+```bash
+npm run dashboard:dev
+```
+
+Open the local URL printed by the command. For a production-style local run:
+
+```bash
+npm run dashboard:build
+npm run dashboard:start
+```
+
+The host and ports can be overridden with command arguments. For example, to bind
+the production dashboard to a Tailscale address on a custom port:
+
+```bash
+npm run dashboard:build
+npm run dashboard:start -- --host 100.117.54.81 --port 5317
+```
+
+Development mode additionally accepts a separate API port:
+
+```bash
+npm run dashboard:dev -- --host 100.117.54.81 --port 5317 --api-port 5318
+```
+
+The equivalent environment variables are `NEVO_DASHBOARD_HOST`,
+`NEVO_DASHBOARD_PORT`, and `NEVO_DASHBOARD_API_PORT`. Command arguments take
+precedence over environment variables. Without overrides, the dashboard remains
+bound to `127.0.0.1` on UI port `4317`; development API port `4318` stays internal.
+In a production-style run, the UI and read-only JSON API share the selected UI
+port and the API is available at `/api/dashboard`. Startup output prints links
+using the configured host and actual ports.
+
+The reproducible browser assets are generated under `tools/dashboard/dist/` and are
+ignored by Git. That directory, together with `tools/dashboard/server/`, is the future
+packaging seam for distributing the dashboard with a combined NEvo CLI; no publishing
+or installer is part of the current local-only scope.
 
 ## Example applications
 
