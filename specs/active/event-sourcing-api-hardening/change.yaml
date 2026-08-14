@@ -633,3 +633,8 @@ tasks:
         - command: dotnet test tests/NEvo.Core.Tests
           exit_code: 0
       status: passed
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 20
