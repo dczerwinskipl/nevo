@@ -3,8 +3,14 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadDashboardData } from './data.mjs';
+import { loadDashboardData, loadSpecificationContent } from './data.mjs';
+import {
+  executeSpecificationAction,
+  loadSpecificationActions,
+  SpecificationActionError,
+} from './actions.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
+import { loadSpecificationPullRequests } from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,6 +36,22 @@ function sendJson(response, status, payload) {
     'cache-control': 'no-store',
   });
   response.end(body);
+}
+
+async function readJsonBody(request, maxBytes = 4096) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) throw new SpecificationActionError('Request body is too large.', 413);
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new SpecificationActionError('Request body must be valid JSON.', 400);
+  }
 }
 
 function safeStaticPath(distDir, pathname) {
@@ -64,12 +86,78 @@ function serveStatic(response, pathname, distDir) {
 
 export function createDashboardServer({
   dataLoader = loadDashboardData,
+  contentLoader = loadSpecificationContent,
+  pullRequestLoader = loadSpecificationPullRequests,
+  actionLoader = loadSpecificationActions,
+  actionExecutor = executeSpecificationAction,
   eventHub = createSpecEventHub(),
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
-  const server = createServer((request, response) => {
+  const runningActions = new Set();
+  const server = createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
+
+    const actionRoute = url.pathname.match(/^\/api\/specs\/active\/([^/]+)\/actions$/);
+    if (actionRoute) {
+      let slug;
+      try {
+        slug = decodeURIComponent(actionRoute[1]);
+      } catch {
+        sendJson(response, 404, { error: 'Specification actions not found' });
+        return;
+      }
+      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+        sendJson(response, 404, { error: 'Specification actions not found' });
+        return;
+      }
+
+      if (method === 'GET') {
+        try {
+          sendJson(response, 200, actionLoader({ slug }));
+        } catch (error) {
+          const status = error instanceof SpecificationActionError ? error.status : 500;
+          sendJson(response, status, { error: status === 404 ? 'Specification actions not found' : 'Unable to load specification actions' });
+        }
+        return;
+      }
+
+      if (method === 'POST') {
+        if (request.headers['x-nevo-dashboard-action'] !== '1') {
+          sendJson(response, 403, { error: 'Dashboard action header is required.' });
+          return;
+        }
+        if (runningActions.has(slug)) {
+          sendJson(response, 409, { error: 'Another specification action is already running.' });
+          return;
+        }
+        runningActions.add(slug);
+        try {
+          const body = await readJsonBody(request);
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            throw new SpecificationActionError('Request body must be a JSON object.', 400);
+          }
+          const result = actionExecutor({
+            slug,
+            action: body.action,
+            taskId: body.taskId,
+            confirmed: body.confirmed === true,
+          });
+          sendJson(response, 200, result);
+        } catch (error) {
+          const known = error instanceof SpecificationActionError;
+          sendJson(response, known ? error.status : 500, {
+            error: known ? error.message : 'Unable to execute specification action.',
+          });
+        } finally {
+          runningActions.delete(slug);
+        }
+        return;
+      }
+
+      sendJson(response, 405, { error: 'Method not allowed' });
+      return;
+    }
 
     if (method !== 'GET') {
       sendJson(response, 405, { error: 'Method not allowed' });
@@ -86,6 +174,46 @@ export function createDashboardServer({
         sendJson(response, 200, dataLoader());
       } catch {
         sendJson(response, 500, { error: 'Unable to load specifications' });
+      }
+      return;
+    }
+
+    const contentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content$/);
+    if (contentRoute) {
+      try {
+        const slug = decodeURIComponent(contentRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification content not found' });
+          return;
+        }
+        const content = contentLoader({ source: contentRoute[1], slug });
+        if (!content) {
+          sendJson(response, 404, { error: 'Specification content not found' });
+          return;
+        }
+        sendJson(response, 200, content);
+      } catch {
+        sendJson(response, 404, { error: 'Specification content not found' });
+      }
+      return;
+    }
+
+    const pullRequestRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests$/);
+    if (pullRequestRoute) {
+      try {
+        const slug = decodeURIComponent(pullRequestRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification changes not found' });
+          return;
+        }
+        const changes = pullRequestLoader({ source: pullRequestRoute[1], slug });
+        if (!changes) {
+          sendJson(response, 404, { error: 'Specification changes not found' });
+          return;
+        }
+        sendJson(response, 200, changes);
+      } catch {
+        sendJson(response, 500, { error: 'Unable to load specification changes' });
       }
       return;
     }

@@ -8,6 +8,7 @@ import { CliError, RECOVERY_SCENARIOS } from '../lib/cli-errors.mjs';
 import {
   listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints,
   pathGlobsOverlap, FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES,
+  normalizePullRequestReference, pullRequestReferenceKey,
 } from './service.mjs';
 import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle.mjs';
 
@@ -28,6 +29,28 @@ export function validateStatusValue(value, allowed, errors, label) {
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function validatePullRequestReferences(change, errors, label = change._file || 'change') {
+  const references = change.pull_requests;
+  if (references === undefined) return;
+  if (!Array.isArray(references)) {
+    errors.push(`${label}: pull_requests must be an array`);
+    return;
+  }
+
+  const seen = new Set();
+  references.forEach((reference, index) => {
+    const referenceLabel = `${label}: pull_requests[${index}]`;
+    try {
+      const normalized = normalizePullRequestReference(reference, referenceLabel);
+      const key = pullRequestReferenceKey(normalized);
+      if (seen.has(key)) errors.push(`${referenceLabel}: duplicate pull request reference`);
+      seen.add(key);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  });
 }
 
 /**
@@ -450,6 +473,7 @@ export function validateSpecs() {
     if (!change.title) errors.push(`${change._file}: missing 'title'`);
     if (!change.status) errors.push(`${change._file}: missing 'status'`);
     validateStatusValue(change.status, CHANGE_STATUSES, errors, `${change._file}: change.status`);
+    validatePullRequestReferences(change, errors);
 
     const decisionsMap = parseOwnerDecisions(
       existsSync(join(change._dir, 'owner-decisions.md')) ? readUtf8(join(change._dir, 'owner-decisions.md')) : ''

@@ -88,6 +88,23 @@ export function getDirtyPaths(root) {
   return paths;
 }
 
+/** Dashboard-safe worktree projection with counts, statuses, and display paths. */
+export function getWorkingTreeSummary(root) {
+  const records = getDirtyRecords(root);
+  const files = records.map(record => ({
+    status: record.status,
+    path: record.oldPath ? `${record.oldPath} -> ${record.path}` : record.path,
+  }));
+  return {
+    clean: records.length === 0,
+    total: records.length,
+    staged: records.filter(record => record.status[0] !== ' ' && record.status[0] !== '?').length,
+    unstaged: records.filter(record => record.status[1] !== ' ' && record.status[1] !== '?').length,
+    untracked: records.filter(record => record.status === '??').length,
+    files,
+  };
+}
+
 export function getCurrentBranch(root) {
   return run(root, ['branch', '--show-current']);
 }

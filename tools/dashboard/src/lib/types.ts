@@ -54,3 +54,136 @@ export interface DashboardPayload {
   active: DashboardChange[];
   archive: DashboardChange[];
 }
+
+export type SpecificationDocumentKind = 'overview' | 'area' | 'task';
+
+export interface SpecificationDocument {
+  id: string;
+  kind: SpecificationDocumentKind;
+  title: string;
+  path: string | null;
+  available: boolean;
+  markdown: string;
+}
+
+export interface SpecificationTaskDocument extends SpecificationDocument {
+  kind: 'task';
+  status: string;
+  order: number | null;
+  dependsOn: string[];
+}
+
+export interface SpecificationContent {
+  id: string;
+  slug: string;
+  title: string;
+  source: 'active' | 'archive';
+  path: string | null;
+  overview: SpecificationDocument;
+  areas: SpecificationDocument[];
+  tasks: SpecificationTaskDocument[];
+}
+
+export interface PullRequestReference {
+  provider: string;
+  baseUrl: string;
+  repository: string;
+  number: number;
+}
+
+export interface PullRequestBranch {
+  label: string | null;
+  name: string | null;
+  sha: string | null;
+}
+
+export interface PullRequestFile {
+  path: string;
+  previousPath: string | null;
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch: string;
+  patchAvailable: boolean;
+  rawUrl: string | null;
+  blobUrl: string | null;
+}
+
+export interface AvailablePullRequest {
+  availability: 'available';
+  reference: PullRequestReference;
+  provider: string;
+  providerLabel: string;
+  number: number;
+  title: string;
+  url: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  author: { login: string; url: string | null; avatarUrl: string | null } | null;
+  head: PullRequestBranch;
+  base: PullRequestBranch;
+  stats: { additions: number; deletions: number; changedFiles: number; commits: number };
+  files: PullRequestFile[];
+  filesComplete: boolean;
+  fullDiff: string;
+  fullDiffAvailable: boolean;
+}
+
+export interface UnavailablePullRequest {
+  availability: 'unsupported' | 'error';
+  reference: PullRequestReference;
+  message: string;
+}
+
+export type PullRequestResult = AvailablePullRequest | UnavailablePullRequest;
+
+export interface PullRequestsPayload {
+  id: string;
+  slug: string;
+  source: 'active' | 'archive';
+  pullRequests: PullRequestResult[];
+}
+
+export type SpecificationOwnerAction = 'approve' | 'verify' | 'finalize';
+
+export interface SpecificationTaskActionGate {
+  action: 'approve' | 'verify';
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface SpecificationWorktreeState {
+  clean: boolean;
+  total: number;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  files: Array<{ status: string; path: string }>;
+  branch: string;
+  hasUpstream: boolean;
+  ahead: number | null;
+  behind: number | null;
+}
+
+export interface SpecificationActionsPayload {
+  id: string;
+  slug: string;
+  source: 'active';
+  generatedAt: string;
+  worktree: SpecificationWorktreeState;
+  tasks: Record<string, SpecificationTaskActionGate>;
+  finalize: {
+    enabled: boolean;
+    reason: string | null;
+    checks: Array<{ name: string; passed: boolean; detail?: string }>;
+    pullRequest: { number: number; state: string; isDraft: boolean; unresolvedThreads: number } | null;
+  };
+}
+
+export interface SpecificationActionResult {
+  ok: true;
+  action: SpecificationOwnerAction;
+  taskId?: string;
+  message: string;
+}
