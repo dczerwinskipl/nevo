@@ -2,7 +2,7 @@
 review-of: task
 change: event-sourcing-api-hardening
 task: user-facing-event-sourcing-guide
-generated: 2026-08-13
+generated: 2026-08-15
 verdict: pass
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
@@ -14,32 +14,45 @@ scope_exceptions:
     decision: accepted
     confirmed_by: owner
     confirmed_at: 2026-08-13
-    task_fingerprint: "063b2f4509f09d8d60c530cd30352df29f969c86b8309c5fb55b41b5c18049b7"
+    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
   - finding: F2
     path: docs/index.generated.md
     reason: Mechanical output of `node tools/docs.mjs generate`, required for the task's own `docs.mjs check` verification step to pass — never hand-edited. Not declared in the task's `consequential_paths`.
     decision: accepted
     confirmed_by: owner
     confirmed_at: 2026-08-13
-    task_fingerprint: "063b2f4509f09d8d60c530cd30352df29f969c86b8309c5fb55b41b5c18049b7"
+    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
   - finding: F3
     path: docs/routing.generated.json
     reason: Mechanical output of `node tools/docs.mjs generate`, required for the task's own `docs.mjs check` verification step to pass — never hand-edited. Not declared in the task's `consequential_paths`.
     decision: accepted
     confirmed_by: owner
     confirmed_at: 2026-08-13
-    task_fingerprint: "063b2f4509f09d8d60c530cd30352df29f969c86b8309c5fb55b41b5c18049b7"
+    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
 ---
 
 # Review: event-sourcing-api-hardening/user-facing-event-sourcing-guide
 
-No reliable previous-file baseline is available. Performing a fresh review of the
-current task implementation.
+Re-review: a prior report exists at this path (generated 2026-08-13, verdict `pass`).
+Re-verified against current file contents, per policy, rather than trusted from git
+status or memory. Working tree is clean; `git diff aa381dfc..HEAD` (task
+`baseline_revision`) for the task's `allowed_paths` shows exactly the same 4 files the
+prior report described, unchanged since. `node tools/specs.mjs fingerprint
+event-sourcing-api-hardening --task user-facing-event-sourcing-guide` was recomputed and
+found to differ from the value recorded in F1-F3's prior `task_fingerprint` field
+(`063b2f45...` vs. the correct `1d2630b1...`, reproduced identically both at `HEAD` and
+at the guide's own landing commit `d7e2e3f` via a throwaway worktree) — the prior value
+was never a genuine output of that command. This is a provenance-recording defect in the
+prior review artifact, not a scope or content change: the task's own file, its
+dependency task files, `owner-decisions.md`, and `overview.md` are all byte-identical to
+the guide's landing commit, so the exceptions' substance is unchanged and remains valid;
+only the recorded `task_fingerprint` values (F1-F3) are corrected here.
 
 ## Verdict
 
 `pass` — every acceptance criterion is met, the only scope deviation is an
-owner-accepted, mechanically-generated exception, and no unresolved finding remains.
+owner-accepted, mechanically-generated exception (fingerprint corrected above), and no
+unresolved finding remains.
 
 ## Checklist
 

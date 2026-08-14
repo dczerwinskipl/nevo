@@ -452,7 +452,7 @@ tasks:
   - id: user-facing-event-sourcing-guide
     order: 11
     file: tasks/11-user-facing-event-sourcing-guide.md
-    status: in-implementation
+    status: verified
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution
@@ -471,7 +471,7 @@ tasks:
   - id: internal-event-sourcing-architecture-docs
     order: 12
     file: tasks/12-internal-event-sourcing-architecture-docs.md
-    status: in-implementation
+    status: implemented
     depends_on:
       - harden-event-store-and-repository-contracts
       - es-command-executor-and-ambiguity-resolution
@@ -487,6 +487,21 @@ tasks:
       - query-either-ergonomics-cleanup
     implementation:
       baseline_revision: aa381dfcaeba4fc249d7500c08964a3a937ea994
+      review_revision: 9b118af310d123d5dfd5bc17644f5c25c9a20072
+      changed_paths:
+        - docs/development/event-sourcing.md
+        - docs/development/messaging-pipeline.md
+        - docs/reference/packages/NEvo.Ddd.EventSourcing.md
+      worktree_patch_fingerprint: 260d0219f0ebe3e5693b6c87e314b1dba4917df1371b7e84a3f5887a803941c5
+    self_check:
+      fingerprint: c3c20f75d9eda607d061d46518c3a0ecf4ea786f76fae97c2efdccb4d14343d9
+      revision: 9b118af310d123d5dfd5bc17644f5c25c9a20072
+      commands:
+        - command: node tools/docs.mjs validate
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
   - id: aggregate-decision-method-parameter-injection
     order: 13
     file: tasks/13-aggregate-decision-method-parameter-injection.md
