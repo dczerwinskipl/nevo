@@ -183,9 +183,17 @@ export function addPullRequestReference(change, reference) {
   }
 
   updateYamlFile(change._file, doc => {
-    const references = doc.get('pull_requests') || [];
-    references.push(normalized);
-    doc.set('pull_requests', references);
+    if (!doc.has('pull_requests')) doc.set('pull_requests', []);
+    const references = doc.get('pull_requests', true);
+    if (Array.isArray(references)) {
+      references.push(normalized);
+      doc.set('pull_requests', references);
+    } else if (references && typeof references.add === 'function') {
+      references.flow = false;
+      references.add(normalized);
+    } else {
+      throw new CliError(`pull_requests must be an array in ${change._file}`);
+    }
   });
   change.pull_requests = [...(change.pull_requests || []), normalized];
   return { added: true, reference: normalized };

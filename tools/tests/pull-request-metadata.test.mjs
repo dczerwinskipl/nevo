@@ -67,12 +67,15 @@ test('structurally appends once while preserving unrelated YAML', () => {
   try {
     const change = loadChange('sample', sample.activeDir);
     const first = addPullRequestReference(change, { provider: 'github', repository: 'Owner/Repo', number: 21 });
-    const second = addPullRequestReference(change, { provider: 'GITHUB', base_url: 'https://github.com/', repository: 'owner/repo.git', number: '21' });
+    const second = addPullRequestReference(change, { provider: 'github', repository: 'Owner/Repo', number: 22 });
+    const duplicate = addPullRequestReference(change, { provider: 'GITHUB', base_url: 'https://github.com/', repository: 'owner/repo.git', number: '21' });
     assert.equal(first.added, true);
-    assert.equal(second.added, false);
+    assert.equal(second.added, true);
+    assert.equal(duplicate.added, false);
     const written = readFileSync(join(sample.changeDir, 'change.yaml'), 'utf8');
     assert.match(written, /# preserved comment/);
-    assert.equal((written.match(/provider: github/g) || []).length, 1);
+    assert.equal((written.match(/provider: github/g) || []).length, 2);
+    assert.deepEqual(loadChange('sample', sample.activeDir).pull_requests.map(reference => reference.number), [21, 22]);
   } finally {
     sample.cleanup();
   }
