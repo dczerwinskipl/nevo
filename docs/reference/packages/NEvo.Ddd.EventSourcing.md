@@ -17,9 +17,8 @@ summary: >
 # NEvo.Ddd.EventSourcing
 
 **Status: experimental.** The command-handling, registration, and authorization API
-surface was hardened by `specs/active/event-sourcing-api-hardening/` and is safe to
-build on; the persistence layer stays experimental because no real, durable
-`IEventStreamStore` provider ships in this repository yet. See
+surface is stable and safe to build on; the persistence layer stays experimental
+because no real, durable `IEventStreamStore` provider ships in this repository yet. See
 `docs/development/event-sourcing.md` § "Status" for the precise split before starting
 any change here.
 
@@ -236,7 +235,7 @@ overload with defaults.
 ## Examples and tests
 
 - `examples/ExampleApp/NEvo.ExampleApp.Documents.Api` — the canonical, runnable
-  reference implementation: Level 1 convention handling, message-level permission,
+  reference implementation: aggregate-method convention handling, message-level permission,
   decision-method parameter injection, both `MapCommandEndpoint`/`MapQueryEndpoint`
   mappings. See its own `WALKTHROUGH.md`.
 - `tests/NEvo.Ddd.EventSourcing.Tests/Fixtures/Document.cs`,

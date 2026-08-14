@@ -120,36 +120,38 @@ shipped, final shape. Sequenced last alongside task 12.
    transitions, deciding from a command, evolving from an event, replay, same-command-
    on-multiple-states resolution (most-specific-wins, task 03), domain invariants vs.
    application/security concerns, when concrete state types are useful vs. excessive.
-4. **Command handling choices** — all three levels, explicitly **when to use each**
-   (a decision table or equivalent), what plumbing NEvo provides for each, and how
-   Level 2 represents "existing aggregate" vs. "creation" explicitly via
-   `Option<TAggregate>` (`Some`/`None`, D24) rather than assuming one or the other. State
-   the decision boundary plainly: Level 2 manages exactly one Event Sourced aggregate
-   write per command and may read other data freely for orchestration; a use case
-   needing coordinated writes across two or more independently-versioned aggregate
-   streams belongs to Level 3 or a future saga/process-manager capability (D31) — frame
-   Level 3 as "the right tool for anything that doesn't fit," never as an inferior or
-   legacy option. Also cover **decision-method parameter injection** (task 13, D34,
-   D38, D39, D42, D44): a Level 1 decision method — both a `static` creation method and an
+4. **Command handling choices** — all three ways of handling a command, explicitly
+   **when to use each** (a decision table or equivalent), what plumbing NEvo provides
+   for each, and how the explicit `IEventSourcedCommandHandler<...>` represents
+   "existing aggregate" vs. "creation" explicitly via
+   `Option<TAggregate>` (`Some`/`None`) rather than assuming one or the other. State
+   the decision boundary plainly: the explicit handler manages exactly one Event Sourced
+   aggregate write per command and may read other data freely for orchestration; a use
+   case needing coordinated writes across two or more independently-versioned aggregate
+   streams belongs to an ordinary `ICommandHandler<T>` (the full orchestration escape
+   hatch) or a future saga/process-manager capability — frame the ordinary-handler
+   escape hatch as "the right tool for anything that doesn't fit," never as an inferior
+   or legacy option. Also cover **decision-method parameter injection** (task 13): an
+   aggregate-method convention decision method — both a `static` creation method and an
    instance method on existing state — may declare additional, framework-resolved
    parameters after the command (e.g. `ICurrentUser<Guid, TUser>`, or a business-policy type),
    resolved from the current invocation's scope, not a general service-locator (no
    `IServiceProvider` parameter is ever supported); the single-command-parameter form
    keeps working unchanged. State plainly that **every declared parameter is required**
-   (D42) — declaring one is the assertion "this decision needs this contextual fact";
+   — declaring one is the assertion "this decision needs this contextual fact";
    the framework resolves it or does not invoke the decision method at all. State the
-   **required-contextual-dependency invariant** plainly (D44): a required dependency must
+   **required-contextual-dependency invariant** plainly: a required dependency must
    be successfully resolved *and validated* during resolution/activation — a dependency
    that resolves as a type but only fails once the decision method starts running is an
    application failure, not a parameter-resolution failure — so a resolution failure is
    never turned into `null`/`Option.None` passed to the method, and the decision method is
    never entered without every declared parameter genuinely available.
-   State the **supported-use contract** plainly (D39): additional parameters represent
+   State the **supported-use contract** plainly: additional parameters represent
    already-available contextual facts or synchronous, side-effect-free business policies
    (`ICurrentUser<Guid, TUser>`, `IClock`, a precomputed policy object) — orchestration or
    external I/O (a `DbContext`, an `HttpClient`, a service that calls out) belongs to an
-   explicit `IEventSourcedCommandHandler<...>` (Level 2) instead, which remains fully
-   supported for exactly that purpose (D33).
+   explicit `IEventSourcedCommandHandler<...>` instead, which remains fully
+   supported for exactly that purpose.
 5. **Handler registration and fallback semantics** — Primary/Fallback (task 05),
    convention = Fallback, explicit/ordinary handlers = Primary, duplicate-Primary
    failure, why no numeric priority.
@@ -158,7 +160,7 @@ shipped, final shape. Sequenced last alongside task 12.
    messaging pipeline, before Event Sourcing execution even begins — and
    aggregate/resource-aware authorization after rehydration (task 07), which is the
    *only* authorization concern Event Sourcing itself owns and which sees the same
-   explicit `Some`/`None` current-state distinction as Level 2 (D24-D25). Domain
+   explicit `Some`/`None` current-state distinction as the explicit handler (D24-D25). Domain
    invariant stays in the decision method. Explicit guidance against duplicating
    permission attributes across concrete state methods. Also cover the **HTTP
    consequence** (task 15, D36): an unauthenticated request is rejected with 401 by the

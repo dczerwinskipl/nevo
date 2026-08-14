@@ -20,6 +20,43 @@ current task implementation.
 
 ---
 
+**Re-review (2026-08-15, targeted post-review correction pass — no semantic change).**
+External review found two MAJOR issues in this task's own first pass, both corrected
+before this note was appended:
+
+1. "Level 1"/"Level 2"/"Level 3" — working names from this specification's own
+   discovery — had leaked into the shipped documents as if they were the framework's
+   actual vocabulary. Fixed in task 12's own "Implementation constraints"/"Acceptance
+   criteria" first (so a future implementation of this task doesn't reproduce the
+   issue), then in `docs/development/event-sourcing.md` and
+   `docs/reference/packages/NEvo.Ddd.EventSourcing.md`, replaced throughout with the
+   stable names **the aggregate-method convention**, **the explicit
+   `IEventSourcedCommandHandler<...>`**, and **an ordinary `ICommandHandler<T>`**.
+2. `docs/development/event-sourcing.md` read as a record of this specification rather
+   than as system documentation — citing owner-decision IDs (`D13`, `D17`, `D20`
+   through `D44`) inline, framing content as "after the API-hardening change," and
+   pointing at `specs/active/event-sourcing-api-hardening/` as the source of truth for
+   what was "hardened." Task 12 itself required this (its "Implementation constraints"
+   named specific decision IDs to cite) — corrected there first: the task now explicitly
+   requires system documentation grounded in `src/**/*.cs` file:line citations, with
+   decision IDs/task numbers treated as the *implementer's* internal traceability, never
+   content to reproduce in the shipped document. `docs/development/event-sourcing.md`
+   was rewritten to describe every contract in plain, decision-history-free language
+   (e.g. "a required dependency must be resolved and validated during resolution/
+   activation" instead of "the required-contextual-dependency invariant (D44)");
+   `docs/reference/packages/NEvo.Ddd.EventSourcing.md`'s "was hardened by
+   `specs/active/event-sourcing-api-hardening/`" sentence was replaced with a plain
+   status statement. Added acceptance criterion 12 to task 12, making this a permanent,
+   checkable requirement rather than a one-off fix.
+
+Verified: `grep` for `Level 1`/`Level 2`/`Level 3`, `\bD[0-9]{1,2}\b`, `specs/active`,
+`specs/archive`, `this specification`, and `this change` across
+`docs/usage/event-sourcing.md`, `docs/development/event-sourcing.md`, and
+`docs/reference/packages/NEvo.Ddd.EventSourcing.md` returns nothing. All 11 original
+acceptance criteria re-checked against the rewritten prose — substance unchanged, only
+vocabulary and citation style corrected. `node tools/docs.mjs validate`/`check` re-run
+clean.
+
 `docs/development/event-sourcing.md` was rewritten end to end, grounded in
 `src/NEvo.Ddd.EventSourcing/**/*.cs` and `src/NEvo.Messaging.Authorization/*.cs`
 file:line citations (spot-checked against the actual source during this review,

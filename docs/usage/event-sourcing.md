@@ -68,14 +68,16 @@ builder.Services.AddEventSourcing(
 - `EventSourcingOptions.UseAggregateMethodFallback` (default `true`) controls whether
   the aggregate-method convention is registered as a **fallback** route for commands
   with no explicit handler (see § 5). Set it to `false` to require an explicit handler
-  (§ 4, Level 2 or 3) for every command — the decider/evolver machinery itself stays
-  registered either way, since an explicit Level 2 handler may still delegate to it.
+  (§ 4 — the explicit `IEventSourcedCommandHandler<...>` or an ordinary
+  `ICommandHandler<T>`) for every command — the decider/evolver machinery itself stays
+  registered either way, since an explicit `IEventSourcedCommandHandler<...>` may still
+  delegate to it.
 - The older `AddEventSourcing(params Type[])` overload (no options) still compiles and
   behaves identically — it delegates to the overload above with default options.
 - `AddEventSourcing` needs `AddMessages()` registered first (handler/context
   infrastructure); it does not require `AddCommands()`/`AddQueries()` itself — it
   registers its own handler-discovery providers for the convention route and for the
-  explicit Level 2 handler (§ 4).
+  explicit `IEventSourcedCommandHandler<...>` (§ 4).
 - No `IEventStreamStore` is registered by your code above — `AddEventSourcing`
   registers an in-memory default (`FakeEventStore`) unless you register your own. See
   § 7 for exactly what that default does and does not guarantee.
@@ -164,20 +166,21 @@ impossibility, not a runtime check. If every command your aggregate accepts is v
 every state, a single type is simpler; you are not required to carve out a state type
 for every conceptual stage.
 
-## 4. Command handling: choosing a level
+## 4. Command handling: choosing an approach
 
 | Need | Use |
 |---|---|
-| A pure business decision — no I/O, no external orchestration | **Level 1** — aggregate-method convention (§ 3) |
-| That decision also needs a contextual fact or a synchronous, side-effect-free policy (e.g. the current user) | **Level 1** + decision-method parameter injection (below) |
-| Orchestration or external I/O around a single aggregate's write — a `DbContext` lookup, an `HttpClient` call, a service call before deciding | **Level 2** — `IEventSourcedCommandHandler<TCommand, TAggregate, TId>` |
-| Coordinated, atomic writes across two or more independently-versioned aggregate streams | **Level 3** — an ordinary `ICommandHandler<T>` (or a future saga/process-manager capability — not built here) |
+| A pure business decision — no I/O, no external orchestration | **The aggregate-method convention** (§ 3) |
+| That decision also needs a contextual fact or a synchronous, side-effect-free policy (e.g. the current user) | **The aggregate-method convention** + decision-method parameter injection (below) |
+| Orchestration or external I/O around a single aggregate's write — a `DbContext` lookup, an `HttpClient` call, a service call before deciding | **The explicit handler** — `IEventSourcedCommandHandler<TCommand, TAggregate, TId>` |
+| Coordinated, atomic writes across two or more independently-versioned aggregate streams | **An ordinary `ICommandHandler<T>`** (or a future saga/process-manager capability — not built here) |
 
-**Level 1** is everything in § 3 — no registration beyond `AddEventSourcing`'s aggregate
-type list, no explicit handler class. This is the default and the lowest-friction path.
+**The aggregate-method convention** is everything in § 3 — no registration beyond
+`AddEventSourcing`'s aggregate type list, no explicit handler class. This is the
+default and the lowest-friction path.
 
-**Level 2** is an explicit handler for when a command needs orchestration the aggregate
-itself shouldn't perform:
+**The explicit `IEventSourcedCommandHandler<...>`** is for when a command needs
+orchestration the aggregate itself shouldn't perform:
 
 ```csharp
 public class SomeHandler(ISomeExternalService external)
@@ -196,19 +199,20 @@ public class SomeHandler(ISomeExternalService external)
 The current state arrives as `Option<TAggregate>` — `Some` when an existing
 aggregate/stream was rehydrated, `None` on the creation path — **never** a bare
 `TAggregate`, never `null`. The framework still owns load, version tracking, append,
-and publish; a Level 2 handler manages exactly one Event Sourced write target per
+and publish; the explicit handler manages exactly one Event Sourced write target per
 command — it has no way to write a second, independently-versioned stream in the same
-invocation. A use case genuinely needing that belongs to Level 3.
+invocation. A use case genuinely needing that belongs to an ordinary `ICommandHandler<T>`.
 
-**Level 3** is an ordinary `ICommandHandler<T>` (see [Commands](commands.md)) with no
+**An ordinary `ICommandHandler<T>`** (see [Commands](commands.md)) has no
 Event Sourcing plumbing at all — write your own repository calls, or coordinate
-multiple aggregates yourself. Nothing about Level 3 is Event-Sourcing-specific; it's
-the escape hatch for anything Level 1/2 doesn't fit.
+multiple aggregates yourself. Nothing about it is Event-Sourcing-specific; it's the
+escape hatch for anything the aggregate-method convention or the explicit handler
+doesn't fit.
 
 ### Decision-method parameter injection
 
-A Level 1 decision method — a `static` creation method or an instance method — may
-declare additional parameters after the command:
+An aggregate-method convention decision method — a `static` creation method or an
+instance method — may declare additional parameters after the command:
 
 ```csharp
 public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(
@@ -232,32 +236,33 @@ public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(
 - Additional parameters represent **contextual facts or synchronous, side-effect-free
   business policies** — `ICurrentUser<Guid, TUser>`, a clock abstraction, a precomputed
   policy object. Orchestration or external I/O (a `DbContext`, an `HttpClient`, a
-  service that calls out) is a Level 2 concern, not something to inject here — this is
-  a usage convention this guide asks you to follow, not something the framework
-  mechanically rejects.
+  service that calls out) is a concern for the explicit handler, not something to
+  inject here — this is a usage convention this guide asks you to follow, not
+  something the framework mechanically rejects.
 - The original single-command-parameter form keeps compiling and behaving identically —
   this is purely additive.
 
 ## 5. Handler registration and fallback semantics
 
 Every handler has a `Role`: `Primary` (the default for every ordinary handler) or
-`Fallback` (only the Level 1 convention route uses this). Resolution rule, no numeric
-priority involved:
+`Fallback` (only the aggregate-method convention route uses this). Resolution rule, no
+numeric priority involved:
 
-- If any `Primary` handler is registered for a command (a Level 2 handler or an
-  ordinary `ICommandHandler<T>`), it is used — the convention route (`Fallback`) is not
-  even considered.
+- If any `Primary` handler is registered for a command (an explicit
+  `IEventSourcedCommandHandler<...>` or an ordinary `ICommandHandler<T>`), it is used —
+  the convention route (`Fallback`) is not even considered.
 - If no `Primary` handler exists, the `Fallback` (convention) route handles it, as long
   as `UseAggregateMethodFallback` is enabled (§ 2).
 - Two `Primary` candidates for the same command is a configuration error
   (`MoreThanOneHandlerFoundException`) — resolved at handler-resolution time, not
   silently picking one.
 - With `UseAggregateMethodFallback` disabled and no `Primary` handler registered, the
-  command has no handler at all — explicit (Level 2/3) handlers remain usable
-  regardless of this toggle.
+  command has no handler at all — explicit handlers (the `IEventSourcedCommandHandler<...>`
+  or an ordinary `ICommandHandler<T>`) remain usable regardless of this toggle.
 
 This is why registering an explicit `IEventSourcedCommandHandler<...>` or a normal
-`ICommandHandler<T>` for a command that also has a matching Level 1 decision method
+`ICommandHandler<T>` for a command that also has a matching aggregate-method convention
+decision method
 does not collide with it — the explicit handler simply takes over as `Primary`.
 
 ## 6. Authorization
@@ -276,7 +281,7 @@ never a replacement for the command's own.
 **Aggregate-aware authorization** (`IAggregateAuthorization<TCommand, TAggregate,
 TId>`) is the *only* authorization concern Event Sourcing itself owns. It runs after
 the aggregate is rehydrated and before the decision method executes, receiving the
-same explicit `Option<TAggregate>` state as a Level 2 handler — so a policy can
+same explicit `Option<TAggregate>` state as the explicit handler — so a policy can
 distinguish "acting on an existing resource" from "creating a new one," and explicitly
 reject or ignore the `None` case according to its own use case rather than being
 silently skipped just because nothing exists yet. The default registration
@@ -308,7 +313,7 @@ whether they're allowed.
 
 `IEventStreamStore` reads/appends raw event streams. `IAggregateRepository` composes an
 `IEventStreamStore` with the evolver to load and rehydrate an aggregate to its current
-state and observed version, and to append new events — application code (Level 2
+state and observed version, and to append new events — application code (explicit
 handlers, query handlers) depends on `IAggregateRepository`, not `IEventStreamStore`
 directly.
 
@@ -323,8 +328,9 @@ package yet.
 like beforehand — `ExpectedStreamState.NoStream` (the stream must not already exist:
 the creation path) or `ExpectedStreamState.Exact(version)` (the stream must be at
 exactly that version: the update path). There is no unconditional/"don't check" append
-mode, and no automatic retry after a conflict. Both Level 1 and Level 2 compute this
-mapping for you from the same `Option<TAggregate>` state you already have —
+mode, and no automatic retry after a conflict. Both the aggregate-method convention and
+the explicit handler compute this mapping for you from the same `Option<TAggregate>`
+state you already have —
 `None -> NoStream`, `Some(loaded) -> Exact(loaded.Version)` — you never construct it by
 hand.
 
@@ -398,7 +404,7 @@ chainable with `.RequireAuthorization()` exactly like `MapCommandEndpoint`.
 ## 9. Example: the Documents service
 
 `examples/ExampleApp/NEvo.ExampleApp.Documents.Api` is the canonical, runnable
-walkthrough for everything above — every command handled through the Level 1
+walkthrough for everything above — every command handled through the aggregate-method
 convention, message-level permission on `ApproveDocument`, decision-method parameter
 injection for the approver's identity, both `MapCommandEndpoint`/`MapQueryEndpoint`
 mappings, and reload-after-write reconstructing the correct concrete state. Run it
@@ -426,8 +432,9 @@ expect or document workarounds for these:
 - No snapshotting, no event upcasting/schema migration.
 - No unconditional/"don't check" append mode and no automatic retry or rebase after a
   concurrency conflict (§ 7).
-- No coordinated, atomic multi-aggregate writes in one command — that's Level 3 or a
-  future saga/process-manager capability (§ 4), never Level 1 or Level 2.
+- No coordinated, atomic multi-aggregate writes in one command — that's an ordinary
+  `ICommandHandler<T>` or a future saga/process-manager capability (§ 4), never the
+  aggregate-method convention or the explicit handler.
 - No mutable-aggregate or static/functional decider modeling style is implemented — the
   object-oriented immutable style in § 3 is the only one available today (§ 1).
 

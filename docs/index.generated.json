@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-14T22:44:42.952Z",
+  "generated": "2026-08-14T23:11:34.175Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -361,7 +361,7 @@
         "adding a new aggregate decision-method parameter type",
         "modifying handler registration, Primary/Fallback resolution, or aggregate-aware authorization"
       ],
-      "summary": "Maintainer-facing architecture of NEvo.Ddd.EventSourcing after the API-hardening change: the executor's lifecycle, convention discovery and decision-method parameter injection, Primary/Fallback registration, the store/repository boundary and concurrency model, the authorization ownership split, and the compatibility constraints a future persistence/modeling specification must not violate.",
+      "summary": "Maintainer-facing architecture of NEvo.Ddd.EventSourcing: the executor's lifecycle, convention discovery and decision-method parameter injection, Primary/Fallback registration, the store/repository boundary and concurrency model, the authorization ownership split, and the compatibility constraints a future persistence/modeling provider must not violate.",
       "related": [
         "development.messaging-pipeline",
         "development.package-boundaries",

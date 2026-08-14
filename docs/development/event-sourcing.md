@@ -9,11 +9,11 @@ read_when:
   - adding a new aggregate decision-method parameter type
   - modifying handler registration, Primary/Fallback resolution, or aggregate-aware authorization
 summary: >
-  Maintainer-facing architecture of NEvo.Ddd.EventSourcing after the API-hardening
-  change: the executor's lifecycle, convention discovery and decision-method parameter
-  injection, Primary/Fallback registration, the store/repository boundary and
-  concurrency model, the authorization ownership split, and the compatibility
-  constraints a future persistence/modeling specification must not violate.
+  Maintainer-facing architecture of NEvo.Ddd.EventSourcing: the executor's lifecycle,
+  convention discovery and decision-method parameter injection, Primary/Fallback
+  registration, the store/repository boundary and concurrency model, the authorization
+  ownership split, and the compatibility constraints a future persistence/modeling
+  provider must not violate.
 related:
   - development.messaging-pipeline
   - development.package-boundaries
@@ -24,18 +24,17 @@ related:
 
 ## Status
 
-Split status, stated precisely rather than as one blanket label: the **command-handling,
-registration, and authorization API surface is hardened** by
-`specs/active/event-sourcing-api-hardening/` (executor lifecycle, Primary/Fallback
-roles, decision-method parameter injection, aggregate-aware authorization, typed
-403 mapping) and is safe to build on. The **persistence layer stays experimental** — the
-only `IEventStreamStore` implementation is an in-memory `FakeEventStore`
+Split status, stated precisely rather than as one blanket label: the
+**command-handling, registration, and authorization API surface is stable** —
+executor lifecycle, Primary/Fallback roles, decision-method parameter injection,
+aggregate-aware authorization, and the typed 403 mapping are all safe to build on. The
+**persistence layer stays experimental** — the only `IEventStreamStore` implementation
+is an in-memory `FakeEventStore`
 (`src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs:12-81`); no real
 PostgreSQL/Marten/Kurrent-style provider ships in this repository. Do not use the
-absence of a real provider as a reason to redesign the now-hardened API surface — the
-next persistence specification is expected to implement `IEventStreamStore` against the
-existing contract, not change it wholesale (see "Compatibility constraints for future
-work" below).
+absence of a real provider as a reason to redesign the command-handling API surface — a
+real `IEventStreamStore` provider is expected to implement the existing contract, not
+change it wholesale (see "Compatibility constraints for future work" below).
 
 For the consumer-facing "how do I use this" guide, see
 [`docs/usage/event-sourcing.md`](../usage/event-sourcing.md) — this document covers
@@ -55,7 +54,7 @@ like any other command; this package supplies `IMessageHandlerProvider`/
 
 `EventSourcedCommandExecutor.ExecuteAsync`
 (`src/NEvo.Ddd.EventSourcing/Executing/EventSourcedCommandExecutor.cs:11-24`) is the one
-lifecycle both command-handling levels (below) go through:
+lifecycle both ways of handling a command (below) go through:
 
 ```
 load (IAggregateRepository.LoadAggregateAsync)
@@ -66,19 +65,19 @@ load (IAggregateRepository.LoadAggregateAsync)
 ```
 
 `decide` is a delegate parameter, not something the executor derives itself — this is
-what makes the executor equally usable by the aggregate-method convention (Level 1,
-`DeciderCommandHandler.HandleAsync` supplies `decider.DecideAsync` as `decide`,
+what makes the executor equally usable by the aggregate-method convention
+(`DeciderCommandHandler.HandleAsync` supplies `decider.DecideAsync` as `decide`,
 `src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandler.cs:19-28`) and by an explicit
-`IEventSourcedCommandHandler<...>` (Level 2, `EventSourcedCommandHandlerAdapter`
-supplies `handler.HandleAsync` as `decide`,
+`IEventSourcedCommandHandler<...>` (`EventSourcedCommandHandlerAdapter` supplies
+`handler.HandleAsync` as `decide`,
 `src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapter.cs:39-45`). Both
 routes get load/authorize/append/publish for free and neither can bypass the aggregate-
 aware authorization hook.
 
-**The executor performs no reflection and no state-method discovery itself** (D30) —
-that responsibility lives entirely in `AggregateDecider`/`AggregateEvolver` (next
-section). This is a deliberate separation, not an accident of how the code happened to
-be organized: the executor depends on/invokes only the `IDecider`/`IEvolver` shape those
+**The executor performs no reflection and no state-method discovery itself** — that
+responsibility lives entirely in `AggregateDecider`/`AggregateEvolver` (next section).
+This is a deliberate separation, not an accident of how the code happened to be
+organized: the executor depends on/invokes only the `IDecider`/`IEvolver` shape those
 types already implement, so a hypothetical future non-reflection-based modeling style
 could in principle supply its own `IDecider`/`IEvolver` implementation without requiring
 any change to the executor's lifecycle code. **No such alternative modeling style exists
@@ -89,10 +88,10 @@ feature (see "Compatibility constraints for future work").
 loaded state it already has, once, in `AppendAndPublish`
 (`EventSourcedCommandExecutor.cs:28-45`): `None -> ExpectedStreamState.NoStream`,
 `Some(loaded) -> ExpectedStreamState.Exact(loaded.Version)`
-(`src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs`). Both Level 1 and Level 2 get this
-mapping identically because both go through this one executor — neither constructs an
-`ExpectedStreamState` by hand, and no call site anywhere uses a bare integer literal to
-mean "create."
+(`src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs`). Every way of handling a command
+gets this mapping identically because all of them go through this one executor — none
+constructs an `ExpectedStreamState` by hand, and no call site anywhere uses a bare
+integer literal to mean "create."
 
 **Append-before-publish ordering** is enforced structurally, not by convention: append
 happens first inside `AppendAndPublish`, and publish only runs if append returned
@@ -103,11 +102,11 @@ sees the just-appended state if it reloads the aggregate.
 **Publish requires `Event`.** `IAggregateEvent<TAggregate, TId>` alone only guarantees a
 `StreamId` — nothing stops a hand-written type from implementing it without deriving
 from `NEvo.Messaging.Events.Event`. The aggregate-method convention rejects this at
-discovery time (`RequireEventDerivedType`, next section); an explicit Level 2 handler has
-no such compile/discovery-time check, so `PublishAllAsync`
-(`EventSourcedCommandExecutor.cs:52-79`) checks again at publish time and fails with a
-clear `InvalidOperationException` naming the offending type, rather than an unchecked
-cast blowing up opaquely.
+discovery time (`RequireEventDerivedType`, next section); an explicit
+`IEventSourcedCommandHandler<...>` has no such compile/discovery-time check, so
+`PublishAllAsync` (`EventSourcedCommandExecutor.cs:52-79`) checks again at publish time
+and fails with a clear `InvalidOperationException` naming the offending type, rather
+than an unchecked cast blowing up opaquely.
 
 ## Convention discovery: `AggregateDecider`/`AggregateEvolver`
 
@@ -117,12 +116,12 @@ singletons of the same concrete type
 (`src/NEvo.Ddd.EventSourcing/ServiceCollectionExtensions.cs:136-137`) rather than one
 instance shared via a factory alias:
 
-- `IAggregateMethodDecider` — the stable capability an explicit Level 2 handler
-  delegates to when it wants the convention's own decision logic instead of duplicating
-  it.
+- `IAggregateMethodDecider` — the stable capability an explicit
+  `IEventSourcedCommandHandler<...>` delegates to when it wants the convention's own
+  decision logic instead of duplicating it.
 - `IDecider` — one member of `IDeciderRegistry`'s `IEnumerable<IDecider>` collection
-  (`DeciderRegistry.cs`), the general decision-mechanism abstraction the Level 1
-  `DeciderCommandHandler` resolves through.
+  (`DeciderRegistry.cs`), the general decision-mechanism abstraction the aggregate-
+  method convention's own `DeciderCommandHandler` resolves through.
 
 Both roles resolve through the same `GetDeciderDelegate` → `MostSpecificCandidateResolver.Resolve`
 path (`AggregateDecider.cs:36-54`, `src/NEvo.Ddd.EventSourcing/MostSpecificCandidateResolver.cs`):
@@ -175,9 +174,9 @@ container (`AggregateDecider.cs:20-24`).
 
 This stays inside `AggregateDeciderExtractor`/`AggregateDecider`/`AggregateDeciderProvider`
 — the convention's own discovery/invocation path — rather than the shared executor,
-consistent with the executor/convention separation above (D30): parameter resolution is
-part of "how the convention invokes a decision method," not part of the executor's
-generic lifecycle.
+consistent with the executor/convention separation above: parameter resolution is part
+of "how the convention invokes a decision method," not part of the executor's generic
+lifecycle.
 
 **Resolution order and failure semantics** (`AggregateDeciderExtractor.ResolveArguments`,
 `AggregateDeciderExtractor.cs:180-202`): argument `0` is always the command; each
@@ -187,7 +186,7 @@ failure. The decision method is **never invoked** unless every declared paramete
 resolved successfully — there is no partial invocation and no `null`/default value ever
 passed for an unresolved parameter.
 
-**The required-contextual-dependency invariant (D44).** A required dependency must be
+**The required-contextual-dependency invariant.** A required dependency must be
 resolved *and validated* during resolution/activation, not lazily once the decision
 method is already running. `DecisionMethodParameterResolver.Resolve` distinguishes three
 failure modes, each producing a `DecisionMethodParameterResolutionException`
@@ -204,24 +203,23 @@ TUser>` (below) is the concrete example this invariant was designed around.
 dependency violate the invariant — surfaces as the same typed `Left` shape the resolver
 itself uses, never an uncontrolled reflection exception escaping the call.
 
-**`IAggregateMethodDecider`/`IDecider`'s public contract is unchanged by this mechanism**
-(D38) — parameter injection is internal wiring inside
+**`IAggregateMethodDecider`/`IDecider`'s public contract is unchanged by this
+mechanism** — parameter injection is internal wiring inside
 `AggregateDeciderExtractor`/`AggregateDecider`/`AggregateDeciderProvider`; neither
-interface gained a member, and neither is on this package's list of breaking-change
-surfaces for this specification (see `overview.md`'s "Compatibility and migration").
+interface gained a member.
 
-**Supported-use contract (D39), documented rather than mechanically enforced:**
-additional parameters represent contextual facts or synchronous, side-effect-free
-business policies — `ICurrentUser<Guid, TUser>`, a clock abstraction, a precomputed
-policy object. Orchestration or external I/O (a `DbContext`, an `HttpClient`, a service
-that calls out) is a Level 2 concern. Nothing in `DecisionMethodParameterResolver`
-prevents a consumer from injecting an I/O-performing dependency — this is a usage
-convention `docs/usage/event-sourcing.md` asks consumers to follow, not a runtime
-restriction this package imposes.
+**Supported-use contract, documented rather than mechanically enforced:** additional
+parameters represent contextual facts or synchronous, side-effect-free business
+policies — `ICurrentUser<Guid, TUser>`, a clock abstraction, a precomputed policy
+object. Orchestration or external I/O (a `DbContext`, an `HttpClient`, a service that
+calls out) is a concern for an explicit `IEventSourcedCommandHandler<...>` instead.
+Nothing in `DecisionMethodParameterResolver` prevents a consumer from injecting an
+I/O-performing dependency — this is a usage convention `docs/usage/event-sourcing.md`
+asks consumers to follow, not a runtime restriction this package imposes.
 
-## Command handling: Level 1 vs. Level 2
+## Command handling: the aggregate-method convention vs. an explicit handler
 
-**Level 1 — aggregate-method convention.** `DeciderCommandHandlerProvider`
+**The aggregate-method convention.** `DeciderCommandHandlerProvider`
 (`src/NEvo.Ddd.EventSourcing/Handling/DeciderCommandHandlerProvider.cs`) groups decider
 descriptions by `(CommandType, AggregateType, IdType)` — `AggregateDecider` can report
 several descriptions for the same route, one per concrete state type declaring a
@@ -233,28 +231,32 @@ is really a single convention route — the grouping exists specifically to prev
 Every handler this provider creates has `Role = HandlerRole.Fallback`
 (`DeciderCommandHandlerProvider.cs:34`).
 
-**Level 2 — explicit `IEventSourcedCommandHandler<TCommand, TAggregate, TId>`**
+**An explicit `IEventSourcedCommandHandler<TCommand, TAggregate, TId>`**
 (`src/NEvo.Ddd.EventSourcing/Handling/IEventSourcedCommandHandler.cs`). Adapted by
 `EventSourcedCommandHandlerAdapter`
 (`src/NEvo.Ddd.EventSourcing/Handling/EventSourcedCommandHandlerAdapter.cs`), which
 resolves the handler, the executor, and the `IAggregateAuthorization<...>` instance from
 `context.ServiceProvider` and delegates entirely to
 `IEventSourcedCommandExecutor.ExecuteAsync`, passing `handler.HandleAsync` as the
-`decide` delegate. The handler receives `Option<TAggregate>` (`Some`/`None`, D24) — never
+`decide` delegate. The handler receives `Option<TAggregate>` (`Some`/`None`) — never
 a bare `TAggregate`, never `null` — and manages exactly one Event Sourced write target: its
 own interface shape gives it no way to reach a second, independently-versioned stream in
-the same invocation (D31). A Level 2 handler is free to inject any constructor
+the same invocation. An explicit handler is free to inject any constructor
 dependency for orchestration/read I/O and may delegate the actual domain decision to
-`IAggregateMethodDecider` instead of writing decision logic itself.
+`IAggregateMethodDecider` instead of writing decision logic itself. Coordinated, atomic
+writes across two or more independently-versioned aggregate streams belong to an
+ordinary `ICommandHandler<T>` (see [Commands](../usage/commands.md)) or a future
+saga/process-manager capability — never designed here.
 
 **Registration precedence** is entirely `HandlerRole`-driven
 (`src/NEvo.Messaging/Handling/HandlerRole.cs`: `Primary`/`Fallback`, no numeric
 priority) — resolved by the normal `NEvo.Messaging` handler-resolution logic, not by
 anything Event Sourcing-specific. `MessageHandlerDescription.Role` defaults to `Primary`
-via an `init` property, so an ordinary `ICommandHandler<T>` or an explicit Level 2
-handler registered for the same command as a convention route is `Primary` by
-construction and wins without any Event-Sourcing-aware branch anywhere in the resolution
-path; the convention route is the one and only thing registered as `Fallback`.
+via an `init` property, so an ordinary `ICommandHandler<T>` or an explicit
+`IEventSourcedCommandHandler<...>` registered for the same command as a convention
+route is `Primary` by construction and wins without any Event-Sourcing-aware branch
+anywhere in the resolution path; the convention route is the one and only thing
+registered as `Fallback`.
 
 ## Persistence boundary: `IEventStreamStore` / `IAggregateRepository`
 
@@ -272,39 +274,37 @@ Two distinct interfaces, `src/NEvo.Ddd.EventSourcing/IAggregateRepository.cs`:
 - **`IAggregateRepository`** — composes an `IEventStreamStore` with `IEvolverRegistry` to
   load and rehydrate an aggregate to its current state *and* observed version
   (`AggregateRepository.LoadAggregateAsync`, `IAggregateRepository.cs:52-60`), and to
-  append new events. Application code (Level 2 handlers, query handlers) depends on
+  append new events. Application code (explicit handlers, query handlers) depends on
   `IAggregateRepository`, never `IEventStreamStore` directly.
 
 **Expected-stream-state** (`src/NEvo.Ddd.EventSourcing/ExpectedStreamState.cs`) is a
 closed two-case abstract record: `NoStream` (valid only if the stream does not yet
 exist) and `Exact(version)` (valid only if the stream is at exactly that version).
 **There is no `Any`/`IgnoreVersion`/unconditional-append case, and no automatic
-retry/rebase after a conflict** — both were explicitly rejected (D29); adding either
-would materially change the concurrency-conflict contract this specification otherwise
-keeps unchanged (D13).
+retry/rebase after a conflict** — adding either would materially change the
+concurrency-conflict contract described below.
 
 **Concurrency conflicts** surface as `AggregateConcurrencyException`
 (`src/NEvo.Ddd.EventSourcing/AggregateConcurrencyException.cs`) — **returned** via
-`Either<Exception, Unit>.Left`, **never thrown** (D13). `FakeEventStore.AppendEventsAsync`
+`Either<Exception, Unit>.Left`, **never thrown**. `FakeEventStore.AppendEventsAsync`
 (`ServiceCollectionExtensions.cs:28-59`) is the concrete, current demonstration: the
 version check and mutation happen under one lock as a single atomic unit — a
 `TryGetValue -> compare -> mutate` sequence is not safe under concurrent access alone,
 and `List<dynamic>` itself is not thread-safe for concurrent mutation, so both the read
 and the write side of the check must share the same critical section.
 
-**Append/flush/commit (D23)** is a storage-contract ordering guarantee, not an
-EF-specific implementation note: when append completes successfully, the appended
-event is visible to synchronous downstream processing inside the same supported
-consistency boundary — the executor publishes only after a successful append
-(enforced structurally, see above). If a concrete provider needs an explicit flush/save
-to satisfy that guarantee, the provider performs it before its own append call returns
-— the same pattern `EntityFrameworkMessageInbox`/`EntityFrameworkMessageOutbox` already
-use for their own `SaveChangesAsync()` calls
-(see `docs/development/transaction-model.md`). Successful append does not by itself mean
-Event Sourcing core owns or has completed the outer application/message-processing
-transaction commit — it does not coordinate a single save point, exactly as
-`docs/development/transaction-model.md` § "Transaction ownership" already states for
-inbox/outbox.
+**Append/flush/commit** is a storage-contract ordering guarantee, not an EF-specific
+implementation note: when append completes successfully, the appended event is visible
+to synchronous downstream processing inside the same supported consistency boundary —
+the executor publishes only after a successful append (enforced structurally, see
+above). If a concrete provider needs an explicit flush/save to satisfy that guarantee,
+the provider performs it before its own append call returns — the same pattern
+`EntityFrameworkMessageInbox`/`EntityFrameworkMessageOutbox` already use for their own
+`SaveChangesAsync()` calls (see `docs/development/transaction-model.md`). Successful
+append does not by itself mean Event Sourcing core owns or has completed the outer
+application/message-processing transaction commit — it does not coordinate a single
+save point, exactly as `docs/development/transaction-model.md` § "Transaction
+ownership" already states for inbox/outbox.
 
 ## Authorization ownership split
 
@@ -312,7 +312,7 @@ Two layers, never crossing the `NEvo.Ddd.EventSourcing` → `NEvo.Messaging.Auth
 package boundary — confirmed directly against
 `src/NEvo.Ddd.EventSourcing/NEvo.Ddd.EventSourcing.csproj`'s `ProjectReference` entries
 (`NEvo.Messaging.Cqrs`, `NEvo.Messaging` only; **no** reference to
-`NEvo.Messaging.Authorization`, D26):
+`NEvo.Messaging.Authorization`):
 
 ```
 Messaging pipeline (NEvo.Messaging.Authorization, before the executor runs at all):
@@ -333,14 +333,14 @@ present regardless of which route/handler ends up selected) and
 handler's own additional requirement). Both are required — AND, never one overriding
 the other (`ValidatePermissionMiddleware.cs:27`). This is what makes a convention-routed
 (`Fallback`) command's message-level permission enforce correctly even though
-`DeciderCommandHandlerAdapter`'s `HandlerDescription.Method` is `null` — the check no
-longer depends on `Method` being non-null the way it did before this specification.
+`DeciderCommandHandlerAdapter`'s `HandlerDescription.Method` is `null` — the check does
+not depend on `Method` being non-null.
 
 `IAggregateAuthorization<TCommand, TAggregate, TId>`
 (`src/NEvo.Ddd.EventSourcing/Executing/IAggregateAuthorization.cs`) is the **only**
 authorization concern the executor owns — invoked after rehydration, before the
 decision, receiving the same `Option<TAggregate>` (`Some`/`None`) current-state
-semantics as a Level 2 handler (D24), so a policy can distinguish "acting on an existing
+semantics as an explicit handler, so a policy can distinguish "acting on an existing
 resource" from "creating a new one" and explicitly reject or ignore `None` per its own
 use case, rather than being silently skipped merely because nothing exists yet. The
 default registration, `AllowAllAggregateAuthorization<,,>`
@@ -353,14 +353,13 @@ core contract's package, not on consumers implementing it.
 
 **`ICurrentUser<TId, TUser>`** (`src/NEvo.Messaging.Authorization/ICurrentUser.cs`,
 `CurrentUser.cs`) is identity-only — `TUser User { get; }`, `TUser : User<TId>`, never
-`Option`-wrapped (D35, D42, D43). It adapts `UserContext<TId, TUser>`/
-`IMessageContextAccessor` internally and is resolved into a decision method purely by
-DI `Type` — never a compile-time reference from `NEvo.Ddd.EventSourcing` to
-`NEvo.Messaging.Authorization`. `CurrentUser<TId, TUser>`'s constructor
-(`CurrentUser.cs:20-27`) obtains and validates the current user **during construction**,
-throwing `CurrentUserUnavailableException`
+`Option`-wrapped. It adapts `UserContext<TId, TUser>`/`IMessageContextAccessor`
+internally and is resolved into a decision method purely by DI `Type` — never a
+compile-time reference from `NEvo.Ddd.EventSourcing` to `NEvo.Messaging.Authorization`.
+`CurrentUser<TId, TUser>`'s constructor (`CurrentUser.cs:20-27`) obtains and validates
+the current user **during construction**, throwing `CurrentUserUnavailableException`
 (`src/NEvo.Messaging.Authorization/CurrentUserUnavailableException.cs`) immediately if
-none is available — never lazily from the `User` getter (D44). Combined with the
+none is available — never lazily from the `User` getter. Combined with the
 required-contextual-dependency invariant above: a missing current user becomes a
 decision-method parameter-*resolution* failure (the DI activation itself throws, which
 `DecisionMethodParameterResolver.Resolve`'s `catch` converts to a typed `Left`,
@@ -368,7 +367,7 @@ decision-method parameter-*resolution* failure (the DI activation itself throws,
 never a value the aggregate code has to null-check, and never a substitute for the two
 authorization layers above (it answers "who," not "are they allowed").
 
-**Typed authorization failure / HTTP mapping (D36).** `PermissionDeniedException`
+**Typed authorization failure / HTTP mapping.** `PermissionDeniedException`
 (`src/NEvo.Messaging.Authorization/PermissionDeniedException.cs`) derives from the BCL's
 `UnauthorizedAccessException` specifically so `NEvo.Messaging.Web` can recognize and map
 it without a new project reference in either direction.
@@ -380,55 +379,48 @@ authentication/authorization gate returns 401 first, before any NEvo check runs.
 
 ## Query and read side
 
-`RequireSome<TLeft, TRight>` (`src/NEvo.Core/EitherAsyncExtensions.cs:15-21`) replaces
-`EitherExtensions.MapAsync` outright (D37) — the old name lived, confusingly, inside
-`namespace LanguageExt` and looked like a plain `.Map` despite having stronger,
-found-or-not-found semantics. It turns `EitherAsync<TLeft, Option<TRight>>` into
-`EitherAsync<TLeft, TRight>` in one step: an existing `Left` passes through unchanged,
-`Some` becomes `Right`, `None` becomes a `Left` built from the caller-supplied factory.
-`MapAsync` had exactly one call site in the whole repository
-(`GetDocumentQueryHandler`, in the still-unreleased Documents example), updated in the
-same task this replaced it — not treated as a breaking change requiring a compatibility
-shim.
+`RequireSome<TLeft, TRight>` (`src/NEvo.Core/EitherAsyncExtensions.cs:15-21`) turns
+`EitherAsync<TLeft, Option<TRight>>` into `EitherAsync<TLeft, TRight>` in one step: an
+existing `Left` passes through unchanged, `Some` becomes `Right`, `None` becomes a
+`Left` built from the caller-supplied factory. It replaced an older, more confusingly
+named helper that lived, incorrectly, inside `namespace LanguageExt` and looked like a
+plain `.Map` despite having stronger, found-or-not-found semantics.
 
 The current read path loads the aggregate directly through `IAggregateRepository` and
 projects to a DTO inside the query handler itself — there is no persisted, continuously-
 updated projection mechanism. This re-derives current state from the event stream on
 every query and is explicitly **not the final recommendation for complex read models**;
-a future persistence specification owns projections. Nothing in this package's public
+a persisted-projection mechanism does not exist today. Nothing in this package's public
 shape assumes projections will never exist — `LoadProjectionAsync` was simply removed
 from `IAggregateRepository` rather than left half-implemented (it previously threw
 `NotImplementedException`).
 
-## Persistence-metadata layering — no envelope designed here (D20-D22)
+## Persistence-metadata layering — no envelope designed here
 
 Three concerns, kept distinct, none conflated:
 
-1. **Domain event** — e.g. `DocumentApproved`, deriving from `Event : Message` exactly
-   as before this specification. No storage revision, provider serialization metadata,
-   or global log position was added to it.
+1. **Domain event** — e.g. `DocumentApproved`, deriving from `Event : Message`. No
+   storage revision, provider serialization metadata, or global log position was added
+   to it.
 2. **Runtime message-processing context** — `IMessageContext`/`MessageContextHeaders`,
    already carrying correlation id, causation id, and headers. The executor may access
-   `IMessageContext` because it participates in the messaging lifecycle; that
-   possibility is preserved, not newly exercised.
+   `IMessageContext` because it participates in the messaging lifecycle.
 3. **Future persisted representation** — a real provider's own stored record, mapping
    domain event + relevant runtime metadata + provider-specific metadata into whatever a
    concrete store actually needs. **No public `EventEnvelope<T>` (or equivalent) is
-   defined anywhere in this version**, and none is implied as coming imminently. Stream
+   defined anywhere in this package**, and none is implied as coming imminently. Stream
    version stays a plain out-of-band `int`, never a field on the event.
 
-**This specification stabilizes the user-facing aggregate/command execution direction.
-It does not freeze the final persistence-provider SPI (D22).** The next real-provider
-specification may still refine the low-level store contract (`IEventStreamStore`'s exact
-shape, a concrete stream-revision representation, serialization strategy) as concrete
-requirements become known, without redesigning aggregate or command-handler APIs.
+**This package stabilizes the aggregate/command execution direction described above. It
+does not freeze the final persistence-provider SPI.** A real-provider implementation may
+still refine the low-level store contract (`IEventStreamStore`'s exact shape, a concrete
+stream-revision representation, serialization strategy) as concrete requirements become
+known, without redesigning aggregate or command-handler APIs.
 
 ## Compatibility constraints for future work
 
 Recorded here so a maintainer implementing a future persistence provider or an
-alternative modeling style finds them without cross-referencing spec history (D17,
-reproduced from `specs/active/event-sourcing-api-hardening/overview.md` §
-"Architectural principles"):
+alternative modeling style finds them directly, without needing spec history:
 
 - **Aggregate modeling style is a supported default, not the core's permanent
   definition.** The current object-oriented, immutable-state, convention-discovered
@@ -438,20 +430,20 @@ reproduced from `specs/active/event-sourcing-api-hardening/overview.md` §
   compatibility property of the contracts, not a new `IDecisionStrategy`/
   `IMutableAggregateStrategy`/`IFunctionalDeciderStrategy` abstraction. No such
   alternative style is implemented today.
-- **The executor/convention separation (D30, above)** exists specifically so a future
+- **The executor/convention separation** (above) exists specifically so a future
   non-reflection-based decision mechanism could supply its own `IDecider`/`IEvolver`
   without an executor rewrite — not a promise that one will be built.
-- **Level 2 manages exactly one Event Sourced write target per command (D31).**
-  Coordinated, atomic writes across two or more independently-versioned aggregate
-  streams belongs to Level 3 (an ordinary `ICommandHandler<T>`) or a future dedicated
-  saga/process-manager capability — never designed here.
+- **An explicit `IEventSourcedCommandHandler<...>` manages exactly one Event Sourced
+  write target per command.** Coordinated, atomic writes across two or more
+  independently-versioned aggregate streams belong to an ordinary `ICommandHandler<T>`
+  or a future dedicated saga/process-manager capability — never designed here.
 - **No `Any`/`IgnoreVersion` expected-stream-state mode, and no automatic retry/rebase**
-  (D29) — both explicitly rejected as changing the concurrency-conflict contract.
+  — both would change the concurrency-conflict contract described above.
 
 ## Reference implementation
 
 `examples/ExampleApp/NEvo.ExampleApp.Documents.Api` is the maintainer-facing reference
-implementation for everything above: Level 1 convention handling for
+implementation for everything above: aggregate-method convention handling for
 `CreateDocument`/`ChangeDocument`, message-level `[AllowPermission]` on
 `ApproveDocument`, decision-method parameter injection for the approver's identity via
 `ICurrentUser<Guid, DemoUser>`, and both `MapCommandEndpoint`/`MapQueryEndpoint` HTTP
@@ -461,11 +453,9 @@ step-by-step.
 
 ## Known open questions
 
-Carried forward, unresolved by this specification (none of D1-D44 decided them):
-
 - Snapshot support.
 - Event schema versioning/upcasting.
 - Projection rebuild strategy — no projection mechanism exists at all yet (see "Query
   and read side").
 - Whether an EF-backed `IEventStreamStore` is the intended real provider, or a
-  placeholder for something else — the next persistence specification decides this.
+  placeholder for something else.

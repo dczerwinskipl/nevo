@@ -13,25 +13,44 @@ scope_exceptions:
     reason: Mechanical output of `node tools/docs.mjs generate`, required for the task's own `docs.mjs check` verification step to pass — never hand-edited. Not declared in the task's `consequential_paths`.
     decision: accepted
     confirmed_by: owner
-    confirmed_at: 2026-08-13
-    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
+    confirmed_at: 2026-08-15
+    task_fingerprint: "8c2bf84518cc8de9eb52d5052f3a3c3e4d40786e834e6c39f37298118ea1a104"
   - finding: F2
     path: docs/index.generated.md
     reason: Mechanical output of `node tools/docs.mjs generate`, required for the task's own `docs.mjs check` verification step to pass — never hand-edited. Not declared in the task's `consequential_paths`.
     decision: accepted
     confirmed_by: owner
-    confirmed_at: 2026-08-13
-    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
+    confirmed_at: 2026-08-15
+    task_fingerprint: "8c2bf84518cc8de9eb52d5052f3a3c3e4d40786e834e6c39f37298118ea1a104"
   - finding: F3
     path: docs/routing.generated.json
     reason: Mechanical output of `node tools/docs.mjs generate`, required for the task's own `docs.mjs check` verification step to pass — never hand-edited. Not declared in the task's `consequential_paths`.
     decision: accepted
     confirmed_by: owner
-    confirmed_at: 2026-08-13
-    task_fingerprint: "1d2630b1cd7b6a8c075117075e8170daaaf1c52e7112c91c4dc32be2b02b092e"
+    confirmed_at: 2026-08-15
+    task_fingerprint: "8c2bf84518cc8de9eb52d5052f3a3c3e4d40786e834e6c39f37298118ea1a104"
 ---
 
 # Review: event-sourcing-api-hardening/user-facing-event-sourcing-guide
+
+Re-review (2026-08-15, targeted post-review correction pass — terminology only, no
+semantic change). Baseline: this file's prior content (`pass`, no findings, aside from
+the fingerprint-provenance correction already recorded here). External review found
+"Level 1"/"Level 2"/"Level 3" — working names used only during this specification's own
+discovery/discussions — had leaked into the shipped guide as if they were the
+framework's actual vocabulary. Task 11's own instructions were corrected first (removing
+the "Level N" framing so a future implementation of this task wouldn't reproduce the
+same issue), then `docs/usage/event-sourcing.md` was rewritten to use the stable names
+throughout: **the aggregate-method convention**, **the explicit
+`IEventSourcedCommandHandler<...>`**, and **an ordinary `ICommandHandler<T>`**. The
+decision table in § 4 and every prose reference (§§ 2, 4, 5, 6, 7, 9, "Constraints and
+failure modes") were updated identically; no code, architecture, or documented behavior
+changed — this is a pure rename. Re-verified: all 18 "required reader questions" still
+have a direct answer under the new names; `docs/usage/queries.md`,
+`docs/usage/README.md`, and `docs/usage/example-app-walkthrough.md` were not affected
+(no Level-terminology in any of them) and needed no change. `node tools/docs.mjs
+validate`/`check` re-run clean. Verdict, acceptance-criteria coverage, and scope
+compliance unchanged from the prior review.
 
 Re-review: a prior report exists at this path (generated 2026-08-13, verdict `pass`).
 Re-verified against current file contents, per policy, rather than trusted from git
