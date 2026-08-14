@@ -228,7 +228,7 @@ export function handleFingerprint(changeSlug, options = {}) {
   console.log(computeChangeFingerprint(change));
 }
 
-export function handleApprove(changeSlug, taskId) {
+export function handleApprove(changeSlug, taskId, options = {}) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
@@ -251,6 +251,10 @@ export function handleApprove(changeSlug, taskId) {
   const result = validateApproval(task.status, review, currentFingerprint, {
     mechanicalExempt, taskId, currentTaskFingerprint,
   });
+  if (options.check) {
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
+    return result;
+  }
   const inspection = inspectApprovePostconditions(result);
 
   if (inspection.result === 'not_retryable') {
@@ -420,11 +424,15 @@ export function handleComplete(changeSlug, taskId) {
   console.log(`Task '${taskId}' marked as implemented. Present results to owner for verification.`);
 }
 
-export function handleVerify(changeSlug, taskId) {
+export function handleVerify(changeSlug, taskId, options = {}) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
 
   const transition = validateTransition('verify', task.status);
+  if (options.check) {
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
+    return transition;
+  }
   if (!transition.ok) throw new CliError(transition.reason);
   if (transition.idempotent) { console.log(`Task '${taskId}' is already verified.`); return; }
 
@@ -1254,7 +1262,8 @@ export function buildProgram() {
     .description('Mark task as approved (requires a clean, ready review)')
     .argument('<change>')
     .argument('<task>')
-    .action(handleApprove);
+    .option('--check', 'Report the approval gate only — no status write')
+    .action((changeSlug, taskId, opts) => handleApprove(changeSlug, taskId, opts));
 
   program.command('start')
     .description('Create/switch branch, set task in-implementation')
@@ -1272,7 +1281,8 @@ export function buildProgram() {
     .description('Mark task as verified')
     .argument('<change>')
     .argument('<task>')
-    .action(handleVerify);
+    .option('--check', 'Report the verification gate only — no status write')
+    .action((changeSlug, taskId, opts) => handleVerify(changeSlug, taskId, opts));
 
   program.command('archive')
     .description('Move a fully terminal change to specs/archive/')

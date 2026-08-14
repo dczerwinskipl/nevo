@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-14T19:55:49.686Z",
+  "generated": "2026-08-14T21:20:43.881Z",
   "changes": [
     {
       "id": "nevo-spec-dashboard-refinement",
@@ -12,7 +12,7 @@
           "id": "pull-request-metadata-cli",
           "order": 1,
           "file": "tasks/01-pull-request-metadata-cli.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
             "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
@@ -44,7 +44,7 @@
           "id": "dashboard-content-runtime",
           "order": 2,
           "file": "tasks/02-dashboard-content-runtime.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
             "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
@@ -75,7 +75,7 @@
           "id": "github-provider-backend",
           "order": 3,
           "file": "tasks/03-github-provider-backend.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "pull-request-metadata-cli"
           ],
@@ -114,7 +114,7 @@
           "id": "documents-and-task-details-ui",
           "order": 4,
           "file": "tasks/04-documents-and-task-details-ui.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "dashboard-content-runtime"
           ],
@@ -155,7 +155,7 @@
           "id": "github-changes-ui",
           "order": 5,
           "file": "tasks/05-github-changes-ui.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "github-provider-backend",
             "documents-and-task-details-ui"

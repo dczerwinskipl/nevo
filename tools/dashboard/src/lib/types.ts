@@ -144,3 +144,46 @@ export interface PullRequestsPayload {
   source: 'active' | 'archive';
   pullRequests: PullRequestResult[];
 }
+
+export type SpecificationOwnerAction = 'approve' | 'verify' | 'finalize';
+
+export interface SpecificationTaskActionGate {
+  action: 'approve' | 'verify';
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface SpecificationWorktreeState {
+  clean: boolean;
+  total: number;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  files: Array<{ status: string; path: string }>;
+  branch: string;
+  hasUpstream: boolean;
+  ahead: number | null;
+  behind: number | null;
+}
+
+export interface SpecificationActionsPayload {
+  id: string;
+  slug: string;
+  source: 'active';
+  generatedAt: string;
+  worktree: SpecificationWorktreeState;
+  tasks: Record<string, SpecificationTaskActionGate>;
+  finalize: {
+    enabled: boolean;
+    reason: string | null;
+    checks: Array<{ name: string; passed: boolean; detail?: string }>;
+    pullRequest: { number: number; state: string; isDraft: boolean; unresolvedThreads: number } | null;
+  };
+}
+
+export interface SpecificationActionResult {
+  ok: true;
+  action: SpecificationOwnerAction;
+  taskId?: string;
+  message: string;
+}

@@ -10,7 +10,8 @@ import { join, dirname } from 'node:path';
 import {
   getWorkingTreeStatus, isWorkingTreeClean, branchExists, checkoutBranch, createAndCheckoutBranch,
   getCurrentBranch, hasUpstream, getAheadBehind, commitAll, push, touchesPaths,
-  checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getCurrentRevision, getChangedFiles,
+  checkoutTrackingBranch, getDirtyFiles, getDirtyPaths, getWorkingTreeSummary,
+  getCurrentRevision, getChangedFiles,
 } from '../lib/git.mjs';
 
 let repo, remote;
@@ -161,6 +162,26 @@ describe('lib/git.mjs against a disposable temp repo', () => {
     writeFileSync(join(repo, 'untracked2.txt'), 'new\n');
     assert.deepEqual(getDirtyPaths(repo), ['untracked2.txt']);
     execFileSync('git', ['-C', repo, 'clean', '-fd', 'untracked2.txt'], { encoding: 'utf8' });
+  });
+
+  test('getWorkingTreeSummary separates staged, unstaged, and untracked changes', () => {
+    writeFileSync(join(repo, 'staged.txt'), 'staged\n');
+    git(['add', 'staged.txt']);
+    writeFileSync(join(repo, 'a.txt'), 'unstaged\n');
+    writeFileSync(join(repo, 'untracked-summary.txt'), 'untracked\n');
+
+    const summary = getWorkingTreeSummary(repo);
+    assert.equal(summary.clean, false);
+    assert.deepEqual({ total: summary.total, staged: summary.staged, unstaged: summary.unstaged, untracked: summary.untracked }, {
+      total: 3,
+      staged: 1,
+      unstaged: 1,
+      untracked: 1,
+    });
+    assert.deepEqual(summary.files.map(file => file.path).sort(), ['a.txt', 'staged.txt', 'untracked-summary.txt']);
+
+    git(['reset', '--hard', 'HEAD']);
+    execFileSync('git', ['-C', repo, 'clean', '-fd', 'staged.txt', 'untracked-summary.txt'], { encoding: 'utf8' });
   });
 
   test('a rename is reported as "old -> new" by getDirtyFiles but as two separate real paths by getDirtyPaths (PR review packet 03, Problem 3)', () => {

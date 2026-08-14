@@ -138,3 +138,64 @@ test('serves provider-neutral pull request results through an exact read-only ro
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
+
+test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
+  const loads = [];
+  const executions = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    actionLoader: lookup => {
+      loads.push(lookup);
+      return { slug: lookup.slug, source: 'active', worktree: { clean: true }, tasks: {}, finalize: { enabled: true } };
+    },
+    actionExecutor: request => {
+      executions.push(request);
+      return { ok: true, action: request.action };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const gates = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`);
+    assert.equal(gates.status, 200);
+    assert.equal((await gates.json()).finalize.enabled, true);
+    assert.deepEqual(loads, [{ slug: 'sample-change' }]);
+
+    const action = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      body: JSON.stringify({ action: 'verify', taskId: 'task-one' }),
+    });
+    assert.equal(action.status, 200);
+    assert.deepEqual(await action.json(), { ok: true, action: 'verify' });
+    assert.deepEqual(executions, [{ slug: 'sample-change', action: 'verify', taskId: 'task-one', confirmed: false }]);
+
+    const invalid = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      body: '{',
+    });
+    assert.equal(invalid.status, 400);
+
+    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'verify', taskId: 'task-one' }),
+    });
+    assert.equal(missingActionHeader.status, 403);
+
+    const invalidShape = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      body: 'null',
+    });
+    assert.equal(invalidShape.status, 400);
+
+    const archived = await fetch(`${baseUrl}/api/specs/archive/sample-change/actions`, { method: 'POST' });
+    assert.equal(archived.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});

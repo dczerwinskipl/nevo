@@ -22,6 +22,7 @@ import type {
   DashboardChange,
   DashboardTask,
   SpecificationContent,
+  SpecificationTaskActionGate,
   SpecificationTaskDocument,
 } from '@/lib/types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
@@ -29,9 +30,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { MarkdownContent } from '@/components/markdown-content';
+import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
-import { useSpecificationContent } from '@/hooks/use-dashboard-data';
+import { useSpecificationActions, useSpecificationContent } from '@/hooks/use-dashboard-data';
 
 type DetailTab = 'overview' | 'specification' | 'areas' | 'changes';
 
@@ -111,14 +113,24 @@ function TaskDialog({
   document: taskDocument,
   loading,
   error,
+  actionGate,
+  actionLoading,
+  actionExecuting,
+  actionError,
   onRetry,
+  onAction,
   onClose,
 }: {
   task: DashboardTask;
   document: SpecificationTaskDocument | null;
   loading: boolean;
   error: string | null;
+  actionGate: SpecificationTaskActionGate | null;
+  actionLoading: boolean;
+  actionExecuting: boolean;
+  actionError: string | null;
   onRetry: () => void;
+  onAction: () => void;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -208,6 +220,13 @@ function TaskDialog({
             <EmptyDocument title="Brak treści zadania" detail="Plik zadania nie jest obecnie dostępny w specyfikacji." />
           )}
         </div>
+        <TaskActionFooter
+          gate={actionGate}
+          loading={actionLoading}
+          executing={actionExecuting}
+          error={actionError}
+          onExecute={onAction}
+        />
       </div>
     </div>
   );
@@ -340,28 +359,53 @@ function AreasPanel({
 export function SpecDetail({ change }: { change: DashboardChange }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
   const contentEnabled = activeTab === 'specification' || activeTab === 'areas' || Boolean(selectedTaskId);
   const contentQuery = useSpecificationContent(change, contentEnabled);
+  const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
   const selectedTaskDocument = selectedTaskId
     ? contentQuery.data?.tasks.find(task => task.id === selectedTaskId) ?? null
     : null;
+  const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
+  const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
 
   useEffect(() => {
     setActiveTab('overview');
     setSelectedTaskId(null);
+    setFinalizeOpen(false);
   }, [change.slug]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
     taskTriggerRef.current = trigger;
+    actionsQuery.resetExecution();
     setSelectedTaskId(task.id);
-  }, []);
+  }, [actionsQuery]);
 
   const closeTask = useCallback(() => {
     setSelectedTaskId(null);
     requestAnimationFrame(() => taskTriggerRef.current?.focus());
   }, []);
+
+  const executeTaskAction = useCallback(async () => {
+    if (!selectedTaskAction || !selectedTask) return;
+    try {
+      await actionsQuery.execute({ action: selectedTaskAction.action, taskId: selectedTask.id });
+      closeTask();
+    } catch {
+      // The mutation exposes its sanitized error in the dialog footer.
+    }
+  }, [actionsQuery, closeTask, selectedTask, selectedTaskAction]);
+
+  const executeFinalize = useCallback(async () => {
+    try {
+      await actionsQuery.execute({ action: 'finalize', confirmed: true });
+      setFinalizeOpen(false);
+    } catch {
+      // The mutation exposes its sanitized error in the confirmation dialog.
+    }
+  }, [actionsQuery]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex = currentIndex;
@@ -401,16 +445,32 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
           </div>
         </div>
 
-        <Card className="p-5">
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Postęp ukończenia</p>
-              <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{change.metrics.progress}%</p>
+        <div className="space-y-3">
+          <Card className="p-5">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Postęp ukończenia</p>
+                <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{change.metrics.progress}%</p>
+              </div>
+              <div className="text-right text-[11px] text-[var(--muted)]"><p>{change.metrics.completed}/{change.metrics.actionable}</p><p>w „Gotowe”</p></div>
             </div>
-            <div className="text-right text-[11px] text-[var(--muted)]"><p>{change.metrics.completed}/{change.metrics.actionable}</p><p>w „Gotowe”</p></div>
-          </div>
-          <StageProgress change={change} className="mt-5" legend />
-        </Card>
+            <StageProgress change={change} className="mt-5" legend />
+          </Card>
+          {change.source === 'active' && (
+            <RepositoryActionsCard
+              data={actionsQuery.data}
+              loading={actionsQuery.loading}
+              refreshing={actionsQuery.refreshing}
+              error={actionsQuery.error}
+              executing={actionsQuery.executing}
+              onRefresh={() => void actionsQuery.refresh()}
+              onFinalize={() => {
+                actionsQuery.resetExecution();
+                setFinalizeOpen(true);
+              }}
+            />
+          )}
+        </div>
       </header>
 
       <nav className="mt-9 overflow-x-auto border-b border-[var(--border)]" aria-label="Widoki specyfikacji">
@@ -478,10 +538,23 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
           document={selectedTaskDocument}
           loading={contentQuery.loading}
           error={contentQuery.error}
+          actionGate={selectedTaskAction}
+          actionLoading={Boolean(selectedTaskHasOwnerAction && actionsQuery.loading)}
+          actionExecuting={actionsQuery.executing}
+          actionError={actionsQuery.executionError}
           onRetry={() => void contentQuery.refresh()}
+          onAction={() => void executeTaskAction()}
           onClose={closeTask}
         />
       )}
+
+      <FinalizeDialog
+        open={finalizeOpen}
+        executing={actionsQuery.executing}
+        error={actionsQuery.executionError}
+        onClose={() => { if (!actionsQuery.executing) setFinalizeOpen(false); }}
+        onConfirm={() => void executeFinalize()}
+      />
     </div>
   );
 }
