@@ -22,6 +22,12 @@ const WINDOWS_GH_FALLBACK_PATHS = [
 
 let resolvedGhBinary; // cached after the first successful resolution this process
 
+// Node's synchronous child-process default is only 1 MiB. Large pull requests can
+// exceed it with the paginated files payload alone, causing a misleading ENOBUFS
+// before the dashboard has a chance to normalize the response. Keep a finite ceiling
+// while allowing repository-scale metadata and unified diffs through.
+const GH_CLI_MAX_BUFFER_BYTES = 50 * 1024 * 1024;
+
 function resolveGhBinary() {
   if (resolvedGhBinary) return resolvedGhBinary;
   try {
@@ -88,7 +94,11 @@ mutation($threadId: ID!) {
 function run(root, args) {
   const binary = resolveGhBinary();
   if (!binary) throw new Error('gh CLI is not available (checked PATH and known Windows install locations).');
-  return execFileSync(binary, args, { cwd: root, encoding: 'utf8' });
+  return execFileSync(binary, args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: GH_CLI_MAX_BUFFER_BYTES,
+  });
 }
 
 function apiHost(baseUrl) {
@@ -104,6 +114,12 @@ function parsePaginatedJson(json) {
   const parsed = JSON.parse(json);
   if (!Array.isArray(parsed)) return [];
   return Array.isArray(parsed[0]) ? parsed.flat() : parsed;
+}
+
+function isOversizedPullRequestDiff(error) {
+  const detail = [error?.message, error?.stdout, error?.stderr].map(value => String(value || '')).join('\n');
+  return /(?:HTTP\s+)?406/i.test(detail)
+    && /(diff exceeded|maximum number of lines|too_large)/i.test(detail);
 }
 
 function ownerAndRepo(root) {
@@ -137,18 +153,23 @@ export function getPrForBranch(root, branch) {
 // Read-only pull request payload for the local dashboard. Authentication and
 // GitHub Enterprise host selection stay inside `gh`; callers receive provider
 // responses only and normalize them before anything reaches a browser.
-export function getPullRequestDetails(root, reference) {
+export function getPullRequestDetails(root, reference, execute = run) {
   const host = apiHost(reference.base_url);
   const endpoint = `repos/${repositoryEndpoint(reference.repository)}/pulls/${reference.number}`;
-  const metadata = JSON.parse(run(root, ['api', '--hostname', host, endpoint]));
-  const files = parsePaginatedJson(run(root, [
+  const metadata = JSON.parse(execute(root, ['api', '--hostname', host, endpoint]));
+  const files = parsePaginatedJson(execute(root, [
     'api', '--hostname', host, '--paginate', '--slurp', `${endpoint}/files?per_page=100`,
   ]));
-  const diff = run(root, [
-    'api', '--hostname', host,
-    '-H', 'Accept: application/vnd.github.diff',
-    endpoint,
-  ]);
+  let diff = '';
+  try {
+    diff = execute(root, [
+      'api', '--hostname', host,
+      '-H', 'Accept: application/vnd.github.diff',
+      endpoint,
+    ]);
+  } catch (error) {
+    if (!isOversizedPullRequestDiff(error)) throw error;
+  }
   return { metadata, files, diff };
 }
 
