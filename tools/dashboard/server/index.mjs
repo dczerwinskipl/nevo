@@ -3,8 +3,9 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadDashboardData } from './data.mjs';
+import { loadDashboardData, loadSpecificationContent } from './data.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
+import { loadSpecificationPullRequests } from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,6 +65,8 @@ function serveStatic(response, pathname, distDir) {
 
 export function createDashboardServer({
   dataLoader = loadDashboardData,
+  contentLoader = loadSpecificationContent,
+  pullRequestLoader = loadSpecificationPullRequests,
   eventHub = createSpecEventHub(),
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
@@ -86,6 +89,46 @@ export function createDashboardServer({
         sendJson(response, 200, dataLoader());
       } catch {
         sendJson(response, 500, { error: 'Unable to load specifications' });
+      }
+      return;
+    }
+
+    const contentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content$/);
+    if (contentRoute) {
+      try {
+        const slug = decodeURIComponent(contentRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification content not found' });
+          return;
+        }
+        const content = contentLoader({ source: contentRoute[1], slug });
+        if (!content) {
+          sendJson(response, 404, { error: 'Specification content not found' });
+          return;
+        }
+        sendJson(response, 200, content);
+      } catch {
+        sendJson(response, 404, { error: 'Specification content not found' });
+      }
+      return;
+    }
+
+    const pullRequestRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests$/);
+    if (pullRequestRoute) {
+      try {
+        const slug = decodeURIComponent(pullRequestRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification changes not found' });
+          return;
+        }
+        const changes = pullRequestLoader({ source: pullRequestRoute[1], slug });
+        if (!changes) {
+          sendJson(response, 404, { error: 'Specification changes not found' });
+          return;
+        }
+        sendJson(response, 200, changes);
+      } catch {
+        sendJson(response, 500, { error: 'Unable to load specification changes' });
       }
       return;
     }

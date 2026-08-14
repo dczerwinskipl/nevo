@@ -99,7 +99,96 @@ export function loadChange(slug, baseDir = ACTIVE_DIR) {
   change._file = file;
   change._dir = dir;
   change.tasks = change.tasks || [];
+  change.pull_requests = change.pull_requests === undefined ? [] : change.pull_requests;
   return change;
+}
+
+const DEFAULT_PULL_REQUEST_BASE_URLS = Object.freeze({
+  github: 'https://github.com',
+  gitlab: 'https://gitlab.com',
+});
+
+/** Normalize the durable, provider-neutral identity stored in change.yaml. */
+export function normalizePullRequestReference(reference, label = 'pull request reference') {
+  if (!reference || typeof reference !== 'object' || Array.isArray(reference)) {
+    throw new CliError(`${label} must be an object`);
+  }
+
+  const provider = String(reference.provider ?? '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(provider)) {
+    throw new CliError(`${label}.provider must be a lowercase provider id (letters, digits, hyphens)`);
+  }
+
+  const rawBaseUrl = String(reference.base_url ?? DEFAULT_PULL_REQUEST_BASE_URLS[provider] ?? '').trim();
+  if (!rawBaseUrl) {
+    throw new CliError(`${label}.base_url is required for provider '${provider}'`);
+  }
+  let parsedBaseUrl;
+  try {
+    parsedBaseUrl = new URL(rawBaseUrl);
+  } catch {
+    throw new CliError(`${label}.base_url must be an absolute http(s) URL`);
+  }
+  if (!['http:', 'https:'].includes(parsedBaseUrl.protocol)
+    || parsedBaseUrl.username || parsedBaseUrl.password
+    || parsedBaseUrl.search || parsedBaseUrl.hash) {
+    throw new CliError(`${label}.base_url must be an absolute http(s) URL without credentials, query, or fragment`);
+  }
+  const baseUrl = parsedBaseUrl.href.replace(/\/+$/, '');
+
+  let repository = String(reference.repository ?? '').trim().replace(/^\/+|\/+$/g, '');
+  repository = repository.replace(/\.git$/i, '');
+  const repositoryParts = repository.split('/');
+  if (repositoryParts.length < 2
+    || repositoryParts.some(part => !part || part === '.' || part === '..')
+    || /[\\?#\s]/.test(repository)) {
+    throw new CliError(`${label}.repository must be a provider path such as 'owner/repository'`);
+  }
+
+  const number = typeof reference.number === 'number'
+    ? reference.number
+    : Number(String(reference.number ?? '').trim());
+  if (!Number.isSafeInteger(number) || number <= 0) {
+    throw new CliError(`${label}.number must be a positive integer`);
+  }
+
+  return { provider, base_url: baseUrl, repository, number };
+}
+
+export function pullRequestReferenceKey(reference) {
+  const normalized = normalizePullRequestReference(reference);
+  return [
+    normalized.provider,
+    normalized.base_url.toLowerCase(),
+    normalized.repository.toLowerCase(),
+    normalized.number,
+  ].join('|');
+}
+
+/** Active-first lookup used by PR attachment and dashboard reads. */
+export function loadChangeAnywhere(slug, { activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  const active = loadChange(slug, activeDir);
+  if (active) return { change: active, location: 'active' };
+  const archived = loadChange(slug, archiveDir);
+  if (archived) return { change: archived, location: 'archive' };
+  return null;
+}
+
+/** Single structural write path for appending a normalized reference. */
+export function addPullRequestReference(change, reference) {
+  const normalized = normalizePullRequestReference(reference);
+  const key = pullRequestReferenceKey(normalized);
+  if ((change.pull_requests || []).some(item => pullRequestReferenceKey(item) === key)) {
+    return { added: false, reference: normalized };
+  }
+
+  updateYamlFile(change._file, doc => {
+    const references = doc.get('pull_requests') || [];
+    references.push(normalized);
+    doc.set('pull_requests', references);
+  });
+  change.pull_requests = [...(change.pull_requests || []), normalized];
+  return { added: true, reference: normalized };
 }
 
 export function listChanges(dir = ACTIVE_DIR) {

@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { extractOverviewSummary, loadDashboardData, safeChildPath } from '../server/data.mjs';
+import {
+  extractOverviewSummary,
+  loadDashboardData,
+  loadSpecificationContent,
+  safeChildPath,
+  stripFrontMatter,
+} from '../server/data.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-dashboard-${process.pid}-${Date.now()}`);
@@ -13,12 +19,15 @@ function fixture() {
   const activeChange = join(activeDir, 'sample-change');
   const archivedChange = join(archiveDir, 'old-change');
   mkdirSync(join(activeChange, 'tasks'), { recursive: true });
+  mkdirSync(join(activeChange, 'areas'), { recursive: true });
   mkdirSync(join(archivedChange, 'tasks'), { recursive: true });
 
   writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: approved\n    depends_on: [design-it]\n`);
   writeFileSync(join(activeChange, 'overview.md'), '# Sample change\n\n## Context\n\nA **short** file-backed summary for the dashboard.\n');
-  writeFileSync(join(activeChange, 'tasks', '01-design-it.md'), '# Task: Design it\n');
-  writeFileSync(join(activeChange, 'tasks', '02-build-it.md'), '# Task: Build it\n');
+  writeFileSync(join(activeChange, 'areas', '02-runtime.md'), '# Area: Runtime\n\nRuntime details.\n');
+  writeFileSync(join(activeChange, 'areas', '01-contract.md'), '# Area: Contract\n\n| Name | Value |\n| --- | --- |\n| mode | local |\n');
+  writeFileSync(join(activeChange, 'tasks', '01-design-it.md'), '---\nid: sample.design\n---\n\n# Task: Design it\n\nCanonical design body.\n');
+  writeFileSync(join(activeChange, 'tasks', '02-build-it.md'), '# Task: Build it\n\nCanonical build body.\n');
 
   writeFileSync(join(archivedChange, 'change.yaml'), 'id: old-change\ntitle: Old change\nstatus: draft\ntasks: []\n');
   writeFileSync(join(archivedChange, 'overview.md'), '# Old change\n\nAn archived item.\n');
@@ -92,4 +101,56 @@ test('safeChildPath rejects traversal outside a change directory', () => {
   const base = join(tmpdir(), 'change');
   assert.equal(safeChildPath(base, '../../secret.md'), null);
   assert.ok(safeChildPath(base, 'tasks/01-safe.md').endsWith(join('change', 'tasks', '01-safe.md')));
+});
+
+test('loads canonical overview, deterministic areas, and manifest-ordered task bodies', () => {
+  const sample = fixture();
+  try {
+    const content = loadSpecificationContent({
+      source: 'active',
+      slug: 'sample-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+
+    assert.equal(content.overview.title, 'Sample change');
+    assert.equal(content.overview.available, true);
+    assert.ok(!content.overview.markdown.startsWith('---'));
+    assert.deepEqual(content.areas.map(area => area.id), ['01-contract', '02-runtime']);
+    assert.deepEqual(content.areas.map(area => area.title), ['Area: Contract', 'Area: Runtime']);
+    assert.deepEqual(content.tasks.map(task => task.id), ['design-it', 'build-it']);
+    assert.equal(content.tasks[0].title, 'Design it');
+    assert.equal(content.tasks[0].markdown, '# Task: Design it\n\nCanonical design body.');
+    assert.equal(content.tasks[0].path, 'specs/active/sample-change/tasks/01-design-it.md');
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('returns explicit optional-document empty states and rejects unsafe lookups', () => {
+  const sample = fixture();
+  try {
+    rmSync(join(sample.archiveDir, 'old-change', 'overview.md'));
+    const content = loadSpecificationContent({
+      source: 'archive',
+      slug: 'old-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+
+    assert.equal(content.overview.available, false);
+    assert.equal(content.overview.markdown, '');
+    assert.deepEqual(content.areas, []);
+    assert.deepEqual(content.tasks, []);
+    assert.equal(loadSpecificationContent({ source: 'other', slug: 'old-change', ...sample }), null);
+    assert.equal(loadSpecificationContent({ source: 'active', slug: '../old-change', ...sample }), null);
+    assert.equal(loadSpecificationContent({ source: 'active', slug: 'missing', ...sample }), null);
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('front matter stripping leaves ordinary Markdown untouched', () => {
+  assert.equal(stripFrontMatter('---\nid: one\n---\n# Heading\n'), '# Heading\n');
+  assert.equal(stripFrontMatter('# Heading\n'), '# Heading\n');
 });

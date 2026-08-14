@@ -1,0 +1,21 @@
+{
+  "change": "nevo-spec-dashboard-refinement",
+  "requestedTasks": [
+    "pull-request-metadata-cli",
+    "dashboard-content-runtime",
+    "github-provider-backend",
+    "documents-and-task-details-ui",
+    "github-changes-ui"
+  ],
+  "orderedTasks": [
+    "pull-request-metadata-cli",
+    "dashboard-content-runtime",
+    "github-provider-backend",
+    "documents-and-task-details-ui",
+    "github-changes-ui"
+  ],
+  "startRevision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+  "reviewMode": "batch",
+  "checkpointPolicy": null,
+  "temporaryInconsistencies": []
+}

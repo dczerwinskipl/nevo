@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tools/specs.mjs — specification lifecycle CLI
-// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status|comments|resolve-comment>
+// Usage: node tools/specs.mjs <generate|validate|check|list|next|context|fingerprint|approve|start|complete|verify|archive|finalize|status|comments|resolve-comment|pull-request-add>
 
 import { Command } from 'commander';
 import { existsSync } from 'node:fs';
@@ -24,6 +24,7 @@ import {
   loadTaskFileParts, parseVerificationCommands, writeSelfCheck,
   loadBatchIntent, writeBatchIntent, clearBatchIntent, writeBulkTransition,
   writeImplementationProvenance,
+  loadChangeAnywhere, addPullRequestReference,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
@@ -60,10 +61,8 @@ function requireChange(slug, baseDir = ACTIVE_DIR) {
 // archived already. A change archived before its PR was pushed/merged is exactly the
 // scenario status/finalize/comments need to keep working for, not error out on.
 function requireChangeAnywhere(slug) {
-  const active = loadChange(slug, ACTIVE_DIR);
-  if (active) return { change: active, location: 'active' };
-  const archived = loadChange(slug, ARCHIVE_DIR);
-  if (archived) return { change: archived, location: 'archive' };
+  const located = loadChangeAnywhere(slug);
+  if (located) return located;
   throw new CliError(`Change '${slug}' not found in specs/active/ or specs/archive/`);
 }
 
@@ -189,6 +188,24 @@ export function handleContext(changeSlug, taskId) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
   console.log(JSON.stringify(buildContextPacket(change, task), null, 2));
+}
+
+export function handlePullRequestAdd(changeSlug, options = {}, directories = {}) {
+  const located = loadChangeAnywhere(changeSlug, directories);
+  if (!located) throw new CliError(`Change '${changeSlug}' not found in specs/active/ or specs/archive/`);
+
+  const result = addPullRequestReference(located.change, {
+    provider: options.provider,
+    base_url: options.baseUrl,
+    repository: options.repository,
+    number: options.number,
+  });
+  const reference = result.reference;
+  const identity = `${reference.provider}:${reference.base_url}/${reference.repository}#${reference.number}`;
+  console.log(result.added
+    ? `Pull request '${identity}' attached to '${changeSlug}' (${located.location}).`
+    : `Pull request '${identity}' is already attached to '${changeSlug}' — no changes made.`);
+  return result;
 }
 
 // D7/D9 migration (task 09) — this now prints the change-level tier
@@ -426,7 +443,16 @@ export function handleVerify(changeSlug, taskId) {
 export function runVerificationCommand(commandString) {
   try {
     const [program, ...args] = splitShellWords(commandString);
-    execFileSync(program, args, { cwd: ROOT, encoding: 'utf8' });
+    const windowsCommandShim = process.platform === 'win32'
+      && ['echo', 'npm', 'npx', 'pnpm', 'yarn'].includes(program.toLowerCase());
+    if (windowsCommandShim) {
+      execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', program, ...args], {
+        cwd: ROOT,
+        encoding: 'utf8',
+      });
+    } else {
+      execFileSync(program, args, { cwd: ROOT, encoding: 'utf8' });
+    }
     return { command: commandString, exit_code: 0 };
   } catch (error) {
     return { command: commandString, exit_code: typeof error.status === 'number' ? error.status : 1 };
@@ -1208,6 +1234,15 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .action(handleContext);
+
+  program.command('pull-request-add')
+    .description('Attach an existing provider pull request/merge request to a specification')
+    .argument('<change>')
+    .requiredOption('--provider <id>', 'Provider id, for example github or gitlab')
+    .requiredOption('--repository <path>', 'Provider repository path, for example owner/repository')
+    .requiredOption('--number <number>', 'Provider-local pull request or merge request number')
+    .option('--base-url <url>', 'Provider instance base URL (defaults for github.com and gitlab.com)')
+    .action((changeSlug, opts) => handlePullRequestAdd(changeSlug, opts));
 
   program.command('fingerprint')
     .description('Print a deterministic hash of the spec inputs (--task for one task\'s own semantic fingerprint)')

@@ -4,4 +4,4 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
-| `nevo-spec-dashboard` | Local specification workflow dashboard | draft | 20 | 2026-08-14 |
+| `nevo-spec-dashboard-refinement` | Specification dashboard documents and GitHub changes | draft | 20 | 2026-08-14 |

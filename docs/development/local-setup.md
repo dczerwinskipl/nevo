@@ -103,6 +103,37 @@ ignored by Git. That directory, together with `tools/dashboard/server/`, is the 
 packaging seam for distributing the dashboard with a combined NEvo CLI; no publishing
 or installer is part of the current local-only scope.
 
+### Pull request changes
+
+The Changes tab reads pull request references persisted in the specification's
+`change.yaml`. Attach an existing GitHub pull request with the repository lifecycle
+CLI; repeat the command to attach more than one pull request:
+
+```bash
+node tools/specs.mjs pull-request-add <change> --provider github --repository owner/repository --number 123
+```
+
+GitHub Enterprise and other self-hosted instances use the optional base URL:
+
+```bash
+node tools/specs.mjs pull-request-add <change> --provider github --base-url https://github.example.com --repository owner/repository --number 123
+```
+
+The command is idempotent, works for active and archived specifications, and does
+not infer a pull request from the current branch. The dashboard backend obtains
+GitHub metadata and diffs through the GitHub CLI, so authenticate the relevant host
+before opening Changes:
+
+```bash
+gh auth login --hostname github.com
+gh auth status --hostname github.com
+```
+
+For GitHub Enterprise, pass its hostname to both commands. Provider credentials stay
+in `gh` and are never sent to the browser. References for future providers such as
+GitLab can be persisted with their provider and base URL, but the current dashboard
+will show them as unsupported until a matching backend adapter is added.
+
 ## Example applications
 
 The example applications require SQL Server and a running Identity service. See

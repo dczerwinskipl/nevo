@@ -1,20 +1,48 @@
 import {
+  AlertTriangle,
   ArrowUpRight,
+  BookOpenText,
+  Boxes,
   CalendarClock,
   CheckCircle2,
   CircleDotDashed,
   FileCode2,
+  GitPullRequest,
   Layers3,
+  LayoutDashboard,
   ListChecks,
+  LoaderCircle,
   Play,
+  RefreshCw,
+  X,
 } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
-import type { DashboardChange } from '@/lib/types';
-import { formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
+import type {
+  DashboardChange,
+  DashboardTask,
+  SpecificationContent,
+  SpecificationTaskDocument,
+} from '@/lib/types';
+import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { MarkdownContent } from '@/components/markdown-content';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
+import { useSpecificationContent } from '@/hooks/use-dashboard-data';
+
+type DetailTab = 'overview' | 'specification' | 'areas' | 'changes';
+
+const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
+
+const DETAIL_TABS: Array<{ id: DetailTab; label: string; icon: typeof LayoutDashboard }> = [
+  { id: 'overview', label: 'Przegląd', icon: LayoutDashboard },
+  { id: 'specification', label: 'Specyfikacja', icon: BookOpenText },
+  { id: 'areas', label: 'Obszary', icon: Boxes },
+  { id: 'changes', label: 'Zmiany', icon: GitPullRequest },
+];
 
 function MetricCard({ icon, label, value, helper }: { icon: React.ReactNode; label: string; value: string; helper: string }) {
   return (
@@ -34,55 +62,167 @@ function MetricCard({ icon, label, value, helper }: { icon: React.ReactNode; lab
   );
 }
 
-export function SpecDetail({ change }: { change: DashboardChange }) {
+function ContentLoading() {
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7 sm:px-7 lg:px-9">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-        <span>NEvo</span>
-        <span>/</span>
-        <span>{change.source === 'active' ? 'Aktualne' : 'Archiwum'}</span>
-        <span>/</span>
-        <span className="max-w-[240px] truncate text-[var(--foreground)]">{change.slug}</span>
+    <Card className="p-8" role="status">
+      <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
+        <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" />
+        Wczytywanie treści z plików specyfikacji…
       </div>
+      <div className="mt-7 space-y-3 animate-pulse">
+        <div className="h-7 w-2/5 rounded bg-white/8" />
+        <div className="h-3 w-full rounded bg-white/5" />
+        <div className="h-3 w-5/6 rounded bg-white/5" />
+        <div className="h-24 rounded-xl bg-white/4" />
+      </div>
+    </Card>
+  );
+}
 
-      <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
+function ContentError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card className="border-red-400/20 p-8">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-300" />
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]">
-              <span className="mr-1.5 size-1.5 rounded-full bg-current" />
-              {formatStatus(change.status)}
-            </Badge>
-            {change.priority !== null && <Badge>Priorytet {change.priority}</Badge>}
-            <Badge>{change.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>
+          <h2 className="text-sm font-semibold text-[var(--foreground)]">Nie udało się wczytać treści</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">{message}</p>
+          <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
+            <RefreshCw className="mr-2 size-3.5" /> Spróbuj ponownie
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function EmptyDocument({ title, detail }: { title: string; detail: string }) {
+  return (
+    <Card className="flex min-h-48 flex-col items-center justify-center p-8 text-center">
+      <FileCode2 className="size-6 text-[var(--muted)]" />
+      <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+      <p className="mt-2 max-w-md text-xs leading-5 text-[var(--muted)]">{detail}</p>
+    </Card>
+  );
+}
+
+function TaskDialog({
+  task,
+  document: taskDocument,
+  loading,
+  error,
+  onRetry,
+  onClose,
+}: {
+  task: DashboardTask;
+  document: SpecificationTaskDocument | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-dialog-title"
+        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-7">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>{formatStatus(task.status)}</Badge>
+              <span className="text-[10px] text-[var(--muted)]">#{String(task.order ?? '—').padStart(2, '0')}</span>
+            </div>
+            <h2 id="task-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{task.title}</h2>
+            {task.file && <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{task.file}</p>}
           </div>
-          <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">
-            {change.title}
-          </h1>
-          <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">
-            {change.summary}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
-            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5" /> {formatDate(change.updatedAt)}</span>
-            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5" /> {change.path}</span>}
-          </div>
+          <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij szczegóły zadania">
+            <X className="size-4" />
+          </Button>
         </div>
 
-        <Card className="p-5">
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Postęp ukończenia</p>
-              <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{change.metrics.progress}%</p>
-            </div>
-            <div className="text-right text-[11px] text-[var(--muted)]">
-              <p>{change.metrics.completed}/{change.metrics.actionable}</p>
-              <p>w „Gotowe”</p>
-            </div>
+        <div className="overflow-y-auto px-5 py-6 sm:px-7 sm:py-8">
+          <div className="mb-6 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
+            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">Status: {formatStatus(task.status)}</span>
+            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">
+              Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
+            </span>
+            {task.blockedBy.length > 0 && (
+              <span className="rounded-md border border-amber-300/20 bg-amber-300/8 px-2.5 py-1 text-amber-200">
+                Blokowane przez: {task.blockedBy.join(', ')}
+              </span>
+            )}
           </div>
-          <StageProgress change={change} className="mt-5" legend />
-        </Card>
-      </header>
 
-      <section aria-label="Podsumowanie specyfikacji" className="mt-9 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {loading ? (
+            <div className="flex items-center gap-3 py-12 text-sm text-[var(--muted)]" role="status">
+              <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
+            </div>
+          ) : error ? (
+            <ContentError message={error} onRetry={onRetry} />
+          ) : taskDocument?.available ? (
+            <MarkdownContent markdown={taskDocument.markdown} />
+          ) : (
+            <EmptyDocument title="Brak treści zadania" detail="Plik zadania nie jest obecnie dostępny w specyfikacji." />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverviewPanel({
+  change,
+  onTaskSelect,
+}: {
+  change: DashboardChange;
+  onTaskSelect: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+}) {
+  return (
+    <>
+      <section aria-label="Podsumowanie specyfikacji" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={<ListChecks className="size-4" />}
           label="Zakres"
@@ -130,8 +270,218 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
       )}
 
       <div className="mt-11">
-        <StatusBoard change={change} />
+        <StatusBoard change={change} onTaskSelect={onTaskSelect} />
       </div>
+    </>
+  );
+}
+
+function SpecificationPanel({
+  content,
+  loading,
+  error,
+  onRetry,
+}: {
+  content: SpecificationContent | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) return <ContentLoading />;
+  if (error) return <ContentError message={error} onRetry={onRetry} />;
+  if (!content?.overview.available) {
+    return <EmptyDocument title="Brak głównego dokumentu" detail="Ta specyfikacja nie zawiera opcjonalnego pliku overview.md." />;
+  }
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
+        {content.overview.path}
+      </div>
+      <article className="px-5 py-7 sm:px-8 sm:py-9">
+        <MarkdownContent markdown={content.overview.markdown} />
+      </article>
+    </Card>
+  );
+}
+
+function AreasPanel({
+  content,
+  loading,
+  error,
+  onRetry,
+}: {
+  content: SpecificationContent | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) return <ContentLoading />;
+  if (error) return <ContentError message={error} onRetry={onRetry} />;
+  if (!content?.areas.length) {
+    return <EmptyDocument title="Brak dokumentów obszarów" detail="Ta specyfikacja nie ma dodatkowych dokumentów w katalogu areas/." />;
+  }
+  return (
+    <div className="space-y-4">
+      {content.areas.map(area => (
+        <Card key={area.id} className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 sm:px-8">
+            <span className="text-xs font-semibold text-[var(--foreground)]">{area.title}</span>
+            <span className="text-[10px] text-[var(--muted)]">{area.path}</span>
+          </div>
+          <article className="px-5 py-7 sm:px-8 sm:py-9">
+            <MarkdownContent markdown={area.markdown} />
+          </article>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function SpecDetail({ change }: { change: DashboardChange }) {
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const contentEnabled = activeTab === 'specification' || activeTab === 'areas' || Boolean(selectedTaskId);
+  const contentQuery = useSpecificationContent(change, contentEnabled);
+  const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
+  const selectedTaskDocument = selectedTaskId
+    ? contentQuery.data?.tasks.find(task => task.id === selectedTaskId) ?? null
+    : null;
+
+  useEffect(() => {
+    setActiveTab('overview');
+    setSelectedTaskId(null);
+  }, [change.slug]);
+
+  const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
+    taskTriggerRef.current = trigger;
+    setSelectedTaskId(task.id);
+  }, []);
+
+  const closeTask = useCallback(() => {
+    setSelectedTaskId(null);
+    requestAnimationFrame(() => taskTriggerRef.current?.focus());
+  }, []);
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = DETAIL_TABS.length - 1;
+    else return;
+    event.preventDefault();
+    const nextTab = DETAIL_TABS[nextIndex];
+    setActiveTab(nextTab.id);
+    requestAnimationFrame(() => document.getElementById(`spec-tab-${nextTab.id}`)?.focus());
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7 sm:px-7 lg:px-9">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
+        <span>NEvo</span><span>/</span>
+        <span>{change.source === 'active' ? 'Aktualne' : 'Archiwum'}</span><span>/</span>
+        <span className="max-w-[240px] truncate text-[var(--foreground)]">{change.slug}</span>
+      </div>
+
+      <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]">
+              <span className="mr-1.5 size-1.5 rounded-full bg-current" />{formatStatus(change.status)}
+            </Badge>
+            {change.priority !== null && <Badge>Priorytet {change.priority}</Badge>}
+            <Badge>{change.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>
+          </div>
+          <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{change.title}</h1>
+          <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">{change.summary}</p>
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
+            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5" /> {formatDate(change.updatedAt)}</span>
+            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5" /> {change.path}</span>}
+          </div>
+        </div>
+
+        <Card className="p-5">
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Postęp ukończenia</p>
+              <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{change.metrics.progress}%</p>
+            </div>
+            <div className="text-right text-[11px] text-[var(--muted)]"><p>{change.metrics.completed}/{change.metrics.actionable}</p><p>w „Gotowe”</p></div>
+          </div>
+          <StageProgress change={change} className="mt-5" legend />
+        </Card>
+      </header>
+
+      <nav className="mt-9 overflow-x-auto border-b border-[var(--border)]" aria-label="Widoki specyfikacji">
+        <div className="flex min-w-max gap-1" role="tablist">
+          {DETAIL_TABS.map((tab, index) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`spec-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`spec-panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                className={cn(
+                  'relative inline-flex h-11 items-center gap-2 px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:px-4',
+                  selected ? 'text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                )}
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={event => handleTabKeyDown(event, index)}
+              >
+                <Icon className="size-3.5" />{tab.label}
+                {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--accent)]" />}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div
+        id={`spec-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`spec-tab-${activeTab}`}
+        className="mt-7"
+      >
+        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} />}
+        {activeTab === 'specification' && (
+          <SpecificationPanel
+            content={contentQuery.data}
+            loading={contentQuery.loading}
+            error={contentQuery.error}
+            onRetry={() => void contentQuery.refresh()}
+          />
+        )}
+        {activeTab === 'areas' && (
+          <AreasPanel
+            content={contentQuery.data}
+            loading={contentQuery.loading}
+            error={contentQuery.error}
+            onRetry={() => void contentQuery.refresh()}
+          />
+        )}
+        {activeTab === 'changes' && (
+          <Suspense fallback={<ContentLoading />}>
+            <ChangesPanel change={change} />
+          </Suspense>
+        )}
+      </div>
+
+      {selectedTask && (
+        <TaskDialog
+          task={selectedTask}
+          document={selectedTaskDocument}
+          loading={contentQuery.loading}
+          error={contentQuery.error}
+          onRetry={() => void contentQuery.refresh()}
+          onClose={closeTask}
+        />
+      )}
     </div>
   );
 }
