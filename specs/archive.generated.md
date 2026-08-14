@@ -11,4 +11,5 @@
 | `nevo-documentation-architecture` | NEvo documentation architecture | archived | 10 | 2026-08-03 |
 | `nevo-documentation-foundation` | NEvo documentation foundation | archived | 10 | 2026-08-02 |
 | `nevo-spec-dashboard` | Local specification workflow dashboard | archived | 20 | 2026-08-14 |
+| `nevo-spec-dashboard-refinement` | Specification dashboard documents and GitHub changes | archived | 20 | 2026-08-14 |
 | `query-support-and-handler-registration-hardening` | Query support and handler-registration hardening | archived | 10 | 2026-08-08 |

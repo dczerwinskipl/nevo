@@ -1,209 +1,6 @@
 {
-  "generated": "2026-08-14T21:20:43.881Z",
+  "generated": "2026-08-14T21:34:44.781Z",
   "changes": [
-    {
-      "id": "nevo-spec-dashboard-refinement",
-      "title": "Specification dashboard documents and GitHub changes",
-      "status": "draft",
-      "priority": 20,
-      "created": "2026-08-14",
-      "tasks": [
-        {
-          "id": "pull-request-metadata-cli",
-          "order": 1,
-          "file": "tasks/01-pull-request-metadata-cli.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "changed_paths": [
-              "tools/specs.mjs",
-              "tools/specs/service.mjs",
-              "tools/specs/validation.mjs",
-              "tools/tests/pull-request-metadata.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "5345a4ccd56bbae0251a9ef042de7bc36b0d12992fe1ab06cb0158250e1c767d"
-          },
-          "self_check": {
-            "fingerprint": "664a291ef89ff6f1de4f8a83b8807bff8ba4ccb45a322e2eac46acfd75c33cd3",
-            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "commands": [
-              {
-                "command": "node --test tools/tests/pull-request-metadata.test.mjs",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs validate",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "dashboard-content-runtime",
-          "order": 2,
-          "file": "tasks/02-dashboard-content-runtime.md",
-          "status": "verified",
-          "implementation": {
-            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "changed_paths": [
-              "tools/dashboard/server/data.mjs",
-              "tools/dashboard/server/index.mjs",
-              "tools/dashboard/server/providers/github.mjs",
-              "tools/dashboard/server/providers/service.mjs",
-              "tools/dashboard/tests/data.test.mjs",
-              "tools/dashboard/tests/providers.test.mjs",
-              "tools/dashboard/tests/server.test.mjs"
-            ],
-            "worktree_patch_fingerprint": "2dca2abf48378d1c3ba064647e4c5e42d5faa12e299c6b17ae695851bed5bd47"
-          },
-          "self_check": {
-            "fingerprint": "620fa480ae21361e0971564603c2099c2745e434f8fc4a06e34896084552643c",
-            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "github-provider-backend",
-          "order": 3,
-          "file": "tasks/03-github-provider-backend.md",
-          "status": "verified",
-          "depends_on": [
-            "pull-request-metadata-cli"
-          ],
-          "implementation": {
-            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "changed_paths": [
-              "tools/dashboard/server/data.mjs",
-              "tools/dashboard/server/index.mjs",
-              "tools/dashboard/server/providers/github.mjs",
-              "tools/dashboard/server/providers/service.mjs",
-              "tools/dashboard/tests/data.test.mjs",
-              "tools/dashboard/tests/providers.test.mjs",
-              "tools/dashboard/tests/server.test.mjs",
-              "tools/lib/github.mjs"
-            ],
-            "worktree_patch_fingerprint": "4d49594cb2317ecb60f8076da268591e035750d226a54fc35f2d94f8939fbea4"
-          },
-          "self_check": {
-            "fingerprint": "635d15f90d35f456dc6ad0f9b87ecaa85c910ea3a7ff874c1e5736b6d6c14ae9",
-            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "node --test tools/tests/*.test.mjs",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "documents-and-task-details-ui",
-          "order": 4,
-          "file": "tasks/04-documents-and-task-details-ui.md",
-          "status": "verified",
-          "depends_on": [
-            "dashboard-content-runtime"
-          ],
-          "implementation": {
-            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "changed_paths": [
-              "tools/dashboard/package-lock.json",
-              "tools/dashboard/package.json",
-              "tools/dashboard/src/components/changes-panel.tsx",
-              "tools/dashboard/src/components/markdown-content.tsx",
-              "tools/dashboard/src/components/spec-detail.tsx",
-              "tools/dashboard/src/components/status-board.tsx",
-              "tools/dashboard/src/components/ui/button.tsx",
-              "tools/dashboard/src/hooks/use-dashboard-data.ts",
-              "tools/dashboard/src/index.css",
-              "tools/dashboard/src/lib/types.ts"
-            ],
-            "worktree_patch_fingerprint": "7d7817db8e500cbb624366784c8bbd5c3cae19d4e51203741e89cf5ecebc94d1"
-          },
-          "self_check": {
-            "fingerprint": "2a87179958b9d7e095d0f89d939bcea076a5600639a741b42353520e22e7eabe",
-            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        },
-        {
-          "id": "github-changes-ui",
-          "order": 5,
-          "file": "tasks/05-github-changes-ui.md",
-          "status": "verified",
-          "depends_on": [
-            "github-provider-backend",
-            "documents-and-task-details-ui"
-          ],
-          "implementation": {
-            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "changed_paths": [
-              "docs/development/local-setup.md",
-              "tools/dashboard/package-lock.json",
-              "tools/dashboard/package.json",
-              "tools/dashboard/src/components/changes-panel.tsx",
-              "tools/dashboard/src/components/markdown-content.tsx",
-              "tools/dashboard/src/components/spec-detail.tsx",
-              "tools/dashboard/src/components/status-board.tsx",
-              "tools/dashboard/src/components/ui/button.tsx",
-              "tools/dashboard/src/hooks/use-dashboard-data.ts",
-              "tools/dashboard/src/index.css",
-              "tools/dashboard/src/lib/types.ts"
-            ],
-            "worktree_patch_fingerprint": "ec7bd1d639df788dccf455e97197e9779e7667fd4df3b9efcd479d978d63d7da"
-          },
-          "self_check": {
-            "fingerprint": "cb74602f971c7e2f2d33008f28f16e61dd76720d4e7e1570712d7a07aa227d3f",
-            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
-            "commands": [
-              {
-                "command": "npm --prefix tools/dashboard test",
-                "exit_code": 0
-              },
-              {
-                "command": "npm --prefix tools/dashboard run build",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/specs.mjs check",
-                "exit_code": 0
-              },
-              {
-                "command": "node tools/docs.mjs check",
-                "exit_code": 0
-              }
-            ],
-            "status": "passed"
-          }
-        }
-      ]
-    },
     {
       "id": "architecture-documentation",
       "title": "Architecture documentation",
@@ -1191,6 +988,209 @@
           "depends_on": [
             "dashboard-interface"
           ]
+        }
+      ]
+    },
+    {
+      "id": "nevo-spec-dashboard-refinement",
+      "title": "Specification dashboard documents and GitHub changes",
+      "status": "archived",
+      "priority": 20,
+      "created": "2026-08-14",
+      "tasks": [
+        {
+          "id": "pull-request-metadata-cli",
+          "order": 1,
+          "file": "tasks/01-pull-request-metadata-cli.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "changed_paths": [
+              "tools/specs.mjs",
+              "tools/specs/service.mjs",
+              "tools/specs/validation.mjs",
+              "tools/tests/pull-request-metadata.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "5345a4ccd56bbae0251a9ef042de7bc36b0d12992fe1ab06cb0158250e1c767d"
+          },
+          "self_check": {
+            "fingerprint": "664a291ef89ff6f1de4f8a83b8807bff8ba4ccb45a322e2eac46acfd75c33cd3",
+            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "commands": [
+              {
+                "command": "node --test tools/tests/pull-request-metadata.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "dashboard-content-runtime",
+          "order": 2,
+          "file": "tasks/02-dashboard-content-runtime.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "changed_paths": [
+              "tools/dashboard/server/data.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/server/providers/github.mjs",
+              "tools/dashboard/server/providers/service.mjs",
+              "tools/dashboard/tests/data.test.mjs",
+              "tools/dashboard/tests/providers.test.mjs",
+              "tools/dashboard/tests/server.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "2dca2abf48378d1c3ba064647e4c5e42d5faa12e299c6b17ae695851bed5bd47"
+          },
+          "self_check": {
+            "fingerprint": "620fa480ae21361e0971564603c2099c2745e434f8fc4a06e34896084552643c",
+            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "github-provider-backend",
+          "order": 3,
+          "file": "tasks/03-github-provider-backend.md",
+          "status": "verified",
+          "depends_on": [
+            "pull-request-metadata-cli"
+          ],
+          "implementation": {
+            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "changed_paths": [
+              "tools/dashboard/server/data.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/server/providers/github.mjs",
+              "tools/dashboard/server/providers/service.mjs",
+              "tools/dashboard/tests/data.test.mjs",
+              "tools/dashboard/tests/providers.test.mjs",
+              "tools/dashboard/tests/server.test.mjs",
+              "tools/lib/github.mjs"
+            ],
+            "worktree_patch_fingerprint": "4d49594cb2317ecb60f8076da268591e035750d226a54fc35f2d94f8939fbea4"
+          },
+          "self_check": {
+            "fingerprint": "635d15f90d35f456dc6ad0f9b87ecaa85c910ea3a7ff874c1e5736b6d6c14ae9",
+            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "documents-and-task-details-ui",
+          "order": 4,
+          "file": "tasks/04-documents-and-task-details-ui.md",
+          "status": "verified",
+          "depends_on": [
+            "dashboard-content-runtime"
+          ],
+          "implementation": {
+            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "changed_paths": [
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/src/components/changes-panel.tsx",
+              "tools/dashboard/src/components/markdown-content.tsx",
+              "tools/dashboard/src/components/spec-detail.tsx",
+              "tools/dashboard/src/components/status-board.tsx",
+              "tools/dashboard/src/components/ui/button.tsx",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/index.css",
+              "tools/dashboard/src/lib/types.ts"
+            ],
+            "worktree_patch_fingerprint": "7d7817db8e500cbb624366784c8bbd5c3cae19d4e51203741e89cf5ecebc94d1"
+          },
+          "self_check": {
+            "fingerprint": "2a87179958b9d7e095d0f89d939bcea076a5600639a741b42353520e22e7eabe",
+            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "github-changes-ui",
+          "order": 5,
+          "file": "tasks/05-github-changes-ui.md",
+          "status": "verified",
+          "depends_on": [
+            "github-provider-backend",
+            "documents-and-task-details-ui"
+          ],
+          "implementation": {
+            "baseline_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "review_revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "changed_paths": [
+              "docs/development/local-setup.md",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/src/components/changes-panel.tsx",
+              "tools/dashboard/src/components/markdown-content.tsx",
+              "tools/dashboard/src/components/spec-detail.tsx",
+              "tools/dashboard/src/components/status-board.tsx",
+              "tools/dashboard/src/components/ui/button.tsx",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/index.css",
+              "tools/dashboard/src/lib/types.ts"
+            ],
+            "worktree_patch_fingerprint": "ec7bd1d639df788dccf455e97197e9779e7667fd4df3b9efcd479d978d63d7da"
+          },
+          "self_check": {
+            "fingerprint": "cb74602f971c7e2f2d33008f28f16e61dd76720d4e7e1570712d7a07aa227d3f",
+            "revision": "cd78ab42eca06a6e3a58effccf38a9331364ccdd",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },
