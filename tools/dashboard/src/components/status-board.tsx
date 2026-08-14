@@ -13,11 +13,27 @@ const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = 
   done: { dot: 'bg-[var(--accent)]', tint: 'bg-[color-mix(in_srgb,var(--accent)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)]' },
 };
 
-function TaskCard({ task, lane }: { task: DashboardTask; lane: DashboardLane }) {
+function TaskCard({
+  task,
+  lane,
+  onSelect,
+}: {
+  task: DashboardTask;
+  lane: DashboardLane;
+  onSelect?: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+}) {
   const tone = stageTone[lane.id];
   const isDone = lane.id === 'done';
   return (
-    <article className={cn('rounded-xl border bg-[var(--surface)] p-3.5 transition-colors hover:bg-[var(--surface-raised)]', tone.line)}>
+    <button
+      type="button"
+      className={cn(
+        'block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+        tone.line,
+      )}
+      onClick={event => onSelect?.(task, event.currentTarget)}
+      aria-label={`Otwórz szczegóły zadania: ${task.title}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
           #{String(task.order ?? '—').padStart(2, '0')}
@@ -40,11 +56,17 @@ function TaskCard({ task, lane }: { task: DashboardTask; lane: DashboardLane }) 
           </span>
         )}
       </div>
-    </article>
+    </button>
   );
 }
 
-export function StatusBoard({ change }: { change: DashboardChange }) {
+export function StatusBoard({
+  change,
+  onTaskSelect,
+}: {
+  change: DashboardChange;
+  onTaskSelect?: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+}) {
   return (
     <section aria-labelledby="workflow-heading">
       <div className="mb-4">
@@ -69,7 +91,7 @@ export function StatusBoard({ change }: { change: DashboardChange }) {
                   <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
                 </div>
                 <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
-                  {lane.tasks.map(task => <TaskCard key={task.id} task={task} lane={lane} />)}
+                  {lane.tasks.map(task => <TaskCard key={task.id} task={task} lane={lane} onSelect={onTaskSelect} />)}
                   {lane.tasks.length === 0 && (
                     <div className="flex h-20 items-center justify-center rounded-xl border border-transparent text-[10px] text-[var(--muted)]">
                       Brak zadań

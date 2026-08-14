@@ -55,7 +55,7 @@ repository. They do not require the dashboard dependencies below.
 
 The local dashboard visualizes the canonical files under `specs/active/` and
 `specs/archive/`. YAML and Markdown remain the source of truth; the dashboard is
-read-only and refreshes automatically when a relevant file changes.
+file-backed and refreshes automatically when a relevant file changes.
 
 Install its isolated frontend dependencies once:
 
@@ -94,7 +94,7 @@ The equivalent environment variables are `NEVO_DASHBOARD_HOST`,
 `NEVO_DASHBOARD_PORT`, and `NEVO_DASHBOARD_API_PORT`. Command arguments take
 precedence over environment variables. Without overrides, the dashboard remains
 bound to `127.0.0.1` on UI port `4317`; development API port `4318` stays internal.
-In a production-style run, the UI and read-only JSON API share the selected UI
+In a production-style run, the UI and JSON API share the selected UI
 port and the API is available at `/api/dashboard`. Startup output prints links
 using the configured host and actual ports.
 
@@ -102,6 +102,54 @@ The reproducible browser assets are generated under `tools/dashboard/dist/` and 
 ignored by Git. That directory, together with `tools/dashboard/server/`, is the future
 packaging seam for distributing the dashboard with a combined NEvo CLI; no publishing
 or installer is part of the current local-only scope.
+
+### Owner workflow actions
+
+Archived specifications remain read-only. An active specification additionally shows
+repository state and only the owner action that makes sense at the current lifecycle
+step:
+
+- a draft task can be approved after the existing approval gate passes;
+- an implemented task can be accepted after the existing verification gate passes;
+- the specification can be finalized after the existing finalization gate passes.
+
+The dashboard performs the same read-only CLI preflight immediately before every
+action, so a stale browser state cannot bypass a gate. Finalization requires an
+explicit confirmation and invokes the existing `finalize` command unchanged: archive,
+commit, push, pull request merge, post-merge checks, and branch cleanup. The active
+specification view also reports staged, unstaged, and untracked worktree changes plus
+the branch's ahead/behind state. No equivalent controls are exposed for the archive.
+
+### Pull request changes
+
+The Changes tab reads pull request references persisted in the specification's
+`change.yaml`. Attach an existing GitHub pull request with the repository lifecycle
+CLI; repeat the command to attach more than one pull request:
+
+```bash
+node tools/specs.mjs pull-request-add <change> --provider github --repository owner/repository --number 123
+```
+
+GitHub Enterprise and other self-hosted instances use the optional base URL:
+
+```bash
+node tools/specs.mjs pull-request-add <change> --provider github --base-url https://github.example.com --repository owner/repository --number 123
+```
+
+The command is idempotent, works for active and archived specifications, and does
+not infer a pull request from the current branch. The dashboard backend obtains
+GitHub metadata and diffs through the GitHub CLI, so authenticate the relevant host
+before opening Changes:
+
+```bash
+gh auth login --hostname github.com
+gh auth status --hostname github.com
+```
+
+For GitHub Enterprise, pass its hostname to both commands. Provider credentials stay
+in `gh` and are never sent to the browser. References for future providers such as
+GitLab can be persisted with their provider and base URL, but the current dashboard
+will show them as unsupported until a matching backend adapter is added.
 
 ## Example applications
 

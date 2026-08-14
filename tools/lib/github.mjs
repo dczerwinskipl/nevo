@@ -91,6 +91,21 @@ function run(root, args) {
   return execFileSync(binary, args, { cwd: root, encoding: 'utf8' });
 }
 
+function apiHost(baseUrl) {
+  const url = new URL(baseUrl);
+  return url.hostname;
+}
+
+function repositoryEndpoint(repository) {
+  return repository.split('/').map(segment => encodeURIComponent(segment)).join('/');
+}
+
+function parsePaginatedJson(json) {
+  const parsed = JSON.parse(json);
+  if (!Array.isArray(parsed)) return [];
+  return Array.isArray(parsed[0]) ? parsed.flat() : parsed;
+}
+
 function ownerAndRepo(root) {
   const [owner, repo] = getRepoSlug(root).split('/');
   return { owner, repo };
@@ -117,6 +132,24 @@ export function getPrForBranch(root, branch) {
     if (/no pull requests found/i.test(message)) return null;
     throw error;
   }
+}
+
+// Read-only pull request payload for the local dashboard. Authentication and
+// GitHub Enterprise host selection stay inside `gh`; callers receive provider
+// responses only and normalize them before anything reaches a browser.
+export function getPullRequestDetails(root, reference) {
+  const host = apiHost(reference.base_url);
+  const endpoint = `repos/${repositoryEndpoint(reference.repository)}/pulls/${reference.number}`;
+  const metadata = JSON.parse(run(root, ['api', '--hostname', host, endpoint]));
+  const files = parsePaginatedJson(run(root, [
+    'api', '--hostname', host, '--paginate', '--slurp', `${endpoint}/files?per_page=100`,
+  ]));
+  const diff = run(root, [
+    'api', '--hostname', host,
+    '-H', 'Accept: application/vnd.github.diff',
+    endpoint,
+  ]);
+  return { metadata, files, diff };
 }
 
 // Counts review threads (from any reviewer, including bots like GitHub Copilot) that

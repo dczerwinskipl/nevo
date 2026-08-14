@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
   ACTIVE_DIR,
   ARCHIVE_DIR,
+  loadChange,
   listChanges,
 } from '../../specs/service.mjs';
 import { isTaskReady } from '../../specs/lifecycle.mjs';
@@ -17,7 +18,7 @@ import {
 
 export const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-function stripFrontMatter(markdown) {
+export function stripFrontMatter(markdown) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
 }
 
@@ -63,10 +64,15 @@ export function extractOverviewSummary(markdown, fallbackTitle = 'Specification 
   return truncate(paragraph || `Specification: ${fallbackTitle}`);
 }
 
-function extractTaskTitle(markdown, fallback) {
+function extractDocumentTitle(markdown, fallback, stripTaskPrefix = false) {
   const body = stripFrontMatter(markdown || '');
-  const heading = body.match(/^#\s+(?:Task:\s*)?(.+)$/m)?.[1];
+  const rawHeading = body.match(/^#\s+(.+)$/m)?.[1];
+  const heading = stripTaskPrefix ? rawHeading?.replace(/^Task:\s*/i, '') : rawHeading;
   return toPlainText(heading || fallback);
+}
+
+function extractTaskTitle(markdown, fallback) {
+  return extractDocumentTitle(markdown, fallback, true);
 }
 
 function safeChildPath(baseDir, childPath) {
@@ -103,6 +109,93 @@ function latestModifiedAt(changeDir) {
 function repositoryPath(repoRoot, absolutePath) {
   const result = relative(repoRoot, absolutePath).replace(/\\/g, '/');
   return result.startsWith('../') ? null : result;
+}
+
+function sourceDirectory(source, activeDir, archiveDir) {
+  if (source === 'active') return activeDir;
+  if (source === 'archive') return archiveDir;
+  return null;
+}
+
+function markdownDocument({ id, kind, filePath, fallbackTitle, repoRoot, metadata = {} }) {
+  const available = Boolean(filePath && existsSync(filePath) && statSync(filePath).isFile());
+  const markdown = available ? stripFrontMatter(readOptional(filePath)).trim() : '';
+  return {
+    id,
+    kind,
+    title: extractDocumentTitle(markdown, fallbackTitle, kind === 'task'),
+    path: filePath ? repositoryPath(repoRoot, filePath) : null,
+    available,
+    markdown,
+    ...metadata,
+  };
+}
+
+export function loadSpecificationContent({
+  source,
+  slug,
+  activeDir = ACTIVE_DIR,
+  archiveDir = ARCHIVE_DIR,
+  repoRoot = REPOSITORY_ROOT,
+} = {}) {
+  const baseDir = sourceDirectory(source, activeDir, archiveDir);
+  if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
+
+  const change = loadChange(slug, baseDir);
+  if (!change) return null;
+
+  const overviewPath = safeChildPath(change._dir, 'overview.md');
+  const areasDir = safeChildPath(change._dir, 'areas');
+  const areaFiles = areasDir && existsSync(areasDir)
+    ? readdirSync(areasDir, { withFileTypes: true })
+      .filter(entry => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
+      .map(entry => safeChildPath(areasDir, entry.name))
+      .filter(Boolean)
+      .sort((a, b) => basename(a).localeCompare(basename(b)))
+    : [];
+
+  const overview = markdownDocument({
+    id: 'overview',
+    kind: 'overview',
+    filePath: overviewPath,
+    fallbackTitle: change.title || change._slug,
+    repoRoot,
+  });
+  const areas = areaFiles.map(filePath => markdownDocument({
+    id: basename(filePath, extname(filePath)),
+    kind: 'area',
+    filePath,
+    fallbackTitle: basename(filePath, extname(filePath)).replace(/[-_]+/g, ' '),
+    repoRoot,
+  }));
+  const tasks = change.tasks
+    .map(task => {
+      const filePath = safeChildPath(change._dir, task.file);
+      return markdownDocument({
+        id: task.id,
+        kind: 'task',
+        filePath,
+        fallbackTitle: task.id,
+        repoRoot,
+        metadata: {
+          status: task.status || 'draft',
+          order: task.order ?? null,
+          dependsOn: task.depends_on || [],
+        },
+      });
+    })
+    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
+
+  return {
+    id: change.id || change._slug,
+    slug: change._slug,
+    title: change.title || change._slug,
+    source,
+    path: repositoryPath(repoRoot, change._dir),
+    overview,
+    areas,
+    tasks,
+  };
 }
 
 function taskProjection(change, task, repoRoot) {
