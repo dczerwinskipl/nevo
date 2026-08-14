@@ -77,10 +77,21 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
+function isContentUnchangedRename(file: PullRequestFile) {
+  return file.status === 'renamed' && !file.patchAvailable && file.changes === 0;
+}
+
+function renderablePatch(file: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
+  const oldPath = oldFileName ? `a/${oldFileName}` : '/dev/null';
+  const newPath = newFileName ? `b/${newFileName}` : '/dev/null';
+  return `--- ${oldPath}\n+++ ${newPath}\n${file.patch}`;
+}
+
 function FileChange({ file, mode }: { file: PullRequestFile; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
   const oldFileName = file.status === 'added' ? null : (file.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
+  const contentUnchangedRename = isContentUnchangedRename(file);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -107,7 +118,9 @@ function FileChange({ file, mode }: { file: PullRequestFile; mode: DiffViewMode 
               data={{
                 oldFile: { fileName: oldFileName },
                 newFile: { fileName: newFileName },
-                hunks: [file.patch],
+                // GitHub's per-file `patch` starts at the first @@ hunk. DiffView's
+                // parser also requires the unified-diff file headers to find it.
+                hunks: [renderablePatch(file, oldFileName, newFileName)],
               }}
               registerHighlighter={highlighter}
               diffViewMode={mode === 'split' ? DiffModeEnum.SplitGitHub : DiffModeEnum.Unified}
@@ -116,6 +129,13 @@ function FileChange({ file, mode }: { file: PullRequestFile; mode: DiffViewMode 
               diffViewWrap={false}
               diffViewFontSize={12}
             />
+          </div>
+        ) : contentUnchangedRename ? (
+          <div className="border-t border-[var(--border)] px-4 py-7 text-center">
+            <p className="text-xs font-semibold text-[var(--foreground)]">Plik przeniesiony bez zmian treści</p>
+            <p className="mt-1 break-all font-mono text-[10px] leading-5 text-[var(--muted)]">
+              {file.previousPath} → {file.path}
+            </p>
           </div>
         ) : (
           <div className="border-t border-[var(--border)] px-4 py-7 text-center">
@@ -134,7 +154,7 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
   const [open, setOpen] = useState(true);
   const incompleteDiff = !pullRequest.fullDiffAvailable
     || !pullRequest.filesComplete
-    || pullRequest.files.some(file => !file.patchAvailable);
+    || pullRequest.files.some(file => !file.patchAvailable && !isContentUnchangedRename(file));
 
   return (
     <Card className="overflow-hidden">
