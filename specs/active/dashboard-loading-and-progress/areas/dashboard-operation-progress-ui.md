@@ -1,0 +1,74 @@
+# Area: Dashboard operation-progress UI
+
+## Responsibility
+
+Render the `Operation`/`Steps` contract from `operation-progress-contract.md`
+consistently everywhere the dashboard currently shows only a spinner/boolean for a
+long-running action, with consistent loading/error/completion behavior across every
+wired operation kind.
+
+## Current state
+
+- `useSpecificationActions` exposes only `executing: mutation.isPending`
+  (`tools/dashboard/src/hooks/use-dashboard-data.ts:181`) — a single boolean consumed
+  wherever gate/verify/finalize actions are triggered (`spec-actions.tsx`,
+  `spec-detail.tsx`).
+- `stage-progress.tsx` renders static task-count-per-stage bars, not live operation
+  state — it is not reused or modified by this area beyond, if convenient, visually
+  distinguishing it from the new live-operation view so users don't conflate the two.
+
+## Requirements
+
+- A new component (or extension of an existing one) renders an `Operation`'s steps: each
+  step's label and status (done/running/pending/failed), and numeric progress
+  (`current`/`total`) when the step provides it — matching the shape in
+  `operation-progress-contract.md`, not a bespoke per-operation-type rendering.
+- Applies to every operation kind wired in tasks 05/06 (gate checks, spec verification,
+  implementation/AI verification, task acceptance, batch verification, test runs, final
+  audits) with the same component/behavior — no per-operation-kind bespoke UI.
+- Loading (operation running), error (a step or the operation failed — visibly
+  distinguishable which), and completion states are handled consistently; a failed step
+  is visibly a failure of that step, and the overall operation is visibly failed too
+  (both signals present, not just one).
+- On reconnect (page refresh, brief network drop) while an operation is active, the UI
+  recovers and continues showing current progress rather than resetting to
+  "not started"/showing nothing.
+- Where cancellation is available (per `operation-progress-contract.md`), the UI exposes
+  a way to trigger it and reflects the cancelled state distinctly from success/failure.
+
+## Constraints
+
+- Must not reconstruct step state from anything other than the events/snapshot the
+  contract provides (no client-side guessing based on elapsed time).
+- Keep the existing `executing` boolean behavior working for any action not yet
+  emitting step events (should not apply after tasks 05/06 wire every listed kind, but
+  the component must degrade sensibly — e.g. a single implicit step — rather than
+  crash if an operation type ever reports zero steps).
+
+## Interfaces and boundaries
+
+- Consumes: the snapshot/SSE/cancel routes and event shapes from
+  `operation-progress-contract.md`.
+- Exposes: the rendered progress view, integrated into `spec-actions.tsx`/
+  `spec-detail.tsx` wherever a gate/verify/acceptance/test/audit action is triggered.
+
+## Area-specific acceptance criteria
+
+- Triggering an instrumented action shows steps appearing/completing in near real time
+  during a real (not mocked) run of at least one operation kind from each of tasks
+  05 and 06.
+- A step failure and an operation failure are both visible and distinguishable in the
+  rendered UI for a deliberately-failing test fixture.
+- Refreshing the page mid-operation and returning to the same view shows the operation's
+  current state, not a blank/reset view.
+
+## Dependencies
+
+Depends on `operation-progress-contract.md` (transport/contract) and, for full
+end-to-end verification, at least one CLI instrumentation task
+(`tasks/05-cli-step-instrumentation-gate-and-verification.md`).
+
+## Out of scope
+
+- Any new operation kind not already listed in the change overview.
+- Changing what any action does — only how its progress is shown.

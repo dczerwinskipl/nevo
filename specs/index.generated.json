@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-15T12:18:41.300Z",
+  "generated": "2026-08-15T14:58:06.842Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -385,6 +385,74 @@
           "depends_on": [
             "claude-session-adapter",
             "fullscreen-chat-and-session-creation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dashboard-loading-and-progress",
+      "specId": "8745682a-ea12-405a-b809-6836b062aa90",
+      "title": "Dashboard data loading and long-running operation progress",
+      "status": "draft",
+      "priority": 20,
+      "created": "2026-08-15",
+      "tasks": [
+        {
+          "id": "dashboard-data-loading-contracts",
+          "order": 1,
+          "file": "tasks/01-dashboard-data-loading-contracts.md",
+          "status": "draft"
+        },
+        {
+          "id": "pr-file-manifest-and-diff-hydration",
+          "order": 2,
+          "file": "tasks/02-pr-file-manifest-and-diff-hydration.md",
+          "status": "draft",
+          "depends_on": [
+            "dashboard-data-loading-contracts"
+          ]
+        },
+        {
+          "id": "changes-grouping-and-filtering",
+          "order": 3,
+          "file": "tasks/03-changes-grouping-and-filtering.md",
+          "status": "draft",
+          "depends_on": [
+            "pr-file-manifest-and-diff-hydration"
+          ]
+        },
+        {
+          "id": "operation-progress-contract-and-transport",
+          "order": 4,
+          "file": "tasks/04-operation-progress-contract-and-transport.md",
+          "status": "draft"
+        },
+        {
+          "id": "cli-step-instrumentation-gate-and-verification",
+          "order": 5,
+          "file": "tasks/05-cli-step-instrumentation-gate-and-verification.md",
+          "status": "draft",
+          "depends_on": [
+            "operation-progress-contract-and-transport"
+          ]
+        },
+        {
+          "id": "cli-step-instrumentation-tests-and-audits",
+          "order": 6,
+          "file": "tasks/06-cli-step-instrumentation-tests-and-audits.md",
+          "status": "draft",
+          "depends_on": [
+            "operation-progress-contract-and-transport"
+          ]
+        },
+        {
+          "id": "dashboard-operation-progress-ui",
+          "order": 7,
+          "file": "tasks/07-dashboard-operation-progress-ui.md",
+          "status": "draft",
+          "depends_on": [
+            "operation-progress-contract-and-transport",
+            "cli-step-instrumentation-gate-and-verification"
           ]
         }
       ]
