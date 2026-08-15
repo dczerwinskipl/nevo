@@ -10,6 +10,8 @@ context:
     - tools/specs/service.mjs
     - tools/specs/validation.mjs
     - tools/specs.mjs
+    - tools/dashboard/server/data.mjs
+    - tools/dashboard/tests/data.test.mjs
     - .claude/commands/nevo-ai/spec-create.md
   optional:
     - docs/ai/specification-workflow.md
@@ -18,6 +20,8 @@ allowed_paths:
   - tools/specs.mjs
   - tools/specs/**
   - tools/tests/**
+  - tools/dashboard/server/data.mjs
+  - tools/dashboard/tests/data.test.mjs
   - .claude/commands/nevo-ai/spec-create.md
   - .claude/skills/nevo-ai-spec-workflow/templates/**
   - docs/ai/specification-workflow.md

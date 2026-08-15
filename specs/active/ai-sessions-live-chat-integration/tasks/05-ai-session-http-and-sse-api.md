@@ -22,8 +22,8 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D4, D5, D8]
-  constraints: [C4, C8, C9, C10, C11, C12, C13, C17, C18]
+  decisions: [D3, D4, D5, D8]
+  constraints: [C4, C7, C8, C9, C10, C11, C12, C13, C17, C18]
   dependency_contracts: [mock-ai-adapter-and-demo-data]
 ---
 

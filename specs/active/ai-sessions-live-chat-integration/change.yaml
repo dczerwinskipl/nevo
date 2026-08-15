@@ -91,3 +91,8 @@ tasks:
     depends_on:
       - claude-session-adapter
       - fullscreen-chat-and-session-creation
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 25

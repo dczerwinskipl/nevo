@@ -23,8 +23,8 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/server/**
 semantic_references:
-  decisions: [D4, D5, D9]
-  constraints: [C4, C5, C8, C9, C10, C11, C12, C13]
+  decisions: [D3, D4, D5, D9]
+  constraints: [C4, C5, C7, C8, C9, C10, C11, C12, C13]
   dependency_contracts: [session-navigation-and-context-surfaces]
 ---
 

@@ -30,8 +30,8 @@ forbidden_paths:
   - tools/dashboard/src/**
   - .claude/settings.local.json
 semantic_references:
-  decisions: [D2, D3, D6, D7]
-  constraints: [C1, C2, C3, C4, C7, C14, C15, C16]
+  decisions: [D2, D3, D6, D7, D8]
+  constraints: [C1, C2, C3, C4, C7, C14, C15, C16, C17]
   dependency_contracts: [claude-readiness-discovery]
 ---
 

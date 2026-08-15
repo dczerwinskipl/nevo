@@ -25,8 +25,8 @@ forbidden_paths:
   - .claude/commands/**
   - .claude/hooks/**
 semantic_references:
-  decisions: [D1, D3, D4, D5, D7]
-  constraints: [C7, C8, C9, C10, C11, C12, C14, C15, C19]
+  decisions: [D1, D3, D4, D5, D6, D7]
+  constraints: [C7, C8, C9, C10, C11, C12, C14, C15, C16, C19]
   dependency_contracts: [part1-integration-verification-and-docs]
 ---
 

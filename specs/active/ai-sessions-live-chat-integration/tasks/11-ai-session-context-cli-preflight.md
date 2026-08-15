@@ -25,8 +25,8 @@ forbidden_paths:
   - tools/dashboard/**
   - .claude/**
 semantic_references:
-  decisions: [D6, D7]
-  constraints: [C4, C15, C16]
+  decisions: [D2, D6, D7]
+  constraints: [C1, C4, C15, C16]
   dependency_contracts: [local-ai-registry-and-manual-attach]
 ---
 
