@@ -1,7 +1,7 @@
 id: event-sourcing-api-hardening
 title: Event Sourcing API hardening and persistence readiness
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-08-10
 

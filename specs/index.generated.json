@@ -1,10 +1,25 @@
 {
-  "generated": "2026-08-15T06:26:17.362Z",
+  "generated": "2026-08-15T06:34:20.251Z",
   "changes": [
+    {
+      "id": "architecture-documentation",
+      "title": "Architecture documentation",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "core-architecture-docs",
+          "order": 1,
+          "file": "tasks/01-core-architecture-docs.md",
+          "status": "verified"
+        }
+      ]
+    },
     {
       "id": "event-sourcing-api-hardening",
       "title": "Event Sourcing API hardening and persistence readiness",
-      "status": "draft",
+      "status": "archived",
       "priority": 10,
       "created": "2026-08-10",
       "tasks": [
@@ -830,21 +845,6 @@
             ],
             "status": "passed"
           }
-        }
-      ]
-    },
-    {
-      "id": "architecture-documentation",
-      "title": "Architecture documentation",
-      "status": "archived",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "core-architecture-docs",
-          "order": 1,
-          "file": "tasks/01-core-architecture-docs.md",
-          "status": "verified"
         }
       ]
     },
