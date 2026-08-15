@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-15T11:58:52.885Z",
+  "generated": "2026-08-15T12:18:41.300Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -95,16 +95,17 @@
           ],
           "implementation": {
             "baseline_revision": "5b90ef519c8dccce30092861a5b6341c8c5b1094",
-            "review_revision": "5d1832282c0a2b6475fd3a1feac5f85b5d240338",
+            "review_revision": "60981c2f6da807163954749a06f35be99627a07b",
             "changed_paths": [
+              "tools/ai/mock-adapter.mjs",
               "tools/ai/turn-runtime.mjs",
               "tools/tests/ai-turn-runtime.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "95b5c2699ea2e23e703b88ae6dab1f9511f55b658d15af84e64d10997bbf8108"
           },
           "self_check": {
             "fingerprint": "9d3bb24eb0df551d415e4189e95d4e14e24c00799f2cfc70d85663586cb5d0a2",
-            "revision": "35b8814783e01ca05907f2010d9a26e0e523c302",
+            "revision": "60981c2f6da807163954749a06f35be99627a07b",
             "commands": [
               {
                 "command": "node --test tools/tests/ai-turn-runtime.test.mjs",
@@ -162,18 +163,20 @@
           ],
           "implementation": {
             "baseline_revision": "26791ffaa1e0e5814e1ec3367353f3e61bb8f2af",
-            "review_revision": "f935f9c90573cf03988296c13032b879f467d118",
+            "review_revision": "60981c2f6da807163954749a06f35be99627a07b",
             "changed_paths": [
               "tools/dashboard/server/ai-routes.mjs",
               "tools/dashboard/server/ai-services.mjs",
               "tools/dashboard/server/index.mjs",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
               "tools/dashboard/tests/ai-server.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "0e89086d13f27e2e44ba71e151ac16cd03d18d6ffd18f836309972d8fc40bb87"
           },
           "self_check": {
             "fingerprint": "70ec2fd2ad8de56ed4f1f91362ba6d2f7303316c0bf3ae92cb2213013e0c672e",
-            "revision": "26791ffaa1e0e5814e1ec3367353f3e61bb8f2af",
+            "revision": "60981c2f6da807163954749a06f35be99627a07b",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

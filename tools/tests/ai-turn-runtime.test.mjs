@@ -15,13 +15,14 @@ const capabilities = {
   cancelTurn: true,
 };
 
-function createFixture() {
+function createFixture({ sessionLookupGate } = {}) {
   let starts = 0;
   let cancels = 0;
   let status = 'idle';
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
     async getSession(sessionId) {
+      if (sessionLookupGate) await sessionLookupGate;
       return { sessionId, status };
     },
     onTurnState(update) { status = update.sessionStatus; },
@@ -154,6 +155,28 @@ test('single-active-turn invariant rejects duplicates and honors a matching idem
     assert.equal(error.turnId, first.turnId);
     return true;
   });
+  assert.equal(fixture.starts, 1);
+  fixture.runtime.shutdown();
+});
+
+test('concurrent starts for one session invoke the adapter only once', async () => {
+  let releaseLookup;
+  const sessionLookupGate = new Promise(resolve => { releaseLookup = resolve; });
+  const fixture = createFixture({ sessionLookupGate });
+  const starts = [
+    fixture.runtime.startTurn({ provider: 'fake', sessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-1' }),
+    fixture.runtime.startTurn({ provider: 'fake', sessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-2' }),
+  ];
+
+  await new Promise(resolve => setImmediate(resolve));
+  releaseLookup();
+  const results = await Promise.allSettled(starts);
+  const fulfilled = results.filter(result => result.status === 'fulfilled');
+  const rejected = results.filter(result => result.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].reason.code, 'AI_TURN_CONFLICT');
+  assert.equal(rejected[0].reason.turnId, fulfilled[0].value.turnId);
   assert.equal(fixture.starts, 1);
   fixture.runtime.shutdown();
 });

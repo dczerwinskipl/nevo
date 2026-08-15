@@ -128,9 +128,10 @@ test('SSE replays identified events, preserves pending interaction on disconnect
 
     const replay = await fetch(`${baseUrl}/api/ai/turns/${turnId}/events?after=1`);
     const replayText = await replay.text();
-    assert.match(replayText, /id: 2/);
-    assert.match(replayText, /event: interaction.requested/);
-    assert.match(replayText, /event: turn.completed/);
+    assert.deepEqual(replayText.match(/^event: .+$/gm), ['event: snapshot']);
+    assert.doesNotMatch(replayText, /^id:/m);
+    assert.match(replayText, /"type":"interaction.requested"/);
+    assert.match(replayText, /"type":"turn.completed"/);
 
     const duplicate = await fetch(`${baseUrl}/api/ai/turns/${turnId}/interactions/${interactionId}/response`, control({ decision: 'deny' }));
     assert.equal(duplicate.status, 404);

@@ -200,7 +200,7 @@ export async function handleAiRequest({
       });
       writeSse(response, 'snapshot', snapshot);
       const unsubscribe = service.subscribeToTurn(turnId, {
-        afterSequence,
+        afterSequence: snapshot.lastEventId,
         onEvent: event => writeSse(response, event.type, event, event.id),
       });
       if (snapshot.status === 'completed' || snapshot.status === 'failed') {

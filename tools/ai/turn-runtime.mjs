@@ -21,6 +21,7 @@ function publicFailure(error) {
 export class AiTurnRuntime {
   #turns = new Map();
   #activeBySession = new Map();
+  #startQueueBySession = new Map();
   #terminalOrder = [];
   #closed = false;
 
@@ -42,51 +43,69 @@ export class AiTurnRuntime {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     const adapter = this.registry.require(provider, 'startTurn', 'startTurn');
     const key = sessionKey(provider, sessionId);
-    const existingId = this.#activeBySession.get(key);
-    if (existingId) {
-      const existing = this.#turns.get(existingId);
-      if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
-        return { turnId: existingId, idempotent: true };
+    const releaseStartLock = await this.#acquireStartLock(key);
+    try {
+      const existingId = this.#activeBySession.get(key);
+      if (existingId) {
+        const existing = this.#turns.get(existingId);
+        if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
+          return { turnId: existingId, idempotent: true };
+        }
+        throw new AiTurnConflictError(existingId);
       }
-      throw new AiTurnConflictError(existingId);
-    }
-    const metadataAdapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
-    const session = await metadataAdapter.getSession(sessionId);
-    if (session.status === 'completed') {
-      throw new AiUnsupportedOperationError(provider, 'resumeTurn');
-    }
-    if (typeof message !== 'string' || message.trim().length === 0 || message.length > 100_000) {
-      throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
-    }
-    if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)) {
-      throw new AiError('AI_VALIDATION_ERROR', 'The idempotency key is invalid.', { status: 400 });
-    }
+      const metadataAdapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
+      const session = await metadataAdapter.getSession(sessionId);
+      if (session.status === 'completed') {
+        throw new AiUnsupportedOperationError(provider, 'resumeTurn');
+      }
+      if (typeof message !== 'string' || message.trim().length === 0 || message.length > 100_000) {
+        throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
+      }
+      if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)) {
+        throw new AiError('AI_VALIDATION_ERROR', 'The idempotency key is invalid.', { status: 400 });
+      }
 
-    const turnId = `turn-${this.idFactory()}`;
-    const state = {
-      turnId,
-      provider,
-      sessionId,
-      key,
-      idempotencyKey,
-      status: 'running',
-      sessionStatus: 'running',
-      sequence: 0,
-      events: [],
-      subscribers: new Set(),
-      pendingInteraction: null,
-      abortController: new AbortController(),
-      adapter,
-      privateOperation: undefined,
-      startedAt: this.#timestamp(),
-      completedAt: undefined,
+      const turnId = `turn-${this.idFactory()}`;
+      const state = {
+        turnId,
+        provider,
+        sessionId,
+        key,
+        idempotencyKey,
+        status: 'running',
+        sessionStatus: 'running',
+        sequence: 0,
+        events: [],
+        subscribers: new Set(),
+        pendingInteraction: null,
+        abortController: new AbortController(),
+        adapter,
+        privateOperation: undefined,
+        startedAt: this.#timestamp(),
+        completedAt: undefined,
+      };
+      this.#turns.set(turnId, state);
+      this.#activeBySession.set(key, turnId);
+      this.#notifyAdapterState(state);
+      this.#emit(state, 'turn.started');
+      queueMicrotask(() => this.#run(state, message));
+      return { turnId, idempotent: false };
+    } finally {
+      releaseStartLock();
+    }
+  }
+
+  async #acquireStartLock(key) {
+    const previous = this.#startQueueBySession.get(key) ?? Promise.resolve();
+    let release;
+    const current = new Promise(resolve => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.#startQueueBySession.set(key, tail);
+    await previous;
+    return () => {
+      release();
+      if (this.#startQueueBySession.get(key) === tail) this.#startQueueBySession.delete(key);
     };
-    this.#turns.set(turnId, state);
-    this.#activeBySession.set(key, turnId);
-    this.#notifyAdapterState(state);
-    this.#emit(state, 'turn.started');
-    queueMicrotask(() => this.#run(state, message));
-    return { turnId, idempotent: false };
   }
 
   async #run(state, message) {
