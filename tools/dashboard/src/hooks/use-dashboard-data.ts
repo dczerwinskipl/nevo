@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import type {
   DashboardChange,
   DashboardPayload,
+  AiProvidersPayload,
+  AiSessionsPayload,
   PullRequestsPayload,
   SpecificationActionResult,
   SpecificationActionsPayload,
@@ -15,6 +17,8 @@ const DASHBOARD_QUERY_KEY = ['nevo-dashboard'] as const;
 const CONTENT_QUERY_KEY = ['nevo-spec-content'] as const;
 const PULL_REQUEST_QUERY_KEY = ['nevo-spec-pull-requests'] as const;
 const ACTIONS_QUERY_KEY = ['nevo-spec-actions'] as const;
+const AI_PROVIDERS_QUERY_KEY = ['nevo-ai-providers'] as const;
+const AI_SESSIONS_QUERY_KEY = ['nevo-ai-sessions'] as const;
 
 async function fetchDashboard() {
   const response = await fetch('/api/dashboard', { cache: 'no-store' });
@@ -173,5 +177,65 @@ export function useSpecificationActions(change: DashboardChange, enabled = true)
     refresh: query.refetch,
     execute: mutation.mutateAsync,
     resetExecution: mutation.reset,
+  };
+}
+
+async function fetchAiProviders() {
+  const response = await fetch('/api/ai/providers', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`AI providers API: ${response.status}`);
+  return await response.json() as AiProvidersPayload;
+}
+
+export function useAiProviders(enabled = true) {
+  const query = useQuery({
+    queryKey: AI_PROVIDERS_QUERY_KEY,
+    queryFn: fetchAiProviders,
+    enabled,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  return {
+    data: query.data ?? null,
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isPending && enabled,
+    refresh: query.refetch,
+  };
+}
+
+async function fetchAiSessions({ specId, taskId }: { specId?: string; taskId?: string }) {
+  const query = new URLSearchParams();
+  if (specId) query.set('specId', specId);
+  if (taskId) query.set('taskId', taskId);
+  const suffix = query.size ? `?${query.toString()}` : '';
+  const response = await fetch(`/api/ai/sessions${suffix}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`AI sessions API: ${response.status}`);
+  return await response.json() as AiSessionsPayload;
+}
+
+export function useAiSessions({
+  specId,
+  taskId,
+  enabled = true,
+}: {
+  specId?: string;
+  taskId?: string;
+  enabled?: boolean;
+} = {}) {
+  const query = useQuery({
+    queryKey: [...AI_SESSIONS_QUERY_KEY, specId ?? 'all', taskId ?? 'all'],
+    queryFn: () => fetchAiSessions({ specId, taskId }),
+    enabled,
+    staleTime: 10_000,
+    refetchInterval: enabled ? 15_000 : false,
+    refetchIntervalInBackground: false,
+    retry: 1,
+  });
+  return {
+    data: query.data ?? null,
+    sessions: query.data?.sessions ?? [],
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isPending && enabled,
+    refreshing: query.isFetching && !query.isPending,
+    refresh: query.refetch,
   };
 }

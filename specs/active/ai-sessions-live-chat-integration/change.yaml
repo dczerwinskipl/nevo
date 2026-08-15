@@ -138,8 +138,28 @@ tasks:
   - id: session-navigation-and-context-surfaces
     order: 6
     file: tasks/06-session-navigation-and-context-surfaces.md
-    status: approved
+    status: implemented
     depends_on: [ ai-session-http-and-sse-api ]
+    implementation:
+      baseline_revision: f935f9c90573cf03988296c13032b879f467d118
+      review_revision: f935f9c90573cf03988296c13032b879f467d118
+      changed_paths:
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/app-sidebar.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/types.ts
+      worktree_patch_fingerprint: 485ef892935bf09e19d4003fe5a0268cd7f51871aead266fa7026d8cebf4bcb0
+    self_check:
+      fingerprint: 6a6fbc9a219d52cbbada10576edb48b07ea27f0c1be7d721e29a616d53e8604c
+      revision: f935f9c90573cf03988296c13032b879f467d118
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: fullscreen-chat-and-session-creation
     order: 7
     file: tasks/07-fullscreen-chat-and-session-creation.md

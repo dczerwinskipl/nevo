@@ -22,6 +22,7 @@ export interface DashboardLane {
 
 export interface DashboardChange {
   id: string;
+  specId: string | null;
   slug: string;
   title: string;
   status: string;
@@ -75,6 +76,7 @@ export interface SpecificationTaskDocument extends SpecificationDocument {
 
 export interface SpecificationContent {
   id: string;
+  specId: string | null;
   slug: string;
   title: string;
   source: 'active' | 'archive';
@@ -186,4 +188,47 @@ export interface SpecificationActionResult {
   action: SpecificationOwnerAction;
   taskId?: string;
   message: string;
+}
+
+export type AiSessionStatus = 'running' | 'waitingForUser' | 'idle' | 'completed';
+
+export interface AiProviderCapabilities {
+  listSessions: boolean;
+  sessionMetadata: boolean;
+  messages: boolean;
+  createSession: boolean;
+  startTurn: boolean;
+  streamEvents: boolean;
+  resumeTurn: boolean;
+  resolveInteractions: boolean;
+  cancelTurn: boolean;
+}
+
+export interface AiProviderDescriptor {
+  id: string;
+  label: string;
+  enabled: boolean;
+  capabilities: AiProviderCapabilities;
+}
+
+export interface AiSession {
+  specId: string;
+  provider: string;
+  sessionId: string;
+  taskIds: string[];
+  title?: string;
+  status: AiSessionStatus;
+  createdAt: string;
+  lastActivityAt: string;
+  completedAt?: string;
+  capabilities: AiProviderCapabilities;
+}
+
+export interface AiProvidersPayload {
+  providers: AiProviderDescriptor[];
+  access: { mode: 'trusted-network'; identityAuthenticated: false };
+}
+
+export interface AiSessionsPayload {
+  sessions: AiSession[];
 }

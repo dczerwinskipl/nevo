@@ -5,8 +5,8 @@ import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
 import { Button } from '@/components/ui/button';
-import { useDashboardData } from '@/hooks/use-dashboard-data';
-import type { DashboardChange } from '@/lib/types';
+import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
+import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function LoadingScreen() {
@@ -29,6 +29,7 @@ export default function App() {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
   const selected = useMemo(
@@ -53,6 +54,18 @@ export default function App() {
 
   const selectChange = (change: DashboardChange) => {
     setSelectedSlug(change.slug);
+    setSidebarOpen(false);
+  };
+
+  const openSession = (session: AiSession) => {
+    const change = data?.active.find(item => item.specId === session.specId)
+      || data?.archive.find(item => item.specId === session.specId);
+    if (change) {
+      setMode(change.source);
+      setSelectedSlug(change.slug);
+    }
+    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
+    window.history.pushState({ provider: session.provider, sessionId: session.sessionId }, '', path);
     setSidebarOpen(false);
   };
 
@@ -93,7 +106,7 @@ export default function App() {
             <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
           </div>
         ) : selected ? (
-          <SpecDetail change={selected} />
+          <SpecDetail change={selected} onOpenSession={openSession} />
         ) : (
           <ListOverview mode={mode} changes={source} onSelect={selectChange} />
         )}
@@ -107,6 +120,11 @@ export default function App() {
           archive={data.archive}
           selectedSlug={selectedSlug}
           onSelect={selectChange}
+          sessions={globalSessions.sessions}
+          sessionsLoading={globalSessions.loading}
+          sessionsError={globalSessions.error}
+          onSessionsRetry={() => void globalSessions.refresh()}
+          onOpenSession={openSession}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}
