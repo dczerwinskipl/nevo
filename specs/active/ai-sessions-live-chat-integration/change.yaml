@@ -90,14 +90,14 @@ tasks:
     depends_on: [ provider-neutral-ai-contracts, interactive-turn-runtime ]
     implementation:
       baseline_revision: 5d1832282c0a2b6475fd3a1feac5f85b5d240338
-      review_revision: 26791ffaa1e0e5814e1ec3367353f3e61bb8f2af
+      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
       changed_paths:
         - tools/ai/mock-adapter.mjs
         - tools/tests/mock-ai-adapter.test.mjs
-      worktree_patch_fingerprint: null
+      worktree_patch_fingerprint: 0f145f0f0383b999bdaa446eb35b9d7afbaa203d5b3ecac5d3f1fa6dd84eb0b3
     self_check:
       fingerprint: c0831865787e7623adad2e400f9c78148c50497ef95c9b96276b81640f7440a4
-      revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      revision: 75706c0825449b7f4cdd2612eaab39661043d098
       commands:
         - command: node --test tools/tests/mock-ai-adapter.test.mjs
           exit_code: 0
@@ -160,17 +160,18 @@ tasks:
     depends_on: [ session-navigation-and-context-surfaces ]
     implementation:
       baseline_revision: 7aee615cbea05751ed8c277837a78258ebe9af03
-      review_revision: 7e9454b4aa45753c0de30bca8316dd1de087a856
+      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/spec-detail.tsx
         - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/ai-chat-helpers.ts
         - tools/dashboard/src/lib/types.ts
-      worktree_patch_fingerprint: null
+      worktree_patch_fingerprint: a3aae56a4ff228213673dda0c9e85c2870e1fcf052bc664680f9f704047d310e
     self_check:
       fingerprint: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
-      revision: 7aee615cbea05751ed8c277837a78258ebe9af03
+      revision: 75706c0825449b7f4cdd2612eaab39661043d098
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -191,7 +192,7 @@ tasks:
       - fullscreen-chat-and-session-creation
     implementation:
       baseline_revision: 7e9454b4aa45753c0de30bca8316dd1de087a856
-      review_revision: 7e9454b4aa45753c0de30bca8316dd1de087a856
+      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
       changed_paths:
         - .gitignore
         - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
@@ -202,11 +203,14 @@ tasks:
         - docs/index.generated.md
         - docs/routing.generated.json
         - specs/index.generated.json
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
         - tools/dashboard/tests/ai-contract-drift.test.mjs
-      worktree_patch_fingerprint: 83a337ff432f50cd7a8cd7a538d9d54410a768237bde7822136b2d667efd3520
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/tests/mock-ai-adapter.test.mjs
+      worktree_patch_fingerprint: 256a0c28a6e45583acd838ad15382df20bbedfea2f9254d13fb258bf0409a397
     self_check:
       fingerprint: efdfa22ae93ea9ce6f67afc529c761fdf583a2b32b9b7d96538890463199c5a6
-      revision: 7e9454b4aa45753c0de30bca8316dd1de087a856
+      revision: 75706c0825449b7f4cdd2612eaab39661043d098
       commands:
         - command: node --test tools/tests/*.test.mjs
           exit_code: 0

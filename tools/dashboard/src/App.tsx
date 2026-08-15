@@ -49,6 +49,7 @@ export default function App() {
   const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
+  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
@@ -67,7 +68,10 @@ export default function App() {
   }, [data, mode, selectedSlug, source]);
 
   useEffect(() => {
-    const restoreRoute = () => setSessionRoute(sessionRouteFromLocation());
+    const restoreRoute = () => {
+      setSessionRoute(sessionRouteFromLocation());
+      setChatOriginTaskId(typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
+    };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
   }, []);
@@ -83,7 +87,7 @@ export default function App() {
     setSidebarOpen(false);
   };
 
-  const openSession = (session: AiSession, initialMessage: string | null = null) => {
+  const openSession = (session: AiSession, initialMessage: string | null = null, originTaskId?: string | null, replaceHistory = false) => {
     const change = data?.active.find(item => item.specId === session.specId)
       || data?.archive.find(item => item.specId === session.specId);
     if (change) {
@@ -91,9 +95,13 @@ export default function App() {
       setSelectedSlug(change.slug);
     }
     const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
-    window.history.pushState({ nevoSession: true, provider: session.provider, sessionId: session.sessionId }, '', path);
+    const nextOriginTaskId = originTaskId === undefined ? (sessionRoute ? chatOriginTaskId : null) : originTaskId;
+    const historyState = { nevoSession: true, provider: session.provider, sessionId: session.sessionId, originTaskId: nextOriginTaskId };
+    if (replaceHistory) window.history.replaceState(historyState, '', path);
+    else window.history.pushState(historyState, '', path);
     setSessionRoute({ provider: session.provider, sessionId: session.sessionId, turnId: null });
     setPendingInitialMessage(initialMessage);
+    setChatOriginTaskId(nextOriginTaskId);
     setSidebarOpen(false);
   };
 
@@ -118,6 +126,7 @@ export default function App() {
     if (error && !data) return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
     return (
       <AiChatPage
+        key={`${sessionRoute.provider}:${sessionRoute.sessionId}`}
         provider={sessionRoute.provider}
         sessionId={sessionRoute.sessionId}
         initialTurnId={sessionRoute.turnId}
@@ -125,7 +134,8 @@ export default function App() {
         onInitialMessageConsumed={() => setPendingInitialMessage(null)}
         onTurnChange={updateTurnRoute}
         onBack={leaveChat}
-        onSwitchSession={session => openSession(session)}
+        backLabel={chatOriginTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}
+        onSwitchSession={session => openSession(session, null, chatOriginTaskId, true)}
         changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
       />
     );
@@ -168,7 +178,7 @@ export default function App() {
             <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
           </div>
         ) : selected ? (
-          <SpecDetail change={selected} onOpenSession={openSession} onCreateSession={() => setCreateChange(selected)} />
+          <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
         ) : (
           <ListOverview mode={mode} changes={source} onSelect={selectChange} />
         )}
@@ -186,7 +196,7 @@ export default function App() {
           sessionsLoading={globalSessions.loading}
           sessionsError={globalSessions.error}
           onSessionsRetry={() => void globalSessions.refresh()}
-          onOpenSession={openSession}
+          onOpenSession={session => openSession(session, null, null)}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}
@@ -199,7 +209,7 @@ export default function App() {
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
             setCreateChange(null);
-            openSession(session, initialMessage);
+            openSession(session, initialMessage, null);
           }}
         />
       )}

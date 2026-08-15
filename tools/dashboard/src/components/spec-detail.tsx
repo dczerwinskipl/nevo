@@ -470,9 +470,9 @@ function AreasPanel({
   );
 }
 
-export function SpecDetail({ change, onOpenSession, onCreateSession }: { change: DashboardChange; onOpenSession: (session: AiSession) => void; onCreateSession: () => void }) {
+export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
   const contentEnabled = activeTab === 'specification' || activeTab === 'areas' || Boolean(selectedTaskId);
@@ -488,9 +488,9 @@ export function SpecDetail({ change, onOpenSession, onCreateSession }: { change:
 
   useEffect(() => {
     setActiveTab('overview');
-    setSelectedTaskId(null);
+    setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
-  }, [change.slug]);
+  }, [change.slug, initialTaskId]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
     taskTriggerRef.current = trigger;
@@ -651,7 +651,7 @@ export function SpecDetail({ change, onOpenSession, onCreateSession }: { change:
           sessionsLoading={sessionsQuery.loading}
           sessionsError={sessionsQuery.error}
           onSessionsRetry={() => void sessionsQuery.refresh()}
-          onOpenSession={onOpenSession}
+          onOpenSession={session => onOpenSession(session, selectedTask.id)}
           onClose={closeTask}
         />
       )}

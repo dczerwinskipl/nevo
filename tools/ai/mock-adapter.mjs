@@ -40,8 +40,10 @@ export class MockAiAdapter {
   #createdCounter = 0;
   #messageCounter = 0;
   #clockTick = 0;
+  #streamDelayMs;
 
-  constructor({ specId, taskIds = [] } = {}) {
+  constructor({ specId, taskIds = [], streamDelayMs = 45 } = {}) {
+    this.#streamDelayMs = streamDelayMs;
     this.descriptor = Object.freeze({
       id: 'mock',
       label: 'Mock AI',
@@ -136,12 +138,18 @@ export class MockAiAdapter {
     this.#appendMessage(sessionId, 'user', message);
 
     const normalized = message.toLowerCase();
-    const parts = ['I reviewed your message. ', 'This response is streaming in parts. '];
+    const messageId = `assistant-${sessionId}-${this.#messageCounter + 1}`;
+    const parts = [
+      'Przeanalizowałem Twoją wiadomość i powiązany kontekst. ',
+      'Najpierw porządkuję wymagania, ',
+      'następnie sprawdzam zależności oraz kryteria akceptacji. ',
+      'Mock wysyła tę odpowiedź małymi fragmentami, ',
+      'tak jak provider korzystający ze streamu zdarzeń.\n\n',
+    ];
     let interactionSummary = '';
-    emitDelta(parts[0], `assistant-${sessionId}-${this.#messageCounter + 1}`);
-    await this.#yield(signal);
+    await this.#emitChunks(parts, messageId, emitDelta, signal);
 
-    if (normalized.includes('permission')) {
+    if (normalized.includes('permission') || normalized.includes('zgod')) {
       const response = await requestInteraction({
         kind: 'permission',
         toolName: 'Shell',
@@ -151,7 +159,7 @@ export class MockAiAdapter {
       interactionSummary = response.decision === 'allow'
         ? 'Permission was allowed. '
         : `Permission was denied${response.message ? `: ${response.message}` : ''}. `;
-    } else if (normalized.includes('question')) {
+    } else if (normalized.includes('question') || normalized.includes('pytan')) {
       const response = await requestInteraction({
         kind: 'question',
         questions: [
@@ -178,11 +186,19 @@ export class MockAiAdapter {
       interactionSummary = `Answers received: ${response.answers.map(answer => Array.isArray(answer.value) ? answer.value.join(', ') : answer.value).join('; ')}. `;
     }
 
-    emitDelta(parts[1], `assistant-${sessionId}-${this.#messageCounter + 1}`);
-    await this.#yield(signal);
-    const ending = `${interactionSummary}The mock turn is complete.`;
-    emitDelta(ending, `assistant-${sessionId}-${this.#messageCounter + 1}`);
-    this.#appendMessage(sessionId, 'assistant', `${parts.join('')}${ending}`);
+    const ending = [
+      ...(interactionSummary ? [interactionSummary] : []),
+      'Wynik demonstracyjny jest celowo dłuższy, ',
+      'żeby było widać narastanie treści w interfejsie. ',
+      'W prawdziwej integracji te same neutralne zdarzenia mogą pochodzić ',
+      'z dowolnego providera obsługującego streaming.\n\n',
+      'Podsumowanie: zachowany został pojedynczy aktywny turn, ',
+      'fragmenty należą do jednego stabilnego identyfikatora wiadomości, ',
+      'a pełna odpowiedź trafia do historii dopiero po zakończeniu. ',
+      'Mock turn jest gotowy.',
+    ];
+    await this.#emitChunks(ending, messageId, emitDelta, signal);
+    this.#appendMessage(sessionId, 'assistant', [...parts, ...ending].join(''));
   }
 
   async cancelTurn({ operation }) {
@@ -211,12 +227,23 @@ export class MockAiAdapter {
   #yield(signal) {
     if (signal.aborted) return Promise.reject(new Error('Mock turn aborted.'));
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, 5);
-      signal.addEventListener('abort', () => {
+      const onAbort = () => {
         clearTimeout(timer);
         reject(new Error('Mock turn aborted.'));
-      }, { once: true });
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, this.#streamDelayMs);
+      signal.addEventListener('abort', onAbort, { once: true });
     });
+  }
+
+  async #emitChunks(chunks, messageId, emitDelta, signal) {
+    for (const chunk of chunks) {
+      emitDelta(chunk, messageId);
+      await this.#yield(signal);
+    }
   }
 }
 

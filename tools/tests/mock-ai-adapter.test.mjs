@@ -8,7 +8,7 @@ import { compareAiSessionsByActivity, validateAiSession } from '../ai/contracts.
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
 function fixture() {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'] });
+  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
   const runtime = createAiTurnRuntime({ registry: createAiAdapterRegistry([adapter]) });
   return { adapter, runtime };
 }
@@ -56,7 +56,7 @@ test('normal, permission, and question flows stream and continue through the sha
   const { adapter, runtime } = fixture();
   const normal = await runtime.startTurn({ provider: 'mock', sessionId: 'demo-task-a-1', message: 'hello' });
   const normalDone = await waitFor(runtime, normal.turnId, value => value.status === 'completed');
-  assert.ok(normalDone.events.filter(event => event.type === 'message.delta').length >= 3);
+  assert.ok(normalDone.events.filter(event => event.type === 'message.delta').length >= 12);
 
   const permission = await runtime.startTurn({ provider: 'mock', sessionId: 'demo-task-a-2', message: 'please request permission' });
   const permissionWait = await waitFor(runtime, permission.turnId, value => value.pendingInteraction);
@@ -70,9 +70,10 @@ test('normal, permission, and question flows stream and continue through the sha
   const questionWait = await waitFor(runtime, question.turnId, value => value.pendingInteraction);
   const [style, checks] = questionWait.pendingInteraction.questions;
   await runtime.resolveInteraction(question.turnId, questionWait.pendingInteraction.id, {
-    answers: [{ questionId: style.id, value: 'Focused' }, { questionId: checks.id, value: ['Tests', 'Build'] }],
+    answers: [{ questionId: style.id, value: 'Własny styl demonstracyjny' }, { questionId: checks.id, value: ['Tests', 'Build'] }],
   });
   await waitFor(runtime, question.turnId, value => value.status === 'completed');
+  assert.match((await adapter.listMessages(created.sessionId)).at(-1).text, /Własny styl demonstracyjny/);
 });
 
 test('completed sessions remain readable and reject reactivation', async () => {

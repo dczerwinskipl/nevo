@@ -14,7 +14,7 @@ function fakeHub() {
 }
 
 function createStack() {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'] });
+  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
   const registry = createAiAdapterRegistry([adapter]);
   const turnRuntime = createAiTurnRuntime({ registry });
   return { adapter, service: createAiSessionService({ registry, turnRuntime }) };
@@ -82,9 +82,9 @@ test('AI routes expose the provider-neutral session and turn lifecycle with read
     assert.equal(startedResponse.status, 202);
     const { turnId } = await startedResponse.json();
     const completed = await waitFor(baseUrl, turnId, turn => turn.status === 'completed');
-    assert.deepEqual(completed.events.map(event => event.type), [
-      'turn.started', 'message.delta', 'message.delta', 'message.delta', 'turn.completed',
-    ]);
+    assert.equal(completed.events[0].type, 'turn.started');
+    assert.equal(completed.events.at(-1).type, 'turn.completed');
+    assert.ok(completed.events.filter(event => event.type === 'message.delta').length >= 12);
 
     const history = await fetch(`${baseUrl}/api/ai/sessions/mock/${encodeURIComponent(created.sessionId)}/messages`);
     assert.equal((await history.json()).messages.length, 2);

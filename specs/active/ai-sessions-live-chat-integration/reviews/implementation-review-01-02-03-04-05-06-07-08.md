@@ -67,12 +67,14 @@ Canonical per-task detail is recorded in each task's own file under `reviews/`.
 - The implementation and ADR remain provider-neutral. No Task 09+ Claude-specific
   production behavior, setup, registry, hooks, or adapter was introduced.
 
-No blocking follow-up or cross-task integration finding was found.
+The two blocking owner-feedback follow-ups (`FU-001` and `FU-002`) were resolved in scope.
+They cover VPN-safe turn submission, persistent chat navigation, task-context prompts,
+observable mock streaming, and provider-neutral custom question answers.
 
 ## Verification
 
 - `node --test tools/tests/*.test.mjs` — 890/890 passed.
-- `npm --prefix tools/dashboard test` — 35/35 passed.
+- `npm --prefix tools/dashboard test` — 37/37 passed.
 - `npm --prefix tools/dashboard run build` — passed (Vite emitted only its existing
   large-chunk advisory).
 - `node tools/specs.mjs check` — passed.

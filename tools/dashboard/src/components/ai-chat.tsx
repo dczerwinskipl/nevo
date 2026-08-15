@@ -28,6 +28,7 @@ import {
   useResolveAiInteraction,
   useStartAiTurn,
 } from '@/hooks/use-dashboard-data';
+import { createTurnIdempotencyKey, initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type {
   AiInteraction,
   AiMessage,
@@ -73,6 +74,7 @@ function PermissionPrompt({ interaction, disabled, onResolve }: { interaction: E
 
 function QuestionPrompt({ interaction, disabled, onResolve }: { interaction: AiQuestionInteraction; disabled: boolean; onResolve: (response: unknown) => void }) {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
   const ready = interaction.questions.every(question => {
     const value = answers[question.id];
     return Array.isArray(value) ? value.length > 0 : Boolean(value?.trim());
@@ -88,14 +90,14 @@ function QuestionPrompt({ interaction, disabled, onResolve }: { interaction: AiQ
               const current = answers[question.id];
               const checked = Array.isArray(current) ? current.includes(option.label) : current === option.label;
               return <label key={option.label} className={cn('flex cursor-pointer gap-2 rounded-lg border p-3 text-xs', checked ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]' : 'border-[var(--border)]')}>
-                <input type={question.multiSelect ? 'checkbox' : 'radio'} name={question.id} checked={checked} onChange={() => setAnswers(previous => {
+                <input type={question.multiSelect ? 'checkbox' : 'radio'} name={question.id} checked={checked} onChange={() => { setCustomAnswers(previous => ({ ...previous, [question.id]: '' })); setAnswers(previous => {
                   if (!question.multiSelect) return { ...previous, [question.id]: option.label };
                   const values = Array.isArray(previous[question.id]) ? previous[question.id] as string[] : [];
                   return { ...previous, [question.id]: checked ? values.filter(value => value !== option.label) : [...values, option.label] };
-                })} />
+                }); }} />
                 <span><span className="font-semibold text-[var(--foreground)]">{option.label}</span>{option.description && <span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">{option.description}</span>}</span>
               </label>;
-            })}</div> : <input className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)]" value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
+            })}<label className={cn('rounded-lg border p-3 text-xs sm:col-span-2', customAnswers[question.id] ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]' : 'border-[var(--border)]')}><span className="font-semibold text-[var(--foreground)]">Inna odpowiedź</span><input className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs outline-none focus:border-[var(--accent)]" placeholder="Wpisz własną odpowiedź…" value={customAnswers[question.id] || ''} onChange={event => { const value = event.target.value; setCustomAnswers(previous => ({ ...previous, [question.id]: value })); setAnswers(previous => ({ ...previous, [question.id]: question.multiSelect ? (value.trim() ? [value] : []) : value })); }} /></label></div> : <input className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)]" value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
           </fieldset>
         ))}
       </div>
@@ -119,6 +121,7 @@ export function AiChatPage({
   onInitialMessageConsumed,
   onTurnChange,
   onBack,
+  backLabel,
   onSwitchSession,
 }: {
   provider: string;
@@ -129,6 +132,7 @@ export function AiChatPage({
   onInitialMessageConsumed: () => void;
   onTurnChange: (turnId: string | null) => void;
   onBack: () => void;
+  backLabel: string;
   onSwitchSession: (session: AiSession) => void;
 }) {
   const sessionQuery = useAiSession(provider, sessionId);
@@ -145,6 +149,7 @@ export function AiChatPage({
   const [pending, setPending] = useState<AiInteraction | null>(null);
   const [turnStatus, setTurnStatus] = useState<AiTurnSnapshot['status'] | null>(null);
   const [connection, setConnection] = useState<'idle' | 'connected' | 'reconnecting'>('idle');
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const processedEvents = useRef(new Set<number>());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
@@ -176,6 +181,8 @@ export function AiChatPage({
     setLiveDeltas({});
     setPending(null);
     setTurnStatus(null);
+    setOptimisticUser(null);
+    setSubmissionError(null);
   }, [initialTurnId, provider, sessionId]);
 
   useEffect(() => {
@@ -218,6 +225,7 @@ export function AiChatPage({
     const text = message.trim();
     if (!text || live || startTurn.starting || sessionQuery.data?.status === 'completed' || sessionQuery.data?.capabilities.startTurn === false) return;
     startTurn.reset();
+    setSubmissionError(null);
     setOptimisticUser(text);
     setComposer('');
     processedEvents.current = new Set();
@@ -225,13 +233,15 @@ export function AiChatPage({
     setPending(null);
     setTurnStatus('running');
     try {
-      const result = await startTurn.start({ message: text, idempotencyKey: `ui-${crypto.randomUUID()}` });
+      const result = await startTurn.start({ message: text, idempotencyKey: createTurnIdempotencyKey() });
       setTurnId(result.turnId);
       onTurnChange(result.turnId);
       await messagesQuery.refresh();
       setOptimisticUser(null);
-    } catch {
+    } catch (error) {
       setTurnStatus(null);
+      setOptimisticUser(null);
+      setSubmissionError(error instanceof Error ? error.message : 'Nie udało się rozpocząć turnu.');
     }
   }, [live, messagesQuery, onTurnChange, sessionQuery.data, startTurn]);
 
@@ -253,42 +263,51 @@ export function AiChatPage({
     ...Object.entries(liveDeltas).map(([id, text]) => ({ id, role: 'assistant' as const, text })),
   ];
 
-  if (sessionQuery.loading || messagesQuery.loading) return <div className="flex h-[100dvh] items-center justify-center gap-3 bg-[var(--background)] text-sm text-[var(--muted)]"><LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />Wczytywanie rozmowy…</div>;
-  if (sessionQuery.error || messagesQuery.error || !sessionQuery.data) return <div className="flex h-[100dvh] flex-col items-center justify-center px-6 text-center"><AlertTriangle className="size-7 text-red-300" /><h1 className="mt-4 text-lg font-semibold">Nie udało się otworzyć sesji</h1><p className="mt-2 text-sm text-[var(--muted)]">{sessionQuery.error || messagesQuery.error}</p><Button className="mt-5" onClick={onBack}>Wróć</Button></div>;
   const session = sessionQuery.data;
+  const header = (
+    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" className="shrink-0" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-semibold text-[var(--foreground)]">{session?.title || (session ? `Sesja ${session.sessionId.slice(0, 12)}` : 'Wczytywanie sesji…')}</p>
+              {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{session.status}</span>}
+            </div>
+          </div>
+          {session && relatedSessions.sessions.length > 1 && <label className="relative hidden sm:block"><span className="sr-only">Przełącz sesję</span><select value={`${session.provider}:${session.sessionId}`} onChange={event => { const selected = relatedSessions.sessions.find(item => `${item.provider}:${item.sessionId}` === event.target.value); if (selected) onSwitchSession(selected); }} className="h-9 max-w-52 appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-3 pr-8 text-xs"><option value={`${session.provider}:${session.sessionId}`}>Bieżąca sesja</option>{relatedSessions.sessions.filter(item => item.sessionId !== session.sessionId || item.provider !== session.provider).map(item => <option key={`${item.provider}:${item.sessionId}`} value={`${item.provider}:${item.sessionId}`}>{item.title || item.sessionId}</option>)}</select><ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3 -translate-y-1/2 text-[var(--muted)]" /></label>}
+          {session && live && session.capabilities.cancelTurn && <Button variant="secondary" size="sm" disabled={cancelTurn.cancelling} onClick={() => void cancelTurn.cancel().then(snapshot => applySnapshot(snapshot, processEvent, setPending, setTurnStatus))}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>}
+        </div>
+        <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'wczytywanie kontekstu'} · {session?.provider || provider}</p>
+      </div>
+    </header>
+  );
+
+  if (sessionQuery.loading || messagesQuery.loading) return <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">{header}<div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />Wczytywanie rozmowy…</div></div>;
+  if (sessionQuery.error || messagesQuery.error || !session) return <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">{header}<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"><AlertTriangle className="size-7 text-red-300" /><h1 className="mt-4 text-lg font-semibold">Nie udało się otworzyć sesji</h1><p className="mt-2 text-sm text-[var(--muted)]">{sessionQuery.error || messagesQuery.error}</p></div></div>;
 
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">
-      <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
-        <div className="mx-auto flex max-w-6xl items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Wróć z rozmowy"><ArrowLeft className="size-4" /></Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2"><p className="truncate text-sm font-semibold text-[var(--foreground)]">{session.title || `Sesja ${session.sessionId.slice(0, 12)}`}</p><span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{session.status}</span></div>
-            <p className="truncate text-[10px] text-[var(--muted)]">{change?.title || session.specId} · {linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja'} · {session.provider}</p>
-          </div>
-          {relatedSessions.sessions.length > 1 && <label className="relative hidden sm:block"><span className="sr-only">Przełącz sesję</span><select value={`${session.provider}:${session.sessionId}`} onChange={event => { const selected = relatedSessions.sessions.find(item => `${item.provider}:${item.sessionId}` === event.target.value); if (selected) onSwitchSession(selected); }} className="h-9 max-w-52 appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-3 pr-8 text-xs"><option value={`${session.provider}:${session.sessionId}`}>Bieżąca sesja</option>{relatedSessions.sessions.filter(item => item.sessionId !== session.sessionId || item.provider !== session.provider).map(item => <option key={`${item.provider}:${item.sessionId}`} value={`${item.provider}:${item.sessionId}`}>{item.title || item.sessionId}</option>)}</select><ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3 -translate-y-1/2 text-[var(--muted)]" /></label>}
-          {live && session.capabilities.cancelTurn && <Button variant="secondary" size="sm" disabled={cancelTurn.cancelling} onClick={() => void cancelTurn.cancel().then(snapshot => applySnapshot(snapshot, processEvent, setPending, setTurnStatus))}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>}
-        </div>
-      </header>
+      {header}
 
       <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-5">
           {!displayMessages.length && !live && <div className="py-16 text-center"><Bot className="mx-auto size-7 text-[var(--accent)]" /><h2 className="mt-4 text-base font-semibold">Nowa rozmowa</h2><p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p></div>}
           {displayMessages.map(message => <ChatMessage key={message.id} message={message} />)}
+          {(startTurn.starting || (live && !pending && Object.keys(liveDeltas).length === 0)) && <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status"><LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />Mock przygotowuje odpowiedź…</div>}
           {connection === 'reconnecting' && <div className="flex items-center justify-center gap-2 text-xs text-amber-200"><RefreshCw className="size-3.5 animate-spin" />Ponowne łączenie; turn nadal działa na serwerze…</div>}
           {pending?.kind === 'permission' && session.capabilities.resolveInteractions && <PermissionPrompt interaction={pending} disabled={resolveInteraction.resolving} onResolve={response => void resolve(response)} />}
           {pending?.kind === 'question' && session.capabilities.resolveInteractions && <QuestionPrompt interaction={pending} disabled={resolveInteraction.resolving} onResolve={response => void resolve(response)} />}
-          {(turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error) && <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">{turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error}</div>}
+          {(submissionError || turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error) && <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">{submissionError || turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error}</div>}
           {turnStatus === 'failed' && <div className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">Turn został przerwany lub zakończył się błędem. Możesz spróbować wysłać kolejną wiadomość.</div>}
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
+      <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
         <form className="mx-auto flex max-w-4xl items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
           <label className="min-w-0 flex-1"><span className="sr-only">Wiadomość</span><textarea rows={1} value={composer} onChange={event => setComposer(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(composer); } }} disabled={session.status === 'completed' || !session.capabilities.startTurn} placeholder={session.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : live ? 'Turn trwa — możesz przygotować kolejną wiadomość' : 'Napisz wiadomość…'} className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60" /></label>
           <Button size="icon" className="size-11 shrink-0" type="submit" disabled={!composer.trim() || live || startTurn.starting || session.status === 'completed' || !session.capabilities.startTurn} aria-label="Wyślij wiadomość">{startTurn.starting ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</Button>
         </form>
-        <p className="mx-auto mt-1.5 max-w-4xl text-center text-[9px] text-[var(--muted)]">{live ? turnStatus === 'waitingForUser' ? 'Turn czeka na odpowiedź powyżej.' : 'Turn działa niezależnie od połączenia przeglądarki.' : session.status === 'completed' ? 'Zakończona sesja mock jest tylko do odczytu.' : 'Enter wysyła, Shift+Enter dodaje nową linię.'}</p>
       </footer>
     </div>
   );
@@ -307,7 +326,7 @@ export function CreateAiSessionDialog({ change, onClose, onCreated }: { change: 
     event.preventDefault();
     if (!change.specId || !provider) return;
     const session = await createSession.create({ provider, specId: change.specId, taskIds, ...(title.trim() ? { title: title.trim() } : {}) });
-    onCreated(session, initialMessage.trim() || null);
+    onCreated(session, initialPromptWithTaskContext(initialMessage, taskIds));
   };
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget && !createSession.creating) onClose(); }}>
@@ -316,7 +335,7 @@ export function CreateAiSessionDialog({ change, onClose, onCreated }: { change: 
         {providers.loading ? <div className="mt-6 flex items-center gap-2 text-sm text-[var(--muted)]"><LoaderCircle className="size-4 animate-spin" />Wczytywanie providerów…</div> : providers.error ? <div className="mt-6 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">Providerzy są niedostępni.</div> : !enabledProviders.length ? <div className="mt-6 rounded-xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted)]">Brak providera obsługującego tworzenie sesji.</div> : <>
           <label className="mt-6 block text-xs font-semibold">Provider<select value={provider} onChange={event => setProvider(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm">{enabledProviders.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <label className="mt-4 block text-xs font-semibold">Tytuł <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span><input value={title} onChange={event => setTitle(event.target.value)} maxLength={200} className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)]" /></label>
-          <fieldset className="mt-5"><legend className="text-xs font-semibold">Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span></legend><div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-[var(--border)] p-2">{change.tasks.map(task => <label key={task.id} className="flex cursor-pointer items-start gap-2 rounded-lg p-2 text-xs hover:bg-white/4"><input type="checkbox" className="mt-0.5" checked={taskIds.includes(task.id)} onChange={event => setTaskIds(previous => event.target.checked ? [...previous, task.id] : previous.filter(id => id !== task.id))} /><span><span className="font-semibold text-[var(--foreground)]">{task.title}</span><span className="mt-0.5 block text-[10px] text-[var(--muted)]">{task.id}</span></span></label>)}</div></fieldset>
+          <fieldset className="mt-5"><legend className="text-xs font-semibold">Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span></legend><p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">Wybrane taski zostaną powiązane z sesją i dopisane do pierwszej wiadomości.</p><div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-[var(--border)] p-2">{change.tasks.map(task => <label key={task.id} className="flex cursor-pointer items-start gap-2 rounded-lg p-2 text-xs hover:bg-white/4"><input type="checkbox" className="mt-0.5" checked={taskIds.includes(task.id)} onChange={event => setTaskIds(previous => event.target.checked ? [...previous, task.id] : previous.filter(id => id !== task.id))} /><span><span className="font-semibold text-[var(--foreground)]">{task.title}</span><span className="mt-0.5 block text-[10px] text-[var(--muted)]">{task.id}</span></span></label>)}</div>{taskIds.length > 0 && <code className="mt-2 block break-words rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] text-[var(--muted-strong)]">Context: tasks {taskIds.join(', ')}</code>}</fieldset>
           <label className="mt-4 block text-xs font-semibold">Pierwsza wiadomość <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span><textarea value={initialMessage} onChange={event => setInitialMessage(event.target.value)} rows={3} className="mt-2 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm outline-none focus:border-[var(--accent)]" placeholder="Zostaw puste, aby rozpocząć później." /></label>
           {createSession.error && <p className="mt-3 text-xs text-red-200">{createSession.error}</p>}
           <Button className="mt-6 w-full" type="submit" disabled={!provider || createSession.creating}>{createSession.creating ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <MessageSquarePlus className="mr-2 size-4" />}Utwórz i otwórz</Button>
