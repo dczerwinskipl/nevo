@@ -267,8 +267,9 @@ export function AiChatPage({
   const header = (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
       <div className="mx-auto max-w-6xl">
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" className="shrink-0" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <Button variant="ghost" size="icon" className="size-8 shrink-0 sm:hidden" onClick={onBack} aria-label={backLabel} title={backLabel}><ArrowLeft className="size-4" /></Button>
+          <Button variant="secondary" size="sm" className="hidden shrink-0 sm:inline-flex" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <p className="truncate text-sm font-semibold text-[var(--foreground)]">{session?.title || (session ? `Sesja ${session.sessionId.slice(0, 12)}` : 'Wczytywanie sesji…')}</p>

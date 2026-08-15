@@ -160,7 +160,7 @@ tasks:
     depends_on: [ session-navigation-and-context-surfaces ]
     implementation:
       baseline_revision: 7aee615cbea05751ed8c277837a78258ebe9af03
-      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      review_revision: c8476e00be53a089447b2391d41ac55b809cb798
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-chat.tsx
@@ -168,10 +168,10 @@ tasks:
         - tools/dashboard/src/hooks/use-dashboard-data.ts
         - tools/dashboard/src/lib/ai-chat-helpers.ts
         - tools/dashboard/src/lib/types.ts
-      worktree_patch_fingerprint: a3aae56a4ff228213673dda0c9e85c2870e1fcf052bc664680f9f704047d310e
+      worktree_patch_fingerprint: dbe846f3aa50f4b0e44bf253a6dc39cf604be151d384e110fb07cafb3b25446f
     self_check:
       fingerprint: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
-      revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      revision: c8476e00be53a089447b2391d41ac55b809cb798
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
