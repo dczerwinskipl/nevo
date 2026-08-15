@@ -4,11 +4,12 @@
 
 Define one shared `Operation`/`Steps` model and transport for every long-running
 CLI-triggered operation the dashboard exposes, sourced from the CLI/workflow layer
-(never inferred by the dashboard from stdout timing), and instrument every listed
-operation kind to emit it (per D2 in `owner-decisions.md`: full wiring in this change,
-not a single reference operation). Does not include the frontend rendering of this data
-(`dashboard-operation-progress-ui.md`) or any change to gate/verification/acceptance
-semantics themselves.
+(never inferred by the dashboard from stdout timing), and instrument every applicable
+existing multi-step CLI operation to emit it (per D2 in `owner-decisions.md`: full
+wiring of everything real, not a single reference operation, and never a fabricated
+operation invented just to cover a listed name — see D2's wording-precision amendment).
+Does not include the frontend rendering of this data (`dashboard-operation-progress-ui.md`)
+or any change to gate/verification/acceptance semantics themselves.
 
 ## Current state
 
@@ -68,6 +69,23 @@ semantics themselves.
   in progress" shape, exact status code an implementation detail), and the operation's
   actual result (success/failure/step detail) is read from the snapshot/SSE routes
   below, never from the trigger response body itself.
+- **A Dashboard Operation is exactly one spawned CLI process — never a `--check`
+  pre-flight process followed by the real command (D11 in `owner-decisions.md`).**
+  Today's `executeSpecificationAction` runs `taskGate`/`finalizeGate` (a full
+  `[action, ..., '--check']` invocation) to decide whether to proceed, and only then
+  spawns the real command — two CLI process spawns per POST. This changes here:
+  `verify`/`approve`/`finalize`'s POST handlers spawn the real command
+  (`[action, slug, task.id]` or `['finalize', slug]`) directly, with no preceding
+  `--check` spawn. Each real command already performs its own authoritative validation
+  internally, before mutating, and already refuses to mutate on failure
+  (`handleVerify`/`handleApprove` via `validateTransition`; `handleFinalize` via its
+  existing unconditional `gatherFinalizeFacts`/`validateFinalize` call — the same call
+  `--check` mode also uses). That existing internal validation, once instrumented (task
+  05), becomes the Operation's own first semantic step(s) — inside the one process the
+  dashboard spawned, never a separate one whose result is checked beforehand. The
+  exported `taskGate`/`finalizeGate` helper functions may still be reused, unchanged, by
+  the unaffected `GET /actions` read path below — only the POST path's redundant
+  re-invocation is removed.
 - **Only explicitly user-triggered, POST-based actions become an `Operation`, and
   `GET /api/specs/active/:slug/actions` must never run a heavy check synchronously
   (owner correction, 2026-08-15).** The existing `GET` read
@@ -92,9 +110,11 @@ semantics themselves.
   exactly as before, since it genuinely is cheap. Neither probe gains an `operationId`,
   steps, or an SSE stream regardless.
 - **`finalize`'s natural existing phases become this operation's semantic steps —
-  never one collapsed "Checking gate..." step.** `finalize --check`
-  (`validateFinalize`) already evaluates multiple distinct things; when a POST triggers
-  `finalize`, emit one step per natural phase as the CLI already performs them, e.g.:
+  never one collapsed "Checking gate..." step.** `handleFinalize`'s own
+  `gatherFinalizeFacts`/`validateFinalize` call — run unconditionally at the start of
+  the one spawned `finalize` process, whether triggered via `--check` or for real —
+  already evaluates multiple distinct things; when a POST triggers `finalize`, emit one
+  step per natural phase as that same call already performs them, e.g.:
   `validate specs`, `check indexes`, `validate docs`, `check PR/review state`,
   `dotnet build`, `dotnet test`, `finalize` (merge/archive). Exact step ids/labels are
   an implementation detail matching whatever `validateFinalize`/`handleFinalize`
@@ -135,10 +155,12 @@ semantics themselves.
   a stable handle and the contract shape (`Operation`/`Step`, snapshot, SSE) generic
   enough that a future change can add real cancellation (with correct process-tree
   handling) without a breaking contract change.
-- Every operation kind listed in the change overview — gate checks, spec verification,
-  implementation verification, AI verification, task acceptance, batch verification,
-  test runs, final audits — emits step events through this same shared vocabulary (split
-  across tasks 05/06 by group, per D2). Only the subset of these actually reachable via
+- Every applicable existing multi-step CLI operation among those named in the change
+  overview — gate checks, spec verification, implementation verification, AI
+  verification, task acceptance, batch verification, test runs, final audits — emits
+  step events through this same shared vocabulary (split across tasks 05/06 by group,
+  per D2's wording-precision amendment: wire what's real, name what isn't, never
+  fabricate). Only the subset of these actually reachable via
   a `POST` action in `actions.mjs` today (the task-level gate re-check, task acceptance,
   and `finalize`) becomes a Dashboard `Operation` with an `operationId`/snapshot/SSE;
   the rest (e.g. `self-check` run standalone, `batch-review`) emit the same vocabulary
@@ -186,6 +208,8 @@ semantics themselves.
 - Triggering `finalize` emits more than one step, corresponding to
   `validateFinalize`/`handleFinalize`'s own real phases — never a single step covering
   the whole check.
+- Triggering `verify`/`approve`/`finalize` spawns exactly one child process — no
+  separate `--check` pre-flight process runs before it (D11 in `owner-decisions.md`).
 
 ## Dependencies
 

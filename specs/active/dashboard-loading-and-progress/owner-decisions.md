@@ -29,8 +29,23 @@
 - **Options considered:** (A) contract + UI + one reference operation (task
   verification) now, rest documented as a mechanical fast-follow pattern | (B) contract +
   UI + all listed operation kinds wired in this change.
-- **Decision:** (B) — wire all listed operation kinds in this change.
-- **Rationale:** not stated beyond selecting the option.
+- **Decision:** (B) — wire all applicable existing multi-step CLI operations in this
+  change **(wording precision, 2026-08-15 — corrected from "all listed operation
+  kinds").** The original phrasing, read literally against the overview's list (gate
+  checks, spec verification, implementation verification, AI verification, task
+  acceptance, batch verification, test runs, final audits), could be misread as a
+  mandate to fabricate an `Operation`/step for every named item even where no real,
+  separable CLI-subprocess operation exists for it — exactly what task 06's own "confirm
+  before instrumenting, never fabricate" constraint and
+  `areas/operation-progress-contract.md`'s own "never invent artificial steps"
+  constraint already forbid. Scope is unchanged by this reword: every operation kind
+  that is a real, existing multi-step CLI/subprocess operation still gets wired; a
+  listed kind with no such real operation is named explicitly as not applicable (task
+  06's own reporting requirement), never silently skipped and never fabricated.
+- **Rationale:** not stated beyond selecting the option (wording-precision rationale,
+  owner-stated, 2026-08-15: align D2's own text with the "never invent artificial
+  steps/operations" constraint stated elsewhere in this change, which the original
+  phrasing appeared to contradict).
 - **Consequences:** the operation-progress area is split into more than one task
   (contract/transport, then CLI step-instrumentation split across two tasks by operation
   group) instead of a single "contract + one reference wiring" task, to keep each task's
@@ -40,7 +55,7 @@
 - **Affected artifacts:** `areas/operation-progress-contract.md`,
   `tasks/04-operation-progress-contract-and-transport.md`,
   `tasks/05-cli-step-instrumentation-gate-and-verification.md`,
-  `tasks/06-cli-step-instrumentation-tests-and-audits.md`
+  `tasks/06-cli-step-instrumentation-tests-and-audits.md`, `overview.md`
 
 ## D3: Field lists in lightweight contracts are a floor, not a ceiling
 
@@ -259,3 +274,55 @@
 - **Date:** 2026-08-15
 - **Affected artifacts:** `tasks/07-dashboard-operation-progress-ui.md`,
   `areas/dashboard-operation-progress-ui.md`
+
+## D11: Dashboard Operation lifecycle = exactly one spawned CLI process, matching the actual action flow
+
+- **Question:** raised by the owner reviewing PR #27 — task 04 modeled "Operation = one
+  spawned CLI process," but `actions.mjs`'s current `executeSpecificationAction` runs a
+  separate `--check` pre-flight CLI invocation (`taskGate` for `verify`/`approve`;
+  `finalizeGate` for `finalize`) and only spawns the real action command afterward, if
+  the pre-flight passed — so one dashboard click currently triggers two separate CLI
+  process spawns. Task 05 then described the pre-flight `--check` call itself as "a step
+  *inside*" the real action's Operation, which contradicts the one-process model and
+  raises the question of which of the two spawned processes' stdout is actually
+  authoritative for the Operation's step events. Should a Dashboard Operation aggregate
+  multiple child processes (pre-flight + real command), or should the POST handler
+  collapse to exactly one spawn?
+- **Decision:** Exactly one spawned CLI process per Dashboard Operation, always.
+  `executeSpecificationAction`'s POST handlers for `verify`/`approve`/`finalize` no
+  longer run a `--check` pre-flight before spawning the real command — they spawn the
+  real command (`[action, slug, task.id]` or `['finalize', slug]`) directly. Each real
+  command already performs its own authoritative validation internally, before
+  mutating, and already refuses to mutate on failure: `handleVerify`/`handleApprove`
+  via `validateTransition` (throws `CliError`, exits non-zero, does not write a status
+  change); `handleFinalize` via its existing unconditional `gatherFinalizeFacts`/
+  `validateFinalize` call (the same call `--check` mode also uses — see
+  `tools/specs.mjs:1125-1136`) before any archive/push/merge. That existing internal
+  validation becomes the Operation's first semantic step(s) once instrumented (task 05)
+  — never a separate process, never treated as happening "before" the Operation starts.
+  Concretely, the flow for any instrumented POST action is:
+  `POST action → mint operationId → spawn exactly one real CLI command → that command's
+  own authoritative validation/gate emits the first semantic step(s) → on failure,
+  operation.failed, no mutation; on success, the same process continues into
+  mutation/finalization → operation.completed`.
+  `GET /api/specs/active/:slug/actions` is unaffected by this decision (D4 already
+  governs it) — it remains a cheap, synchronous read correlated with no spawn and no
+  `operationId`; the task-level `GET` probe may still reuse the exported
+  `taskGate`/`finalizeGate`-shaped helpers for its own lightweight read, since that read
+  path was never the one spawning a redundant second process.
+- **Rationale:** owner-stated — a Dashboard Operation must map 1:1 onto the actual CLI
+  invocation the dashboard triggers; a hidden second spawn undermines "the CLI is the
+  source of truth" (two processes' stdout, only one of which the Operation actually
+  reflects) and needlessly doubles process-spawn cost per click.
+- **Consequences:** `actions.mjs`'s `executeSpecificationAction` drops its
+  `taskGate`/`finalizeGate` pre-flight calls entirely (task 04 — it owns
+  `executeSpecificationAction`'s spawn/transport behavior). Task 04's Implementation
+  constraints and acceptance criteria gain the explicit one-process rule. Task 05's Goal
+  items 1 and 4 and its Implementation constraints are reworded: the task-level
+  validation and `finalize`'s multi-phase validation are now described as the first
+  internal step(s) of the one already-spawned real command, never as a separate
+  pre-flight process or a step "inside" something external to that command.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md`, `areas/operation-progress-contract.md`,
+  `tasks/04-operation-progress-contract-and-transport.md`,
+  `tasks/05-cli-step-instrumentation-gate-and-verification.md`

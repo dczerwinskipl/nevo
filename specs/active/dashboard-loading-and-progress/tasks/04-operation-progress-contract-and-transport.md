@@ -28,7 +28,7 @@ forbidden_paths:
   - tools/dashboard/server/watcher.mjs
   - tools/dashboard/server/providers/**
 semantic_references:
-  decisions: [D4, D6, D8, D9]
+  decisions: [D4, D6, D8, D9, D11]
   constraints: [C1]
   dependency_contracts: [dashboard-data-loading-contracts]
 ---
@@ -45,7 +45,11 @@ of scope for this task/change (owner correction, 2026-08-15) — see Implementat
 constraints. Per D9 in `owner-decisions.md`: the `operationId`/snapshot/SSE transport
 this task builds is scoped exclusively to processes the dashboard backend itself spawns
 via `actions.mjs` — it is not a general mechanism for observing arbitrary CLI
-invocations (see Implementation constraints).
+invocations (see Implementation constraints). Per D11 in `owner-decisions.md`: a
+Dashboard Operation is exactly one spawned CLI process — this task removes
+`executeSpecificationAction`'s current `taskGate`/`finalizeGate` `--check` pre-flight
+spawn for `verify`/`approve`/`finalize`, so one POST triggers exactly one child
+process, not two (see Implementation constraints).
 
 ## Dependencies
 
@@ -65,6 +69,26 @@ after task 01 avoids two tasks racing to edit them in parallel (D8 in
 - `actions.mjs` uses `spawn` instead of `execFileSync`; stdout is read incrementally,
   parsed line-by-line for step-event markers (additive to, not replacing, the existing
   final JSON result line).
+- **`executeSpecificationAction` spawns exactly one child process per Dashboard
+  Operation — never a `--check` pre-flight process followed by the real command (D11).**
+  Remove the current `taskGate(runSpecs, root, slug, task)` call before
+  `runSpecs(root, [action, ...])` for `verify`/`approve`, and the current
+  `finalizeGate(runSpecs, root, slug)` call before `runSpecs(root, ['finalize', slug])`
+  for `finalize` — spawn the real command directly in both cases. `handleVerify`/
+  `handleApprove` already run `validateTransition` internally before mutating and
+  already refuse to mutate (throw, exit non-zero) on failure; `handleFinalize` already
+  runs `gatherFinalizeFacts`/`validateFinalize` unconditionally at its start, before any
+  archive/push/merge, and already refuses to mutate on failure — the same call
+  `--check` mode also uses (`tools/specs.mjs:1125-1136`). That existing internal
+  validation is what task 05 instruments as the Operation's first semantic step(s); this
+  task does not add a second validation path, only removes the redundant pre-flight
+  spawn. Only the `taskGate`/`finalizeGate` call sites inside
+  `executeSpecificationAction`'s POST path are removed — the helper functions
+  themselves stay as-is. `taskGate` keeps its existing caller in the unaffected `GET
+  /actions` read path (`loadSpecificationActions`, task-level probe, per D4). `finalizeGate`
+  keeps its existing `GET`-path caller too, until task 05 replaces it with lightweight
+  facts per D4 — this task removes only the POST-path pre-flight call for both helpers,
+  not their (still-needed, for now) `GET`-path ones.
 - Provide one shared emission helper module at `tools/lib/operation-progress.mjs` — a
   neutral location outside both `tools/dashboard/server/**` and `tools/specs.mjs`'s own
   territory — that tasks 05/06 import from CLI command code and this task itself imports
@@ -141,6 +165,12 @@ after task 01 avoids two tasks racing to edit them in parallel (D8 in
     become aware of a CLI process it did not itself `spawn` — an `operationId` only ever
     exists for a process this task's runner started.
     `inspection: confirm operationId assignment only occurs at the point actions.mjs spawns a child process`
+11. Triggering `verify`/`approve`/`finalize` via `POST` spawns exactly one child
+    process — `executeSpecificationAction` no longer calls `taskGate`/`finalizeGate`
+    (a `--check` pre-flight) before spawning the real action command; the same
+    `validateTransition`/`gatherFinalizeFacts`+`validateFinalize` result the pre-flight
+    used to compute is now observed from that one spawned process's own outcome (D11).
+    `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 

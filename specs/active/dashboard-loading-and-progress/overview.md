@@ -136,15 +136,19 @@ for the evidence and each task's acceptance criteria for the resulting shape.
 
 ## Owner decisions
 
-See `owner-decisions.md`: D1 (picomatch dependency), D2 (wire all listed operation kinds
-in this change), D3 (field lists in new lightweight contracts are a floor, not a
-ceiling — add cheaply-available useful fields), D4 (`GET /actions` must never run a
-heavy check; `finalize` gets multi-step instrumentation), D5 (PR-list metadata refresh
-must not rely on `specs-changed` SSE), D6 (cancellation removed from this change's
-scope), D7 (tasks 05/06 must not be implemented in parallel), D8 (tasks 01/04 must not
-be implemented in parallel), D9 (CLI progress vocabulary vs. Dashboard Operation API
-scope boundary — dashboard only tracks operations it starts itself), D10 (task 07's UI
-acceptance criteria must use real dashboard actions only, not CLI-only kinds).
+See `owner-decisions.md`: D1 (picomatch dependency), D2 (wire all applicable existing
+multi-step CLI operations in this change — wording precision, not a mandate to
+fabricate steps for a listed kind with no real CLI-subprocess operation), D3 (field
+lists in new lightweight contracts are a floor, not a ceiling — add cheaply-available
+useful fields), D4 (`GET /actions` must never run a heavy check; `finalize` gets
+multi-step instrumentation), D5 (PR-list metadata refresh must not rely on
+`specs-changed` SSE), D6 (cancellation removed from this change's scope), D7 (tasks
+05/06 must not be implemented in parallel), D8 (tasks 01/04 must not be implemented in
+parallel), D9 (CLI progress vocabulary vs. Dashboard Operation API scope boundary —
+dashboard only tracks operations it starts itself), D10 (task 07's UI acceptance
+criteria must use real dashboard actions only, not CLI-only kinds), D11 (a Dashboard
+Operation is exactly one spawned CLI process — no `--check` pre-flight spawn before the
+real command).
 
 ## Proposed architecture
 
@@ -223,6 +227,16 @@ possible.** Concretely:
    UI renders progress
    ```
 
+   **"Backend spawns CLI command" means exactly one child process per Operation, never a
+   `--check` pre-flight spawn followed by the real command (owner correction,
+   2026-08-15; see D11 in `owner-decisions.md`).** The real command's own
+   already-existing internal validation (`handleVerify`/`handleApprove`'s
+   `validateTransition`; `handleFinalize`'s `gatherFinalizeFacts`/`validateFinalize`) —
+   which already runs before any mutation and already refuses to mutate on failure — is
+   what emits the Operation's first semantic step(s), inside that one process; there is
+   no separate pre-flight process whose result the dashboard checks before spawning the
+   real one.
+
    Every multi-step CLI command (`finalize`, the `verify`/`approve` gate re-check,
    `self-check`, `batch-review`, `audit`) emits the same shared `operation.*` stdout
    vocabulary regardless of how it was invoked — this is what gives `finalize`, `verify`,
@@ -297,6 +311,9 @@ final JSON result line consumed by `actions.mjs` today.
 - Task statuses continue to refresh on a fast interval.
 - Triggering a POST-based action (verify/approve/finalize/instrumented run) returns an
   `operationId` before the action completes — never only after.
+- A Dashboard Operation is exactly one spawned CLI process — triggering `verify`/
+  `approve`/`finalize` never spawns a separate `--check` pre-flight process before the
+  real command.
 - The `GET` gate-probe used purely to compute button-enabled state never gains an
   `operationId`, steps, or an SSE stream.
 - A multi-step verification/gate/acceptance run shows steps completing in near
