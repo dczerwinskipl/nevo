@@ -2,7 +2,7 @@
 id: dashboard-loading-and-progress.cli-step-instrumentation-tests-and-audits
 status: draft
 change: dashboard-loading-and-progress
-depends_on: [operation-progress-contract-and-transport]
+depends_on: [operation-progress-contract-and-transport, cli-step-instrumentation-gate-and-verification]
 context:
   required:
     - specs/active/dashboard-loading-and-progress/areas/operation-progress-contract.md
@@ -20,9 +20,9 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D2]
+  decisions: [D2, D7]
   constraints: [C1]
-  dependency_contracts: [operation-progress-contract-and-transport]
+  dependency_contracts: [operation-progress-contract-and-transport, cli-step-instrumentation-gate-and-verification]
 ---
 
 # Task: CLI step instrumentation — batch verification, test runs, and audits
@@ -36,7 +36,9 @@ multi-step `specs.mjs`/CLI command, instrument it the same way.
 
 ## Dependencies
 
-Depends on task 04 for the contract/helper/transport to emit into.
+Depends on task 04 for the contract/helper/transport to emit into, and on task 05 —
+both tasks modify `tools/specs.mjs`, so they must not be implemented in parallel on the
+same central file; the chain is 04 → 05 → 06.
 
 ## Implementation constraints
 

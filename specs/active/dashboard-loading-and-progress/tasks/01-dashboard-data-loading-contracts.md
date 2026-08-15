@@ -26,7 +26,7 @@ forbidden_paths:
   - tools/specs.mjs
   - tools/lib/github.mjs
 semantic_references:
-  decisions: [D3]
+  decisions: [D3, D5]
   constraints: [C1, C2]
 ---
 
@@ -61,16 +61,26 @@ every change — on a fixed short timer once event-driven invalidation covers th
   single-document cache entry can be invalidated without invalidating the whole
   manifest/content cache; keep the existing coarse behavior as a fallback if a change
   can't be attributed to specific files.
-- Once invalidation is event-driven for content/PR-list, remove their
+- Once invalidation is event-driven for the **content** query specifically, remove its
   `refetchInterval`; task-status polling keeps its own fast interval (a few seconds) —
   do not make task-status event-driven in this task (explicitly deferred, not required
   now, and the shape must not block adding it later).
+- **PR-list is not part of the content/`specs-changed` fix (owner correction,
+  2026-08-15) — it needs its own mechanism.** A `git push` to an open PR changes
+  `headSha` on GitHub without touching any file `specs-changed` watches, so PR-list
+  cannot rely on that SSE signal at all. Requirement: PR-list uses initial fetch +
+  refetch-on-window-focus + an explicit user-triggered refresh, plus an optional slow
+  safety-refresh interval (well above the removed 30s — minutes, not seconds) as a
+  backstop. This still removes the old tight 30s poll; it does not replace it with
+  `specs-changed` reliance the way content did.
 - `/api/dashboard`'s own `useDashboardData` poll moves from a 30s `refetchInterval` to
   an initial fetch plus SSE-driven invalidation on `specs-changed`, with a much longer
-  safety-refresh interval (minutes) as a backstop — same fix as content/PR-list, applied
-  to this one remaining fixed-interval heavy-backend poll. Do not change what
-  `loadDashboardData`/`taskProjection`/`changeProjection` compute — only when/why the
-  request fires.
+  safety-refresh interval (minutes) as a backstop — same fix as **content**'s (not
+  PR-list's — see above), applied to this one remaining fixed-interval heavy-backend
+  poll. `specs-changed` is a real signal here since `/api/dashboard` reads from
+  `specs/active/`/`specs/archive/`, unlike PR-list's GitHub-sourced data. Do not change
+  what `loadDashboardData`/`taskProjection`/`changeProjection` compute — only when/why
+  the request fires.
 
 ## Acceptance criteria
 
@@ -84,15 +94,20 @@ every change — on a fixed short timer once event-driven invalidation covers th
    `automated: npm --prefix tools/dashboard test`
 4. `/task-statuses` returns a small payload with `revision` and per-task `status`.
    `automated: npm --prefix tools/dashboard test`
-5. Content and PR-list hooks have no `refetchInterval`; task-status hook keeps a
-   several-second interval; `useDashboardData` has no 30s `refetchInterval` (a much
-   longer safety-refresh interval, or none, plus SSE invalidation, is acceptable).
+5. The content hook has no `refetchInterval`; task-status hook keeps a several-second
+   interval; `useDashboardData` has no 30s `refetchInterval` (a much longer
+   safety-refresh interval, or none, plus SSE invalidation, is acceptable). The PR-list
+   hook refetches on window focus and explicit user request (not `specs-changed`), and
+   any interval it keeps is well above the old 30s.
    `inspection: confirm use-dashboard-data.ts hook options`
-6. A change to one task file invalidates only that task's cached document client-side.
+6. Simulating a new `headSha` on GitHub (without any local `specs/` file change)
+   eventually results in the PR-list query reflecting it — verified via focus-refetch
+   or explicit-refresh, not via `specs-changed`. `automated: npm --prefix tools/dashboard test`
+7. A change to one task file invalidates only that task's cached document client-side.
    `automated: npm --prefix tools/dashboard test`
-7. No synchronous fs API is called from the manifest/content/task-status/PR-list route
+8. No synchronous fs API is called from the manifest/content/task-status/PR-list route
    handlers. `inspection: grep for existsSync/readFileSync/readdirSync/statSync in the touched code paths`
-8. `/api/dashboard`'s computed response content (`taskProjection`/`changeProjection`
+9. `/api/dashboard`'s computed response content (`taskProjection`/`changeProjection`
    fields) is unchanged — only its fetch/polling behavior changes, per criterion 5.
    `automated: npm --prefix tools/dashboard test`
 

@@ -25,9 +25,9 @@ semantics themselves.
   `AiTurnSnapshot` (`tools/dashboard/src/lib/types.ts:279-290`: `turnId`, `status`,
   `lastEventId`, `events[]`), served via `getTurn` (snapshot) + `subscribeToTurn`
   (resumable SSE with `afterSequence`) + `POST /turns/:id/cancel`
-  (`tools/dashboard/server/ai-routes.mjs:180-224`). This area generalizes that shape
-  rather than inventing a new one — no event-sourcing system, just the same
-  snapshot+resumable-stream+cancel shape applied to a generic `Operation`.
+  (`tools/dashboard/server/ai-routes.mjs:180-224`). This area generalizes the
+  snapshot+resumable-stream shape (not the cancel endpoint — see Requirements below) —
+  no event-sourcing system, just that shape applied to a generic `Operation`.
 - The global `specs-changed` SSE hub (`watcher.mjs`) has no event IDs/replay and is
   unrelated to per-operation progress; it must not be reused/overloaded for this
   purpose — operations get their own scoped stream so per-operation resume/backfill
@@ -54,16 +54,41 @@ semantics themselves.
   in progress" shape, exact status code an implementation detail), and the operation's
   actual result (success/failure/step detail) is read from the snapshot/SSE routes
   below, never from the trigger response body itself.
-- **Only explicitly user-triggered, POST-based actions become an `Operation`.** The
-  existing `GET /api/specs/active/:slug/actions` read (`loadSpecificationActions`,
-  `actions.mjs:82-114`) already runs a `--check` gate probe per actionable task purely
-  to compute button-enabled state, on every poll — this is a cheap, synchronous,
-  read-only computation, not a user-initiated operation, and it stays exactly that: a
-  plain request/response with no `operationId`, no steps, no SSE. The `Operation`/Steps
-  model in this area applies only once a POST actually starts the corresponding
-  action — a `--check` probe made merely to answer "is this button enabled" is never
-  wrapped in the same contract, even though it may internally call the same gate logic
-  a real run also uses.
+- **Only explicitly user-triggered, POST-based actions become an `Operation`, and
+  `GET /api/specs/active/:slug/actions` must never run a heavy check synchronously
+  (owner correction, 2026-08-15).** The existing `GET` read
+  (`loadSpecificationActions`, `actions.mjs:82-114`) runs a `--check` gate probe per
+  actionable task purely to compute button-enabled state, on every poll. For a task's
+  `verify`/`approve` gate this probe genuinely is cheap (a status-transition check). It
+  is **not** cheap for `finalize`: `finalizeGate` calls
+  `runSpecs(root, ['finalize', slug, '--check'])`, and `finalize --check`
+  (`validateFinalize`, `tools/specs.mjs:1125`) can itself run spec/docs validation,
+  index-currency checks, GitHub PR/review-state checks, and — depending on what the
+  change's own verification commands are — `dotnet build`/`dotnet test`. Running that on
+  every poll is exactly the kind of "cheap because the response is small" trap this
+  change already corrected for `/api/dashboard` (see `dashboard-data-loading-contracts.md`)
+  — a periodic `GET` must never trigger it. Requirement: `GET /actions` reports only
+  lightweight, already-cheaply-available state for `finalize` (e.g. task-completion
+  status, branch/PR existence — the same cheap git facts `loadSpecificationActions`
+  already computes via `worktreeLoader`/`branchLoader` — not a computed enabled/
+  disabled-with-reason verdict that required running `finalize --check`). The full,
+  authoritative gate check moves into the `finalize` `Operation`'s own steps (below) —
+  triggering it is how the owner actually learns whether finalize would pass, not a
+  polled `GET`. A task's `verify`/`approve` gate probe is unaffected — it stays on `GET`
+  exactly as before, since it genuinely is cheap. Neither probe gains an `operationId`,
+  steps, or an SSE stream regardless.
+- **`finalize`'s natural existing phases become this operation's semantic steps —
+  never one collapsed "Checking gate..." step.** `finalize --check`
+  (`validateFinalize`) already evaluates multiple distinct things; when a POST triggers
+  `finalize`, emit one step per natural phase as the CLI already performs them, e.g.:
+  `validate specs`, `check indexes`, `validate docs`, `check PR/review state`,
+  `dotnet build`, `dotnet test`, `finalize` (merge/archive). Exact step ids/labels are
+  an implementation detail matching whatever `validateFinalize`/`handleFinalize`
+  actually do internally — the requirement is per-phase steps, not the phase list
+  above verbatim. This is the same "map to real, already-existing structure, never
+  invent granularity" rule the rest of this area already applies to self-check and
+  batch review, extended to `finalize` specifically since it turned out not to be an
+  atomic check like the task-level gate probes.
 - `tools/dashboard/server/actions.mjs` moves from `execFileSync` to `spawn` so step
   events can be read from the child process as they're emitted, not only after exit.
 - `tools/specs.mjs` (and any other CLI command invoked for a long operation) emits step
@@ -86,10 +111,16 @@ semantics themselves.
   mirroring `getTurn`/`subscribeToTurn`. A client that reconnects mid-operation recovers
   current state; a client that reconnects after completion still sees the final status
   (nothing is lost to a dropped connection).
-- Cancellation: since `spawn` gives a live child-process handle, implement
-  `POST /operations/:id/cancel` in this change (killing the child process) rather than
-  only reserving the shape for later — the owner's stated bar ("implement now if cheap
-  and naturally supported by the process model") is met by moving to `spawn`.
+- Cancellation is out of scope for this change (owner correction, 2026-08-15): moving
+  `actions.mjs` to `spawn` gives a live child-process handle for the *direct* child, but
+  CLI commands (e.g. `handleSelfCheck` running `dotnet test`) spawn their own child
+  processes in turn — killing the top-level process does not guarantee the whole process
+  tree terminates, so "cheap because we moved to spawn" was not actually true. Do not
+  implement `POST /operations/:id/cancel` or any cancellation behavior in this change.
+  The `Operation` model must still not preclude adding it later: keep `operationId` as
+  a stable handle and the contract shape (`Operation`/`Step`, snapshot, SSE) generic
+  enough that a future change can add real cancellation (with correct process-tree
+  handling) without a breaking contract change.
 - Every operation kind listed in the change overview — gate checks, spec verification,
   implementation verification, AI verification, task acceptance, batch verification,
   test runs, final audits — emits step events through this same contract (split across
@@ -109,7 +140,8 @@ semantics themselves.
 
 ## Interfaces and boundaries
 
-- Exposes: `Operation` snapshot/SSE/cancel routes to the frontend; a step-emission
+- Exposes: `Operation` snapshot/SSE routes to the frontend (no cancel route — see
+  Requirements above); a step-emission
   helper (`tools/lib/operation-progress.mjs`) imported by both `tools/dashboard/server`
   (to build the transport) and `tools/specs.mjs`/CLI command code (tasks 05/06, to emit
   events) — the dependency direction is both sides depending downward on this neutral
@@ -124,14 +156,17 @@ semantics themselves.
   `operationId`, yields the operation's current step state, not a restart from nothing.
 - An operation that completes while no client is connected still reports its final
   status to a client that connects afterward.
-- Cancelling an operation terminates the underlying child process and the operation's
-  final state reflects cancellation, not a fabricated success/failure.
 - No dashboard-side code infers a step transition from elapsed time or stdout
   heuristics — every step transition in a test corresponds to an emitted event from the
   CLI layer.
 - A step's `failed` status is distinguishable from the overall operation's `failed`
   status in the payload (a mid-operation step failure must not be silently swallowed
   into just an overall failure with no indication of which step).
+- `GET /api/specs/active/:slug/actions` never triggers `dotnet build`/`dotnet test`/
+  spec or docs validation as a side effect of computing finalize's button state.
+- Triggering `finalize` emits more than one step, corresponding to
+  `validateFinalize`/`handleFinalize`'s own real phases — never a single step covering
+  the whole check.
 
 ## Dependencies
 

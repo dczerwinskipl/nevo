@@ -138,7 +138,10 @@ for the evidence and each task's acceptance criteria for the resulting shape.
 
 See `owner-decisions.md`: D1 (picomatch dependency), D2 (wire all listed operation kinds
 in this change), D3 (field lists in new lightweight contracts are a floor, not a
-ceiling — add cheaply-available useful fields).
+ceiling — add cheaply-available useful fields), D4 (`GET /actions` must never run a
+heavy check; `finalize` gets multi-step instrumentation), D5 (PR-list metadata refresh
+must not rely on `specs-changed` SSE), D6 (cancellation removed from this change's
+scope), D7 (tasks 05/06 must not be implemented in parallel).
 
 ## Proposed architecture
 
@@ -159,17 +162,24 @@ possible.** Concretely:
    `(provider, repository, number, headSha, path)` so re-opening the same PR at the same
    `headSha` costs nothing. Full raw diff moves to its own on-demand route
    (`GET .../pull-requests/:number/diff`).
-3. **Markdown/PR content stop being polled on a timer, and `/api/dashboard`'s own poll
-   is loosened.** Content queries move to effectively-infinite staleness with
+3. **Markdown content and `/api/dashboard` stop being polled on a fixed timer — PR-list
+   metadata needs a different mechanism, not the same one (owner correction,
+   2026-08-15).** Content queries move to effectively-infinite staleness with
    invalidation driven by the SSE watcher, which gains a granular `files` list per event
    so only the affected document's cache entry is invalidated
    (`{ slug, files: ["tasks/14.md"] }`) instead of the whole bundle. `/api/dashboard`
    (change/task overview list) moves from an unconditional 30s poll to an initial fetch
-   plus SSE-driven invalidation on `specs-changed`, with a much longer safety-refresh
+   plus the same `specs-changed`-driven invalidation, with a much longer safety-refresh
    interval (minutes, not seconds) as a backstop — not a full endpoint rewrite, just the
-   same polling-vs-event-driven fix already applied to content/PR-list, extended to this
-   one remaining heavy-backend, fixed-interval poll. Task-status polling stays fast (a
-   few seconds) since its payload and its backend cost are both intentionally small.
+   same polling-vs-event-driven fix, extended to this one remaining heavy-backend,
+   fixed-interval poll; both read from `specs/active/`/`specs/archive/`, which
+   `specs-changed` genuinely watches. **PR-list metadata cannot use `specs-changed`** —
+   a `git push` to an open PR changes GitHub's `headSha` without touching any file
+   `specs-changed` observes — so it uses initial fetch + refetch-on-focus + explicit
+   refresh + an optional slow safety interval instead, still removing the old tight 30s
+   poll without silently going stale the way relying on `specs-changed` would.
+   Task-status polling stays fast (a few seconds) since its payload and its backend cost
+   are both intentionally small.
 4. **Changes UX becomes configurable and grouped.** A per-project `changeView.groups`
    config (path-glob rules, first-match-wins, `picomatch` per D1) drives Area/Directory/
    Flat grouping; a separate `generatedFiles` config drives a "hide generated" filter
@@ -180,9 +190,13 @@ possible.** Concretely:
    over a resumable per-operation SSE stream mirroring the existing AI-turn pattern
    (snapshot + `afterSequence` resume) so a client that reconnects recovers current
    state and never loses a final status. `tools/dashboard/server/actions.mjs` moves from
-   blocking `execFileSync` to `spawn` so step events can stream as they happen; a
-   `spawn`-based child process also makes cancellation (`POST /operations/:id/cancel`)
-   cheap to implement now rather than deferring the model.
+   blocking `execFileSync` to `spawn` so step events can stream as they happen.
+   Cancellation is explicitly out of scope for this change (owner correction,
+   2026-08-15): a CLI command's own child processes — e.g. `dotnet test` under
+   `handleSelfCheck` — are not guaranteed to terminate just because the top-level
+   `spawn`ed process is killed, so this is not the "cheap because we moved to spawn"
+   win it first looked like. The contract (`operationId`, `Operation`/`Step` shape)
+   stays generic enough to add real cancellation later without a breaking change.
 
 ## Compatibility and migration
 
@@ -216,6 +230,9 @@ final JSON result line consumed by `actions.mjs` today.
 - Opening a file whose diff has not loaded yet jumps ahead of background hydration.
 - Re-opening the same PR at the same `headSha` serves diffs from cache, no refetch.
 - A new `headSha` invalidates exactly that PR's diff cache, not other PRs'.
+- A new push to an open PR (a `headSha` change with no local `specs/` file change)
+  eventually reaches the frontend via focus-refetch/explicit refresh — not by relying
+  on the `specs-changed` SSE watcher, which cannot observe it.
 - Hidden generated files are not preloaded by background hydration.
 - Opening one markdown document does not fetch the rest of the spec's documents.
 - Heavy PR/diff/markdown payloads are not refetched on a fixed timer.

@@ -66,9 +66,24 @@ grouping/filtering (`changes-grouping-and-filtering.md`).
   invalidating the whole content query; task-status polling stays interval-driven
   regardless (it's cheap by design, not worth the added complexity of event-driven
   invalidation for a payload this small).
-- Once a document/PR-list query moves to event-driven invalidation, remove its
-  `refetchInterval` — polling and SSE invalidation must not both apply to the same heavy
-  query.
+- Once the **document/content** query moves to event-driven invalidation, remove its
+  `refetchInterval` — the `specs-changed` SSE watcher genuinely observes
+  `specs/active/**`/`specs/archive/**` file changes, so this is a real trigger, and
+  polling plus SSE invalidation must not both apply to the same heavy content query.
+- **The PR-list query is a different case (owner correction, 2026-08-15): it must not
+  rely on `specs-changed` SSE as its refresh mechanism.** A `git push` to an open PR
+  changes GitHub's `headSha` without touching any file under `specs/active/`/
+  `specs/archive/` — `specs-changed` has no way to observe it, so removing PR-list's
+  poll and relying only on SSE (as the earlier draft of this area did) would mean a new
+  push is never noticed until a manual page reload. Requirement: PR-list metadata uses
+  initial fetch + refetch-on-window-focus + an explicit user-triggered refresh action,
+  plus an optional slow safety-refresh interval (well above the old 30s — minutes, not
+  seconds) as a backstop; this is not the same "polling on a fixed short timer" this
+  change removes elsewhere, and it stays independent of `specs-changed`. This is about
+  the **lightweight PR-list metadata only** — files/diffs (task 02) are still never
+  polled on any timer; a new `headSha` reaching the frontend through this mechanism is
+  what naturally invalidates task 02's `(headSha, path)` diff cache for the new version,
+  since the cache key changes.
 - `/api/dashboard`'s own 30s `refetchInterval` moves to SSE-driven invalidation
   (`specs-changed`) plus an initial fetch, with a much longer safety-refresh interval
   (minutes, not seconds) as a backstop — this is the same fix already applied to
@@ -96,8 +111,11 @@ grouping/filtering (`changes-grouping-and-filtering.md`).
 - The PR-list route's response contains no `patch` or `fullDiff` field for any file.
 - Requesting one task document does not read `overview.md` or any `areas/*.md` file
   from disk (verifiable via a spy/mock on the fs read function in a server test).
-- The content and PR-list queries have no `refetchInterval` once event-driven
-  invalidation is wired; task-status polling interval is a few seconds.
+- The content query has no `refetchInterval` once event-driven invalidation is wired.
+- The PR-list query refreshes on window focus and on explicit user request, and does
+  not rely on `specs-changed` SSE to notice a new `headSha`; any fixed-interval safety
+  refresh it keeps is well above the old 30s. Task-status polling interval stays a few
+  seconds.
 - A file change under one task's markdown invalidates only that task's cached document
   client-side (not the whole spec content cache), verifiable by asserting which query
   keys `invalidateQueries` is called with in a hook/unit test.

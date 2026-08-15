@@ -24,6 +24,7 @@ forbidden_paths:
   - tools/specs.mjs
   - tools/dashboard/src/components/**
 semantic_references:
+  decisions: [D4, D6]
   constraints: [C1]
 ---
 
@@ -33,8 +34,10 @@ semantic_references:
 
 Define the shared `Operation`/`Steps` contract, move `actions.mjs` from blocking
 `execFileSync` to `spawn`, add a step-emission helper for CLI commands to call, and
-expose a per-operation snapshot + resumable SSE + cancel transport mirroring the
-existing `getTurn`/`subscribeToTurn`/cancel pattern in `ai-routes.mjs`.
+expose a per-operation snapshot + resumable SSE transport mirroring the existing
+`getTurn`/`subscribeToTurn` pattern in `ai-routes.mjs`. Cancellation is explicitly out
+of scope for this task/change (owner correction, 2026-08-15) — see Implementation
+constraints.
 
 ## Implementation constraints
 
@@ -57,16 +60,28 @@ existing `getTurn`/`subscribeToTurn`/cancel pattern in `ai-routes.mjs`.
   (an "accepted, in progress" response — exact HTTP status code is an implementation
   detail) — never blocks until the action finishes. Today's `executeSpecificationAction`
   blocks synchronously; this task changes that entry point specifically.
-- `GET /api/specs/active/:slug/actions` (`loadSpecificationActions`, gate-probe reads
-  used only to compute button-enabled state) stays a plain, synchronous, read-only
-  request — no `operationId`, no steps, no SSE. Only a POST that actually starts an
-  action becomes an `Operation`.
+- `GET /api/specs/active/:slug/actions` (`loadSpecificationActions`) stays a plain,
+  synchronous, read-only request — no `operationId`, no steps, no SSE, for both the
+  task-level (`verify`/`approve`) and `finalize` gate probes. The task-level probe is
+  unchanged (genuinely cheap). The `finalize` probe changes: it must stop calling
+  `finalize --check` (which can run spec/docs validation, index checks, PR/review-state
+  checks, and `dotnet build`/`dotnet test`) on every poll — replace it with lightweight,
+  already-cheaply-available facts (task-completion status, branch/PR existence via the
+  existing `worktreeLoader`/`branchLoader`), not a computed enabled/disabled-with-reason
+  verdict. The authoritative `finalize` gate check moves into the `finalize` operation's
+  own steps (task 05) — only a POST that actually starts an action becomes an
+  `Operation`.
 - Snapshot route (current known state) + resumable SSE route (`afterSequence`/
   `lastEventId`-style resume) keyed by `operationId`, mirroring `getTurn`/
   `subscribeToTurn` (`ai-routes.mjs:190-224`) — do not overload the global
   `specs-changed` hub in `watcher.mjs` for this.
-- `POST /operations/:id/cancel` kills the underlying child process; the operation's
-  final state reflects cancellation distinctly from success/failure.
+- Do **not** implement `POST /operations/:id/cancel` or any cancellation behavior — a
+  CLI command's own child processes (e.g. `dotnet test` under `handleSelfCheck`) are
+  not guaranteed to terminate just because the top-level `spawn`ed process is killed,
+  so this is not a safe "cheap because we moved to spawn" addition. Keep `operationId`
+  as a stable handle and the `Operation`/`Step` shape generic enough that a later change
+  can add real cancellation (with correct process-tree handling) without a breaking
+  contract change.
 - No event-sourcing system beyond the snapshot+resumable-SSE shape already proven for
   AI turns.
 
@@ -79,12 +94,13 @@ existing `getTurn`/`subscribeToTurn`/cancel pattern in `ai-routes.mjs`.
 2. `GET /api/specs/active/:slug/actions` never returns or requires an `operationId` and
    never opens an SSE stream — it stays a plain synchronous read.
    `automated: npm --prefix tools/dashboard test`
-3. Reconnecting mid-operation with a known `operationId` returns current step state, not
+3. `GET /api/specs/active/:slug/actions` never invokes `finalize --check` (or anything
+   that runs `dotnet build`/`dotnet test`/spec/docs validation) to compute finalize's
+   button state. `automated: npm --prefix tools/dashboard test`
+4. Reconnecting mid-operation with a known `operationId` returns current step state, not
    an empty/reset state. `automated: npm --prefix tools/dashboard test`
-4. An operation that completes with no client connected still reports its final status
+5. An operation that completes with no client connected still reports its final status
    to a client connecting afterward. `automated: npm --prefix tools/dashboard test`
-5. Cancelling an operation terminates its child process and the operation's status
-   reflects cancellation. `automated: npm --prefix tools/dashboard test`
 6. No dashboard-side code infers a step transition from elapsed time or raw stdout
    heuristics — every transition traces to an emitted event.
    `inspection: confirm the SSE/snapshot layer only reacts to parsed step-event markers`
@@ -94,6 +110,8 @@ existing `getTurn`/`subscribeToTurn`/cancel pattern in `ai-routes.mjs`.
 8. Existing `execFileSync`-based behavior for actions not yet instrumented (before tasks
    05/06 land) still completes successfully via the new `spawn`-based runner.
    `automated: npm --prefix tools/dashboard test`
+9. No `POST /operations/:id/cancel` route (or any cancellation endpoint) exists.
+   `inspection: confirm no cancel route is registered`
 
 ## Verification
 

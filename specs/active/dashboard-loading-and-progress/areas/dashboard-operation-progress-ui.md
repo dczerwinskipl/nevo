@@ -33,8 +33,9 @@ wired operation kind.
 - On reconnect (page refresh, brief network drop) while an operation is active, the UI
   recovers and continues showing current progress rather than resetting to
   "not started"/showing nothing.
-- Where cancellation is available (per `operation-progress-contract.md`), the UI exposes
-  a way to trigger it and reflects the cancelled state distinctly from success/failure.
+- Cancellation is out of scope for this change (per `operation-progress-contract.md`,
+  owner correction 2026-08-15) — no cancel control is added; nothing here should assume
+  one exists.
 
 ## Constraints
 
@@ -47,7 +48,7 @@ wired operation kind.
 
 ## Interfaces and boundaries
 
-- Consumes: the snapshot/SSE/cancel routes and event shapes from
+- Consumes: the snapshot/SSE routes and event shapes (no cancel route) from
   `operation-progress-contract.md`.
 - Exposes: the rendered progress view, integrated into `spec-actions.tsx`/
   `spec-detail.tsx` wherever a gate/verify/acceptance/test/audit action is triggered.

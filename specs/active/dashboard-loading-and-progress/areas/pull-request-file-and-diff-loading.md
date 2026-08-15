@@ -35,7 +35,12 @@ depends on GitHub's raw response shape.
 - Diff cache identity is `(provider, repository, pullRequestNumber, headSha, path)`.
   Re-opening the same PR at the same `headSha` must not refetch already-cached diffs. A
   new `headSha` naturally creates a new cache entry (old entries may be evicted/left to
-  expire — no requirement to explicitly purge them in this change).
+  expire — no requirement to explicitly purge them in this change). This cache's
+  correctness depends on the frontend actually learning about a new `headSha` in the
+  first place — that discovery happens through the PR-list metadata refresh mechanism
+  in `dashboard-data-loading-contracts.md` (focus-refetch/explicit refresh, not
+  `specs-changed` SSE, per that area's owner correction), not through anything in this
+  area.
 - Frontend background hydration fetches diffs in batches without blocking user
   interaction; priority order: (1) the file the user just expanded, (2) currently
   visible/active group, (3) the PR's first N files, (4) remaining background batches. A

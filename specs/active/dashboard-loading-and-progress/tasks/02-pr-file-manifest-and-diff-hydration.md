@@ -27,7 +27,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/specs.mjs
 semantic_references:
-  decisions: [D3]
+  decisions: [D3, D5]
   constraints: [C2]
   dependency_contracts: [dashboard-data-loading-contracts]
 ---

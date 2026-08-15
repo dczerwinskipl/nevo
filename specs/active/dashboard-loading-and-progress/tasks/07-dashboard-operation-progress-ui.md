@@ -20,7 +20,7 @@ forbidden_paths:
   - tools/dashboard/server/**
   - tools/specs.mjs
 semantic_references:
-  decisions: [D2]
+  decisions: [D2, D6]
   dependency_contracts: [operation-progress-contract-and-transport, cli-step-instrumentation-gate-and-verification]
 ---
 
@@ -49,8 +49,8 @@ exist in order to be provable.
   overall operation's failure are both visible and distinguishable.
 - On reconnect (refresh, brief network drop) during an active operation, the UI
   recovers current progress via the snapshot route rather than resetting.
-- Where cancellation exists, expose it and render the cancelled state distinctly from
-  success/failure.
+- Cancellation is out of scope for this change (owner correction, 2026-08-15) — do not
+  add a cancel control or assume one exists.
 - Degrade sensibly (e.g. a single implicit step) for any operation type that ever
   reports zero explicit steps, rather than crashing.
 - `stage-progress.tsx`'s existing static per-stage task-count bars stay as they are —
