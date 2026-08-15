@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-14T22:54:37.134Z",
+  "generated": "2026-08-15T06:26:17.362Z",
   "changes": [
     {
       "id": "event-sourcing-api-hardening",
@@ -570,14 +570,37 @@
             "query-either-ergonomics-cleanup"
           ],
           "implementation": {
-            "baseline_revision": "aa381dfcaeba4fc249d7500c08964a3a937ea994"
+            "baseline_revision": "aa381dfcaeba4fc249d7500c08964a3a937ea994",
+            "review_revision": "836d0f57f852704f3a3a9c77c94d8d2e9b8cfc0c",
+            "changed_paths": [
+              "docs/usage/README.md",
+              "docs/usage/event-sourcing.md",
+              "docs/usage/example-app-walkthrough.md",
+              "docs/usage/queries.md"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "8c2bf84518cc8de9eb52d5052f3a3c3e4d40786e834e6c39f37298118ea1a104",
+            "revision": "836d0f57f852704f3a3a9c77c94d8d2e9b8cfc0c",
+            "commands": [
+              {
+                "command": "node tools/docs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {
           "id": "internal-event-sourcing-architecture-docs",
           "order": 12,
           "file": "tasks/12-internal-event-sourcing-architecture-docs.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "harden-event-store-and-repository-contracts",
             "es-command-executor-and-ambiguity-resolution",
@@ -594,17 +617,17 @@
           ],
           "implementation": {
             "baseline_revision": "aa381dfcaeba4fc249d7500c08964a3a937ea994",
-            "review_revision": "9b118af310d123d5dfd5bc17644f5c25c9a20072",
+            "review_revision": "836d0f57f852704f3a3a9c77c94d8d2e9b8cfc0c",
             "changed_paths": [
               "docs/development/event-sourcing.md",
               "docs/development/messaging-pipeline.md",
               "docs/reference/packages/NEvo.Ddd.EventSourcing.md"
             ],
-            "worktree_patch_fingerprint": "260d0219f0ebe3e5693b6c87e314b1dba4917df1371b7e84a3f5887a803941c5"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
-            "fingerprint": "c3c20f75d9eda607d061d46518c3a0ecf4ea786f76fae97c2efdccb4d14343d9",
-            "revision": "9b118af310d123d5dfd5bc17644f5c25c9a20072",
+            "fingerprint": "81e101a079168983ae39d721049506b43b8af7065a10e0552bff354d13f3444f",
+            "revision": "836d0f57f852704f3a3a9c77c94d8d2e9b8cfc0c",
             "commands": [
               {
                 "command": "node tools/docs.mjs validate",
