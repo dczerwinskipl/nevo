@@ -14,7 +14,7 @@ unresolved_needs_clarification: 0
 No reliable previous-file baseline is available. Performing a fresh review of the
 current task implementation.
 
-- [x] Acceptance criteria: 11/11
+- [x] Acceptance criteria: 12/12
 - [x] Scope: compliant
 - [x] Findings: none unresolved
 

@@ -60,8 +60,8 @@ is not yet the right tool; a real provider is future specification work.
   `AggregateEvolver`, `IEvolverRegistry`), including per-invocation decision-method
   parameter injection (`Deciding/IDecisionMethodParameterResolver.cs`).
 - Coordinate the shared load → authorize → decide → append → publish lifecycle
-  (`Executing/EventSourcedCommandExecutor.cs`) for both command-handling levels.
-- Adapt both command-handling levels into `NEvo.Messaging`'s `IMessageHandler` pipeline
+  (`Executing/EventSourcedCommandExecutor.cs`) for both command-handling approaches.
+- Adapt both command-handling approaches into `NEvo.Messaging`'s `IMessageHandler` pipeline
   (`Handling/`): the aggregate-method convention (`DeciderCommandHandler`,
   `DeciderCommandHandlerAdapter`, `DeciderCommandHandlerProvider`, registered
   `HandlerRole.Fallback`) and the explicit `IEventSourcedCommandHandler<TCommand,
