@@ -10,14 +10,6 @@ unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 5a0611d3a6de1c668e11bd5e4f04b311bb07c237d440973eeb8c6f7fad67faca
 task_fingerprints:
-  stable-spec-identity-and-backfill: 9912b8c68a5d95f116ec0864b9e8816450f0fb533c2b6da04f50c8f5117cb6b9
-  provider-neutral-ai-contracts: 8ec687996deb64a8a2318ca8b572bc2d8100ee383f37f3cc721444e7a8979b38
-  interactive-turn-runtime: 9d3bb24eb0df551d415e4189e95d4e14e24c00799f2cfc70d85663586cb5d0a2
-  mock-ai-adapter-and-demo-data: c0831865787e7623adad2e400f9c78148c50497ef95c9b96276b81640f7440a4
-  ai-session-http-and-sse-api: 70ec2fd2ad8de56ed4f1f91362ba6d2f7303316c0bf3ae92cb2213013e0c672e
-  session-navigation-and-context-surfaces: 6a6fbc9a219d52cbbada10576edb48b07ea27f0c1be7d721e29a616d53e8604c
-  fullscreen-chat-and-session-creation: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
-  part1-integration-verification-and-docs: efdfa22ae93ea9ce6f67afc529c761fdf583a2b32b9b7d96538890463199c5a6
   claude-readiness-discovery: 7d32b42d8d950e47e9c2b3574f67b3c288fcc528e716117ed4603b3991b3d050
   local-ai-registry-and-manual-attach: 862b5f2b4dda2e1f526d47db0fedc84dde54650e0d0bc3576260bd55d8caa320
   ai-session-context-cli-preflight: a0e5e478b9ab08a056791b10aab6e6c13a9a016a9c96fe3af65777baa50ffff3
@@ -26,39 +18,46 @@ task_fingerprints:
   claude-live-chat-e2e-and-docs: a6af6bccc31fece27523121b50734b7be59884dab7f7e46a7950c0dd46d958ab
 ---
 
-Re-review (2026-08-15, `--all`). Baseline: this file's prior content (`ready-for-approval`,
-spec_fingerprint `90a8939d...`). The prior review predates the owner's PR #25 review
-(commit e6496d5) of the specification itself. Re-read `overview.md`, all five `areas/`
-files, all 14 `tasks/`, and `owner-decisions.md` fresh for this run.
+Re-review (2026-08-15, `--tasks 9-14`, matching `overview.md`'s own "Part 2 review
+boundary" instruction to run this review over orders `09-14`). Baseline: this file's
+prior content (`ready-for-approval`, spec_fingerprint `5a0611d3a6de1c668e11bd5e4f04b311bb07c237d440973eeb8c6f7fad67faca`,
+that prior run's own `--all` pass over the whole spec).
 
-Applied since the prior review (owner-driven, recorded as D10-D13): C20 (at most one
-non-terminal turn per session, plus an optional start-turn idempotency key), C9 extended
-(question correlation by stable `id`, never by prose; permission `input` is
-adapter-normalized/bounded/sanitized, never a raw provider payload), and C2 tightened
-(`validate`/`check` requires `spec_id` once backfill has run — implemented directly in
-`tools/specs/validation.mjs`, since task 01 was already complete when this was raised).
+Since the baseline was written, all of Part 1 (tasks 01-08) transitioned
+draft → approved → in-implementation → implemented → verified and its PR (#25, #26)
+merged into `main` (task 01's rename of the working branch to
+`feature/impl-pt1/ai-sessions-live-chat-integration` is reflected in `change.yaml`).
+None of that touches this run's scope. Separately, `change.yaml`'s `branch.prefix` was
+updated `feature/impl-pt1` → `feature/impl-pt2` ahead of this review, to give the
+Part 2 delivery (tasks 09-14) its own branch under the same per-change convention
+Part 1 already used — this is branch metadata only, excluded from `computeChangeFingerprint`
+by construction (confirmed: the freshly-computed `spec_fingerprint` above is byte-identical
+to the prior run's), so it does not itself invalidate any task's review baseline.
 
-Semantic-reference completeness (D26/D29) surfaced two gaps while re-reading the affected
-tasks, both closed before writing this report (`AUTO_FIX`, applied — task-review's
-"the agent may make this fix without further deliberation" standard, same as any other
-`AUTO_FIX`):
+Re-read `overview.md`, `owner-decisions.md`, `areas/claude-integration.md`, and
+`areas/local-session-registration.md` fresh for context (the areas the resolved scope's
+tasks depend on). Read tasks 09-14 in full, fresh, for review. Every task's freshly
+computed fingerprint (`node tools/specs.mjs fingerprint ai-sessions-live-chat-integration
+--task <id>`) is byte-identical to the value recorded in the prior review — task content
+in scope is unchanged since that full pass, which already ran semantic-reference
+completeness over these same tasks and applied its two `AUTO_FIX`es (both still present
+in the current task 01/03/04/05 content). A fresh semantic-reference completeness pass
+over tasks 09-14 this run finds nothing missing, stale, or unnecessary in any task's
+declared `semantic_references` against its own goal/constraints/acceptance criteria.
 
-- Tasks 01/03/05 implement D13/D10 directly in their own acceptance criteria and
-  implementation constraints but didn't list them in `semantic_references.decisions`
-  (only the corresponding constraint was listed) — added, matching this document's own
-  existing decision-plus-constraint pairing convention (e.g. task 03's pre-existing
-  `D4, D5` alongside `C9-C12`).
-- Point 3 of the owner's review (permission `input` normalization, folded into C9) had no
-  task-level acceptance criterion anywhere — no task actually tested that an adapter
-  produces a bounded/sanitized `input` rather than a raw passthrough. Added task 04
-  (`mock-ai-adapter-and-demo-data`) AC6 and a matching implementation constraint, since
-  `MockAiAdapter` is the concrete adapter that must prove this is achievable; referenced
-  D12 in its `semantic_references.decisions`.
+Scoped-verdict guard (D34/D35, task 17): the resolved scope is 09-14, so there is no
+out-of-scope task from order 12 onward to check — the guard is trivially satisfied, not
+skipped.
 
-No other blocking issues, ambiguity, architecture conflict, task-decomposition problem, or
-documentation/ADR gap found. `node tools/specs.mjs validate` and `node tools/docs.mjs
-validate` (gating) both pass. `node tools/specs.mjs check` and `node tools/docs.mjs check`
-(non-gating, repository-wide) both pass — indexes were regenerated as part of this run.
+`node tools/specs.mjs validate` and `node tools/docs.mjs validate` (gating) both pass.
+`node tools/specs.mjs check` (non-gating) passes. `node tools/docs.mjs check`
+(non-gating) reports `stale: docs/index.generated.md` — verified pre-existing on `main`
+before this run's `change.yaml` edit (reproduced on a clean stash of that edit) and
+unrelated to this change or this review's scope; informational only, does not affect the
+verdict.
+
+No blocking issue, ambiguity, architecture conflict, task-decomposition problem, or
+documentation/ADR gap found in the resolved scope.
 
 # Review: ai-sessions-live-chat-integration
 
@@ -69,9 +68,10 @@ validate` (gating) both pass. `node tools/specs.mjs check` and `node tools/docs.
 
 ## Implementation readiness
 
-- May implementation start now? Yes.
-- Are the relevant tasks `approved` in `change.yaml`? No — every task is currently
-  `draft` except `stable-spec-identity-and-backfill`, which is `implemented`.
-- What has to happen first? Nothing — ready. Approve the desired Part 1 task(s)
-  (`provider-neutral-ai-contracts` through `part1-integration-verification-and-docs`)
-  to unlock implementation.
+- May implementation start now? Yes, for the task(s) approved next.
+- Are the relevant tasks `approved` in `change.yaml`? No — `claude-readiness-discovery`
+  through `claude-live-chat-e2e-and-docs` (orders 09-14) are all `draft`.
+- What has to happen first? Nothing blocking — ready. Per `depends_on`, only
+  `claude-readiness-discovery` (order 9) can be approved and started now; every other
+  Part 2 task depends on it (directly or transitively) and stays `draft` until it
+  completes.
