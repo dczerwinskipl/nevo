@@ -12,6 +12,7 @@ summary: >
   local specification dashboard.
 related:
   - development.testing
+  - development.ai-sessions
 ---
 
 # Local setup
@@ -102,6 +103,20 @@ The reproducible browser assets are generated under `tools/dashboard/dist/` and 
 ignored by Git. That directory, together with `tools/dashboard/server/`, is the future
 packaging seam for distributing the dashboard with a combined NEvo CLI; no publishing
 or installer is part of the current local-only scope.
+
+### Mock AI sessions
+
+The dashboard includes provider-neutral AI session screens backed by a deterministic,
+in-process mock provider. No Claude installation, provider credentials, or local AI
+configuration is required. Open an active specification and choose **AI sessions** to
+list seeded sessions, create a session, stream a message, and exercise permission and
+question pauses. See [Local AI sessions](ai-sessions.md) for trigger messages, lifecycle
+limitations, API direction, and the complete verification commands.
+
+AI session access currently trusts the bound network. Loopback or the operator's VPN
+is the trust boundary; the dashboard does not authenticate individual identities.
+Binding to a VPN address therefore grants every trusted network member session read
+and control access. Startup and API responses report this trusted-network mode.
 
 ### Owner workflow actions
 

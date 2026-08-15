@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-15T09:11:10.197Z_
+_Generated: 2026-08-15T10:28:21.589Z_
 
 ## Hub
 
@@ -58,6 +58,7 @@ _Generated: 2026-08-15T09:11:10.197Z_
 
 | ID | Title | Status | Scopes |
 |---|---|---|---|
+| `development.ai-sessions` | [Local AI sessions](development/ai-sessions.md) | current |  |
 | `development.architecture-overview` | [NEvo architecture overview](development/architecture-overview.md) | current |  |
 | `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current |  |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current |  |
@@ -89,6 +90,7 @@ _Generated: 2026-08-15T09:11:10.197Z_
 | `adr.0004-review-artifacts-and-handoff` | [Persist review output as an artifact with actor-classified findings and a fixed closing shape](decisions/ADR-0004-review-artifacts-and-handoff.md) | accepted |  |
 | `adr.0005-deterministic-approval-and-hardened-guard` | [Make task approval deterministic and CLI-enforced; replace the Bash guard's regex allowlist with an explicit, whitelist-only validator](decisions/ADR-0005-deterministic-approval-and-hardened-guard.md) | accepted |  |
 | `adr.0006-process-continuity-and-hardening` | [Process continuity and hardening — suspension-based recovery, derived batch state, tiered fingerprints, and verify-before-destructive-cleanup finalization](decisions/ADR-0006-process-continuity-and-hardening.md) | accepted |  |
+| `adr.0007-provider-neutral-ai-sessions` | [Use provider-neutral local AI sessions in the specification dashboard](decisions/ADR-0007-provider-neutral-ai-sessions.md) | accepted |  |
 
 ## Ai
 
