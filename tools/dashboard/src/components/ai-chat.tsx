@@ -97,7 +97,7 @@ function QuestionPrompt({ interaction, disabled, onResolve }: { interaction: AiQ
                 }); }} />
                 <span><span className="font-semibold text-[var(--foreground)]">{option.label}</span>{option.description && <span className="mt-1 block text-[10px] leading-4 text-[var(--muted)]">{option.description}</span>}</span>
               </label>;
-            })}<label className={cn('rounded-lg border p-3 text-xs sm:col-span-2', customAnswers[question.id] ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]' : 'border-[var(--border)]')}><span className="font-semibold text-[var(--foreground)]">Inna odpowiedź</span><input className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs outline-none focus:border-[var(--accent)]" placeholder="Wpisz własną odpowiedź…" value={customAnswers[question.id] || ''} onChange={event => { const value = event.target.value; setCustomAnswers(previous => ({ ...previous, [question.id]: value })); setAnswers(previous => ({ ...previous, [question.id]: question.multiSelect ? (value.trim() ? [value] : []) : value })); }} /></label></div> : <input className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)]" value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
+            })}<label className={cn('rounded-lg border p-3 text-xs sm:col-span-2', customAnswers[question.id] ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]' : 'border-[var(--border)]')}><span className="font-semibold text-[var(--foreground)]">Inna odpowiedź</span><input className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)] sm:text-xs" placeholder="Wpisz własną odpowiedź…" value={customAnswers[question.id] || ''} onChange={event => { const value = event.target.value; setCustomAnswers(previous => ({ ...previous, [question.id]: value })); setAnswers(previous => ({ ...previous, [question.id]: question.multiSelect ? (value.trim() ? [value] : []) : value })); }} /></label></div> : <input className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-base outline-none focus:border-[var(--accent)] sm:text-sm" value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
           </fieldset>
         ))}
       </div>
@@ -110,6 +110,57 @@ function applySnapshot(snapshot: AiTurnSnapshot, processEvent: (event: AiTurnEve
   snapshot.events.forEach(processEvent);
   setPending(snapshot.pendingInteraction);
   setTurnStatus(snapshot.status);
+}
+
+function useChatVisualViewport() {
+  const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({
+    height: null,
+    offsetTop: 0,
+    keyboardOpen: false,
+  });
+  const baselineHeight = useRef(0);
+
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = Math.round(visualViewport?.height ?? window.innerHeight);
+        const offsetTop = Math.max(0, Math.round(visualViewport?.offsetTop ?? 0));
+        baselineHeight.current = Math.max(baselineHeight.current, height);
+        const active = document.activeElement;
+        const textEntryFocused = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement;
+        const keyboardOpen = textEntryFocused && height < baselineHeight.current - 80;
+        setViewport(previous => previous.height === height && previous.offsetTop === offsetTop && previous.keyboardOpen === keyboardOpen
+          ? previous
+          : { height, offsetTop, keyboardOpen });
+      });
+    };
+    const resetBaseline = () => {
+      baselineHeight.current = 0;
+      measure();
+    };
+
+    measure();
+    visualViewport?.addEventListener('resize', measure);
+    visualViewport?.addEventListener('scroll', measure);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', resetBaseline);
+    document.addEventListener('focusin', measure);
+    document.addEventListener('focusout', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      visualViewport?.removeEventListener('resize', measure);
+      visualViewport?.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', resetBaseline);
+      document.removeEventListener('focusin', measure);
+      document.removeEventListener('focusout', measure);
+    };
+  }, []);
+
+  return viewport;
 }
 
 export function AiChatPage({
@@ -153,6 +204,7 @@ export function AiChatPage({
   const processedEvents = useRef(new Set<number>());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
+  const chatViewport = useChatVisualViewport();
 
   const change = changes.find(item => item.specId === sessionQuery.data?.specId) ?? null;
   const linkedTasks = sessionQuery.data?.taskIds.map(taskId => change?.tasks.find(task => task.id === taskId)?.title || taskId) ?? [];
@@ -221,6 +273,11 @@ export function AiChatPage({
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
   }, [liveDeltas, messagesQuery.messages.length, pending]);
 
+  useEffect(() => {
+    if (!chatViewport.keyboardOpen) return;
+    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
+  }, [chatViewport.height, chatViewport.keyboardOpen]);
+
   const submitMessage = useCallback(async (message: string) => {
     const text = message.trim();
     if (!text || live || startTurn.starting || sessionQuery.data?.status === 'completed' || sessionQuery.data?.capabilities.startTurn === false) return;
@@ -264,6 +321,8 @@ export function AiChatPage({
   ];
 
   const session = sessionQuery.data;
+  const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
+  const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const header = (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
       <div className="mx-auto max-w-6xl">
@@ -284,11 +343,11 @@ export function AiChatPage({
     </header>
   );
 
-  if (sessionQuery.loading || messagesQuery.loading) return <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">{header}<div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />Wczytywanie rozmowy…</div></div>;
-  if (sessionQuery.error || messagesQuery.error || !session) return <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">{header}<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"><AlertTriangle className="size-7 text-red-300" /><h1 className="mt-4 text-lg font-semibold">Nie udało się otworzyć sesji</h1><p className="mt-2 text-sm text-[var(--muted)]">{sessionQuery.error || messagesQuery.error}</p></div></div>;
+  if (sessionQuery.loading || messagesQuery.loading) return <div className={shellClassName} style={shellStyle}>{header}<div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />Wczytywanie rozmowy…</div></div>;
+  if (sessionQuery.error || messagesQuery.error || !session) return <div className={shellClassName} style={shellStyle}>{header}<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"><AlertTriangle className="size-7 text-red-300" /><h1 className="mt-4 text-lg font-semibold">Nie udało się otworzyć sesji</h1><p className="mt-2 text-sm text-[var(--muted)]">{sessionQuery.error || messagesQuery.error}</p></div></div>;
 
   return (
-    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[var(--background)]">
+    <div className={shellClassName} style={shellStyle}>
       {header}
 
       <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
@@ -304,9 +363,9 @@ export function AiChatPage({
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
+      <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
         <form className="mx-auto flex max-w-4xl items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
-          <label className="min-w-0 flex-1"><span className="sr-only">Wiadomość</span><textarea rows={1} value={composer} onChange={event => setComposer(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(composer); } }} disabled={session.status === 'completed' || !session.capabilities.startTurn} placeholder={session.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : live ? 'Turn trwa — możesz przygotować kolejną wiadomość' : 'Napisz wiadomość…'} className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60" /></label>
+          <label className="min-w-0 flex-1"><span className="sr-only">Wiadomość</span><textarea rows={1} value={composer} onChange={event => setComposer(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(composer); } }} disabled={session.status === 'completed' || !session.capabilities.startTurn} placeholder={session.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : live ? 'Turn trwa — możesz przygotować kolejną wiadomość' : 'Napisz wiadomość…'} className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm" /></label>
           <Button size="icon" className="size-11 shrink-0" type="submit" disabled={!composer.trim() || live || startTurn.starting || session.status === 'completed' || !session.capabilities.startTurn} aria-label="Wyślij wiadomość">{startTurn.starting ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</Button>
         </form>
       </footer>
