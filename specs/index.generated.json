@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-15T11:33:22.946Z",
+  "generated": "2026-08-15T11:58:52.885Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -234,7 +234,7 @@
           ],
           "implementation": {
             "baseline_revision": "7aee615cbea05751ed8c277837a78258ebe9af03",
-            "review_revision": "4aa626a8b1ffb844e2dd4701b4106a8c8a5c6fb8",
+            "review_revision": "47d62ce961806e78aebeae777b2f06401c49b7ae",
             "changed_paths": [
               "tools/dashboard/src/App.tsx",
               "tools/dashboard/src/components/ai-chat.tsx",
@@ -243,11 +243,11 @@
               "tools/dashboard/src/lib/ai-chat-helpers.ts",
               "tools/dashboard/src/lib/types.ts"
             ],
-            "worktree_patch_fingerprint": "f1e5466f787e2aac285e5806371cd4b3d754a485245f90b0f60dbd5010f9d519"
+            "worktree_patch_fingerprint": "beb9306f543deef83837ecda0c41bd23767605277c22b0c37fbd8e90186e6ca9"
           },
           "self_check": {
             "fingerprint": "4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828",
-            "revision": "4aa626a8b1ffb844e2dd4701b4106a8c8a5c6fb8",
+            "revision": "47d62ce961806e78aebeae777b2f06401c49b7ae",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

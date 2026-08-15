@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  composeChatMessages,
   createTurnIdempotencyKey,
   initialPromptWithTaskContext,
 } from '../src/lib/ai-chat-helpers.ts';
@@ -23,4 +24,19 @@ test('selected stable task IDs are prepended to the initial prompt', () => {
     'Context: tasks task-a, task-b\n\nReview these tasks.');
   assert.equal(initialPromptWithTaskContext(' General review. ', []), 'General review.');
   assert.equal(initialPromptWithTaskContext('   ', ['task-a']), null);
+});
+
+test('persisted assistant messages replace their streamed version by stable message ID', () => {
+  assert.deepEqual(composeChatMessages(
+    [{ id: 'assistant-1', role: 'assistant', text: 'Complete response.' }],
+    'Pending question',
+    {
+      'assistant-1': 'Complete response',
+      'assistant-2': 'Still streaming',
+    },
+  ), [
+    { id: 'assistant-1', role: 'assistant', text: 'Complete response.' },
+    { id: 'optimistic-user', role: 'user', text: 'Pending question' },
+    { id: 'assistant-2', role: 'assistant', text: 'Still streaming' },
+  ]);
 });

@@ -3,6 +3,12 @@ interface BrowserCrypto {
   getRandomValues?: (values: Uint32Array) => Uint32Array;
 }
 
+export interface DisplayChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+}
+
 export function createTurnIdempotencyKey({
   cryptoSource = globalThis.crypto as BrowserCrypto | undefined,
   now = Date.now,
@@ -29,4 +35,19 @@ export function initialPromptWithTaskContext(message: string, taskIds: string[])
   if (!request) return null;
   if (!taskIds.length) return request;
   return `Context: tasks ${taskIds.join(', ')}\n\n${request}`;
+}
+
+export function composeChatMessages(
+  persisted: DisplayChatMessage[],
+  optimisticUser: string | null,
+  liveDeltas: Readonly<Record<string, string>>,
+) {
+  const persistedIds = new Set(persisted.map(message => message.id));
+  return [
+    ...persisted,
+    ...(optimisticUser ? [{ id: 'optimistic-user', role: 'user' as const, text: optimisticUser }] : []),
+    ...Object.entries(liveDeltas)
+      .filter(([id]) => !persistedIds.has(id))
+      .map(([id, text]) => ({ id, role: 'assistant' as const, text })),
+  ];
 }

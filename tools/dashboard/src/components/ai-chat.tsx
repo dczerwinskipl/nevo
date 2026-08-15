@@ -28,7 +28,7 @@ import {
   useResolveAiInteraction,
   useStartAiTurn,
 } from '@/hooks/use-dashboard-data';
-import { createTurnIdempotencyKey, initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { composeChatMessages, createTurnIdempotencyKey, initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type {
   AiInteraction,
   AiMessage,
@@ -314,11 +314,11 @@ export function AiChatPage({
     applySnapshot(snapshot, processEvent, setPending, setTurnStatus);
   };
 
-  const displayMessages: Array<Pick<AiMessage, 'id' | 'role' | 'text'>> = [
-    ...messagesQuery.messages,
-    ...(optimisticUser ? [{ id: 'optimistic-user', role: 'user' as const, text: optimisticUser }] : []),
-    ...Object.entries(liveDeltas).map(([id, text]) => ({ id, role: 'assistant' as const, text })),
-  ];
+  const displayMessages: Array<Pick<AiMessage, 'id' | 'role' | 'text'>> = composeChatMessages(
+    messagesQuery.messages,
+    optimisticUser,
+    liveDeltas,
+  );
 
   const session = sessionQuery.data;
   const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
