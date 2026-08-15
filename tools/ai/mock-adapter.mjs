@@ -120,7 +120,11 @@ export class MockAiAdapter {
     const session = this.#sessions.get(sessionId);
     if (!session || session.status === 'completed') return;
     session.status = sessionStatus;
-    session.lastActivityAt = timestamp;
+    session.lastActivityAt = new Date(Math.max(
+      Date.parse(session.createdAt),
+      Date.parse(session.lastActivityAt),
+      Date.parse(timestamp),
+    )).toISOString();
   }
 
   async startTurn({ sessionId, message, emitDelta, requestInteraction, signal, setOperation }) {

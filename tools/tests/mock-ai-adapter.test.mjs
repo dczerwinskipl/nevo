@@ -85,3 +85,13 @@ test('completed sessions remain readable and reject reactivation', async () => {
     return true;
   });
 });
+
+test('runtime timestamps never move deterministic session activity before creation', async () => {
+  const adapter = createMockAiAdapter();
+  const session = await adapter.createSession({ specId, taskIds: [] });
+  adapter.onTurnState({ sessionId: session.sessionId, sessionStatus: 'running', timestamp: '2020-01-01T00:00:00.000Z' });
+  const updated = await adapter.getSession(session.sessionId);
+  assert.equal(updated.status, 'running');
+  assert.equal(updated.lastActivityAt, session.createdAt);
+  validateAiSession(updated);
+});
