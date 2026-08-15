@@ -1,0 +1,93 @@
+id: ai-sessions-live-chat-integration
+title: AI sessions and live chat integration
+type: architectural
+status: draft
+priority: 10
+created: 2026-08-15
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: stable-spec-identity-and-backfill
+    order: 1
+    file: tasks/01-stable-spec-identity-and-backfill.md
+    status: draft
+  - id: provider-neutral-ai-contracts
+    order: 2
+    file: tasks/02-provider-neutral-ai-contracts.md
+    status: draft
+    depends_on: [ stable-spec-identity-and-backfill ]
+  - id: interactive-turn-runtime
+    order: 3
+    file: tasks/03-interactive-turn-runtime.md
+    status: draft
+    depends_on: [ provider-neutral-ai-contracts ]
+  - id: mock-ai-adapter-and-demo-data
+    order: 4
+    file: tasks/04-mock-ai-adapter-and-demo-data.md
+    status: draft
+    depends_on: [ provider-neutral-ai-contracts, interactive-turn-runtime ]
+  - id: ai-session-http-and-sse-api
+    order: 5
+    file: tasks/05-ai-session-http-and-sse-api.md
+    status: draft
+    depends_on: [ mock-ai-adapter-and-demo-data ]
+  - id: session-navigation-and-context-surfaces
+    order: 6
+    file: tasks/06-session-navigation-and-context-surfaces.md
+    status: draft
+    depends_on: [ ai-session-http-and-sse-api ]
+  - id: fullscreen-chat-and-session-creation
+    order: 7
+    file: tasks/07-fullscreen-chat-and-session-creation.md
+    status: draft
+    depends_on: [ session-navigation-and-context-surfaces ]
+  - id: part1-integration-verification-and-docs
+    order: 8
+    file: tasks/08-part1-integration-verification-and-docs.md
+    status: draft
+    depends_on:
+      - stable-spec-identity-and-backfill
+      - provider-neutral-ai-contracts
+      - interactive-turn-runtime
+      - mock-ai-adapter-and-demo-data
+      - ai-session-http-and-sse-api
+      - session-navigation-and-context-surfaces
+      - fullscreen-chat-and-session-creation
+  - id: claude-readiness-discovery
+    order: 9
+    file: tasks/09-claude-readiness-discovery.md
+    status: draft
+    depends_on: [ part1-integration-verification-and-docs ]
+  - id: local-ai-registry-and-manual-attach
+    order: 10
+    file: tasks/10-local-ai-registry-and-manual-attach.md
+    status: draft
+    depends_on: [ claude-readiness-discovery ]
+  - id: ai-session-context-cli-preflight
+    order: 11
+    file: tasks/11-ai-session-context-cli-preflight.md
+    status: draft
+    depends_on: [ local-ai-registry-and-manual-attach ]
+  - id: claude-hooks-and-invocation-context
+    order: 12
+    file: tasks/12-claude-hooks-and-invocation-context.md
+    status: draft
+    depends_on: [ ai-session-context-cli-preflight ]
+  - id: claude-session-adapter
+    order: 13
+    file: tasks/13-claude-session-adapter.md
+    status: draft
+    depends_on:
+      - claude-readiness-discovery
+      - local-ai-registry-and-manual-attach
+      - claude-hooks-and-invocation-context
+  - id: claude-live-chat-e2e-and-docs
+    order: 14
+    file: tasks/14-claude-live-chat-e2e-and-docs.md
+    status: draft
+    depends_on:
+      - claude-session-adapter
+      - fullscreen-chat-and-session-creation
