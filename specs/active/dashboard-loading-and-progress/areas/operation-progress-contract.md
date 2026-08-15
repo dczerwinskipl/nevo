@@ -43,6 +43,27 @@ semantics themselves.
   `operation.step.started`, `operation.step.progress`, `operation.step.completed`,
   `operation.step.failed`, `operation.completed`, `operation.failed` (names may adapt to
   existing repo conventions; semantics must match).
+- **Starting an operation is a distinct step from streaming it.** The endpoint that
+  triggers a POST-based action (verify/approve/finalize/any instrumented CLI run) must
+  return an `operationId` immediately — before the underlying work finishes — mirroring
+  the existing AI-turn precedent exactly (`ai-routes.mjs`'s start-turn returns `turnId`
+  before streaming begins; see task 05 of `ai-sessions-live-chat-integration` for the
+  same rule applied to that endpoint). Today's `executeSpecificationAction`
+  (`actions.mjs:116-153`) blocks and only returns once the whole action is done — this
+  changes here: the trigger response is `{ operationId }` (an HTTP 202-style "accepted,
+  in progress" shape, exact status code an implementation detail), and the operation's
+  actual result (success/failure/step detail) is read from the snapshot/SSE routes
+  below, never from the trigger response body itself.
+- **Only explicitly user-triggered, POST-based actions become an `Operation`.** The
+  existing `GET /api/specs/active/:slug/actions` read (`loadSpecificationActions`,
+  `actions.mjs:82-114`) already runs a `--check` gate probe per actionable task purely
+  to compute button-enabled state, on every poll — this is a cheap, synchronous,
+  read-only computation, not a user-initiated operation, and it stays exactly that: a
+  plain request/response with no `operationId`, no steps, no SSE. The `Operation`/Steps
+  model in this area applies only once a POST actually starts the corresponding
+  action — a `--check` probe made merely to answer "is this button enabled" is never
+  wrapped in the same contract, even though it may internally call the same gate logic
+  a real run also uses.
 - `tools/dashboard/server/actions.mjs` moves from `execFileSync` to `spawn` so step
   events can be read from the child process as they're emitted, not only after exit.
 - `tools/specs.mjs` (and any other CLI command invoked for a long operation) emits step
@@ -50,7 +71,16 @@ semantics themselves.
   implementation detail — e.g. a prefixed NDJSON line) alongside its existing final
   JSON result line; the final result line's shape/meaning is unchanged.
 - A small shared emission helper (used by every instrumented command in tasks 05/06)
-  avoids duplicating the event-shaping logic per command.
+  avoids duplicating the event-shaping logic per command. It lives in a
+  provider/consumer-neutral location — `tools/lib/operation-progress.mjs` — not inside
+  `tools/dashboard/server/**`: `tools/specs.mjs`/`tools/specs/**` (tasks 05/06) must
+  never import from the dashboard server's own module tree (wrong dependency
+  direction — the CLI does not depend on the dashboard), and this task's own
+  `forbidden_paths` already exclude `tools/specs.mjs`, so the helper cannot live inside
+  either side's exclusive territory. `tools/lib/` already hosts other repo-wide-neutral
+  modules (e.g. `tools/lib/git.mjs`, `tools/lib/github.mjs`) consumed by both the CLI and
+  the dashboard server today, so this follows an established pattern rather than
+  inventing a new one.
 - Transport: a per-operation snapshot endpoint (current known state, for a client that
   wasn't connected when steps ran) plus a resumable SSE stream keyed by `operationId`,
   mirroring `getTurn`/`subscribeToTurn`. A client that reconnects mid-operation recovers
@@ -80,7 +110,10 @@ semantics themselves.
 ## Interfaces and boundaries
 
 - Exposes: `Operation` snapshot/SSE/cancel routes to the frontend; a step-emission
-  helper to CLI command implementations.
+  helper (`tools/lib/operation-progress.mjs`) imported by both `tools/dashboard/server`
+  (to build the transport) and `tools/specs.mjs`/CLI command code (tasks 05/06, to emit
+  events) — the dependency direction is both sides depending downward on this neutral
+  module, never on each other.
 - Consumes: the AI-turn snapshot+SSE+resume pattern as a structural precedent (not a
   shared implementation — the AI-turn runtime itself is out of scope for reuse/coupling
   here beyond copying its shape).

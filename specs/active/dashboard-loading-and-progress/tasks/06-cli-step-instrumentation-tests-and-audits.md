@@ -7,6 +7,7 @@ context:
   required:
     - specs/active/dashboard-loading-and-progress/areas/operation-progress-contract.md
     - tools/specs.mjs
+    - tools/lib/operation-progress.mjs
   optional:
     - tools/specs/service.mjs
     - docs/ai/specification-workflow.md

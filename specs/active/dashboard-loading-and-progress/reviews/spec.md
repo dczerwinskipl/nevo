@@ -8,15 +8,15 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 72dac3ba06214d70722a5d8d0fa9c8d3b087dca306d28d002165b3d0080c483d
+spec_fingerprint: a057632c8b28b7b3cd493385a34a07aeeba2a63f74aa2bbd386c8422d64403a1
 task_fingerprints:
-  dashboard-data-loading-contracts: 8681d9bed28c8da04b930fc289a3b740e2f9ed6348761629bac36533be9bd026
-  pr-file-manifest-and-diff-hydration: 5c2792d99aa0ec6b006f230a3226874ddf5d4997e82c3ddf5e5d0e29e4e4a7d1
-  changes-grouping-and-filtering: e19e1fee7eb247bd60110bba2e788b4d70890827d8d042fa797e128dbf71d4fe
-  operation-progress-contract-and-transport: 3a81c082a09276efbfbc5744d0c772f3d8826ed474b627c1973d38b08b0226eb
-  cli-step-instrumentation-gate-and-verification: 284560c0ff02c844ff99fbf3b219a59025c3e9f684c42564bc7a81618389e525
-  cli-step-instrumentation-tests-and-audits: 97f4ca652272e8596657d5e049ab0bd318b4460e2983f0f4988a0da5efe4608a
-  dashboard-operation-progress-ui: 466a879cc9bb9235b564d4a8441ab9f45863862490e6da9f71617f96bd651014
+  dashboard-data-loading-contracts: 13561c8011c47a8904acd1d839e8070569531f72c0977225a36123935f2e8ebd
+  pr-file-manifest-and-diff-hydration: ccfe1ed8c508e7a2ccb140d29e9930e82f345498d659b314f4a72101e9c19f36
+  changes-grouping-and-filtering: 314fd33a83b2af1ec4fcd5afdf4629843ecece939e7fec7ec79366b07c0b3340
+  operation-progress-contract-and-transport: aa830cbd187886776f6685166b512fb25e836aa0446242b611f9343212eeab56
+  cli-step-instrumentation-gate-and-verification: 0ce2bed2dce2c070ad0186da357fee4df24eeca9977c086d9545e6e03d70fa3b
+  cli-step-instrumentation-tests-and-audits: d1b8a16457dd4cc99e11bb5900588d019b234b7a84ca9a21e9dbbc31118a9b7d
+  dashboard-operation-progress-ui: 3a8e3dc1ec8f37d0fb6f885c18a409b76143147e01686581f238c573c6a3b37a
 ---
 
 # Review: dashboard-loading-and-progress
@@ -26,8 +26,12 @@ task_fingerprints:
 - [x] No unresolved clarification request
 - [x] Verdict: ready-for-approval
 
-Prior findings F1-F4 (route-splitting semantic references, config-delivery contract,
-persisted D1 option analysis, config-delivery acceptance criterion) are all resolved —
-see git history of this file for the full findings table from the run that found them.
-Tasks are not yet `approved` in `change.yaml`, so `implementation_allowed` is `false`
-until `/nevo-ai:spec-approve` runs.
+An external review of PR #27 (owner-pasted, not GitHub review threads —
+`node tools/specs.mjs comments` reports zero threads for this PR) surfaced 6 real gaps
+(4 MAJOR: missing start-operation→`operationId` contract, wrong module boundary for the
+shared progress helper, `/api/dashboard`'s own 30s poll left unaddressed despite being
+named as part of the problem, files-manifest not bounding upstream GitHub fetch cost; 2
+MINOR: task 07's `depends_on`/AC4 mismatch, document-manifest title extraction risking
+full-tree I/O) that this change's own prior `ready-for-approval` review had missed. All
+six are fixed in this pass and re-verified from scratch — see git history of this file
+for the full findings table (F5-F11) from the run that found and fixed them.

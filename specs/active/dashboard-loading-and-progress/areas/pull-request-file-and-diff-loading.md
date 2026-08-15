@@ -48,6 +48,21 @@ depends on GitHub's raw response shape.
   GitHub adapter may internally batch/cache/reuse data from a single upstream call, but
   callers must not need to know whether GitHub happened to return a patch alongside
   metadata.
+- The BE→FE payload trim (no `patch` in the manifest response) is necessary but not
+  sufficient — the upstream GitHub→BE leg must not be forced to download full patch
+  content merely to produce the manifest. The existing REST `files` listing
+  (`tools/lib/github.mjs:156-174`) always includes `patch`; `getPullRequestFiles()`'s
+  GitHub adapter must not simply reuse that call and discard the patch server-side —
+  it should fetch the files listing through a surface that doesn't force patch
+  expansion (e.g. GitHub's GraphQL `PullRequest.files` connection, requesting only
+  `path`/`changeType`/`additions`/`deletions`, is one such surface; the exact API
+  surface is an implementation detail, the "don't force-download the heavy field"
+  requirement is not).
+- Background diff-hydration batches (`getFileDiffs(paths)`) must not, as a side effect,
+  re-fetch the *entire* upstream files/diff payload for the PR on every batch — each
+  batch's upstream cost should scale with the paths actually requested (or with
+  whatever the adapter's own upstream cache already holds from the manifest fetch), not
+  with the PR's total file count repeated per batch.
 - Per D3 in `owner-decisions.md`: if the existing GitHub files listing already includes
   a field beyond the ones named above (e.g. a `sha` per blob) that's useful and free,
   include it in the manifest.

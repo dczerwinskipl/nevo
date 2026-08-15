@@ -49,9 +49,19 @@ change workflow semantics, gate rules, or status transitions (see Out of scope).
   `{ eventType }`, `watcher.mjs:21-35`) and no event IDs/replay — a client that
   disconnects has no way to recover a specific missed event, only the next signal or the
   next poll.
-- **No lightweight task-status contract exists.** Task status is only available nested
+- **No lightweight task-status contract exists, and `/api/dashboard` itself is not
+  actually cheap despite a small response body.** Task status is only available nested
   inside the full `/api/dashboard` payload (`taskProjection`,
-  `tools/dashboard/server/data.mjs:202-270`).
+  `tools/dashboard/server/data.mjs:202-270`), computed by `loadDashboardData`
+  (`data.mjs:279-295`), which iterates every change under both `specs/active/` and
+  `specs/archive/` and reads their task files from disk on every call. `useDashboardData`
+  polls this route every 30s including in the background
+  (`use-dashboard-data.ts:38-45`). The response payload itself is small (no markdown
+  bodies, no diffs), but the *backend* work to produce it is not — full-tree disk I/O
+  across every change, every 30 seconds, regardless of whether anything changed. This
+  is exactly the "polling data that barely changes" problem this change's own stated
+  target model exists to remove, and it must not be left out of scope just because its
+  response is byte-light.
 - **Long operations report only a final result.** `executeSpecificationAction`
   (`tools/dashboard/server/actions.mjs:116-153`) runs `specs.mjs` via a **blocking**
   `execFileSync` and parses one final JSON blob from stdout
@@ -110,6 +120,10 @@ size or file kind.
 - `tools/specs.mjs` (and any other CLI command that runs a multi-step operation the
   dashboard triggers) — new structured step-event emission, no change to what each
   command decides or how it decides it.
+- `tools/lib/operation-progress.mjs` (new) — the shared step-emission helper, consumed
+  by both `tools/dashboard/server` and `tools/specs.mjs`/CLI command code; lives outside
+  either side's own module tree so the dependency direction stays downward-only from
+  both.
 - `tools/dashboard/package.json` (new `picomatch` dependency, per D1).
 
 ## Options and trade-offs
@@ -145,12 +159,17 @@ possible.** Concretely:
    `(provider, repository, number, headSha, path)` so re-opening the same PR at the same
    `headSha` costs nothing. Full raw diff moves to its own on-demand route
    (`GET .../pull-requests/:number/diff`).
-3. **Markdown/PR content stop being polled on a timer.** Content queries move to
-   effectively-infinite staleness with invalidation driven by the SSE watcher, which
-   gains a granular `files` list per event so only the affected document's cache entry
-   is invalidated (`{ slug, files: ["tasks/14.md"] }`) instead of the whole bundle.
-   Task-status polling stays fast (a few seconds) since its payload is intentionally
-   small.
+3. **Markdown/PR content stop being polled on a timer, and `/api/dashboard`'s own poll
+   is loosened.** Content queries move to effectively-infinite staleness with
+   invalidation driven by the SSE watcher, which gains a granular `files` list per event
+   so only the affected document's cache entry is invalidated
+   (`{ slug, files: ["tasks/14.md"] }`) instead of the whole bundle. `/api/dashboard`
+   (change/task overview list) moves from an unconditional 30s poll to an initial fetch
+   plus SSE-driven invalidation on `specs-changed`, with a much longer safety-refresh
+   interval (minutes, not seconds) as a backstop — not a full endpoint rewrite, just the
+   same polling-vs-event-driven fix already applied to content/PR-list, extended to this
+   one remaining heavy-backend, fixed-interval poll. Task-status polling stays fast (a
+   few seconds) since its payload and its backend cost are both intentionally small.
 4. **Changes UX becomes configurable and grouped.** A per-project `changeView.groups`
    config (path-glob rules, first-match-wins, `picomatch` per D1) drives Area/Directory/
    Flat grouping; a separate `generatedFiles` config drives a "hide generated" filter
@@ -200,7 +219,13 @@ final JSON result line consumed by `actions.mjs` today.
 - Hidden generated files are not preloaded by background hydration.
 - Opening one markdown document does not fetch the rest of the spec's documents.
 - Heavy PR/diff/markdown payloads are not refetched on a fixed timer.
+- `/api/dashboard`'s own fixed 30s poll is gone, replaced by an initial fetch plus
+  SSE-driven invalidation (and, at most, a much longer safety-refresh interval).
 - Task statuses continue to refresh on a fast interval.
+- Triggering a POST-based action (verify/approve/finalize/instrumented run) returns an
+  `operationId` before the action completes — never only after.
+- The `GET` gate-probe used purely to compute button-enabled state never gains an
+  `operationId`, steps, or an SSE stream.
 - A multi-step verification/gate/acceptance run shows steps completing in near
   real time, sourced from the CLI/workflow layer, not reconstructed from stdout timing.
 - A failing step is visible as that step's failure and the operation's failure.

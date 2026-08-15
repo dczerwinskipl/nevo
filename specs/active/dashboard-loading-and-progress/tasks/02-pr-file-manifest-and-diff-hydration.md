@@ -58,6 +58,16 @@ file/diff loading on top of it.
 - `providers/github.mjs`/`tools/lib/github.mjs` gain the four semantic operations;
   `providers/service.mjs`'s existing `provider.load()` registry pattern is extended,
   not replaced, so a future non-GitHub provider can implement the same shape.
+- `getPullRequestFiles()`'s GitHub adapter must not force-download full `patch` content
+  from upstream merely to build the manifest — do not simply reuse the existing REST
+  `files` call (`tools/lib/github.mjs:156-174`, which always includes `patch`) and
+  discard the field server-side; fetch the files listing through a surface that avoids
+  patch expansion (e.g. GitHub's GraphQL `PullRequest.files`), exact surface is an
+  implementation detail.
+- Background batch diff requests must not re-fetch the PR's entire upstream files/diff
+  payload per batch — upstream cost scales with the requested paths (or reuses
+  whatever the manifest fetch already cached), not with the PR's total file count
+  repeated on every batch.
 - Per D3 in `owner-decisions.md`, include any additional cheaply-available manifest
   field from the existing GitHub files listing if useful.
 
@@ -75,6 +85,13 @@ file/diff loading on top of it.
 6. The provider adapter's public surface is `getPullRequests`/`getPullRequestFiles`/
    `getFileDiffs`/`getFullDiff` — callers do not depend on whether GitHub returned a
    patch alongside metadata. `inspection: confirm provider module's exported surface`
+7. `getPullRequestFiles()`'s upstream GitHub call does not request/return `patch`
+   content. `inspection: confirm the upstream request surface used (e.g. GraphQL query
+   shape, or REST call arguments) excludes patch expansion`
+8. A background batch diff request's upstream cost does not scale with the PR's total
+   file count — verified by asserting upstream call count/shape stays proportional to
+   the batch's requested paths, not the whole PR, across repeated batches.
+   `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 

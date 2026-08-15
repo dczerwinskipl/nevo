@@ -26,7 +26,12 @@ grouping/filtering (`changes-grouping-and-filtering.md`).
   (`use-dashboard-data.ts:47-58`, `watcher.mjs:5-9,21-35` — coarse, no per-file
   information).
 - No task-status-only endpoint exists; task status is nested inside the heavier
-  `/api/dashboard` payload (`taskProjection`, `data.mjs:202-270`).
+  `/api/dashboard` payload (`taskProjection`, `data.mjs:202-270`), computed by
+  `loadDashboardData` (`data.mjs:279-295`), which walks every change under
+  `specs/active/`/`specs/archive/` and reads their task files on every call.
+  `useDashboardData` polls this route every 30s, including in the background
+  (`use-dashboard-data.ts:38-45`) — small response payload, but real per-poll backend
+  I/O cost across the whole spec tree.
 
 ## Requirements
 
@@ -39,7 +44,13 @@ grouping/filtering (`changes-grouping-and-filtering.md`).
   endpoints at all.
 - `GET /api/specs/:source/:slug/content` becomes a manifest: which documents exist
   (overview, each area, each task) plus enough metadata to render navigation (title,
-  last-modified) but not their bodies.
+  last-modified) but not their bodies. Producing that manifest must not read every
+  document's full body on every request just to extract a title from its H1 — that
+  would still do full-tree I/O per manifest fetch, just without shipping the bodies to
+  the browser. Cache the extracted title server-side (invalidated by the same granular
+  per-file SSE events this task already introduces), or derive it more cheaply (e.g. a
+  fast partial read instead of the full file); a working implementation is not required
+  to re-parse full document content on every manifest request.
 - A new route serves one document's body on demand (exact path is an implementation
   detail — e.g. `GET /api/specs/:source/:slug/content/:docId`), cached client-side with
   effectively-infinite staleness and no `refetchInterval`.
@@ -58,13 +69,20 @@ grouping/filtering (`changes-grouping-and-filtering.md`).
 - Once a document/PR-list query moves to event-driven invalidation, remove its
   `refetchInterval` — polling and SSE invalidation must not both apply to the same heavy
   query.
+- `/api/dashboard`'s own 30s `refetchInterval` moves to SSE-driven invalidation
+  (`specs-changed`) plus an initial fetch, with a much longer safety-refresh interval
+  (minutes, not seconds) as a backstop — this is the same fix already applied to
+  content/PR-list, extended to `/api/dashboard`'s own poll, not a rewrite of what
+  `loadDashboardData`/`taskProjection`/`changeProjection` compute.
 
 ## Constraints
 
-- No change to what `taskProjection`/`changeProjection` compute for `/api/dashboard` —
-  this area only adds a narrower, faster read path alongside it; `/api/dashboard` itself
-  is out of this area's scope unless removing now-redundant fields from it is trivial and
-  requested during review.
+- No change to what `taskProjection`/`changeProjection` *compute* for `/api/dashboard`
+  — this area adds a narrower, faster read path alongside it, and separately fixes how
+  often/why `/api/dashboard` is re-fetched (its own `refetchInterval`, per the
+  Requirements above). Removing now-redundant fields from its payload is out of scope
+  unless trivial and requested during review — that's a payload-shape change, distinct
+  from the polling-behavior fix that is in scope.
 - Must not change gate/status-transition semantics — this is a read-path change only.
 
 ## Interfaces and boundaries

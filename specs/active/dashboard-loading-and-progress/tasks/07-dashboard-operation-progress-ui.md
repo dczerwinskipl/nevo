@@ -36,8 +36,10 @@ operation kind wired in tasks 05/06.
 ## Dependencies
 
 Depends on task 04 (transport/contract) and task 05 (at least one real, wired operation
-kind to verify end-to-end against); should be able to render against whatever tasks 06
-wires without additional UI changes since the component is generic per operation kind.
+kind to verify end-to-end against). Deliberately does **not** depend on task 06 — this
+task can run in parallel with it, since AC4's second operation kind is a fixture/mock,
+not a real task-06 wiring; the component's genericness must not require task 06 to
+exist in order to be provable.
 
 ## Implementation constraints
 
@@ -64,9 +66,13 @@ wires without additional UI changes since the component is generic per operation
    `inspection: manual run with a failing verification command`
 3. Refreshing the page mid-operation and returning shows current state, not a blank/
    reset view. `inspection: manual refresh during an active operation`
-4. The same component renders for at least two different operation kinds (one from task
-   05, one from task 06) without kind-specific UI code paths.
-   `inspection: confirm component props/usage are operation-kind-agnostic`
+4. The same component renders for at least two different operation kinds (one real, from
+   task 05; one a fixture/mock `Operation` payload of a different `type`, since this
+   task's `depends_on` does not include task 06 and must be independently verifiable
+   without it) without kind-specific UI code paths. `inspection: confirm component
+   props/usage are operation-kind-agnostic`. Once task 06 lands, re-verifying against a
+   real task-06 operation kind is a good follow-up check, not a requirement of this
+   task's own acceptance criteria.
 
 ## Verification
 

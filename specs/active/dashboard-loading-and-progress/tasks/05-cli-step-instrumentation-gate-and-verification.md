@@ -8,6 +8,7 @@ context:
     - specs/active/dashboard-loading-and-progress/areas/operation-progress-contract.md
     - tools/dashboard/server/actions.mjs
     - tools/specs.mjs
+    - tools/lib/operation-progress.mjs
   optional:
     - tools/specs/service.mjs
     - tools/specs/validation.mjs
@@ -30,13 +31,18 @@ semantic_references:
 
 ## Goal
 
-Emit `Operation`/`Steps` events (via the helper from task 04) for: gate-check probes
-(the `taskGate`/`finalizeGate` `--check` invocations in `actions.mjs`, backed by
+Emit `Operation`/`Steps` events (via the helper from task 04) for the gate re-check that
+runs as a step *inside* a real, POST-triggered `verify`/`approve` action (`actions.mjs`'s
+`taskGate`/`finalizeGate` call before `runSpecs(root, [action, ...])` executes, backed by
 `validateTransition`/status-transition checks in `tools/specs.mjs`), task verification/
 self-check (`handleSelfCheck`, `tools/specs.mjs:492+` — the runner that executes every
 command a task's own "## Verification" section names, sequentially, recording pass/
 fail per command), and task acceptance (`handleApprove`, the `draft`→`approved`
-transition).
+transition). Per task 04/area `operation-progress-contract.md`: the standalone
+`GET /api/specs/active/:slug/actions` gate probe (button-enabled-state polling) is
+explicitly **not** in scope here — it stays a plain synchronous read with no
+`operationId`, no steps, no SSE, regardless of how much of the same gate logic it calls
+internally.
 
 ## Dependencies
 
@@ -50,9 +56,10 @@ Depends on task 04 for the contract/helper/transport to emit into.
   grained progress inside a single command unless that command's own output already
   exposes it cheaply (e.g. a test runner that prints a running count) — do not add new
   output-parsing complexity to reverse-engineer progress from arbitrary command output.
-- Gate-check probes (`--check` invocations) are typically fast and largely atomic —
-  represent each as a single step unless the underlying check genuinely has multiple
-  separable phases already.
+- The gate re-check step inside a real action is typically fast and largely atomic —
+  represent it as a single step unless the underlying check genuinely has multiple
+  separable phases already. The standalone `GET /api/specs/active/:slug/actions`
+  button-state probe is out of scope for this task entirely — see Goal.
 - Do not change what any of these commands decide (transition validity, gate pass/fail
   criteria) — only add step-event emission around already-existing execution.
 
@@ -72,6 +79,8 @@ Depends on task 04 for the contract/helper/transport to emit into.
    existing status transition outcome. `automated: node --test tools/tests/*.test.mjs`
 5. `node tools/specs.mjs check`/`validate` output and exit codes for unrelated commands
    are unchanged. `automated: node tools/specs.mjs check`
+6. `GET /api/specs/active/:slug/actions` emits no step/operation events and returns no
+   `operationId`, before and after this task. `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 

@@ -37,8 +37,9 @@ semantic_references:
 Split `GET /api/specs/:source/:slug/pull-requests` and
 `GET /api/specs/:source/:slug/content` into lightweight-first contracts, add
 `GET /api/specs/:source/:slug/task-statuses`, remove the sync-fs/hot-path I/O in
-`data.mjs`, and stop polling the (now heavy-content) queries on a fixed timer once
-event-driven invalidation covers them.
+`data.mjs`, and stop polling the (now heavy-content) queries — including
+`/api/dashboard` itself, whose small response hides real per-poll backend I/O across
+every change — on a fixed short timer once event-driven invalidation covers them.
 
 ## Implementation constraints
 
@@ -47,7 +48,10 @@ event-driven invalidation covers them.
   task 02).
 - `/content` becomes a manifest (document list + metadata, no bodies); add a new route
   for a single document's body, cached with no `refetchInterval` and effectively
-  infinite staleness client-side.
+  infinite staleness client-side. Do not implement the manifest by reading every
+  document's full body on each request merely to extract its title — cache the title
+  server-side (invalidated by the same granular per-file SSE events below) or derive it
+  without a full-file read.
 - `/task-statuses` returns `{ revision, tasks: [{ id, status }] }` at minimum — per D3 in
   `owner-decisions.md`, add other per-task fields already available in
   `taskProjection`/`changeProjection` if they cost nothing extra to include.
@@ -61,6 +65,12 @@ event-driven invalidation covers them.
   `refetchInterval`; task-status polling keeps its own fast interval (a few seconds) —
   do not make task-status event-driven in this task (explicitly deferred, not required
   now, and the shape must not block adding it later).
+- `/api/dashboard`'s own `useDashboardData` poll moves from a 30s `refetchInterval` to
+  an initial fetch plus SSE-driven invalidation on `specs-changed`, with a much longer
+  safety-refresh interval (minutes) as a backstop — same fix as content/PR-list, applied
+  to this one remaining fixed-interval heavy-backend poll. Do not change what
+  `loadDashboardData`/`taskProjection`/`changeProjection` compute — only when/why the
+  request fires.
 
 ## Acceptance criteria
 
@@ -68,16 +78,23 @@ event-driven invalidation covers them.
    `automated: npm --prefix tools/dashboard test`
 2. Requesting a single task document does not trigger a read of `overview.md` or any
    `areas/*.md` file. `automated: npm --prefix tools/dashboard test`
-3. `/task-statuses` returns a small payload with `revision` and per-task `status`.
+3. A second manifest request for the same spec, with no file changes in between, does
+   not re-read every document's full body to recompute titles (e.g. verified via a
+   read-call-count assertion, or by confirming a cache hit).
    `automated: npm --prefix tools/dashboard test`
-4. Content and PR-list hooks have no `refetchInterval`; task-status hook keeps a
-   several-second interval. `inspection: confirm use-dashboard-data.ts hook options`
-5. A change to one task file invalidates only that task's cached document client-side.
+4. `/task-statuses` returns a small payload with `revision` and per-task `status`.
    `automated: npm --prefix tools/dashboard test`
-6. No synchronous fs API is called from the manifest/content/task-status/PR-list route
+5. Content and PR-list hooks have no `refetchInterval`; task-status hook keeps a
+   several-second interval; `useDashboardData` has no 30s `refetchInterval` (a much
+   longer safety-refresh interval, or none, plus SSE invalidation, is acceptable).
+   `inspection: confirm use-dashboard-data.ts hook options`
+6. A change to one task file invalidates only that task's cached document client-side.
+   `automated: npm --prefix tools/dashboard test`
+7. No synchronous fs API is called from the manifest/content/task-status/PR-list route
    handlers. `inspection: grep for existsSync/readFileSync/readdirSync/statSync in the touched code paths`
-7. Existing dashboard behavior outside these three routes (e.g. `/api/dashboard`) is
-   unchanged. `automated: npm --prefix tools/dashboard test`
+8. `/api/dashboard`'s computed response content (`taskProjection`/`changeProjection`
+   fields) is unchanged — only its fetch/polling behavior changes, per criterion 5.
+   `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
