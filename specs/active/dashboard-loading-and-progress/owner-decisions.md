@@ -318,7 +318,7 @@
   `taskGate`/`finalizeGate` pre-flight calls entirely (task 04 — it owns
   `executeSpecificationAction`'s spawn/transport behavior). Task 04's Implementation
   constraints and acceptance criteria gain the explicit one-process rule. Task 05's Goal
-  items 1 and 4 and its Implementation constraints are reworded: the task-level
+  items 1 and 3 and its Implementation constraints are reworded: the task-level
   validation and `finalize`'s multi-phase validation are now described as the first
   internal step(s) of the one already-spawned real command, never as a separate
   pre-flight process or a step "inside" something external to that command.

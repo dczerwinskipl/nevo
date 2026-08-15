@@ -13,10 +13,10 @@ task_fingerprints:
   dashboard-data-loading-contracts: b615f9a39c3409c6bb66237da2c095084e29ec2ffdc7b7b60b94f0fe82457671
   pr-file-manifest-and-diff-hydration: 17d8b78f5eeb35b6c1f1c6668ddf7a7b07717cf3fa00b97b358d1dbf1cb547d0
   changes-grouping-and-filtering: db51f0d8a22eabb2ff863fc4ba4d1de95faa4c7ba924b6cf93b17699c0ca9487
-  operation-progress-contract-and-transport: 5586501be6e3b71bd5f81b52befa1b7c9e1ba42ca0db32c43d21c27ad5ab834c
-  cli-step-instrumentation-gate-and-verification: 5d8972834ad341f49f87f56db0d844a53d87605eebae05c14a22d667eb9d9fef
-  cli-step-instrumentation-tests-and-audits: d7113cc71fb865af726a7b5e417faa6885327c76dee080063794694617a5621a
-  dashboard-operation-progress-ui: 72236f9571ccdfd5d81ce03c0919ccb0c0ac8f22f1d6a26007e06a36ba4a4783
+  operation-progress-contract-and-transport: a56a8ddf9c46502d97d8c0a0663c95cd5c39336f0500d07de7bdf5ea32a9a336
+  cli-step-instrumentation-gate-and-verification: 054cf91e31bb35443f964585b2bb03dfac7e88dfeddb077e33d3b857349b51aa
+  cli-step-instrumentation-tests-and-audits: bc7ab39d1aea1028060debbe83ad1c5b3de347fabfad25b0fba81b8e1ac32bfa
+  dashboard-operation-progress-ui: a7c11ca7dfbb1db94cb75476295aa451d4aebd4cc4643514753297014a42b722
 ---
 
 # Review: dashboard-loading-and-progress
@@ -26,43 +26,43 @@ task_fingerprints:
 - [x] No unresolved clarification request
 - [x] Verdict: ready-for-approval
 
-The owner corrected the spec on one more point from a PR #27 re-review (recorded as D11
-in `owner-decisions.md`, plus a wording-precision amendment to D2), on top of D1-D10:
-the Dashboard Operation lifecycle now unifies with the actual `verify`/`approve`/
-`finalize` action flow. Confirmed against `tools/specs.mjs` and
-`tools/dashboard/server/actions.mjs`: `executeSpecificationAction` currently runs a
-separate `--check` pre-flight CLI invocation (`taskGate`/`finalizeGate`) before spawning
-the real action command for every POST-triggered action — one dashboard click, two CLI
-process spawns — while task 05 described that pre-flight call as "a step inside" the
-real action's Operation, contradicting task 04's own "Operation = one spawned process"
-model. `handleVerify`/`handleApprove` (via `validateTransition`) and `handleFinalize`
-(via its existing unconditional `gatherFinalizeFacts`/`validateFinalize` call, the same
-one `--check` mode uses) already perform authoritative validation internally, before
-mutating, and already refuse to mutate on failure — so the pre-flight was redundant, not
-load-bearing. D11 removes it: `executeSpecificationAction` now spawns exactly one real
-command per POST, and that command's own existing internal validation becomes the
-Operation's first semantic step(s) once instrumented, rather than a separate process.
-`GET /api/specs/active/:slug/actions` (D4) is unaffected — it remains a cheap,
-synchronous read with no spawn correlated to any Operation. D2 is separately
-precision-corrected, in place: "wire all listed operation kinds" → "wire all applicable
-existing multi-step CLI operations" — scope is unchanged (every real operation still
-gets wired; task 06 already reports, rather than fabricates, any listed kind with no
-real CLI-subprocess operation), only the wording no longer reads as a mandate to invent
-operations that don't exist.
+The owner corrected one internal inconsistency between tasks 04 and 05, introduced by
+the prior D11 pass. Confirmed by direct inspection: task 04 both (a) stated in its
+Implementation constraints and AC that `finalizeGate` "keeps its existing `GET`-path
+caller too, until task 05 replaces it" (deferring the `GET /actions` finalize-probe fix
+to task 05), and (b) still carried an unconditional AC3 — "`GET /api/specs/active/:slug/actions`
+never invokes `finalize --check` ... to compute finalize's button state" — plus a matching
+Implementation-constraints paragraph claiming task 04 itself performs that change. Those
+two statements contradicted each other; AC3 and the paragraph predate this change and
+were never reconciled with the D11 pass's own "until task 05" framing.
 
-Applied across `overview.md` (responsibility-boundary flow note, change-wide AC, owner-
-decisions summary), `owner-decisions.md` (D11 added; D2 amended in place),
-`areas/operation-progress-contract.md` (new one-process requirement bullet, `finalize`
-phase-source wording, D2-wording bullet, new area AC), and `tasks/04`/`05`
-(`executeSpecificationAction`'s pre-flight-removal instruction, reworded gate-recheck/
-`finalize` Goal items, new/reworded acceptance criteria, `semantic_references` gained
-D11). Tasks 01/02/03/06/07 needed no changes — 06/07 already treated the underlying
-gate/`finalize` results as sourced from the real command's own outcome, not from a
-specific process-count assumption, so their acceptance criteria stay accurate under the
-corrected model without edits. Re-validated (`node tools/specs.mjs validate`,
-`node tools/docs.mjs validate`), re-indexed (`node tools/specs.mjs generate`,
-`node tools/docs.mjs generate`), non-gating checks clean (`node tools/specs.mjs check`,
-`node tools/docs.mjs check`), and every task fingerprint recomputed from scratch after
-the edits (04/05 changed directly; 06/07 changed by fingerprint-folding through their
-`dependency_contracts` on 04/05; 01/02/03 unchanged, as expected, since neither their
-own content nor any decision they reference was touched).
+Resolved by removing task 04's ownership entirely: its `GET /api/specs/active/:slug/actions`
+paragraph now states plainly that the route is untouched by this task (content and
+behavior both stay task 05's job, per D4), AC3 is deleted, the remaining acceptance
+criteria renumbered (1-10, no gap), and an explicit "Out of scope" bullet added naming
+the `GET`-path `finalize --check` removal as task 05's responsibility, not task 04's.
+Task 05 already owned this correctly (Implementation constraints, AC8) and needed no
+scope change — only its own Goal-section item numbering was fixed (the list had jumped
+1, 3, 4, then 2, because the CLI-only item — self-check — was physically reordered to
+the end of the section in the D9/D10 pass while keeping its original number). It now
+reads 1 (gate re-check), 2 (task acceptance), 3 (finalize), 4 (self-check, CLI-only),
+matching physical order; the one existing "item 1 above" cross-reference still points at
+the correct item. `owner-decisions.md`'s D11 consequences line was updated to match
+("Goal items 1 and 3," not "1 and 4"). A self-inflicted semantic-reference gap was also
+caught and fixed: task 04's Dependencies section names `D7` by number (as the precedent
+D8 mirrors) without declaring it in `semantic_references.decisions` — added.
+
+Applied to `owner-decisions.md` (D11's consequences line only — no new decision, no
+scope/decision change), `tasks/04-operation-progress-contract-and-transport.md`
+(`GET`-path paragraph reworded, AC3 removed and list renumbered, new Out-of-scope
+bullet, `D7` added to `semantic_references`), and
+`tasks/05-cli-step-instrumentation-gate-and-verification.md` (Goal-section renumbering
+only — no content or scope change). No other file needed changes; tasks 01, 02, 03, 06,
+07 and every area doc were re-read and confirmed unaffected by this fix. Re-validated
+(`node tools/specs.mjs validate`, `node tools/docs.mjs validate`), re-indexed
+(`node tools/specs.mjs generate`, `node tools/docs.mjs generate`), non-gating checks
+clean (`node tools/specs.mjs check`, `node tools/docs.mjs check`), and every task
+fingerprint recomputed from scratch (04 and 05 changed directly; 06 and 07 changed by
+fingerprint-folding through their `dependency_contracts` on 04/05; 01/02/03 unchanged, as
+expected; the change-level fingerprint is unchanged since neither `overview.md` nor the
+task dependency graph's shape moved).

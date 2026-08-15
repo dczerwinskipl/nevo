@@ -28,7 +28,7 @@ forbidden_paths:
   - tools/dashboard/server/watcher.mjs
   - tools/dashboard/server/providers/**
 semantic_references:
-  decisions: [D4, D6, D8, D9, D11]
+  decisions: [D4, D6, D7, D8, D9, D11]
   constraints: [C1]
   dependency_contracts: [dashboard-data-loading-contracts]
 ---
@@ -109,17 +109,19 @@ after task 01 avoids two tasks racing to edit them in parallel (D8 in
   (an "accepted, in progress" response — exact HTTP status code is an implementation
   detail) — never blocks until the action finishes. Today's `executeSpecificationAction`
   blocks synchronously; this task changes that entry point specifically.
-- `GET /api/specs/active/:slug/actions` (`loadSpecificationActions`) stays a plain,
-  synchronous, read-only request — no `operationId`, no steps, no SSE, for both the
-  task-level (`verify`/`approve`) and `finalize` gate probes. The task-level probe is
-  unchanged (genuinely cheap). The `finalize` probe changes: it must stop calling
-  `finalize --check` (which can run spec/docs validation, index checks, PR/review-state
-  checks, and `dotnet build`/`dotnet test`) on every poll — replace it with lightweight,
-  already-cheaply-available facts (task-completion status, branch/PR existence via the
-  existing `worktreeLoader`/`branchLoader`), not a computed enabled/disabled-with-reason
-  verdict. The authoritative `finalize` gate check moves into the `finalize` operation's
-  own steps (task 05) — only a POST that actually starts an action becomes an
-  `Operation`.
+- **`GET /api/specs/active/:slug/actions` (`loadSpecificationActions`) is untouched by
+  this task — its own content/behavior is entirely task 05's responsibility, not this
+  one's.** This task's `spawn`/`operationId`/snapshot/SSE work applies only to the
+  `POST` path (`executeSpecificationAction`); the only thing this task's own changes
+  guarantee about `GET /actions` is that they add nothing to it (no `operationId`, no
+  steps, no SSE — verified by AC2 below). Both the task-level (`verify`/`approve`) and
+  `finalize` gate probes keep doing exactly what they do today as far as this task is
+  concerned. In particular, `finalize`'s probe still calls `finalize --check` after this
+  task lands — replacing that with lightweight, already-cheaply-available facts
+  (task-completion status, branch/PR existence via `worktreeLoader`/`branchLoader`) is
+  task 05's job (D4), not this task's; only a POST that actually starts an action
+  becomes an `Operation`, and this task must not be read as already having removed the
+  heavy `GET`-path check — it hasn't.
 - Snapshot route (current known state) + resumable SSE route (`afterSequence`/
   `lastEventId`-style resume) keyed by `operationId`, mirroring `getTurn`/
   `subscribeToTurn` (`ai-routes.mjs:190-224`) — do not overload the global
@@ -143,29 +145,26 @@ after task 01 avoids two tasks racing to edit them in parallel (D8 in
 2. `GET /api/specs/active/:slug/actions` never returns or requires an `operationId` and
    never opens an SSE stream — it stays a plain synchronous read.
    `automated: npm --prefix tools/dashboard test`
-3. `GET /api/specs/active/:slug/actions` never invokes `finalize --check` (or anything
-   that runs `dotnet build`/`dotnet test`/spec/docs validation) to compute finalize's
-   button state. `automated: npm --prefix tools/dashboard test`
-4. Reconnecting mid-operation with a known `operationId` returns current step state, not
+3. Reconnecting mid-operation with a known `operationId` returns current step state, not
    an empty/reset state. `automated: npm --prefix tools/dashboard test`
-5. An operation that completes with no client connected still reports its final status
+4. An operation that completes with no client connected still reports its final status
    to a client connecting afterward. `automated: npm --prefix tools/dashboard test`
-6. No dashboard-side code infers a step transition from elapsed time or raw stdout
+5. No dashboard-side code infers a step transition from elapsed time or raw stdout
    heuristics — every transition traces to an emitted event.
    `inspection: confirm the SSE/snapshot layer only reacts to parsed step-event markers`
-7. A step's `failed` status and the operation's overall `failed` status are both present
+6. A step's `failed` status and the operation's overall `failed` status are both present
    and distinguishable in the payload for a failing fixture.
    `automated: npm --prefix tools/dashboard test`
-8. Existing `execFileSync`-based behavior for actions not yet instrumented (before tasks
+7. Existing `execFileSync`-based behavior for actions not yet instrumented (before tasks
    05/06 land) still completes successfully via the new `spawn`-based runner.
    `automated: npm --prefix tools/dashboard test`
-9. No `POST /operations/:id/cancel` route (or any cancellation endpoint) exists.
+8. No `POST /operations/:id/cancel` route (or any cancellation endpoint) exists.
    `inspection: confirm no cancel route is registered`
-10. No route, IPC mechanism, or process-discovery code exists that lets the dashboard
-    become aware of a CLI process it did not itself `spawn` — an `operationId` only ever
-    exists for a process this task's runner started.
-    `inspection: confirm operationId assignment only occurs at the point actions.mjs spawns a child process`
-11. Triggering `verify`/`approve`/`finalize` via `POST` spawns exactly one child
+9. No route, IPC mechanism, or process-discovery code exists that lets the dashboard
+   become aware of a CLI process it did not itself `spawn` — an `operationId` only ever
+   exists for a process this task's runner started.
+   `inspection: confirm operationId assignment only occurs at the point actions.mjs spawns a child process`
+10. Triggering `verify`/`approve`/`finalize` via `POST` spawns exactly one child
     process — `executeSpecificationAction` no longer calls `taskGate`/`finalizeGate`
     (a `--check` pre-flight) before spawning the real action command; the same
     `validateTransition`/`gatherFinalizeFacts`+`validateFinalize` result the pre-flight
@@ -189,3 +188,6 @@ operations, once this task's transport is in place — see `overview.md` § "ADR
 
 - Instrumenting any specific CLI command (tasks 05, 06).
 - Frontend rendering (task 07).
+- Any change to `GET /api/specs/active/:slug/actions`'s own content or behavior,
+  including removing `finalize`'s `finalize --check` call there — that is task 05's
+  responsibility (D4), not this task's. This task touches only the `POST` path.

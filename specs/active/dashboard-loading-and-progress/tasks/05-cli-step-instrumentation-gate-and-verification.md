@@ -47,9 +47,9 @@ them, mints an `operationId`, and exposes snapshot/SSE for them:
    (writing the new status) may share that same step or be a short second step in the
    same process, implementer's choice, as long as no second CLI process is ever
    spawned;
-3. task acceptance (`handleApprove`, the `draft`→`approved` transition) — POST-triggered
+2. task acceptance (`handleApprove`, the `draft`→`approved` transition) — POST-triggered
    `approve`, a single step;
-4. `finalize`, as a **multi-step** operation (owner correction, 2026-08-15 — it is
+3. `finalize`, as a **multi-step** operation (owner correction, 2026-08-15 — it is
    *not* atomic like the task-level gate probe): `handleFinalize`'s own
    `gatherFinalizeFacts`/`validateFinalize` call — run unconditionally at the start of
    the one spawned `finalize` process, the same call `--check` mode also uses
@@ -66,7 +66,7 @@ One is **CLI-only** in this change — it emits the same shared structured stdou
 not reachable via any existing dashboard `POST` action, so it never becomes a Dashboard
 Operation (no `operationId`/snapshot/SSE) here:
 
-2. task verification/self-check (`handleSelfCheck`, `tools/specs.mjs:492+` — the runner
+4. task verification/self-check (`handleSelfCheck`, `tools/specs.mjs:492+` — the runner
    that executes every command a task's own "## Verification" section names,
    sequentially, recording pass/fail per command) — one step per verification command.
    The dashboard's `verify` action calls `handleVerify` (a simple status transition, item
