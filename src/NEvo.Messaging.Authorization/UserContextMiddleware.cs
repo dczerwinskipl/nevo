@@ -12,19 +12,21 @@ using static LanguageExt.Prelude;
 
 namespace NEvo.Messaging.Authorization;
 
-public class UserContextMiddleware<TId, TRoleDataScope>(
-    IUserProvider<TId> userProvider,
+public class UserContextMiddleware<TId, TUser, TRoleDataScope>(
+    IUserProvider<TUser, TId> userProvider,
     IRoleProvider<TRoleDataScope> roleProvider,
     IPermissionProvider<TRoleDataScope> permissionProvider
-) : IMessageProcessingMiddleware where TRoleDataScope : AuthDataScope
+) : IMessageProcessingMiddleware
+    where TUser : User<TId>
+    where TRoleDataScope : AuthDataScope
 {
-    private readonly IUserProvider<TId> _userProvider = Check.Null(userProvider);
+    private readonly IUserProvider<TUser, TId> _userProvider = Check.Null(userProvider);
     private readonly IRoleProvider<TRoleDataScope> _roleProvider = Check.Null(roleProvider);
     private readonly IPermissionProvider<TRoleDataScope> _permissionProvider = Check.Null(permissionProvider);
 
     public Task<Either<Exception, object>> ExecuteAsync(IMessage message, IMessageContext context, Func<Task<Either<Exception, object>>> next, CancellationToken cancellationToken)
     {
-        var userContext = context.GetUserContext<TId>();
+        var userContext = context.GetUserContext<TId, TUser>();
         ResolveUserWithRoles(context)
             .Iter((userWithRoles) => PopulateUserContext(userContext, userWithRoles));
 
@@ -60,13 +62,13 @@ public class UserContextMiddleware<TId, TRoleDataScope>(
             .GetUser()
             .Map(user => new UserWithRoles(user, _roleProvider.GetRoles()));
 
-    private void PopulateUserContext(UserContext<TId> userContext, UserWithRoles userWithRoles)
+    private void PopulateUserContext(UserContext<TId, TUser> userContext, UserWithRoles userWithRoles)
     {
         userContext.User = userWithRoles.User;
         userContext.UserRoles = userWithRoles.Roles;
         userContext.UserPermissions = _permissionProvider.GetPermissions(userWithRoles.Roles);
     }
 
-    private record UserWithRoles(User<TId> User, IEnumerable<Role<TRoleDataScope>> Roles);
+    private record UserWithRoles(TUser User, IEnumerable<Role<TRoleDataScope>> Roles);
 }
 

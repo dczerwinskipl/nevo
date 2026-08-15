@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { getPullRequestDetails } from '../../lib/github.mjs';
 import { createGitHubProvider, mapGitHubPullRequest } from '../server/providers/github.mjs';
 import {
   createProviderRegistry,
@@ -63,6 +64,42 @@ test('maps GitHub metadata, branches, stats, file states, and full diff', () => 
   assert.equal(result.files[1].patchAvailable, false);
   assert.equal(result.filesComplete, true);
   assert.equal(result.fullDiffAvailable, true);
+});
+
+test('keeps metadata and files when GitHub rejects only an oversized full diff', () => {
+  const calls = [];
+  const execute = (_root, args) => {
+    calls.push(args);
+    if (args.includes('Accept: application/vnd.github.diff')) {
+      const error = new Error('Command failed with HTTP 406');
+      error.stdout = JSON.stringify({ message: 'diff exceeded the maximum number of lines', code: 'too_large' });
+      throw error;
+    }
+    if (args.some(value => value.includes('/files?per_page=100'))) {
+      return JSON.stringify([[{ filename: 'src/large.cs', status: 'modified', additions: 2, deletions: 1, changes: 3 }]]);
+    }
+    return JSON.stringify({ number: 42, changed_files: 1 });
+  };
+
+  const payload = getPullRequestDetails('fixture-root', githubReference, execute);
+
+  assert.equal(payload.metadata.number, 42);
+  assert.equal(payload.files.length, 1);
+  assert.equal(payload.diff, '');
+  assert.equal(calls.length, 3);
+});
+
+test('does not hide unrelated full-diff failures', () => {
+  const execute = (_root, args) => {
+    if (args.includes('Accept: application/vnd.github.diff')) throw new Error('authentication failed');
+    if (args.some(value => value.includes('/files?per_page=100'))) return '[]';
+    return JSON.stringify({ number: 42 });
+  };
+
+  assert.throws(
+    () => getPullRequestDetails('fixture-root', githubReference, execute),
+    /authentication failed/,
+  );
 });
 
 test('provider registry isolates success, unsupported providers, and sanitized errors', () => {

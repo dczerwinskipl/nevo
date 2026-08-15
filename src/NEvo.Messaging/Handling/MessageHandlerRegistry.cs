@@ -38,8 +38,29 @@ public class MessageHandlerRegistry : IMessageHandlerRegistry
             ? handlers
             : Enumerable.Empty<IMessageHandler>();
 
-    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers) =>
-        handlers.Count > 1
-            ? new MoreThanOneHandlerFoundException(messageType, handlers.Select(h => h.HandlerDescription))
-            : Prelude.Right<Exception, IMessageHandler>(handlers.Single());
+    // Every handler is Primary by default; only the aggregate-method convention route
+    // is explicitly Fallback. One Primary always wins over any Fallback present.
+    private static Either<Exception, IMessageHandler> SelectMessageHandler(Type messageType, List<IMessageHandler> handlers)
+    {
+        if (handlers.Count <= 1)
+        {
+            return Prelude.Right<Exception, IMessageHandler>(handlers.Single());
+        }
+
+        var primaries = handlers.Where(h => h.HandlerDescription.Role == HandlerRole.Primary).ToList();
+        if (primaries.Count > 1)
+        {
+            return new MoreThanOneHandlerFoundException(messageType, primaries.Select(h => h.HandlerDescription));
+        }
+
+        if (primaries.Count == 1)
+        {
+            return Prelude.Right<Exception, IMessageHandler>(primaries[0]);
+        }
+
+        var fallbacks = handlers.Where(h => h.HandlerDescription.Role == HandlerRole.Fallback).ToList();
+        return fallbacks.Count > 1
+            ? new MoreThanOneHandlerFoundException(messageType, fallbacks.Select(h => h.HandlerDescription))
+            : Prelude.Right<Exception, IMessageHandler>(fallbacks.Single());
+    }
 }

@@ -6,25 +6,17 @@ using NEvo.Web.Authorization.Claims;
 
 namespace NEvo.Web.Authorization.Users;
 
-public class ClaimUserProvider<TId>(IUserClaimsProvider userClaimsProvider) : IUserProvider<TId>
+public abstract class ClaimUserProvider<TUser, TId>(IUserClaimsProvider userClaimsProvider) : IUserProvider<TUser, TId> where TUser : User<TId>
 {
     protected const string UserId = "sub";
     protected const string UserName = "name";
 
     private readonly IUserClaimsProvider _userClaimsProvider = Check.Null(userClaimsProvider);
 
-    public Option<User<TId>> GetUser()
+    public Option<TUser> GetUser()
         => _userClaimsProvider
             .GetUserClaims()
             .Bind(ToUser);
 
-    protected virtual Option<User<TId>> ToUser(IEnumerable<Claim> claims)
-    {
-        var idClaim = claims.GetClaimValue<TId>(UserId);
-        var userNameClaim = claims.GetClaimValue(UserName);
-
-        return from id in idClaim
-               from userName in userNameClaim
-               select new User<TId>(id, userName);
-    }
+    protected abstract Option<TUser> ToUser(IEnumerable<Claim> claims);
 }

@@ -1,0 +1,21 @@
+{
+  "change": "event-sourcing-api-hardening",
+  "requestedTasks": [
+    "characterize-event-sourcing-baseline",
+    "harden-event-store-and-repository-contracts",
+    "es-command-executor-and-ambiguity-resolution",
+    "explicit-event-sourced-command-handler",
+    "primary-fallback-handler-roles"
+  ],
+  "orderedTasks": [
+    "characterize-event-sourcing-baseline",
+    "harden-event-store-and-repository-contracts",
+    "es-command-executor-and-ambiguity-resolution",
+    "explicit-event-sourced-command-handler",
+    "primary-fallback-handler-roles"
+  ],
+  "startRevision": "ad2a26b34a1242850828344fa82b002caa76d3b5",
+  "reviewMode": "batch",
+  "checkpointPolicy": null,
+  "temporaryInconsistencies": []
+}

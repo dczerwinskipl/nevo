@@ -24,7 +24,7 @@ public class DeciderCommandHandlerAdapter<TCommand, TAggregate, TId>(
         try
         {
             var handler = ActivatorUtilities.CreateInstance<DeciderCommandHandler<TCommand, TAggregate, TId>>(context.ServiceProvider);
-            var result = await handler.HandleAsync((TCommand)message, cancellationToken);
+            var result = await handler.HandleAsync((TCommand)message, context, cancellationToken);
             return result.Map(unit => (object)unit);
         }
         catch (Exception exc)

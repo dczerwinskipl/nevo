@@ -27,8 +27,7 @@ public static class AggregateEvolverExtractor
         => type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAggregateEvent<,>));
 
     private static IEnumerable<Type> GetAllAggregateImplementations(Type aggregateType)
-        => AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(assembly => assembly.GetTypes())
+        => aggregateType.Assembly.GetTypes()
             .Where(aggregateType.IsAssignableFrom);
 
     private static IEnumerable<MethodInfo> WithValidReturnType(this IEnumerable<MethodInfo> methods, Type aggregateType)
@@ -46,8 +45,13 @@ public static class AggregateEvolverExtractor
     private static IEnumerable<(Type EventType, Type DeclaringType, Delegate Decider)> InternalExtractEvolvers<TAggregate, TId>()
         where TAggregate : IAggregateRoot<TId>
         where TId : notnull
+        // DeclaredOnly: every assignable type is already its own entry in
+        // GetAllAggregateImplementations, so an inherited instance method would
+        // otherwise be re-extracted once per subclass, producing duplicate candidates
+        // that all report the same (base) DeclaringType — a spurious same-type tie for
+        // most-specific-wins resolution once a state type is three or more levels deep.
         => GetAllAggregateImplementations(typeof(TAggregate))
-            .SelectMany(type => type.GetMethods())
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .WithValidReturnType(typeof(TAggregate))
             .WithEventInputParameter()
             .Select(input => ToEvolver<TAggregate, TId>(input.Method, input.EventType));

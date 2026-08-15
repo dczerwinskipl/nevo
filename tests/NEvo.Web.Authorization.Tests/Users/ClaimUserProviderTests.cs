@@ -13,12 +13,12 @@ namespace NEvo.Web.Authorization.Tests.Users;
 public class ClaimUserProviderTests
 {
     private readonly Mock<IUserClaimsProvider> _userClaimsProviderMock;
-    private readonly ClaimUserProvider<Guid> _userProvider;
+    private readonly DefaultClaimUserProvider<Guid> _userProvider;
 
     public ClaimUserProviderTests()
     {
         _userClaimsProviderMock = new Mock<IUserClaimsProvider>();
-        _userProvider = new ClaimUserProvider<Guid>(_userClaimsProviderMock.Object);
+        _userProvider = new DefaultClaimUserProvider<Guid>(_userClaimsProviderMock.Object);
     }
 
     private static Claim CreateClaim(string type, string value)

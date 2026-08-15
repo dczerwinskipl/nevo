@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-14T19:49:38.465Z",
+  "generated": "2026-08-14T23:11:34.175Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -56,6 +56,14 @@
       "title": "Cross-service messaging",
       "status": "current",
       "summary": "Dispatching a command from one service to another over REST, generalized from the example app's cross-service scenario."
+    },
+    {
+      "file": "docs/usage/event-sourcing.md",
+      "id": "guides.event-sourcing",
+      "type": "guide",
+      "title": "Event Sourcing",
+      "status": "current",
+      "summary": "Modeling an aggregate, choosing a command-handling level, authorization, optimistic concurrency, and reading state back through Query — using NEvo.Ddd.EventSourcing's aggregate-method convention, decision-method parameter injection, and MapQueryEndpoint."
     },
     {
       "file": "docs/usage/events.md",
@@ -152,7 +160,7 @@
         "NEvo.Messaging.Cqrs",
         "NEvo.Messaging"
       ],
-      "summary": "Event-sourced aggregates: decide (command -> events) and evolve (events -> state) building blocks, wired into the NEvo.Messaging.Cqrs command pipeline. The default IEventStore registered by this package is a non-functional stub — see Limitations."
+      "summary": "Event-sourced aggregates: decide (command -> events) and evolve (events -> state) building blocks, wired into the NEvo.Messaging.Cqrs command pipeline. The registered default IEventStreamStore (FakeEventStore) is a real, working in-memory store with correct optimistic-concurrency semantics — not a production-durable one. See Limitations."
     },
     {
       "file": "docs/reference/packages/NEvo.EntityFramework.md",
@@ -349,12 +357,15 @@
       "status": "experimental",
       "read_when": [
         "working on NEvo.Ddd.EventSourcing",
-        "reviewing the event sourcing branch"
+        "implementing a real IEventStreamStore provider",
+        "adding a new aggregate decision-method parameter type",
+        "modifying handler registration, Primary/Fallback resolution, or aggregate-aware authorization"
       ],
-      "summary": "Experimental event sourcing implementation. In progress. Do not use as the basis for refactoring other modules. Characterization tests are needed before changes.",
+      "summary": "Maintainer-facing architecture of NEvo.Ddd.EventSourcing: the executor's lifecycle, convention discovery and decision-method parameter injection, Primary/Fallback registration, the store/repository boundary and concurrency model, the authorization ownership split, and the compatibility constraints a future persistence/modeling provider must not violate.",
       "related": [
         "development.messaging-pipeline",
-        "development.package-boundaries"
+        "development.package-boundaries",
+        "development.transaction-model"
       ]
     },
     {

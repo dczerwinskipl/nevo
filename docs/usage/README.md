@@ -32,6 +32,7 @@ Already have a working dispatch: pick the guide below matching what you're addin
 | [Cross-service messaging](cross-service-messaging.md) | Dispatching a command to another service over REST. |
 | [Inbox/outbox](inbox-outbox.md) | Idempotent processing and transactional publish, including the manual outbox DI-wiring step. |
 | [Authorization](authorization.md) | Configuring `[AllowPermission]` end-to-end across `NEvo.Authorization`, `NEvo.Web.Authorization`, and `NEvo.Messaging.Authorization`. |
+| [Event Sourcing](event-sourcing.md) | Modeling an aggregate, choosing a command-handling level, authorization, optimistic concurrency, and reading state back through Query, with `NEvo.Ddd.EventSourcing`. |
 | [Troubleshooting](troubleshooting.md) | Common failure patterns and where to look, by symptom. |
 | [ExampleApp walkthrough](example-app-walkthrough.md) | End-to-end tour of `examples/ExampleApp`'s 5 projects: auth, permissions, event sourcing, cross-service dispatch. |
 

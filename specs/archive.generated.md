@@ -5,6 +5,7 @@
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
+| `event-sourcing-api-hardening` | Event Sourcing API hardening and persistence readiness | archived | 10 | 2026-08-10 |
 | `nevo-ai-operational-workflow` | NEvo AI operational workflow (Claude Code layer) | archived | 10 | 2026-08-01 |
 | `nevo-ai-process-continuity-and-hardening` | NEvo AI workflow process continuity and hardening | archived | 10 | 2026-08-04 |
 | `nevo-ai-review-hardening` | Deterministic approval gate and hardened Bash guard (PR #13 fix) | archived | 10 | 2026-08-02 |

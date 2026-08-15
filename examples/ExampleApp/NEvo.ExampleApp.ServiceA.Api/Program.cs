@@ -3,14 +3,14 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using NEvo.Authorization.Permissions;
-using NEvo.Ddd.EventSourcing;
-using NEvo.Ddd.EventSourcing.Tests.Mocks;
+using NEvo.Authorization.Users;
 using NEvo.ExampleApp.ServiceA.Api;
 using NEvo.ExampleApp.ServiceA.Api.Database;
 using NEvo.ExampleApp.ServiceA.Api.ExampleDomain;
 using NEvo.ExampleApp.ServiceB.Api.ExampleDomain;
 using NEvo.Messaging.Authorization;
 using NEvo.Messaging.Handling.Middleware;
+using NEvo.Web.Authorization.Users;
 
 const string AppName = "NEvo.ExampleApp.ServiceA.Api";
 
@@ -42,17 +42,11 @@ builder.Services.AddRestMessageDispatcher((opts) =>
 }, [typeof(ServiceBCommand)]);
 
 builder.Services.AddServiceADomain();
-builder.Services.AddEventSourcing(typeof(Document));
-// WORKAROUND: overrides AddEventSourcing()'s FakeEventStore so GetDocumentQuery has a
-// real create-then-query round trip to demonstrate. Remove once PR #10 (real
-// event-sourcing repository) lands — see InMemoryDocumentEventStore for why this
-// exists and what should replace it.
-builder.Services.AddSingleton<IEventStore, InMemoryDocumentEventStore>();
 
 // nEvo Inbox, maybe single method + config like UseEntityFramework<TContext>?
 // example api: nEvoBuilder.UseInbox(options => options.UseEntityFramework<ExampleDbContext>());
-builder.Services.AddMessageProcessingMiddleware<UserContextMiddleware<Guid, RoleDataScope>>();
-builder.Services.AddMessageProcessingHandlerMiddleware<ValidatePermissionMiddleware<Guid>>();
+builder.Services.AddMessageProcessingMiddleware<UserContextMiddleware<Guid, User<Guid>, RoleDataScope>>();
+builder.Services.AddMessageProcessingHandlerMiddleware<ValidatePermissionMiddleware<Guid, User<Guid>>>();
 
 builder.Services.AddMessageProcessingMiddleware<TransactionScopeMessageProcessingMiddleware>();
 builder.Services.AddMessageProcessingMiddleware<InboxMessageProcessingMiddleware>();
@@ -80,7 +74,7 @@ builder.Services
 
 builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor(); // TODO: part of claims auth?
-builder.Services.AddClaimsAuthorization<Guid, RoleDataScope>();
+builder.Services.AddClaimsAuthorization<Guid, User<Guid>, DefaultClaimUserProvider<Guid>, RoleDataScope>();
 builder.Services.AddSingleton<IPermissionMapper<RoleDataScope>, SayHelloPermissionMapper>();
 
 // swagger

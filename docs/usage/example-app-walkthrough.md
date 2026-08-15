@@ -143,30 +143,24 @@ independently](quick-start.md#6-publish-an-event-and-react-to-it-independently).
 
 ## Scenario 3: the Document event-sourcing flow
 
-`POST /api/document/create` (`Routes.cs`) maps to `CreateDocument`
-(`ExampleDomain/Documents/DocumentCommands.cs`), handled through
-`docs/reference/packages/NEvo.Ddd.EventSourcing.md`'s decider/evolver flow, matching
-`docs/development/event-sourcing.md`'s description of this exact aggregate.
+The Document event-sourcing example no longer lives in `ServiceA.Api` — it moved to its
+own standalone project, `examples/ExampleApp/NEvo.ExampleApp.Documents.Api`, with its
+own domain namespace (no longer imported from
+`NEvo.Ddd.EventSourcing.Tests.Mocks`), its own message-level permission check on
+approval, and its own reload-after-write query. `ServiceA.Api` maps no Document routes
+at all today.
 
-**The `Document` aggregate used here is imported directly from
-`NEvo.Ddd.EventSourcing.Tests.Mocks`** (`using NEvo.Ddd.EventSourcing.Tests.Mocks;` in
-`Program.cs` and `Routes.cs`) — this "example domain" is literally the event-sourcing
-package's own test fixture, not domain code written for this example app.
+Run it directly — no other example project or Identity.Api needs to be running:
 
 ```bash
-curl -X POST https://localhost:<servicea-port>/api/document/create \
-  -H "Content-Type: application/json" \
-  -d '{"documentId":"<a-guid>","data":"hello"}'
+dotnet run --project examples/ExampleApp/NEvo.ExampleApp.Documents.Api
 ```
 
-**This will report success but persist nothing.** `Program.cs` calls
-`AddEventSourcing(typeof(Document))` and registers no other `IEventStore` — per
-`docs/reference/packages/NEvo.Ddd.EventSourcing.md` § Limitations, the default
-`IEventStore` is `FakeEventStore`, whose `AppendEventsAsync` is a no-op that reports
-success and whose load methods always return "not found." The command completes
-without error; there is no working way to load the document back afterward through
-this example as configured. Treat this scenario as "the decide step runs and produces
-the expected event," not as a real persistence demo.
+Then follow its own `WALKTHROUGH.md`
+(`examples/ExampleApp/NEvo.ExampleApp.Documents.Api/WALKTHROUGH.md`) for the full
+create → query → change → approve (401/403/success) → query-again flow, or
+[Event Sourcing](event-sourcing.md) § "Example: the Documents service" for a summary
+tied to the rest of that guide.
 
 ## Scenario 4: cross-service dispatch
 
@@ -198,8 +192,8 @@ is unauthenticated").
   `grant_type=password` — see Scenario 1, only that grant is implemented.
 - **`/api/hello` always fails with a generic error, even with a valid token:** check
   your request body's `companyId` is exactly `"C1"` — see Scenario 2.
-- **Document creation "succeeds" but you can't find any trace of it:** expected — see
-  Scenario 3, nothing is actually persisted by default.
+- **Looking for the Document event-sourcing flow:** it's a separate, standalone
+  project now, not part of this walkthrough's 5-project topology — see Scenario 3.
 - **SQL Server connection details, whether Identity needs additional seed data beyond
   self-registration, and exact Aspire dashboard access:** depend on your local
   Aspire/Docker environment, not something this guide can state generically — see

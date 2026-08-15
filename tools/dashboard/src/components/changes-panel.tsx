@@ -95,8 +95,8 @@ function renderablePatch(file: PullRequestFile, oldFileName: string | null, newF
   return `--- ${oldPath}\n+++ ${newPath}\n${file.patch}`;
 }
 
-function FileChange({ file, mode }: { file: PullRequestFile; mode: DiffViewMode }) {
-  const [open, setOpen] = useState(true);
+function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFile; mode: DiffViewMode; initiallyOpen?: boolean }) {
+  const [open, setOpen] = useState(initiallyOpen);
   const oldFileName = file.status === 'added' ? null : (file.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
   const contentUnchangedRename = isContentUnchangedRename(file);
@@ -160,6 +160,7 @@ function FileChange({ file, mode }: { file: PullRequestFile; mode: DiffViewMode 
 
 function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
+  const collapseFilesInitially = pullRequest.files.length > 50;
   const incompleteDiff = !pullRequest.fullDiffAvailable
     || !pullRequest.filesComplete
     || pullRequest.files.some(file => !file.patchAvailable && !isContentUnchangedRename(file));
@@ -212,6 +213,7 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
               <span className="inline-flex items-center gap-1.5 text-[var(--muted)]"><Files className="size-3.5" />{pullRequest.stats.changedFiles} plików</span>
               <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
               <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
+              {collapseFilesInitially && <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
 
@@ -224,7 +226,14 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
 
           {pullRequest.files.length ? (
             <div className="space-y-3">
-              {pullRequest.files.map(file => <FileChange key={`${file.previousPath || ''}:${file.path}`} file={file} mode={mode} />)}
+              {pullRequest.files.map(file => (
+                <FileChange
+                  key={`${file.previousPath || ''}:${file.path}`}
+                  file={file}
+                  mode={mode}
+                  initiallyOpen={!collapseFilesInitially}
+                />
+              ))}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">

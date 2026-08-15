@@ -27,8 +27,6 @@ public class EditableDocument(Guid id, string data) : Document(id, data)
 
     public Either<Exception, IEnumerable<DocumentDomainEvent>> Approve(ApproveDocument command)
     {
-        Either<Exception, IEnumerable<object>> result = Approve(command);
-
         return new[] { new DocumentApproved(Id) };
     }
 
@@ -40,6 +38,16 @@ public class EditableDocument(Guid id, string data) : Document(id, data)
     public Document Apply(DocumentApproved @event)
     {
         return new ApprovedDocument(Id, Data);
+    }
+
+    public Either<Exception, IEnumerable<DocumentDomainEvent>> FlagForReview(FlagDocumentForReview command)
+    {
+        return new[] { new DocumentFlaggedForReview(Id) };
+    }
+
+    public Document Apply(DocumentFlaggedForReview @event)
+    {
+        return new ReviewableDocument(Id, Data);
     }
 }
 

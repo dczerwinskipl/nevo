@@ -65,6 +65,7 @@ public class CommandHandlerAdapterFactoryTests
         description.ReturnType.Should().Be(typeof(Unit));
         description.Method.Should().NotBeNull();
         description.Method!.Name.Should().Be(nameof(CommandHandlerMock.HandleAsync));
+        description.Role.Should().Be(HandlerRole.Primary);
     }
 
     [Fact]

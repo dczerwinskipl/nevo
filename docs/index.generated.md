@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-14T19:49:38.465Z_
+_Generated: 2026-08-14T23:11:34.175Z_
 
 ## Hub
 
@@ -20,6 +20,7 @@ _Generated: 2026-08-14T19:49:38.465Z_
 | `guides.choosing-packages` | [Choosing packages](usage/choosing-packages.md) | current |  |
 | `guides.commands` | [Commands](usage/commands.md) | current |  |
 | `guides.cross-service-messaging` | [Cross-service messaging](usage/cross-service-messaging.md) | current |  |
+| `guides.event-sourcing` | [Event Sourcing](usage/event-sourcing.md) | current |  |
 | `guides.events` | [Events](usage/events.md) | current |  |
 | `guides.example-app-walkthrough` | [ExampleApp walkthrough](usage/example-app-walkthrough.md) | current |  |
 | `guides.inbox-outbox` | [Inbox/outbox](usage/inbox-outbox.md) | current |  |

@@ -20,7 +20,7 @@ related:
 
 ## Entry point
 
-`IMessageProcessor` — defined in `src/NEvo.Messaging/Processing/`.
+`IMessageProcessor` — defined in `src/NEvo.Messaging/Handling/IMessageProcessor.cs`.
 
 ```csharp
 Task<Either<Exception, Unit>> ProcessMessageAsync(IMessage, IMessageContext, CancellationToken)
@@ -35,7 +35,7 @@ IMessageProcessor.ProcessMessageAsync(message, context, ct)
   ├─ MessageProcessingMiddleware chain (predicate-filtered, ordered)
   │    CorrelationIdMessageProcessingMiddleware   ← adds correlation ID to context
   │    CausationIdMessageProcessingMiddleware     ← adds causation ID to context
-  │    AuthorizationMiddleware                   ← optional, if configured
+  │    UserContextMiddleware<TId,TUser,TRoleDataScope> ← optional, if configured (message-level auth)
   │    TransactionScopeMessageProcessingMiddleware ← optional, opens ambient transaction
   │    InboxMessageProcessingMiddleware           ← optional, checks idempotency
   │    LoggingMessageProcessingMiddleware         ← structured logging
@@ -51,7 +51,7 @@ IMessageProcessor.ProcessMessageAsync(message, context, ct)
   │    → IEnumerable<IMessageHandler>            ← multiple (events)
   │
   ├─ MessageProcessingHandlerMiddleware chain
-  │    AuthorizationHandlerMiddleware            ← per-handler auth, if configured
+  │    ValidatePermissionMiddleware<TId,TUser>     ← per-handler auth, if configured (handler-level only)
   │
   └─ IMessageHandler.HandleAsync(message, context, ct)
        → Either<Exception, Unit / TResult>
@@ -85,7 +85,8 @@ Handlers are discovered via reflection at startup through `IMessageHandlerRegist
 - Commands: one handler expected — `MoreThanOneHandlerFoundException` if multiple found
 - Events: multiple handlers allowed — processed sequentially or in parallel per strategy
 
-Handler adapters (`MessageHandlerAdapterBase` subclasses) normalize different handler
+Handler adapters, built on the shared `MessageHandlerAdapter`
+(`src/NEvo.Messaging/Handling/MessageHandlerAdapter.cs`), normalize different handler
 interface signatures into `IMessageHandler`. The contract a third-party handler-type
 author must implement is documented in `docs/development/extension-points.md`.
 
