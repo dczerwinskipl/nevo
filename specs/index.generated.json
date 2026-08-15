@@ -1,8 +1,9 @@
 {
-  "generated": "2026-08-15T07:13:11.186Z",
+  "generated": "2026-08-15T08:54:59.313Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
+      "specId": "70609aaf-bb62-40bf-a25e-bec65c583495",
       "title": "AI sessions and live chat integration",
       "status": "draft",
       "priority": 10,
@@ -12,7 +13,42 @@
           "id": "stable-spec-identity-and-backfill",
           "order": 1,
           "file": "tasks/01-stable-spec-identity-and-backfill.md",
-          "status": "draft"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "review_revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-create.md",
+              "specs/index.generated.json",
+              "tools/dashboard/server/data.mjs",
+              "tools/dashboard/tests/data.test.mjs",
+              "tools/specs.mjs",
+              "tools/specs/service.mjs",
+              "tools/specs/validation.mjs",
+              "tools/tests/index-generation.test.mjs",
+              "tools/tests/spec-identity.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "7b8b1bedeb86fb57590873702bb2d3b588328043d5f9c7977b1e9fabb7964b30"
+          },
+          "self_check": {
+            "fingerprint": "4a03fba5b98bdd4f40148c18e5bffc8073883967e33a893c8a88422b68390da3",
+            "revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/spec-identity.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "provider-neutral-ai-contracts",
@@ -145,6 +181,7 @@
     },
     {
       "id": "architecture-documentation",
+      "specId": "051f8c73-3dc3-459f-84a2-994c0c2aff39",
       "title": "Architecture documentation",
       "status": "archived",
       "priority": 10,
@@ -160,6 +197,7 @@
     },
     {
       "id": "event-sourcing-api-hardening",
+      "specId": "5b6183e3-0204-4018-8889-680fa7e06f90",
       "title": "Event Sourcing API hardening and persistence readiness",
       "status": "archived",
       "priority": 10,
@@ -992,6 +1030,7 @@
     },
     {
       "id": "nevo-ai-operational-workflow",
+      "specId": "7cebb7d0-72de-4184-86bd-bae105503580",
       "title": "NEvo AI operational workflow (Claude Code layer)",
       "status": "archived",
       "priority": 10,
@@ -1025,6 +1064,7 @@
     },
     {
       "id": "nevo-ai-process-continuity-and-hardening",
+      "specId": "0f79c334-a443-42fb-8e73-df7e31c81b8a",
       "title": "NEvo AI workflow process continuity and hardening",
       "status": "archived",
       "priority": 10,
@@ -1603,6 +1643,7 @@
     },
     {
       "id": "nevo-ai-review-hardening",
+      "specId": "825bebc7-49b5-4bf6-9a33-7aaaffc1e65e",
       "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
       "status": "archived",
       "priority": 10,
@@ -1618,6 +1659,7 @@
     },
     {
       "id": "nevo-documentation-architecture",
+      "specId": "0c6f4d40-3832-409a-8932-283b0ee56663",
       "title": "NEvo documentation architecture",
       "status": "archived",
       "priority": 10,
@@ -1788,6 +1830,7 @@
     },
     {
       "id": "nevo-documentation-foundation",
+      "specId": "00925078-ee1e-4783-bf2e-a6999dcf70d4",
       "title": "NEvo documentation foundation",
       "status": "archived",
       "priority": 10,
@@ -1926,6 +1969,7 @@
     },
     {
       "id": "nevo-spec-dashboard",
+      "specId": "fe1e55c8-72dd-420b-93eb-e3b042f32edb",
       "title": "Local specification workflow dashboard",
       "status": "archived",
       "priority": 20,
@@ -1967,6 +2011,7 @@
     },
     {
       "id": "nevo-spec-dashboard-refinement",
+      "specId": "f872dce6-4c87-4299-89f1-f771b6894021",
       "title": "Specification dashboard documents and GitHub changes",
       "status": "archived",
       "priority": 20,
@@ -2170,6 +2215,7 @@
     },
     {
       "id": "query-support-and-handler-registration-hardening",
+      "specId": "01d59e23-3e14-49aa-830a-a58c5a6dc379",
       "title": "Query support and handler-registration hardening",
       "status": "archived",
       "priority": 10,

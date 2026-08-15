@@ -80,3 +80,92 @@
 - **Consequences:** Session URLs survive refresh and can be selected directly without adding a standalone Sessions product area. The large specification header and workflow cards are absent from chat view.
 - **Date:** 2026-08-15
 - **Affected artifacts:** dashboard navigation, specification/task surfaces, chat and creation UI
+
+## D10: One non-terminal turn per session, with an optional idempotency key
+
+- **Question:** PR #25 review (owner, commit e6496d5) — the frontend only has a "prevent
+  accidental duplicate starts" affordance; nothing in the server contract stops a double
+  click, a lost-response retry, or two tabs from starting two live turns on the same
+  session. What is the server-side invariant?
+- **Options considered:** Leave it entirely client-side | a session-level lock enforced
+  only at the dashboard route layer | a runtime-level invariant (at most one non-terminal
+  turn per session) plus an optional caller idempotency key
+- **Decision:** A provider session has at most one non-terminal (`running`/
+  `waitingForUser`) turn. Starting another turn while one is already non-terminal never
+  reaches the adapter — it returns a normalized conflict naming the existing `turnId`.
+  Start-turn accepts an optional caller-supplied idempotency key; a retry carrying the
+  same key against that same still-non-terminal turn returns its existing `turnId`
+  instead of a conflict.
+- **Consequences:** The invariant lives in the turn runtime (task 03), not only the HTTP
+  route layer (task 05), so it holds regardless of caller. `overview.md` gains C20;
+  `areas/provider-neutral-ai-runtime.md` and tasks 03/05 gain matching requirements/ACs.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md` (C20, Interactive turn runtime, HTTP and SSE
+  resources), `areas/provider-neutral-ai-runtime.md`, `tasks/03-interactive-turn-runtime.md`,
+  `tasks/05-ai-session-http-and-sse-api.md`
+
+## D11: AskUserQuestion questions and answers correlate by stable ID, never by text
+
+- **Question:** PR #25 review (owner, commit e6496d5) — the original `answers` contract
+  keyed a response by the question's own prose (`{ "answers": { "<question text>": "B" }
+  }`), which conflicts with C9's own principle that interaction correlation uses NEvo IDs,
+  not presentational data. What should the shape be?
+- **Options considered:** Keep text-keyed answers | index-position correlation (answer
+  order matches question order) | a stable NEvo-assigned `id` per question, correlated
+  explicitly
+- **Decision:** Every question inside a multi-question interaction carries its own
+  NEvo-assigned `id`. The response body becomes `{ "answers": [{ "questionId": "q-1",
+  "value": "B" }] }`. The provider adapter, not the browser contract, maps a resolved
+  answer array back to whatever shape the underlying provider's own protocol expects.
+- **Consequences:** Two identically-worded questions in the same interaction are no
+  longer ambiguous, and normalization can reword question text without breaking
+  correlation. `overview.md`'s two JSON examples, C9, and tasks 03/05 are updated to
+  match.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md` (C9, HTTP and SSE resources JSON examples),
+  `areas/provider-neutral-ai-runtime.md`, `tasks/03-interactive-turn-runtime.md`,
+  `tasks/05-ai-session-http-and-sse-api.md`
+
+## D12: Permission interaction `input` is adapter-normalized, never a raw provider payload
+
+- **Question:** PR #25 review (owner, commit e6496d5) — the permission interaction
+  example (`"input": { "command": "dotnet test" }`) is unconstrained `object` shape,
+  which risks an adapter implementing it as `input: claudeEvent.input` (exactly the raw
+  provider payload passthrough C9 already forbids for IDs). Should this change define a
+  universal tool-input schema now?
+- **Options considered:** Leave `input` fully unconstrained | design a universal schema
+  for every possible tool now | state the normalization requirement (display-safe,
+  bounded, sanitized, adapter-produced) without inventing a universal schema
+- **Decision:** `input`/`details` on a permission interaction is NEvo-normalized,
+  display-safe, bounded, and sanitized by the adapter for the tool kinds it supports —
+  never the provider's raw event object passed through unchanged. An adapter that cannot
+  produce a normalized representation for a given tool omits the field rather than
+  forwarding the raw payload. No universal tool-input schema is designed now.
+- **Consequences:** Closes the passthrough risk without expanding this change's scope
+  into a general tool-call model (already out of scope). Each adapter decides, per tool
+  kind it actually supports, what a bounded/sanitized `input` looks like.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md` (C9, HTTP and SSE resources), `areas/provider-neutral-ai-runtime.md`
+
+## D13: `validate`/`check` requires `spec_id` once backfill has run; reading stays permanently tolerant
+
+- **Question:** PR #25 review (owner, commit e6496d5) — task 01's validator always
+  accepted a missing `spec_id` as "legacy," with no way to distinguish a genuinely
+  pre-migration manifest from a new one that skipped spec-create's guidance. Should the
+  compatibility window ever actually close for CI purposes?
+- **Options considered:** Leave `validate` permanently lenient on missing `spec_id` |
+  require `spec_id` everywhere, including reads (breaking legacy manifest loading) | keep
+  reads permanently tolerant, but make `validate`/`check` require `spec_id` once the
+  one-time backfill has run
+- **Decision:** Reading a manifest (`loadChange`, context packets, dashboard projections)
+  tolerates a missing `spec_id` indefinitely. `validate`/`check` do not: once
+  `backfill-spec-id` has run across the repository, a manifest missing `spec_id` is a
+  validation error naming its path, not tolerated legacy input.
+- **Consequences:** `tools/specs/validation.mjs`'s `validateSpecId` was corrected to
+  match (implemented directly, since task 01 was already complete when this was raised);
+  `tools/tests/spec-identity.test.mjs` was updated; task 01 self-check was re-run and
+  passed against the corrected behavior.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md` (C2, Compatibility and migration),
+  `areas/stable-spec-identity.md`, `tasks/01-stable-spec-identity-and-backfill.md`,
+  `tools/specs/validation.mjs`, `tools/tests/spec-identity.test.mjs`

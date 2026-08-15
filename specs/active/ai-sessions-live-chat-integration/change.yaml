@@ -13,7 +13,32 @@ tasks:
   - id: stable-spec-identity-and-backfill
     order: 1
     file: tasks/01-stable-spec-identity-and-backfill.md
-    status: draft
+    status: implemented
+    implementation:
+      baseline_revision: e6496d5fe4eb2ce1ebd9608e68536c45b09be03f
+      review_revision: e6496d5fe4eb2ce1ebd9608e68536c45b09be03f
+      changed_paths:
+        - .claude/commands/nevo-ai/spec-create.md
+        - specs/index.generated.json
+        - tools/dashboard/server/data.mjs
+        - tools/dashboard/tests/data.test.mjs
+        - tools/specs.mjs
+        - tools/specs/service.mjs
+        - tools/specs/validation.mjs
+        - tools/tests/index-generation.test.mjs
+        - tools/tests/spec-identity.test.mjs
+      worktree_patch_fingerprint: 7b8b1bedeb86fb57590873702bb2d3b588328043d5f9c7977b1e9fabb7964b30
+    self_check:
+      fingerprint: 4a03fba5b98bdd4f40148c18e5bffc8073883967e33a893c8a88422b68390da3
+      revision: e6496d5fe4eb2ce1ebd9608e68536c45b09be03f
+      commands:
+        - command: node --test tools/tests/spec-identity.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
   - id: provider-neutral-ai-contracts
     order: 2
     file: tasks/02-provider-neutral-ai-contracts.md
@@ -96,3 +121,4 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 25
+spec_id: 70609aaf-bb62-40bf-a25e-bec65c583495

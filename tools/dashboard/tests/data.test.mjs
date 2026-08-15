@@ -41,6 +41,7 @@ test('projects active and archived manifests into dashboard data', () => {
     const data = loadDashboardData({ ...sample, repoRoot: sample.root });
     assert.deepEqual(data.counts, { active: 1, archived: 1 });
     assert.equal(data.active[0].summary, 'A short file-backed summary for the dashboard.');
+    assert.equal(data.active[0].specId, null);
     assert.equal(data.active[0].metrics.progress, 50);
     assert.deepEqual(data.active[0].metrics.stageCounts, {
       new: 0,
@@ -55,6 +56,22 @@ test('projects active and archived manifests into dashboard data', () => {
     assert.equal(data.active[0].tasks[1].file, 'specs/active/sample-change/tasks/02-build-it.md');
     assert.equal(data.archive[0].source, 'archive');
     assert.equal(data.archive[0].status, 'archived');
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('carries a manifest\'s spec_id through both the dashboard projection and the specification content payload (D2)', () => {
+  const sample = fixture();
+  try {
+    const activeChange = join(sample.activeDir, 'sample-change');
+    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\nspec_id: 4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n`);
+
+    const change = loadDashboardData({ ...sample, repoRoot: sample.root }).active[0];
+    assert.equal(change.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
+
+    const content = loadSpecificationContent({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
+    assert.equal(content.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
   } finally {
     sample.cleanup();
   }

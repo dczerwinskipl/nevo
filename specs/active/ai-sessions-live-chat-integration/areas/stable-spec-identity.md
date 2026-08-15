@@ -17,6 +17,7 @@ Specification directories and CLI selectors use slug. `change.id` conventionally
 - Expose `specId` alongside slug in context packets, indexes, and dashboard projections.
 - Resolve slug or current human-facing selector to `spec_id` before any AI relation operation.
 - Keep legacy manifests readable during migration; return a precise migration-needed error when a session operation targets one without `spec_id`.
+- Once the one-time backfill has run, treat a manifest missing `spec_id` as a `validate`/`check` error (naming its path), not tolerated legacy input — reader-side tolerance (loading a manifest, building a context packet) stays permanent, but the CI-enforced check does not, so a hand-authored manifest that skips spec-create's guidance is caught rather than passing indefinitely as if it predated the migration.
 - Backfill this specification itself during implementation rather than inventing a pre-feature field the current validator does not yet understand.
 
 ## Constraints
@@ -37,6 +38,7 @@ The spec service owns generation, validation, uniqueness, lookup, backfill, and 
 3. Duplicate IDs across active/archive fail validation with both affected manifests named.
 4. Moving or renaming a spec directory while retaining its manifest leaves `specId` unchanged.
 5. Current slug-based commands and dashboard selection continue to work.
+6. After backfill has run once, `validate`/`check` reports a manifest missing `spec_id` as an error naming its path; loading/reading that same manifest (context packets, dashboard projections) still succeeds without it.
 
 ## Dependencies
 

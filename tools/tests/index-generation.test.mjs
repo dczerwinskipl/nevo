@@ -54,4 +54,20 @@ describe('buildSpecsIndexes — pure content is deterministic against real repo 
     assert.doesNotMatch(built.activeMd, /_Generated:/);
     assert.doesNotMatch(built.archiveMd, /_Generated:/);
   });
+
+  // D2, area stable-spec-identity, task 01, AC4 — every projected change
+  // carries specId alongside id (id already doubles as the human-facing
+  // slug, per overview.md's "conventionally equals the slug" convention;
+  // specId is the new, immutable, non-slug-derived identity).
+  test('every projected change carries specId (null for a legacy manifest, a UUID once backfilled)', () => {
+    const built = buildSpecsIndexes();
+    assert.ok(built.changes.length > 0);
+    for (const change of built.changes) {
+      assert.ok('specId' in change, `change '${change.id}' is missing a specId field`);
+      assert.ok(
+        change.specId === null || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(change.specId),
+        `change '${change.id}' has a malformed specId: ${change.specId}`
+      );
+    }
+  });
 });

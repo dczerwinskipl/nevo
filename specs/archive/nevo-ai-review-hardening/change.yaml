@@ -14,3 +14,4 @@ tasks:
     order: 1
     file: tasks/01-harden-approval-and-guard.md
     status: verified
+spec_id: 825bebc7-49b5-4bf6-9a33-7aaaffc1e65e

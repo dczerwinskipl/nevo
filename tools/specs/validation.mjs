@@ -8,7 +8,7 @@ import { CliError, RECOVERY_SCENARIOS } from '../lib/cli-errors.mjs';
 import {
   listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints,
   pathGlobsOverlap, FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES,
-  normalizePullRequestReference, pullRequestReferenceKey,
+  normalizePullRequestReference, pullRequestReferenceKey, isValidSpecId,
 } from './service.mjs';
 import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle.mjs';
 
@@ -51,6 +51,39 @@ export function validatePullRequestReferences(change, errors, label = change._fi
       errors.push(error instanceof Error ? error.message : String(error));
     }
   });
+}
+
+/**
+ * `spec_id` (D2, area stable-spec-identity, task 01; tightened per owner
+ * review of PR #25 — see overview.md's Compatibility and migration section).
+ * *Reading* a manifest tolerates a missing `spec_id` permanently (C2) — that
+ * leniency lives in `loadChange`/`buildContextPacket`, never here. This
+ * check is `validate`/`check`'s own gate, and it is stricter: once the
+ * one-time backfill (`node tools/specs.mjs backfill-spec-id`) has run across
+ * the repository, every active/archived manifest is expected to carry one —
+ * a missing `spec_id` is a validation error naming the manifest's own path,
+ * not silently tolerated as if it still predated the migration. This is what
+ * actually closes the compatibility window: a hand-authored manifest that
+ * skips spec-create's guidance is caught by CI instead of passing
+ * indefinitely. Present-but-malformed is always rejected with the offending
+ * manifest's own path; a duplicate across active/archive names both
+ * manifests (this one, plus the one already seen, via `specIds`).
+ */
+export function validateSpecId(change, specIds, errors, label) {
+  if (change.spec_id === undefined) {
+    errors.push(`${label}: missing 'spec_id' — run 'node tools/specs.mjs backfill-spec-id'`);
+    return;
+  }
+  if (!isValidSpecId(change.spec_id)) {
+    errors.push(`${label}: spec_id must be a canonical UUID string, got '${JSON.stringify(change.spec_id)}'`);
+    return;
+  }
+  const existing = specIds.get(change.spec_id);
+  if (existing) {
+    errors.push(`${label}: duplicate spec_id '${change.spec_id}' (also in ${existing})`);
+  } else {
+    specIds.set(change.spec_id, change._file);
+  }
 }
 
 /**
@@ -461,6 +494,7 @@ export function validateSpecs() {
   const errors = [];
   const changes = [...listChanges(ACTIVE_DIR), ...listChanges(ARCHIVE_DIR)];
   const changeIds = new Map();
+  const specIds = new Map();
 
   for (const change of changes) {
     if (!change.id) {
@@ -474,6 +508,7 @@ export function validateSpecs() {
     if (!change.status) errors.push(`${change._file}: missing 'status'`);
     validateStatusValue(change.status, CHANGE_STATUSES, errors, `${change._file}: change.status`);
     validatePullRequestReferences(change, errors);
+    validateSpecId(change, specIds, errors, change._file);
 
     const decisionsMap = parseOwnerDecisions(
       existsSync(join(change._dir, 'owner-decisions.md')) ? readUtf8(join(change._dir, 'owner-decisions.md')) : ''

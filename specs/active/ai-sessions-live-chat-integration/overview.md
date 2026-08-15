@@ -48,14 +48,14 @@ The dashboard cannot discover, create, display, resume, or converse through AI s
 ## Constraints
 
 - **C1.** `spec_id` is an immutable UUID generated for new specifications and stable across slug/directory changes and archive transitions; durable relations never use slug as their key.
-- **C2.** Existing manifests are backfilled once by an explicit idempotent operation. Legacy manifests without `spec_id` remain readable during the compatibility window, but session create/attach requires a persisted ID.
+- **C2.** Existing manifests are backfilled once by an explicit idempotent operation. Reading a manifest tolerates a missing `spec_id` indefinitely (never a hard read failure), but session create/attach requires a persisted ID. Once the one-time backfill has run, `validate`/`check` requires `spec_id` on every active/archived manifest — a manifest missing it after that point is a validation error, not tolerated "legacy" input, so a new manifest authored without going through spec-create's guidance is caught instead of silently passing as if it predated the migration.
 - **C3.** `id` and directory slug remain human-readable selectors for current URL and CLI workflows; this change does not introduce a slug rename command.
 - **C4.** A session is identified by at least `(provider, sessionId)`, belongs to exactly one immutable `spec_id`, and has zero or more `taskIds`; it is not owned by a task.
 - **C5.** Session status is exactly `running`, `waitingForUser`, `idle`, or `completed`; no persisted `isActive` or interaction-specific waiting status is introduced.
 - **C6.** `lastActivityAt` is the primary descending sort key. Missing or imprecise provider lifecycle data maps to `idle`, not an invented precise status.
 - **C7.** Providers own transcripts. NEvo stores relations and minimal local metadata only; mock conversations and active turn runtime are in-memory.
 - **C8.** Browser contracts are provider-neutral. Provider-specific session discovery, creation, transcript retrieval, resume, event mapping, interaction resolution, and invocation identity extraction stay behind adapters.
-- **C9.** Every live operation has a NEvo `turnId`; every pending permission/question has a NEvo `interactionId`. Provider request IDs and raw payloads never cross the backend boundary.
+- **C9.** Every live operation has a NEvo `turnId`; every pending permission/question has a NEvo `interactionId`. Provider request IDs and raw payloads never cross the backend boundary — a permission interaction's `input`/`details` is NEvo-normalized, display-safe, bounded, and sanitized by the adapter, never the provider's raw event object passed through unchanged. Each question inside a multi-question interaction carries its own stable NEvo-assigned `id`; correlation for both the interaction and every question within it is always by ID, never by matching question/answer prose.
 - **C10.** SSE is backend-to-frontend only. Starting/cancelling turns and resolving interactions use ordinary HTTP requests.
 - **C11.** Required normalized events are `turn.started`, `message.delta`, `interaction.requested`, `interaction.resolved`, `turn.completed`, and `turn.failed`; a small `activity` event is optional and rich tool-call UI remains out of scope.
 - **C12.** Closing the browser or disconnecting SSE does not cancel a turn. Reconnect exposes the current turn snapshot and unresolved interaction. Backend restart may mark an active turn interrupted/failed and does not reconstruct its process.
@@ -66,6 +66,7 @@ The dashboard cannot discover, create, display, resume, or converse through AI s
 - **C17.** The current access policy trusts clients that can reach the dashboard through the owner's VPN. All AI routes still use one replaceable `read`/`control` authorization boundary; Google OIDC, allowlists, users, and view-only roles are a separate future specification.
 - **C18.** No new `src/NEvo.*` package or standalone service is introduced. New external dependencies require a separate owner decision; Part 1 uses the existing Node/React stack and SSE support.
 - **C19.** Part 1 and Part 2 are dependency-closed groups with separate gating review and PR boundaries. Part 2 provider-specific tasks cannot force an unapproved redesign of the Part 1 neutral contract.
+- **C20.** A provider session has at most one non-terminal turn (`running`/`waitingForUser`). Starting another turn while one is already non-terminal never invokes the adapter — it returns a normalized conflict result instead. Start-turn accepts an optional caller-supplied idempotency key; a retried request carrying the same key against the same still-non-terminal turn returns that turn's existing `turnId` rather than starting a second one.
 
 ## Affected modules
 
@@ -112,7 +113,9 @@ The normalized session read model contains `specId`, `provider`, `sessionId`, `t
 
 ### Interactive turn runtime
 
-Starting a turn returns `turnId`. The backend owns the live provider process/operation and a bounded in-memory event log. If the provider requests permission or asks a question, the adapter creates a normalized pending interaction with `interactionId`, suspends provider progress without exiting the live turn, and moves session status to `waitingForUser`.
+Starting a turn returns `turnId`. A session has at most one non-terminal turn (C20): if one is already `running`/`waitingForUser`, a second start-turn request never reaches the adapter — it gets back a normalized conflict result naming the existing `turnId` instead. This is the server-side invariant closing the concurrency/duplicate-request gap a client-only "prevent accidental duplicate starts" affordance cannot cover on its own (a double click, a lost HTTP response the client retries, or two browser tabs). An optional caller-supplied idempotency key on start-turn lets a genuine retry of the same request return the already-started turn's `turnId` rather than surface the request as a conflict.
+
+The backend owns the live provider process/operation and a bounded in-memory event log. If the provider requests permission or asks a question, the adapter creates a normalized pending interaction with `interactionId`, suspends provider progress without exiting the live turn, and moves session status to `waitingForUser`.
 
 The browser resolves an interaction through HTTP using provider-neutral permission or answer payloads. The adapter maps the response back to its private provider callback/control request, emits `interaction.resolved`, returns the session to `running`, and continues the same turn. A normal completed turn emits `turn.completed` and leaves the session `waitingForUser` for a future message.
 
@@ -128,7 +131,7 @@ GET  /api/ai/sessions?specId=...&taskId=...
 GET  /api/ai/sessions/{provider}/{encodedSessionId}
 GET  /api/ai/sessions/{provider}/{encodedSessionId}/messages
 POST /api/ai/sessions
-POST /api/ai/sessions/{provider}/{encodedSessionId}/turns -> { turnId }
+POST /api/ai/sessions/{provider}/{encodedSessionId}/turns -> { turnId } | 409 conflict { turnId: <existing> }
 GET  /api/ai/turns/{turnId}
 GET  /api/ai/turns/{turnId}/events            (SSE)
 POST /api/ai/turns/{turnId}/interactions/{interactionId}/response
@@ -152,6 +155,8 @@ Every SSE event contains `type`, `turnId`, a monotonic event ID, and event-speci
 }
 ```
 
+`input` above is NEvo-normalized, display-safe, bounded, and sanitized by the adapter for the specific tool kinds it supports — never the provider's raw event object assigned through unchanged (C9). This change does not define a universal schema for every possible tool's input; an adapter that cannot produce a normalized, bounded representation for a given tool omits the field rather than passing the raw payload through.
+
 ```json
 {
   "type": "interaction.requested",
@@ -161,6 +166,7 @@ Every SSE event contains `type`, `turnId`, a monotonic event ID, and event-speci
     "kind": "question",
     "questions": [
       {
+        "id": "q-1",
         "question": "Which variant should be used?",
         "header": "Variant",
         "options": [
@@ -174,7 +180,7 @@ Every SSE event contains `type`, `turnId`, a monotonic event ID, and event-speci
 }
 ```
 
-The response endpoint accepts either `{ "decision": "allow" }`, `{ "decision": "deny", "message": "optional reason" }`, or `{ "answers": { "Which variant should be used?": "B" } }` according to interaction kind. The turn snapshot contains its lifecycle state, last event ID, accumulated transient output needed for reconnect, and at most the current unresolved normalized interaction. Provider adapters logically implement `StartTurn`, `StreamEvents`, `ResolveInteraction`, and `CancelTurn`; the Claude transport used to fulfill those operations is not part of the browser contract.
+Every question inside a multi-question interaction carries its own NEvo-assigned `id` (C9) — correlation on resolution is always by `interactionId`/question `id`, never by matching question/answer text, since prose is presentational and can repeat or change under normalization. The response endpoint accepts either `{ "decision": "allow" }`, `{ "decision": "deny", "message": "optional reason" }`, or `{ "answers": [{ "questionId": "q-1", "value": "B" }] }` according to interaction kind — the provider adapter, not the browser contract, maps a resolved answer array back to whatever shape the underlying provider's own question-answer protocol expects. The turn snapshot contains its lifecycle state, last event ID, accumulated transient output needed for reconnect, and at most the current unresolved normalized interaction. Provider adapters logically implement `StartTurn`, `StreamEvents`, `ResolveInteraction`, and `CancelTurn`; the Claude transport used to fulfill those operations is not part of the browser contract.
 
 ### Mock vertical slice
 
@@ -206,7 +212,8 @@ Only a ready result unlocks implementation. The Claude adapter maps the chosen s
 ## Compatibility and migration
 
 - `spec_id` is additive. The implementation backfills current active and archived manifests in a reviewable repository change; repeat execution produces no further edits.
-- Readers accept missing `spec_id` only as legacy input. They never create a slug-keyed durable relation and return an actionable migration-needed result for session operations.
+- Readers (manifest loading, context packets) tolerate a missing `spec_id` indefinitely — this is a permanent reader-side allowance, not a time-boxed one, since a reader has no reliable way to tell "predates the migration" apart from any other cause. `validate`/`check` are stricter: once the one-time backfill above has run, every active/archived manifest is expected to carry `spec_id`, and a missing one is a validation error naming the manifest's path — not silently treated as tolerated legacy input. This is what actually closes the migration: a hand-authored manifest that skips spec-create's guidance is caught by CI instead of passing indefinitely as if it predated the backfill.
+- A stable-relation operation (e.g. session create/attach) never creates a slug-keyed durable relation; it returns an actionable migration-needed result instead when its target manifest has no `spec_id`.
 - Existing CLI selectors and dashboard specification URLs remain slug-compatible. New session relations and internal lookups use `spec_id`.
 - Missing `.nevo-ai-local/` means no configured real providers or registered real sessions; existing dashboard/spec workflows remain functional.
 - Missing or unavailable provider capabilities are represented explicitly. The UI disables unsupported actions rather than assuming every provider can list, resume, stream, interact, or cancel.

@@ -47,6 +47,10 @@ statement.
      `tasks/<n>-<id>.md`) — use `templates/standard-change.md`,
      `templates/architectural-change.md`, `templates/area.md`, and `templates/task.md` as
      guides, omitting sections they mark as optional,
+   - generate this change's immutable `spec_id` with
+     `node -e "console.log(require('crypto').randomUUID())"` and write it as `change.yaml`'s
+     `spec_id` field (D2, area `stable-spec-identity`) — every new manifest gets exactly one,
+     generated once at creation, never derived from the slug/title and never reused,
    - decompose large work into cohesive areas/tasks rather than one monolithic file,
    - run `node tools/specs.mjs validate` (and `node tools/docs.mjs validate` if docs were
      touched).

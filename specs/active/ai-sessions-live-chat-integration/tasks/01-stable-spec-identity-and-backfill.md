@@ -52,10 +52,11 @@ Introduce additive immutable `spec_id`, generate it for future specifications, b
 - Backfill current manifests, including this change, as a visible reviewable migration.
 - Update spec-create guidance/templates so every future spec writes the ID at creation.
 - Legacy reads may omit `spec_id`; stable-relation operations must return an actionable migration-needed error rather than use slug.
+- Reader tolerance for a missing `spec_id` is permanent (never time-boxed), but `validate`/`check` must require `spec_id` on every active/archived manifest once the one-time backfill below has run — a manifest missing it after that point is a validation error naming its path, not tolerated legacy input.
 
 ## Acceptance criteria
 
-1. Validation accepts a legacy missing ID during the compatibility window but rejects malformed or duplicate `spec_id` values with precise paths. `automated: node --test tools/tests/spec-identity.test.mjs`
+1. Validation requires `spec_id` on every active/archived manifest once backfill has run — a manifest missing it is an error naming its path, alongside rejecting malformed or duplicate `spec_id` values with precise paths; reading/loading a manifest (outside `validate`/`check`) still tolerates a missing `spec_id`. `automated: node --test tools/tests/spec-identity.test.mjs`
 2. Every new spec-created manifest receives one UUID and repeated creation/backfill logic cannot replace it. `automated: node --test tools/tests/spec-identity.test.mjs`
 3. Backfill assigns unique IDs to all current active/archive manifests and a second run makes no file changes. `automated: node --test tools/tests/spec-identity.test.mjs`
 4. Context packets, generated indexes, and dashboard-consumable change projections can carry both `specId` and slug. `automated: node --test tools/tests/spec-identity.test.mjs tools/tests/index-generation.test.mjs`
