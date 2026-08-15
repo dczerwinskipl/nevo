@@ -147,3 +147,115 @@
 - **Date:** 2026-08-15
 - **Affected artifacts:** `change.yaml`,
   `tasks/06-cli-step-instrumentation-tests-and-audits.md`
+
+## D8: Tasks 01 and 04 must not be implemented in parallel
+
+- **Question:** raised by the owner reviewing PR #27 — task 01
+  (`dashboard-data-loading-contracts`) and task 04
+  (`operation-progress-contract-and-transport`) have no dependency between them, but
+  both may touch the same central files: `tools/dashboard/server/index.mjs` (route
+  registration) and `tools/dashboard/src/lib/types.ts` (shared type definitions). The
+  workflow could mark both `ready` at once.
+- **Decision:** task 04 additionally depends on task 01 (simple sequence: 01 → 04 → 05
+  → 06 → 07, with 07 keeping its existing dependency on 05 too). The two areas
+  (`dashboard-data-loading-contracts.md`, `operation-progress-contract.md`) remain
+  architecturally independent — this is a file-conflict-avoidance ordering, the same
+  pattern as D7, not a new content dependency.
+- **Rationale:** owner-stated — same reasoning as D7: don't let two tasks race to edit
+  the same central server-wiring/type files. Task 01 is already first in the change
+  (`order: 1`), so sequencing after it is the simple choice rather than reordering
+  around it.
+- **Consequences:** `change.yaml`'s task 04 entry gains
+  `dashboard-data-loading-contracts` in `depends_on` (mirroring D7's own resolution for
+  tasks 05/06 — a dependency edge, not an `allowed_paths` rewrite); task 04 stays
+  `tools/dashboard/server/**` and task 01's own scope is unaffected, since the
+  dependency alone already prevents the two from running concurrently. Each task's
+  `forbidden_paths` additionally gains the other's clearly-exclusive files
+  (`actions.mjs` excluded from task 01; `data.mjs`/`watcher.mjs`/`providers/**`
+  excluded from task 04) to keep ownership boundaries explicit — this does not narrow
+  either task's freedom to add new files under `tools/dashboard/server/**` for its own
+  work.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `change.yaml`,
+  `tasks/01-dashboard-data-loading-contracts.md`,
+  `tasks/04-operation-progress-contract-and-transport.md`,
+  `areas/operation-progress-contract.md`
+
+## D9: CLI progress vocabulary vs. Dashboard Operation API — scope boundary
+
+- **Question:** raised by the owner reviewing PR #27 — does every multi-step CLI
+  command that emits the shared `operation.*` step-event vocabulary (self-check,
+  batch-review, audit, finalize, ...) become something the dashboard observes,
+  registers, or streams progress for — including when it's started independently by an
+  agent or user outside the dashboard (e.g. `node tools/specs.mjs self-check ...`)?
+- **Decision:** No. Two distinct things share a name in the earlier draft and must be
+  kept separate:
+  1. **CLI progress vocabulary** — `tools/lib/operation-progress.mjs` and the
+     `operation.started`/`operation.step.started`/`operation.step.progress`/
+     `operation.step.completed`/`operation.step.failed`/`operation.completed`/
+     `operation.failed` event vocabulary. Every multi-step CLI command in scope
+     (`finalize`, the `verify`/`approve` gate re-check, `self-check`, `batch-review`,
+     `audit`) emits this to stdout **regardless of how it was invoked** — dashboard-
+     spawned or a direct CLI/agent invocation. The helper is a neutral
+     `tools/lib/**` module with no dependency on the dashboard, and the events it
+     emits carry no dashboard `operationId` — the CLI has no notion of one.
+  2. **Dashboard Operation API** (`operationId`, snapshot, resumable SSE) —
+     owned entirely by `tools/dashboard/server`, and scoped **exclusively** to
+     processes the dashboard backend itself spawns via a `POST` action in
+     `actions.mjs`. The backend mints `operationId` at spawn time, reads that one
+     child process's stdout, and translates the parsed `operation.*` events into the
+     persisted `Operation`/`Step` snapshot it serves.
+  A CLI command run directly (not spawned by the dashboard) still prints the same
+  structured stdout — directly useful to an agent/user reading it — but no
+  `operationId`, snapshot, or SSE stream is ever created for it. The dashboard does
+  not discover, register, poll for, or attach to a CLI process it did not itself
+  spawn. External/agent-started CLI process discovery is explicitly out of scope; no
+  IPC, global operation bus, or CLI→dashboard callback API is added by this change.
+- **Rationale:** owner-stated — the original single "Operation" framing conflated a
+  neutral CLI output contract with a dashboard-only tracked resource, which would have
+  implied (incorrectly) that the dashboard reaches out to observe arbitrary CLI
+  invocations on the machine.
+- **Consequences:** `overview.md` gains an explicit responsibility-boundary section and
+  an out-of-scope bullet; `areas/operation-progress-contract.md` and
+  `areas/dashboard-operation-progress-ui.md` gain clarifying language distinguishing
+  "emits the shared vocabulary" from "becomes a Dashboard Operation"; tasks 05/06 gain
+  the same distinction for self-check/batch-review/audit specifically (see D10 for the
+  task 07 UI-verification consequence).
+- **Date:** 2026-08-15
+- **Affected artifacts:** `overview.md`, `areas/operation-progress-contract.md`,
+  `areas/dashboard-operation-progress-ui.md`,
+  `tasks/04-operation-progress-contract-and-transport.md`,
+  `tasks/05-cli-step-instrumentation-gate-and-verification.md`,
+  `tasks/06-cli-step-instrumentation-tests-and-audits.md`
+
+## D10: Task 07's dashboard-UI acceptance criteria must use real dashboard actions only
+
+- **Question:** raised by the owner — `tools/dashboard/server/actions.mjs` only ever
+  triggers three action kinds via `POST`: the task-level gate re-check (inside
+  `verify`/`approve`), task acceptance (`approve`), and `finalize`. No dashboard route
+  exists for `self-check` (the dashboard's `verify` action calls `handleVerify`, a
+  simple status transition — not `handleSelfCheck`) or for batch-review. Given D9, is it
+  still correct for task 07's/its area's acceptance criteria to require a real
+  (not-mocked) UI run of a "self-check" or task-06 (batch-review/audit) operation kind?
+- **Decision:** No. Task 07's and `dashboard-operation-progress-ui.md`'s acceptance
+  criteria are corrected to require a real, not-mocked run only against an operation
+  kind actually reachable as a dashboard action today (gate re-check, task acceptance,
+  or — as the primary example, matching the owner's worked example of
+  Validate state/Validate spec-docs/Check PR-review state/Build/Tests/Persist-finalize —
+  `finalize`, since it is the one genuinely multi-step, long-running dashboard-triggered
+  flow among the three). Any second operation kind used to prove the rendering
+  component is kind-agnostic (e.g. self-check's or batch-review's `type`) is exercised
+  via a fixture/mock `Operation` payload, not a real trigger, since the dashboard has no
+  button for it. If self-check or batch-review is later wired as an actual dashboard
+  action, it becomes a valid additional real-run example at that time — not before.
+- **Rationale:** owner-stated — UI acceptance criteria must be verifiable against the
+  actual dashboard action surface, not against operations that only exist as
+  CLI-invoked commands.
+- **Consequences:** `tasks/07-dashboard-operation-progress-ui.md` AC1/AC2/AC4 and
+  `areas/dashboard-operation-progress-ui.md`'s area-specific AC1 are reworded to name
+  `finalize` (and the gate-check/acceptance actions) as the real-run evidence and a
+  fixture payload as the second kind, removing the requirement that a task-06 (CLI-only)
+  kind be triggered for real from the dashboard.
+- **Date:** 2026-08-15
+- **Affected artifacts:** `tasks/07-dashboard-operation-progress-ui.md`,
+  `areas/dashboard-operation-progress-ui.md`

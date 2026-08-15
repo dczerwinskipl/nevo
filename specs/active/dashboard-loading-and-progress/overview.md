@@ -141,7 +141,10 @@ in this change), D3 (field lists in new lightweight contracts are a floor, not a
 ceiling — add cheaply-available useful fields), D4 (`GET /actions` must never run a
 heavy check; `finalize` gets multi-step instrumentation), D5 (PR-list metadata refresh
 must not rely on `specs-changed` SSE), D6 (cancellation removed from this change's
-scope), D7 (tasks 05/06 must not be implemented in parallel).
+scope), D7 (tasks 05/06 must not be implemented in parallel), D8 (tasks 01/04 must not
+be implemented in parallel), D9 (CLI progress vocabulary vs. Dashboard Operation API
+scope boundary — dashboard only tracks operations it starts itself), D10 (task 07's UI
+acceptance criteria must use real dashboard actions only, not CLI-only kinds).
 
 ## Proposed architecture
 
@@ -197,6 +200,58 @@ possible.** Concretely:
    `spawn`ed process is killed, so this is not the "cheap because we moved to spawn"
    win it first looked like. The contract (`operationId`, `Operation`/`Step` shape)
    stays generic enough to add real cancellation later without a breaking change.
+   **The Dashboard Operation API (`operationId`/snapshot/SSE) covers only operations the
+   dashboard itself starts (owner correction, 2026-08-15; see D9 in
+   `owner-decisions.md`)** — the CLI-side step vocabulary is a separate, neutral
+   concern from the dashboard's own tracked-resource layer built on top of it:
+
+   ```text
+   user clicks dashboard action
+           ↓
+   POST dashboard action
+           ↓
+   backend creates operationId
+           ↓
+   backend spawns CLI command
+           ↓
+   CLI emits structured progress to stdout
+           ↓
+   dashboard backend parses it
+           ↓
+   operation snapshot + SSE
+           ↓
+   UI renders progress
+   ```
+
+   Every multi-step CLI command (`finalize`, the `verify`/`approve` gate re-check,
+   `self-check`, `batch-review`, `audit`) emits the same shared `operation.*` stdout
+   vocabulary regardless of how it was invoked — this is what gives `finalize`, `verify`,
+   `self-check`, `batch-review`, and `audit` consistent, machine-readable output whether
+   the dashboard triggered them or an agent/user ran them directly from the CLI. But if
+   an agent or user independently runs, say, `node tools/specs.mjs self-check ...`, the
+   dashboard does not discover that process, does not register it, does not attach to
+   it, does not mint an `operationId` for it, and does not relay its progress through the
+   dashboard SSE stream — external/agent-started CLI process discovery is explicitly out
+   of scope (see Out of scope). See § "Responsibility boundaries" below for the full
+   CLI/backend/frontend split.
+
+## Responsibility boundaries (CLI vs. dashboard backend vs. frontend)
+
+- **CLI/tools** owns the semantic progress vocabulary and emits it. Every multi-step CLI
+  command emits structured `operation.*` step events to stdout via the neutral
+  `tools/lib/operation-progress.mjs` helper, regardless of how it was invoked. The
+  emitted events carry no dashboard `operationId` — the CLI has no notion of one.
+- **Dashboard backend** owns `operationId`, the `Operation` snapshot, and the SSE
+  transport — but only for processes it spawns itself via `actions.mjs`. It mints
+  `operationId` at spawn time, reads that spawned child's stdout, and translates the
+  parsed `operation.*` events into the persisted `Operation`/`Step` snapshot it serves.
+- **Frontend** only displays `Operation` state received from the dashboard backend's
+  snapshot/SSE routes. It never parses raw CLI stdout directly, and never discovers or
+  observes an externally-started CLI process.
+
+Raw stdout/logs may still be surfaced as diagnostic "details" text where convenient, but
+they are never the frontend's source of truth for step/operation semantics outside the
+dashboard backend's own parser.
 
 ## Compatibility and migration
 
@@ -215,11 +270,12 @@ final JSON result line consumed by `actions.mjs` today.
   extension.
 - `areas/changes-grouping-and-filtering.md` — configurable grouping, group-by modes,
   generated/lockfile detection, hydration-respects-filters.
-- `areas/operation-progress-contract.md` — shared Operation/Steps model, SSE transport,
-  `actions.mjs` execution model change, CLI step-event instrumentation across every
-  listed operation kind.
+- `areas/operation-progress-contract.md` — shared CLI progress vocabulary (every
+  multi-step command, regardless of trigger source), plus the dashboard-only
+  Operation/Steps snapshot, SSE transport, and `actions.mjs` execution model change for
+  operations the dashboard itself starts.
 - `areas/dashboard-operation-progress-ui.md` — rendering steps/progress/failure
-  consistently across every wired operation kind.
+  consistently for every operation kind actually reachable as a dashboard action.
 
 ## Change-wide acceptance criteria
 
@@ -276,3 +332,8 @@ spec; task 04 records the recommendation in its own "Documentation impact" secti
 - A full dashboard rewrite.
 - AI-based file classification (grouping/generated-detection stays deterministic,
   config-driven).
+- Dashboard discovery, registration, or SSE relay of a CLI process the dashboard did not
+  itself spawn (e.g. an agent or user running `node tools/specs.mjs self-check ...` or
+  `batch-review ...` directly) — no IPC, global operation bus, or CLI→dashboard callback
+  API is added by this change (owner correction, 2026-08-15; see D9 in
+  `owner-decisions.md`).

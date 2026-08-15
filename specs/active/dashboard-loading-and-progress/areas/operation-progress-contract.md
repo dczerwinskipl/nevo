@@ -36,13 +36,27 @@ semantics themselves.
 
 ## Requirements
 
+- **Two distinct things share this area, and must stay separate (D9 in
+  `owner-decisions.md`):** the CLI-side structured progress *vocabulary* (emitted by
+  every multi-step CLI command, regardless of who invoked it) and the dashboard-only
+  `Operation` *resource* (`operationId`, snapshot, SSE — created only for processes the
+  dashboard backend itself spawns). The shape below describes both: the vocabulary is
+  what a CLI command emits to stdout; the `Operation`/`Step` shape is what the dashboard
+  backend builds from parsing that vocabulary for a process it spawned. A CLI command
+  run directly (self-check, batch-review, audit, or `finalize` run from a terminal) still
+  emits the same vocabulary — useful directly to an agent/user — but no `Operation`
+  resource, `operationId`, snapshot, or SSE stream is ever created for it, and the
+  dashboard has no mechanism to discover or attach to such a process. No IPC, global
+  operation bus, or CLI→dashboard callback API is added.
 - Shared contract: an `Operation` has an `id`, a `type` (e.g. `task-verification`,
   `gate-check`), and `steps[]`; each step has `id`, `label`, `status`
   (`pending`/`running`/`completed`/`failed`), and optionally numeric progress
   (`current`/`total`). Event vocabulary: `operation.started`,
   `operation.step.started`, `operation.step.progress`, `operation.step.completed`,
   `operation.step.failed`, `operation.completed`, `operation.failed` (names may adapt to
-  existing repo conventions; semantics must match).
+  existing repo conventions; semantics must match). The events a CLI command emits to
+  stdout carry no `operationId` field — that id is minted and owned solely by the
+  dashboard backend when it spawns the process; the CLI has no notion of one.
 - **Starting an operation is a distinct step from streaming it.** The endpoint that
   triggers a POST-based action (verify/approve/finalize/any instrumented CLI run) must
   return an `operationId` immediately — before the underlying work finishes — mirroring
@@ -123,8 +137,13 @@ semantics themselves.
   handling) without a breaking contract change.
 - Every operation kind listed in the change overview — gate checks, spec verification,
   implementation verification, AI verification, task acceptance, batch verification,
-  test runs, final audits — emits step events through this same contract (split across
-  tasks 05/06 by group, per D2).
+  test runs, final audits — emits step events through this same shared vocabulary (split
+  across tasks 05/06 by group, per D2). Only the subset of these actually reachable via
+  a `POST` action in `actions.mjs` today (the task-level gate re-check, task acceptance,
+  and `finalize`) becomes a Dashboard `Operation` with an `operationId`/snapshot/SSE;
+  the rest (e.g. `self-check` run standalone, `batch-review`) emit the same vocabulary
+  as CLI-only structured stdout, with no dashboard-tracked `Operation` created for them
+  in this change (D9).
 - Raw stdout may still be captured as supplementary "details/logs" but is never the
   primary source the dashboard parses for progress state.
 
@@ -170,12 +189,17 @@ semantics themselves.
 
 ## Dependencies
 
-None on the other areas in this change — this is backend/CLI plumbing independent of
-the PR/markdown data-loading work. `dashboard-operation-progress-ui.md` depends on this
-area.
+None on the other areas in this change architecturally — this is backend/CLI plumbing
+independent of the PR/markdown data-loading work. `dashboard-operation-progress-ui.md`
+depends on this area. At the *task* level, task 04 is nonetheless sequenced after task 01
+(`dashboard-data-loading-contracts`) purely to avoid two tasks concurrently modifying the
+same central files (`tools/dashboard/server/index.mjs`, `tools/dashboard/src/lib/types.ts`)
+— see D8 in `owner-decisions.md`. This does not make the areas themselves dependent.
 
 ## Out of scope
 
 - Frontend rendering (next area).
 - Any change to gate rules, verification criteria, or status transitions themselves.
 - A general-purpose event-sourcing/durable job queue.
+- Dashboard discovery, registration, or SSE relay of a CLI process the dashboard did not
+  itself spawn — no IPC, global operation bus, or CLI→dashboard callback API (D9).

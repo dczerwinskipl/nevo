@@ -20,7 +20,7 @@ forbidden_paths:
   - tools/dashboard/server/**
   - tools/specs.mjs
 semantic_references:
-  decisions: [D2, D6]
+  decisions: [D2, D6, D9, D10]
   dependency_contracts: [operation-progress-contract-and-transport, cli-step-instrumentation-gate-and-verification]
 ---
 
@@ -29,17 +29,24 @@ semantic_references:
 ## Goal
 
 Render the `Operation`/`Steps` contract (snapshot + resumable SSE, task 04) consistently
-wherever the dashboard triggers a gate/verify/acceptance/test/audit action, replacing
-the current boolean `executing` spinner with real step-by-step progress for every
-operation kind wired in tasks 05/06.
+wherever the dashboard triggers a gate/verify/acceptance action, replacing the current
+boolean `executing` spinner with real step-by-step progress. The component's rendering
+logic is generic across every operation kind's payload shape (tasks 05/06), but real,
+not-mocked end-to-end verification is only possible against operation kinds actually
+reachable as a dashboard action — the task-level gate re-check, task acceptance, and
+`finalize` (task 05) — since those are the only ones a `POST` in `actions.mjs` can
+trigger; CLI-only kinds (`self-check` run standalone, batch-review, task 06) have no
+dashboard trigger and are proven kind-agnostic via a fixture/mock payload instead (D9,
+D10 in `owner-decisions.md`).
 
 ## Dependencies
 
-Depends on task 04 (transport/contract) and task 05 (at least one real, wired operation
-kind to verify end-to-end against). Deliberately does **not** depend on task 06 — this
-task can run in parallel with it, since AC4's second operation kind is a fixture/mock,
-not a real task-06 wiring; the component's genericness must not require task 06 to
-exist in order to be provable.
+Depends on task 04 (transport/contract) and task 05 (at least one real, dashboard-
+triggered operation kind — `finalize` — to verify end-to-end against). Deliberately does
+**not** depend on task 06 — this task can run in parallel with it, since AC4's second
+operation kind is a fixture/mock, not a real task-06 wiring (task 06's kinds have no
+dashboard trigger to run for real regardless — see Goal); the component's genericness
+must not require task 06 to exist in order to be provable.
 
 ## Implementation constraints
 
@@ -59,20 +66,28 @@ exist in order to be provable.
 
 ## Acceptance criteria
 
-1. Triggering self-check (task 05) shows steps appearing/completing in near real time
-   during a real run. `inspection: manual run against a real task, observe step-by-step UI updates`
-2. A deliberately failing verification command's step and the operation's overall
-   failure are both visibly distinguishable in the UI.
-   `inspection: manual run with a failing verification command`
+1. Triggering `finalize` (task 05) — the primary example of a long, dashboard-triggered
+   gate/action flow (validate specs, validate docs, check PR/review state, build, test,
+   finalize) — shows steps appearing/completing in near real time during a real run
+   against a disposable/sandbox change created for this verification, never a real
+   in-flight change, since `finalize` actually merges and archives.
+   `inspection: manual run against a disposable sandbox change, observe step-by-step UI updates`
+2. A deliberately failing phase of a dashboard-triggered operation (e.g. a `finalize` run,
+   against the same disposable sandbox change, with a failing `dotnet test` phase) shows
+   that step's failure and the operation's overall failure as both visibly distinguishable
+   in the UI.
+   `inspection: manual run against a disposable sandbox change, with a failing phase`
 3. Refreshing the page mid-operation and returning shows current state, not a blank/
    reset view. `inspection: manual refresh during an active operation`
-4. The same component renders for at least two different operation kinds (one real, from
-   task 05; one a fixture/mock `Operation` payload of a different `type`, since this
-   task's `depends_on` does not include task 06 and must be independently verifiable
-   without it) without kind-specific UI code paths. `inspection: confirm component
-   props/usage are operation-kind-agnostic`. Once task 06 lands, re-verifying against a
-   real task-06 operation kind is a good follow-up check, not a requirement of this
-   task's own acceptance criteria.
+4. The same component renders for at least two different operation kinds (one real —
+   the task-level gate re-check, acceptance, or `finalize` from task 05, the only kinds
+   reachable via a real dashboard trigger; one a fixture/mock `Operation` payload of a
+   different `type`, standing in for a CLI-only kind like task 06's, since neither this
+   task's `depends_on` nor the dashboard's own action surface includes a way to trigger
+   a task-06 kind for real) without kind-specific UI code paths.
+   `inspection: confirm component props/usage are operation-kind-agnostic`. If a task-06
+   kind is later wired as an actual dashboard action, re-verifying against it for real is
+   a good follow-up check, not a requirement of this task's own acceptance criteria.
 
 ## Verification
 

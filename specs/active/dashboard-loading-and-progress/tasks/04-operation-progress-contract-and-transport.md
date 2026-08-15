@@ -2,6 +2,7 @@
 id: dashboard-loading-and-progress.operation-progress-contract-and-transport
 status: draft
 change: dashboard-loading-and-progress
+depends_on: [dashboard-data-loading-contracts]
 context:
   required:
     - specs/active/dashboard-loading-and-progress/areas/operation-progress-contract.md
@@ -23,9 +24,13 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/specs.mjs
   - tools/dashboard/src/components/**
+  - tools/dashboard/server/data.mjs
+  - tools/dashboard/server/watcher.mjs
+  - tools/dashboard/server/providers/**
 semantic_references:
-  decisions: [D4, D6]
+  decisions: [D4, D6, D8, D9]
   constraints: [C1]
+  dependency_contracts: [dashboard-data-loading-contracts]
 ---
 
 # Task: Operation progress contract and transport
@@ -37,7 +42,18 @@ Define the shared `Operation`/`Steps` contract, move `actions.mjs` from blocking
 expose a per-operation snapshot + resumable SSE transport mirroring the existing
 `getTurn`/`subscribeToTurn` pattern in `ai-routes.mjs`. Cancellation is explicitly out
 of scope for this task/change (owner correction, 2026-08-15) — see Implementation
-constraints.
+constraints. Per D9 in `owner-decisions.md`: the `operationId`/snapshot/SSE transport
+this task builds is scoped exclusively to processes the dashboard backend itself spawns
+via `actions.mjs` — it is not a general mechanism for observing arbitrary CLI
+invocations (see Implementation constraints).
+
+## Dependencies
+
+Depends on task 01 (`dashboard-data-loading-contracts`) — no content/contract
+dependency between the two areas, but both may otherwise modify the same central files
+(`tools/dashboard/server/index.mjs`, `tools/dashboard/src/lib/types.ts`); sequencing
+after task 01 avoids two tasks racing to edit them in parallel (D8 in
+`owner-decisions.md`, mirroring D7's treatment of tasks 05/06).
 
 ## Implementation constraints
 
@@ -55,7 +71,16 @@ constraints.
   from the dashboard server. Do not place it under `tools/dashboard/server/**`: CLI code
   (tasks 05/06) must never depend on the dashboard server's module tree (wrong
   dependency direction). Do not let each instrumented command re-implement event
-  shaping.
+  shaping. The helper's emitted events carry no `operationId` field and have no
+  knowledge of the dashboard — `operationId` is minted and owned solely by the
+  dashboard backend, at spawn time, for the one process it just spawned (D9).
+- **The dashboard backend never discovers, registers, polls for, or attaches to a CLI
+  process it did not itself spawn.** There is no mechanism in this task (or anywhere in
+  this change) for the dashboard to become aware of a `node tools/specs.mjs self-check
+  ...`/`batch-review ...`/etc. invocation started independently by an agent or user — no
+  IPC, global operation bus, or CLI→dashboard callback API (D9). The only way a process's
+  step events reach the dashboard's `Operation` snapshot/SSE is via the stdout of a child
+  process this task's own `spawn`-based runner started.
 - The endpoint that triggers a POST-based action returns `{ operationId }` immediately
   (an "accepted, in progress" response — exact HTTP status code is an implementation
   detail) — never blocks until the action finishes. Today's `executeSpecificationAction`
@@ -112,6 +137,10 @@ constraints.
    `automated: npm --prefix tools/dashboard test`
 9. No `POST /operations/:id/cancel` route (or any cancellation endpoint) exists.
    `inspection: confirm no cancel route is registered`
+10. No route, IPC mechanism, or process-discovery code exists that lets the dashboard
+    become aware of a CLI process it did not itself `spawn` — an `operationId` only ever
+    exists for a process this task's runner started.
+    `inspection: confirm operationId assignment only occurs at the point actions.mjs spawns a child process`
 
 ## Verification
 

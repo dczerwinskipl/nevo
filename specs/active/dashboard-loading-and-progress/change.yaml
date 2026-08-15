@@ -28,6 +28,7 @@ tasks:
     order: 4
     file: tasks/04-operation-progress-contract-and-transport.md
     status: draft
+    depends_on: [ dashboard-data-loading-contracts ]
   - id: cli-step-instrumentation-gate-and-verification
     order: 5
     file: tasks/05-cli-step-instrumentation-gate-and-verification.md

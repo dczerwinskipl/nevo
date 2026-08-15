@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-15T19:59:21.115Z",
+  "generated": "2026-08-15T20:25:39.890Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -425,7 +425,10 @@
           "id": "operation-progress-contract-and-transport",
           "order": 4,
           "file": "tasks/04-operation-progress-contract-and-transport.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "dashboard-data-loading-contracts"
+          ]
         },
         {
           "id": "cli-step-instrumentation-gate-and-verification",

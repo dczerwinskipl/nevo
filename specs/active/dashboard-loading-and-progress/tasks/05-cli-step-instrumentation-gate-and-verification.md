@@ -22,7 +22,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D2, D4]
+  decisions: [D2, D4, D9, D10]
   constraints: [C1]
   dependency_contracts: [operation-progress-contract-and-transport]
 ---
@@ -31,16 +31,18 @@ semantic_references:
 
 ## Goal
 
-Emit `Operation`/`Steps` events (via the helper from task 04) for:
+Emit `Operation`/`Steps` events (via the helper from task 04) for every command below,
+using the same shared vocabulary regardless of how the command is invoked (D9 in
+`owner-decisions.md`). Three of these are genuine **dashboard-triggered Operations** —
+reachable via a real `POST` action in `actions.mjs`, so the dashboard backend spawns
+them, mints an `operationId`, and exposes snapshot/SSE for them:
 
 1. the gate re-check that runs as a step *inside* a real, POST-triggered `verify`/
    `approve` action (`actions.mjs`'s `taskGate` call before
    `runSpecs(root, [action, ...])` executes, backed by `validateTransition`/status-
    transition checks in `tools/specs.mjs`) — a single, fast, atomic step;
-2. task verification/self-check (`handleSelfCheck`, `tools/specs.mjs:492+` — the runner
-   that executes every command a task's own "## Verification" section names,
-   sequentially, recording pass/fail per command) — one step per verification command;
-3. task acceptance (`handleApprove`, the `draft`→`approved` transition);
+3. task acceptance (`handleApprove`, the `draft`→`approved` transition) — POST-triggered
+   `approve`, a single step;
 4. `finalize`, as a **multi-step** operation (owner correction, 2026-08-15 — it is
    *not* atomic like the task-level gate probe): `finalize --check`
    (`validateFinalize`, `tools/specs.mjs:1125`) can run spec/docs validation, index
@@ -48,7 +50,23 @@ Emit `Operation`/`Steps` events (via the helper from task 04) for:
    step per natural existing phase as `validateFinalize`/`handleFinalize` already
    perform them (e.g. `validate specs`, `check indexes`, `validate docs`,
    `check PR/review state`, `dotnet build`, `dotnet test`, `finalize`) — never a single
-   collapsed "Checking gate..." step.
+   collapsed "Checking gate..." step. This is the primary example of a long,
+   dashboard-triggered gate/action flow — the one task 07 should verify against for
+   real (D10).
+
+One is **CLI-only** in this change — it emits the same shared structured stdout, but is
+not reachable via any existing dashboard `POST` action, so it never becomes a Dashboard
+Operation (no `operationId`/snapshot/SSE) here:
+
+2. task verification/self-check (`handleSelfCheck`, `tools/specs.mjs:492+` — the runner
+   that executes every command a task's own "## Verification" section names,
+   sequentially, recording pass/fail per command) — one step per verification command.
+   The dashboard's `verify` action calls `handleVerify` (a simple status transition, item
+   1 above), not `handleSelfCheck` — self-check only runs via
+   `node tools/specs.mjs self-check <change> <task>`, invoked directly by an agent or
+   user, never spawned by the dashboard today. If a future change wires self-check as an
+   actual dashboard action, its Dashboard Operation wiring reuses this same
+   instrumentation for free — but that wiring is not part of this task.
 
 Per task 04/area `operation-progress-contract.md`: the standalone
 `GET /api/specs/active/:slug/actions` read is explicitly **not** in scope here for

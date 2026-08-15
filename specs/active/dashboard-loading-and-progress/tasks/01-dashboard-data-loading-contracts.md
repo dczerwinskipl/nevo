@@ -25,6 +25,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/specs.mjs
   - tools/lib/github.mjs
+  - tools/dashboard/server/actions.mjs
 semantic_references:
   decisions: [D3, D5]
   constraints: [C1, C2]

@@ -22,10 +22,18 @@ wired operation kind.
 - A new component (or extension of an existing one) renders an `Operation`'s steps: each
   step's label and status (done/running/pending/failed), and numeric progress
   (`current`/`total`) when the step provides it — matching the shape in
-  `operation-progress-contract.md`, not a bespoke per-operation-type rendering.
-- Applies to every operation kind wired in tasks 05/06 (gate checks, spec verification,
-  implementation/AI verification, task acceptance, batch verification, test runs, final
-  audits) with the same component/behavior — no per-operation-kind bespoke UI.
+  `operation-progress-contract.md`, not a bespoke per-operation-type rendering. The
+  component only ever consumes the dashboard backend's own parsed `Operation`
+  snapshot/SSE payload — it never parses raw CLI stdout itself and never discovers or
+  attaches to a CLI process the dashboard did not spawn (D9 in `owner-decisions.md`).
+- The component is generic across every operation kind's *payload shape* (gate checks,
+  spec verification, implementation/AI verification, task acceptance, batch
+  verification, test runs, final audits) — no per-operation-kind bespoke UI. Real,
+  not-mocked end-to-end verification is only possible for operation kinds actually
+  reachable as a dashboard action today (the task-level gate re-check, task acceptance,
+  and `finalize` — see D10 in `owner-decisions.md`); kinds with no dashboard trigger
+  (e.g. `self-check` run standalone, `batch-review`) are proven kind-agnostic via a
+  fixture/mock `Operation` payload instead, not a real trigger.
 - Loading (operation running), error (a step or the operation failed — visibly
   distinguishable which), and completion states are handled consistently; a failed step
   is visibly a failure of that step, and the overall operation is visibly failed too
@@ -55,9 +63,14 @@ wired operation kind.
 
 ## Area-specific acceptance criteria
 
-- Triggering an instrumented action shows steps appearing/completing in near real time
-  during a real (not mocked) run of at least one operation kind from each of tasks
-  05 and 06.
+- Triggering an instrumented, dashboard-triggered action (the task-level gate re-check/
+  acceptance, or — as the primary example — `finalize`, task 05) shows steps
+  appearing/completing in near real time during a real (not mocked) run against a
+  disposable/sandbox change created for this verification, never a real in-flight
+  change, since `finalize` actually merges and archives. A second operation kind is
+  proven kind-agnostic via a fixture/mock `Operation` payload of a different `type`,
+  not a real trigger — task 06's kinds (batch-review, final audits) have no dashboard
+  action to trigger them for real (D10 in `owner-decisions.md`).
 - A step failure and an operation failure are both visible and distinguishable in the
   rendered UI for a deliberately-failing test fixture.
 - Refreshing the page mid-operation and returning to the same view shows the operation's

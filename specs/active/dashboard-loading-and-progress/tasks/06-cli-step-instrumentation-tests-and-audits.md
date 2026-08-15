@@ -20,7 +20,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D2, D7]
+  decisions: [D2, D7, D9, D10]
   constraints: [C1]
   dependency_contracts: [operation-progress-contract-and-transport, cli-step-instrumentation-gate-and-verification]
 ---
@@ -33,6 +33,15 @@ Emit `Operation`/`Steps` events (via the helper from task 04) for batch verifica
 (`handleBatchStatus`/`handleBatchReview` in `tools/specs.mjs`) and, if a genuinely
 CLI-subprocess-driven "final audit" or "AI verification" operation exists as a
 multi-step `specs.mjs`/CLI command, instrument it the same way.
+
+Every kind instrumented here is **CLI-only** in this change (D9 in
+`owner-decisions.md`): no dashboard `POST` route triggers batch-review, and per this
+task's own Implementation constraints, "final audit"/"AI verification" may not even be a
+CLI-subprocess operation at all. Instrumenting these still gives an agent/user running
+them directly from the CLI the same shared structured stdout other commands emit — it
+does not make them Dashboard Operations (no `operationId`/snapshot/SSE is created for
+them here). Task 07's UI acceptance criteria accordingly do not require a real dashboard
+trigger for any kind wired in this task (D10) — only a fixture/mock payload.
 
 ## Dependencies
 
