@@ -1,8 +1,187 @@
 {
-  "generated": "2026-08-15T06:37:35.159Z",
+  "generated": "2026-08-15T08:54:59.313Z",
   "changes": [
     {
+      "id": "ai-sessions-live-chat-integration",
+      "specId": "70609aaf-bb62-40bf-a25e-bec65c583495",
+      "title": "AI sessions and live chat integration",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-15",
+      "tasks": [
+        {
+          "id": "stable-spec-identity-and-backfill",
+          "order": 1,
+          "file": "tasks/01-stable-spec-identity-and-backfill.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "review_revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "changed_paths": [
+              ".claude/commands/nevo-ai/spec-create.md",
+              "specs/index.generated.json",
+              "tools/dashboard/server/data.mjs",
+              "tools/dashboard/tests/data.test.mjs",
+              "tools/specs.mjs",
+              "tools/specs/service.mjs",
+              "tools/specs/validation.mjs",
+              "tools/tests/index-generation.test.mjs",
+              "tools/tests/spec-identity.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "7b8b1bedeb86fb57590873702bb2d3b588328043d5f9c7977b1e9fabb7964b30"
+          },
+          "self_check": {
+            "fingerprint": "4a03fba5b98bdd4f40148c18e5bffc8073883967e33a893c8a88422b68390da3",
+            "revision": "e6496d5fe4eb2ce1ebd9608e68536c45b09be03f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/spec-identity.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "provider-neutral-ai-contracts",
+          "order": 2,
+          "file": "tasks/02-provider-neutral-ai-contracts.md",
+          "status": "draft",
+          "depends_on": [
+            "stable-spec-identity-and-backfill"
+          ]
+        },
+        {
+          "id": "interactive-turn-runtime",
+          "order": 3,
+          "file": "tasks/03-interactive-turn-runtime.md",
+          "status": "draft",
+          "depends_on": [
+            "provider-neutral-ai-contracts"
+          ]
+        },
+        {
+          "id": "mock-ai-adapter-and-demo-data",
+          "order": 4,
+          "file": "tasks/04-mock-ai-adapter-and-demo-data.md",
+          "status": "draft",
+          "depends_on": [
+            "provider-neutral-ai-contracts",
+            "interactive-turn-runtime"
+          ]
+        },
+        {
+          "id": "ai-session-http-and-sse-api",
+          "order": 5,
+          "file": "tasks/05-ai-session-http-and-sse-api.md",
+          "status": "draft",
+          "depends_on": [
+            "mock-ai-adapter-and-demo-data"
+          ]
+        },
+        {
+          "id": "session-navigation-and-context-surfaces",
+          "order": 6,
+          "file": "tasks/06-session-navigation-and-context-surfaces.md",
+          "status": "draft",
+          "depends_on": [
+            "ai-session-http-and-sse-api"
+          ]
+        },
+        {
+          "id": "fullscreen-chat-and-session-creation",
+          "order": 7,
+          "file": "tasks/07-fullscreen-chat-and-session-creation.md",
+          "status": "draft",
+          "depends_on": [
+            "session-navigation-and-context-surfaces"
+          ]
+        },
+        {
+          "id": "part1-integration-verification-and-docs",
+          "order": 8,
+          "file": "tasks/08-part1-integration-verification-and-docs.md",
+          "status": "draft",
+          "depends_on": [
+            "stable-spec-identity-and-backfill",
+            "provider-neutral-ai-contracts",
+            "interactive-turn-runtime",
+            "mock-ai-adapter-and-demo-data",
+            "ai-session-http-and-sse-api",
+            "session-navigation-and-context-surfaces",
+            "fullscreen-chat-and-session-creation"
+          ]
+        },
+        {
+          "id": "claude-readiness-discovery",
+          "order": 9,
+          "file": "tasks/09-claude-readiness-discovery.md",
+          "status": "draft",
+          "depends_on": [
+            "part1-integration-verification-and-docs"
+          ]
+        },
+        {
+          "id": "local-ai-registry-and-manual-attach",
+          "order": 10,
+          "file": "tasks/10-local-ai-registry-and-manual-attach.md",
+          "status": "draft",
+          "depends_on": [
+            "claude-readiness-discovery"
+          ]
+        },
+        {
+          "id": "ai-session-context-cli-preflight",
+          "order": 11,
+          "file": "tasks/11-ai-session-context-cli-preflight.md",
+          "status": "draft",
+          "depends_on": [
+            "local-ai-registry-and-manual-attach"
+          ]
+        },
+        {
+          "id": "claude-hooks-and-invocation-context",
+          "order": 12,
+          "file": "tasks/12-claude-hooks-and-invocation-context.md",
+          "status": "draft",
+          "depends_on": [
+            "ai-session-context-cli-preflight"
+          ]
+        },
+        {
+          "id": "claude-session-adapter",
+          "order": 13,
+          "file": "tasks/13-claude-session-adapter.md",
+          "status": "draft",
+          "depends_on": [
+            "claude-readiness-discovery",
+            "local-ai-registry-and-manual-attach",
+            "claude-hooks-and-invocation-context"
+          ]
+        },
+        {
+          "id": "claude-live-chat-e2e-and-docs",
+          "order": 14,
+          "file": "tasks/14-claude-live-chat-e2e-and-docs.md",
+          "status": "draft",
+          "depends_on": [
+            "claude-session-adapter",
+            "fullscreen-chat-and-session-creation"
+          ]
+        }
+      ]
+    },
+    {
       "id": "architecture-documentation",
+      "specId": "051f8c73-3dc3-459f-84a2-994c0c2aff39",
       "title": "Architecture documentation",
       "status": "archived",
       "priority": 10,
@@ -18,6 +197,7 @@
     },
     {
       "id": "event-sourcing-api-hardening",
+      "specId": "5b6183e3-0204-4018-8889-680fa7e06f90",
       "title": "Event Sourcing API hardening and persistence readiness",
       "status": "archived",
       "priority": 10,
@@ -850,6 +1030,7 @@
     },
     {
       "id": "nevo-ai-operational-workflow",
+      "specId": "7cebb7d0-72de-4184-86bd-bae105503580",
       "title": "NEvo AI operational workflow (Claude Code layer)",
       "status": "archived",
       "priority": 10,
@@ -883,6 +1064,7 @@
     },
     {
       "id": "nevo-ai-process-continuity-and-hardening",
+      "specId": "0f79c334-a443-42fb-8e73-df7e31c81b8a",
       "title": "NEvo AI workflow process continuity and hardening",
       "status": "archived",
       "priority": 10,
@@ -1461,6 +1643,7 @@
     },
     {
       "id": "nevo-ai-review-hardening",
+      "specId": "825bebc7-49b5-4bf6-9a33-7aaaffc1e65e",
       "title": "Deterministic approval gate and hardened Bash guard (PR #13 fix)",
       "status": "archived",
       "priority": 10,
@@ -1476,6 +1659,7 @@
     },
     {
       "id": "nevo-documentation-architecture",
+      "specId": "0c6f4d40-3832-409a-8932-283b0ee56663",
       "title": "NEvo documentation architecture",
       "status": "archived",
       "priority": 10,
@@ -1646,6 +1830,7 @@
     },
     {
       "id": "nevo-documentation-foundation",
+      "specId": "00925078-ee1e-4783-bf2e-a6999dcf70d4",
       "title": "NEvo documentation foundation",
       "status": "archived",
       "priority": 10,
@@ -1784,6 +1969,7 @@
     },
     {
       "id": "nevo-spec-dashboard",
+      "specId": "fe1e55c8-72dd-420b-93eb-e3b042f32edb",
       "title": "Local specification workflow dashboard",
       "status": "archived",
       "priority": 20,
@@ -1825,6 +2011,7 @@
     },
     {
       "id": "nevo-spec-dashboard-refinement",
+      "specId": "f872dce6-4c87-4299-89f1-f771b6894021",
       "title": "Specification dashboard documents and GitHub changes",
       "status": "archived",
       "priority": 20,
@@ -2028,6 +2215,7 @@
     },
     {
       "id": "query-support-and-handler-registration-hardening",
+      "specId": "01d59e23-3e14-49aa-830a-a58c5a6dc379",
       "title": "Query support and handler-registration hardening",
       "status": "archived",
       "priority": 10,

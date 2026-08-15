@@ -29,3 +29,4 @@ tasks:
     file: tasks/03-dashboard-distribution.md
     status: verified
     depends_on: [ dashboard-interface ]
+spec_id: fe1e55c8-72dd-420b-93eb-e3b042f32edb

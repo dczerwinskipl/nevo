@@ -174,3 +174,4 @@ tasks:
         - command: dotnet build
           exit_code: 0
       status: passed
+spec_id: 01d59e23-3e14-49aa-830a-a58c5a6dc379

@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { readUtf8, writeUtf8, resolveWithinBase } from '../lib/fs.mjs';
 import { parseYamlFile, parseFrontMatterFile, updateYamlFile } from '../lib/yaml.mjs';
@@ -101,6 +101,63 @@ export function loadChange(slug, baseDir = ACTIVE_DIR) {
   change.tasks = change.tasks || [];
   change.pull_requests = change.pull_requests === undefined ? [] : change.pull_requests;
   return change;
+}
+
+// ── Stable specification identity (D2, area stable-spec-identity, task 01) ─
+//
+// `spec_id` is an additive, immutable UUID — durable session relations (a
+// later task's concern) must resolve to it instead of the mutable slug/`id`.
+// Generation, format validation, and the one-time backfill all live here so
+// every caller (CLI, spec-create guidance, dashboard) shares one definition.
+
+const SPEC_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** A canonical random UUID string — Node's own `crypto.randomUUID()`, no new dependency. */
+export function generateSpecId() {
+  return randomUUID();
+}
+
+/** Canonical-UUID-string format check — the only shape `spec_id` may ever take. */
+export function isValidSpecId(value) {
+  return typeof value === 'string' && SPEC_ID_RE.test(value);
+}
+
+/**
+ * The identity a durable, non-slug-keyed relation (e.g. a future AI session
+ * attachment) must resolve to before reading or writing anything. A legacy
+ * manifest with no `spec_id` yet is readable everywhere else in this module,
+ * but never usable as a relation key (D2/C2) — this throws an actionable,
+ * specific error naming the fix instead of silently falling back to slug.
+ */
+export function resolveStableSpecId(change) {
+  if (isValidSpecId(change.spec_id)) return change.spec_id;
+  throw new CliError(
+    `Change '${change._slug}' has no persisted spec_id — run 'node tools/specs.mjs backfill-spec-id' ` +
+    'before any stable-relation (e.g. AI session) operation.'
+  );
+}
+
+/**
+ * Idempotent backfill (D2, AC3): assigns a fresh, globally unique `spec_id`
+ * to every active/archived manifest that doesn't already have a valid one —
+ * never rewrites an existing valid value. Uniqueness is checked against every
+ * `spec_id` already on disk plus every one assigned earlier in this same run,
+ * so two manifests backfilled together can never collide. A second run over
+ * unchanged input assigns nothing and writes no file (AC3's "no-op" half).
+ */
+export function backfillSpecIds({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  const changes = [...listChanges(activeDir), ...listChanges(archiveDir)];
+  const seen = new Set(changes.filter(c => isValidSpecId(c.spec_id)).map(c => c.spec_id));
+  const assigned = [];
+  for (const change of changes) {
+    if (isValidSpecId(change.spec_id)) continue;
+    let id = generateSpecId();
+    while (seen.has(id)) id = generateSpecId();
+    seen.add(id);
+    updateYamlFile(change._file, doc => doc.set('spec_id', id));
+    assigned.push({ slug: change._slug, file: change._file, specId: id });
+  }
+  return assigned;
 }
 
 const DEFAULT_PULL_REQUEST_BASE_URLS = Object.freeze({
@@ -271,7 +328,7 @@ export function buildContextPacket(change, task) {
   const decisionsMap = parseOwnerDecisions(readIfExists(join(change._dir, 'owner-decisions.md')));
 
   return {
-    change: { id: change.id, title: change.title },
+    change: { id: change.id, title: change.title, specId: change.spec_id ?? null },
     task: {
       id: task.id,
       file: task.file ? `specs/active/${change._slug}/${task.file}` : null,
@@ -754,7 +811,7 @@ export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE
   for (const c of archive) archiveMd += toRow(c);
 
   const changes = [...active, ...archive].map(c => ({
-    id: c.id, title: c.title, status: c.status, priority: c.priority,
+    id: c.id, specId: c.spec_id ?? null, title: c.title, status: c.status, priority: c.priority,
     created: c.created, tasks: c.tasks,
   }));
 

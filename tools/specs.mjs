@@ -25,6 +25,7 @@ import {
   loadBatchIntent, writeBatchIntent, clearBatchIntent, writeBulkTransition,
   writeImplementationProvenance,
   loadChangeAnywhere, addPullRequestReference,
+  backfillSpecIds,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
@@ -206,6 +207,22 @@ export function handlePullRequestAdd(changeSlug, options = {}, directories = {})
     ? `Pull request '${identity}' attached to '${changeSlug}' (${located.location}).`
     : `Pull request '${identity}' is already attached to '${changeSlug}' — no changes made.`);
   return result;
+}
+
+// D2, area stable-spec-identity, task 01 — the explicit, idempotent backfill
+// operation: assigns spec_id only to manifests missing one (service.mjs's
+// backfillSpecIds never touches an already-valid value), across both
+// specs/active/ and specs/archive/, as one visible, reviewable migration.
+// Never a hidden side effect of a read (constraint) — this is the only path
+// that writes spec_id for an existing manifest.
+export function handleBackfillSpecId() {
+  const assigned = backfillSpecIds();
+  if (!assigned.length) {
+    console.log('No manifests needed a spec_id — backfill is a no-op.');
+    return;
+  }
+  for (const { slug, specId } of assigned) console.log(`'${slug}': spec_id -> ${specId}`);
+  console.log(`Backfilled spec_id for ${assigned.length} manifest(s).`);
 }
 
 // D7/D9 migration (task 09) — this now prints the change-level tier
@@ -1251,6 +1268,10 @@ export function buildProgram() {
     .requiredOption('--number <number>', 'Provider-local pull request or merge request number')
     .option('--base-url <url>', 'Provider instance base URL (defaults for github.com and gitlab.com)')
     .action((changeSlug, opts) => handlePullRequestAdd(changeSlug, opts));
+
+  program.command('backfill-spec-id')
+    .description('Idempotently assign spec_id to every active/archived manifest that is missing one (D2)')
+    .action(handleBackfillSpecId);
 
   program.command('fingerprint')
     .description('Print a deterministic hash of the spec inputs (--task for one task\'s own semantic fingerprint)')

@@ -188,6 +188,7 @@ export function loadSpecificationContent({
 
   return {
     id: change.id || change._slug,
+    specId: change.spec_id ?? null,
     slug: change._slug,
     title: change.title || change._slug,
     source,
@@ -240,6 +241,7 @@ function changeProjection(change, source, repoRoot) {
 
   return {
     id: change.id || change._slug,
+    specId: change.spec_id ?? null,
     slug: change._slug,
     title: change.title || change._slug,
     status: source === 'archive' ? 'archived' : (change.status || 'draft'),

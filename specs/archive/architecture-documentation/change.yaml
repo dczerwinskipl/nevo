@@ -14,3 +14,4 @@ tasks:
     order: 1
     file: tasks/01-core-architecture-docs.md
     status: verified
+spec_id: 051f8c73-3dc3-459f-84a2-994c0c2aff39
