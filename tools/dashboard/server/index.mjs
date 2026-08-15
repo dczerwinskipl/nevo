@@ -12,6 +12,11 @@ import {
 import { dashboardNetworkConfig } from './network-config.mjs';
 import { loadSpecificationPullRequests } from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
+import { handleAiRequest } from './ai-routes.mjs';
+import {
+  createDefaultDashboardAiService,
+  createTrustedNetworkAiAccessPolicy,
+} from './ai-services.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
@@ -91,12 +96,34 @@ export function createDashboardServer({
   actionLoader = loadSpecificationActions,
   actionExecutor = executeSpecificationAction,
   eventHub = createSpecEventHub(),
+  aiService,
+  aiServiceFactory = createDefaultDashboardAiService,
+  aiAccessPolicy = createTrustedNetworkAiAccessPolicy(),
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
   const runningActions = new Set();
+  let resolvedAiService = aiService;
+  const getAiService = () => {
+    resolvedAiService ||= aiServiceFactory({ dataLoader });
+    return resolvedAiService;
+  };
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
+
+    if (url.pathname.startsWith('/api/ai/')) {
+      await handleAiRequest({
+        request,
+        response,
+        method,
+        url,
+        service: getAiService(),
+        accessPolicy: aiAccessPolicy,
+        sendJson,
+        readJsonBody,
+      });
+      return;
+    }
 
     const actionRoute = url.pathname.match(/^\/api\/specs\/active\/([^/]+)\/actions$/);
     if (actionRoute) {
@@ -249,7 +276,10 @@ export function createDashboardServer({
     }
   });
 
-  server.on('close', () => eventHub.close?.());
+  server.on('close', () => {
+    eventHub.close?.();
+    resolvedAiService?.turnRuntime?.shutdown?.();
+  });
   return server;
 }
 
@@ -273,6 +303,7 @@ if (isDirectRun) {
   const url = await listen(server, { port, host });
   console.log(`NEvo dashboard: ${url}`);
   console.log(`NEvo dashboard API: ${url}/api/dashboard`);
+  console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');
 }
 
 export { safeStaticPath };

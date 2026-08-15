@@ -42,23 +42,99 @@ tasks:
   - id: provider-neutral-ai-contracts
     order: 2
     file: tasks/02-provider-neutral-ai-contracts.md
-    status: approved
+    status: implemented
     depends_on: [ stable-spec-identity-and-backfill ]
+    implementation:
+      baseline_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      review_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/tests/ai-contracts.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 8ec687996deb64a8a2318ca8b572bc2d8100ee383f37f3cc721444e7a8979b38
+      revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      commands:
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: interactive-turn-runtime
     order: 3
     file: tasks/03-interactive-turn-runtime.md
-    status: approved
+    status: implemented
     depends_on: [ provider-neutral-ai-contracts ]
+    implementation:
+      baseline_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      review_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 9d3bb24eb0df551d415e4189e95d4e14e24c00799f2cfc70d85663586cb5d0a2
+      revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      commands:
+        - command: node --test tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: mock-ai-adapter-and-demo-data
     order: 4
     file: tasks/04-mock-ai-adapter-and-demo-data.md
-    status: approved
+    status: implemented
     depends_on: [ provider-neutral-ai-contracts, interactive-turn-runtime ]
+    implementation:
+      baseline_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      review_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/mock-adapter.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/tests/mock-ai-adapter.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: c0831865787e7623adad2e400f9c78148c50497ef95c9b96276b81640f7440a4
+      revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      commands:
+        - command: node --test tools/tests/mock-ai-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-contracts.test.mjs
+            tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+      status: passed
   - id: ai-session-http-and-sse-api
     order: 5
     file: tasks/05-ai-session-http-and-sse-api.md
-    status: approved
+    status: implemented
     depends_on: [ mock-ai-adapter-and-demo-data ]
+    implementation:
+      baseline_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      review_revision: 26791ffaa1e0e5814e1ec3367353f3e61bb8f2af
+      changed_paths:
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+      worktree_patch_fingerprint: 66db036a4a63c91099b1eb6b140646de84623187be0ffcd7d3d2b264e3e5cd08
+    self_check:
+      fingerprint: 70ec2fd2ad8de56ed4f1f91362ba6d2f7303316c0bf3ae92cb2213013e0c672e
+      revision: 26791ffaa1e0e5814e1ec3367353f3e61bb8f2af
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: session-navigation-and-context-surfaces
     order: 6
     file: tasks/06-session-navigation-and-context-surfaces.md
@@ -121,4 +197,8 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 25
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 26
 spec_id: 70609aaf-bb62-40bf-a25e-bec65c583495
