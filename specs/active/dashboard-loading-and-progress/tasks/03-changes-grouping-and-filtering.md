@@ -75,6 +75,9 @@ filter against).
    explicitly opened. `automated: npm --prefix tools/dashboard test`
 5. Directory and Flat modes work with no `changeView.groups` config present.
    `automated: npm --prefix tools/dashboard test`
+6. The frontend receives `changeView`/`generatedFiles` config from the server response
+   (not hardcoded/bundled into the frontend at build time) and applies it for grouping.
+   `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
