@@ -20,7 +20,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D1, D3, D4, D5]
+  decisions: [D1, D3, D4, D5, D12]
   constraints: [C4, C5, C6, C7, C8, C9, C10, C11, C12, C13]
   dependency_contracts: [provider-neutral-ai-contracts, interactive-turn-runtime]
 ---
@@ -43,6 +43,7 @@ Depends on the shared contracts and turn runtime from tasks 02-03.
 - Use deterministic timestamps/content/order so tests and screenshots are stable.
 - Stream multiple deltas rather than returning one completed string.
 - Provide deterministic flows that request Allow/Deny and `AskUserQuestion`, then continue after the normalized response.
+- Build each permission interaction's `input` as a bounded, display-safe, deterministic value for the mock tool kind it simulates (never an unconstrained/raw object) — the concrete proof that C9's "no raw provider payload, ever" rule is achievable by a real adapter, not just stated at the contract level.
 - Do not build realistic autonomous planning, tool execution, or completed-session reactivation.
 
 ## Acceptance criteria
@@ -52,6 +53,7 @@ Depends on the shared contracts and turn runtime from tasks 02-03.
 3. Created sessions accept zero/multiple task IDs and produce deterministic provider/session identity without durable files. `automated: node --test tools/tests/mock-ai-adapter.test.mjs`
 4. A normal message streams several deltas and finishes; permission and question messages pause and continue through the shared runtime. `automated: node --test tools/tests/mock-ai-adapter.test.mjs`
 5. Completed sessions remain readable and reject unsupported reactivation with a normalized capability/status error. `automated: node --test tools/tests/mock-ai-adapter.test.mjs`
+6. A seeded/live permission interaction's `input` is a bounded, deterministic, display-safe value scoped to the simulated tool kind — never an arbitrary/unconstrained object. `automated: node --test tools/tests/mock-ai-adapter.test.mjs`
 
 ## Verification
 

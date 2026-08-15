@@ -1,0 +1,28 @@
+follow_ups:
+  - id: FU-001
+    source_task: fullscreen-chat-and-session-creation
+    kind: implementation-defect
+    severity: blocking
+    reason: VPN-hosted mock turns fail before HTTP because crypto.randomUUID is
+      unavailable; chat feedback/navigation/layout and selected-task initial
+      prompt context require correction.
+    resolver_task: fullscreen-chat-and-session-creation
+    status: resolved
+    resolution: Added insecure-origin-safe idempotency keys, visible turn/error
+      feedback, compact composer footer, explicit spec/task return navigation,
+      and selected-task context in the initial prompt; verified through the VPN
+      URL, 37 dashboard tests, and production build.
+  - id: FU-002
+    source_task: fullscreen-chat-and-session-creation
+    kind: implementation-defect
+    severity: blocking
+    reason: Client-side chat navigation hid the header until reload; the mock needed
+      observable long-form streaming and question prompts needed a
+      provider-neutral custom-answer alternative.
+    resolver_task: part1-integration-verification-and-docs
+    status: resolved
+    resolution: Rendered the chat header throughout route loading and remounted per
+      session; expanded the mock into delayed multi-delta responses; added
+      provider-neutral custom answers beside question options; verified client
+      navigation and custom answers on the VPN URL plus focused contract/API
+      tests and production build.

@@ -7,13 +7,13 @@ created: 2026-08-15
 
 branch:
   mode: per-change
-  prefix: feature
+  prefix: feature/impl-pt1
 
 tasks:
   - id: stable-spec-identity-and-backfill
     order: 1
     file: tasks/01-stable-spec-identity-and-backfill.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: e6496d5fe4eb2ce1ebd9608e68536c45b09be03f
       review_revision: e6496d5fe4eb2ce1ebd9608e68536c45b09be03f
@@ -42,37 +42,149 @@ tasks:
   - id: provider-neutral-ai-contracts
     order: 2
     file: tasks/02-provider-neutral-ai-contracts.md
-    status: draft
+    status: verified
     depends_on: [ stable-spec-identity-and-backfill ]
+    implementation:
+      baseline_revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      review_revision: 5b90ef519c8dccce30092861a5b6341c8c5b1094
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/tests/ai-contracts.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 8ec687996deb64a8a2318ca8b572bc2d8100ee383f37f3cc721444e7a8979b38
+      revision: 35b8814783e01ca05907f2010d9a26e0e523c302
+      commands:
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: interactive-turn-runtime
     order: 3
     file: tasks/03-interactive-turn-runtime.md
-    status: draft
+    status: verified
     depends_on: [ provider-neutral-ai-contracts ]
+    implementation:
+      baseline_revision: 5b90ef519c8dccce30092861a5b6341c8c5b1094
+      review_revision: 60981c2f6da807163954749a06f35be99627a07b
+      changed_paths:
+        - tools/ai/mock-adapter.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+      worktree_patch_fingerprint: 95b5c2699ea2e23e703b88ae6dab1f9511f55b658d15af84e64d10997bbf8108
+    self_check:
+      fingerprint: 9d3bb24eb0df551d415e4189e95d4e14e24c00799f2cfc70d85663586cb5d0a2
+      revision: 60981c2f6da807163954749a06f35be99627a07b
+      commands:
+        - command: node --test tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: mock-ai-adapter-and-demo-data
     order: 4
     file: tasks/04-mock-ai-adapter-and-demo-data.md
-    status: draft
+    status: verified
     depends_on: [ provider-neutral-ai-contracts, interactive-turn-runtime ]
+    implementation:
+      baseline_revision: 5d1832282c0a2b6475fd3a1feac5f85b5d240338
+      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      changed_paths:
+        - tools/ai/mock-adapter.mjs
+        - tools/tests/mock-ai-adapter.test.mjs
+      worktree_patch_fingerprint: 0f145f0f0383b999bdaa446eb35b9d7afbaa203d5b3ecac5d3f1fa6dd84eb0b3
+    self_check:
+      fingerprint: c0831865787e7623adad2e400f9c78148c50497ef95c9b96276b81640f7440a4
+      revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      commands:
+        - command: node --test tools/tests/mock-ai-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-contracts.test.mjs
+            tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+      status: passed
   - id: ai-session-http-and-sse-api
     order: 5
     file: tasks/05-ai-session-http-and-sse-api.md
-    status: draft
+    status: verified
     depends_on: [ mock-ai-adapter-and-demo-data ]
+    implementation:
+      baseline_revision: 26791ffaa1e0e5814e1ec3367353f3e61bb8f2af
+      review_revision: 60981c2f6da807163954749a06f35be99627a07b
+      changed_paths:
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+      worktree_patch_fingerprint: 0e89086d13f27e2e44ba71e151ac16cd03d18d6ffd18f836309972d8fc40bb87
+    self_check:
+      fingerprint: 70ec2fd2ad8de56ed4f1f91362ba6d2f7303316c0bf3ae92cb2213013e0c672e
+      revision: 60981c2f6da807163954749a06f35be99627a07b
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: session-navigation-and-context-surfaces
     order: 6
     file: tasks/06-session-navigation-and-context-surfaces.md
-    status: draft
+    status: verified
     depends_on: [ ai-session-http-and-sse-api ]
+    implementation:
+      baseline_revision: f935f9c90573cf03988296c13032b879f467d118
+      review_revision: 4baf2ffbefe1b2f32114089bebb1383815d9d241
+      changed_paths:
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/app-sidebar.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/types.ts
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 6a6fbc9a219d52cbbada10576edb48b07ea27f0c1be7d721e29a616d53e8604c
+      revision: f935f9c90573cf03988296c13032b879f467d118
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: fullscreen-chat-and-session-creation
     order: 7
     file: tasks/07-fullscreen-chat-and-session-creation.md
-    status: draft
+    status: verified
     depends_on: [ session-navigation-and-context-surfaces ]
+    implementation:
+      baseline_revision: 7aee615cbea05751ed8c277837a78258ebe9af03
+      review_revision: 47d62ce961806e78aebeae777b2f06401c49b7ae
+      changed_paths:
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/ai-chat-helpers.ts
+        - tools/dashboard/src/lib/types.ts
+      worktree_patch_fingerprint: beb9306f543deef83837ecda0c41bd23767605277c22b0c37fbd8e90186e6ca9
+    self_check:
+      fingerprint: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
+      revision: 47d62ce961806e78aebeae777b2f06401c49b7ae
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: part1-integration-verification-and-docs
     order: 8
     file: tasks/08-part1-integration-verification-and-docs.md
-    status: draft
+    status: verified
     depends_on:
       - stable-spec-identity-and-backfill
       - provider-neutral-ai-contracts
@@ -81,6 +193,41 @@ tasks:
       - ai-session-http-and-sse-api
       - session-navigation-and-context-surfaces
       - fullscreen-chat-and-session-creation
+    implementation:
+      baseline_revision: 7e9454b4aa45753c0de30bca8316dd1de087a856
+      review_revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      changed_paths:
+        - .gitignore
+        - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
+        - docs/development/ai-sessions.md
+        - docs/development/architecture-overview.md
+        - docs/development/local-setup.md
+        - docs/index.generated.json
+        - docs/index.generated.md
+        - docs/routing.generated.json
+        - specs/index.generated.json
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/tests/mock-ai-adapter.test.mjs
+      worktree_patch_fingerprint: 256a0c28a6e45583acd838ad15382df20bbedfea2f9254d13fb258bf0409a397
+    self_check:
+      fingerprint: efdfa22ae93ea9ce6f67afc529c761fdf583a2b32b9b7d96538890463199c5a6
+      revision: 75706c0825449b7f4cdd2612eaab39661043d098
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+        - command: git check-ignore .nevo-ai-local/probe
+          exit_code: 0
+      status: passed
   - id: claude-readiness-discovery
     order: 9
     file: tasks/09-claude-readiness-discovery.md
@@ -121,4 +268,8 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 25
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 26
 spec_id: 70609aaf-bb62-40bf-a25e-bec65c583495

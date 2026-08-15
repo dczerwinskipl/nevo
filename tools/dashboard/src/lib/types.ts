@@ -22,6 +22,7 @@ export interface DashboardLane {
 
 export interface DashboardChange {
   id: string;
+  specId: string | null;
   slug: string;
   title: string;
   status: string;
@@ -75,6 +76,7 @@ export interface SpecificationTaskDocument extends SpecificationDocument {
 
 export interface SpecificationContent {
   id: string;
+  specId: string | null;
   slug: string;
   title: string;
   source: 'active' | 'archive';
@@ -186,4 +188,103 @@ export interface SpecificationActionResult {
   action: SpecificationOwnerAction;
   taskId?: string;
   message: string;
+}
+
+export type AiSessionStatus = 'running' | 'waitingForUser' | 'idle' | 'completed';
+
+export interface AiProviderCapabilities {
+  listSessions: boolean;
+  sessionMetadata: boolean;
+  messages: boolean;
+  createSession: boolean;
+  startTurn: boolean;
+  streamEvents: boolean;
+  resumeTurn: boolean;
+  resolveInteractions: boolean;
+  cancelTurn: boolean;
+}
+
+export interface AiProviderDescriptor {
+  id: string;
+  label: string;
+  enabled: boolean;
+  capabilities: AiProviderCapabilities;
+}
+
+export interface AiSession {
+  specId: string;
+  provider: string;
+  sessionId: string;
+  taskIds: string[];
+  title?: string;
+  status: AiSessionStatus;
+  createdAt: string;
+  lastActivityAt: string;
+  completedAt?: string;
+  capabilities: AiProviderCapabilities;
+}
+
+export interface AiProvidersPayload {
+  providers: AiProviderDescriptor[];
+  access: { mode: 'trusted-network'; identityAuthenticated: false };
+}
+
+export interface AiSessionsPayload {
+  sessions: AiSession[];
+}
+
+export interface AiMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  createdAt: string;
+}
+
+export interface AiPermissionInteraction {
+  id: string;
+  kind: 'permission';
+  toolName: string;
+  input?: Record<string, unknown>;
+  details?: string;
+}
+
+export interface AiQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  options?: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+}
+
+export interface AiQuestionInteraction {
+  id: string;
+  kind: 'question';
+  questions: AiQuestion[];
+}
+
+export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction;
+
+export interface AiTurnEvent {
+  id: number;
+  type: 'turn.started' | 'message.delta' | 'interaction.requested' | 'interaction.resolved' | 'turn.completed' | 'turn.failed' | 'activity';
+  turnId: string;
+  timestamp: string;
+  messageId?: string;
+  delta?: string;
+  interaction?: AiInteraction;
+  interactionId?: string;
+  error?: { code: string; message: string };
+}
+
+export interface AiTurnSnapshot {
+  turnId: string;
+  provider: string;
+  sessionId: string;
+  status: 'running' | 'waitingForUser' | 'completed' | 'failed';
+  sessionStatus: AiSessionStatus;
+  startedAt: string;
+  completedAt?: string;
+  lastEventId: number;
+  pendingInteraction: AiInteraction | null;
+  events: AiTurnEvent[];
 }

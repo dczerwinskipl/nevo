@@ -4,6 +4,11 @@ import { useEffect, useState } from 'react';
 import type {
   DashboardChange,
   DashboardPayload,
+  AiProvidersPayload,
+  AiMessage,
+  AiSession,
+  AiSessionsPayload,
+  AiTurnSnapshot,
   PullRequestsPayload,
   SpecificationActionResult,
   SpecificationActionsPayload,
@@ -15,6 +20,11 @@ const DASHBOARD_QUERY_KEY = ['nevo-dashboard'] as const;
 const CONTENT_QUERY_KEY = ['nevo-spec-content'] as const;
 const PULL_REQUEST_QUERY_KEY = ['nevo-spec-pull-requests'] as const;
 const ACTIONS_QUERY_KEY = ['nevo-spec-actions'] as const;
+const AI_PROVIDERS_QUERY_KEY = ['nevo-ai-providers'] as const;
+const AI_SESSIONS_QUERY_KEY = ['nevo-ai-sessions'] as const;
+const AI_SESSION_QUERY_KEY = ['nevo-ai-session'] as const;
+const AI_MESSAGES_QUERY_KEY = ['nevo-ai-messages'] as const;
+const AI_TURN_QUERY_KEY = ['nevo-ai-turn'] as const;
 
 async function fetchDashboard() {
   const response = await fetch('/api/dashboard', { cache: 'no-store' });
@@ -174,4 +184,181 @@ export function useSpecificationActions(change: DashboardChange, enabled = true)
     execute: mutation.mutateAsync,
     resetExecution: mutation.reset,
   };
+}
+
+async function fetchAiProviders() {
+  const response = await fetch('/api/ai/providers', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`AI providers API: ${response.status}`);
+  return await response.json() as AiProvidersPayload;
+}
+
+export function useAiProviders(enabled = true) {
+  const query = useQuery({
+    queryKey: AI_PROVIDERS_QUERY_KEY,
+    queryFn: fetchAiProviders,
+    enabled,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  return {
+    data: query.data ?? null,
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isPending && enabled,
+    refresh: query.refetch,
+  };
+}
+
+async function fetchAiSessions({ specId, taskId }: { specId?: string; taskId?: string }) {
+  const query = new URLSearchParams();
+  if (specId) query.set('specId', specId);
+  if (taskId) query.set('taskId', taskId);
+  const suffix = query.size ? `?${query.toString()}` : '';
+  const response = await fetch(`/api/ai/sessions${suffix}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`AI sessions API: ${response.status}`);
+  return await response.json() as AiSessionsPayload;
+}
+
+export function useAiSessions({
+  specId,
+  taskId,
+  enabled = true,
+}: {
+  specId?: string;
+  taskId?: string;
+  enabled?: boolean;
+} = {}) {
+  const query = useQuery({
+    queryKey: [...AI_SESSIONS_QUERY_KEY, specId ?? 'all', taskId ?? 'all'],
+    queryFn: () => fetchAiSessions({ specId, taskId }),
+    enabled,
+    staleTime: 10_000,
+    refetchInterval: enabled ? 15_000 : false,
+    refetchIntervalInBackground: false,
+    retry: 1,
+  });
+  return {
+    data: query.data ?? null,
+    sessions: query.data?.sessions ?? [],
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isPending && enabled,
+    refreshing: query.isFetching && !query.isPending,
+    refresh: query.refetch,
+  };
+}
+
+async function aiPayload<T>(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null) as { error?: { message?: string } | string } | null;
+  if (!response.ok) {
+    const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message;
+    throw new Error(message || `${fallback}: ${response.status}`);
+  }
+  return payload as T;
+}
+
+async function fetchAiSession(provider: string, sessionId: string) {
+  const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+  return (await aiPayload<{ session: AiSession }>(response, 'AI session API')).session;
+}
+
+export function useAiSession(provider: string, sessionId: string, enabled = true) {
+  const query = useQuery({
+    queryKey: [...AI_SESSION_QUERY_KEY, provider, sessionId],
+    queryFn: () => fetchAiSession(provider, sessionId),
+    enabled,
+    staleTime: 5_000,
+    refetchInterval: enabled ? 10_000 : false,
+    retry: 1,
+  });
+  return { data: query.data ?? null, loading: query.isPending && enabled, error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
+}
+
+async function fetchAiMessages(provider: string, sessionId: string) {
+  const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/messages`, { cache: 'no-store' });
+  return (await aiPayload<{ messages: AiMessage[] }>(response, 'AI messages API')).messages;
+}
+
+export function useAiMessages(provider: string, sessionId: string, enabled = true) {
+  const query = useQuery({
+    queryKey: [...AI_MESSAGES_QUERY_KEY, provider, sessionId],
+    queryFn: () => fetchAiMessages(provider, sessionId),
+    enabled,
+    staleTime: 5_000,
+    retry: 1,
+  });
+  return { messages: query.data ?? [], loading: query.isPending && enabled, error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
+}
+
+export function useCreateAiSession() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (input: { provider: string; specId: string; taskIds: string[]; title?: string }) => {
+      const response = await fetch('/api/ai/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        body: JSON.stringify(input),
+      });
+      return (await aiPayload<{ session: AiSession }>(response, 'Create AI session API')).session;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: AI_SESSIONS_QUERY_KEY }),
+  });
+  return { create: mutation.mutateAsync, creating: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null, reset: mutation.reset };
+}
+
+export function useStartAiTurn(provider: string, sessionId: string) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (input: { message: string; idempotencyKey?: string }) => {
+      const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        body: JSON.stringify(input),
+      });
+      return await aiPayload<{ turnId: string; idempotent: boolean }>(response, 'Start AI turn API');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: AI_SESSION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: AI_SESSIONS_QUERY_KEY });
+    },
+  });
+  return { start: mutation.mutateAsync, starting: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null, reset: mutation.reset };
+}
+
+export function useAiTurn(turnId: string | null) {
+  const query = useQuery({
+    queryKey: [...AI_TURN_QUERY_KEY, turnId],
+    queryFn: async () => {
+      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}`, { cache: 'no-store' });
+      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'AI turn API')).turn;
+    },
+    enabled: Boolean(turnId),
+    staleTime: 0,
+    retry: 1,
+  });
+  return { data: query.data ?? null, loading: query.isPending && Boolean(turnId), error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
+}
+
+export function useResolveAiInteraction(turnId: string | null) {
+  const mutation = useMutation({
+    mutationFn: async ({ interactionId, response: interactionResponse }: { interactionId: string; response: unknown }) => {
+      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}/interactions/${encodeURIComponent(interactionId)}/response`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+        body: JSON.stringify(interactionResponse),
+      });
+      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'AI interaction API')).turn;
+    },
+  });
+  return { resolve: mutation.mutateAsync, resolving: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+}
+
+export function useCancelAiTurn(turnId: string | null) {
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}/cancel`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' }, body: '{}',
+      });
+      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'Cancel AI turn API')).turn;
+    },
+  });
+  return { cancel: mutation.mutateAsync, cancelling: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 }

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-15T08:34:24.306Z",
+  "generated": "2026-08-15T10:28:21.589Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -284,6 +284,24 @@
       "summary": "Central, scannable list of confirmed defects and gaps across NEvo packages. Every entry was previously documented only inside an individual package doc's Limitations section; this document consolidates them into one place."
     },
     {
+      "file": "docs/development/ai-sessions.md",
+      "id": "development.ai-sessions",
+      "type": "development",
+      "title": "Local AI sessions",
+      "status": "current",
+      "read_when": [
+        "working on dashboard AI sessions",
+        "verifying the provider-neutral AI runtime",
+        "adding an AI provider adapter"
+      ],
+      "summary": "Provider-neutral dashboard AI sessions, mock-mode setup, runtime boundaries, trusted-network access, and Part 1 verification.",
+      "related": [
+        "development.local-setup",
+        "development.architecture-overview",
+        "adr.0007-provider-neutral-ai-sessions"
+      ]
+    },
+    {
       "file": "docs/development/architecture-overview.md",
       "id": "development.architecture-overview",
       "type": "development",
@@ -297,7 +315,8 @@
       "summary": "High-level overview of NEvo's modular structure, design philosophy, and current maturity status of each module.",
       "related": [
         "development.package-boundaries",
-        "development.messaging-pipeline"
+        "development.messaging-pipeline",
+        "development.ai-sessions"
       ]
     },
     {
@@ -450,7 +469,8 @@
       ],
       "summary": "Prerequisites, build commands, and how to run the example applications and the local specification dashboard.",
       "related": [
-        "development.testing"
+        "development.testing",
+        "development.ai-sessions"
       ]
     },
     {
@@ -673,6 +693,16 @@
       "title": "Process continuity and hardening — suspension-based recovery, derived batch state, tiered fingerprints, and verify-before-destructive-cleanup finalization",
       "status": "accepted",
       "date": "2026-08-05",
+      "supersedes": null,
+      "superseded_by": null
+    },
+    {
+      "file": "docs/decisions/ADR-0007-provider-neutral-ai-sessions.md",
+      "id": "adr.0007-provider-neutral-ai-sessions",
+      "type": "adr",
+      "title": "Use provider-neutral local AI sessions in the specification dashboard",
+      "status": "accepted",
+      "date": "2026-08-15",
       "supersedes": null,
       "superseded_by": null
     },

@@ -33,7 +33,7 @@ forbidden_paths:
   - src/**
   - tests/NEvo.*/**
 semantic_references:
-  decisions: [D2]
+  decisions: [D2, D13]
   constraints: [C1, C2, C3]
 ---
 

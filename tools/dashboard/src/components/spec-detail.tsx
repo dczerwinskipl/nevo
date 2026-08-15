@@ -15,6 +15,8 @@ import {
   ListChecks,
   LoaderCircle,
   Play,
+  MessagesSquare,
+  MessageSquarePlus,
   RefreshCw,
   X,
 } from 'lucide-react';
@@ -23,6 +25,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type {
   DashboardChange,
   DashboardTask,
+  AiSession,
   SpecificationContent,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
@@ -36,6 +39,8 @@ import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/compo
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
 import { useSpecificationActions, useSpecificationContent } from '@/hooks/use-dashboard-data';
+import { useAiSessions } from '@/hooks/use-dashboard-data';
+import { AiSessionList } from '@/components/ai-session-list';
 
 type DetailTab = 'overview' | 'specification' | 'areas' | 'changes';
 
@@ -121,6 +126,11 @@ function TaskDialog({
   actionError,
   onRetry,
   onAction,
+  sessions,
+  sessionsLoading,
+  sessionsError,
+  onSessionsRetry,
+  onOpenSession,
   onClose,
 }: {
   task: DashboardTask;
@@ -133,6 +143,11 @@ function TaskDialog({
   actionError: string | null;
   onRetry: () => void;
   onAction: () => void;
+  sessions: AiSession[];
+  sessionsLoading: boolean;
+  sessionsError: string | null;
+  onSessionsRetry: () => void;
+  onOpenSession: (session: AiSession) => void;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -210,6 +225,11 @@ function TaskDialog({
             )}
           </div>
 
+          <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
+            <div className="mb-3 flex items-center gap-2"><MessagesSquare className="size-4 text-[var(--accent)]" /><h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3></div>
+            <AiSessionList sessions={sessions} tasks={[task]} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} emptyLabel="To zadanie nie ma jeszcze powiązanych sesji." />
+          </section>
+
           {loading ? (
             <div className="flex items-center gap-3 py-12 text-sm text-[var(--muted)]" role="status">
               <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
@@ -237,12 +257,31 @@ function TaskDialog({
 function OverviewPanel({
   change,
   onTaskSelect,
+  sessions,
+  sessionsLoading,
+  sessionsError,
+  onSessionsRetry,
+  onOpenSession,
+  actions,
+  onCreateSession,
 }: {
   change: DashboardChange;
   onTaskSelect: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+  sessions: AiSession[];
+  sessionsLoading: boolean;
+  sessionsError: string | null;
+  onSessionsRetry: () => void;
+  onOpenSession: (session: AiSession) => void;
+  actions: React.ReactNode;
+  onCreateSession: () => void;
 }) {
   return (
     <>
+      <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
+        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
+        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
+      </section>
+      {actions}
       <section aria-label="Podsumowanie specyfikacji" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={<ListChecks className="size-4" />}
@@ -431,14 +470,15 @@ function AreasPanel({
   );
 }
 
-export function SpecDetail({ change }: { change: DashboardChange }) {
+export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
   const contentEnabled = activeTab === 'specification' || activeTab === 'areas' || Boolean(selectedTaskId);
   const contentQuery = useSpecificationContent(change, contentEnabled);
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
+  const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: change.source === 'active' && Boolean(change.specId) });
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
   const selectedTaskDocument = selectedTaskId
     ? contentQuery.data?.tasks.find(task => task.id === selectedTaskId) ?? null
@@ -448,9 +488,9 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
 
   useEffect(() => {
     setActiveTab('overview');
-    setSelectedTaskId(null);
+    setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
-  }, [change.slug]);
+  }, [change.slug, initialTaskId]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
     taskTriggerRef.current = trigger;
@@ -531,20 +571,6 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
             </div>
             <StageProgress change={change} className="mt-5" legend />
           </Card>
-          {change.source === 'active' && (
-            <RepositoryActionsCard
-              data={actionsQuery.data}
-              loading={actionsQuery.loading}
-              refreshing={actionsQuery.refreshing}
-              error={actionsQuery.error}
-              executing={actionsQuery.executing}
-              onRefresh={() => void actionsQuery.refresh()}
-              onFinalize={() => {
-                actionsQuery.resetExecution();
-                setFinalizeOpen(true);
-              }}
-            />
-          )}
         </div>
       </header>
 
@@ -583,7 +609,9 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
         aria-labelledby={`spec-tab-${activeTab}`}
         className="mt-7"
       >
-        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} />}
+        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} sessions={sessionsQuery.sessions} sessionsLoading={sessionsQuery.loading} sessionsError={sessionsQuery.error} onSessionsRetry={() => void sessionsQuery.refresh()} onOpenSession={onOpenSession} onCreateSession={onCreateSession} actions={change.source === 'active' ? (
+          <div className="mb-9 max-w-xl"><RepositoryActionsCard data={actionsQuery.data} loading={actionsQuery.loading} refreshing={actionsQuery.refreshing} error={actionsQuery.error} executing={actionsQuery.executing} onRefresh={() => void actionsQuery.refresh()} onFinalize={() => { actionsQuery.resetExecution(); setFinalizeOpen(true); }} /></div>
+        ) : null} />}
         {activeTab === 'specification' && (
           <SpecificationPanel
             content={contentQuery.data}
@@ -619,6 +647,11 @@ export function SpecDetail({ change }: { change: DashboardChange }) {
           actionError={actionsQuery.executionError}
           onRetry={() => void contentQuery.refresh()}
           onAction={() => void executeTaskAction()}
+          sessions={sessionsQuery.sessions.filter(session => session.taskIds.includes(selectedTask.id))}
+          sessionsLoading={sessionsQuery.loading}
+          sessionsError={sessionsQuery.error}
+          onSessionsRetry={() => void sessionsQuery.refresh()}
+          onOpenSession={session => onOpenSession(session, selectedTask.id)}
           onClose={closeTask}
         />
       )}

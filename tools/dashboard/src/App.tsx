@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
+import { AiChatPage, CreateAiSessionDialog } from '@/components/ai-chat';
 import { Button } from '@/components/ui/button';
-import { useDashboardData } from '@/hooks/use-dashboard-data';
-import type { DashboardChange } from '@/lib/types';
+import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
+import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function LoadingScreen() {
@@ -23,12 +24,33 @@ function LoadingScreen() {
   );
 }
 
+interface SessionRoute { provider: string; sessionId: string; turnId: string | null }
+
+function sessionRouteFromLocation(): SessionRoute | null {
+  const match = window.location.pathname.match(/^\/ai\/sessions\/([^/]+)\/([^/]+)$/);
+  if (!match) return null;
+  try {
+    return {
+      provider: decodeURIComponent(match[1]),
+      sessionId: decodeURIComponent(match[2]),
+      turnId: new URLSearchParams(window.location.search).get('turnId'),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
   const [mode, setMode] = useState<DashboardMode>('active');
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
+  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
+  const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
+  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
+  const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
   const selected = useMemo(
@@ -45,6 +67,15 @@ export default function App() {
     if (selectedSlug && !source.some(change => change.slug === selectedSlug)) setSelectedSlug(null);
   }, [data, mode, selectedSlug, source]);
 
+  useEffect(() => {
+    const restoreRoute = () => {
+      setSessionRoute(sessionRouteFromLocation());
+      setChatOriginTaskId(typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
+    };
+    window.addEventListener('popstate', restoreRoute);
+    return () => window.removeEventListener('popstate', restoreRoute);
+  }, []);
+
   const changeMode = (nextMode: DashboardMode) => {
     setMode(nextMode);
     setSelectedSlug(null);
@@ -55,6 +86,60 @@ export default function App() {
     setSelectedSlug(change.slug);
     setSidebarOpen(false);
   };
+
+  const openSession = (session: AiSession, initialMessage: string | null = null, originTaskId?: string | null, replaceHistory = false) => {
+    const change = data?.active.find(item => item.specId === session.specId)
+      || data?.archive.find(item => item.specId === session.specId);
+    if (change) {
+      setMode(change.source);
+      setSelectedSlug(change.slug);
+    }
+    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
+    const nextOriginTaskId = originTaskId === undefined ? (sessionRoute ? chatOriginTaskId : null) : originTaskId;
+    const historyState = { nevoSession: true, provider: session.provider, sessionId: session.sessionId, originTaskId: nextOriginTaskId };
+    if (replaceHistory) window.history.replaceState(historyState, '', path);
+    else window.history.pushState(historyState, '', path);
+    setSessionRoute({ provider: session.provider, sessionId: session.sessionId, turnId: null });
+    setPendingInitialMessage(initialMessage);
+    setChatOriginTaskId(nextOriginTaskId);
+    setSidebarOpen(false);
+  };
+
+  const updateTurnRoute = (turnId: string | null) => {
+    if (!sessionRoute) return;
+    const path = `/ai/sessions/${encodeURIComponent(sessionRoute.provider)}/${encodeURIComponent(sessionRoute.sessionId)}`;
+    const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
+    window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
+    setSessionRoute({ ...sessionRoute, turnId });
+  };
+
+  const leaveChat = () => {
+    if (window.history.state?.nevoSession) window.history.back();
+    else {
+      window.history.replaceState({}, '', '/');
+      setSessionRoute(null);
+    }
+  };
+
+  if (sessionRoute) {
+    if (loading && !data) return <LoadingScreen />;
+    if (error && !data) return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
+    return (
+      <AiChatPage
+        key={`${sessionRoute.provider}:${sessionRoute.sessionId}`}
+        provider={sessionRoute.provider}
+        sessionId={sessionRoute.sessionId}
+        initialTurnId={sessionRoute.turnId}
+        initialMessage={pendingInitialMessage}
+        onInitialMessageConsumed={() => setPendingInitialMessage(null)}
+        onTurnChange={updateTurnRoute}
+        onBack={leaveChat}
+        backLabel={chatOriginTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}
+        onSwitchSession={session => openSession(session, null, chatOriginTaskId, true)}
+        changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen lg:pl-[370px]">
@@ -93,7 +178,7 @@ export default function App() {
             <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
           </div>
         ) : selected ? (
-          <SpecDetail change={selected} />
+          <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
         ) : (
           <ListOverview mode={mode} changes={source} onSelect={selectChange} />
         )}
@@ -107,10 +192,25 @@ export default function App() {
           archive={data.archive}
           selectedSlug={selectedSlug}
           onSelect={selectChange}
+          sessions={globalSessions.sessions}
+          sessionsLoading={globalSessions.loading}
+          sessionsError={globalSessions.error}
+          onSessionsRetry={() => void globalSessions.refresh()}
+          onOpenSession={session => openSession(session, null, null)}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+        />
+      )}
+      {createChange && (
+        <CreateAiSessionDialog
+          change={createChange}
+          onClose={() => setCreateChange(null)}
+          onCreated={(session, initialMessage) => {
+            setCreateChange(null);
+            openSession(session, initialMessage, null);
+          }}
         />
       )}
     </div>

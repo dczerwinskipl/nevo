@@ -101,8 +101,10 @@
   `areas/provider-neutral-ai-runtime.md` and tasks 03/05 gain matching requirements/ACs.
 - **Date:** 2026-08-15
 - **Affected artifacts:** `overview.md` (C20, Interactive turn runtime, HTTP and SSE
-  resources), `areas/provider-neutral-ai-runtime.md`, `tasks/03-interactive-turn-runtime.md`,
-  `tasks/05-ai-session-http-and-sse-api.md`
+  resources), `areas/provider-neutral-ai-runtime.md`, `tasks/03-interactive-turn-runtime.md`
+  (`semantic_references.decisions`, implementation constraints, AC7),
+  `tasks/05-ai-session-http-and-sse-api.md` (`semantic_references.decisions`,
+  implementation constraint, AC8)
 
 ## D11: AskUserQuestion questions and answers correlate by stable ID, never by text
 
@@ -145,7 +147,7 @@
   into a general tool-call model (already out of scope). Each adapter decides, per tool
   kind it actually supports, what a bounded/sanitized `input` looks like.
 - **Date:** 2026-08-15
-- **Affected artifacts:** `overview.md` (C9, HTTP and SSE resources), `areas/provider-neutral-ai-runtime.md`
+- **Affected artifacts:** `overview.md` (C9, HTTP and SSE resources), `areas/provider-neutral-ai-runtime.md`, `tasks/04-mock-ai-adapter-and-demo-data.md` (AC6 — the concrete proof a real adapter can satisfy this)
 
 ## D13: `validate`/`check` requires `spec_id` once backfill has run; reading stays permanently tolerant
 
@@ -167,5 +169,6 @@
   passed against the corrected behavior.
 - **Date:** 2026-08-15
 - **Affected artifacts:** `overview.md` (C2, Compatibility and migration),
-  `areas/stable-spec-identity.md`, `tasks/01-stable-spec-identity-and-backfill.md`,
+  `areas/stable-spec-identity.md`, `tasks/01-stable-spec-identity-and-backfill.md`
+  (`semantic_references.decisions`, implementation constraint, AC1),
   `tools/specs/validation.mjs`, `tools/tests/spec-identity.test.mjs`

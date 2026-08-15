@@ -13,6 +13,7 @@ summary: >
 related:
   - development.package-boundaries
   - development.messaging-pipeline
+  - development.ai-sessions
 ---
 
 # NEvo architecture overview
@@ -51,6 +52,21 @@ NEvo.Orchestrating.EntityFramework Experimental  EF persistence for orchestratio
 `ICommandDispatcher`) and the query side (`Query<TResult>`, `IQueryHandler`,
 `IQueryDispatcher`). See `docs/reference/packages/NEvo.Messaging.Cqrs.md` for the exact
 scope.
+
+## Repository tooling boundary
+
+The Node.js tooling under `tools/` is a repository-development subsystem, not a .NET
+runtime package and not part of the module dependency graph above. The specification
+dashboard reads canonical Markdown/YAML through the tooling layer and hosts its React
+UI and local API in one process.
+
+AI sessions follow the same boundary. Provider adapters own conversation history and
+translate provider behavior into neutral session, turn, event, and interaction
+contracts. The dashboard server validates and exposes those contracts over HTTP and
+Server-Sent Events; the browser consumes only normalized payloads. Part 1 uses a
+deterministic in-memory mock adapter and turn runtime. It adds no dependency from the
+.NET libraries to an AI provider and requires no provider-specific installation. See
+[Local AI sessions](ai-sessions.md) and ADR-0007 for lifecycle and trust decisions.
 
 ## Current maturity
 

@@ -1,30 +1,64 @@
 ---
 review-of: spec
 change: ai-sessions-live-chat-integration
-generated: 2026-08-15T10:11:39.5440198+02:00
+generated: 2026-08-15
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 90a8939d9f3d1c6f902d89cc5f9e2e3cd314fc35afcfbf4e01717553ef31c792
+spec_fingerprint: 5a0611d3a6de1c668e11bd5e4f04b311bb07c237d440973eeb8c6f7fad67faca
 task_fingerprints:
-  stable-spec-identity-and-backfill: fc50f575d3b551633efb797bcb7d55ccee8430d1902c246225e7a3f9c327afb6
-  provider-neutral-ai-contracts: 1fbd50df5930978b9cd4124a42c5e6308c4b044134f29f8f5ff86e7c038a4d50
-  interactive-turn-runtime: 4d9cc2c6f3b3208f1d4264b941ecb8ededb93e6ce6760eb2a6fa7be5ea17b3c4
-  mock-ai-adapter-and-demo-data: 11530c00868e4edbd6b9eaac6d50315bbc383738b6bc4df77547539a4e040a88
-  ai-session-http-and-sse-api: 5bca8c88ede6fcda10064ed3efee4e74945cff041d320fdc1f90ccd28acbb5fb
-  session-navigation-and-context-surfaces: cfc659faf52c517b0bbab896a784a554cb00b6dd632e1a0fffeee902e3577faf
-  fullscreen-chat-and-session-creation: 82b3eee2e344f4e537877cf8923cab7a74d709adda4e566387e202598af5f113
-  part1-integration-verification-and-docs: 20caa92990d10d886b404fa42c3785178dff95987eca3fbf0d2cfd9c94e0fa5a
-  claude-readiness-discovery: 31526de483f089b456c6de25b900047f327a918035c3f000e04db8aef450862b
-  local-ai-registry-and-manual-attach: 1a3356fe1f92f1a82813922eb189004d8f4eeafee9eca600e69e2f831d9da2f6
-  ai-session-context-cli-preflight: dda550c201b0b8d164e5d58b62bdc80d23c3d6ba23fd8140731f288fd58de917
-  claude-hooks-and-invocation-context: bc940810652274df846ff227cea9f2cf7a15a07a84be648b554ed302f2228e9a
-  claude-session-adapter: 62be43c6d4402f6ea434ad5b08953a7626d4688000492ae9887c3218542645b6
-  claude-live-chat-e2e-and-docs: 5d0ad90f9c4509ae77ec1f08a0b6137c5b738026502ce2e65f065ed4e009f6ed
+  stable-spec-identity-and-backfill: 9912b8c68a5d95f116ec0864b9e8816450f0fb533c2b6da04f50c8f5117cb6b9
+  provider-neutral-ai-contracts: 8ec687996deb64a8a2318ca8b572bc2d8100ee383f37f3cc721444e7a8979b38
+  interactive-turn-runtime: 9d3bb24eb0df551d415e4189e95d4e14e24c00799f2cfc70d85663586cb5d0a2
+  mock-ai-adapter-and-demo-data: c0831865787e7623adad2e400f9c78148c50497ef95c9b96276b81640f7440a4
+  ai-session-http-and-sse-api: 70ec2fd2ad8de56ed4f1f91362ba6d2f7303316c0bf3ae92cb2213013e0c672e
+  session-navigation-and-context-surfaces: 6a6fbc9a219d52cbbada10576edb48b07ea27f0c1be7d721e29a616d53e8604c
+  fullscreen-chat-and-session-creation: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
+  part1-integration-verification-and-docs: efdfa22ae93ea9ce6f67afc529c761fdf583a2b32b9b7d96538890463199c5a6
+  claude-readiness-discovery: 7d32b42d8d950e47e9c2b3574f67b3c288fcc528e716117ed4603b3991b3d050
+  local-ai-registry-and-manual-attach: 862b5f2b4dda2e1f526d47db0fedc84dde54650e0d0bc3576260bd55d8caa320
+  ai-session-context-cli-preflight: a0e5e478b9ab08a056791b10aab6e6c13a9a016a9c96fe3af65777baa50ffff3
+  claude-hooks-and-invocation-context: da61fa946b4f8e9b2aa77b8d1bdbaeee4331e3855bc68abf57387b154f371ef8
+  claude-session-adapter: 8a97c9bdd367032421c3e78497090d7316abf06485818d0d3c64019a29024588
+  claude-live-chat-e2e-and-docs: a6af6bccc31fece27523121b50734b7be59884dab7f7e46a7950c0dd46d958ab
 ---
+
+Re-review (2026-08-15, `--all`). Baseline: this file's prior content (`ready-for-approval`,
+spec_fingerprint `90a8939d...`). The prior review predates the owner's PR #25 review
+(commit e6496d5) of the specification itself. Re-read `overview.md`, all five `areas/`
+files, all 14 `tasks/`, and `owner-decisions.md` fresh for this run.
+
+Applied since the prior review (owner-driven, recorded as D10-D13): C20 (at most one
+non-terminal turn per session, plus an optional start-turn idempotency key), C9 extended
+(question correlation by stable `id`, never by prose; permission `input` is
+adapter-normalized/bounded/sanitized, never a raw provider payload), and C2 tightened
+(`validate`/`check` requires `spec_id` once backfill has run — implemented directly in
+`tools/specs/validation.mjs`, since task 01 was already complete when this was raised).
+
+Semantic-reference completeness (D26/D29) surfaced two gaps while re-reading the affected
+tasks, both closed before writing this report (`AUTO_FIX`, applied — task-review's
+"the agent may make this fix without further deliberation" standard, same as any other
+`AUTO_FIX`):
+
+- Tasks 01/03/05 implement D13/D10 directly in their own acceptance criteria and
+  implementation constraints but didn't list them in `semantic_references.decisions`
+  (only the corresponding constraint was listed) — added, matching this document's own
+  existing decision-plus-constraint pairing convention (e.g. task 03's pre-existing
+  `D4, D5` alongside `C9-C12`).
+- Point 3 of the owner's review (permission `input` normalization, folded into C9) had no
+  task-level acceptance criterion anywhere — no task actually tested that an adapter
+  produces a bounded/sanitized `input` rather than a raw passthrough. Added task 04
+  (`mock-ai-adapter-and-demo-data`) AC6 and a matching implementation constraint, since
+  `MockAiAdapter` is the concrete adapter that must prove this is achievable; referenced
+  D12 in its `semantic_references.decisions`.
+
+No other blocking issues, ambiguity, architecture conflict, task-decomposition problem, or
+documentation/ADR gap found. `node tools/specs.mjs validate` and `node tools/docs.mjs
+validate` (gating) both pass. `node tools/specs.mjs check` and `node tools/docs.mjs check`
+(non-gating, repository-wide) both pass — indexes were regenerated as part of this run.
 
 # Review: ai-sessions-live-chat-integration
 
@@ -32,3 +66,12 @@ task_fingerprints:
 - [x] No unresolved owner decision
 - [x] No unresolved clarification request
 - [x] Verdict: ready-for-approval
+
+## Implementation readiness
+
+- May implementation start now? Yes.
+- Are the relevant tasks `approved` in `change.yaml`? No — every task is currently
+  `draft` except `stable-spec-identity-and-backfill`, which is `implemented`.
+- What has to happen first? Nothing — ready. Approve the desired Part 1 task(s)
+  (`provider-neutral-ai-contracts` through `part1-integration-verification-and-docs`)
+  to unlock implementation.

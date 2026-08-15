@@ -19,7 +19,7 @@ forbidden_paths:
   - tests/NEvo.*/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D4, D5]
+  decisions: [D4, D5, D10]
   constraints: [C5, C9, C10, C11, C12, C20]
   dependency_contracts: [provider-neutral-ai-contracts]
 ---
