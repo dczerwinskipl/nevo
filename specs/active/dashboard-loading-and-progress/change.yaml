@@ -13,7 +13,7 @@ tasks:
   - id: dashboard-data-loading-contracts
     order: 1
     file: tasks/01-dashboard-data-loading-contracts.md
-    status: draft
+    status: approved
   - id: pr-file-manifest-and-diff-hydration
     order: 2
     file: tasks/02-pr-file-manifest-and-diff-hydration.md
