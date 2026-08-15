@@ -163,8 +163,27 @@ tasks:
   - id: fullscreen-chat-and-session-creation
     order: 7
     file: tasks/07-fullscreen-chat-and-session-creation.md
-    status: approved
+    status: implemented
     depends_on: [ session-navigation-and-context-surfaces ]
+    implementation:
+      baseline_revision: 4baf2ffbefe1b2f32114089bebb1383815d9d241
+      review_revision: 7aee615cbea05751ed8c277837a78258ebe9af03
+      changed_paths:
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/types.ts
+      worktree_patch_fingerprint: e7b8438068e6f1edba51ea5e3efa634406abae4307910ba6c1033426cbe98f5d
+    self_check:
+      fingerprint: 4773d76eb90048e23e5b80c653befc3d684f1f33c29be584c559ea3029c48828
+      revision: 7aee615cbea05751ed8c277837a78258ebe9af03
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: part1-integration-verification-and-docs
     order: 8
     file: tasks/08-part1-integration-verification-and-docs.md

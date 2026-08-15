@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
+import { AiChatPage, CreateAiSessionDialog } from '@/components/ai-chat';
 import { Button } from '@/components/ui/button';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import type { AiSession, DashboardChange } from '@/lib/types';
@@ -23,12 +24,31 @@ function LoadingScreen() {
   );
 }
 
+interface SessionRoute { provider: string; sessionId: string; turnId: string | null }
+
+function sessionRouteFromLocation(): SessionRoute | null {
+  const match = window.location.pathname.match(/^\/ai\/sessions\/([^/]+)\/([^/]+)$/);
+  if (!match) return null;
+  try {
+    return {
+      provider: decodeURIComponent(match[1]),
+      sessionId: decodeURIComponent(match[2]),
+      turnId: new URLSearchParams(window.location.search).get('turnId'),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
   const [mode, setMode] = useState<DashboardMode>('active');
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
+  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
+  const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
@@ -46,6 +66,12 @@ export default function App() {
     if (selectedSlug && !source.some(change => change.slug === selectedSlug)) setSelectedSlug(null);
   }, [data, mode, selectedSlug, source]);
 
+  useEffect(() => {
+    const restoreRoute = () => setSessionRoute(sessionRouteFromLocation());
+    window.addEventListener('popstate', restoreRoute);
+    return () => window.removeEventListener('popstate', restoreRoute);
+  }, []);
+
   const changeMode = (nextMode: DashboardMode) => {
     setMode(nextMode);
     setSelectedSlug(null);
@@ -57,7 +83,7 @@ export default function App() {
     setSidebarOpen(false);
   };
 
-  const openSession = (session: AiSession) => {
+  const openSession = (session: AiSession, initialMessage: string | null = null) => {
     const change = data?.active.find(item => item.specId === session.specId)
       || data?.archive.find(item => item.specId === session.specId);
     if (change) {
@@ -65,9 +91,45 @@ export default function App() {
       setSelectedSlug(change.slug);
     }
     const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
-    window.history.pushState({ provider: session.provider, sessionId: session.sessionId }, '', path);
+    window.history.pushState({ nevoSession: true, provider: session.provider, sessionId: session.sessionId }, '', path);
+    setSessionRoute({ provider: session.provider, sessionId: session.sessionId, turnId: null });
+    setPendingInitialMessage(initialMessage);
     setSidebarOpen(false);
   };
+
+  const updateTurnRoute = (turnId: string | null) => {
+    if (!sessionRoute) return;
+    const path = `/ai/sessions/${encodeURIComponent(sessionRoute.provider)}/${encodeURIComponent(sessionRoute.sessionId)}`;
+    const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
+    window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
+    setSessionRoute({ ...sessionRoute, turnId });
+  };
+
+  const leaveChat = () => {
+    if (window.history.state?.nevoSession) window.history.back();
+    else {
+      window.history.replaceState({}, '', '/');
+      setSessionRoute(null);
+    }
+  };
+
+  if (sessionRoute) {
+    if (loading && !data) return <LoadingScreen />;
+    if (error && !data) return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
+    return (
+      <AiChatPage
+        provider={sessionRoute.provider}
+        sessionId={sessionRoute.sessionId}
+        initialTurnId={sessionRoute.turnId}
+        initialMessage={pendingInitialMessage}
+        onInitialMessageConsumed={() => setPendingInitialMessage(null)}
+        onTurnChange={updateTurnRoute}
+        onBack={leaveChat}
+        onSwitchSession={session => openSession(session)}
+        changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen lg:pl-[370px]">
@@ -106,7 +168,7 @@ export default function App() {
             <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
           </div>
         ) : selected ? (
-          <SpecDetail change={selected} onOpenSession={openSession} />
+          <SpecDetail change={selected} onOpenSession={openSession} onCreateSession={() => setCreateChange(selected)} />
         ) : (
           <ListOverview mode={mode} changes={source} onSelect={selectChange} />
         )}
@@ -129,6 +191,16 @@ export default function App() {
           onSearchChange={setSearch}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+        />
+      )}
+      {createChange && (
+        <CreateAiSessionDialog
+          change={createChange}
+          onClose={() => setCreateChange(null)}
+          onCreated={(session, initialMessage) => {
+            setCreateChange(null);
+            openSession(session, initialMessage);
+          }}
         />
       )}
     </div>

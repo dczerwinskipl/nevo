@@ -16,6 +16,7 @@ import {
   LoaderCircle,
   Play,
   MessagesSquare,
+  MessageSquarePlus,
   RefreshCw,
   X,
 } from 'lucide-react';
@@ -262,6 +263,7 @@ function OverviewPanel({
   onSessionsRetry,
   onOpenSession,
   actions,
+  onCreateSession,
 }: {
   change: DashboardChange;
   onTaskSelect: (task: DashboardTask, trigger: HTMLButtonElement) => void;
@@ -271,11 +273,12 @@ function OverviewPanel({
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
   actions: React.ReactNode;
+  onCreateSession: () => void;
 }) {
   return (
     <>
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
-        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div></div>
+        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
         <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
       </section>
       {actions}
@@ -467,7 +470,7 @@ function AreasPanel({
   );
 }
 
-export function SpecDetail({ change, onOpenSession }: { change: DashboardChange; onOpenSession: (session: AiSession) => void }) {
+export function SpecDetail({ change, onOpenSession, onCreateSession }: { change: DashboardChange; onOpenSession: (session: AiSession) => void; onCreateSession: () => void }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [finalizeOpen, setFinalizeOpen] = useState(false);
@@ -606,7 +609,7 @@ export function SpecDetail({ change, onOpenSession }: { change: DashboardChange;
         aria-labelledby={`spec-tab-${activeTab}`}
         className="mt-7"
       >
-        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} sessions={sessionsQuery.sessions} sessionsLoading={sessionsQuery.loading} sessionsError={sessionsQuery.error} onSessionsRetry={() => void sessionsQuery.refresh()} onOpenSession={onOpenSession} actions={change.source === 'active' ? (
+        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} sessions={sessionsQuery.sessions} sessionsLoading={sessionsQuery.loading} sessionsError={sessionsQuery.error} onSessionsRetry={() => void sessionsQuery.refresh()} onOpenSession={onOpenSession} onCreateSession={onCreateSession} actions={change.source === 'active' ? (
           <div className="mb-9 max-w-xl"><RepositoryActionsCard data={actionsQuery.data} loading={actionsQuery.loading} refreshing={actionsQuery.refreshing} error={actionsQuery.error} executing={actionsQuery.executing} onRefresh={() => void actionsQuery.refresh()} onFinalize={() => { actionsQuery.resetExecution(); setFinalizeOpen(true); }} /></div>
         ) : null} />}
         {activeTab === 'specification' && (

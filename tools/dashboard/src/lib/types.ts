@@ -232,3 +232,59 @@ export interface AiProvidersPayload {
 export interface AiSessionsPayload {
   sessions: AiSession[];
 }
+
+export interface AiMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  createdAt: string;
+}
+
+export interface AiPermissionInteraction {
+  id: string;
+  kind: 'permission';
+  toolName: string;
+  input?: Record<string, unknown>;
+  details?: string;
+}
+
+export interface AiQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  options?: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+}
+
+export interface AiQuestionInteraction {
+  id: string;
+  kind: 'question';
+  questions: AiQuestion[];
+}
+
+export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction;
+
+export interface AiTurnEvent {
+  id: number;
+  type: 'turn.started' | 'message.delta' | 'interaction.requested' | 'interaction.resolved' | 'turn.completed' | 'turn.failed' | 'activity';
+  turnId: string;
+  timestamp: string;
+  messageId?: string;
+  delta?: string;
+  interaction?: AiInteraction;
+  interactionId?: string;
+  error?: { code: string; message: string };
+}
+
+export interface AiTurnSnapshot {
+  turnId: string;
+  provider: string;
+  sessionId: string;
+  status: 'running' | 'waitingForUser' | 'completed' | 'failed';
+  sessionStatus: AiSessionStatus;
+  startedAt: string;
+  completedAt?: string;
+  lastEventId: number;
+  pendingInteraction: AiInteraction | null;
+  events: AiTurnEvent[];
+}
