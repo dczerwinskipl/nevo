@@ -47,3 +47,8 @@ tasks:
       - cli-step-instrumentation-gate-and-verification
 
 spec_id: 8745682a-ea12-405a-b809-6836b062aa90
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 27
