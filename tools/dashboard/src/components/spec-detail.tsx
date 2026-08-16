@@ -26,7 +26,7 @@ import type {
   DashboardChange,
   DashboardTask,
   AiSession,
-  SpecificationContent,
+  SpecificationManifest,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
 } from '@/lib/types';
@@ -38,7 +38,7 @@ import { MarkdownContent } from '@/components/markdown-content';
 import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
-import { useSpecificationActions, useSpecificationContent } from '@/hooks/use-dashboard-data';
+import { useSpecificationActions, useSpecificationDocument, useSpecificationManifest } from '@/hooks/use-dashboard-data';
 import { useAiSessions } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
 
@@ -337,61 +337,73 @@ function OverviewPanel({
 }
 
 function SpecificationPanel({
-  content,
-  loading,
-  error,
-  onRetry,
+  change,
+  manifest,
+  manifestLoading,
+  manifestError,
+  onManifestRetry,
+  enabled,
 }: {
-  content: SpecificationContent | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
+  change: DashboardChange;
+  manifest: SpecificationManifest | null;
+  manifestLoading: boolean;
+  manifestError: string | null;
+  onManifestRetry: () => void;
+  enabled: boolean;
 }) {
-  if (loading) return <ContentLoading />;
-  if (error) return <ContentError message={error} onRetry={onRetry} />;
-  if (!content?.overview.available) {
+  const overviewQuery = useSpecificationDocument(change, 'overview', enabled && Boolean(manifest?.overview.available));
+
+  if (manifestLoading || overviewQuery.loading) return <ContentLoading />;
+  if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
+  if (overviewQuery.error) return <ContentError message={overviewQuery.error} onRetry={() => void overviewQuery.refresh()} />;
+  if (!manifest?.overview.available || !overviewQuery.data?.available) {
     return <EmptyDocument title="Brak głównego dokumentu" detail="Ta specyfikacja nie zawiera opcjonalnego pliku overview.md." />;
   }
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
-        {content.overview.path}
+        {manifest.overview.path}
       </div>
       <article className="px-5 py-7 sm:px-8 sm:py-9">
-        <MarkdownContent markdown={content.overview.markdown} />
+        <MarkdownContent markdown={overviewQuery.data.markdown} />
       </article>
     </Card>
   );
 }
 
 function AreasPanel({
-  content,
-  loading,
-  error,
-  onRetry,
+  change,
+  manifest,
+  manifestLoading,
+  manifestError,
+  onManifestRetry,
+  enabled,
 }: {
-  content: SpecificationContent | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
+  change: DashboardChange;
+  manifest: SpecificationManifest | null;
+  manifestLoading: boolean;
+  manifestError: string | null;
+  onManifestRetry: () => void;
+  enabled: boolean;
 }) {
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const areaTriggerIdRef = useRef<string | null>(null);
+  const selectedArea = selectedAreaId
+    ? manifest?.areas.find(area => area.id === selectedAreaId) ?? null
+    : null;
+  const areaDocumentQuery = useSpecificationDocument(change, selectedArea?.docId ?? null, enabled && Boolean(selectedArea));
 
   useEffect(() => {
-    if (selectedAreaId && !content?.areas.some(area => area.id === selectedAreaId)) {
+    if (selectedAreaId && !manifest?.areas.some(area => area.id === selectedAreaId)) {
       setSelectedAreaId(null);
     }
-  }, [content, selectedAreaId]);
+  }, [manifest, selectedAreaId]);
 
-  if (loading) return <ContentLoading />;
-  if (error) return <ContentError message={error} onRetry={onRetry} />;
-  if (!content?.areas.length) {
+  if (manifestLoading) return <ContentLoading />;
+  if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
+  if (!manifest?.areas.length) {
     return <EmptyDocument title="Brak dokumentów obszarów" detail="Ta specyfikacja nie ma dodatkowych dokumentów w katalogu areas/." />;
   }
-  const selectedArea = selectedAreaId
-    ? content.areas.find(area => area.id === selectedAreaId) ?? null
-    : null;
 
   if (selectedArea) {
     return (
@@ -412,24 +424,30 @@ function AreasPanel({
           <span className="max-w-full truncate text-[10px] text-[var(--muted)] sm:max-w-[60%]">{selectedArea.path}</span>
         </div>
 
-        <Card className="overflow-hidden">
-          <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszar</p>
-            <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{selectedArea.title}</h2>
-          </div>
-          <article className="px-5 py-7 sm:px-8 sm:py-9">
-            <MarkdownContent markdown={selectedArea.markdown} />
-          </article>
-        </Card>
+        {areaDocumentQuery.loading ? (
+          <ContentLoading />
+        ) : areaDocumentQuery.error ? (
+          <ContentError message={areaDocumentQuery.error} onRetry={() => void areaDocumentQuery.refresh()} />
+        ) : (
+          <Card className="overflow-hidden">
+            <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszar</p>
+              <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{selectedArea.title}</h2>
+            </div>
+            <article className="px-5 py-7 sm:px-8 sm:py-9">
+              <MarkdownContent markdown={areaDocumentQuery.data?.markdown ?? ''} />
+            </article>
+          </Card>
+        )}
       </div>
     );
   }
 
-  const areaCountLabel = content.areas.length === 1
+  const areaCountLabel = manifest.areas.length === 1
     ? '1 obszar'
-    : content.areas.length < 5
-      ? `${content.areas.length} obszary`
-      : `${content.areas.length} obszarów`;
+    : manifest.areas.length < 5
+      ? `${manifest.areas.length} obszary`
+      : `${manifest.areas.length} obszarów`;
 
   return (
     <div>
@@ -440,7 +458,7 @@ function AreasPanel({
       </div>
 
       <div className="space-y-3">
-        {content.areas.map(area => {
+        {manifest.areas.map(area => {
           const triggerId = `area-trigger-${area.id}`;
           return (
             <Card key={area.id} className="overflow-hidden transition-colors hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--border))]">
@@ -475,14 +493,14 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const contentEnabled = activeTab === 'specification' || activeTab === 'areas' || Boolean(selectedTaskId);
-  const contentQuery = useSpecificationContent(change, contentEnabled);
+  const manifestEnabled = activeTab === 'specification' || activeTab === 'areas';
+  const manifestQuery = useSpecificationManifest(change, manifestEnabled);
+  const taskDocId = selectedTaskId ? `task:${selectedTaskId}` : null;
+  const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(selectedTaskId));
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: change.source === 'active' && Boolean(change.specId) });
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
-  const selectedTaskDocument = selectedTaskId
-    ? contentQuery.data?.tasks.find(task => task.id === selectedTaskId) ?? null
-    : null;
+  const selectedTaskDocument = (selectedTaskId ? taskDocumentQuery.data as SpecificationTaskDocument | null : null);
   const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
   const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
 
@@ -614,18 +632,22 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         ) : null} />}
         {activeTab === 'specification' && (
           <SpecificationPanel
-            content={contentQuery.data}
-            loading={contentQuery.loading}
-            error={contentQuery.error}
-            onRetry={() => void contentQuery.refresh()}
+            change={change}
+            manifest={manifestQuery.data}
+            manifestLoading={manifestQuery.loading}
+            manifestError={manifestQuery.error}
+            onManifestRetry={() => void manifestQuery.refresh()}
+            enabled={activeTab === 'specification'}
           />
         )}
         {activeTab === 'areas' && (
           <AreasPanel
-            content={contentQuery.data}
-            loading={contentQuery.loading}
-            error={contentQuery.error}
-            onRetry={() => void contentQuery.refresh()}
+            change={change}
+            manifest={manifestQuery.data}
+            manifestLoading={manifestQuery.loading}
+            manifestError={manifestQuery.error}
+            onManifestRetry={() => void manifestQuery.refresh()}
+            enabled={activeTab === 'areas'}
           />
         )}
         {activeTab === 'changes' && (
@@ -639,13 +661,13 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         <TaskDialog
           task={selectedTask}
           document={selectedTaskDocument}
-          loading={contentQuery.loading}
-          error={contentQuery.error}
+          loading={taskDocumentQuery.loading}
+          error={taskDocumentQuery.error}
           actionGate={selectedTaskAction}
           actionLoading={Boolean(selectedTaskHasOwnerAction && actionsQuery.loading)}
           actionExecuting={actionsQuery.executing}
           actionError={actionsQuery.executionError}
-          onRetry={() => void contentQuery.refresh()}
+          onRetry={() => void taskDocumentQuery.refresh()}
           onAction={() => void executeTaskAction()}
           sessions={sessionsQuery.sessions.filter(session => session.taskIds.includes(selectedTask.id))}
           sessionsLoading={sessionsQuery.loading}

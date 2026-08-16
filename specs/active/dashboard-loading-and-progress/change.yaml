@@ -13,7 +13,32 @@ tasks:
   - id: dashboard-data-loading-contracts
     order: 1
     file: tasks/01-dashboard-data-loading-contracts.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
+      review_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
+      changed_paths:
+        - tools/dashboard/server/data.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/server/watcher.mjs
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/data.test.mjs
+        - tools/dashboard/tests/server.test.mjs
+        - tools/dashboard/tests/watcher.test.mjs
+      worktree_patch_fingerprint: 74fcf34abe88d6445c06af52a013374eaaced09e313b41b905520c45f728640b
+    self_check:
+      fingerprint: b615f9a39c3409c6bb66237da2c095084e29ec2ffdc7b7b60b94f0fe82457671
+      revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: pr-file-manifest-and-diff-hydration
     order: 2
     file: tasks/02-pr-file-manifest-and-diff-hydration.md

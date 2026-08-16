@@ -58,8 +58,41 @@ export interface DashboardPayload {
 
 export type SpecificationDocumentKind = 'overview' | 'area' | 'task';
 
+// Manifest entries carry no markdown body (area dashboard-data-loading-contracts:
+// "which documents exist ... but not their bodies") — only enough to render
+// navigation and to resolve a full body via GET .../content/:docId.
+export interface SpecificationManifestDocument {
+  id: string;
+  docId: string;
+  kind: SpecificationDocumentKind;
+  title: string;
+  path: string | null;
+  available: boolean;
+  lastModified: string | null;
+}
+
+export interface SpecificationManifestTaskDocument extends SpecificationManifestDocument {
+  kind: 'task';
+  status: string;
+  order: number | null;
+  dependsOn: string[];
+}
+
+export interface SpecificationManifest {
+  id: string;
+  specId: string | null;
+  slug: string;
+  title: string;
+  source: 'active' | 'archive';
+  path: string | null;
+  overview: SpecificationManifestDocument;
+  areas: SpecificationManifestDocument[];
+  tasks: SpecificationManifestTaskDocument[];
+}
+
 export interface SpecificationDocument {
   id: string;
+  docId: string;
   kind: SpecificationDocumentKind;
   title: string;
   path: string | null;
@@ -74,16 +107,23 @@ export interface SpecificationTaskDocument extends SpecificationDocument {
   dependsOn: string[];
 }
 
-export interface SpecificationContent {
+export interface TaskStatusSummary {
   id: string;
-  specId: string | null;
+  status: string;
+  stage: StageId;
+  order: number | null;
+  dependsOn: string[];
+  blockedBy: string[];
+  ready: boolean;
+  terminal: boolean;
+}
+
+export interface TaskStatusesPayload {
+  id: string;
   slug: string;
-  title: string;
   source: 'active' | 'archive';
-  path: string | null;
-  overview: SpecificationDocument;
-  areas: SpecificationDocument[];
-  tasks: SpecificationTaskDocument[];
+  revision: string;
+  tasks: TaskStatusSummary[];
 }
 
 export interface PullRequestReference {

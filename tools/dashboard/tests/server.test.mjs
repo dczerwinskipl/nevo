@@ -51,11 +51,11 @@ test('does not expose filesystem details when loading fails', async () => {
   }
 });
 
-test('serves exact specification content routes without leaking lookup failures', async () => {
+test('serves exact specification manifest routes without leaking lookup failures', async () => {
   const calls = [];
   const server = createDashboardServer({
     dataLoader: () => ({ active: [], archive: [] }),
-    contentLoader: lookup => {
+    manifestLoader: async lookup => {
       calls.push(lookup);
       if (lookup.slug === 'missing') return null;
       if (lookup.slug === 'private-error') throw new Error('D:\\private\\overview.md');
@@ -96,7 +96,79 @@ test('serves exact specification content routes without leaking lookup failures'
   }
 });
 
-test('serves provider-neutral pull request results through an exact read-only route', async () => {
+test('serves exact per-document content routes without leaking lookup failures', async () => {
+  const calls = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    documentLoader: async lookup => {
+      calls.push(lookup);
+      if (lookup.docId === 'task:missing') return null;
+      if (lookup.docId === 'task:private-error') throw new Error('D:\\private\\tasks\\01.md');
+      return { docId: lookup.docId, source: lookup.source, slug: lookup.slug, markdown: 'body' };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const doc = await fetch(`${baseUrl}/api/specs/active/sample-change/content/overview`);
+    assert.equal(doc.status, 200);
+    assert.deepEqual(await doc.json(), { docId: 'overview', source: 'active', slug: 'sample-change', markdown: 'body' });
+    assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change', docId: 'overview' });
+
+    const encoded = await fetch(`${baseUrl}/api/specs/active/sample-change/content/${encodeURIComponent('task:design-it')}`);
+    assert.equal(encoded.status, 200);
+    assert.equal(calls[1].docId, 'task:design-it');
+
+    const missing = await fetch(`${baseUrl}/api/specs/active/sample-change/content/task%3Amissing`);
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
+
+    const failed = await fetch(`${baseUrl}/api/specs/active/sample-change/content/task%3Aprivate-error`);
+    assert.equal(failed.status, 404);
+    assert.deepEqual(await failed.json(), { error: 'Specification document not found' });
+
+    const mutation = await fetch(`${baseUrl}/api/specs/active/sample-change/content/overview`, { method: 'POST' });
+    assert.equal(mutation.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
+  const calls = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    taskStatusLoader: lookup => {
+      calls.push(lookup);
+      if (lookup.slug === 'missing') return null;
+      return { slug: lookup.slug, source: lookup.source, revision: 'abc123', tasks: [{ id: 'design-it', status: 'verified' }] };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/specs/active/sample-change/task-statuses`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.revision, 'abc123');
+    assert.deepEqual(payload.tasks, [{ id: 'design-it', status: 'verified' }]);
+    assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change' });
+
+    const missing = await fetch(`${baseUrl}/api/specs/active/missing/task-statuses`);
+    assert.equal(missing.status, 404);
+
+    const mutation = await fetch(`${baseUrl}/api/specs/active/sample-change/task-statuses`, { method: 'POST' });
+    assert.equal(mutation.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('serves provider-neutral pull request results through an exact read-only route, stripped of file/diff detail', async () => {
   const calls = [];
   const server = createDashboardServer({
     dataLoader: () => ({ active: [], archive: [] }),
@@ -107,7 +179,14 @@ test('serves provider-neutral pull request results through an exact read-only ro
       return {
         slug: lookup.slug,
         source: lookup.source,
-        pullRequests: [{ availability: 'available', title: 'PR one' }],
+        pullRequests: [{
+          availability: 'available',
+          title: 'PR one',
+          files: [{ path: 'a.js', patch: '@@ heavy patch @@' }],
+          filesComplete: false,
+          fullDiff: 'diff --git a/a.js b/a.js\n+heavy',
+          fullDiffAvailable: true,
+        }],
       };
     },
     eventHub: fakeHub(),
@@ -118,7 +197,12 @@ test('serves provider-neutral pull request results through an exact read-only ro
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests`);
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).pullRequests[0].title, 'PR one');
+    const payload = await response.json();
+    assert.equal(payload.pullRequests[0].title, 'PR one');
+    assert.deepEqual(payload.pullRequests[0].files, []);
+    assert.equal(payload.pullRequests[0].fullDiff, '');
+    assert.equal(payload.pullRequests[0].fullDiffAvailable, false);
+    assert.doesNotMatch(JSON.stringify(payload), /heavy patch|heavy diff|\+heavy/);
     assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change' });
 
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing/pull-requests`);

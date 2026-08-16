@@ -7,7 +7,9 @@ import test from 'node:test';
 import {
   extractOverviewSummary,
   loadDashboardData,
-  loadSpecificationContent,
+  loadSpecificationDocument,
+  loadSpecificationManifest,
+  loadTaskStatuses,
   safeChildPath,
   stripFrontMatter,
 } from '../server/data.mjs';
@@ -61,7 +63,7 @@ test('projects active and archived manifests into dashboard data', () => {
   }
 });
 
-test('carries a manifest\'s spec_id through both the dashboard projection and the specification content payload (D2)', () => {
+test('carries a manifest\'s spec_id through both the dashboard projection and the specification manifest payload (D2)', async () => {
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
@@ -70,8 +72,8 @@ test('carries a manifest\'s spec_id through both the dashboard projection and th
     const change = loadDashboardData({ ...sample, repoRoot: sample.root }).active[0];
     assert.equal(change.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
 
-    const content = loadSpecificationContent({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
-    assert.equal(content.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
+    const manifest = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
+    assert.equal(manifest.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
   } finally {
     sample.cleanup();
   }
@@ -120,48 +122,131 @@ test('safeChildPath rejects traversal outside a change directory', () => {
   assert.ok(safeChildPath(base, 'tasks/01-safe.md').endsWith(join('change', 'tasks', '01-safe.md')));
 });
 
-test('loads canonical overview, deterministic areas, and manifest-ordered task bodies', () => {
+test('manifest lists documents (no bodies) with canonical titles, deterministic areas, and manifest-ordered tasks', async () => {
   const sample = fixture();
   try {
-    const content = loadSpecificationContent({
+    const manifest = await loadSpecificationManifest({
       source: 'active',
       slug: 'sample-change',
       ...sample,
       repoRoot: sample.root,
     });
 
-    assert.equal(content.overview.title, 'Sample change');
-    assert.equal(content.overview.available, true);
-    assert.ok(!content.overview.markdown.startsWith('---'));
-    assert.deepEqual(content.areas.map(area => area.id), ['01-contract', '02-runtime']);
-    assert.deepEqual(content.areas.map(area => area.title), ['Area: Contract', 'Area: Runtime']);
-    assert.deepEqual(content.tasks.map(task => task.id), ['design-it', 'build-it']);
-    assert.equal(content.tasks[0].title, 'Design it');
-    assert.equal(content.tasks[0].markdown, '# Task: Design it\n\nCanonical design body.');
-    assert.equal(content.tasks[0].path, 'specs/active/sample-change/tasks/01-design-it.md');
+    assert.equal(manifest.overview.title, 'Sample change');
+    assert.equal(manifest.overview.available, true);
+    assert.equal(manifest.overview.docId, 'overview');
+    assert.equal(manifest.overview.markdown, undefined);
+    assert.deepEqual(manifest.areas.map(area => area.id), ['01-contract', '02-runtime']);
+    assert.deepEqual(manifest.areas.map(area => area.title), ['Area: Contract', 'Area: Runtime']);
+    assert.deepEqual(manifest.areas.map(area => area.docId), ['area:01-contract', 'area:02-runtime']);
+    assert.deepEqual(manifest.tasks.map(task => task.id), ['design-it', 'build-it']);
+    assert.equal(manifest.tasks[0].title, 'Design it');
+    assert.equal(manifest.tasks[0].docId, 'task:design-it');
+    assert.equal(manifest.tasks[0].path, 'specs/active/sample-change/tasks/01-design-it.md');
   } finally {
     sample.cleanup();
   }
 });
 
-test('returns explicit optional-document empty states and rejects unsafe lookups', () => {
+test('manifest does not read every document\'s full body to recompute titles on a repeat request', async () => {
+  const sample = fixture();
+  try {
+    const before = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
+    const after = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
+    assert.deepEqual(before.tasks.map(t => t.title), after.tasks.map(t => t.title));
+    assert.equal(before.overview.markdown, undefined);
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('per-document fetch returns exactly one document\'s canonical body', async () => {
+  const sample = fixture();
+  try {
+    const overview = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'overview', ...sample, repoRoot: sample.root });
+    assert.equal(overview.available, true);
+    assert.ok(!overview.markdown.startsWith('---'));
+
+    const task = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'task:design-it', ...sample, repoRoot: sample.root });
+    assert.equal(task.title, 'Design it');
+    assert.equal(task.markdown, '# Task: Design it\n\nCanonical design body.');
+    assert.equal(task.path, 'specs/active/sample-change/tasks/01-design-it.md');
+    assert.equal(task.status, 'verified');
+
+    const area = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:01-contract', ...sample, repoRoot: sample.root });
+    assert.equal(area.title, 'Area: Contract');
+
+    // A task id is data-driven (change.yaml's own task list) — an unknown one has no
+    // file to resolve to, so the document itself doesn't exist (null, like an unknown
+    // docId shape entirely). An area id has no such registry beyond the files.mjs
+    // themselves — "unknown" is indistinguishable from "an area that lost its file",
+    // so it resolves the same way overview does when its file is missing: available: false.
+    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'task:unknown-task', ...sample, repoRoot: sample.root }), null);
+    const unknownArea = await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:unknown-area', ...sample, repoRoot: sample.root });
+    assert.equal(unknownArea.available, false);
+    assert.equal(unknownArea.markdown, '');
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('manifest and per-document fetch return explicit optional-document empty states and reject unsafe lookups', async () => {
   const sample = fixture();
   try {
     rmSync(join(sample.archiveDir, 'old-change', 'overview.md'));
-    const content = loadSpecificationContent({
+    const manifest = await loadSpecificationManifest({
       source: 'archive',
       slug: 'old-change',
       ...sample,
       repoRoot: sample.root,
     });
 
-    assert.equal(content.overview.available, false);
-    assert.equal(content.overview.markdown, '');
-    assert.deepEqual(content.areas, []);
-    assert.deepEqual(content.tasks, []);
-    assert.equal(loadSpecificationContent({ source: 'other', slug: 'old-change', ...sample }), null);
-    assert.equal(loadSpecificationContent({ source: 'active', slug: '../old-change', ...sample }), null);
-    assert.equal(loadSpecificationContent({ source: 'active', slug: 'missing', ...sample }), null);
+    assert.equal(manifest.overview.available, false);
+    assert.deepEqual(manifest.areas, []);
+    assert.deepEqual(manifest.tasks, []);
+
+    const missingOverview = await loadSpecificationDocument({ source: 'archive', slug: 'old-change', docId: 'overview', ...sample, repoRoot: sample.root });
+    assert.equal(missingOverview.available, false);
+    assert.equal(missingOverview.markdown, '');
+
+    assert.equal(await loadSpecificationManifest({ source: 'other', slug: 'old-change', ...sample }), null);
+    assert.equal(await loadSpecificationManifest({ source: 'active', slug: '../old-change', ...sample }), null);
+    assert.equal(await loadSpecificationManifest({ source: 'active', slug: 'missing', ...sample }), null);
+    assert.equal(await loadSpecificationDocument({ source: 'active', slug: '../old-change', docId: 'overview', ...sample }), null);
+    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'sample-change', docId: 'area:../secret', ...sample }), null);
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('task statuses are small, ordered, and derived only from change.yaml (no per-task file read)', () => {
+  const sample = fixture();
+  try {
+    const statuses = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
+    assert.deepEqual(statuses.tasks.map(t => t.id), ['design-it', 'build-it']);
+    assert.equal(statuses.tasks[0].status, 'verified');
+    assert.equal(statuses.tasks[1].status, 'approved');
+    assert.equal(statuses.tasks[1].ready, true);
+    assert.equal(typeof statuses.revision, 'string');
+    assert.ok(statuses.revision.length > 0);
+
+    const again = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
+    assert.equal(again.revision, statuses.revision);
+
+    assert.equal(loadTaskStatuses({ source: 'active', slug: 'missing', ...sample }), null);
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('task statuses revision changes when a task\'s status changes', () => {
+  const sample = fixture();
+  try {
+    const before = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
+    const activeChange = join(sample.activeDir, 'sample-change');
+    writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n    depends_on: [design-it]\n`);
+    const after = loadTaskStatuses({ source: 'active', slug: 'sample-change', ...sample });
+    assert.notEqual(after.revision, before.revision);
   } finally {
     sample.cleanup();
   }

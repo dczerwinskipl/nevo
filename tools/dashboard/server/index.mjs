@@ -3,7 +3,12 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadDashboardData, loadSpecificationContent } from './data.mjs';
+import {
+  loadDashboardData,
+  loadSpecificationManifest,
+  loadSpecificationDocument,
+  loadTaskStatuses,
+} from './data.mjs';
 import {
   executeSpecificationAction,
   loadSpecificationActions,
@@ -89,9 +94,35 @@ function serveStatic(response, pathname, distDir) {
   return true;
 }
 
+// PR-list metadata must never carry per-file patch/full-diff content (area
+// dashboard-data-loading-contracts: "no patch/fullDiff field for any file, for
+// any PR"). The provider layer still bundles files/diff into one fetch today
+// (tools/lib/github.mjs's getPullRequestDetails — out of this task's allowed
+// paths to split); this strips the heavy fields at the response boundary so
+// none of those bytes ever reach the client, deferring the actual GitHub
+// call-count reduction to the file/diff-hydration task.
+function stripPullRequestFileDetail(payload) {
+  if (!payload || !Array.isArray(payload.pullRequests)) return payload;
+  return {
+    ...payload,
+    pullRequests: payload.pullRequests.map(pullRequest => {
+      if (pullRequest.availability !== 'available') return pullRequest;
+      return {
+        ...pullRequest,
+        files: [],
+        filesComplete: true,
+        fullDiff: '',
+        fullDiffAvailable: false,
+      };
+    }),
+  };
+}
+
 export function createDashboardServer({
   dataLoader = loadDashboardData,
-  contentLoader = loadSpecificationContent,
+  manifestLoader = loadSpecificationManifest,
+  documentLoader = loadSpecificationDocument,
+  taskStatusLoader = loadTaskStatuses,
   pullRequestLoader = loadSpecificationPullRequests,
   actionLoader = loadSpecificationActions,
   actionExecutor = executeSpecificationAction,
@@ -205,6 +236,27 @@ export function createDashboardServer({
       return;
     }
 
+    const documentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content\/([^/]+)$/);
+    if (documentRoute) {
+      try {
+        const slug = decodeURIComponent(documentRoute[2]);
+        const docId = decodeURIComponent(documentRoute[3]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification document not found' });
+          return;
+        }
+        const document = await documentLoader({ source: documentRoute[1], slug, docId });
+        if (!document) {
+          sendJson(response, 404, { error: 'Specification document not found' });
+          return;
+        }
+        sendJson(response, 200, document);
+      } catch {
+        sendJson(response, 404, { error: 'Specification document not found' });
+      }
+      return;
+    }
+
     const contentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content$/);
     if (contentRoute) {
       try {
@@ -213,14 +265,34 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification content not found' });
           return;
         }
-        const content = contentLoader({ source: contentRoute[1], slug });
-        if (!content) {
+        const manifest = await manifestLoader({ source: contentRoute[1], slug });
+        if (!manifest) {
           sendJson(response, 404, { error: 'Specification content not found' });
           return;
         }
-        sendJson(response, 200, content);
+        sendJson(response, 200, manifest);
       } catch {
         sendJson(response, 404, { error: 'Specification content not found' });
+      }
+      return;
+    }
+
+    const taskStatusesRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/task-statuses$/);
+    if (taskStatusesRoute) {
+      try {
+        const slug = decodeURIComponent(taskStatusesRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification task statuses not found' });
+          return;
+        }
+        const statuses = taskStatusLoader({ source: taskStatusesRoute[1], slug });
+        if (!statuses) {
+          sendJson(response, 404, { error: 'Specification task statuses not found' });
+          return;
+        }
+        sendJson(response, 200, statuses);
+      } catch {
+        sendJson(response, 404, { error: 'Specification task statuses not found' });
       }
       return;
     }
@@ -238,7 +310,7 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;
         }
-        sendJson(response, 200, changes);
+        sendJson(response, 200, stripPullRequestFileDetail(changes));
       } catch {
         sendJson(response, 500, { error: 'Unable to load specification changes' });
       }
