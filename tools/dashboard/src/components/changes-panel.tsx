@@ -38,6 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
+import type { FileDiffRequest } from '@/hooks/use-dashboard-data';
 import { computeVisibility, groupFiles, type GroupByMode } from '@/lib/changes-grouping';
 
 type DiffViewMode = 'split' | 'unified';
@@ -104,19 +105,19 @@ function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newF
 
 // The diff itself is hydrated on demand (area pull-request-file-and-diff-loading)
 // — `file` is always available from the manifest immediately, `diff` arrives
-// later (background batch, or immediately if `onRequestDiff` jumps the queue).
+// later (background batch via preload, or immediately if load() jumps the queue).
 function FileChange({
   file,
   diff,
   mode,
   initiallyOpen = true,
-  onRequestDiff,
+  onLoad,
 }: {
   file: PullRequestFileManifestEntry;
   diff: PullRequestFile | undefined;
   mode: DiffViewMode;
   initiallyOpen?: boolean;
-  onRequestDiff: (path: string) => void;
+  onLoad: () => void;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
   const oldFileName = file.status === 'added' ? null : (diff?.previousPath || file.path);
@@ -124,8 +125,12 @@ function FileChange({
   const contentUnchangedRename = isContentUnchangedRename(file, diff);
 
   useEffect(() => {
-    if (open && !diff) onRequestDiff(file.path);
-  }, [open, diff, file.path, onRequestDiff]);
+    // When the file is open and its diff is not yet available, request it now.
+    // TanStack Query (via usePullRequestFileDiffs) deduplicates in-flight requests, so
+    // calling load() here is safe even when background preload already issued
+    // the same request — no duplicate fetch is produced (bug #1 fix).
+    if (open && !diff) onLoad();
+  }, [open, diff, onLoad]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -215,12 +220,40 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
 
   // Background hydration only ever sees the currently-visible files — a
   // hidden generated file gets zero diff requests until it's shown (AC4).
-  const { diffs, requestDiff } = usePullRequestFileDiffs(change, pullRequest, visibleFiles, open);
-  const fullDiffQuery = useFullDiff(change, pullRequest.number);
+  //   - usePullRequestFileDiffs is backed by TanStack Query, so:
+  //   - preload() re-runs when visibleFiles changes (filter toggle), but TQ
+  //     deduplicates any item already in-flight or cached (bug #3 fix).
+  //   - load() from FileChange.onLoad deduplicates against the same in-flight
+  //     requests that preload() may have started (bug #1 fix).
+  const diffHandle = usePullRequestFileDiffs(change, pullRequest);
+
+  // Derive the FileDiffRequest for a manifest entry.
+  const toRequest = (file: { path: string }): FileDiffRequest => ({
+    provider: pullRequest.reference.provider,
+    baseUrl: pullRequest.reference.baseUrl,
+    repository: pullRequest.reference.repository,
+    number: pullRequest.number,
+    headSha: pullRequest.headSha,
+    path: file.path,
+  });
+
+  // Background preload: re-issues preload when visible set changes (filter/grouping toggle).
+  // Because preload calls load() per item and TQ deduplicates in-flight requests, items
+  // that were already fetched or are in-flight are simply skipped — no duplicate fetches
+  // and no stale plan from a previous filter state continues fetching (bug #3 fix).
+  useEffect(() => {
+    if (!open || !visibleFiles.length) return;
+    diffHandle.preload(visibleFiles.map(toRequest));
+    // toRequest is a stable derived function — its identity depends on pullRequest which
+    // is already stable for the lifetime of this PullRequestCard render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, visibleFiles, diffHandle.preload]);
+
+  const fullDiffQuery = useFullDiff(change, pullRequest);
   const collapseFilesInitially = files.length > 50;
-  const incompleteDiff = Array.from(diffs.values()).some(diff => {
-    const manifestEntry = filesByPath.get(diff.path);
-    return !diff.patchAvailable && !(manifestEntry && isContentUnchangedRename(manifestEntry, diff));
+  const incompleteDiff = visibleFiles.some(file => {
+    const diff = diffHandle.get(toRequest(file));
+    return diff !== undefined && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
   });
 
   return (
@@ -338,14 +371,15 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                     {group.paths.map(path => {
                       const file = filesByPath.get(path);
                       if (!file) return null;
+                      const req = toRequest(file);
                       return (
                         <FileChange
                           key={path}
                           file={file}
-                          diff={diffs.get(path)}
+                          diff={diffHandle.get(req)}
                           mode={mode}
                           initiallyOpen={!collapseFilesInitially}
-                          onRequestDiff={requestDiff}
+                          onLoad={() => diffHandle.load(req)}
                         />
                       );
                     })}

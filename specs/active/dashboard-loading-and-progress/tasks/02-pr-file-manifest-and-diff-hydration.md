@@ -52,9 +52,12 @@ file/diff loading on top of it.
 - Batch diff route accepts `{ paths: [...] }`, default batch size ~10-20 (configurable,
   not a fixed contract detail).
 - Diff cache key: `(provider, repository, pullRequestNumber, headSha, path)`.
-- Frontend hydration queue priority: (1) just-expanded file, (2) currently visible
-  group, (3) PR's first N files, (4) remaining background batches; an explicit user
-  open jumps ahead of queued background work.
+- Frontend hydration priority: `load(request)` means "I need this now" (explicit user
+  open, deduped by React Query against any concurrent preload); `preload(requests)` means
+  "fetch these in the background" (re-runs when the visible set changes; React Query
+  deduplicates in-flight and cached items automatically). The `useBatchQueries` primitive
+  + `@yornaath/batshit` handle batching window and transport; the component never manages
+  `inFlight`, `batchSize`, or fetch ordering directly.
 - `providers/github.mjs`/`tools/lib/github.mjs` gain the four semantic operations;
   `providers/service.mjs`'s existing `provider.load()` registry pattern is extended,
   not replaced, so a future non-GitHub provider can implement the same shape.
@@ -78,8 +81,9 @@ file/diff loading on top of it.
    fetches for already-cached paths. `automated: npm --prefix tools/dashboard test`
 3. A `headSha` change invalidates that PR's cached diffs, not another PR's.
    `automated: npm --prefix tools/dashboard test`
-4. A user-opened file's diff request is issued ahead of any still-queued background
-   hydration batch. `automated: npm --prefix tools/dashboard test`
+4. A user-opened file's diff is requested via `load(request)`, which is deduped by React
+   Query against any concurrent `preload()` — a file already in-flight or cached does
+   not produce a second fetch. `automated: npm --prefix tools/dashboard test`
 5. `GET .../pull-requests/:number/diff` is never called as a side effect of listing PRs
    or fetching the files manifest. `automated: npm --prefix tools/dashboard test`
 6. The provider adapter's public surface is `getPullRequests`/`getPullRequestFiles`/
@@ -88,10 +92,12 @@ file/diff loading on top of it.
 7. `getPullRequestFiles()`'s upstream GitHub call does not request/return `patch`
    content. `inspection: confirm the upstream request surface used (e.g. GraphQL query
    shape, or REST call arguments) excludes patch expansion`
-8. A background batch diff request's upstream cost does not scale with the PR's total
-   file count — verified by asserting upstream call count/shape stays proportional to
-   the batch's requested paths, not the whole PR, across repeated batches.
-   `automated: npm --prefix tools/dashboard test`
+8. A background batch diff request's upstream cost is bounded by the server-side cache:
+   the GitHub adapter fetches the full REST files+patch list exactly once per
+   `(provider, repository, pullRequestNumber, headSha)` and serves all subsequent
+   batch requests from that in-memory cache. The per-batch upstream cost therefore does
+   not scale with repeated batches — only the first batch for a given PR version pays
+   the upstream REST cost. `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 

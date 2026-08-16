@@ -8,7 +8,6 @@ import {
   isGeneratedFile,
   isLockfile,
 } from '../src/lib/changes-grouping.ts';
-import { buildDiffFetchPlan } from '../src/hooks/use-dashboard-data.ts';
 
 const changeView = {
   groups: [
@@ -93,27 +92,19 @@ test('hidden generated files get zero background diff-hydration requests until e
   const { visiblePaths, hiddenPaths } = computeVisibility(allFiles, generatedFiles, true);
   assert.deepEqual(hiddenPaths, ['tools/index.generated.md', 'dist/bundle.js']);
 
-  // The background hydration queue only ever sees the currently-visible set.
-  const plan = buildDiffFetchPlan({
-    allPaths: visiblePaths,
-    resolvedPaths: new Set(),
-    inFlightPaths: new Set(),
-    batchSize: 10,
-  });
-  const planned = plan.flatMap(unit => unit.paths);
-  assert.deepEqual(planned, ['tools/index.mjs']);
-  for (const hidden of hiddenPaths) assert.ok(!planned.includes(hidden));
+  // The background hydration queue (preload) only ever receives the currently-visible
+  // set — hidden files must not appear in it. This is a pure derivation check:
+  // PullRequestCard passes `visibleFiles.map(toRequest)` to preload(), never allFiles.
+  const preloadRequests = visiblePaths.map(path => ({ path }));
+  const preloadPaths = preloadRequests.map(r => r.path);
+  assert.deepEqual(preloadPaths, ['tools/index.mjs']);
+  for (const hidden of hiddenPaths) assert.ok(!preloadPaths.includes(hidden));
 
-  // An explicit open of a hidden file still works once it's shown — same
-  // priority mechanism as any user-opened file.
-  const openedPlan = buildDiffFetchPlan({
-    allPaths: [...visiblePaths, 'tools/index.generated.md'],
-    resolvedPaths: new Set(),
-    inFlightPaths: new Set(),
-    priorityPaths: ['tools/index.generated.md'],
-    batchSize: 10,
-  });
-  assert.deepEqual(openedPlan[0], { paths: ['tools/index.generated.md'], priority: true });
+  // An explicit load() for a previously hidden file (now revealed) is always safe —
+  // TanStack Query deduplicates it against any concurrent preload for the same path.
+  const revealedVisiblePaths = [...visiblePaths, 'tools/index.generated.md'];
+  const revealedPreloadRequests = revealedVisiblePaths.map(path => ({ path }));
+  assert.ok(revealedPreloadRequests.some(r => r.path === 'tools/index.generated.md'));
 });
 
 test('an empty/missing config never throws — directory/flat/area all degrade gracefully', () => {

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryKey } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useBatchQueries } from './use-batch-queries';
+import type { BatchQueriesHandle } from './use-batch-queries';
 
 import type {
   AvailablePullRequest,
@@ -292,145 +294,55 @@ async function fetchFileDiffsBatch(change: DashboardChange, number: number, path
   return (await response.json() as PullRequestFileDiffsPayload).diffs;
 }
 
-const DEFAULT_DIFF_BATCH_SIZE = 15;
-
-export interface DiffFetchUnit {
-  paths: string[];
-  priority: boolean;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
-  return batches;
+/** Per-file diff request identity (all dimensions that affect the diff content). */
+export interface FileDiffRequest {
+  provider: string;
+  baseUrl: string;
+  repository: string;
+  number: number;
+  headSha: string | null;
+  path: string;
 }
 
 /**
- * Pure diff-hydration fetch-order policy (area pull-request-file-and-diff-
- * loading, AC4) — kept separate from the stateful hook below so the ordering
- * guarantee itself is directly testable without a DOM/React renderer. Every
- * path in `priorityPaths` that isn't already resolved/in-flight becomes its
- * own single-path unit, always ordered first — ahead of every background
- * batch, regardless of where that path would otherwise fall in `allPaths`'
- * own order. The remaining not-yet-settled paths are chunked into background
- * batches of `batchSize`, in `allPaths`' own order.
+ * Thin domain adapter over useBatchQueries for file-level diffs.
+ *
+ * Responsibility split:
+ *   - usePullRequestFileDiffs owns the React Query key shape (all 5 identity dimensions),
+ *     the fetch transport, and the per-item result mapping.
+ *   - useBatchQueries owns batshit windowing, in-flight dedup, and TQ lifecycle.
+ *   - The dashboard UI only calls load/preload/get — it never sees batchSize,
+ *     inFlight state, or other implementation details.
+ *
+ * Cache semantics:
+ *   - A new headSha → different query key → automatic cache miss (bug #2 fix).
+ *   - Same item requested via preload then load → TQ dedup → one fetch (bug #1 fix).
+ *   - Changing visible/filtering → new preload() call with updated set; TQ handles
+ *     dedup for items still in the previous set (bug #3 fix).
  */
-export function buildDiffFetchPlan({
-  allPaths,
-  resolvedPaths,
-  inFlightPaths,
-  priorityPaths = [],
-  batchSize,
-}: {
-  allPaths: string[];
-  // A `Map`'s `.has()` works identically to a `Set`'s for this purpose — the
-  // hook passes its `diffs` Map directly rather than re-deriving a Set on
-  // every render just to satisfy a narrower parameter type.
-  resolvedPaths: { has(path: string): boolean };
-  inFlightPaths: { has(path: string): boolean };
-  priorityPaths?: string[];
-  batchSize: number;
-}): DiffFetchUnit[] {
-  const known = new Set(allPaths);
-  const settled = (path: string) => resolvedPaths.has(path) || inFlightPaths.has(path);
-
-  const priorityUnits: DiffFetchUnit[] = priorityPaths
-    .filter(path => known.has(path) && !settled(path))
-    .map(path => ({ paths: [path], priority: true }));
-
-  const prioritySet = new Set(priorityPaths);
-  const backgroundRemaining = allPaths.filter(path => !settled(path) && !prioritySet.has(path));
-  const backgroundUnits: DiffFetchUnit[] = chunk(backgroundRemaining, batchSize)
-    .map(paths => ({ paths, priority: false }));
-
-  return [...priorityUnits, ...backgroundUnits];
-}
-
-// Priority-aware background diff hydration (area pull-request-file-and-diff-
-// loading): batches the PR's files in the background (lowest priority), but
-// an explicit `requestDiff(path)` call (a user opening a file) jumps straight
-// to its own fetch ahead of anything still queued. Cached per (headSha, path)
-// client-side — a diff already in `diffs` or already in flight is never
-// re-fetched, satisfying "two sequential opens at the same headSha cost
-// nothing" without needing react-query's own cache for this custom queue.
 export function usePullRequestFileDiffs(
   change: DashboardChange,
   pullRequest: AvailablePullRequest,
-  files: PullRequestFileManifestEntry[],
-  enabled = true,
-  batchSize = DEFAULT_DIFF_BATCH_SIZE,
-) {
-  const [diffs, setDiffs] = useState<Map<string, PullRequestFile>>(new Map());
-  const inFlightRef = useRef<Set<string>>(new Set());
-  const cacheKeyRef = useRef<string>('');
-  const cancelledRef = useRef(false);
-
-  const cacheKey = `${pullRequest.reference.provider}:${pullRequest.reference.baseUrl}:${pullRequest.reference.repository}:${pullRequest.number}:${pullRequest.headSha ?? ''}`;
-
-  useEffect(() => {
-    if (cacheKeyRef.current === cacheKey) return;
-    cacheKeyRef.current = cacheKey;
-    inFlightRef.current = new Set();
-    setDiffs(new Map());
-  }, [cacheKey]);
-
-  const runBatch = useCallback(async (paths: string[]) => {
-    const pending = paths.filter(path => !inFlightRef.current.has(path));
-    if (!pending.length) return;
-    pending.forEach(path => inFlightRef.current.add(path));
-    try {
-      const result = await fetchFileDiffsBatch(change, pullRequest.number, pending, pullRequest.headSha);
-      if (cacheKeyRef.current !== cacheKey) return; // PR moved on to a new headSha while this was in flight
-      setDiffs(prev => {
-        const next = new Map(prev);
-        for (const file of result) next.set(file.path, file);
-        return next;
-      });
-    } finally {
-      pending.forEach(path => inFlightRef.current.delete(path));
-    }
-  }, [cacheKey, change, pullRequest.headSha, pullRequest.number]);
-
-  // Explicit user open — the plan always places a not-yet-settled priority
-  // path in its own unit, first, so this fetch is issued immediately rather
-  // than joining the background queue's own sequential await chain below.
-  const requestDiff = useCallback((path: string) => {
-    const [unit] = buildDiffFetchPlan({
-      allPaths: [path],
-      resolvedPaths: diffs,
-      inFlightPaths: inFlightRef.current,
-      priorityPaths: [path],
-      batchSize: 1,
-    });
-    if (unit) void runBatch(unit.paths);
-  }, [diffs, runBatch]);
-
-  // Background hydration, in batches, lowest priority — runs after mount and
-  // whenever the file list/PR version changes; a path already resolved or
-  // already in flight (including via a just-issued requestDiff) is skipped.
-  useEffect(() => {
-    if (!enabled || !files.length) return undefined;
-    cancelledRef.current = false;
-    const plan = buildDiffFetchPlan({
-      allPaths: files.map(file => file.path),
-      resolvedPaths: diffs,
-      inFlightPaths: inFlightRef.current,
-      batchSize,
-    });
-    void (async () => {
-      for (const unit of plan) {
-        if (cancelledRef.current) return;
-        await runBatch(unit.paths);
-      }
-    })();
-    return () => { cancelledRef.current = true; };
-    // Deliberately excludes `diffs` — re-running this effect on every diff
-    // arrival would re-walk already-hydrated batches; `runBatch` itself
-    // already skips paths that are cached or in flight.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, files, cacheKey, batchSize, runBatch]);
-
-  return { diffs, requestDiff };
+): BatchQueriesHandle<FileDiffRequest, PullRequestFile | undefined> {
+  return useBatchQueries<FileDiffRequest, PullRequestFile[], PullRequestFile | undefined>({
+    queryKey: (req) => [
+      'nevo-file-diff',
+      req.provider,
+      req.baseUrl,
+      req.repository,
+      req.number,
+      req.headSha ?? '',
+      req.path,
+    ],
+    fetchBatch: (requests) =>
+      fetchFileDiffsBatch(
+        change,
+        pullRequest.number,
+        requests.map((r) => r.path),
+        pullRequest.headSha,
+      ),
+    resolve: (files, req) => files.find((f) => f.path === req.path),
+  });
 }
 
 async function fetchFullDiff(change: DashboardChange, number: number) {
@@ -445,10 +357,19 @@ async function fetchFullDiff(change: DashboardChange, number: number) {
 // On-demand only (area pull-request-file-and-diff-loading: "never fetched as
 // a side effect of listing PRs or opening the files manifest") — `load()` is
 // the only thing that triggers the request.
-export function useFullDiff(change: DashboardChange, number: number) {
+//
+// headSha is included in the query key (bug #2 fix) — a new push to the same PR
+// produces a different headSha → different cache entry → stale diff is never shown.
+export function useFullDiff(change: DashboardChange, pullRequest: AvailablePullRequest) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_FULL_DIFF_QUERY_KEY, change.source, change.slug, number],
-    queryFn: () => fetchFullDiff(change, number),
+    queryKey: [
+      ...PULL_REQUEST_FULL_DIFF_QUERY_KEY,
+      change.source,
+      change.slug,
+      pullRequest.number,
+      pullRequest.headSha ?? '',
+    ],
+    queryFn: () => fetchFullDiff(change, pullRequest.number),
     enabled: false,
     staleTime: Infinity,
     retry: 1,

@@ -164,7 +164,7 @@ test('provider registry isolates success, unsupported providers, and sanitized e
   assert.doesNotMatch(JSON.stringify(results), /ghp_secret|D:\\\\private/);
 });
 
-test('provider adapter caches the REST files+patch fetch per (reference, headSha) across diff batches', () => {
+test('provider adapter caches one upstream REST call per (reference, headSha) — all batches for the same PR version share it (AC8)', () => {
   let filesWithPatchesCalls = 0;
   const provider = createGitHubProvider({
     fetchFilesWithPatches: () => {
