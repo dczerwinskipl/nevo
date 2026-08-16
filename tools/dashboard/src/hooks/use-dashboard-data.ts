@@ -323,8 +323,15 @@ export interface FileDiffRequest {
 export function usePullRequestFileDiffs(
   change: DashboardChange,
   pullRequest: AvailablePullRequest,
-): BatchQueriesHandle<FileDiffRequest, PullRequestFile | undefined> {
-  return useBatchQueries<FileDiffRequest, PullRequestFile[], PullRequestFile | undefined>({
+): BatchQueriesHandle<FileDiffRequest, PullRequestFile | null> {
+  return useBatchQueries<FileDiffRequest, PullRequestFile[], PullRequestFile | null>({
+    scopeKey: [
+      pullRequest.reference.provider,
+      pullRequest.reference.baseUrl,
+      pullRequest.reference.repository,
+      pullRequest.number,
+      pullRequest.headSha ?? '',
+    ],
     queryKey: (req) => [
       'nevo-file-diff',
       req.provider,
@@ -341,7 +348,7 @@ export function usePullRequestFileDiffs(
         requests.map((r) => r.path),
         pullRequest.headSha,
       ),
-    resolve: (files, req) => files.find((f) => f.path === req.path),
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
   });
 }
 

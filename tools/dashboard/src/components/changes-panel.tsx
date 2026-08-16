@@ -93,8 +93,8 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-function isContentUnchangedRename(file: PullRequestFileManifestEntry, diff: PullRequestFile | undefined) {
-  return file.status === 'renamed' && diff !== undefined && !diff.patchAvailable && file.changes === 0;
+function isContentUnchangedRename(file: PullRequestFileManifestEntry, diff: PullRequestFile | null | undefined) {
+  return file.status === 'renamed' && !!diff && !diff.patchAvailable && file.changes === 0;
 }
 
 function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
@@ -106,20 +106,22 @@ function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newF
 // The diff itself is hydrated on demand (area pull-request-file-and-diff-loading)
 // — `file` is always available from the manifest immediately, `diff` arrives
 // later (background batch via preload, or immediately if load() jumps the queue).
+// `diffHandle.useItem(req)` reacts to cache updates via TanStack Query observer.
 function FileChange({
   file,
-  diff,
   mode,
   initiallyOpen = true,
-  onLoad,
+  diffHandle,
+  req,
 }: {
   file: PullRequestFileManifestEntry;
-  diff: PullRequestFile | undefined;
   mode: DiffViewMode;
   initiallyOpen?: boolean;
-  onLoad: () => void;
+  diffHandle: ReturnType<typeof usePullRequestFileDiffs>;
+  req: FileDiffRequest;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
+  const diff = diffHandle.useItem(req);
   const oldFileName = file.status === 'added' ? null : (diff?.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
   const contentUnchangedRename = isContentUnchangedRename(file, diff);
@@ -129,8 +131,10 @@ function FileChange({
     // TanStack Query (via usePullRequestFileDiffs) deduplicates in-flight requests, so
     // calling load() here is safe even when background preload already issued
     // the same request — no duplicate fetch is produced (bug #1 fix).
-    if (open && !diff) onLoad();
-  }, [open, diff, onLoad]);
+    if (open && diff === undefined) {
+      void diffHandle.load(req);
+    }
+  }, [open, diff, diffHandle, req]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -151,11 +155,11 @@ function FileChange({
       </button>
 
       {open && (
-        !diff ? (
+        diff === undefined ? (
           <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--muted)]">
             <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie diffu…
           </div>
-        ) : diff.patchAvailable ? (
+        ) : diff && diff.patchAvailable ? (
           <div className="nevo-diff-view max-w-full overflow-x-auto border-t border-[var(--border)]">
             <DiffView
               data={{
@@ -173,7 +177,7 @@ function FileChange({
               diffViewFontSize={12}
             />
           </div>
-        ) : contentUnchangedRename ? (
+        ) : diff && contentUnchangedRename ? (
           <div className="border-t border-[var(--border)] px-4 py-7 text-center">
             <p className="text-xs font-semibold text-[var(--foreground)]">Plik przeniesiony bez zmian treści</p>
             <p className="mt-1 break-all font-mono text-[10px] leading-5 text-[var(--muted)]">
@@ -253,7 +257,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
   const collapseFilesInitially = files.length > 50;
   const incompleteDiff = visibleFiles.some(file => {
     const diff = diffHandle.get(toRequest(file));
-    return diff !== undefined && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
+    return diff !== undefined && diff !== null && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
   });
 
   return (
@@ -376,10 +380,10 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                         <FileChange
                           key={path}
                           file={file}
-                          diff={diffHandle.get(req)}
                           mode={mode}
                           initiallyOpen={!collapseFilesInitially}
-                          onLoad={() => diffHandle.load(req)}
+                          diffHandle={diffHandle}
+                          req={req}
                         />
                       );
                     })}

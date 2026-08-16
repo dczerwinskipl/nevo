@@ -6,22 +6,30 @@
  *         ↑
  *     batshit       ← merges multiple queryFn calls (one per item) into one transport batch
  *         ↑
- *   useBatchQueries ← this file; hides enabled/batchSize/batcher lifecycle from callers
+ *   useBatchQueries ← generic hook + BatchQueriesManager; manages batcher scope & lifecycle
  *         ↑
- *   useFileDiffs    ← domain adapter (see use-dashboard-data.ts)
+ *   usePullRequestFileDiffs ← domain adapter (see use-dashboard-data.ts)
  *         ↑
  *   dashboard UI
  */
 import { create, windowedFiniteBatchScheduler } from '@yornaath/batshit';
-import { useQueryClient } from '@tanstack/react-query';
-import type { QueryKey } from '@tanstack/react-query';
-import { useRef, useCallback } from 'react';
+import type { Batcher } from '@yornaath/batshit';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import { useCallback, useRef } from 'react';
 
 export interface BatchQueriesOptions<TRequest, TBatchResult, TResult = TBatchResult> {
   /**
+   * Optional scope identity (e.g. [provider, baseUrl, repository, number, headSha]).
+   * When any value in scopeKey changes, a new batcher instance is created so that
+   * in-flight requests from different scopes / PR revisions are never mixed into
+   * the same transport batch or stale closures.
+   */
+  scopeKey?: readonly unknown[];
+
+  /**
    * Derive a stable React Query key for a single request.
-   * Determines per-item cache identity — include every dimension that affects the result
-   * (e.g. provider, repo, number, headSha, path).
+   * Determines per-item cache identity — include every dimension that affects the result.
    */
   queryKey: (request: TRequest) => QueryKey;
 
@@ -29,21 +37,20 @@ export interface BatchQueriesOptions<TRequest, TBatchResult, TResult = TBatchRes
    * Send a batch of requests to the upstream transport.
    * Called at most once per scheduler window for all requests arriving in that window.
    * React Query deduplication ensures this is never called twice for the same in-flight item.
-   * The AbortSignal is forwarded from batshit — honour it to cancel in-flight network requests.
+   * The AbortSignal is forwarded from batshit.
    */
   fetchBatch: (requests: TRequest[], signal: AbortSignal) => Promise<TBatchResult>;
 
   /**
    * Extract the single-item result from the batch response.
-   * Called per item after the batch resolves.
+   * Must return a concrete result (or null if missing/not applicable).
+   * Note: resolve should NOT return undefined (undefined is reserved for "not yet in cache").
    */
-  resolve: (batchResult: TBatchResult, request: TRequest) => TResult | undefined;
+  resolve: (batchResult: TBatchResult, request: TRequest) => TResult;
 
   /**
    * Scheduler window in ms and optional max batch size.
-   * Default: 20 ms window, 15 items/batch — large enough to coalesce a typical initial
-   * render (visible files all mount within a single microtask flush) without adding
-   * perceptible latency for a user-triggered load().
+   * Default: 20 ms window, 15 items/batch.
    */
   windowMs?: number;
   maxBatchSize?: number;
@@ -54,36 +61,51 @@ export interface BatchQueriesOptions<TRequest, TBatchResult, TResult = TBatchRes
 
 export interface BatchQueriesHandle<TRequest, TResult> {
   /**
-   * Declare that this item is needed now.
-   * If the item is already in cache or an identical request is in-flight (deduped by TQ),
-   * no new fetch is issued. Safe to call from an onClick or on expand — React Query
-   * is the single gating authority; no separate inFlight set required.
+   * Declare that this item is needed now (imperative fetch trigger).
+   * Deduplicated by React Query — if already cached or in-flight, no new fetch is issued.
    */
-  load: (request: TRequest) => void;
+  load: (request: TRequest) => Promise<TResult>;
 
   /**
-   * Background-load a set of items.
-   * Each item goes through the same dedup check as load(); only uncached, not-in-flight
-   * items produce real fetches, and batshit groups those into a single transport call.
+   * Background-load a set of items (imperative prefetch trigger).
+   * Iterates through requests calling load; batshit groups un-cached items into transport batches.
    */
   preload: (requests: TRequest[]) => void;
 
   /**
-   * Force-refresh a single item, even if it is already cached.
+   * Force-refresh a single item, invalidating cache and fetching immediately.
    */
-  reload: (request: TRequest) => void;
+  reload: (request: TRequest) => Promise<TResult>;
 
   /**
-   * Read an item synchronously from the React Query cache.
-   * Returns undefined if the item has not been fetched yet.
+   * Synchronously read an item from the cache without subscribing to updates.
+   * Returns undefined if the item is not currently in the cache.
    */
   get: (request: TRequest) => TResult | undefined;
+
+  /**
+   * Reactive React hook: subscribes to cache updates for a specific item.
+   * Uses TanStack Query under the hood with enabled: false (does NOT initiate fetching).
+   * Returns undefined while not yet loaded in cache, or TResult once loaded.
+   */
+  useItem: (request: TRequest) => TResult | undefined;
 }
 
-export function useBatchQueries<TRequest, TBatchResult, TResult = TBatchResult>(
-  options: BatchQueriesOptions<TRequest, TBatchResult, TResult>,
-): BatchQueriesHandle<TRequest, TResult> {
+export interface BatchQueriesManager<TRequest, TBatchResult, TResult> {
+  readonly scope: string;
+  load: (request: TRequest) => Promise<TResult>;
+  preload: (requests: TRequest[]) => void;
+  reload: (request: TRequest) => Promise<TResult>;
+  get: (request: TRequest) => TResult | undefined;
+  updateOptions: (options: BatchQueriesOptions<TRequest, TBatchResult, TResult>) => void;
+}
+
+export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBatchResult>(
+  options: BatchQueriesOptions<TRequest, TBatchResult, TResult> & { queryClient: QueryClient },
+): BatchQueriesManager<TRequest, TBatchResult, TResult> {
   const {
+    queryClient,
+    scopeKey,
     queryKey,
     fetchBatch,
     resolve,
@@ -92,69 +114,95 @@ export function useBatchQueries<TRequest, TBatchResult, TResult = TBatchResult>(
     staleTime = Infinity,
   } = options;
 
+  const scope = JSON.stringify(scopeKey ?? []);
+  let currentFetchBatch = fetchBatch;
+  let currentResolve = resolve;
+  let currentStaleTime = staleTime;
+
+  const batcher: Batcher<TBatchResult, TRequest, TResult> = create<TBatchResult, TRequest, TResult>({
+    name: `useBatchQueries:${scope}`,
+    fetcher: (requests, signal) => currentFetchBatch(requests, signal),
+    resolver: (batchResult, request) => currentResolve(batchResult, request),
+    scheduler: windowedFiniteBatchScheduler({ windowMs, maxBatchSize }),
+  });
+
+  const makeQueryFn = (request: TRequest) => () => batcher.fetch(request);
+
+  const load = (request: TRequest): Promise<TResult> => {
+    return queryClient.fetchQuery({
+      queryKey: queryKey(request),
+      queryFn: makeQueryFn(request),
+      staleTime: currentStaleTime,
+    });
+  };
+
+  const preload = (requests: TRequest[]): void => {
+    for (const request of requests) {
+      void load(request);
+    }
+  };
+
+  const reload = (request: TRequest): Promise<TResult> => {
+    void queryClient.invalidateQueries({ queryKey: queryKey(request) });
+    return queryClient.fetchQuery({
+      queryKey: queryKey(request),
+      queryFn: makeQueryFn(request),
+      staleTime: 0,
+    });
+  };
+
+  const get = (request: TRequest): TResult | undefined => {
+    return queryClient.getQueryData<TResult>(queryKey(request));
+  };
+
+  const updateOptions = (nextOptions: BatchQueriesOptions<TRequest, TBatchResult, TResult>) => {
+    currentFetchBatch = nextOptions.fetchBatch;
+    currentResolve = nextOptions.resolve;
+    currentStaleTime = nextOptions.staleTime ?? Infinity;
+  };
+
+  return {
+    scope,
+    load,
+    preload,
+    reload,
+    get,
+    updateOptions,
+  };
+}
+
+export function useBatchQueries<TRequest, TBatchResult, TResult = TBatchResult>(
+  options: BatchQueriesOptions<TRequest, TBatchResult, TResult>,
+): BatchQueriesHandle<TRequest, TResult> {
   const queryClient = useQueryClient();
+  const serializedScope = JSON.stringify(options.scopeKey ?? []);
 
-  // The batcher lives for the lifetime of the hook instance (stable ref).
-  // It must NOT be re-created per render — a new batcher per render would
-  // defeat the entire batching purpose (items from different renders would
-  // never land in the same batch).
-  //
-  // useMemo with an empty dep array gives us a stable, lazily-initialized value
-  // without the null-safety ceremony of useRef + lazy-init guard.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const batcher = useRef(
-    create<TBatchResult, TRequest, TResult | undefined>({
-      name: 'useBatchQueries',
-      fetcher: (requests, signal) => fetchBatch(requests, signal),
-      resolver: (batchResult, request) => resolve(batchResult, request),
-      scheduler: windowedFiniteBatchScheduler({ windowMs, maxBatchSize }),
-    }),
-  ).current;
+  const managerRef = useRef<BatchQueriesManager<TRequest, TBatchResult, TResult> | null>(null);
 
-  // The queryFn for a single item. TanStack Query calls this at most once per cache miss
-  // / stale entry — batshit then windows these calls across components/effects into one
-  // transport batch.
-  const makeQueryFn = useCallback(
-    (request: TRequest) => () => batcher.fetch(request),
-    [batcher],
-  );
+  if (!managerRef.current || managerRef.current.scope !== serializedScope) {
+    managerRef.current = createBatchQueriesManager({
+      ...options,
+      queryClient,
+    });
+  } else {
+    managerRef.current.updateOptions(options);
+  }
 
-  const load = useCallback(
-    (request: TRequest) => {
-      void queryClient.fetchQuery({
-        queryKey: queryKey(request),
-        queryFn: makeQueryFn(request),
-        staleTime,
-      });
-    },
-    [queryClient, queryKey, makeQueryFn, staleTime],
-  );
+  const manager = managerRef.current;
 
-  const preload = useCallback(
-    (requests: TRequest[]) => {
-      for (const request of requests) load(request);
-    },
-    [load],
-  );
+  const load = useCallback((request: TRequest) => manager.load(request), [manager]);
+  const preload = useCallback((requests: TRequest[]) => manager.preload(requests), [manager]);
+  const reload = useCallback((request: TRequest) => manager.reload(request), [manager]);
+  const get = useCallback((request: TRequest) => manager.get(request), [manager]);
 
-  const reload = useCallback(
-    (request: TRequest) => {
-      void queryClient.invalidateQueries({ queryKey: queryKey(request) }).then(() =>
-        queryClient.fetchQuery({
-          queryKey: queryKey(request),
-          queryFn: makeQueryFn(request),
-          staleTime: 0,
-        }),
-      );
-    },
-    [queryClient, queryKey, makeQueryFn],
-  );
+  const useItem = (request: TRequest): TResult | undefined => {
+    const query = useQuery({
+      queryKey: options.queryKey(request),
+      enabled: false,
+      staleTime: options.staleTime ?? Infinity,
+    });
+    return query.data as TResult | undefined;
+  };
 
-  const get = useCallback(
-    (request: TRequest): TResult | undefined =>
-      queryClient.getQueryData<TResult>(queryKey(request)),
-    [queryClient, queryKey],
-  );
-
-  return { load, preload, reload, get };
+  return { load, preload, reload, get, useItem };
 }

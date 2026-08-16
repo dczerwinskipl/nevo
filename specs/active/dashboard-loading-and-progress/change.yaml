@@ -61,8 +61,8 @@ tasks:
         - tools/lib/github.mjs
       worktree_patch_fingerprint: bf4f50f99917daaf14b1ea807ce449491ea5602cb9844bf1753e1c4dd600cc44
     self_check:
-      fingerprint: 67191748e97cfa2f3f74a275323747eb44aff830870b247b6bf1f65b6cd7a3c5
-      revision: fde4cdae29689ab11bd1b5ab1ec2c0291459982b
+      fingerprint: e195eb0ae494883694cbe6a7bfc10bdd734d55f0e2adcf8fd540bdc18e4b5079
+      revision: 42f727e6c00c6cfc9e0d429c41b671b26827b585
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -76,7 +76,7 @@ tasks:
     depends_on: [ pr-file-manifest-and-diff-hydration ]
     implementation:
       baseline_revision: be2b988d2d1f5160b879a5c42222f90d93457b75
-      review_revision: fde4cdae29689ab11bd1b5ab1ec2c0291459982b
+      review_revision: 42f727e6c00c6cfc9e0d429c41b671b26827b585
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
@@ -90,8 +90,8 @@ tasks:
         - tools/dashboard/tests/providers.test.mjs
       worktree_patch_fingerprint: 62b3fa816f02340cda43bf31c6f5ce0e989ae3c5adc2b5d7de8cee55b9e0e93a
     self_check:
-      fingerprint: db193ec01ad4bd340f64081704f6de294ba6a53b7b8d8c365042df700e0c9188
-      revision: fde4cdae29689ab11bd1b5ab1ec2c0291459982b
+      fingerprint: 0f0e9ca97ca0a84e4cdefef78706c4ca2d10536eed21ef079ab3ac3902319d4f
+      revision: 42f727e6c00c6cfc9e0d429c41b671b26827b585
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

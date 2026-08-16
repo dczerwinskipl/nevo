@@ -38,8 +38,8 @@ semantic_references:
 
 Add a files-manifest route, a batch file-diff route, `headSha`-aware diff caching, and
 priority-aware background hydration in the frontend, plus a separate on-demand full-diff
-route — behind a provider abstraction exposing `getPullRequests()`,
-`getPullRequestFiles()`, `getFileDiffs(paths)`, `getFullDiff()`.
+route — behind a provider abstraction exposing `load()`, `loadFiles()`,
+`loadFileDiffs(paths, headSha)`, `loadFullDiff()`.
 
 ## Dependencies
 
@@ -86,8 +86,9 @@ file/diff loading on top of it.
    not produce a second fetch. `automated: npm --prefix tools/dashboard test`
 5. `GET .../pull-requests/:number/diff` is never called as a side effect of listing PRs
    or fetching the files manifest. `automated: npm --prefix tools/dashboard test`
-6. The provider adapter's public surface is `getPullRequests`/`getPullRequestFiles`/
-   `getFileDiffs`/`getFullDiff` — callers do not depend on whether GitHub returned a
+6. The provider adapter's public surface is `load`/`loadFiles`/`loadFileDiffs`/`loadFullDiff`
+   (backed by `getPullRequestMetadata`/`getPullRequestFiles`/`getPullRequestFilesWithPatches`/`getFullDiff`
+   in `tools/lib/github.mjs`) — callers do not depend on whether GitHub returned a
    patch alongside metadata. `inspection: confirm provider module's exported surface`
 7. `getPullRequestFiles()`'s upstream GitHub call does not request/return `patch`
    content. `inspection: confirm the upstream request surface used (e.g. GraphQL query
