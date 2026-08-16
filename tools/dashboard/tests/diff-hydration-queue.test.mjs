@@ -1,5 +1,6 @@
 /**
- * Integration tests for the production useBatchQueries / createBatchQueriesManager primitive.
+ * Integration tests for the production useBatchQueries / createBatchQueriesManager primitive
+ * and progressive diff preload behavior.
  *
  * Uses real TanStack Query QueryClient, QueryObserver, QueriesObserver, and real @yornaath/batshit
  * batcher with real window scheduling.
@@ -279,7 +280,165 @@ test('changing headSha updates scope and uses new query identity and new batcher
 });
 
 // ---------------------------------------------------------------------------
-// 7. Filtering / background preload contract
+// 7. Progressive hydration behavior: large list is fetched in sequential chunks
+// ---------------------------------------------------------------------------
+test('progressive hydration: large list is not all fetched at once; runs in sequential chunks', async () => {
+  const queryClient = createTestQueryClient();
+  const batchCalls = [];
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      batchCalls.push(requests.map((r) => r.path));
+      await sleep(30); // simulate network latency
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 10,
+  });
+
+  const allRequests = Array.from({ length: 45 }, (_, i) => ({ path: `file-${i}.ts` }));
+
+  // Progressive preload scheduling: chunk size 15
+  let cancelled = false;
+  const runProgressive = async () => {
+    for (let i = 0; i < allRequests.length; i += 15) {
+      if (cancelled) break;
+      const chunk = allRequests.slice(i, i + 15);
+      manager.preload(chunk);
+      await Promise.allSettled(chunk.map((req) => manager.load(req).catch(() => {})));
+    }
+  };
+
+  const progressivePromise = runProgressive();
+
+  // After first chunk is in-flight (before it finishes and schedules chunk 1)
+  await sleep(20);
+
+  // Only chunk 0 (15 files) was batched initially, not all 45!
+  assert.equal(batchCalls.length, 1, 'only first chunk should be scheduled initially');
+  assert.equal(batchCalls[0].length, 15);
+  assert.equal(batchCalls[0][0], 'file-0.ts');
+  assert.equal(batchCalls[0][14], 'file-14.ts');
+
+  await progressivePromise;
+
+  // All 3 chunks have completed sequentially
+  assert.equal(batchCalls.length, 3, 'expected 3 progressive batches for 45 files');
+  assert.equal(batchCalls[1].length, 15);
+  assert.equal(batchCalls[2].length, 15);
+});
+
+// ---------------------------------------------------------------------------
+// 8. Progressive hydration: explicit load() for later item jumps ahead of unscheduled background
+// ---------------------------------------------------------------------------
+test('progressive hydration: explicit load() for item in later queue runs immediately before unscheduled background work', async () => {
+  const queryClient = createTestQueryClient();
+  const batchCalls = [];
+
+  let chunk0Resolve;
+  const chunk0Barrier = new Promise((res) => {
+    chunk0Resolve = res;
+  });
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      batchCalls.push(requests.map((r) => r.path));
+      if (requests.some((r) => r.path === 'file-0.ts')) {
+        // Hold chunk 0 until user explicit load fires
+        await chunk0Barrier;
+      }
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 10,
+  });
+
+  const allRequests = Array.from({ length: 45 }, (_, i) => ({ path: `file-${i}.ts` }));
+
+  const runProgressive = async () => {
+    for (let i = 0; i < allRequests.length; i += 15) {
+      const chunk = allRequests.slice(i, i + 15);
+      manager.preload(chunk);
+      await Promise.allSettled(chunk.map((req) => manager.load(req).catch(() => {})));
+    }
+  };
+
+  const progressivePromise = runProgressive();
+
+  // Wait for chunk 0 to be in-flight
+  await sleep(20);
+  assert.equal(batchCalls.length, 1);
+  assert.equal(batchCalls[0].includes('file-40.ts'), false);
+
+  // User explicitly clicks file-40.ts (part of chunk 2, not yet scheduled in background)
+  const userLoadPromise = manager.load({ path: 'file-40.ts' });
+
+  // Wait for user click batch window to flush
+  await sleep(20);
+
+  // User load was dispatched immediately in its own batch while chunk 0 is still in-flight
+  assert.equal(batchCalls.length, 2);
+  assert.deepEqual(batchCalls[1], ['file-40.ts']);
+
+  // Release chunk 0 barrier and await completion
+  chunk0Resolve();
+  const userResult = await userLoadPromise;
+  await progressivePromise;
+
+  assert.equal(userResult.patch, 'diff-file-40.ts');
+  // Total batches: chunk 0 (15 items), user click (1 item), chunk 1 (15 items), chunk 2 (remaining 14 items)
+  assert.equal(batchCalls.length, 4);
+});
+
+// ---------------------------------------------------------------------------
+// 9. load() for item already in current in-flight batch deduplicates without duplicate fetch
+// ---------------------------------------------------------------------------
+test('load() for item already in current in-flight batch deduplicates without duplicate fetch', async () => {
+  const queryClient = createTestQueryClient();
+  let fetchBatchCalls = 0;
+
+  let barrierResolve;
+  const barrier = new Promise((res) => {
+    barrierResolve = res;
+  });
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      fetchBatchCalls += 1;
+      await barrier;
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 10,
+  });
+
+  const req = { path: 'inflight-file.ts' };
+
+  // Start background preload
+  manager.preload([req]);
+  await sleep(15);
+
+  // User clicks on the file currently in-flight
+  const userLoadPromise = manager.load(req);
+
+  barrierResolve();
+  const result = await userLoadPromise;
+
+  assert.equal(result.patch, 'diff-inflight-file.ts');
+  assert.equal(fetchBatchCalls, 1, 'in-flight item must be deduplicated to exactly 1 fetchBatch call');
+});
+
+// ---------------------------------------------------------------------------
+// 10. Filtering / background preload contract
 // ---------------------------------------------------------------------------
 test('filtering/preload contract: only visible files are passed to preload; already-dispatched batches complete', async () => {
   const queryClient = createTestQueryClient();
@@ -319,7 +478,7 @@ test('filtering/preload contract: only visible files are passed to preload; alre
 });
 
 // ---------------------------------------------------------------------------
-// 8. resolve() contract: returns null (not undefined) for missing diff
+// 11. resolve() contract: returns null (not undefined) for missing diff
 // ---------------------------------------------------------------------------
 test('resolve returns concrete null (not undefined) when diff is missing in response', async () => {
   const queryClient = createTestQueryClient();

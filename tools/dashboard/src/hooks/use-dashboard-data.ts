@@ -352,6 +352,48 @@ export function usePullRequestFileDiffs(
   });
 }
 
+/**
+ * Progressive background hydration policy for pull request file diffs.
+ *
+ * Semantic behavior:
+ *   - Schedules visible files in sequential chunks (default 15 items).
+ *   - Chunk N+1 is dispatched only after Chunk N has settled.
+ *   - An explicit user action (e.g. expanding file 80) calls `load()`, which
+ *     immediately fetches ahead of yet-unscheduled background chunks (16..100).
+ *   - Expanding an item from the currently in-flight chunk deduplicates automatically via React Query.
+ *   - Unscheduled chunks are cleanly cancelled if the PR card closes or visible files change.
+ */
+export function useProgressiveDiffPreload(
+  enabled: boolean,
+  requests: FileDiffRequest[],
+  diffHandle: BatchQueriesHandle<FileDiffRequest, PullRequestFile | null>,
+  batchSize = 15,
+): void {
+  useEffect(() => {
+    if (!enabled || !requests.length) return;
+
+    let cancelled = false;
+
+    async function runProgressivePreload() {
+      for (let i = 0; i < requests.length; i += batchSize) {
+        if (cancelled) break;
+        const chunk = requests.slice(i, i + batchSize);
+        diffHandle.preload(chunk);
+        // Wait for all items in the current chunk to settle before scheduling next chunk
+        await Promise.allSettled(
+          chunk.map((req) => diffHandle.load(req).catch(() => {})),
+        );
+      }
+    }
+
+    void runProgressivePreload();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, requests, diffHandle, batchSize]);
+}
+
 async function fetchFullDiff(change: DashboardChange, number: number) {
   const response = await fetch(
     `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/diff`,

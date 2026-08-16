@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
+import { useFullDiff, useProgressiveDiffPreload, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
 import type { FileDiffRequest } from '@/hooks/use-dashboard-data';
 import { computeVisibility, groupFiles, type GroupByMode } from '@/lib/changes-grouping';
 
@@ -133,7 +133,7 @@ function FileChange({
     // calling load() here is safe even when background preload already issued
     // the same request — no duplicate fetch is produced (bug #1 fix).
     if (open && diff === undefined && !diffItem.isError && !diffItem.isFetching) {
-      void diffHandle.load(req);
+      diffHandle.load(req).catch(() => {});
     }
   }, [open, diff, diffItem.isError, diffItem.isFetching, diffHandle, req]);
 
@@ -246,20 +246,20 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
     path: file.path,
   });
 
-  const visibleDiffRequests = visibleFiles.map(toRequest);
+  // Priority-ordered visible requests (active group first, then other groups).
+  const visibleDiffRequests = groups.flatMap(group =>
+    group.paths
+      .map(path => filesByPath.get(path))
+      .filter((file): file is PullRequestFileManifestEntry => Boolean(file))
+      .map(toRequest),
+  );
   // Reactive subscription to all visible diff queries — updates incompleteDiff
   // automatically as diffs arrive or fail without polling get() or manual forceRender.
   const visibleDiffItems = diffHandle.useItems(visibleDiffRequests);
 
-  // Background preload: re-issues preload when visible set changes (filter/grouping toggle).
-  // Because preload calls prefetchQuery per item and TQ deduplicates in-flight requests, items
-  // that were already fetched or are in-flight are simply skipped — no duplicate fetches
-  // and no stale plan from a previous filter state continues fetching (bug #3 fix).
-  useEffect(() => {
-    if (!open || !visibleDiffRequests.length) return;
-    diffHandle.preload(visibleDiffRequests);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, visibleFiles, diffHandle.preload]);
+  // Progressive background hydration: schedules chunks of 15 files sequentially in priority order.
+  // User-expanded files jump ahead via immediate load() calls without waiting for unscheduled chunks.
+  useProgressiveDiffPreload(open, visibleDiffRequests, diffHandle);
 
   const fullDiffQuery = useFullDiff(change, pullRequest);
   const collapseFilesInitially = files.length > 50;

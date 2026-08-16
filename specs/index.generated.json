@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T10:41:10.171Z",
+  "generated": "2026-08-16T10:54:17.560Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -448,7 +448,7 @@
           ],
           "implementation": {
             "baseline_revision": "505d19be3467db453f8ebb557131fe666edf3132",
-            "review_revision": "f8cc79e2e11222af94c0e227a0c679e3c37a9535",
+            "review_revision": "d2d1254609f34e268011cbbcc627b036918a5362",
             "changed_paths": [
               "tools/dashboard/server/index.mjs",
               "tools/dashboard/server/providers/github.mjs",
@@ -466,7 +466,7 @@
           },
           "self_check": {
             "fingerprint": "e195eb0ae494883694cbe6a7bfc10bdd734d55f0e2adcf8fd540bdc18e4b5079",
-            "revision": "f8cc79e2e11222af94c0e227a0c679e3c37a9535",
+            "revision": "d2d1254609f34e268011cbbcc627b036918a5362",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
@@ -490,7 +490,7 @@
           ],
           "implementation": {
             "baseline_revision": "be2b988d2d1f5160b879a5c42222f90d93457b75",
-            "review_revision": "f8cc79e2e11222af94c0e227a0c679e3c37a9535",
+            "review_revision": "d2d1254609f34e268011cbbcc627b036918a5362",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
@@ -506,8 +506,8 @@
             "worktree_patch_fingerprint": "62b3fa816f02340cda43bf31c6f5ce0e989ae3c5adc2b5d7de8cee55b9e0e93a"
           },
           "self_check": {
-            "fingerprint": "2b2a9e7f06993c485849c94056d7cb99e848f96921b48cd7f775f1c8b70edade",
-            "revision": "f8cc79e2e11222af94c0e227a0c679e3c37a9535",
+            "fingerprint": "a4891e96db4b6c382516c2d3f5a17df34768a53b370129b54365ad9b6f4cc525",
+            "revision": "d2d1254609f34e268011cbbcc627b036918a5362",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

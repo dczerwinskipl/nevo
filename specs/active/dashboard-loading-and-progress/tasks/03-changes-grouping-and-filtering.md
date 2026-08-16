@@ -35,7 +35,8 @@ semantic_references:
 Add configurable, deterministic file grouping (Area/Directory/Flat) and generated-file/
 lockfile filtering to the Changes view, using `picomatch` (per D1 in
 `owner-decisions.md`) against the file manifest from task 02, and make background
-hydration skip hidden generated files until explicitly opened.
+hydration exclude hidden generated files from preload while hidden (once revealed, they
+enter normal background preload, while already-dispatched in-flight requests may complete).
 
 ## Dependencies
 
