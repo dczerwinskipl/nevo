@@ -224,7 +224,7 @@ export function createDashboardServer({
       if (resource === 'files') {
         if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
         try {
-          const files = pullRequestFilesLoader({ source, slug, number });
+          const files = await pullRequestFilesLoader({ source, slug, number });
           if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return; }
           sendJson(response, 200, files);
         } catch {
@@ -236,7 +236,7 @@ export function createDashboardServer({
       if (resource === 'diff') {
         if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
         try {
-          const diff = pullRequestFullDiffLoader({ source, slug, number });
+          const diff = await pullRequestFullDiffLoader({ source, slug, number });
           if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return; }
           sendJson(response, 200, diff);
         } catch {
@@ -255,7 +255,7 @@ export function createDashboardServer({
         }
         const paths = body.paths.filter(path => typeof path === 'string');
         const headSha = typeof body.headSha === 'string' ? body.headSha : null;
-        const diffs = pullRequestFileDiffsLoader({ source, slug, number, paths, headSha });
+        const diffs = await pullRequestFileDiffsLoader({ source, slug, number, paths, headSha });
         if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return; }
         sendJson(response, 200, diffs);
       } catch (error) {
@@ -295,7 +295,12 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification document not found' });
           return;
         }
+        const docStart = performance.now();
         const document = await documentLoader({ source: documentRoute[1], slug, docId });
+        const docMs = Math.round(performance.now() - docStart);
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[document] slug=${slug} docId=${docId} total=${docMs}ms`);
+        }
         if (!document) {
           sendJson(response, 404, { error: 'Specification document not found' });
           return;
@@ -355,7 +360,7 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;
         }
-        const changes = pullRequestLoader({ source: pullRequestRoute[1], slug });
+        const changes = await pullRequestLoader({ source: pullRequestRoute[1], slug });
         if (!changes) {
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;

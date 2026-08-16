@@ -551,3 +551,48 @@ test('initial expanded state does not trigger explicit load() for all files on m
   observers.forEach((obs) => obs.destroy?.());
 });
 
+// ---------------------------------------------------------------------------
+// 13. Scoped group preload: opening one group only preloads that group's files
+// ---------------------------------------------------------------------------
+test('scoped group preload: opening one group only preloads that group files, not collapsed groups', async () => {
+  const queryClient = createTestQueryClient();
+  const batchCalls = [];
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      batchCalls.push(requests.map((r) => r.path));
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 10,
+  });
+
+  const groupA = [{ path: 'a1.ts' }, { path: 'a2.ts' }];
+  const groupB = [{ path: 'b1.ts' }, { path: 'b2.ts' }];
+  const groupC = [{ path: 'c1.ts' }, { path: 'c2.ts' }];
+
+  // Initially all groups collapsed: zero preloads
+  await sleep(25);
+  assert.equal(batchCalls.length, 0, 'collapsed groups must not trigger preload');
+
+  // User expands Group B: only Group B files are preloaded
+  manager.preload(groupB);
+  await sleep(25);
+
+  assert.equal(batchCalls.length, 1);
+  assert.deepEqual(batchCalls[0].sort(), ['b1.ts', 'b2.ts']);
+  assert.ok(!batchCalls[0].includes('a1.ts') && !batchCalls[0].includes('c1.ts'));
+
+  // User later expands Group A
+  manager.preload(groupA);
+  await sleep(25);
+
+  assert.equal(batchCalls.length, 2);
+  assert.deepEqual(batchCalls[1].sort(), ['a1.ts', 'a2.ts']);
+  assert.ok(!batchCalls[1].includes('c1.ts'));
+});
+
+

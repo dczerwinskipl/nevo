@@ -22,11 +22,11 @@ export function createProviderRegistry(providers = [createGitHubProvider()]) {
 // of caching by (reference, headSha) is lost on the very next batch request.
 const defaultRegistry = createProviderRegistry();
 
-export function resolvePullRequestReferences(references, {
+export async function resolvePullRequestReferences(references, {
   root = REPOSITORY_ROOT,
   registry = createProviderRegistry(),
 } = {}) {
-  return references.map(reference => {
+  return Promise.all(references.map(async (reference) => {
     const provider = registry.get(reference.provider);
     if (!provider) {
       return {
@@ -37,7 +37,7 @@ export function resolvePullRequestReferences(references, {
     }
 
     try {
-      return provider.load(root, reference);
+      return await provider.load(root, reference);
     } catch {
       return {
         availability: 'error',
@@ -45,7 +45,7 @@ export function resolvePullRequestReferences(references, {
         message: 'Unable to load pull request details.',
       };
     }
-  });
+  }));
 }
 
 function sourceDirectory(source, activeDir, archiveDir) {
@@ -54,7 +54,7 @@ function sourceDirectory(source, activeDir, archiveDir) {
   return null;
 }
 
-export function loadSpecificationPullRequests({
+export async function loadSpecificationPullRequests({
   source,
   slug,
   activeDir = ACTIVE_DIR,
@@ -73,7 +73,7 @@ export function loadSpecificationPullRequests({
     slug: change._slug,
     source,
     pullRequests: references.length
-      ? resolvePullRequestReferences(references, { root, registry: registry || defaultRegistry })
+      ? await resolvePullRequestReferences(references, { root, registry: registry || defaultRegistry })
       : [],
   };
 }
@@ -93,7 +93,7 @@ function resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir 
   return { change, reference };
 }
 
-export function loadSpecificationPullRequestFiles({
+export async function loadSpecificationPullRequestFiles({
   source,
   slug,
   number,
@@ -113,9 +113,10 @@ export function loadSpecificationPullRequestFiles({
     // rather than a separate route, since it's only ever needed alongside
     // the file manifest itself.
     const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: root });
+    const files = await provider.loadFiles(root, lookup.reference);
     return {
       number: Number(number),
-      files: provider.loadFiles(root, lookup.reference),
+      files,
       changeView,
       generatedFiles,
     };
@@ -124,7 +125,7 @@ export function loadSpecificationPullRequestFiles({
   }
 }
 
-export function loadSpecificationPullRequestFileDiffs({
+export async function loadSpecificationPullRequestFileDiffs({
   source,
   slug,
   number,
@@ -140,17 +141,18 @@ export function loadSpecificationPullRequestFileDiffs({
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
   try {
+    const diffs = await provider.loadFileDiffs(root, lookup.reference, paths, headSha);
     return {
       number: Number(number),
       headSha,
-      diffs: provider.loadFileDiffs(root, lookup.reference, paths, headSha),
+      diffs,
     };
   } catch {
     return null;
   }
 }
 
-export function loadSpecificationPullRequestFullDiff({
+export async function loadSpecificationPullRequestFullDiff({
   source,
   slug,
   number,
@@ -164,7 +166,8 @@ export function loadSpecificationPullRequestFullDiff({
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
   try {
-    return { number: Number(number), ...provider.loadFullDiff(root, lookup.reference) };
+    const result = await provider.loadFullDiff(root, lookup.reference);
+    return { number: Number(number), ...result };
   } catch {
     return null;
   }

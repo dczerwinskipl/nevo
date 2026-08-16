@@ -46,12 +46,13 @@ tasks:
     depends_on: [ dashboard-data-loading-contracts ]
     implementation:
       baseline_revision: 505d19be3467db453f8ebb557131fe666edf3132
-      review_revision: b60380285aae1b4197b3105e467132b017bc1b70
+      review_revision: 0b6c4a47af5b00345ee10a512131007c8c61d61e
       changed_paths:
         - tools/dashboard/server/index.mjs
         - tools/dashboard/server/providers/github.mjs
         - tools/dashboard/server/providers/service.mjs
         - tools/dashboard/src/components/changes-panel.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
         - tools/dashboard/src/hooks/use-batch-queries.ts
         - tools/dashboard/src/hooks/use-dashboard-data.ts
         - tools/dashboard/src/lib/types.ts
@@ -62,7 +63,7 @@ tasks:
       worktree_patch_fingerprint: bf4f50f99917daaf14b1ea807ce449491ea5602cb9844bf1753e1c4dd600cc44
     self_check:
       fingerprint: e195eb0ae494883694cbe6a7bfc10bdd734d55f0e2adcf8fd540bdc18e4b5079
-      revision: b60380285aae1b4197b3105e467132b017bc1b70
+      revision: 0b6c4a47af5b00345ee10a512131007c8c61d61e
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -76,7 +77,7 @@ tasks:
     depends_on: [ pr-file-manifest-and-diff-hydration ]
     implementation:
       baseline_revision: be2b988d2d1f5160b879a5c42222f90d93457b75
-      review_revision: b60380285aae1b4197b3105e467132b017bc1b70
+      review_revision: 0b6c4a47af5b00345ee10a512131007c8c61d61e
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
@@ -91,7 +92,7 @@ tasks:
       worktree_patch_fingerprint: 62b3fa816f02340cda43bf31c6f5ce0e989ae3c5adc2b5d7de8cee55b9e0e93a
     self_check:
       fingerprint: a4891e96db4b6c382516c2d3f5a17df34768a53b370129b54365ad9b6f4cc525
-      revision: b60380285aae1b4197b3105e467132b017bc1b70
+      revision: 0b6c4a47af5b00345ee10a512131007c8c61d61e
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

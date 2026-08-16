@@ -351,18 +351,20 @@ function SpecificationPanel({
   onManifestRetry: () => void;
   enabled: boolean;
 }) {
-  const overviewQuery = useSpecificationDocument(change, 'overview', enabled && Boolean(manifest?.overview.available));
+  // Eliminates request waterfall: request overview document immediately in parallel with manifest
+  const overviewQuery = useSpecificationDocument(change, 'overview', enabled);
 
-  if (manifestLoading || overviewQuery.loading) return <ContentLoading />;
-  if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
+  if (overviewQuery.loading) return <ContentLoading />;
   if (overviewQuery.error) return <ContentError message={overviewQuery.error} onRetry={() => void overviewQuery.refresh()} />;
-  if (!manifest?.overview.available || !overviewQuery.data?.available) {
+  if (!overviewQuery.data?.available) {
+    if (manifestLoading) return <ContentLoading />;
+    if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
     return <EmptyDocument title="Brak głównego dokumentu" detail="Ta specyfikacja nie zawiera opcjonalnego pliku overview.md." />;
   }
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
-        {manifest.overview.path}
+        {overviewQuery.data.path || manifest?.overview.path || 'overview.md'}
       </div>
       <article className="px-5 py-7 sm:px-8 sm:py-9">
         <MarkdownContent markdown={overviewQuery.data.markdown} />

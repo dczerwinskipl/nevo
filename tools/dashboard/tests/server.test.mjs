@@ -396,3 +396,47 @@ test('serves active-only lifecycle gates and executes explicit validated actions
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
+
+test('slow async pull request operation does not block parallel health or document requests', async () => {
+  let releaseGh;
+  const slowGhPromise = new Promise(resolvePromise => { releaseGh = resolvePromise; });
+
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestFilesLoader: async () => {
+      await slowGhPromise;
+      return { number: 42, files: [{ path: 'a.js' }] };
+    },
+    documentLoader: async () => ({ docId: 'overview', markdown: '# Quick doc' }),
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // Start slow PR request (do not await its completion yet)
+    const slowReqPromise = fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/files`);
+
+    // While slow PR request is in-flight, health and document endpoints must respond immediately
+    const healthStart = performance.now();
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    const healthDuration = performance.now() - healthStart;
+    assert.equal(healthRes.status, 200);
+    assert.ok(healthDuration < 100, `health took ${healthDuration}ms, must not be blocked by slow gh`);
+
+    const docStart = performance.now();
+    const docRes = await fetch(`${baseUrl}/api/specs/active/sample-change/content/overview`);
+    const docDuration = performance.now() - docStart;
+    assert.equal(docRes.status, 200);
+    assert.ok(docDuration < 100, `document took ${docDuration}ms, must not be blocked by slow gh`);
+
+    // Release slow PR request and verify it finishes normally
+    releaseGh();
+    const slowRes = await slowReqPromise;
+    assert.equal(slowRes.status, 200);
+  } finally {
+    releaseGh?.();
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+

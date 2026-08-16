@@ -1,8 +1,8 @@
 import {
-  getFullDiff,
-  getPullRequestFiles,
-  getPullRequestFilesWithPatches,
-  getPullRequestMetadata,
+  getFullDiffAsync,
+  getPullRequestFilesAsync,
+  getPullRequestFilesWithPatchesAsync,
+  getPullRequestMetadataAsync,
 } from '../../../lib/github.mjs';
 
 const FILE_STATUSES = new Set(['added', 'removed', 'modified', 'renamed', 'copied', 'changed', 'unchanged']);
@@ -113,32 +113,121 @@ function diffCacheKey(reference, headSha) {
 // pull-request-file-and-diff-loading AC8). No eviction — "no requirement to
 // explicitly purge them in this change" (area doc).
 export function createGitHubProvider({
-  fetchMetadata = getPullRequestMetadata,
-  fetchFiles = getPullRequestFiles,
-  fetchFilesWithPatches = getPullRequestFilesWithPatches,
-  fetchFullDiff = getFullDiff,
+  fetchMetadata = getPullRequestMetadataAsync,
+  fetchFiles = getPullRequestFilesAsync,
+  fetchFilesWithPatches = getPullRequestFilesWithPatchesAsync,
+  fetchFullDiff = getFullDiffAsync,
   cache = new Map(),
 } = {}) {
+  const inFlightMetadata = new Map();
+  const inFlightFiles = new Map();
+  const inFlightPatches = new Map();
+  const inFlightFullDiff = new Map();
+
   return {
     id: 'github',
-    load(root, reference) {
-      return mapGitHubPullRequest(reference, fetchMetadata(root, reference));
+    async load(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+      let pending = inFlightMetadata.get(key);
+      const isReused = Boolean(pending);
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const start = performance.now();
+            const raw = await fetchMetadata(root, reference);
+            const duration = Math.round(performance.now() - start);
+            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+              console.log(`[github] op=pr-metadata pr=#${reference.number} total=${duration}ms reused=${isReused ? 'yes' : 'no'}`);
+            }
+            return mapGitHubPullRequest(reference, raw);
+          } finally {
+            inFlightMetadata.delete(key);
+          }
+        })();
+        inFlightMetadata.set(key, pending);
+      }
+      return await pending;
     },
-    loadFiles(root, reference) {
-      return mapGitHubFileManifest(fetchFiles(root, reference));
+
+    async loadFiles(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+      let pending = inFlightFiles.get(key);
+      const isReused = Boolean(pending);
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const start = performance.now();
+            const nodes = await fetchFiles(root, reference);
+            const duration = Math.round(performance.now() - start);
+            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+              console.log(`[github] op=pr-files pr=#${reference.number} total=${duration}ms reused=${isReused ? 'yes' : 'no'}`);
+            }
+            return mapGitHubFileManifest(nodes);
+          } finally {
+            inFlightFiles.delete(key);
+          }
+        })();
+        inFlightFiles.set(key, pending);
+      }
+      return await pending;
     },
-    loadFileDiffs(root, reference, paths, headSha) {
+
+    async loadFileDiffs(root, reference, paths, headSha) {
       const key = diffCacheKey(reference, headSha);
       let byPath = cache.get(key);
+
       if (!byPath) {
-        byPath = new Map(fetchFilesWithPatches(root, reference).map(file => [file.filename, file]));
-        cache.set(key, byPath);
+        let pending = inFlightPatches.get(key);
+        const isReused = Boolean(pending);
+        if (!pending) {
+          pending = (async () => {
+            try {
+              const start = performance.now();
+              const rawFiles = await fetchFilesWithPatches(root, reference);
+              const duration = Math.round(performance.now() - start);
+              const map = new Map(rawFiles.map((file) => [file.filename, file]));
+              cache.set(key, map);
+              if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+                console.log(`[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms cache=miss reused=${isReused ? 'yes' : 'no'}`);
+              }
+              return map;
+            } finally {
+              inFlightPatches.delete(key);
+            }
+          })();
+          inFlightPatches.set(key, pending);
+        }
+        byPath = await pending;
+      } else {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=hit`);
+        }
       }
-      return paths.map(path => byPath.get(path)).filter(Boolean).map(fileDiffProjection);
+
+      return paths.map((path) => byPath.get(path)).filter(Boolean).map(fileDiffProjection);
     },
-    loadFullDiff(root, reference) {
-      const diff = fetchFullDiff(root, reference) || '';
-      return { diff, diffAvailable: Boolean(diff.trim()) };
+
+    async loadFullDiff(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+      let pending = inFlightFullDiff.get(key);
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const start = performance.now();
+            const diff = (await fetchFullDiff(root, reference)) || '';
+            const duration = Math.round(performance.now() - start);
+            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+              console.log(`[github] op=full-diff pr=#${reference.number} total=${duration}ms`);
+            }
+            return { diff, diffAvailable: Boolean(diff.trim()) };
+          } finally {
+            inFlightFullDiff.delete(key);
+          }
+        })();
+        inFlightFullDiff.set(key, pending);
+      }
+      return await pending;
     },
   };
 }
+

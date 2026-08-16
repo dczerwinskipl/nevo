@@ -144,15 +144,15 @@ test('getFullDiff swallows only an oversized-diff rejection', () => {
   assert.throws(() => getFullDiff('fixture-root', githubReference, unrelated), /authentication failed/);
 });
 
-test('provider registry isolates success, unsupported providers, and sanitized errors', () => {
+test('provider registry isolates success, unsupported providers, and sanitized errors', async () => {
   const provider = createGitHubProvider({
-    fetchMetadata: (_root, reference) => {
+    fetchMetadata: async (_root, reference) => {
       if (reference.number === 99) throw new Error('token ghp_secret D:\\private');
       return githubMetadata();
     },
   });
   const registry = createProviderRegistry([provider]);
-  const results = resolvePullRequestReferences([
+  const results = await resolvePullRequestReferences([
     githubReference,
     { ...githubReference, provider: 'gitlab', number: 7 },
     { ...githubReference, number: 99 },
@@ -164,54 +164,54 @@ test('provider registry isolates success, unsupported providers, and sanitized e
   assert.doesNotMatch(JSON.stringify(results), /ghp_secret|D:\\\\private/);
 });
 
-test('provider adapter caches one upstream REST call per (reference, headSha) — all batches for the same PR version share it (AC8)', () => {
+test('provider adapter caches one upstream REST call per (reference, headSha) — all batches for the same PR version share it (AC8)', async () => {
   let filesWithPatchesCalls = 0;
   const provider = createGitHubProvider({
-    fetchFilesWithPatches: () => {
+    fetchFilesWithPatches: async () => {
       filesWithPatchesCalls += 1;
       return githubFilesWithPatches();
     },
   });
 
-  const first = provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-1');
+  const first = await provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-1');
   assert.equal(first.length, 1);
   assert.equal(first[0].patch, '@@ -0,0 +1 @@\n+export const value = 1;');
   assert.equal(filesWithPatchesCalls, 1);
 
   // A second batch, same headSha, different path — no repeated upstream call.
-  const second = provider.loadFileDiffs('fixture-root', githubReference, ['assets/logo.png'], 'sha-1');
+  const second = await provider.loadFileDiffs('fixture-root', githubReference, ['assets/logo.png'], 'sha-1');
   assert.equal(second.length, 1);
   assert.equal(filesWithPatchesCalls, 1);
 
   // Re-requesting an already-cached path, same headSha — still no repeated call.
-  provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-1');
+  await provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-1');
   assert.equal(filesWithPatchesCalls, 1);
 
   // A new headSha invalidates the cache entry for this PR (and only this PR).
-  provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-2');
+  await provider.loadFileDiffs('fixture-root', githubReference, ['src/new.js'], 'sha-2');
   assert.equal(filesWithPatchesCalls, 2);
 
   const otherPr = { ...githubReference, number: 43 };
-  provider.loadFileDiffs('fixture-root', otherPr, ['src/new.js'], 'sha-1');
+  await provider.loadFileDiffs('fixture-root', otherPr, ['src/new.js'], 'sha-1');
   assert.equal(filesWithPatchesCalls, 3);
 });
 
-test('loadFullDiff is never invoked by loadFiles/load', () => {
+test('loadFullDiff is never invoked by loadFiles/load', async () => {
   let fullDiffCalls = 0;
   const provider = createGitHubProvider({
-    fetchMetadata: () => githubMetadata(),
-    fetchFiles: () => [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
-    fetchFullDiff: () => { fullDiffCalls += 1; return 'diff --git a/a.js b/a.js\n'; },
+    fetchMetadata: async () => githubMetadata(),
+    fetchFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
+    fetchFullDiff: async () => { fullDiffCalls += 1; return 'diff --git a/a.js b/a.js\n'; },
   });
-  provider.load('fixture-root', githubReference);
-  provider.loadFiles('fixture-root', githubReference);
+  await provider.load('fixture-root', githubReference);
+  await provider.loadFiles('fixture-root', githubReference);
   assert.equal(fullDiffCalls, 0);
-  const result = provider.loadFullDiff('fixture-root', githubReference);
+  const result = await provider.loadFullDiff('fixture-root', githubReference);
   assert.equal(fullDiffCalls, 1);
   assert.equal(result.diffAvailable, true);
 });
 
-test('loads exact active and archived changes and skips providers for empty references', () => {
+test('loads exact active and archived changes and skips providers for empty references', async () => {
   const root = join(tmpdir(), `nevo-dashboard-providers-${process.pid}-${Date.now()}`);
   const activeDir = join(root, 'active');
   const archiveDir = join(root, 'archive');
@@ -222,30 +222,30 @@ test('loads exact active and archived changes and skips providers for empty refe
   let calls = 0;
   const registry = createProviderRegistry([{
     id: 'github',
-    load: (_repoRoot, reference) => {
+    load: async (_repoRoot, reference) => {
       calls += 1;
       return { availability: 'available', reference: { number: reference.number } };
     },
   }]);
 
   try {
-    const active = loadSpecificationPullRequests({ source: 'active', slug: 'with-pr', activeDir, archiveDir, root, registry });
+    const active = await loadSpecificationPullRequests({ source: 'active', slug: 'with-pr', activeDir, archiveDir, root, registry });
     assert.equal(active.pullRequests.length, 1);
     assert.equal(calls, 1);
 
-    const archive = loadSpecificationPullRequests({ source: 'archive', slug: 'without-pr', activeDir, archiveDir, root, registry });
+    const archive = await loadSpecificationPullRequests({ source: 'archive', slug: 'without-pr', activeDir, archiveDir, root, registry });
     assert.deepEqual(archive.pullRequests, []);
     assert.equal(calls, 1);
 
-    assert.equal(loadSpecificationPullRequests({ source: 'other', slug: 'with-pr', activeDir, archiveDir, root, registry }), null);
-    assert.equal(loadSpecificationPullRequests({ source: 'active', slug: '../with-pr', activeDir, archiveDir, root, registry }), null);
-    assert.equal(loadSpecificationPullRequests({ source: 'active', slug: 'missing', activeDir, archiveDir, root, registry }), null);
+    assert.equal(await loadSpecificationPullRequests({ source: 'other', slug: 'with-pr', activeDir, archiveDir, root, registry }), null);
+    assert.equal(await loadSpecificationPullRequests({ source: 'active', slug: '../with-pr', activeDir, archiveDir, root, registry }), null);
+    assert.equal(await loadSpecificationPullRequests({ source: 'active', slug: 'missing', activeDir, archiveDir, root, registry }), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved from change.yaml', () => {
+test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved from change.yaml', async () => {
   const root = join(tmpdir(), `nevo-dashboard-providers-sub-${process.pid}-${Date.now()}`);
   const activeDir = join(root, 'active');
   const archiveDir = join(root, 'archive');
@@ -254,32 +254,77 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
 
   const registry = createProviderRegistry([{
     id: 'github',
-    load: () => ({ availability: 'available' }),
-    loadFiles: () => [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }],
-    loadFileDiffs: (_root, _reference, paths, headSha) => paths.map(path => ({ path, headSha, patch: 'x' })),
-    loadFullDiff: () => ({ diff: 'diff', diffAvailable: true }),
+    load: async () => ({ availability: 'available' }),
+    loadFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }],
+    loadFileDiffs: async (_root, _reference, paths, headSha) => paths.map(path => ({ path, headSha, patch: 'x' })),
+    loadFullDiff: async () => ({ diff: 'diff', diffAvailable: true }),
   }]);
 
   try {
-    const files = loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
+    const files = await loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
     assert.deepEqual(files.files, [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }]);
-    // The per-project changeView/generatedFiles config rides along with the
-    // manifest (AC6) — this fixture has no .nevo/dashboard-view.json, so it's
-    // this repo's own reasonable default, not hardcoded into the frontend.
     assert.ok(files.changeView.groups.length > 0);
     assert.ok(files.generatedFiles.rules.length > 0);
 
-    const diffs = loadSpecificationPullRequestFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1', activeDir, archiveDir, root, registry });
+    const diffs = await loadSpecificationPullRequestFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1', activeDir, archiveDir, root, registry });
     assert.equal(diffs.number, 42);
     assert.equal(diffs.headSha, 'sha-1');
     assert.deepEqual(diffs.diffs, [{ path: 'a.js', headSha: 'sha-1', patch: 'x' }]);
 
-    const fullDiff = loadSpecificationPullRequestFullDiff({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
+    const fullDiff = await loadSpecificationPullRequestFullDiff({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
     assert.deepEqual(fullDiff, { number: 42, diff: 'diff', diffAvailable: true });
 
-    assert.equal(loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 999, activeDir, archiveDir, root, registry }), null);
-    assert.equal(loadSpecificationPullRequestFiles({ source: 'active', slug: 'missing', number: 42, activeDir, archiveDir, root, registry }), null);
+    assert.equal(await loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 999, activeDir, archiveDir, root, registry }), null);
+    assert.equal(await loadSpecificationPullRequestFiles({ source: 'active', slug: 'missing', number: 42, activeDir, archiveDir, root, registry }), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('two concurrent cold diff requests share the same in-flight Promise and execute exactly one fetch', async () => {
+  let fetchCount = 0;
+  const provider = createGitHubProvider({
+    fetchFilesWithPatches: async () => {
+      fetchCount++;
+      await new Promise(r => setTimeout(r, 20));
+      return githubFilesWithPatches();
+    },
+  });
+
+  // Dispatch 5 concurrent cold batch requests for the same PR and headSha
+  const results = await Promise.all([
+    provider.loadFileDiffs('root', githubReference, ['src/new.js'], 'sha-1'),
+    provider.loadFileDiffs('root', githubReference, ['assets/logo.png'], 'sha-1'),
+    provider.loadFileDiffs('root', githubReference, ['src/new.js'], 'sha-1'),
+    provider.loadFileDiffs('root', githubReference, ['src/new.js'], 'sha-1'),
+    provider.loadFileDiffs('root', githubReference, ['assets/logo.png'], 'sha-1'),
+  ]);
+
+  assert.equal(fetchCount, 1, 'expected exactly 1 upstream fetch for concurrent batches');
+  assert.equal(results[0].length, 1);
+  assert.equal(results[1].length, 1);
+});
+
+test('failure in cold fetch releases in-flight state so future requests can retry', async () => {
+  let shouldFail = true;
+  let fetchCount = 0;
+  const provider = createGitHubProvider({
+    fetchFilesWithPatches: async () => {
+      fetchCount++;
+      if (shouldFail) throw new Error('network timeout');
+      return githubFilesWithPatches();
+    },
+  });
+
+  await assert.rejects(
+    () => provider.loadFileDiffs('root', githubReference, ['src/new.js'], 'sha-1'),
+    /network timeout/,
+  );
+
+  // Future call after failure is not stuck on old rejected Promise
+  shouldFail = false;
+  const result = await provider.loadFileDiffs('root', githubReference, ['src/new.js'], 'sha-1');
+  assert.equal(result.length, 1);
+  assert.equal(fetchCount, 2);
+});
+
