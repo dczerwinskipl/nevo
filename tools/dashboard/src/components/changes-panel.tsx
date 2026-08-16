@@ -121,20 +121,21 @@ function FileChange({
   req: FileDiffRequest;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
-  const diff = diffHandle.useItem(req);
+  const diffItem = diffHandle.useItem(req);
+  const diff = diffItem.data;
   const oldFileName = file.status === 'added' ? null : (diff?.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
   const contentUnchangedRename = isContentUnchangedRename(file, diff);
 
   useEffect(() => {
-    // When the file is open and its diff is not yet available, request it now.
+    // When the file is open and its diff is not yet available and not errored, request it now.
     // TanStack Query (via usePullRequestFileDiffs) deduplicates in-flight requests, so
     // calling load() here is safe even when background preload already issued
     // the same request — no duplicate fetch is produced (bug #1 fix).
-    if (open && diff === undefined) {
+    if (open && diff === undefined && !diffItem.isError && !diffItem.isFetching) {
       void diffHandle.load(req);
     }
-  }, [open, diff, diffHandle, req]);
+  }, [open, diff, diffItem.isError, diffItem.isFetching, diffHandle, req]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -155,7 +156,11 @@ function FileChange({
       </button>
 
       {open && (
-        diff === undefined ? (
+        diffItem.isError ? (
+          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-red-300">
+            {diffItem.error?.message || 'Nie udało się wczytać diffu dla tego pliku.'}
+          </div>
+        ) : diff === undefined ? (
           <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--muted)]">
             <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie diffu…
           </div>
@@ -241,22 +246,25 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
     path: file.path,
   });
 
+  const visibleDiffRequests = visibleFiles.map(toRequest);
+  // Reactive subscription to all visible diff queries — updates incompleteDiff
+  // automatically as diffs arrive or fail without polling get() or manual forceRender.
+  const visibleDiffItems = diffHandle.useItems(visibleDiffRequests);
+
   // Background preload: re-issues preload when visible set changes (filter/grouping toggle).
-  // Because preload calls load() per item and TQ deduplicates in-flight requests, items
+  // Because preload calls prefetchQuery per item and TQ deduplicates in-flight requests, items
   // that were already fetched or are in-flight are simply skipped — no duplicate fetches
   // and no stale plan from a previous filter state continues fetching (bug #3 fix).
   useEffect(() => {
-    if (!open || !visibleFiles.length) return;
-    diffHandle.preload(visibleFiles.map(toRequest));
-    // toRequest is a stable derived function — its identity depends on pullRequest which
-    // is already stable for the lifetime of this PullRequestCard render.
+    if (!open || !visibleDiffRequests.length) return;
+    diffHandle.preload(visibleDiffRequests);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, visibleFiles, diffHandle.preload]);
 
   const fullDiffQuery = useFullDiff(change, pullRequest);
   const collapseFilesInitially = files.length > 50;
-  const incompleteDiff = visibleFiles.some(file => {
-    const diff = diffHandle.get(toRequest(file));
+  const incompleteDiff = visibleFiles.some((file, index) => {
+    const diff = visibleDiffItems[index]?.data;
     return diff !== undefined && diff !== null && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
   });
 

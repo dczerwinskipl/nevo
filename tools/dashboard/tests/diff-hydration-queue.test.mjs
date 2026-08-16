@@ -1,13 +1,13 @@
 /**
  * Integration tests for the production useBatchQueries / createBatchQueriesManager primitive.
  *
- * Uses real TanStack Query QueryClient, QueryObserver, and real @yornaath/batshit batcher
- * with real window scheduling — no fake batcher or mock cache implementation.
+ * Uses real TanStack Query QueryClient, QueryObserver, QueriesObserver, and real @yornaath/batshit
+ * batcher with real window scheduling.
  */
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 import test from 'node:test';
-import { QueryClient, QueryObserver } from '@tanstack/react-query';
+import { QueryClient, QueryObserver, QueriesObserver } from '@tanstack/react-query';
 
 import { createBatchQueriesManager } from '../src/hooks/use-batch-queries.ts';
 
@@ -55,9 +55,9 @@ test('multiple items scheduled within scheduler window land in one fetchBatch ca
 });
 
 // ---------------------------------------------------------------------------
-// 2. load() completes fetch and reactive QueryObserver gets data without manual rerender
+// 2. useItem() subscriber (QueryObserver) gets updated data when load() completes
 // ---------------------------------------------------------------------------
-test('load() completes fetch and a reactive QueryObserver receives updated data automatically', async () => {
+test('useItem() observer receives updated data reactively when load() completes', async () => {
   const queryClient = createTestQueryClient();
   const observerEvents = [];
 
@@ -74,7 +74,7 @@ test('load() completes fetch and a reactive QueryObserver receives updated data 
 
   const req = { path: 'file1.ts' };
 
-  // Set up QueryObserver (the exact observer useQuery uses under the hood) with enabled: false
+  // Set up QueryObserver (the exact observer useItem uses) with enabled: false
   const observer = new QueryObserver(queryClient, {
     queryKey: ['nevo-file-diff', 'file1.ts'],
     enabled: false,
@@ -82,24 +82,123 @@ test('load() completes fetch and a reactive QueryObserver receives updated data 
   });
 
   const unsubscribe = observer.subscribe((result) => {
-    observerEvents.push(result.data);
+    observerEvents.push(result);
   });
 
-  // Initial state: not fetched -> data is undefined
+  // Initial state: not fetched -> data is undefined, isPending is true
   assert.equal(observer.getCurrentResult().data, undefined);
+  assert.equal(observer.getCurrentResult().status, 'pending');
 
   // Trigger imperative load
   await manager.load(req);
 
   // Observer must have received the loaded data directly from cache notification
   assert.ok(observerEvents.length > 0);
-  assert.deepEqual(observer.getCurrentResult().data, { path: 'file1.ts', patch: 'diff-file1.ts' });
+  const latest = observer.getCurrentResult();
+  assert.equal(latest.status, 'success');
+  assert.deepEqual(latest.data, { path: 'file1.ts', patch: 'diff-file1.ts' });
 
   unsubscribe();
 });
 
 // ---------------------------------------------------------------------------
-// 3. preload + load of same item does not trigger a second underlying fetch
+// 3. useItems() subscriber (QueriesObserver) gets updated data when preload/load completes
+// ---------------------------------------------------------------------------
+test('useItems() observer receives updated data reactively when preload/load completes', async () => {
+  const queryClient = createTestQueryClient();
+  const observerSnapshots = [];
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 15,
+  });
+
+  const requests = [{ path: 'x.ts' }, { path: 'y.ts' }];
+
+  // Set up QueriesObserver (the exact observer useItems uses) with enabled: false
+  const queriesObserver = new QueriesObserver(
+    queryClient,
+    requests.map((r) => ({
+      queryKey: ['nevo-file-diff', r.path],
+      enabled: false,
+      staleTime: Infinity,
+    })),
+  );
+
+  const unsubscribe = queriesObserver.subscribe((results) => {
+    observerSnapshots.push(results.map((r) => ({ path: r.data?.path, status: r.status })));
+  });
+
+  // Initially, all queries in useItems observer are pending with undefined data
+  const initialResults = queriesObserver.getCurrentResult();
+  assert.equal(initialResults.length, 2);
+  assert.equal(initialResults[0].data, undefined);
+  assert.equal(initialResults[1].data, undefined);
+
+  // Trigger preload
+  manager.preload(requests);
+
+  // Wait for batched prefetch to complete
+  await sleep(40);
+
+  const finalResults = queriesObserver.getCurrentResult();
+  assert.equal(finalResults[0].status, 'success');
+  assert.equal(finalResults[1].status, 'success');
+  assert.equal(finalResults[0].data?.patch, 'diff-x.ts');
+  assert.equal(finalResults[1].data?.patch, 'diff-y.ts');
+
+  unsubscribe();
+});
+
+// ---------------------------------------------------------------------------
+// 4. Error state is visible reactively on failure
+// ---------------------------------------------------------------------------
+test('error state is propagated reactively to QueryObserver when fetchBatch rejects', async () => {
+  const queryClient = createTestQueryClient();
+  const observerEvents = [];
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async () => {
+      throw new Error('Network timeout loading diff');
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 15,
+  });
+
+  const observer = new QueryObserver(queryClient, {
+    queryKey: ['nevo-file-diff', 'error-file.ts'],
+    enabled: false,
+    staleTime: Infinity,
+  });
+
+  const unsubscribe = observer.subscribe((result) => {
+    observerEvents.push(result);
+  });
+
+  await assert.rejects(
+    () => manager.load({ path: 'error-file.ts' }),
+    /Network timeout loading diff/,
+  );
+
+  const result = observer.getCurrentResult();
+  assert.equal(result.status, 'error');
+  assert.equal(result.isError, true);
+  assert.equal(result.error?.message, 'Network timeout loading diff');
+
+  unsubscribe();
+});
+
+// ---------------------------------------------------------------------------
+// 5. preload + load of same item does not trigger a second underlying fetch
 // ---------------------------------------------------------------------------
 test('preload + load for the same item does not trigger a second underlying fetch', async () => {
   const queryClient = createTestQueryClient();
@@ -119,7 +218,7 @@ test('preload + load for the same item does not trigger a second underlying fetc
 
   const req = { path: 'shared.ts' };
 
-  // Issue preload (background fetch trigger)
+  // Issue preload (background fetch trigger using prefetchQuery)
   manager.preload([req]);
 
   // Immediately call load on the same item while preload is in-flight
@@ -135,7 +234,7 @@ test('preload + load for the same item does not trigger a second underlying fetc
 });
 
 // ---------------------------------------------------------------------------
-// 4. Changing headSha updates scope and prevents mixing requests across revisions
+// 6. Changing headSha updates scope and prevents mixing requests across revisions
 // ---------------------------------------------------------------------------
 test('changing headSha updates scope and uses new query identity and new batcher instance', async () => {
   const queryClient = createTestQueryClient();
@@ -180,7 +279,7 @@ test('changing headSha updates scope and uses new query identity and new batcher
 });
 
 // ---------------------------------------------------------------------------
-// 5. Filtering / background preload contract
+// 7. Filtering / background preload contract
 // ---------------------------------------------------------------------------
 test('filtering/preload contract: only visible files are passed to preload; already-dispatched batches complete', async () => {
   const queryClient = createTestQueryClient();
@@ -220,7 +319,7 @@ test('filtering/preload contract: only visible files are passed to preload; alre
 });
 
 // ---------------------------------------------------------------------------
-// 6. resolve() contract: returns null (not undefined) for missing diff
+// 8. resolve() contract: returns null (not undefined) for missing diff
 // ---------------------------------------------------------------------------
 test('resolve returns concrete null (not undefined) when diff is missing in response', async () => {
   const queryClient = createTestQueryClient();

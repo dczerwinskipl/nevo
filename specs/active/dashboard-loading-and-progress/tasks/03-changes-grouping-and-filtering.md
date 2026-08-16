@@ -71,8 +71,9 @@ filter against).
    `automated: npm --prefix tools/dashboard test`
 3. Toggling "hide generated files" back on shows previously hidden files without a
    fresh manifest fetch. `automated: npm --prefix tools/dashboard test`
-4. Zero diff-hydration requests are issued for hidden generated files until one is
-   explicitly opened. `automated: npm --prefix tools/dashboard test`
+4. Hidden generated files are not included in background preload while hidden; once
+   revealed, they enter normal background preload, while already-dispatched in-flight
+   requests are allowed to complete. `automated: npm --prefix tools/dashboard test`
 5. Directory and Flat modes work with no `changeView.groups` config present.
    `automated: npm --prefix tools/dashboard test`
 6. The frontend receives `changeView`/`generatedFiles` config from the server response

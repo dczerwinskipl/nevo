@@ -14,9 +14,19 @@
  */
 import { create, windowedFiniteBatchScheduler } from '@yornaath/batshit';
 import type { Batcher } from '@yornaath/batshit';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
+
+export interface BatchQueryItemResult<TResult> {
+  data: TResult | undefined;
+  status: 'pending' | 'error' | 'success';
+  error: Error | null;
+  isFetching: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+  isPending: boolean;
+}
 
 export interface BatchQueriesOptions<TRequest, TBatchResult, TResult = TBatchResult> {
   /**
@@ -68,7 +78,7 @@ export interface BatchQueriesHandle<TRequest, TResult> {
 
   /**
    * Background-load a set of items (imperative prefetch trigger).
-   * Iterates through requests calling load; batshit groups un-cached items into transport batches.
+   * Uses queryClient.prefetchQuery under the hood with the batcher.
    */
   preload: (requests: TRequest[]) => void;
 
@@ -84,11 +94,16 @@ export interface BatchQueriesHandle<TRequest, TResult> {
   get: (request: TRequest) => TResult | undefined;
 
   /**
-   * Reactive React hook: subscribes to cache updates for a specific item.
+   * Reactive React hook: subscribes to cache updates for a single item.
    * Uses TanStack Query under the hood with enabled: false (does NOT initiate fetching).
-   * Returns undefined while not yet loaded in cache, or TResult once loaded.
    */
-  useItem: (request: TRequest) => TResult | undefined;
+  useItem: (request: TRequest) => BatchQueryItemResult<TResult>;
+
+  /**
+   * Reactive React hook: subscribes to cache updates for a list of items.
+   * Uses TanStack Query useQueries under the hood with enabled: false.
+   */
+  useItems: (requests: TRequest[]) => Array<BatchQueryItemResult<TResult>>;
 }
 
 export interface BatchQueriesManager<TRequest, TBatchResult, TResult> {
@@ -138,7 +153,11 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
 
   const preload = (requests: TRequest[]): void => {
     for (const request of requests) {
-      void load(request);
+      void queryClient.prefetchQuery({
+        queryKey: queryKey(request),
+        queryFn: makeQueryFn(request),
+        staleTime: currentStaleTime,
+      });
     }
   };
 
@@ -195,14 +214,43 @@ export function useBatchQueries<TRequest, TBatchResult, TResult = TBatchResult>(
   const reload = useCallback((request: TRequest) => manager.reload(request), [manager]);
   const get = useCallback((request: TRequest) => manager.get(request), [manager]);
 
-  const useItem = (request: TRequest): TResult | undefined => {
+  const useItem = (request: TRequest): BatchQueryItemResult<TResult> => {
     const query = useQuery({
       queryKey: options.queryKey(request),
+      queryFn: () => manager.load(request),
       enabled: false,
       staleTime: options.staleTime ?? Infinity,
     });
-    return query.data as TResult | undefined;
+    return {
+      data: query.data as TResult | undefined,
+      status: query.status,
+      error: (query.error as Error | null) ?? null,
+      isFetching: query.isFetching,
+      isError: query.isError,
+      isSuccess: query.isSuccess,
+      isPending: query.isPending,
+    };
   };
 
-  return { load, preload, reload, get, useItem };
+  const useItems = (requests: TRequest[]): Array<BatchQueryItemResult<TResult>> => {
+    const queries = useQueries({
+      queries: requests.map((req) => ({
+        queryKey: options.queryKey(req),
+        queryFn: () => manager.load(req),
+        enabled: false,
+        staleTime: options.staleTime ?? Infinity,
+      })),
+    });
+    return queries.map((query) => ({
+      data: query.data as TResult | undefined,
+      status: query.status,
+      error: (query.error as Error | null) ?? null,
+      isFetching: query.isFetching,
+      isError: query.isError,
+      isSuccess: query.isSuccess,
+      isPending: query.isPending,
+    }));
+  };
+
+  return { load, preload, reload, get, useItem, useItems };
 }
