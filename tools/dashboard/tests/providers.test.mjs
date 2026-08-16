@@ -262,7 +262,12 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
 
   try {
     const files = loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
-    assert.deepEqual(files, { number: 42, files: [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }] });
+    assert.deepEqual(files.files, [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }]);
+    // The per-project changeView/generatedFiles config rides along with the
+    // manifest (AC6) — this fixture has no .nevo/dashboard-view.json, so it's
+    // this repo's own reasonable default, not hardcoded into the frontend.
+    assert.ok(files.changeView.groups.length > 0);
+    assert.ok(files.generatedFiles.rules.length > 0);
 
     const diffs = loadSpecificationPullRequestFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1', activeDir, archiveDir, root, registry });
     assert.equal(diffs.number, 42);

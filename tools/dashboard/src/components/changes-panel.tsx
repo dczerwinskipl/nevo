@@ -6,12 +6,17 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileDiff,
   Files,
+  FolderTree,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
+  Layers,
+  List,
   LoaderCircle,
   Minus,
   Plus,
@@ -33,6 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
+import { computeVisibility, groupFiles, type GroupByMode } from '@/lib/changes-grouping';
 
 type DiffViewMode = 'split' | 'unified';
 
@@ -182,14 +188,36 @@ function FileChange({
   );
 }
 
+const GROUP_MODE_OPTIONS: Array<{ id: GroupByMode; label: string; icon: typeof Layers }> = [
+  { id: 'area', label: 'Obszar', icon: Layers },
+  { id: 'directory', label: 'Katalog', icon: FolderTree },
+  { id: 'flat', label: 'Płasko', icon: List },
+];
+
 function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChange; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
+  const [groupMode, setGroupMode] = useState<GroupByMode>('area');
+  const [hideGenerated, setHideGenerated] = useState(true);
   const filesQuery = usePullRequestFiles(change, pullRequest, open);
   const files = filesQuery.data?.files ?? [];
-  const { diffs, requestDiff } = usePullRequestFileDiffs(change, pullRequest, files, open);
+  const filesByPath = new Map(files.map(file => [file.path, file]));
+
+  // Filtering (which files are hidden) and grouping never re-fetch the
+  // manifest — both are pure re-derivations from `files`, already loaded
+  // (area changes-grouping-and-filtering AC3).
+  const allPaths = files.map(file => file.path);
+  const visibility = computeVisibility(allPaths, filesQuery.data?.generatedFiles, hideGenerated);
+  // Independent of the toggle's current state, purely for the label/count.
+  const generatedCount = computeVisibility(allPaths, filesQuery.data?.generatedFiles, true).hiddenCount;
+  const visiblePathSet = new Set(visibility.visiblePaths);
+  const visibleFiles = files.filter(file => visiblePathSet.has(file.path));
+  const groups = groupFiles(visibility.visiblePaths, groupMode, filesQuery.data?.changeView);
+
+  // Background hydration only ever sees the currently-visible files — a
+  // hidden generated file gets zero diff requests until it's shown (AC4).
+  const { diffs, requestDiff } = usePullRequestFileDiffs(change, pullRequest, visibleFiles, open);
   const fullDiffQuery = useFullDiff(change, pullRequest.number);
   const collapseFilesInitially = files.length > 50;
-  const filesByPath = new Map(files.map(file => [file.path, file]));
   const incompleteDiff = Array.from(diffs.values()).some(diff => {
     const manifestEntry = filesByPath.get(diff.path);
     return !diff.patchAvailable && !(manifestEntry && isContentUnchangedRename(manifestEntry, diff));
@@ -247,6 +275,43 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
             </div>
           </div>
 
+          {files.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" aria-label="Grupowanie plików">
+                {GROUP_MODE_OPTIONS.map(option => {
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                        groupMode === option.id ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                      )}
+                      aria-pressed={groupMode === option.id}
+                      onClick={() => setGroupMode(option.id)}
+                    >
+                      <Icon className="size-3" />{option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {generatedCount > 0 && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+                  aria-pressed={hideGenerated}
+                  onClick={() => setHideGenerated(value => !value)}
+                >
+                  {hideGenerated ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                  {hideGenerated
+                    ? `${visibility.visibleCount} widocznych · ${visibility.hiddenCount} wygenerowanych ukrytych`
+                    : `${generatedCount} wygenerowanych widocznych — kliknij, aby ukryć`}
+                </button>
+              )}
+            </div>
+          )}
+
           {incompleteDiff && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/6 px-3 py-2.5 text-[10px] leading-5 text-amber-100/80">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -260,22 +325,37 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
             </div>
           ) : filesQuery.error ? (
             <div className="rounded-xl border border-red-400/20 px-5 py-10 text-center text-xs text-red-300">{filesQuery.error}</div>
-          ) : files.length ? (
-            <div className="space-y-3">
-              {files.map(file => (
-                <FileChange
-                  key={file.path}
-                  file={file}
-                  diff={diffs.get(file.path)}
-                  mode={mode}
-                  initiallyOpen={!collapseFilesInitially}
-                  onRequestDiff={requestDiff}
-                />
+          ) : groups.length ? (
+            <div className="space-y-5">
+              {groups.map(group => (
+                <div key={group.name}>
+                  {groupMode !== 'flat' && (
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--muted)]">
+                      {group.name} <span className="font-normal normal-case tracking-normal">· {group.paths.length}</span>
+                    </p>
+                  )}
+                  <div className="space-y-3">
+                    {group.paths.map(path => {
+                      const file = filesByPath.get(path);
+                      if (!file) return null;
+                      return (
+                        <FileChange
+                          key={path}
+                          file={file}
+                          diff={diffs.get(path)}
+                          mode={mode}
+                          initiallyOpen={!collapseFilesInitially}
+                          onRequestDiff={requestDiff}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
-              Provider nie zwrócił listy zmienionych plików.
+              {files.length ? 'Wszystkie pliki są ukryte — wyłącz filtr, aby je zobaczyć.' : 'Provider nie zwrócił listy zmienionych plików.'}
             </div>
           )}
 

@@ -185,9 +185,29 @@ export interface AvailablePullRequest {
   stats: { additions: number; deletions: number; changedFiles: number; commits: number };
 }
 
+export interface PathGlobRule {
+  name?: string;
+  paths: string[];
+  fallback?: boolean;
+}
+
+export interface ChangeViewConfig {
+  groups: PathGlobRule[];
+}
+
+export interface GeneratedFilesConfig {
+  rules: PathGlobRule[];
+  lockfiles?: string[];
+}
+
 export interface PullRequestFilesPayload {
   number: number;
   files: PullRequestFileManifestEntry[];
+  // Per-project config, delivered here rather than bundled at build time
+  // (area changes-grouping-and-filtering — must work for a consumer repo
+  // other than NEvo).
+  changeView: ChangeViewConfig;
+  generatedFiles: GeneratedFilesConfig;
 }
 
 export interface PullRequestFileDiffsPayload {

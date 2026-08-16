@@ -1,5 +1,6 @@
 import { ACTIVE_DIR, ARCHIVE_DIR, loadChange } from '../../../specs/service.mjs';
 import { REPOSITORY_ROOT } from '../data.mjs';
+import { loadChangeViewConfig } from '../change-view-config.mjs';
 import { createGitHubProvider } from './github.mjs';
 
 function publicReference(reference) {
@@ -106,7 +107,18 @@ export function loadSpecificationPullRequestFiles({
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
   try {
-    return { number: Number(number), files: provider.loadFiles(root, lookup.reference) };
+    // The per-project changeView/generatedFiles config is delivered here
+    // (area changes-grouping-and-filtering: "folded into the task-02
+    // files-manifest response" is one of the named implementation options)
+    // rather than a separate route, since it's only ever needed alongside
+    // the file manifest itself.
+    const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: root });
+    return {
+      number: Number(number),
+      files: provider.loadFiles(root, lookup.reference),
+      changeView,
+      generatedFiles,
+    };
   } catch {
     return null;
   }
