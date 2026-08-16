@@ -72,6 +72,7 @@ export function createProgressEmitter({
     stepStarted({ id, label, total } = {}) {
       return emit('operation.step.started', {
         id,
+        stepId: id,
         label,
         ...(total !== undefined ? { total } : {}),
       });
@@ -79,6 +80,7 @@ export function createProgressEmitter({
     stepProgress({ id, current, total, detail } = {}) {
       return emit('operation.step.progress', {
         id,
+        stepId: id,
         ...(current !== undefined ? { current } : {}),
         ...(total !== undefined ? { total } : {}),
         ...(detail !== undefined ? { detail } : {}),
@@ -87,6 +89,7 @@ export function createProgressEmitter({
     stepCompleted({ id, detail } = {}) {
       return emit('operation.step.completed', {
         id,
+        stepId: id,
         ...(detail !== undefined ? { detail } : {}),
       });
     },
@@ -96,6 +99,7 @@ export function createProgressEmitter({
         : (error && typeof error === 'object' ? { message: error.message || String(error), code: error.code } : { message: 'Step failed' });
       return emit('operation.step.failed', {
         id,
+        stepId: id,
         error: errorObj,
         ...(detail !== undefined ? { detail } : {}),
       });

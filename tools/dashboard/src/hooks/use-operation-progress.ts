@@ -42,7 +42,9 @@ export function useOperationProgress(
 
   const applyEvent = useCallback((prev: OperationSnapshot, event: OperationEvent): OperationSnapshot => {
     const updated = { ...prev };
-    updated.lastEventId = event.id ?? updated.lastEventId;
+    if (typeof event.id === 'number') {
+      updated.lastEventId = event.id;
+    }
 
     if (event.type === 'operation.started') {
       updated.status = 'running';
@@ -54,7 +56,11 @@ export function useOperationProgress(
         }));
       }
     } else if (event.type === 'operation.step.started') {
-      const stepId = String(event.id ?? (event as { stepId?: string }).stepId ?? '');
+      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
+        ? (event as { stepId?: string }).stepId!
+        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
+      if (!stepId) return updated;
+
       const stepLabel = event.label as string | undefined;
       const existing = updated.steps.find(s => s.id === stepId);
       if (existing) {
@@ -77,7 +83,11 @@ export function useOperationProgress(
         ];
       }
     } else if (event.type === 'operation.step.completed') {
-      const stepId = String(event.id ?? (event as { stepId?: string }).stepId ?? '');
+      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
+        ? (event as { stepId?: string }).stepId!
+        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
+      if (!stepId) return updated;
+
       const existing = updated.steps.find(s => s.id === stepId);
       if (existing) {
         existing.status = 'completed';
@@ -89,7 +99,11 @@ export function useOperationProgress(
         ];
       }
     } else if (event.type === 'operation.step.failed') {
-      const stepId = String(event.id ?? (event as { stepId?: string }).stepId ?? '');
+      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
+        ? (event as { stepId?: string }).stepId!
+        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
+      if (!stepId) return updated;
+
       const errorObj = typeof event.error === 'string' ? { message: event.error } : (event.error as { message: string; code?: string } | undefined);
       const existing = updated.steps.find(s => s.id === stepId);
       if (existing) {

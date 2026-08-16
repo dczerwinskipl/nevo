@@ -892,8 +892,9 @@ export function handleBatchStatus(changeSlug) {
 // the whole-batch diff since startRevision, cross-task integration, and open
 // blocking follow-up entries only. Evidence freshness (D19) is a distinct
 // step run immediately before, never folded silently into the review.
-export function handleBatchReview(changeSlug) {
-  const change = requireChange(changeSlug);
+export function handleBatchReview(changeSlug, options = {}) {
+  const gitRoot = options.gitRoot || ROOT;
+  const change = requireChange(changeSlug, options.activeDir);
   const intent = loadBatchIntent(change);
   if (!intent) throw new CliError(`Change '${changeSlug}' has no active batch.`);
 
@@ -934,7 +935,7 @@ export function handleBatchReview(changeSlug) {
   const currentFingerprints = {};
   for (const id of intent.orderedTasks) currentFingerprints[id] = computeTaskFingerprint(change, id);
 
-  const changedFiles = git.getChangedFiles(ROOT, intent.startRevision);
+  const changedFiles = git.getChangedFiles(gitRoot, intent.startRevision);
   const taskDeclaredPaths = {};
   for (const id of intent.orderedTasks) {
     const t = requireTask(change, id);
@@ -959,7 +960,12 @@ export function handleBatchReview(changeSlug) {
 
   for (const id of orderedTasks) {
     emitter.stepStarted({ id: `review-task-${id}`, label: `Review task: ${id}` });
-    emitter.stepCompleted({ id: `review-task-${id}` });
+    const taskFindings = integrationFindings.filter(f => f.taskIds?.includes(id));
+    if (taskFindings.length > 0) {
+      emitter.stepCompleted({ id: `review-task-${id}`, detail: `${taskFindings.length} integration finding(s)` });
+    } else {
+      emitter.stepCompleted({ id: `review-task-${id}`, detail: 'Passed integration checks' });
+    }
   }
 
   emitter.stepStarted({ id: 'generate-batch-report', label: 'Generate batch report' });

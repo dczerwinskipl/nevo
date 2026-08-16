@@ -99,4 +99,35 @@ test('Dashboard Operations UI Integration and Contract (Task 07)', async (t) => 
     assert.equal(reconnectedEvents[0].type, 'operation.step.started');
     assert.equal(reconnectedEvents[1].type, 'operation.step.completed');
   });
+
+  await t.test('SSE event.id is numeric transport cursor while stepId identifies the business step', () => {
+    const runtime = createOperationRuntime();
+    const opId = runtime.createOperation({ type: 'approve' });
+
+    runtime.recordEvent(opId, {
+      type: 'operation.started',
+      steps: [
+        { id: 'validate-approval', label: 'Validate approval' },
+        { id: 'approve-task', label: 'Approve task' },
+      ],
+    });
+
+    const emitted = runtime.recordEvent(opId, {
+      type: 'operation.step.started',
+      stepId: 'approve-task',
+      label: 'Approve task',
+    });
+
+    // Transport event.id is numeric
+    assert.equal(typeof emitted.id, 'number');
+    // Step identifier is intact
+    assert.equal(emitted.stepId, 'approve-task');
+
+    const snap = runtime.getSnapshot(opId);
+    const approveStep = snap.steps.find(s => s.id === 'approve-task');
+    assert.ok(approveStep);
+    assert.equal(approveStep.status, 'running');
+    // No spurious step with id matching the numeric transport ID was created
+    assert.equal(snap.steps.find(s => s.id === String(emitted.id)), undefined);
+  });
 });

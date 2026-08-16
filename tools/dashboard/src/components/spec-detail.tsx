@@ -39,8 +39,14 @@ import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/compo
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
-import { useSpecificationActions, useSpecificationDocument, useSpecificationManifest } from '@/hooks/use-dashboard-data';
-import { useAiSessions } from '@/hooks/use-dashboard-data';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useSpecificationActions,
+  useSpecificationDocument,
+  useSpecificationManifest,
+  useAiSessions,
+  invalidateDashboardQueries,
+} from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
 
 type DetailTab = 'overview' | 'specification' | 'areas' | 'changes';
@@ -492,10 +498,23 @@ function AreasPanel({
 }
 
 export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
-  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
-  const [operationTitle, setOperationTitle] = useState<string>('');
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
+    try {
+      return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [operationTitle, setOperationTitle] = useState<string>(() => {
+    try {
+      return (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op-title:${change.slug}`) : '') || 'Przebieg operacji';
+    } catch {
+      return 'Przebieg operacji';
+    }
+  });
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
   const manifestEnabled = activeTab === 'specification' || activeTab === 'areas';
@@ -509,11 +528,34 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
   const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
 
+  const updateActiveOperation = useCallback((opId: string | null, title?: string) => {
+    setActiveOperationId(opId);
+    if (title) setOperationTitle(title);
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        if (opId) {
+          sessionStorage.setItem(`nevo:active-op:${change.slug}`, opId);
+          if (title) sessionStorage.setItem(`nevo:active-op-title:${change.slug}`, title);
+        } else {
+          sessionStorage.removeItem(`nevo:active-op:${change.slug}`);
+          sessionStorage.removeItem(`nevo:active-op-title:${change.slug}`);
+        }
+      }
+    } catch {}
+  }, [change.slug]);
+
   useEffect(() => {
     setActiveTab('overview');
     setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
-    setActiveOperationId(null);
+    try {
+      const savedOp = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
+      const savedTitle = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op-title:${change.slug}`) : '';
+      setActiveOperationId(savedOp);
+      setOperationTitle(savedTitle || 'Przebieg operacji');
+    } catch {
+      setActiveOperationId(null);
+    }
   }, [change.slug, initialTaskId]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
@@ -527,6 +569,10 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     requestAnimationFrame(() => taskTriggerRef.current?.focus());
   }, []);
 
+  const handleOperationTerminal = useCallback(async () => {
+    await invalidateDashboardQueries(queryClient);
+  }, [queryClient]);
+
   const executeTaskAction = useCallback(async () => {
     if (!selectedTaskAction || !selectedTask) return;
     try {
@@ -535,26 +581,27 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
       const res = await actionsQuery.execute({ action: actionName, taskId });
       closeTask();
       if (res?.operationId) {
-        setActiveOperationId(res.operationId);
-        setOperationTitle(actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`);
+        updateActiveOperation(
+          res.operationId,
+          actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
+        );
       }
     } catch {
       // The mutation exposes its sanitized error in the dialog footer.
     }
-  }, [actionsQuery, closeTask, selectedTask, selectedTaskAction]);
+  }, [actionsQuery, closeTask, selectedTask, selectedTaskAction, updateActiveOperation]);
 
   const executeFinalize = useCallback(async () => {
     try {
       const res = await actionsQuery.execute({ action: 'finalize', confirmed: true });
       setFinalizeOpen(false);
       if (res?.operationId) {
-        setActiveOperationId(res.operationId);
-        setOperationTitle('Finalizacja specyfikacji');
+        updateActiveOperation(res.operationId, 'Finalizacja specyfikacji');
       }
     } catch {
       // The mutation exposes its sanitized error in the confirmation dialog.
     }
-  }, [actionsQuery]);
+  }, [actionsQuery, updateActiveOperation]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex = currentIndex;
@@ -706,7 +753,8 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         operationId={activeOperationId}
         open={Boolean(activeOperationId)}
         title={operationTitle}
-        onClose={() => setActiveOperationId(null)}
+        onClose={() => updateActiveOperation(null)}
+        onTerminal={handleOperationTerminal}
       />
     </div>
   );
