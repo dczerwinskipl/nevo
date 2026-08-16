@@ -55,3 +55,11 @@ and the dashboard frontend (Task 07).
 - Safe staging: only stage files modified by this approval (`specs/active/<slug>/*`, `specs/active.generated.md`, `specs/archive.generated.md`, `specs/index.generated.json`). If unrelated dirty files exist outside these paths, fail safely with an explicit error instead of performing an indiscriminate commit.
 - Postcondition-based idempotency and retry: if an earlier attempt succeeded in status change and metadata rebuild but failed during push, retrying `approve` inspects postconditions and performs the missing push without creating duplicate commits.
 - Full idempotent no-op: when all postconditions are already satisfied (task is approved, metadata current, branch clean and pushed), the operation completes successfully with idempotent status.
+
+## Verification
+
+```text
+node --test tools/tests/approve-git-sync.test.mjs
+node --test tools/tests/*.test.mjs
+node tools/specs.mjs check
+```
