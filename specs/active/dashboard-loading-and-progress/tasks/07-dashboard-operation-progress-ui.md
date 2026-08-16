@@ -31,22 +31,16 @@ semantic_references:
 Render the `Operation`/`Steps` contract (snapshot + resumable SSE, task 04) consistently
 wherever the dashboard triggers a gate/verify/acceptance action, replacing the current
 boolean `executing` spinner with real step-by-step progress. The component's rendering
-logic is generic across every operation kind's payload shape (tasks 05/06), but real,
-not-mocked end-to-end verification is only possible against operation kinds actually
-reachable as a dashboard action — the task-level gate re-check, task acceptance, and
-`finalize` (task 05) — since those are the only ones a `POST` in `actions.mjs` can
-trigger; CLI-only kinds (`self-check` run standalone, batch-review, task 06) have no
-dashboard trigger and are proven kind-agnostic via a fixture/mock payload instead (D9,
-D10 in `owner-decisions.md`).
+logic is generic across every operation kind's payload shape (tasks 05/06/08). Real,
+not-mocked end-to-end verification is performed against reachable dashboard actions:
+task approval (`approve` expanded in task 08 into a 5-step operation), task verification (`verify`),
+and `finalize` (task 05). CLI-only kinds (standalone self-check, batch-review) are verified
+via fixture/mock payloads (D9, D10).
 
 ## Dependencies
 
-Depends on task 04 (transport/contract) and task 05 (at least one real, dashboard-
-triggered operation kind — `finalize` — to verify end-to-end against). Deliberately does
-**not** depend on task 06 — this task can run in parallel with it, since AC4's second
-operation kind is a fixture/mock, not a real task-06 wiring (task 06's kinds have no
-dashboard trigger to run for real regardless — see Goal); the component's genericness
-must not require task 06 to exist in order to be provable.
+Depends on task 04 (transport/contract), task 05 (generic gates and progress transport), and
+task 08 (`approve` multi-step operation as a safe, repeatable real-world operation for UI observation).
 
 ## Implementation constraints
 

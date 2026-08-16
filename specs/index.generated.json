@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T14:03:51.247Z",
+  "generated": "2026-08-16T14:22:30.500Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -587,13 +587,24 @@
           ]
         },
         {
-          "id": "dashboard-operation-progress-ui",
+          "id": "approve-post-action-sync-and-git",
           "order": 7,
-          "file": "tasks/07-dashboard-operation-progress-ui.md",
+          "file": "tasks/08-approve-post-action-sync-and-git.md",
           "status": "draft",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
+          ]
+        },
+        {
+          "id": "dashboard-operation-progress-ui",
+          "order": 8,
+          "file": "tasks/07-dashboard-operation-progress-ui.md",
+          "status": "draft",
+          "depends_on": [
+            "operation-progress-contract-and-transport",
+            "cli-step-instrumentation-gate-and-verification",
+            "approve-post-action-sync-and-git"
           ]
         }
       ]

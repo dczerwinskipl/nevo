@@ -2,6 +2,7 @@ import {
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
   TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
   depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
+  validateApproval,
 } from './lifecycle-primitives.mjs';
 
 import {
@@ -12,110 +13,9 @@ export {
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
   TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
   depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
+  validateApproval,
   evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
 };
-
-/**
- * Pure approval-gate check: given a task's current status, its change's review
- * front matter (or null if no review file exists), and the freshly-computed
- * current spec fingerprint, decide whether `approve` may proceed. Does not
- * touch the filesystem — see handleApprove in tools/specs.mjs for the I/O
- * around this.
- *
- * `mechanicalExempt` (D14, task 07 — "review-exempt deterministic approval"):
- * when true, skips only the review/verdict/fingerprint checks below — the
- * `draft`→`approved` transition check above still applies unchanged, and the
- * caller still performs the same explicit `approve` write either way. The
- * caller (`tools/specs/validation.mjs`'s `computeMechanicalExemption`)
- * already re-verified all six D14 conditions before setting this, since
- * `validateApproval` itself stays filesystem-free.
- *
- * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
- */
-export function validateApproval(
-  taskStatus, review, currentFingerprint,
-  { mechanicalExempt = false, taskId = null, currentTaskFingerprint = null } = {}
-) {
-  const transition = validateTransition('approve', taskStatus);
-  if (!transition.ok) return transition;
-  if (transition.idempotent) return transition;
-
-  if (mechanicalExempt) return { ok: true, idempotent: false };
-
-  if (!review) {
-    return {
-      ok: false,
-      reason: 'No review found. A specification review must exist before a task can be approved.',
-    };
-  }
-  if (review.verdict !== 'ready-for-approval') {
-    return { ok: false, reason: `Review verdict is '${review.verdict}', not 'ready-for-approval'. Cannot approve.` };
-  }
-
-  const unresolvedFixes = Number(review.unresolved_required_fixes ?? 0);
-  const unresolvedDecisions = Number(review.unresolved_owner_decisions ?? 0);
-  const unresolvedClarifications = Number(review.unresolved_needs_clarification ?? 0);
-  if (unresolvedFixes > 0 || unresolvedDecisions > 0 || unresolvedClarifications > 0) {
-    return {
-      ok: false,
-      reason: `Review has unresolved items (required fixes: ${unresolvedFixes}, ` +
-        `owner decisions: ${unresolvedDecisions}, needs clarification: ${unresolvedClarifications}). ` +
-        `Cannot approve.`,
-    };
-  }
-
-  if (!review.spec_fingerprint) {
-    return {
-      ok: false,
-      code: 'missing-fingerprint',
-      reason: `Review is missing 'spec_fingerprint' front matter — it predates this check. ` +
-        `Re-run the review before approving.`,
-    };
-  }
-  if (review.spec_fingerprint !== currentFingerprint) {
-    return {
-      ok: false,
-      // Recovery classification (REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE) —
-      // handleApprove checks this code, not the message text, to decide whether
-      // to raise a classified RecoveryError.
-      code: 'stale-fingerprint',
-      reason: `Review is stale: its spec_fingerprint (${review.spec_fingerprint}) does not match ` +
-        `the current specification state (${currentFingerprint}). Re-run the review before approving.`,
-    };
-  }
-
-  // Task-level fingerprint (PR re-review packet 01): change_fingerprint
-  // deliberately excludes each task's own body/acceptance-criteria/context
-  // (D7 — otherwise any task edit would invalidate every other task's
-  // approval readiness). But a spec review's own "Semantic-reference
-  // completeness" step reads exactly that per-task content, so the reviewed
-  // task's own body changing after review must invalidate *this* task's
-  // approval even though it never touches change_fingerprint. Only checked
-  // when the caller passes `taskId` (handleApprove always does) — a review
-  // predating this check, or one that reviewed a different task set, is
-  // reported by name rather than silently skipped.
-  if (taskId) {
-    const recorded = review.task_fingerprints?.[taskId];
-    if (!recorded) {
-      return {
-        ok: false,
-        code: 'missing-task-fingerprint',
-        reason: `Review is missing a task_fingerprints entry for '${taskId}' — it predates this check, or reviewed ` +
-          `a different task set. Re-run the review before approving.`,
-      };
-    }
-    if (recorded !== currentTaskFingerprint) {
-      return {
-        ok: false,
-        code: 'stale-task-fingerprint',
-        reason: `Review is stale for task '${taskId}': its recorded task_fingerprints entry (${recorded}) does not ` +
-          `match the task's current content (${currentTaskFingerprint}). Re-run the review before approving.`,
-      };
-    }
-  }
-
-  return { ok: true, idempotent: false };
-}
 
 // ── Postcondition-based recovery (D8, D17, area recovery-and-resume) ───────
 //

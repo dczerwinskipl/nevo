@@ -104,8 +104,31 @@ test('SSOT Finalize Gate — fast mode on dashboard vs full mode on execution', 
   await t.test('fast mode on valid local state returns needs-full-check', () => {
     const res = evaluateGate('finalize', validFacts, { mode: 'fast' });
     assert.equal(res.status, 'needs-full-check');
-    assert.equal(res.validations.filter(v => v.status === 'passed').length, 6); // cheap checks
-    assert.equal(res.validations.filter(v => v.status === 'skipped').length, 5); // expensive checks (PR, checks)
+    assert.equal(res.validations.filter(v => v.status === 'passed').length, 5); // cheap checks
+    assert.equal(res.validations.filter(v => v.status === 'skipped').length, 6); // expensive checks (gh-available, PR, checks)
+  });
+
+  await t.test('fast mode with missing upstream facts returns needs-full-check and never fabricates passed status', () => {
+    // Context with only cheap facts (no ghAvailable, no pr, no verification)
+    const partialContext = {
+      change: validFacts.change,
+      worktree: { clean: true },
+      branch: { hasUpstream: true, ahead: 0, behind: 0 },
+      openBlockingFollowUps: [],
+    };
+    const res = evaluateGate('finalize', partialContext, { mode: 'fast' });
+    assert.equal(res.status, 'needs-full-check');
+    const skipped = res.validations.filter(v => v.status === 'skipped');
+    assert.equal(skipped.length, 6);
+    assert.ok(skipped.some(v => v.id === 'gh-available'));
+    assert.ok(skipped.some(v => v.id === 'pr-exists'));
+  });
+
+  await t.test('full mode with missing ghAvailable fact fails safely without guessing true', () => {
+    const missingGhFacts = { ...validFacts, ghAvailable: undefined, facts: {} };
+    const res = evaluateGate('finalize', missingGhFacts, { mode: 'full' });
+    assert.equal(res.status, 'blocked');
+    assert.ok(res.reason.includes('gh CLI availability was not checked'));
   });
 
   await t.test('fast mode on dirty working tree returns blocked immediately', () => {

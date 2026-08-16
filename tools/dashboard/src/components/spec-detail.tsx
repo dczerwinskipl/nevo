@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { MarkdownContent } from '@/components/markdown-content';
 import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
+import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
 import { useSpecificationActions, useSpecificationDocument, useSpecificationManifest } from '@/hooks/use-dashboard-data';
@@ -493,6 +494,8 @@ function AreasPanel({
 export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const [operationTitle, setOperationTitle] = useState<string>('');
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
   const manifestEnabled = activeTab === 'specification' || activeTab === 'areas';
@@ -510,6 +513,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     setActiveTab('overview');
     setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
+    setActiveOperationId(null);
   }, [change.slug, initialTaskId]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
@@ -526,8 +530,14 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const executeTaskAction = useCallback(async () => {
     if (!selectedTaskAction || !selectedTask) return;
     try {
-      await actionsQuery.execute({ action: selectedTaskAction.action, taskId: selectedTask.id });
+      const taskId = selectedTask.id;
+      const actionName = selectedTaskAction.action;
+      const res = await actionsQuery.execute({ action: actionName, taskId });
       closeTask();
+      if (res?.operationId) {
+        setActiveOperationId(res.operationId);
+        setOperationTitle(actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`);
+      }
     } catch {
       // The mutation exposes its sanitized error in the dialog footer.
     }
@@ -535,8 +545,12 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
   const executeFinalize = useCallback(async () => {
     try {
-      await actionsQuery.execute({ action: 'finalize', confirmed: true });
+      const res = await actionsQuery.execute({ action: 'finalize', confirmed: true });
       setFinalizeOpen(false);
+      if (res?.operationId) {
+        setActiveOperationId(res.operationId);
+        setOperationTitle('Finalizacja specyfikacji');
+      }
     } catch {
       // The mutation exposes its sanitized error in the confirmation dialog.
     }
@@ -686,6 +700,13 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         error={actionsQuery.executionError}
         onClose={() => { if (!actionsQuery.executing) setFinalizeOpen(false); }}
         onConfirm={() => void executeFinalize()}
+      />
+
+      <OperationModal
+        operationId={activeOperationId}
+        open={Boolean(activeOperationId)}
+        title={operationTitle}
+        onClose={() => setActiveOperationId(null)}
       />
     </div>
   );

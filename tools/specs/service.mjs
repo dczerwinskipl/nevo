@@ -818,15 +818,19 @@ export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE
   return { activeMd, archiveMd, changes, activeCount: active.length, archiveCount: archive.length };
 }
 
-/**
- * Persist already-built index content. No decisions made here — just writes.
- * `activeIndexMd`/`archiveIndexMd`/`indexJson` default to the real
- * repository's own generated-file paths (D34/D35, task 20).
- */
 export function writeSpecsIndexes(built, { activeIndexMd = ACTIVE_INDEX_MD, archiveIndexMd = ARCHIVE_INDEX_MD, indexJson = INDEX_JSON } = {}) {
   writeUtf8(activeIndexMd, built.activeMd);
   writeUtf8(archiveIndexMd, built.archiveMd);
-  writeUtf8(indexJson, JSON.stringify({ generated: new Date().toISOString(), changes: built.changes }, null, 2));
+  let timestamp = new Date().toISOString();
+  if (existsSync(indexJson)) {
+    try {
+      const existing = JSON.parse(readUtf8(indexJson));
+      if (JSON.stringify(existing.changes) === JSON.stringify(built.changes)) {
+        timestamp = existing.generated || timestamp;
+      }
+    } catch {}
+  }
+  writeUtf8(indexJson, JSON.stringify({ generated: timestamp, changes: built.changes }, null, 2));
 }
 
 /**

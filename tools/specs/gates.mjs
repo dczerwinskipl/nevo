@@ -1,4 +1,4 @@
-import { TERMINAL_STATUSES, completionHardStop, validateTransition } from './lifecycle-primitives.mjs';
+import { TERMINAL_STATUSES, completionHardStop, validateTransition, validateApproval } from './lifecycle-primitives.mjs';
 
 /**
  * Registry of validator building blocks.
@@ -56,6 +56,9 @@ registerValidator('working-tree-clean', {
     const isClean = context.gitClean !== undefined
       ? context.gitClean
       : (context.worktree?.clean !== undefined ? context.worktree.clean : context.facts?.gitClean);
+    if (isClean === undefined) {
+      return { ok: false, reason: 'Working tree status is unknown.' };
+    }
     if (!isClean) {
       return { ok: false, reason: 'Working tree has uncommitted changes. Commit or discard them first.' };
     }
@@ -89,11 +92,14 @@ registerValidator('branch-pushed', {
 });
 
 registerValidator('gh-available', {
-  cost: 'cheap',
+  cost: 'expensive',
   validate(context) {
     const ghAvailable = context.ghAvailable !== undefined
       ? context.ghAvailable
-      : (context.facts?.ghAvailable !== undefined ? context.facts.ghAvailable : true);
+      : context.facts?.ghAvailable;
+    if (ghAvailable === undefined) {
+      return { ok: false, reason: 'gh CLI availability was not checked.' };
+    }
     if (ghAvailable === false) {
       return { ok: false, reason: 'gh CLI is not available — cannot verify PR/review-thread state. Install/authenticate gh and retry.' };
     }
@@ -131,8 +137,9 @@ registerValidator('pr-not-draft', {
   cost: 'expensive',
   validate(context) {
     const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
-    if (pr && pr.state !== 'MERGED' && pr.isDraft) {
-      return { ok: false, reason: `PR #${pr.number} is still a draft.` };
+    if (!pr) return { ok: false, reason: 'No pull request found.' };
+    if (pr.isDraft) {
+      return { ok: false, reason: `PR #${pr.number} is still a draft. Mark it ready for review before finalizing.` };
     }
     return { ok: true };
   },
@@ -142,10 +149,11 @@ registerValidator('pr-threads-resolved', {
   cost: 'expensive',
   validate(context) {
     const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
-    if (pr && pr.state !== 'MERGED' && pr.unresolvedThreads > 0) {
+    if (!pr) return { ok: false, reason: 'No pull request found.' };
+    if (pr.unresolvedThreads > 0) {
       return {
         ok: false,
-        reason: `PR #${pr.number} has ${pr.unresolvedThreads} unresolved review thread(s). Resolve every comment (including bot reviewers) before finalizing.`,
+        reason: `PR #${pr.number} has ${pr.unresolvedThreads} unresolved review thread(s). Resolve all threads before finalizing.`,
       };
     }
     return { ok: true };
@@ -160,14 +168,14 @@ registerValidator('verification-checks-passed', {
     if (failedChecks.length) {
       return {
         ok: false,
-        reason: `Verification failed: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
+        reason: `Verification check '${failedChecks[0].name}' failed: ${failedChecks[0].detail || 'see details above'}. Every check must pass before finalizing.`,
       };
     }
     return { ok: true };
   },
 });
 
-// ── Register task verification / completion validators ──────────────────────
+// ── Register Task gate validators ──────────────────────────────────────────
 
 registerValidator('task-in-implementation', {
   cost: 'cheap',
@@ -185,13 +193,11 @@ registerValidator('task-self-check-not-failing', {
   validate(context) {
     const task = context.task;
     if (!task) return { ok: false, reason: 'Task context is required.' };
-    const inActiveBatch = Boolean(context.inActiveBatch);
-    const stop = completionHardStop(task, { inActiveBatch });
-    if (stop) {
+    const hardStop = completionHardStop(task, { inActiveBatch: Boolean(context.inActiveBatch) });
+    if (hardStop) {
       return {
         ok: false,
-        code: stop.code,
-        reason: `Task '${task.id}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — correct the implementation and rerun self-check before marking it complete.`,
+        reason: `Task '${task.id}' has a hard-stopped self-check (${hardStop.code}: ${hardStop.detail}). Cannot complete.`,
       };
     }
     return { ok: true };
@@ -206,6 +212,19 @@ registerValidator('task-in-implemented', {
     const transition = validateTransition('verify', task.status);
     if (!transition.ok) return transition;
     return { ok: true, idempotent: transition.idempotent };
+  },
+});
+
+registerValidator('task-approval-valid', {
+  cost: 'cheap',
+  validate(context) {
+    const { task, review, currentFingerprint, mechanicalExempt, taskId, currentTaskFingerprint } = context;
+    if (!task) return { ok: false, reason: 'Task context is required.' };
+    return validateApproval(task.status, review, currentFingerprint, {
+      mechanicalExempt,
+      taskId: taskId || task.id,
+      currentTaskFingerprint,
+    });
   },
 });
 
@@ -238,6 +257,11 @@ export const gateDefinitions = {
       'task-in-implemented',
     ],
   },
+  'task.approve': {
+    validators: [
+      'task-approval-valid',
+    ],
+  },
 };
 
 // ── Declarative Action Definitions ─────────────────────────────────────────
@@ -250,10 +274,21 @@ export const actionDefinitions = {
       { id: 'check-specs-indexes', label: 'Check spec indexes' },
       { id: 'validate-docs', label: 'Validate docs' },
       { id: 'check-docs-indexes', label: 'Check docs indexes' },
-      { id: 'check-pr-review', label: 'Check PR and review state' },
+      { id: 'load-pr-review', label: 'Load PR and review state' },
+      { id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' },
       { id: 'archive-change', label: 'Archive specification' },
       { id: 'push-and-merge', label: 'Push and merge' },
       { id: 'post-merge-check', label: 'Post-merge check' },
+    ],
+  },
+  approve: {
+    gate: 'task.approve',
+    steps: [
+      { id: 'validate-approval', label: 'Validate approval' },
+      { id: 'approve-task', label: 'Approve task' },
+      { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+      { id: 'commit-approval', label: 'Commit approval' },
+      { id: 'push-approval', label: 'Push approval' },
     ],
   },
   verify: {

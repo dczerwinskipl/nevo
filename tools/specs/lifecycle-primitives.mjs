@@ -67,3 +67,76 @@ export function completionHardStop(task, { inActiveBatch = false } = {}) {
   if (!stop) return null;
   return (task.self_check || inActiveBatch) ? stop : null;
 }
+
+export function validateApproval(
+  taskStatus, review, currentFingerprint,
+  { mechanicalExempt = false, taskId = null, currentTaskFingerprint = null } = {}
+) {
+  const transition = validateTransition('approve', taskStatus);
+  if (!transition.ok) return transition;
+  if (transition.idempotent) return transition;
+
+  if (mechanicalExempt) return { ok: true, idempotent: false };
+
+  if (!review) {
+    return {
+      ok: false,
+      reason: 'No review found. A specification review must exist before a task can be approved.',
+    };
+  }
+  if (review.verdict !== 'ready-for-approval') {
+    return { ok: false, reason: `Review verdict is '${review.verdict}', not 'ready-for-approval'. Cannot approve.` };
+  }
+
+  const unresolvedFixes = Number(review.unresolved_required_fixes ?? 0);
+  const unresolvedDecisions = Number(review.unresolved_owner_decisions ?? 0);
+  const unresolvedClarifications = Number(review.unresolved_needs_clarification ?? 0);
+  if (unresolvedFixes > 0 || unresolvedDecisions > 0 || unresolvedClarifications > 0) {
+    return {
+      ok: false,
+      reason: `Review has unresolved items (required fixes: ${unresolvedFixes}, ` +
+        `owner decisions: ${unresolvedDecisions}, needs clarification: ${unresolvedClarifications}). ` +
+        `Cannot approve.`,
+    };
+  }
+
+  if (!review.spec_fingerprint) {
+    return {
+      ok: false,
+      code: 'missing-fingerprint',
+      reason: `Review is missing 'spec_fingerprint' front matter — it predates this check. ` +
+        `Re-run the review before approving.`,
+    };
+  }
+  if (review.spec_fingerprint !== currentFingerprint) {
+    return {
+      ok: false,
+      code: 'stale-fingerprint',
+      reason: `Review is stale: its spec_fingerprint (${review.spec_fingerprint}) does not match ` +
+        `the current specification state (${currentFingerprint}). Re-run the review before approving.`,
+    };
+  }
+
+  if (taskId) {
+    const recorded = review.task_fingerprints?.[taskId];
+    if (!recorded) {
+      return {
+        ok: false,
+        code: 'missing-task-fingerprint',
+        reason: `Review is missing a task_fingerprints entry for '${taskId}' — it predates this check, or reviewed ` +
+          `a different task set. Re-run the review before approving.`,
+      };
+    }
+    if (recorded !== currentTaskFingerprint) {
+      return {
+        ok: false,
+        code: 'stale-task-fingerprint',
+        reason: `Review is stale for task '${taskId}': its recorded task_fingerprints entry (${recorded}) does not ` +
+          `match the task's current content (${currentTaskFingerprint}). Re-run the review before approving.`,
+      };
+    }
+  }
+
+  return { ok: true, idempotent: false };
+}
+

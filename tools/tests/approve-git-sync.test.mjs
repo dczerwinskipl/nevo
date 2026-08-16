@@ -1,0 +1,258 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+import { handleApprove } from '../specs.mjs';
+import {
+  computeChangeFingerprint,
+  computeTaskFingerprint,
+  buildSpecsIndexes,
+  writeSpecsIndexes,
+} from '../specs/service.mjs';
+import * as git from '../lib/git.mjs';
+
+function setupTempGitRepo() {
+  const base = mkdtempSync(join(tmpdir(), 'nevo-approve-test-'));
+  const originDir = join(base, 'origin.git');
+  const cloneDir = join(base, 'repo');
+
+  // Create bare origin
+  mkdirSync(originDir, { recursive: true });
+  execFileSync('git', ['init', '--bare'], { cwd: originDir });
+
+  // Clone repo
+  execFileSync('git', ['clone', originDir, cloneDir]);
+  execFileSync('git', ['config', 'user.name', 'NEvo Test'], { cwd: cloneDir });
+  execFileSync('git', ['config', 'user.email', 'test@nevo.local'], { cwd: cloneDir });
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: cloneDir });
+
+  // Initial main commit
+  writeFileSync(join(cloneDir, 'README.md'), '# NEvo Test Repo\n');
+  execFileSync('git', ['add', '.'], { cwd: cloneDir });
+  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: cloneDir });
+  execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: cloneDir });
+
+  // Create feature branch
+  execFileSync('git', ['checkout', '-b', 'feature/test-change'], { cwd: cloneDir });
+  execFileSync('git', ['push', '-u', 'origin', 'feature/test-change'], { cwd: cloneDir });
+
+  // Setup specs structure
+  const activeDir = join(cloneDir, 'specs', 'active');
+  const changeDir = join(activeDir, 'test-change');
+  const tasksDir = join(changeDir, 'tasks');
+  const reviewsDir = join(changeDir, 'reviews');
+  mkdirSync(tasksDir, { recursive: true });
+  mkdirSync(reviewsDir, { recursive: true });
+
+  const changeYaml = `id: test-change
+title: Test Change
+type: standard
+status: draft
+tasks:
+  - id: task-1
+    order: 1
+    file: tasks/01-task-1.md
+    status: draft
+`;
+  writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+
+  const task1Md = `---
+id: test-change.task-1
+status: draft
+change: test-change
+allowed_paths:
+  - tools/**
+---
+
+# Task 1
+`;
+  writeFileSync(join(tasksDir, '01-task-1.md'), task1Md);
+
+  // Compute fingerprints and create valid review
+  const changeObj = {
+    _slug: 'test-change',
+    _dir: changeDir,
+    id: 'test-change',
+    title: 'Test Change',
+    type: 'standard',
+    status: 'draft',
+    tasks: [
+      { id: 'task-1', order: 1, file: 'tasks/01-task-1.md', status: 'draft' },
+    ],
+  };
+
+  const specFp = computeChangeFingerprint(changeObj);
+  const taskFp = computeTaskFingerprint(changeObj, 'task-1');
+
+  const reviewContent = `---
+review-of: specification
+change: test-change
+generated: ${new Date().toISOString()}
+verdict: ready-for-approval
+spec_fingerprint: ${specFp}
+task_fingerprints:
+  task-1: ${taskFp}
+unresolved_required_fixes: 0
+unresolved_owner_decisions: 0
+unresolved_needs_clarification: 0
+---
+
+# Spec Review
+`;
+  writeFileSync(join(reviewsDir, 'spec.md'), reviewContent);
+
+  // Commit initial spec structure
+  execFileSync('git', ['add', '.'], { cwd: cloneDir });
+  execFileSync('git', ['commit', '-m', 'chore: add spec test-change'], { cwd: cloneDir });
+  execFileSync('git', ['push'], { cwd: cloneDir });
+
+  return {
+    base,
+    originDir,
+    cloneDir,
+    activeDir,
+    cleanup() {
+      rmSync(base, { recursive: true, force: true });
+    },
+  };
+}
+
+test('Approve post-action sync and Git integration', async (t) => {
+  await t.test('approve --no-git approves task and rebuilds metadata without git commit/push', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: false,
+      });
+
+      // Verify task status in change.yaml
+      const changeContent = readFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml'), 'utf8');
+      assert.ok(changeContent.includes('status: approved'));
+
+      // Verify metadata generated
+      const activeGen = join(fixture.cloneDir, 'specs', 'active.generated.md');
+      assert.ok(existsSync(activeGen));
+      const indexJson = join(fixture.cloneDir, 'specs', 'index.generated.json');
+      assert.ok(existsSync(indexJson));
+
+      // Working tree should have uncommitted changes (since git was disabled)
+      const dirty = git.getDirtyPaths(fixture.cloneDir);
+      assert.ok(dirty.length > 0);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('approve with Git (default) approves, rebuilds, commits, and pushes to remote', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      // Working tree should be completely clean
+      assert.ok(git.isWorkingTreeClean(fixture.cloneDir));
+
+      // Branch should be fully pushed to origin (ahead: 0)
+      const branch = git.getCurrentBranch(fixture.cloneDir);
+      const ab = git.getAheadBehind(fixture.cloneDir, branch);
+      assert.equal(ab.ahead, 0);
+
+      // Latest commit message should match convention
+      const lastCommit = execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim();
+      assert.equal(lastCommit, 'chore(specs): approve task-1');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('approve refuses to commit and fails safely when unrelated dirty files exist', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // Create unrelated dirty file outside allowed specs paths
+      writeFileSync(join(fixture.cloneDir, 'unrelated.txt'), 'unrelated work');
+
+      assert.throws(
+        () => {
+          handleApprove('test-change', 'task-1', {
+            gitRoot: fixture.cloneDir,
+            activeDir: fixture.activeDir,
+            git: true,
+          });
+        },
+        err => err.message.includes('unrelated dirty files'),
+      );
+
+      // Unrelated file is still present and not committed
+      assert.ok(existsSync(join(fixture.cloneDir, 'unrelated.txt')));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('retry after push failure succeeds without creating duplicate commits', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // First run with git disabled to simulate partial execution (approval & metadata done, but not pushed)
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: false,
+      });
+
+      // Create the commit manually as if push had failed after commit
+      execFileSync('git', ['add', '.'], { cwd: fixture.cloneDir });
+      execFileSync('git', ['commit', '-m', 'chore(specs): approve task-1'], { cwd: fixture.cloneDir });
+
+      const commitShaBefore = git.getCurrentRevision(fixture.cloneDir);
+
+      // Now retry approve with git enabled
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      const commitShaAfter = git.getCurrentRevision(fixture.cloneDir);
+      // No duplicate commit was created!
+      assert.equal(commitShaBefore, commitShaAfter);
+
+      // Branch was successfully pushed
+      const branch = git.getCurrentBranch(fixture.cloneDir);
+      const ab = git.getAheadBehind(fixture.cloneDir, branch);
+      assert.equal(ab.ahead, 0);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('full idempotent approve when all postconditions are already met', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // First run
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      // Second run (fully idempotent)
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      assert.ok(git.isWorkingTreeClean(fixture.cloneDir));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+});

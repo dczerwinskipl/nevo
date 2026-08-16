@@ -138,13 +138,21 @@ tasks:
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
-  - id: dashboard-operation-progress-ui
+  - id: approve-post-action-sync-and-git
     order: 7
+    file: tasks/08-approve-post-action-sync-and-git.md
+    status: draft
+    depends_on:
+      - operation-progress-contract-and-transport
+      - cli-step-instrumentation-gate-and-verification
+  - id: dashboard-operation-progress-ui
+    order: 8
     file: tasks/07-dashboard-operation-progress-ui.md
     status: draft
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
+      - approve-post-action-sync-and-git
 
 spec_id: 8745682a-ea12-405a-b809-6836b062aa90
 pull_requests:

@@ -248,76 +248,139 @@ export function handleFingerprint(changeSlug, options = {}) {
 }
 
 export function handleApprove(changeSlug, taskId, options = {}) {
+  const gitRoot = options.gitRoot || ROOT;
   const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
-  // D14, task 07 — "review-exempt deterministic approval": re-verifies all six
-  // conditions itself (defense in depth alongside `validate`'s own hard error)
-  // rather than trusting a `type: mechanical` declaration at face value.
   const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);
-
   const review = loadReview(change);
-  // D7/D9 migration (task 09): compares against the change-level tier — a
-  // spec review's own scope — instead of the old whole-file hash, which
-  // invalidated on any status write, execution.suspension change, or
-  // unrelated task edit (exactly the cost D7 exists to remove). The
-  // task-level fingerprint (PR re-review packet 01) closes the gap this left:
-  // change_fingerprint excludes task body/AC/context by design, so this
-  // task's own content changing after review must still be caught.
   const currentFingerprint = computeChangeFingerprint(change);
   const currentTaskFingerprint = computeTaskFingerprint(change, taskId);
-  const result = validateApproval(task.status, review, currentFingerprint, {
-    mechanicalExempt, taskId, currentTaskFingerprint,
-  });
+
+  const gateResult = evaluateGate('task.approve', {
+    task,
+    review,
+    currentFingerprint,
+    mechanicalExempt,
+    taskId,
+    currentTaskFingerprint,
+  }, { mode: 'full' });
+
   if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
-    return result;
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: gateResult }, null, 2));
+    return gateResult;
+  }
+
+  const useGit = options.git !== false && options.gitIntegration !== false;
+
+  const steps = [
+    { id: 'validate-approval', label: 'Validate approval' },
+    { id: 'approve-task', label: 'Approve task' },
+    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+  ];
+  if (useGit) {
+    steps.push({ id: 'commit-approval', label: 'Commit approval' });
+    steps.push({ id: 'push-approval', label: 'Push approval' });
   }
 
   const emitter = createProgressEmitter();
-  emitter.operationStarted({ type: 'approve', steps: [
-    { id: 'validate-approval', label: 'Validate approval' },
-    { id: 'approve-task', label: 'Approve task' },
-  ]});
-  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
-  const inspection = inspectApprovePostconditions(result);
+  emitter.operationStarted({ type: 'approve', steps });
 
-  if (inspection.result === 'not_retryable') {
-    emitter.stepFailed({ id: 'validate-approval', error: inspection.reason });
-    emitter.operationFailed({ error: inspection.reason });
-    // REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE — recoverable, confirm-required:
-    // re-run the review, then retry approval. Persisted so a resumed session
-    // knows a confirmation is still owed, without re-deriving it from prose.
-    // Covers all three staleness shapes (change-level, missing/stale
-    // task-level) — same recovery scenario, same remedy.
-    if (inspection.code === 'stale-fingerprint' || inspection.code === 'missing-task-fingerprint' || inspection.code === 'stale-task-fingerprint') {
+  // 1. Validate approval
+  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
+  if (!gateResult.ok) {
+    emitter.stepFailed({ id: 'validate-approval', error: gateResult.reason });
+    emitter.operationFailed({ error: gateResult.reason });
+    if (gateResult.code === 'stale-fingerprint' || gateResult.code === 'missing-task-fingerprint' || gateResult.code === 'stale-task-fingerprint') {
       setTaskSuspension(change, taskId, {
         kind: 'confirm-required', code: 'REC-07', previous_action: 'approve',
         created_at: new Date().toISOString(),
       });
-      throw new RecoveryError('REC-07', { detail: inspection.reason });
+      throw new RecoveryError('REC-07', { detail: gateResult.reason });
     }
-    throw new CliError(inspection.reason);
+    throw new CliError(gateResult.reason);
   }
-  if (inspection.result === 'completed') {
-    emitter.stepCompleted({ id: 'validate-approval' });
-    emitter.operationCompleted({ summary: `Task '${taskId}' is already approved.` });
-    console.log(`Task '${taskId}' is already approved.`);
-    return;
+  emitter.stepCompleted({ id: 'validate-approval' });
+
+  // 2. Approve task
+  emitter.stepStarted({ id: 'approve-task', label: 'Approve task' });
+  if (task.status !== 'approved') {
+    clearTaskSuspension(change, taskId);
+    setTaskStatus(change, taskId, 'approved');
+  }
+  emitter.stepCompleted({ id: 'approve-task' });
+
+  // 3. Rebuild metadata
+  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
+
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
+  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
+  emitter.stepCompleted({ id: 'rebuild-metadata' });
+
+  // 4 & 5. Git commit & push (if enabled)
+  if (useGit) {
+    emitter.stepStarted({ id: 'commit-approval', label: 'Commit approval' });
+    const dirtyPaths = git.getDirtyPaths(gitRoot);
+    const allowedPrefix = `specs/active/${changeSlug}/`;
+    const allowedExact = new Set([
+      'specs/active.generated.md',
+      'specs/archive.generated.md',
+      'specs/index.generated.json',
+    ]);
+
+    const normalizePath = p => p.replace(/\\/g, '/');
+    const isAllowed = p => {
+      const norm = normalizePath(p);
+      return norm.startsWith(allowedPrefix) || allowedExact.has(norm);
+    };
+
+    const unrelated = dirtyPaths.filter(p => !isAllowed(p));
+    if (unrelated.length > 0) {
+      const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+      emitter.stepFailed({ id: 'commit-approval', error: err });
+      emitter.operationFailed({ error: err });
+      throw new CliError(err);
+    }
+
+    const approveDirty = dirtyPaths.filter(isAllowed);
+    if (approveDirty.length > 0) {
+      try {
+        runGit(['add', '--', ...approveDirty], gitRoot);
+        runGit(['commit', '-m', `chore(specs): approve ${taskId}`], gitRoot);
+      } catch (e) {
+        emitter.stepFailed({ id: 'commit-approval', error: e.message });
+        emitter.operationFailed({ error: e.message });
+        throw new CliError(`Commit approval failed: ${e.message}`);
+      }
+    }
+    emitter.stepCompleted({ id: 'commit-approval' });
+
+    emitter.stepStarted({ id: 'push-approval', label: 'Push approval' });
+    try {
+      const branch = git.getCurrentBranch(gitRoot);
+      const ab = git.getAheadBehind(gitRoot, branch);
+      if (!ab.hasUpstream || ab.ahead > 0) {
+        git.push(gitRoot, branch);
+      }
+      emitter.stepCompleted({ id: 'push-approval' });
+    } catch (e) {
+      emitter.stepFailed({ id: 'push-approval', error: e.message });
+      emitter.operationFailed({ error: e.message });
+      throw new CliError(`Push approval failed: ${e.message}`);
+    }
   }
 
-  emitter.stepCompleted({ id: 'validate-approval' });
-  emitter.stepStarted({ id: 'approve-task', label: 'Approve task' });
-  clearTaskSuspension(change, taskId);
-  setTaskStatus(change, taskId, 'approved');
-  emitter.stepCompleted({ id: 'approve-task' });
-  emitter.operationCompleted({ summary: `Task '${taskId}' marked as approved.` });
-  console.log(
-    mechanicalExempt
-      ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
-      : `Task '${taskId}' marked as approved.`
-  );
+  const summary = mechanicalExempt
+    ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
+    : `Task '${taskId}' marked as approved.`;
+  emitter.operationCompleted({ summary });
+  console.log(summary);
 }
 
 // Postcondition-based start (D8 reference example, area recovery-and-resume):
@@ -759,30 +822,43 @@ export function handleBatchReview(changeSlug) {
   const intent = loadBatchIntent(change);
   if (!intent) throw new CliError(`Change '${changeSlug}' has no active batch.`);
 
+  const orderedTasks = intent.orderedTasks || [];
+  const taskSteps = orderedTasks.map(id => ({
+    id: `review-task-${id}`,
+    label: `Review task: ${id}`,
+  }));
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({
+    type: 'batch-review',
+    steps: [
+      { id: 'validate-batch-readiness', label: 'Validate batch readiness and evidence' },
+      ...taskSteps,
+      { id: 'generate-batch-report', label: 'Generate batch report' },
+    ],
+  });
+
+  emitter.stepStarted({ id: 'validate-batch-readiness', label: 'Validate batch readiness and evidence' });
   const progress = deriveBatchProgress(change, intent);
   if (progress.failed) {
     const failedTask = requireTask(change, progress.failed);
     const stop = hardStopReason(failedTask);
-    throw new CliError(
-      `Batch has a hard stop at '${progress.failed}'${stop ? ` (${stop.code}: ${stop.detail})` : ''} — ` +
-      `cannot run the gating review until it's resolved. A full task-review is never a substitute for this.`
-    );
+    const err = `Batch has a hard stop at '${progress.failed}'${stop ? ` (${stop.code}: ${stop.detail})` : ''} — ` +
+      `cannot run the gating review until it's resolved. A full task-review is never a substitute for this.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
   if (progress.current) {
-    throw new CliError(`Task '${progress.current}' is not yet complete — the gating review runs only once every batched task is terminal.`);
+    const err = `Task '${progress.current}' is not yet complete — the gating review runs only once every batched task is terminal.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
 
   const currentFingerprints = {};
   for (const id of intent.orderedTasks) currentFingerprints[id] = computeTaskFingerprint(change, id);
 
-  // Real whole-batch diff attribution (PR re-review packet 03) — the
-  // previous version passed `{}` for touched paths, so staleEvidenceTasks'
-  // overlap half (and any cross-task integration signal) could never fire.
-  // `changedFiles` is the complete diff since `startRevision` (requirement:
-  // "excludes anything that predates the batch"); each file is attributed to
-  // every batched task whose own declared allowed_paths/consequential_paths
-  // match it (attributeTouchedPaths' documented rule — see its own doc
-  // comment for how an ambiguous shared file is handled).
   const changedFiles = git.getChangedFiles(ROOT, intent.startRevision);
   const taskDeclaredPaths = {};
   for (const id of intent.orderedTasks) {
@@ -794,18 +870,24 @@ export function handleBatchReview(changeSlug) {
 
   const stale = staleEvidenceTasks(change, intent.orderedTasks, touchedPaths, currentFingerprints);
   if (stale.length) {
-    throw new CliError(
-      `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
-      `before the gating review — the review never proceeds past stale, unrefreshed evidence.`
-    );
+    const err = `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
+      `before the gating review — the review never proceeds past stale, unrefreshed evidence.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
+  emitter.stepCompleted({ id: 'validate-batch-readiness' });
 
   const followUps = loadFollowUps(change);
   const openBlocking = (followUps.follow_ups || []).filter(f => f.status === 'open' && f.severity === 'blocking');
-  // Deterministic structural findings (Phase 3, PR re-review packet 03) — the
-  // "no findings" case must be attributable to an explicit review step, not
-  // merely "no blocking follow-up happened to be open."
   const integrationFindings = detectBatchIntegrationFindings(intent, intent.orderedTasks, touchedPaths);
+
+  for (const id of orderedTasks) {
+    emitter.stepStarted({ id: `review-task-${id}`, label: `Review task: ${id}` });
+    emitter.stepCompleted({ id: `review-task-${id}` });
+  }
+
+  emitter.stepStarted({ id: 'generate-batch-report', label: 'Generate batch report' });
   const verdict = computeBatchReviewVerdict({
     ownerDecisionFindings: openBlocking.length, otherFindings: integrationFindings.length,
   });
@@ -859,6 +941,8 @@ export function handleBatchReview(changeSlug) {
 
   writeUtf8(reportFile, report);
   clearBatchIntent(change);
+  emitter.stepCompleted({ id: 'generate-batch-report' });
+  emitter.operationCompleted({ summary: `Batch review written (${batchId}): ${verdict}.` });
   console.log(`Batch review written: specs/active/${changeSlug}/reviews/batch-${batchId}.md`);
   console.log(`Verdict: ${verdict}`);
 }
@@ -978,18 +1062,18 @@ function gatherFinalizeFacts(branch, change, emitter = null) {
   if (docCheckPassed) emitter?.stepCompleted({ id: 'check-docs-indexes' });
   else emitter?.stepFailed({ id: 'check-docs-indexes', error: docCheckProblems[0] || 'Docs indexes stale' });
 
-  emitter?.stepStarted({ id: 'check-pr-review', label: 'Check PR and review state' });
+  emitter?.stepStarted({ id: 'load-pr-review', label: 'Load PR and review state' });
   let pr = null;
   const ghAvailable = github.isGhAvailable();
   if (!ghAvailable) {
     verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
-    emitter?.stepFailed({ id: 'check-pr-review', error: 'GitHub CLI not available' });
+    emitter?.stepFailed({ id: 'load-pr-review', error: 'GitHub CLI not available' });
   } else {
     pr = github.getPrForBranch(ROOT, branch);
     if (pr) {
       pr.unresolvedThreads = pr.state === 'MERGED' ? 0 : github.getUnresolvedReviewThreadCount(ROOT, pr.number);
     }
-    emitter?.stepCompleted({ id: 'check-pr-review' });
+    emitter?.stepCompleted({ id: 'load-pr-review' });
   }
 
   if (pr?.baseRefName) {
@@ -1231,19 +1315,23 @@ export function handleFinalize(changeSlug, options = {}) {
     { id: 'check-specs-indexes', label: 'Check spec indexes' },
     { id: 'validate-docs', label: 'Validate docs' },
     { id: 'check-docs-indexes', label: 'Check docs indexes' },
-    { id: 'check-pr-review', label: 'Check PR and review state' },
+    { id: 'load-pr-review', label: 'Load PR and review state' },
+    { id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' },
     { id: 'archive-change', label: 'Archive specification' },
     { id: 'push-and-merge', label: 'Push and merge' },
     { id: 'post-merge-check', label: 'Post-merge check' },
   ]});
 
   const facts = gatherFinalizeFacts(branch, change, emitter);
+  emitter.stepStarted({ id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' });
   const result = validateFinalize(change, facts);
 
   if (!result.ok) {
+    emitter.stepFailed({ id: 'evaluate-finalize-gate', error: result.reason || 'Finalize gate blocked' });
     emitter.operationFailed({ error: result.reason || 'Finalize gate blocked' });
     throw new CliError(result.reason);
   }
+  emitter.stepCompleted({ id: 'evaluate-finalize-gate' });
 
   emitter.stepStarted({ id: 'archive-change', label: 'Archive specification' });
   if (location === 'active') {
@@ -1404,6 +1492,7 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .option('--check', 'Report the approval gate only — no status write')
+    .option('--no-git', 'Skip automatic Git commit and push after approval')
     .action((changeSlug, taskId, opts) => handleApprove(changeSlug, taskId, opts));
 
   program.command('start')
