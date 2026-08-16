@@ -259,6 +259,7 @@ export function createDashboardServer({
           return;
         }
         runningActions.add(slug);
+        let hasAsyncOperation = false;
         try {
           const body = await readJsonBody(request);
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -270,7 +271,20 @@ export function createDashboardServer({
             taskId: body.taskId,
             confirmed: body.confirmed === true,
             operationRuntime,
+            onFinished: () => {
+              runningActions.delete(slug);
+            },
           });
+
+          if (result?.operationId && operationRuntime) {
+            try {
+              const snapshot = operationRuntime.getSnapshot(result.operationId);
+              if (snapshot.status === 'running') {
+                hasAsyncOperation = true;
+              }
+            } catch {}
+          }
+
           sendJson(response, 200, result);
         } catch (error) {
           const known = error instanceof SpecificationActionError;
@@ -278,7 +292,9 @@ export function createDashboardServer({
             error: known ? error.message : 'Unable to execute specification action.',
           });
         } finally {
-          runningActions.delete(slug);
+          if (!hasAsyncOperation) {
+            runningActions.delete(slug);
+          }
         }
         return;
       }

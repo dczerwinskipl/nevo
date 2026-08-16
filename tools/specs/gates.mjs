@@ -1,0 +1,369 @@
+// tools/specs/gates.mjs — Single source of truth (SSOT) for lifecycle and action gates
+
+import { TERMINAL_STATUSES, completionHardStop, validateTransition } from './lifecycle.mjs';
+
+/**
+ * Registry of validator building blocks.
+ * Maps validator ID -> { id: string, cost: 'cheap' | 'expensive', validate: (context) => ValidatorResult }
+ */
+export const validatorRegistry = new Map();
+
+/**
+ * Register a validator building block.
+ */
+export function registerValidator(id, { cost = 'cheap', validate }) {
+  if (typeof id !== 'string' || !id) throw new TypeError('Validator id must be a non-empty string.');
+  if (cost !== 'cheap' && cost !== 'expensive') throw new TypeError(`Invalid validator cost '${cost}': must be 'cheap' or 'expensive'.`);
+  if (typeof validate !== 'function') throw new TypeError('Validator validate must be a function.');
+  validatorRegistry.set(id, { id, cost, validate });
+}
+
+// ── Register core finalize validators ────────────────────────────────────────
+
+registerValidator('tasks-terminal', {
+  cost: 'cheap',
+  validate(context) {
+    const tasks = context.change?.tasks || [];
+    const notTerminal = tasks.filter(t => !TERMINAL_STATUSES.has(t.status));
+    if (notTerminal.length) {
+      return {
+        ok: false,
+        reason: `Task(s) not in a terminal status: ${notTerminal.map(t => t.id).join(', ')}. Every task must be implemented/verified before finalizing.`,
+      };
+    }
+    if (tasks.length === 0) {
+      return { ok: false, reason: 'Specification has no tasks.' };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('follow-ups-blocking', {
+  cost: 'cheap',
+  validate(context) {
+    const followUps = context.openBlockingFollowUps || context.facts?.openBlockingFollowUps || [];
+    if (followUps.length) {
+      return {
+        ok: false,
+        reason: `Open blocking follow-up(s): ${followUps.map(f => f.id).join(', ')}. Resolve, or dismiss with a recorded owner decision, before finalizing.`,
+      };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('working-tree-clean', {
+  cost: 'cheap',
+  validate(context) {
+    const isClean = context.gitClean !== undefined
+      ? context.gitClean
+      : (context.worktree?.clean !== undefined ? context.worktree.clean : context.facts?.gitClean);
+    if (!isClean) {
+      return { ok: false, reason: 'Working tree has uncommitted changes. Commit or discard them first.' };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('branch-not-behind', {
+  cost: 'cheap',
+  validate(context) {
+    const branch = context.branch || context.facts?.branch || {};
+    if (branch.behind > 0) {
+      return {
+        ok: false,
+        reason: `Local branch is ${branch.behind} commit(s) behind its remote — pull/rebase first.`,
+      };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('branch-pushed', {
+  cost: 'cheap',
+  validate(context) {
+    const branch = context.branch || context.facts?.branch || {};
+    if (!branch.hasUpstream || branch.ahead > 0) {
+      return { ok: false, reason: 'Branch has commits not yet pushed to origin. Push before finalizing.' };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('gh-available', {
+  cost: 'cheap',
+  validate(context) {
+    const ghAvailable = context.ghAvailable !== undefined
+      ? context.ghAvailable
+      : (context.facts?.ghAvailable !== undefined ? context.facts.ghAvailable : true);
+    if (ghAvailable === false) {
+      return { ok: false, reason: 'gh CLI is not available — cannot verify PR/review-thread state. Install/authenticate gh and retry.' };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('pr-exists', {
+  cost: 'expensive',
+  validate(context) {
+    const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
+    if (!pr) {
+      return { ok: false, reason: 'No pull request found for this branch. Open one before finalizing.' };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('pr-merged-or-open', {
+  cost: 'expensive',
+  validate(context) {
+    const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
+    if (!pr) return { ok: false, reason: 'No pull request found.' };
+    if (pr.state === 'MERGED') {
+      return { ok: true, idempotent: true };
+    }
+    if (pr.state !== 'OPEN') {
+      return { ok: false, reason: `PR #${pr.number} has state '${pr.state}', expected 'OPEN' or 'MERGED'.` };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('pr-not-draft', {
+  cost: 'expensive',
+  validate(context) {
+    const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
+    if (pr && pr.state !== 'MERGED' && pr.isDraft) {
+      return { ok: false, reason: `PR #${pr.number} is still a draft.` };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('pr-threads-resolved', {
+  cost: 'expensive',
+  validate(context) {
+    const pr = context.pr !== undefined ? context.pr : context.facts?.pr;
+    if (pr && pr.state !== 'MERGED' && pr.unresolvedThreads > 0) {
+      return {
+        ok: false,
+        reason: `PR #${pr.number} has ${pr.unresolvedThreads} unresolved review thread(s). Resolve every comment (including bot reviewers) before finalizing.`,
+      };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('verification-checks-passed', {
+  cost: 'expensive',
+  validate(context) {
+    const verification = context.verification || context.facts?.verification || [];
+    const failedChecks = verification.filter(v => !v.passed);
+    if (failedChecks.length) {
+      return {
+        ok: false,
+        reason: `Verification failed: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
+      };
+    }
+    return { ok: true };
+  },
+});
+
+// ── Register task verification / completion validators ──────────────────────
+
+registerValidator('task-in-implementation', {
+  cost: 'cheap',
+  validate(context) {
+    const task = context.task;
+    if (!task) return { ok: false, reason: 'Task context is required.' };
+    const transition = validateTransition('complete', task.status);
+    if (!transition.ok) return transition;
+    return { ok: true, idempotent: transition.idempotent };
+  },
+});
+
+registerValidator('task-self-check-not-failing', {
+  cost: 'cheap',
+  validate(context) {
+    const task = context.task;
+    if (!task) return { ok: false, reason: 'Task context is required.' };
+    const inActiveBatch = Boolean(context.inActiveBatch);
+    const stop = completionHardStop(task, { inActiveBatch });
+    if (stop) {
+      return {
+        ok: false,
+        code: stop.code,
+        reason: `Task '${task.id}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — correct the implementation and rerun self-check before marking it complete.`,
+      };
+    }
+    return { ok: true };
+  },
+});
+
+registerValidator('task-in-implemented', {
+  cost: 'cheap',
+  validate(context) {
+    const task = context.task;
+    if (!task) return { ok: false, reason: 'Task context is required.' };
+    const transition = validateTransition('verify', task.status);
+    if (!transition.ok) return transition;
+    return { ok: true, idempotent: transition.idempotent };
+  },
+});
+
+// ── Declarative Gate Definitions ───────────────────────────────────────────
+
+export const gateDefinitions = {
+  finalize: {
+    validators: [
+      'tasks-terminal',
+      'follow-ups-blocking',
+      'working-tree-clean',
+      'branch-not-behind',
+      'branch-pushed',
+      'gh-available',
+      'pr-exists',
+      'pr-merged-or-open',
+      'pr-not-draft',
+      'pr-threads-resolved',
+      'verification-checks-passed',
+    ],
+  },
+  'task.request-human-verification': {
+    validators: [
+      'task-in-implementation',
+      'task-self-check-not-failing',
+    ],
+  },
+  'task.verify': {
+    validators: [
+      'task-in-implemented',
+    ],
+  },
+};
+
+// ── Declarative Action Definitions ─────────────────────────────────────────
+
+export const actionDefinitions = {
+  finalize: {
+    gate: 'finalize',
+    steps: [
+      { id: 'validate-specs', label: 'Validate specs' },
+      { id: 'check-specs-indexes', label: 'Check spec indexes' },
+      { id: 'validate-docs', label: 'Validate docs' },
+      { id: 'check-docs-indexes', label: 'Check docs indexes' },
+      { id: 'check-pr-review', label: 'Check PR and review state' },
+      { id: 'archive-change', label: 'Archive specification' },
+      { id: 'push-and-merge', label: 'Push and merge' },
+      { id: 'post-merge-check', label: 'Post-merge check' },
+    ],
+  },
+  verify: {
+    gate: 'task.verify',
+    steps: [
+      { id: 'validate-transition', label: 'Validate transition' },
+      { id: 'verify-task', label: 'Verify task' },
+    ],
+  },
+  complete: {
+    gate: 'task.request-human-verification',
+    steps: [
+      { id: 'validate-transition', label: 'Validate transition' },
+      { id: 'check-self-check', label: 'Check self-check status' },
+      { id: 'mark-implemented', label: 'Mark task implemented' },
+    ],
+  },
+};
+
+/**
+ * Generic gate evaluator.
+ *
+ * @param {string} gateId - ID of gate in gateDefinitions
+ * @param {object} context - Validation context data
+ * @param {object} [options] - Evaluation options
+ * @param {'fast'|'full'} [options.mode='full'] - Mode: 'fast' skips expensive checks, 'full' runs all
+ * @returns {GateEvaluationResult}
+ */
+export function evaluateGate(gateId, context = {}, { mode = 'full' } = {}) {
+  const definition = gateDefinitions[gateId];
+  if (!definition) {
+    throw new Error(`Gate '${gateId}' is not defined.`);
+  }
+
+  const validations = [];
+  let hadSkipped = false;
+  let isIdempotent = false;
+
+  for (const validatorId of definition.validators) {
+    const validator = validatorRegistry.get(validatorId);
+    if (!validator) {
+      throw new Error(`Validator '${validatorId}' is not registered in validatorRegistry.`);
+    }
+
+    if (mode === 'fast' && validator.cost === 'expensive') {
+      validations.push({
+        id: validatorId,
+        status: 'skipped',
+        reason: 'expensive',
+      });
+      hadSkipped = true;
+      continue;
+    }
+
+    const result = validator.validate(context);
+    if (!result || typeof result !== 'object') {
+      throw new Error(`Validator '${validatorId}' returned an invalid result.`);
+    }
+
+    if (!result.ok) {
+      const validationEntry = {
+        id: validatorId,
+        status: 'failed',
+        reason: result.reason,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.detail ? { detail: result.detail } : {}),
+      };
+      validations.push(validationEntry);
+
+      return {
+        gateId,
+        status: 'blocked',
+        ok: false,
+        reason: result.reason,
+        code: result.code,
+        idempotent: false,
+        validations,
+      };
+    }
+
+    if (result.idempotent) {
+      isIdempotent = true;
+    }
+
+    validations.push({
+      id: validatorId,
+      status: 'passed',
+      ...(result.idempotent ? { idempotent: true } : {}),
+      ...(result.detail ? { detail: result.detail } : {}),
+    });
+  }
+
+  if (hadSkipped) {
+    return {
+      gateId,
+      status: 'needs-full-check',
+      ok: false,
+      reason: 'Some expensive validators were skipped in fast mode.',
+      idempotent: isIdempotent,
+      validations,
+    };
+  }
+
+  return {
+    gateId,
+    status: 'allowed',
+    ok: true,
+    idempotent: isIdempotent,
+    validations,
+  };
+}

@@ -257,16 +257,121 @@ test('executeSpecificationAction — spawn-based single process runner', async (
       sample.cleanup();
     }
   });
+
+  await t.test('child process failure while a step is running transitions active step to failed status', () => {
+    const sample = fixture();
+    try {
+      let childProcess = null;
+      const mockSpawner = () => {
+        childProcess = createMockChildProcess();
+        return childProcess;
+      };
+
+      const runtime = createOperationRuntime({ idFactory: () => 'op-step-failure' });
+
+      executeSpecificationAction({
+        slug: 'sample-change',
+        action: 'verify',
+        taskId: 'design-it',
+        activeDir: sample.activeDir,
+        root: sample.root,
+        spawnSpecs: mockSpawner,
+        operationRuntime: runtime,
+      });
+
+      childProcess.stdout.write('@@nevo:progress@@ {"type":"operation.step.started","id":"s1","label":"Step 1"}\n');
+
+      let snapshot = runtime.getSnapshot('op-op-step-failure');
+      assert.equal(snapshot.status, 'running');
+      assert.equal(snapshot.steps[0].id, 's1');
+      assert.equal(snapshot.steps[0].status, 'running');
+
+      // Process crashes / exits with code 1 before emitting step.completed
+      childProcess.stderr.write('Unexpected fatal error');
+      childProcess.emit('close', 1, null);
+
+      snapshot = runtime.getSnapshot('op-op-step-failure');
+      assert.equal(snapshot.status, 'failed');
+      assert.equal(snapshot.steps[0].id, 's1');
+      assert.equal(snapshot.steps[0].status, 'failed');
+      assert.ok(snapshot.steps[0].error);
+      assert.equal(snapshot.steps[0].error.message, 'Unexpected fatal error');
+    } finally {
+      sample.cleanup();
+    }
+  });
 });
 
-test('Dashboard server — /api/operations routes', async (t) => {
+test('Dashboard server — action concurrency & /api/operations routes', async (t) => {
+  let activeChild = null;
   const runtime = createOperationRuntime({ idFactory: () => 'srv-op-1' });
+  const sample = fixture();
   const server = createDashboardServer({
     operationRuntime: runtime,
+    activeDir: sample.activeDir,
+    actionExecutor: ({ slug, action, taskId, onFinished }) => {
+      activeChild = createMockChildProcess();
+      const opId = runtime.createOperation({ type: `spec-action-${action}` });
+      activeChild.on('close', () => {
+        runtime.completeOperation(opId, { ok: true });
+        if (typeof onFinished === 'function') onFinished();
+      });
+      return { ok: true, operationId: opId, action, taskId };
+    },
   });
   const baseUrl = await listen(server, { port: 0 });
 
-  t.after(() => server.close());
+  t.after(() => {
+    server.close();
+    sample.cleanup();
+  });
+
+  await t.test('runningActions lock is held for the entire lifecycle of the spawned child process, returning 409 on second request and unlocking on completion', async () => {
+    // 1. Trigger first action (spawns activeChild)
+    const firstRes = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      body: JSON.stringify({ action: 'verify', taskId: 'design-it' }),
+    });
+    assert.equal(firstRes.status, 200);
+    const firstBody = await firstRes.json();
+    assert.equal(firstBody.ok, true);
+
+    // 2. Second action while child process is still running -> rejected with 409 Conflict
+    const secondRes = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      body: JSON.stringify({ action: 'verify', taskId: 'design-it' }),
+    });
+    assert.equal(secondRes.status, 409);
+    const secondBody = await secondRes.json();
+    assert.equal(secondBody.error, 'Another specification action is already running.');
+
+    // 3. Complete child process
+    activeChild.emit('close', 0, null);
+
+    // 4. Third action after completion -> succeeds (200 OK)
+    const thirdRes = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-nevo-dashboard-action': '1',
+      },
+      body: JSON.stringify({ action: 'verify', taskId: 'design-it' }),
+    });
+    assert.equal(thirdRes.status, 200);
+    const thirdBody = await thirdRes.json();
+    assert.equal(thirdBody.ok, true);
+
+    // Cleanup activeChild
+    activeChild.emit('close', 0, null);
+  });
 
   await t.test('GET /api/operations/:id returns 404 for unknown operation', async () => {
     const res = await fetch(`${baseUrl}/api/operations/non-existent`);

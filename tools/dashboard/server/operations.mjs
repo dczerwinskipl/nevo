@@ -172,6 +172,16 @@ export class OperationRuntime {
     state.status = 'failed';
     state.completedAt = this.#timestamp();
     state.error = errorObj;
+
+    for (const step of state.steps) {
+      if (step.status === 'running' || step.status === 'pending') {
+        step.status = 'failed';
+        if (!step.error) {
+          step.error = errorObj;
+        }
+      }
+    }
+
     this.#emit(state, 'operation.failed', {
       error: errorObj,
       ...(summary !== null && summary !== undefined ? { summary } : {}),

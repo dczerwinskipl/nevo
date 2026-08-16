@@ -32,6 +32,7 @@ import {
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
+  evaluateGate,
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
   validateFinalize, deriveStage, inspectStartPostconditions, inspectApprovePostconditions, classifyDirtyWorktree,
   BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
@@ -440,27 +441,21 @@ export function handleStart(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoo
 export function handleComplete(changeSlug, taskId) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
-
-  const transition = validateTransition('complete', task.status);
-  if (!transition.ok) throw new CliError(transition.reason);
-  if (transition.idempotent) { console.log(`Task '${taskId}' is already implemented.`); return; }
-
-  // D24, task 08 — a hard-stopped task (a recorded, still-failing self-check)
-  // can never be marked complete; a full task-review is never a substitute
-  // for correcting the implementation and rerunning the self-check (the only
-  // path that clears this). A task with no self_check at all is unaffected
-  // when it's not part of an active batch — self-check is optional there.
-  // Inside an active batch that includes this task, a *missing* self-check
-  // is a hard stop too (PR re-review packet 02) — see completionHardStop's
-  // own doc comment.
   const intent = loadBatchIntent(change);
   const inActiveBatch = Boolean(intent?.orderedTasks?.includes(taskId));
-  const stop = completionHardStop(task, { inActiveBatch });
-  if (stop) {
-    throw new CliError(
-      `Task '${taskId}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — ` +
-      `correct the implementation and rerun 'node tools/specs.mjs self-check ${changeSlug} ${taskId}' before marking it complete.`
-    );
+
+  const gateResult = evaluateGate('task.request-human-verification', {
+    task,
+    change,
+    inActiveBatch,
+  }, { mode: 'full' });
+
+  if (!gateResult.ok) {
+    throw new CliError(gateResult.reason);
+  }
+  if (gateResult.idempotent) {
+    console.log(`Task '${taskId}' is already implemented.`);
+    return;
   }
 
   setTaskStatus(change, taskId, 'implemented');

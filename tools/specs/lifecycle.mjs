@@ -2,6 +2,14 @@
 // filesystem access. See docs/ai/specification-workflow.md and
 // references/review-policy.md for the policy this enforces.
 
+import {
+  evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
+} from './gates.mjs';
+
+export {
+  evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
+};
+
 // Separate status sets for separate concepts — a task being "done" for
 // dependency purposes is not the same question as a change being active.
 export const TERMINAL_STATUSES = new Set(['implemented', 'verified', 'archived', 'abandoned']);
@@ -1116,76 +1124,12 @@ export function computeBatchReviewVerdict({ ownerDecisionFindings = 0, otherFind
  * validateTransition's idempotent re-runs.
  */
 export function validateFinalize(change, facts) {
-  const notTerminal = change.tasks.filter(t => !TERMINAL_STATUSES.has(t.status));
-  if (notTerminal.length) {
-    return {
-      ok: false,
-      reason: `Task(s) not in a terminal status: ${notTerminal.map(t => t.id).join(', ')}. ` +
-        `Every task must be implemented/verified before finalizing.`,
-    };
-  }
-
-  // Follow-up ledger gate (D15, area context-and-validation-hardening,
-  // task 06) — a still-open, blocking-severity entry blocks finalize exactly
-  // like a non-terminal task, evaluated alongside it.
-  if (facts.openBlockingFollowUps?.length) {
-    return {
-      ok: false,
-      reason: `Open blocking follow-up(s): ${facts.openBlockingFollowUps.map(f => f.id).join(', ')}. ` +
-        `Resolve, or dismiss with a recorded owner decision, before finalizing.`,
-    };
-  }
-
-  if (!facts.gitClean) {
-    return { ok: false, reason: 'Working tree has uncommitted changes. Commit or discard them first.' };
-  }
-
-  if (facts.branch.behind > 0) {
-    return {
-      ok: false,
-      reason: `Local branch is ${facts.branch.behind} commit(s) behind its remote — pull/rebase first.`,
-    };
-  }
-  if (!facts.branch.hasUpstream || facts.branch.ahead > 0) {
-    return { ok: false, reason: 'Branch has commits not yet pushed to origin. Push before finalizing.' };
-  }
-
-  // facts.pr === null is ambiguous by itself: "checked, genuinely no PR" and "couldn't
-  // check" produce the same null. facts.ghAvailable is what disambiguates them — never
-  // report "no PR" when the real answer is "unknown," since that could send someone to
-  // open a second PR for a branch that already has one.
-  if (facts.ghAvailable === false) {
-    return { ok: false, reason: 'gh CLI is not available — cannot verify PR/review-thread state. Install/authenticate gh and retry.' };
-  }
-  if (!facts.pr) {
-    return { ok: false, reason: 'No pull request found for this branch. Open one before finalizing.' };
-  }
-  if (facts.pr.state === 'MERGED') {
-    return { ok: true, idempotent: true };
-  }
-  if (facts.pr.isDraft) {
-    return { ok: false, reason: `PR #${facts.pr.number} is still a draft.` };
-  }
-  if (facts.pr.state !== 'OPEN') {
-    return { ok: false, reason: `PR #${facts.pr.number} has state '${facts.pr.state}', expected 'OPEN' or 'MERGED'.` };
-  }
-  if (facts.pr.unresolvedThreads > 0) {
-    return {
-      ok: false,
-      reason: `PR #${facts.pr.number} has ${facts.pr.unresolvedThreads} unresolved review thread(s). ` +
-        `Resolve every comment (including bot reviewers) before finalizing.`,
-    };
-  }
-
-  const failedChecks = facts.verification.filter(v => !v.passed);
-  if (failedChecks.length) {
-    return {
-      ok: false,
-      reason: `Verification failed: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
-    };
-  }
-
-  return { ok: true, idempotent: false };
+  const result = evaluateGate('finalize', { change, ...facts }, { mode: 'full' });
+  return {
+    ok: result.ok,
+    idempotent: result.idempotent,
+    ...(result.reason ? { reason: result.reason } : {}),
+  };
 }
 
 /**
