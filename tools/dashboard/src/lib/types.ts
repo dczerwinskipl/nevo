@@ -58,8 +58,41 @@ export interface DashboardPayload {
 
 export type SpecificationDocumentKind = 'overview' | 'area' | 'task';
 
+// Manifest entries carry no markdown body (area dashboard-data-loading-contracts:
+// "which documents exist ... but not their bodies") — only enough to render
+// navigation and to resolve a full body via GET .../content/:docId.
+export interface SpecificationManifestDocument {
+  id: string;
+  docId: string;
+  kind: SpecificationDocumentKind;
+  title: string;
+  path: string | null;
+  available: boolean;
+  lastModified: string | null;
+}
+
+export interface SpecificationManifestTaskDocument extends SpecificationManifestDocument {
+  kind: 'task';
+  status: string;
+  order: number | null;
+  dependsOn: string[];
+}
+
+export interface SpecificationManifest {
+  id: string;
+  specId: string | null;
+  slug: string;
+  title: string;
+  source: 'active' | 'archive';
+  path: string | null;
+  overview: SpecificationManifestDocument;
+  areas: SpecificationManifestDocument[];
+  tasks: SpecificationManifestTaskDocument[];
+}
+
 export interface SpecificationDocument {
   id: string;
+  docId: string;
   kind: SpecificationDocumentKind;
   title: string;
   path: string | null;
@@ -74,16 +107,23 @@ export interface SpecificationTaskDocument extends SpecificationDocument {
   dependsOn: string[];
 }
 
-export interface SpecificationContent {
+export interface TaskStatusSummary {
   id: string;
-  specId: string | null;
+  status: string;
+  stage: StageId;
+  order: number | null;
+  dependsOn: string[];
+  blockedBy: string[];
+  ready: boolean;
+  terminal: boolean;
+}
+
+export interface TaskStatusesPayload {
+  id: string;
   slug: string;
-  title: string;
   source: 'active' | 'archive';
-  path: string | null;
-  overview: SpecificationDocument;
-  areas: SpecificationDocument[];
-  tasks: SpecificationTaskDocument[];
+  revision: string;
+  tasks: TaskStatusSummary[];
 }
 
 export interface PullRequestReference {
@@ -99,6 +139,19 @@ export interface PullRequestBranch {
   sha: string | null;
 }
 
+// A files-manifest entry — no `patch` field at all (area
+// pull-request-file-and-diff-loading: the manifest never carries diff
+// content, not even an empty placeholder for it).
+export interface PullRequestFileManifestEntry {
+  path: string;
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed';
+  additions: number;
+  deletions: number;
+  changes: number;
+}
+
+// A file-diffs batch entry — the same shape the old bundled PR payload
+// carried per file, patch included, fetched only for the requested paths.
 export interface PullRequestFile {
   path: string;
   previousPath: string | null;
@@ -122,14 +175,51 @@ export interface AvailablePullRequest {
   url: string;
   state: 'open' | 'closed' | 'merged';
   draft: boolean;
+  mergeableState: string | null;
   author: { login: string; url: string | null; avatarUrl: string | null } | null;
   head: PullRequestBranch;
   base: PullRequestBranch;
+  headSha: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
   stats: { additions: number; deletions: number; changedFiles: number; commits: number };
-  files: PullRequestFile[];
-  filesComplete: boolean;
-  fullDiff: string;
-  fullDiffAvailable: boolean;
+}
+
+export interface PathGlobRule {
+  name?: string;
+  paths: string[];
+  fallback?: boolean;
+}
+
+export interface ChangeViewConfig {
+  groups: PathGlobRule[];
+}
+
+export interface GeneratedFilesConfig {
+  rules: PathGlobRule[];
+  lockfiles?: string[];
+}
+
+export interface PullRequestFilesPayload {
+  number: number;
+  files: PullRequestFileManifestEntry[];
+  // Per-project config, delivered here rather than bundled at build time
+  // (area changes-grouping-and-filtering — must work for a consumer repo
+  // other than NEvo).
+  changeView: ChangeViewConfig;
+  generatedFiles: GeneratedFilesConfig;
+}
+
+export interface PullRequestFileDiffsPayload {
+  number: number;
+  headSha: string | null;
+  diffs: PullRequestFile[];
+}
+
+export interface PullRequestFullDiffPayload {
+  number: number;
+  diff: string;
+  diffAvailable: boolean;
 }
 
 export interface UnavailablePullRequest {
@@ -287,4 +377,14 @@ export interface AiTurnSnapshot {
   lastEventId: number;
   pendingInteraction: AiInteraction | null;
   events: AiTurnEvent[];
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
 }

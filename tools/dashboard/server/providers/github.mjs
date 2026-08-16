@@ -1,6 +1,19 @@
-import { getPullRequestDetails } from '../../../lib/github.mjs';
+import {
+  getFullDiffAsync,
+  getPullRequestFilesAsync,
+  getPullRequestFilesWithPatchesAsync,
+  getPullRequestMetadataAsync,
+} from '../../../lib/github.mjs';
 
 const FILE_STATUSES = new Set(['added', 'removed', 'modified', 'renamed', 'copied', 'changed', 'unchanged']);
+const CHANGE_TYPE_TO_STATUS = {
+  ADDED: 'added',
+  DELETED: 'removed',
+  MODIFIED: 'modified',
+  RENAMED: 'renamed',
+  COPIED: 'copied',
+  CHANGED: 'changed',
+};
 
 function normalizedReference(reference) {
   return {
@@ -19,7 +32,22 @@ function branchProjection(branch) {
   };
 }
 
-function fileProjection(file) {
+// The files-manifest route's shape — deliberately no `patch`/`patchAvailable`
+// field at all (not even empty), since a manifest entry is never expected to
+// carry diff content (area pull-request-file-and-diff-loading AC1).
+function fileManifestProjection(node) {
+  return {
+    path: node.path,
+    status: CHANGE_TYPE_TO_STATUS[node.changeType] || 'modified',
+    additions: Number(node.additions) || 0,
+    deletions: Number(node.deletions) || 0,
+    changes: (Number(node.additions) || 0) + (Number(node.deletions) || 0),
+  };
+}
+
+// The file-diffs batch route's shape — same fields the old bundled PR payload
+// carried per file, patch included, but only for the requested paths.
+function fileDiffProjection(file) {
   const patch = typeof file.patch === 'string' ? file.patch : '';
   return {
     path: file.filename,
@@ -35,11 +63,8 @@ function fileProjection(file) {
   };
 }
 
-export function mapGitHubPullRequest(reference, payload) {
-  const metadata = payload?.metadata || {};
-  const files = Array.isArray(payload?.files) ? payload.files.map(fileProjection) : [];
-  const fullDiff = typeof payload?.diff === 'string' ? payload.diff : '';
-  const expectedFileCount = Number(metadata.changed_files) || 0;
+export function mapGitHubPullRequest(reference, metadata) {
+  metadata = metadata || {};
   const merged = Boolean(metadata.merged_at || metadata.merged);
 
   return {
@@ -52,6 +77,7 @@ export function mapGitHubPullRequest(reference, payload) {
     url: metadata.html_url || `${reference.base_url}/${reference.repository}/pull/${reference.number}`,
     state: merged ? 'merged' : (metadata.state === 'closed' ? 'closed' : 'open'),
     draft: Boolean(metadata.draft),
+    mergeableState: metadata.mergeable_state || null,
     author: metadata.user ? {
       login: metadata.user.login || 'unknown',
       url: metadata.user.html_url || null,
@@ -59,24 +85,241 @@ export function mapGitHubPullRequest(reference, payload) {
     } : null,
     head: branchProjection(metadata.head),
     base: branchProjection(metadata.base),
+    headSha: metadata.head?.sha || null,
+    createdAt: metadata.created_at || null,
+    updatedAt: metadata.updated_at || null,
     stats: {
       additions: Number(metadata.additions) || 0,
       deletions: Number(metadata.deletions) || 0,
-      changedFiles: expectedFileCount,
+      changedFiles: Number(metadata.changed_files) || 0,
       commits: Number(metadata.commits) || 0,
     },
-    files,
-    filesComplete: expectedFileCount === 0 || files.length >= expectedFileCount,
-    fullDiff,
-    fullDiffAvailable: Boolean(fullDiff.trim()),
   };
 }
 
-export function createGitHubProvider({ fetchPullRequest = getPullRequestDetails } = {}) {
+export function mapGitHubFileManifest(nodes) {
+  return (nodes || []).map(fileManifestProjection);
+}
+
+function diffCacheKey(reference, headSha) {
+  return [reference.provider, reference.base_url, reference.repository, reference.number, headSha].join('|');
+}
+
+// `cache` is per-provider-instance, keyed by (reference, headSha) — deliberately
+// long-lived across requests (the registry holding this provider is a module-
+// level singleton, see providers/service.mjs) so a batch of diff requests for
+// the same PR version only ever pays for the underlying REST files+patch call
+// once, regardless of how many separate hydration batches ask for it (area
+// pull-request-file-and-diff-loading AC8). No eviction — "no requirement to
+// explicitly purge them in this change" (area doc).
+export class UpstreamProviderError extends Error {
+  constructor(message, status = 502) {
+    super(message);
+    this.name = 'UpstreamProviderError';
+    this.status = status;
+  }
+}
+
+export function classifyUpstreamError(error) {
+  if (error instanceof UpstreamProviderError) return error;
+  const msg = String(error?.message || error || '');
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return new UpstreamProviderError(`Upstream timeout: ${msg}`, 504);
+  }
+  if (
+    lower.includes('econnreset') ||
+    lower.includes('wsarecv') ||
+    lower.includes('temporarily unavailable') ||
+    lower.includes('connection reset') ||
+    lower.includes('forcibly closed') ||
+    lower.includes('network error')
+  ) {
+    return new UpstreamProviderError(`Upstream service unavailable: ${msg}`, 503);
+  }
+  return new UpstreamProviderError(msg || 'Upstream provider error', 502);
+}
+
+export function createGitHubProvider({
+  fetchMetadata = getPullRequestMetadataAsync,
+  fetchFiles = getPullRequestFilesAsync,
+  fetchFilesWithPatches = getPullRequestFilesWithPatchesAsync,
+  fetchFullDiff = getFullDiffAsync,
+  cache = new Map(),
+  metadataCache = new Map(),
+  filesCache = new Map(),
+  metadataTtlMs = 30000,
+} = {}) {
+  const inFlightMetadata = new Map();
+  const inFlightFiles = new Map();
+  const inFlightPatches = new Map();
+  const inFlightFullDiff = new Map();
+
   return {
     id: 'github',
-    load(root, reference) {
-      return mapGitHubPullRequest(reference, fetchPullRequest(root, reference));
+    async load(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+
+      const cached = metadataCache.get(key);
+      if (cached && Date.now() - cached.timestamp < metadataTtlMs) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-metadata pr=#${reference.number} cache=hit`);
+        }
+        return cached.data;
+      }
+
+      let pending = inFlightMetadata.get(key);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-metadata pr=#${reference.number} cache=miss inflight=reuse`);
+        }
+        return await pending;
+      }
+
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=pr-metadata pr=#${reference.number} cache=miss inflight=create`);
+      }
+
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const raw = await fetchMetadata(root, reference);
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=pr-metadata pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          const data = mapGitHubPullRequest(reference, raw);
+          metadataCache.set(key, { data, timestamp: Date.now() });
+          return data;
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightMetadata.delete(key);
+        }
+      })();
+      inFlightMetadata.set(key, pending);
+      return await pending;
+    },
+
+    async loadFiles(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+
+      const cached = filesCache.get(key);
+      if (cached && Date.now() - cached.timestamp < metadataTtlMs) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-files pr=#${reference.number} cache=hit`);
+        }
+        return cached.data;
+      }
+
+      let pending = inFlightFiles.get(key);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-files pr=#${reference.number} cache=miss inflight=reuse`);
+        }
+        return await pending;
+      }
+
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=pr-files pr=#${reference.number} cache=miss inflight=create`);
+      }
+
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const nodes = await fetchFiles(root, reference);
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=pr-files pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          const data = mapGitHubFileManifest(nodes);
+          filesCache.set(key, { data, timestamp: Date.now() });
+          return data;
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightFiles.delete(key);
+        }
+      })();
+      inFlightFiles.set(key, pending);
+      return await pending;
+    },
+
+    async loadFileDiffs(root, reference, paths, headSha) {
+      const key = diffCacheKey(reference, headSha);
+      let byPath = cache.get(key);
+
+      if (!byPath) {
+        let pending = inFlightPatches.get(key);
+        if (pending) {
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=miss inflight=reuse`);
+          }
+          byPath = await pending;
+        } else {
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=miss inflight=create`);
+          }
+          pending = (async () => {
+            try {
+              const start = performance.now();
+              const rawFiles = await fetchFilesWithPatches(root, reference);
+              const duration = Math.round(performance.now() - start);
+              const map = new Map(rawFiles.map((file) => [file.filename, file]));
+              cache.set(key, map);
+              if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+                console.log(`[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms status=200`);
+              }
+              return map;
+            } catch (error) {
+              throw classifyUpstreamError(error);
+            } finally {
+              inFlightPatches.delete(key);
+            }
+          })();
+          inFlightPatches.set(key, pending);
+          byPath = await pending;
+        }
+      } else {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=hit`);
+        }
+      }
+
+      return paths.map((path) => byPath.get(path)).filter(Boolean).map(fileDiffProjection);
+    },
+
+    async loadFullDiff(root, reference) {
+      const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
+      let pending = inFlightFullDiff.get(key);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=full-diff pr=#${reference.number} inflight=reuse`);
+        }
+        return await pending;
+      }
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=full-diff pr=#${reference.number} inflight=create`);
+      }
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const diff = (await fetchFullDiff(root, reference)) || '';
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=full-diff pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          return { diff, diffAvailable: Boolean(diff.trim()) };
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightFullDiff.delete(key);
+        }
+      })();
+      inFlightFullDiff.set(key, pending);
+      return await pending;
     },
   };
 }
+

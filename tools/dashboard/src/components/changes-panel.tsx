@@ -6,24 +6,30 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileDiff,
   Files,
+  FolderTree,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
+  Layers,
+  List,
   LoaderCircle,
   Minus,
   Plus,
   RefreshCw,
   UserRound,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
   AvailablePullRequest,
   DashboardChange,
   PullRequestFile,
+  PullRequestFileManifestEntry,
   PullRequestResult,
   UnavailablePullRequest,
 } from '@/lib/types';
@@ -31,7 +37,9 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { usePullRequests } from '@/hooks/use-dashboard-data';
+import { useFullDiff, useProgressiveDiffPreload, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
+import type { FileDiffRequest } from '@/hooks/use-dashboard-data';
+import { computeVisibility, groupFiles, type GroupByMode } from '@/lib/changes-grouping';
 
 type DiffViewMode = 'split' | 'unified';
 
@@ -85,21 +93,37 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-function isContentUnchangedRename(file: PullRequestFile) {
-  return file.status === 'renamed' && !file.patchAvailable && file.changes === 0;
+function isContentUnchangedRename(file: PullRequestFileManifestEntry, diff: PullRequestFile | null | undefined) {
+  return file.status === 'renamed' && !!diff && !diff.patchAvailable && file.changes === 0;
 }
 
-function renderablePatch(file: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
+function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
   const oldPath = oldFileName ? `a/${oldFileName}` : '/dev/null';
   const newPath = newFileName ? `b/${newFileName}` : '/dev/null';
-  return `--- ${oldPath}\n+++ ${newPath}\n${file.patch}`;
+  return `--- ${oldPath}\n+++ ${newPath}\n${diff.patch}`;
 }
 
-function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFile; mode: DiffViewMode; initiallyOpen?: boolean }) {
+// The diff itself is hydrated progressively in the background, or on demand when
+// the user explicitly expands a collapsed file.
+function FileChange({
+  file,
+  mode,
+  initiallyOpen = true,
+  diffHandle,
+  req,
+}: {
+  file: PullRequestFileManifestEntry;
+  mode: DiffViewMode;
+  initiallyOpen?: boolean;
+  diffHandle: ReturnType<typeof usePullRequestFileDiffs>;
+  req: FileDiffRequest;
+}) {
   const [open, setOpen] = useState(initiallyOpen);
-  const oldFileName = file.status === 'added' ? null : (file.previousPath || file.path);
+  const diffItem = diffHandle.useItem(req);
+  const diff = diffItem.data;
+  const oldFileName = file.status === 'added' ? null : (diff?.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
-  const contentUnchangedRename = isContentUnchangedRename(file);
+  const contentUnchangedRename = isContentUnchangedRename(file, diff);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -107,12 +131,21 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
         type="button"
         className="flex w-full items-center gap-3 bg-[var(--surface-raised)] px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] sm:px-4"
         aria-expanded={open}
-        onClick={() => setOpen(value => !value)}
+        onClick={() => {
+          setOpen(prev => {
+            const next = !prev;
+            // Explicit user expansion: if diff not yet cached/loaded, jump the queue now.
+            if (next && diff === undefined) {
+              diffHandle.load(req).catch(() => {});
+            }
+            return next;
+          });
+        }}
       >
         <ChevronDown className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !open && '-rotate-90')} />
         <FileDiff className="size-3.5 shrink-0 text-[var(--muted)]" />
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--foreground)]" title={file.path}>
-          {file.previousPath && file.previousPath !== file.path ? `${file.previousPath} → ${file.path}` : file.path}
+          {diff?.previousPath && diff.previousPath !== file.path ? `${diff.previousPath} → ${file.path}` : file.path}
         </span>
         <Badge className="hidden text-[9px] sm:inline-flex">{FILE_STATUS_LABELS[file.status]}</Badge>
         <span className="inline-flex items-center text-[10px] font-semibold text-emerald-300"><Plus className="size-3" />{file.additions}</span>
@@ -120,7 +153,15 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
       </button>
 
       {open && (
-        file.patchAvailable ? (
+        diffItem.isError ? (
+          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-red-300">
+            {diffItem.error?.message || 'Nie udało się wczytać diffu dla tego pliku.'}
+          </div>
+        ) : diff === undefined ? (
+          <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--muted)]">
+            <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie diffu…
+          </div>
+        ) : diff && diff.patchAvailable ? (
           <div className="nevo-diff-view max-w-full overflow-x-auto border-t border-[var(--border)]">
             <DiffView
               data={{
@@ -128,7 +169,7 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
                 newFile: { fileName: newFileName },
                 // GitHub's per-file `patch` starts at the first @@ hunk. DiffView's
                 // parser also requires the unified-diff file headers to find it.
-                hunks: [renderablePatch(file, oldFileName, newFileName)],
+                hunks: [renderablePatch(diff, oldFileName, newFileName)],
               }}
               registerHighlighter={highlighter}
               diffViewMode={mode === 'split' ? DiffModeEnum.SplitGitHub : DiffModeEnum.Unified}
@@ -138,11 +179,11 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
               diffViewFontSize={12}
             />
           </div>
-        ) : contentUnchangedRename ? (
+        ) : diff && contentUnchangedRename ? (
           <div className="border-t border-[var(--border)] px-4 py-7 text-center">
             <p className="text-xs font-semibold text-[var(--foreground)]">Plik przeniesiony bez zmian treści</p>
             <p className="mt-1 break-all font-mono text-[10px] leading-5 text-[var(--muted)]">
-              {file.previousPath} → {file.path}
+              {diff.previousPath} → {file.path}
             </p>
           </div>
         ) : (
@@ -158,12 +199,129 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
   );
 }
 
-function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
+const GROUP_MODE_OPTIONS: Array<{ id: GroupByMode; label: string; icon: typeof Layers }> = [
+  { id: 'area', label: 'Obszar', icon: Layers },
+  { id: 'directory', label: 'Katalog', icon: FolderTree },
+  { id: 'flat', label: 'Płasko', icon: List },
+];
+
+function IncompleteDiffIndicator({
+  diffHandle,
+  requests,
+  filesByPath,
+}: {
+  diffHandle: ReturnType<typeof usePullRequestFileDiffs>;
+  requests: FileDiffRequest[];
+  filesByPath: Map<string, PullRequestFileManifestEntry>;
+}) {
+  const items = diffHandle.useItems(requests);
+  const incomplete = requests.some((req, index) => {
+    const file = filesByPath.get(req.path);
+    const diff = items[index]?.data;
+    return file && diff !== undefined && diff !== null && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
+  });
+
+  if (!incomplete) return null;
+
+  return (
+    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/6 px-3 py-2.5 text-[10px] leading-5 text-amber-100/80">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      Część diffu może być niedostępna lub skrócona przez providera. Lista plików i statystyki pozostają widoczne.
+    </div>
+  );
+}
+
+function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChange; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
-  const collapseFilesInitially = pullRequest.files.length > 50;
-  const incompleteDiff = !pullRequest.fullDiffAvailable
-    || !pullRequest.filesComplete
-    || pullRequest.files.some(file => !file.patchAvailable && !isContentUnchangedRename(file));
+  const [groupMode, setGroupMode] = useState<GroupByMode>('area');
+  const [hideGenerated, setHideGenerated] = useState(true);
+  const [openGroupNames, setOpenGroupNames] = useState<Set<string>>(() => new Set());
+  const filesQuery = usePullRequestFiles(change, pullRequest, open);
+  const files = filesQuery.data?.files ?? [];
+  const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
+
+  const allPaths = useMemo(() => files.map((file) => file.path), [files]);
+  const visibility = useMemo(
+    () => computeVisibility(allPaths, filesQuery.data?.generatedFiles, hideGenerated),
+    [allPaths, filesQuery.data?.generatedFiles, hideGenerated],
+  );
+  const generatedCount = useMemo(
+    () => computeVisibility(allPaths, filesQuery.data?.generatedFiles, true).hiddenCount,
+    [allPaths, filesQuery.data?.generatedFiles],
+  );
+  const groups = useMemo(
+    () => groupFiles(visibility.visiblePaths, groupMode, filesQuery.data?.changeView),
+    [visibility.visiblePaths, groupMode, filesQuery.data?.changeView],
+  );
+
+  const toggleGroup = useCallback((name: string) => {
+    setOpenGroupNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const groupStats = useMemo(() => {
+    const stats = new Map<string, { additions: number; deletions: number; count: number }>();
+    for (const group of groups) {
+      let additions = 0;
+      let deletions = 0;
+      for (const path of group.paths) {
+        const file = filesByPath.get(path);
+        if (file) {
+          additions += file.additions;
+          deletions += file.deletions;
+        }
+      }
+      stats.set(group.name, { additions, deletions, count: group.paths.length });
+    }
+    return stats;
+  }, [groups, filesByPath]);
+
+  const diffHandle = usePullRequestFileDiffs(change, pullRequest);
+
+  // Derive the FileDiffRequest for a manifest entry.
+  const toRequest = useCallback(
+    (file: { path: string }): FileDiffRequest => ({
+      provider: pullRequest.reference.provider,
+      baseUrl: pullRequest.reference.baseUrl,
+      repository: pullRequest.reference.repository,
+      number: pullRequest.number,
+      headSha: pullRequest.headSha,
+      path: file.path,
+    }),
+    [pullRequest],
+  );
+
+  // Priority-ordered visible requests (active group first, then other groups).
+  const visibleDiffRequests = useMemo(() => {
+    return groups.flatMap((group) =>
+      group.paths
+        .map((path) => filesByPath.get(path))
+        .filter((file): file is PullRequestFileManifestEntry => Boolean(file))
+        .map(toRequest),
+    );
+  }, [groups, filesByPath, toRequest]);
+
+  // Progressive background hydration: preloads only the visible files of currently opened groups (or all in flat mode).
+  const activePreloadRequests = useMemo(() => {
+    if (groupMode === 'flat') return visibleDiffRequests;
+    return groups
+      .filter((g) => openGroupNames.has(g.name))
+      .flatMap((g) =>
+        g.paths
+          .map((path) => filesByPath.get(path))
+          .filter((file): file is PullRequestFileManifestEntry => Boolean(file))
+          .map(toRequest),
+      );
+  }, [groupMode, visibleDiffRequests, groups, openGroupNames, filesByPath, toRequest]);
+
+  useProgressiveDiffPreload(open, activePreloadRequests, diffHandle);
+
+  const fullDiffQuery = useFullDiff(change, pullRequest);
+  const collapseFilesInitially = files.length > 50;
 
   return (
     <Card className="overflow-hidden">
@@ -174,27 +332,35 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
             className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             aria-expanded={open}
             aria-label={`${open ? 'Zwiń' : 'Rozwiń'} pull request #${pullRequest.number}`}
-            onClick={() => setOpen(value => !value)}
+            onClick={() => setOpen((value) => !value)}
           >
             <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={stateTone(pullRequest)}>{stateLabel(pullRequest)}</Badge>
-              <span className="text-[11px] text-[var(--muted)]">{pullRequest.providerLabel} #{pullRequest.number}</span>
+              <span className="text-[11px] text-[var(--muted)]">
+                {pullRequest.providerLabel} #{pullRequest.number}
+              </span>
             </div>
-            <h2 className="mt-2 text-base font-semibold leading-6 text-[var(--foreground)] sm:text-lg">{pullRequest.title}</h2>
+            <h2 className="mt-2 text-base font-semibold leading-6 text-[var(--foreground)] sm:text-lg">
+              {pullRequest.title}
+            </h2>
           </div>
           <Button variant="secondary" size="sm" asChild>
             <a href={pullRequest.url} target="_blank" rel="noreferrer noopener">
-              <span className="hidden sm:inline">Otwórz</span><ExternalLink className="size-3.5 sm:ml-2" />
+              <span className="hidden sm:inline">Otwórz</span>
+              <ExternalLink className="size-3.5 sm:ml-2" />
             </a>
           </Button>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-[var(--muted)] sm:pl-11">
           {pullRequest.author && (
-            <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" />{pullRequest.author.login}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <UserRound className="size-3.5" />
+              {pullRequest.author.login}
+            </span>
           )}
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <GitBranch className="size-3.5 shrink-0" />
@@ -202,7 +368,10 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
             <span>→</span>
             <span className="max-w-44 truncate font-mono">{pullRequest.base.name || pullRequest.base.label || 'base'}</span>
           </span>
-          <span className="inline-flex items-center gap-1.5"><GitCommitHorizontal className="size-3.5" />{pullRequest.stats.commits} commitów</span>
+          <span className="inline-flex items-center gap-1.5">
+            <GitCommitHorizontal className="size-3.5" />
+            {pullRequest.stats.commits} commitów
+          </span>
         </div>
       </div>
 
@@ -210,47 +379,169 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
         <div className="px-3 py-4 sm:px-5 sm:py-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3 text-[11px]">
-              <span className="inline-flex items-center gap-1.5 text-[var(--muted)]"><Files className="size-3.5" />{pullRequest.stats.changedFiles} plików</span>
+              <span className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+                <Files className="size-3.5" />
+                {pullRequest.stats.changedFiles} plików
+              </span>
               <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
               <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
               {collapseFilesInitially && <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
 
-          {incompleteDiff && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/6 px-3 py-2.5 text-[10px] leading-5 text-amber-100/80">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              Część diffu może być niedostępna lub skrócona przez providera. Lista plików i statystyki pozostają widoczne.
+          {files.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-0.5" aria-label="Grupowanie plików">
+                {GROUP_MODE_OPTIONS.map((option) => {
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                        groupMode === option.id
+                          ? 'bg-[var(--surface-hover)] text-[var(--foreground)]'
+                          : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                      )}
+                      aria-pressed={groupMode === option.id}
+                      onClick={() => setGroupMode(option.id)}
+                    >
+                      <Icon className="size-3" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {generatedCount > 0 && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-[10px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
+                  aria-pressed={hideGenerated}
+                  onClick={() => setHideGenerated((value) => !value)}
+                >
+                  {hideGenerated ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                  {hideGenerated
+                    ? `${visibility.visibleCount} widocznych · ${visibility.hiddenCount} wygenerowanych ukrytych`
+                    : `${generatedCount} wygenerowanych widocznych — kliknij, aby ukryć`}
+                </button>
+              )}
             </div>
           )}
 
-          {pullRequest.files.length ? (
-            <div className="space-y-3">
-              {pullRequest.files.map(file => (
-                <FileChange
-                  key={`${file.previousPath || ''}:${file.path}`}
-                  file={file}
-                  mode={mode}
-                  initiallyOpen={!collapseFilesInitially}
-                />
-              ))}
+          {/* Isolated subscriber for incomplete diff alert to avoid re-rendering entire card */}
+          <IncompleteDiffIndicator diffHandle={diffHandle} requests={visibleDiffRequests} filesByPath={filesByPath} />
+
+          {filesQuery.loading ? (
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
+              <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie listy plików…
+            </div>
+          ) : filesQuery.error ? (
+            <div className="rounded-xl border border-red-400/20 px-5 py-10 text-center text-xs text-red-300">
+              {filesQuery.error}
+            </div>
+          ) : groups.length ? (
+            <div className="space-y-4">
+              {groups.map((group) => {
+                const st = groupStats.get(group.name) || { additions: 0, deletions: 0, count: group.paths.length };
+                const isGroupOpen = groupMode === 'flat' || openGroupNames.has(group.name);
+
+                if (groupMode === 'flat') {
+                  return (
+                    <div key={group.name} className="space-y-3">
+                      {group.paths.map((path) => {
+                        const file = filesByPath.get(path);
+                        if (!file) return null;
+                        const req = toRequest(file);
+                        return (
+                          <FileChange
+                            key={path}
+                            file={file}
+                            mode={mode}
+                            initiallyOpen={!collapseFilesInitially}
+                            diffHandle={diffHandle}
+                            req={req}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
+                      aria-expanded={isGroupOpen}
+                      onClick={() => toggleGroup(group.name)}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <ChevronDown
+                          className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !isGroupOpen && '-rotate-90')}
+                        />
+                        <span className="font-semibold text-xs text-[var(--foreground)] truncate">{group.name}</span>
+                        <span className="text-[10px] text-[var(--muted)] font-mono">
+                          {group.paths.length} {group.paths.length === 1 ? 'plik' : 'plików'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2.5 text-[10px] shrink-0 font-semibold">
+                        <span className="text-emerald-300">+{st.additions}</span>
+                        <span className="text-red-300">−{st.deletions}</span>
+                      </div>
+                    </button>
+
+                    {/* Do not render FileChange / DiffView for collapsed groups */}
+                    {isGroupOpen && (
+                      <div className="space-y-3 p-3 sm:p-4 border-t border-[var(--border)]">
+                        {group.paths.map((path) => {
+                          const file = filesByPath.get(path);
+                          if (!file) return null;
+                          const req = toRequest(file);
+                          return (
+                            <FileChange
+                              key={path}
+                              file={file}
+                              mode={mode}
+                              initiallyOpen={false}
+                              diffHandle={diffHandle}
+                              req={req}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
-              Provider nie zwrócił listy zmienionych plików.
+              {files.length ? 'Wszystkie pliki są ukryte — wyłącz filtr, aby je zobaczyć.' : 'Provider nie zwrócił listy zmienionych plików.'}
             </div>
           )}
 
-          {incompleteDiff && pullRequest.fullDiffAvailable && (
-            <details className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]">
-              <summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 text-[11px] font-semibold text-[var(--foreground)]">
-                Pełny surowy diff z providera
-              </summary>
+          <details
+            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]"
+            onToggle={(event) => {
+              if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading) void fullDiffQuery.load();
+            }}
+          >
+            <summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 text-[11px] font-semibold text-[var(--foreground)]">
+              Pełny surowy diff z providera
+            </summary>
+            {fullDiffQuery.loading ? (
+              <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--muted)]">
+                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
+              </div>
+            ) : fullDiffQuery.error ? (
+              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-red-300">{fullDiffQuery.error}</div>
+            ) : fullDiffQuery.data ? (
               <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
-                {pullRequest.fullDiff}
+                {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}
               </pre>
-            </details>
-          )}
+            ) : null}
+          </details>
         </div>
       )}
     </Card>
@@ -432,7 +723,7 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
       </div>
 
       {detailPullRequest.availability === 'available'
-        ? <PullRequestCard pullRequest={detailPullRequest} mode={mode} />
+        ? <PullRequestCard change={change} pullRequest={detailPullRequest} mode={mode} />
         : <UnavailableCard result={detailPullRequest} />}
     </div>
   );

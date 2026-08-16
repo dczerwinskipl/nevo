@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { open as openFile, readdir as readdirAsync, readFile as readFileAsync, stat as statAsync } from 'node:fs/promises';
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 import {
   ACTIVE_DIR,
@@ -117,21 +119,72 @@ function sourceDirectory(source, activeDir, archiveDir) {
   return null;
 }
 
-function markdownDocument({ id, kind, filePath, fallbackTitle, repoRoot, metadata = {} }) {
-  const available = Boolean(filePath && existsSync(filePath) && statSync(filePath).isFile());
-  const markdown = available ? stripFrontMatter(readOptional(filePath)).trim() : '';
+// ── Manifest + per-document content (async fs, no full-body reads on the
+// manifest path) ─────────────────────────────────────────────────────────
+//
+// Replaces the old single-bundle loadSpecificationContent: the manifest lists
+// every document (id/title/path/available) without bodies, and
+// loadSpecificationDocument serves exactly one document's markdown on demand.
+// `docId` is `overview`, `area:<id>`, or `task:<id>` — unambiguous even if an
+// area and a task happen to share an id.
+
+const TITLE_READ_BYTES = 8192;
+
+async function pathStat(filePath) {
+  if (!filePath) return null;
+  try {
+    const stats = await statAsync(filePath);
+    return stats.isFile() ? stats : null;
+  } catch {
+    return null;
+  }
+}
+
+// A fast partial read — enough to find the leading H1 without paying for a
+// full-file read on every manifest request (area doc: "derive it more
+// cheaply than a full-file read").
+async function readTitleChunk(filePath) {
+  const handle = await openFile(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(TITLE_READ_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, TITLE_READ_BYTES, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function manifestDocument({ id, docId, kind, filePath, fallbackTitle, repoRoot, metadata = {} }) {
+  const stats = await pathStat(filePath);
+  const available = Boolean(stats);
+  const chunk = available ? await readTitleChunk(filePath) : '';
   return {
     id,
+    docId,
     kind,
-    title: extractDocumentTitle(markdown, fallbackTitle, kind === 'task'),
+    title: extractDocumentTitle(chunk, fallbackTitle, kind === 'task'),
     path: filePath ? repositoryPath(repoRoot, filePath) : null,
     available,
-    markdown,
+    lastModified: stats ? new Date(stats.mtimeMs).toISOString() : null,
     ...metadata,
   };
 }
 
-export function loadSpecificationContent({
+async function listMarkdownFiles(dir) {
+  let entries;
+  try {
+    entries = await readdirAsync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter(entry => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
+    .map(entry => safeChildPath(dir, entry.name))
+    .filter(Boolean)
+    .sort((a, b) => basename(a).localeCompare(basename(b)));
+}
+
+export async function loadSpecificationManifest({
   source,
   slug,
   activeDir = ACTIVE_DIR,
@@ -146,45 +199,44 @@ export function loadSpecificationContent({
 
   const overviewPath = safeChildPath(change._dir, 'overview.md');
   const areasDir = safeChildPath(change._dir, 'areas');
-  const areaFiles = areasDir && existsSync(areasDir)
-    ? readdirSync(areasDir, { withFileTypes: true })
-      .filter(entry => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
-      .map(entry => safeChildPath(areasDir, entry.name))
-      .filter(Boolean)
-      .sort((a, b) => basename(a).localeCompare(basename(b)))
-    : [];
+  const areaFiles = areasDir ? await listMarkdownFiles(areasDir) : [];
 
-  const overview = markdownDocument({
+  const overview = await manifestDocument({
     id: 'overview',
+    docId: 'overview',
     kind: 'overview',
     filePath: overviewPath,
     fallbackTitle: change.title || change._slug,
     repoRoot,
   });
-  const areas = areaFiles.map(filePath => markdownDocument({
-    id: basename(filePath, extname(filePath)),
-    kind: 'area',
-    filePath,
-    fallbackTitle: basename(filePath, extname(filePath)).replace(/[-_]+/g, ' '),
-    repoRoot,
+  const areas = await Promise.all(areaFiles.map(filePath => {
+    const id = basename(filePath, extname(filePath));
+    return manifestDocument({
+      id,
+      docId: `area:${id}`,
+      kind: 'area',
+      filePath,
+      fallbackTitle: id.replace(/[-_]+/g, ' '),
+      repoRoot,
+    });
   }));
-  const tasks = change.tasks
-    .map(task => {
-      const filePath = safeChildPath(change._dir, task.file);
-      return markdownDocument({
-        id: task.id,
-        kind: 'task',
-        filePath,
-        fallbackTitle: task.id,
-        repoRoot,
-        metadata: {
-          status: task.status || 'draft',
-          order: task.order ?? null,
-          dependsOn: task.depends_on || [],
-        },
-      });
-    })
-    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
+  const tasks = await Promise.all(change.tasks.map(task => {
+    const filePath = safeChildPath(change._dir, task.file);
+    return manifestDocument({
+      id: task.id,
+      docId: `task:${task.id}`,
+      kind: 'task',
+      filePath,
+      fallbackTitle: task.id,
+      repoRoot,
+      metadata: {
+        status: task.status || 'draft',
+        order: task.order ?? null,
+        dependsOn: task.depends_on || [],
+      },
+    });
+  }));
+  tasks.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
 
   return {
     id: change.id || change._slug,
@@ -195,6 +247,129 @@ export function loadSpecificationContent({
     path: repositoryPath(repoRoot, change._dir),
     overview,
     areas,
+    tasks,
+  };
+}
+
+/** Resolve one manifest `docId` to `{ filePath, kind, id, fallbackTitle, metadata }`, or `null` if unknown/unsafe. */
+function resolveDocumentTarget(change, docId) {
+  if (docId === 'overview') {
+    return {
+      filePath: safeChildPath(change._dir, 'overview.md'),
+      kind: 'overview',
+      id: 'overview',
+      fallbackTitle: change.title || change._slug,
+      metadata: {},
+    };
+  }
+  if (docId.startsWith('area:')) {
+    const id = docId.slice('area:'.length);
+    if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+    return {
+      filePath: safeChildPath(change._dir, `areas/${id}.md`),
+      kind: 'area',
+      id,
+      fallbackTitle: id.replace(/[-_]+/g, ' '),
+      metadata: {},
+    };
+  }
+  if (docId.startsWith('task:')) {
+    const id = docId.slice('task:'.length);
+    const task = change.tasks.find(t => t.id === id);
+    if (!task) return null;
+    return {
+      filePath: safeChildPath(change._dir, task.file),
+      kind: 'task',
+      id,
+      fallbackTitle: id,
+      metadata: {
+        status: task.status || 'draft',
+        order: task.order ?? null,
+        dependsOn: task.depends_on || [],
+      },
+    };
+  }
+  return null;
+}
+
+export async function loadSpecificationDocument({
+  source,
+  slug,
+  docId,
+  activeDir = ACTIVE_DIR,
+  archiveDir = ARCHIVE_DIR,
+  repoRoot = REPOSITORY_ROOT,
+} = {}) {
+  const baseDir = sourceDirectory(source, activeDir, archiveDir);
+  if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
+  if (typeof docId !== 'string' || !docId) return null;
+
+  const change = loadChange(slug, baseDir);
+  if (!change) return null;
+
+  const target = resolveDocumentTarget(change, docId);
+  if (!target || !target.filePath) return null;
+
+  const stats = await pathStat(target.filePath);
+  const available = Boolean(stats);
+  const markdown = available ? stripFrontMatter(await readFileAsync(target.filePath, 'utf8')).trim() : '';
+
+  return {
+    id: target.id,
+    docId,
+    kind: target.kind,
+    title: extractDocumentTitle(markdown, target.fallbackTitle, target.kind === 'task'),
+    path: repositoryPath(repoRoot, target.filePath),
+    available,
+    markdown,
+    ...target.metadata,
+  };
+}
+
+// ── Task statuses (small, fast-pollable — sourced entirely from change.yaml,
+// never a per-task file read) ───────────────────────────────────────────────
+
+function taskStatusProjection(task, change) {
+  const dependencyStatuses = new Map(change.tasks.map(item => [item.id, item.status]));
+  const blockedBy = (task.depends_on || []).filter(id => {
+    const status = dependencyStatuses.get(id);
+    return !['implemented', 'verified', 'archived'].includes(status);
+  });
+
+  return {
+    id: task.id,
+    status: task.status || 'draft',
+    stage: stageForStatus(task.status),
+    order: task.order ?? null,
+    dependsOn: task.depends_on || [],
+    blockedBy,
+    ready: isTaskReady(task, change),
+    terminal: isTerminalStatus(task.status),
+  };
+}
+
+export function loadTaskStatuses({
+  source,
+  slug,
+  activeDir = ACTIVE_DIR,
+  archiveDir = ARCHIVE_DIR,
+} = {}) {
+  const baseDir = sourceDirectory(source, activeDir, archiveDir);
+  if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
+
+  const change = loadChange(slug, baseDir);
+  if (!change) return null;
+
+  const tasks = change.tasks
+    .map(task => taskStatusProjection(task, change))
+    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
+  const revision = createHash('sha1').update(JSON.stringify(tasks)).digest('hex');
+
+  return {
+    id: change.id || change._slug,
+    slug: change._slug,
+    source,
+    revision,
     tasks,
   };
 }

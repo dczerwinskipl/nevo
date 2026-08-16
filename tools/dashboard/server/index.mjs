@@ -3,14 +3,24 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadDashboardData, loadSpecificationContent } from './data.mjs';
+import {
+  loadDashboardData,
+  loadSpecificationManifest,
+  loadSpecificationDocument,
+  loadTaskStatuses,
+} from './data.mjs';
 import {
   executeSpecificationAction,
   loadSpecificationActions,
   SpecificationActionError,
 } from './actions.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
-import { loadSpecificationPullRequests } from './providers/service.mjs';
+import {
+  loadSpecificationPullRequestFileDiffs,
+  loadSpecificationPullRequestFiles,
+  loadSpecificationPullRequestFullDiff,
+  loadSpecificationPullRequests,
+} from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 import { handleAiRequest } from './ai-routes.mjs';
 import {
@@ -91,8 +101,13 @@ function serveStatic(response, pathname, distDir) {
 
 export function createDashboardServer({
   dataLoader = loadDashboardData,
-  contentLoader = loadSpecificationContent,
+  manifestLoader = loadSpecificationManifest,
+  documentLoader = loadSpecificationDocument,
+  taskStatusLoader = loadTaskStatuses,
   pullRequestLoader = loadSpecificationPullRequests,
+  pullRequestFilesLoader = loadSpecificationPullRequestFiles,
+  pullRequestFileDiffsLoader = loadSpecificationPullRequestFileDiffs,
+  pullRequestFullDiffLoader = loadSpecificationPullRequestFullDiff,
   actionLoader = loadSpecificationActions,
   actionExecutor = executeSpecificationAction,
   eventHub = createSpecEventHub(),
@@ -186,6 +201,74 @@ export function createDashboardServer({
       return;
     }
 
+    // File-diffs is a POST (a `{ paths, headSha }` body), so this route group
+    // is handled before the blanket GET-only gate below, same as actionRoute.
+    const pullRequestSubRoute = url.pathname.match(
+      /^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests\/(\d+)\/(files|file-diffs|diff)$/,
+    );
+    if (pullRequestSubRoute) {
+      const [, source, rawSlug, rawNumber, resource] = pullRequestSubRoute;
+      let slug;
+      try {
+        slug = decodeURIComponent(rawSlug);
+      } catch {
+        sendJson(response, 404, { error: 'Pull request not found' });
+        return;
+      }
+      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+        sendJson(response, 404, { error: 'Pull request not found' });
+        return;
+      }
+      const number = Number(rawNumber);
+
+      if (resource === 'files') {
+        if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+        try {
+          const files = await pullRequestFilesLoader({ source, slug, number });
+          if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return; }
+          sendJson(response, 200, files);
+        } catch (error) {
+          const status = typeof error?.status === 'number' ? error.status : 502;
+          sendJson(response, status, { error: error?.message || 'Unable to load pull request files' });
+        }
+        return;
+      }
+
+      if (resource === 'diff') {
+        if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+        try {
+          const diff = await pullRequestFullDiffLoader({ source, slug, number });
+          if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return; }
+          sendJson(response, 200, diff);
+        } catch (error) {
+          const status = typeof error?.status === 'number' ? error.status : 502;
+          sendJson(response, status, { error: error?.message || 'Unable to load pull request diff' });
+        }
+        return;
+      }
+
+      // resource === 'file-diffs'
+      if (method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+      try {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.paths)) {
+          sendJson(response, 400, { error: 'Request body must be a JSON object with a paths array.' });
+          return;
+        }
+        const paths = body.paths.filter(path => typeof path === 'string');
+        const headSha = typeof body.headSha === 'string' ? body.headSha : null;
+        const diffs = await pullRequestFileDiffsLoader({ source, slug, number, paths, headSha });
+        if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return; }
+        sendJson(response, 200, diffs);
+      } catch (error) {
+        const status = typeof error?.status === 'number' ? error.status : (error instanceof SpecificationActionError ? error.status : 502);
+        sendJson(response, status, {
+          error: error?.message || 'Unable to load pull request file diffs.',
+        });
+      }
+      return;
+    }
+
     if (method !== 'GET') {
       sendJson(response, 405, { error: 'Method not allowed' });
       return;
@@ -205,6 +288,32 @@ export function createDashboardServer({
       return;
     }
 
+    const documentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content\/([^/]+)$/);
+    if (documentRoute) {
+      try {
+        const slug = decodeURIComponent(documentRoute[2]);
+        const docId = decodeURIComponent(documentRoute[3]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification document not found' });
+          return;
+        }
+        const docStart = performance.now();
+        const document = await documentLoader({ source: documentRoute[1], slug, docId });
+        const docMs = Math.round(performance.now() - docStart);
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[document] slug=${slug} docId=${docId} total=${docMs}ms`);
+        }
+        if (!document) {
+          sendJson(response, 404, { error: 'Specification document not found' });
+          return;
+        }
+        sendJson(response, 200, document);
+      } catch {
+        sendJson(response, 404, { error: 'Specification document not found' });
+      }
+      return;
+    }
+
     const contentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content$/);
     if (contentRoute) {
       try {
@@ -213,14 +322,34 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification content not found' });
           return;
         }
-        const content = contentLoader({ source: contentRoute[1], slug });
-        if (!content) {
+        const manifest = await manifestLoader({ source: contentRoute[1], slug });
+        if (!manifest) {
           sendJson(response, 404, { error: 'Specification content not found' });
           return;
         }
-        sendJson(response, 200, content);
+        sendJson(response, 200, manifest);
       } catch {
         sendJson(response, 404, { error: 'Specification content not found' });
+      }
+      return;
+    }
+
+    const taskStatusesRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/task-statuses$/);
+    if (taskStatusesRoute) {
+      try {
+        const slug = decodeURIComponent(taskStatusesRoute[2]);
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+          sendJson(response, 404, { error: 'Specification task statuses not found' });
+          return;
+        }
+        const statuses = taskStatusLoader({ source: taskStatusesRoute[1], slug });
+        if (!statuses) {
+          sendJson(response, 404, { error: 'Specification task statuses not found' });
+          return;
+        }
+        sendJson(response, 200, statuses);
+      } catch {
+        sendJson(response, 404, { error: 'Specification task statuses not found' });
       }
       return;
     }
@@ -233,7 +362,7 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;
         }
-        const changes = pullRequestLoader({ source: pullRequestRoute[1], slug });
+        const changes = await pullRequestLoader({ source: pullRequestRoute[1], slug });
         if (!changes) {
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;

@@ -65,19 +65,20 @@ test('projects contextual task gates, finalize validation, and worktree state fo
       runSpecs: successfulRunner(calls),
       worktreeLoader: () => ({ clean: false, total: 2, staged: 1, unstaged: 1, untracked: 0, files: [] }),
       branchLoader: () => 'feature/sample',
+      trackingLoader: () => ({ hasUpstream: true, ahead: 0, behind: 0 }),
     });
 
     assert.equal(payload.source, 'active');
     assert.deepEqual(payload.tasks['design-task'], { action: 'approve', enabled: true, reason: null });
     assert.deepEqual(payload.tasks['implemented-task'], { action: 'verify', enabled: true, reason: null });
-    assert.equal(payload.finalize.enabled, true);
-    assert.equal(payload.finalize.pullRequest.number, 42);
+    assert.equal(payload.finalize.enabled, false); // tasks are not all verified yet
     assert.deepEqual(payload.worktree, {
       clean: false, total: 2, staged: 1, unstaged: 1, untracked: 0, files: [],
       branch: 'feature/sample', hasUpstream: true, ahead: 0, behind: 0,
     });
     assert.ok(calls.some(args => args.join(' ') === 'approve sample design-task --check'));
     assert.ok(calls.some(args => args.join(' ') === 'verify sample implemented-task --check'));
+    assert.ok(!calls.some(args => args[0] === 'finalize'), 'must not run heavy finalize check during GET /actions');
   } finally {
     sample.cleanup();
   }
