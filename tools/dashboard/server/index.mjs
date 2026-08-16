@@ -15,7 +15,12 @@ import {
   SpecificationActionError,
 } from './actions.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
-import { loadSpecificationPullRequests } from './providers/service.mjs';
+import {
+  loadSpecificationPullRequestFileDiffs,
+  loadSpecificationPullRequestFiles,
+  loadSpecificationPullRequestFullDiff,
+  loadSpecificationPullRequests,
+} from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 import { handleAiRequest } from './ai-routes.mjs';
 import {
@@ -94,36 +99,15 @@ function serveStatic(response, pathname, distDir) {
   return true;
 }
 
-// PR-list metadata must never carry per-file patch/full-diff content (area
-// dashboard-data-loading-contracts: "no patch/fullDiff field for any file, for
-// any PR"). The provider layer still bundles files/diff into one fetch today
-// (tools/lib/github.mjs's getPullRequestDetails — out of this task's allowed
-// paths to split); this strips the heavy fields at the response boundary so
-// none of those bytes ever reach the client, deferring the actual GitHub
-// call-count reduction to the file/diff-hydration task.
-function stripPullRequestFileDetail(payload) {
-  if (!payload || !Array.isArray(payload.pullRequests)) return payload;
-  return {
-    ...payload,
-    pullRequests: payload.pullRequests.map(pullRequest => {
-      if (pullRequest.availability !== 'available') return pullRequest;
-      return {
-        ...pullRequest,
-        files: [],
-        filesComplete: true,
-        fullDiff: '',
-        fullDiffAvailable: false,
-      };
-    }),
-  };
-}
-
 export function createDashboardServer({
   dataLoader = loadDashboardData,
   manifestLoader = loadSpecificationManifest,
   documentLoader = loadSpecificationDocument,
   taskStatusLoader = loadTaskStatuses,
   pullRequestLoader = loadSpecificationPullRequests,
+  pullRequestFilesLoader = loadSpecificationPullRequestFiles,
+  pullRequestFileDiffsLoader = loadSpecificationPullRequestFileDiffs,
+  pullRequestFullDiffLoader = loadSpecificationPullRequestFullDiff,
   actionLoader = loadSpecificationActions,
   actionExecutor = executeSpecificationAction,
   eventHub = createSpecEventHub(),
@@ -214,6 +198,72 @@ export function createDashboardServer({
       }
 
       sendJson(response, 405, { error: 'Method not allowed' });
+      return;
+    }
+
+    // File-diffs is a POST (a `{ paths, headSha }` body), so this route group
+    // is handled before the blanket GET-only gate below, same as actionRoute.
+    const pullRequestSubRoute = url.pathname.match(
+      /^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests\/(\d+)\/(files|file-diffs|diff)$/,
+    );
+    if (pullRequestSubRoute) {
+      const [, source, rawSlug, rawNumber, resource] = pullRequestSubRoute;
+      let slug;
+      try {
+        slug = decodeURIComponent(rawSlug);
+      } catch {
+        sendJson(response, 404, { error: 'Pull request not found' });
+        return;
+      }
+      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
+        sendJson(response, 404, { error: 'Pull request not found' });
+        return;
+      }
+      const number = Number(rawNumber);
+
+      if (resource === 'files') {
+        if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+        try {
+          const files = pullRequestFilesLoader({ source, slug, number });
+          if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return; }
+          sendJson(response, 200, files);
+        } catch {
+          sendJson(response, 500, { error: 'Unable to load pull request files' });
+        }
+        return;
+      }
+
+      if (resource === 'diff') {
+        if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+        try {
+          const diff = pullRequestFullDiffLoader({ source, slug, number });
+          if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return; }
+          sendJson(response, 200, diff);
+        } catch {
+          sendJson(response, 500, { error: 'Unable to load pull request diff' });
+        }
+        return;
+      }
+
+      // resource === 'file-diffs'
+      if (method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed' }); return; }
+      try {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.paths)) {
+          sendJson(response, 400, { error: 'Request body must be a JSON object with a paths array.' });
+          return;
+        }
+        const paths = body.paths.filter(path => typeof path === 'string');
+        const headSha = typeof body.headSha === 'string' ? body.headSha : null;
+        const diffs = pullRequestFileDiffsLoader({ source, slug, number, paths, headSha });
+        if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return; }
+        sendJson(response, 200, diffs);
+      } catch (error) {
+        const known = error instanceof SpecificationActionError;
+        sendJson(response, known ? error.status : 500, {
+          error: known ? error.message : 'Unable to load pull request file diffs.',
+        });
+      }
       return;
     }
 
@@ -310,7 +360,7 @@ export function createDashboardServer({
           sendJson(response, 404, { error: 'Specification changes not found' });
           return;
         }
-        sendJson(response, 200, stripPullRequestFileDetail(changes));
+        sendJson(response, 200, changes);
       } catch {
         sendJson(response, 500, { error: 'Unable to load specification changes' });
       }

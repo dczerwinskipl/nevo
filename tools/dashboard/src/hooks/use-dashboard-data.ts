@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryKey } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
+  AvailablePullRequest,
   DashboardChange,
   DashboardPayload,
   AiProvidersPayload,
@@ -10,6 +11,11 @@ import type {
   AiSession,
   AiSessionsPayload,
   AiTurnSnapshot,
+  PullRequestFile,
+  PullRequestFileDiffsPayload,
+  PullRequestFileManifestEntry,
+  PullRequestFilesPayload,
+  PullRequestFullDiffPayload,
   PullRequestsPayload,
   SpecificationActionResult,
   SpecificationActionsPayload,
@@ -24,6 +30,8 @@ const MANIFEST_QUERY_KEY = ['nevo-spec-manifest'] as const;
 const DOCUMENT_QUERY_KEY = ['nevo-spec-document'] as const;
 const TASK_STATUSES_QUERY_KEY = ['nevo-spec-task-statuses'] as const;
 const PULL_REQUEST_QUERY_KEY = ['nevo-spec-pull-requests'] as const;
+const PULL_REQUEST_FILES_QUERY_KEY = ['nevo-spec-pull-request-files'] as const;
+const PULL_REQUEST_FULL_DIFF_QUERY_KEY = ['nevo-spec-pull-request-full-diff'] as const;
 const ACTIONS_QUERY_KEY = ['nevo-spec-actions'] as const;
 const AI_PROVIDERS_QUERY_KEY = ['nevo-ai-providers'] as const;
 const AI_SESSIONS_QUERY_KEY = ['nevo-ai-sessions'] as const;
@@ -237,6 +245,221 @@ export function usePullRequests(change: DashboardChange, enabled = true) {
     loading: query.isPending && enabled,
     refreshing: query.isFetching && !query.isPending,
     refresh: query.refetch,
+  };
+}
+
+async function fetchPullRequestFiles(change: DashboardChange, number: number) {
+  const response = await fetch(
+    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/files`,
+    { cache: 'no-store' },
+  );
+  if (!response.ok) throw new Error(`Pull request files API: ${response.status}`);
+  return await response.json() as PullRequestFilesPayload;
+}
+
+// Client-side keyed by headSha too (even though the server route itself
+// isn't headSha-scoped) — a new PR version simply gets a fresh cache entry,
+// so "re-open the same PR at the same headSha costs nothing" holds without
+// any extra invalidation wiring (area pull-request-file-and-diff-loading).
+export function usePullRequestFiles(change: DashboardChange, pullRequest: AvailablePullRequest, enabled = true) {
+  const query = useQuery({
+    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, change.source, change.slug, pullRequest.number, pullRequest.headSha],
+    queryFn: () => fetchPullRequestFiles(change, pullRequest.number),
+    enabled,
+    staleTime: Infinity,
+    retry: 2,
+  });
+
+  return {
+    data: query.data ?? null,
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isPending && enabled,
+    refreshing: query.isFetching && !query.isPending,
+    refresh: query.refetch,
+  };
+}
+
+async function fetchFileDiffsBatch(change: DashboardChange, number: number, paths: string[], headSha: string | null) {
+  const response = await fetch(
+    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/file-diffs`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths, headSha }),
+    },
+  );
+  if (!response.ok) throw new Error(`Pull request file-diffs API: ${response.status}`);
+  return (await response.json() as PullRequestFileDiffsPayload).diffs;
+}
+
+const DEFAULT_DIFF_BATCH_SIZE = 15;
+
+export interface DiffFetchUnit {
+  paths: string[];
+  priority: boolean;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
+  return batches;
+}
+
+/**
+ * Pure diff-hydration fetch-order policy (area pull-request-file-and-diff-
+ * loading, AC4) — kept separate from the stateful hook below so the ordering
+ * guarantee itself is directly testable without a DOM/React renderer. Every
+ * path in `priorityPaths` that isn't already resolved/in-flight becomes its
+ * own single-path unit, always ordered first — ahead of every background
+ * batch, regardless of where that path would otherwise fall in `allPaths`'
+ * own order. The remaining not-yet-settled paths are chunked into background
+ * batches of `batchSize`, in `allPaths`' own order.
+ */
+export function buildDiffFetchPlan({
+  allPaths,
+  resolvedPaths,
+  inFlightPaths,
+  priorityPaths = [],
+  batchSize,
+}: {
+  allPaths: string[];
+  // A `Map`'s `.has()` works identically to a `Set`'s for this purpose — the
+  // hook passes its `diffs` Map directly rather than re-deriving a Set on
+  // every render just to satisfy a narrower parameter type.
+  resolvedPaths: { has(path: string): boolean };
+  inFlightPaths: { has(path: string): boolean };
+  priorityPaths?: string[];
+  batchSize: number;
+}): DiffFetchUnit[] {
+  const known = new Set(allPaths);
+  const settled = (path: string) => resolvedPaths.has(path) || inFlightPaths.has(path);
+
+  const priorityUnits: DiffFetchUnit[] = priorityPaths
+    .filter(path => known.has(path) && !settled(path))
+    .map(path => ({ paths: [path], priority: true }));
+
+  const prioritySet = new Set(priorityPaths);
+  const backgroundRemaining = allPaths.filter(path => !settled(path) && !prioritySet.has(path));
+  const backgroundUnits: DiffFetchUnit[] = chunk(backgroundRemaining, batchSize)
+    .map(paths => ({ paths, priority: false }));
+
+  return [...priorityUnits, ...backgroundUnits];
+}
+
+// Priority-aware background diff hydration (area pull-request-file-and-diff-
+// loading): batches the PR's files in the background (lowest priority), but
+// an explicit `requestDiff(path)` call (a user opening a file) jumps straight
+// to its own fetch ahead of anything still queued. Cached per (headSha, path)
+// client-side — a diff already in `diffs` or already in flight is never
+// re-fetched, satisfying "two sequential opens at the same headSha cost
+// nothing" without needing react-query's own cache for this custom queue.
+export function usePullRequestFileDiffs(
+  change: DashboardChange,
+  pullRequest: AvailablePullRequest,
+  files: PullRequestFileManifestEntry[],
+  enabled = true,
+  batchSize = DEFAULT_DIFF_BATCH_SIZE,
+) {
+  const [diffs, setDiffs] = useState<Map<string, PullRequestFile>>(new Map());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const cacheKeyRef = useRef<string>('');
+  const cancelledRef = useRef(false);
+
+  const cacheKey = `${pullRequest.reference.provider}:${pullRequest.reference.baseUrl}:${pullRequest.reference.repository}:${pullRequest.number}:${pullRequest.headSha ?? ''}`;
+
+  useEffect(() => {
+    if (cacheKeyRef.current === cacheKey) return;
+    cacheKeyRef.current = cacheKey;
+    inFlightRef.current = new Set();
+    setDiffs(new Map());
+  }, [cacheKey]);
+
+  const runBatch = useCallback(async (paths: string[]) => {
+    const pending = paths.filter(path => !inFlightRef.current.has(path));
+    if (!pending.length) return;
+    pending.forEach(path => inFlightRef.current.add(path));
+    try {
+      const result = await fetchFileDiffsBatch(change, pullRequest.number, pending, pullRequest.headSha);
+      if (cacheKeyRef.current !== cacheKey) return; // PR moved on to a new headSha while this was in flight
+      setDiffs(prev => {
+        const next = new Map(prev);
+        for (const file of result) next.set(file.path, file);
+        return next;
+      });
+    } finally {
+      pending.forEach(path => inFlightRef.current.delete(path));
+    }
+  }, [cacheKey, change, pullRequest.headSha, pullRequest.number]);
+
+  // Explicit user open — the plan always places a not-yet-settled priority
+  // path in its own unit, first, so this fetch is issued immediately rather
+  // than joining the background queue's own sequential await chain below.
+  const requestDiff = useCallback((path: string) => {
+    const [unit] = buildDiffFetchPlan({
+      allPaths: [path],
+      resolvedPaths: diffs,
+      inFlightPaths: inFlightRef.current,
+      priorityPaths: [path],
+      batchSize: 1,
+    });
+    if (unit) void runBatch(unit.paths);
+  }, [diffs, runBatch]);
+
+  // Background hydration, in batches, lowest priority — runs after mount and
+  // whenever the file list/PR version changes; a path already resolved or
+  // already in flight (including via a just-issued requestDiff) is skipped.
+  useEffect(() => {
+    if (!enabled || !files.length) return undefined;
+    cancelledRef.current = false;
+    const plan = buildDiffFetchPlan({
+      allPaths: files.map(file => file.path),
+      resolvedPaths: diffs,
+      inFlightPaths: inFlightRef.current,
+      batchSize,
+    });
+    void (async () => {
+      for (const unit of plan) {
+        if (cancelledRef.current) return;
+        await runBatch(unit.paths);
+      }
+    })();
+    return () => { cancelledRef.current = true; };
+    // Deliberately excludes `diffs` — re-running this effect on every diff
+    // arrival would re-walk already-hydrated batches; `runBatch` itself
+    // already skips paths that are cached or in flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, files, cacheKey, batchSize, runBatch]);
+
+  return { diffs, requestDiff };
+}
+
+async function fetchFullDiff(change: DashboardChange, number: number) {
+  const response = await fetch(
+    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/diff`,
+    { cache: 'no-store' },
+  );
+  if (!response.ok) throw new Error(`Pull request diff API: ${response.status}`);
+  return await response.json() as PullRequestFullDiffPayload;
+}
+
+// On-demand only (area pull-request-file-and-diff-loading: "never fetched as
+// a side effect of listing PRs or opening the files manifest") — `load()` is
+// the only thing that triggers the request.
+export function useFullDiff(change: DashboardChange, number: number) {
+  const query = useQuery({
+    queryKey: [...PULL_REQUEST_FULL_DIFF_QUERY_KEY, change.source, change.slug, number],
+    queryFn: () => fetchFullDiff(change, number),
+    enabled: false,
+    staleTime: Infinity,
+    retry: 1,
+  });
+
+  return {
+    data: query.data ?? null,
+    error: query.error instanceof Error ? query.error.message : null,
+    loading: query.isFetching,
+    loaded: query.isFetched && !query.isError,
+    load: query.refetch,
   };
 }
 

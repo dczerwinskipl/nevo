@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T06:34:29.971Z",
+  "generated": "2026-08-16T06:46:20.167Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -442,12 +442,41 @@
           "id": "pr-file-manifest-and-diff-hydration",
           "order": 2,
           "file": "tasks/02-pr-file-manifest-and-diff-hydration.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "dashboard-data-loading-contracts"
           ],
           "implementation": {
-            "baseline_revision": "505d19be3467db453f8ebb557131fe666edf3132"
+            "baseline_revision": "505d19be3467db453f8ebb557131fe666edf3132",
+            "review_revision": "63ea07c579f95f92b954a0f22c1c74a662d30310",
+            "changed_paths": [
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/server/providers/github.mjs",
+              "tools/dashboard/server/providers/service.mjs",
+              "tools/dashboard/src/components/changes-panel.tsx",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/diff-hydration-queue.test.mjs",
+              "tools/dashboard/tests/providers.test.mjs",
+              "tools/dashboard/tests/server.test.mjs",
+              "tools/lib/github.mjs"
+            ],
+            "worktree_patch_fingerprint": "bf4f50f99917daaf14b1ea807ce449491ea5602cb9844bf1753e1c4dd600cc44"
+          },
+          "self_check": {
+            "fingerprint": "17d8b78f5eeb35b6c1f1c6668ddf7a7b07717cf3fa00b97b358d1dbf1cb547d0",
+            "revision": "63ea07c579f95f92b954a0f22c1c74a662d30310",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         },
         {

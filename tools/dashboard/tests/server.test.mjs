@@ -168,7 +168,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
   }
 });
 
-test('serves provider-neutral pull request results through an exact read-only route, stripped of file/diff detail', async () => {
+test('serves provider-neutral pull request results through an exact read-only route', async () => {
   const calls = [];
   const server = createDashboardServer({
     dataLoader: () => ({ active: [], archive: [] }),
@@ -179,14 +179,11 @@ test('serves provider-neutral pull request results through an exact read-only ro
       return {
         slug: lookup.slug,
         source: lookup.source,
-        pullRequests: [{
-          availability: 'available',
-          title: 'PR one',
-          files: [{ path: 'a.js', patch: '@@ heavy patch @@' }],
-          filesComplete: false,
-          fullDiff: 'diff --git a/a.js b/a.js\n+heavy',
-          fullDiffAvailable: true,
-        }],
+        // The lightweight PR-list shape (area dashboard-data-loading-contracts) —
+        // no files/patch/fullDiff field is ever produced by this route's own
+        // loader (mapGitHubPullRequest, tested in providers.test.mjs); this
+        // route just forwards whatever the loader returns.
+        pullRequests: [{ availability: 'available', title: 'PR one', headSha: 'abc' }],
       };
     },
     eventHub: fakeHub(),
@@ -199,10 +196,8 @@ test('serves provider-neutral pull request results through an exact read-only ro
     assert.equal(response.status, 200);
     const payload = await response.json();
     assert.equal(payload.pullRequests[0].title, 'PR one');
-    assert.deepEqual(payload.pullRequests[0].files, []);
-    assert.equal(payload.pullRequests[0].fullDiff, '');
-    assert.equal(payload.pullRequests[0].fullDiffAvailable, false);
-    assert.doesNotMatch(JSON.stringify(payload), /heavy patch|heavy diff|\+heavy/);
+    assert.equal('files' in payload.pullRequests[0], false);
+    assert.equal('fullDiff' in payload.pullRequests[0], false);
     assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change' });
 
     const missing = await fetch(`${baseUrl}/api/specs/archive/missing/pull-requests`);
@@ -218,6 +213,124 @@ test('serves provider-neutral pull request results through an exact read-only ro
 
     const mutation = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests`, { method: 'POST' });
     assert.equal(mutation.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('serves the PR file-manifest route (GET) without ever leaking a lookup failure', async () => {
+  const calls = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestFilesLoader: lookup => {
+      calls.push(lookup);
+      if (lookup.number === 999) return null;
+      return { number: lookup.number, files: [{ path: 'a.js', status: 'added', additions: 1, deletions: 0, changes: 1 }] };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/files`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.files.length, 1);
+    assert.equal('patch' in payload.files[0], false);
+    assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change', number: 42 });
+
+    const missing = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/999/files`);
+    assert.equal(missing.status, 404);
+
+    const mutation = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/files`, { method: 'POST' });
+    assert.equal(mutation.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
+  const calls = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestFileDiffsLoader: lookup => {
+      calls.push(lookup);
+      return { number: lookup.number, headSha: lookup.headSha, diffs: lookup.paths.map(path => ({ path, patch: 'x' })) };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.js', 'b.js'], headSha: 'sha-1' }),
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.diffs.length, 2);
+    assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change', number: 42, paths: ['a.js', 'b.js'], headSha: 'sha-1' });
+
+    const malformed = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ headSha: 'sha-1' }),
+    });
+    assert.equal(malformed.status, 400);
+
+    const wrongMethod = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/file-diffs`);
+    assert.equal(wrongMethod.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('serves the full-diff route (GET) only, on demand', async () => {
+  const calls = [];
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestFullDiffLoader: lookup => {
+      calls.push(lookup);
+      return { number: lookup.number, diff: 'diff --git a/x b/x\n', diffAvailable: true };
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/diff`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).diffAvailable, true);
+    assert.deepEqual(calls[0], { source: 'active', slug: 'sample-change', number: 42 });
+
+    const mutation = await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests/42/diff`, { method: 'POST' });
+    assert.equal(mutation.status, 405);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('never calls the file-manifest or full-diff loaders as a side effect of listing PRs', async () => {
+  let filesCalls = 0;
+  let diffCalls = 0;
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestLoader: () => ({ slug: 'sample-change', source: 'active', pullRequests: [{ availability: 'available', number: 42 }] }),
+    pullRequestFilesLoader: () => { filesCalls += 1; return { number: 42, files: [] }; },
+    pullRequestFullDiffLoader: () => { diffCalls += 1; return { number: 42, diff: '', diffAvailable: false }; },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    await fetch(`${baseUrl}/api/specs/active/sample-change/pull-requests`);
+    assert.equal(filesCalls, 0);
+    assert.equal(diffCalls, 0);
   } finally {
     await new Promise(resolvePromise => server.close(resolvePromise));
   }

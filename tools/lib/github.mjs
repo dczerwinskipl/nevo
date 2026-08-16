@@ -48,6 +48,18 @@ function resolveGhBinary() {
   return null; // genuinely unavailable — isGhAvailable() reports this, callers check it
 }
 
+const PULL_REQUEST_FILES_QUERY = `
+query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $pr) {
+      files(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { path additions deletions changeType }
+      }
+    }
+  }
+}`;
+
 const REVIEW_THREADS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -153,24 +165,71 @@ export function getPrForBranch(root, branch) {
 // Read-only pull request payload for the local dashboard. Authentication and
 // GitHub Enterprise host selection stay inside `gh`; callers receive provider
 // responses only and normalize them before anything reaches a browser.
-export function getPullRequestDetails(root, reference, execute = run) {
+//
+// Split into four narrow calls (area pull-request-file-and-diff-loading, task
+// 02) instead of one bundled fetch, so the PR-list route can stay metadata-
+// only and the files-manifest route never forces patch expansion upstream.
+
+// One REST call — no files, no diff. What the lightweight PR-list route uses.
+export function getPullRequestMetadata(root, reference, execute = run) {
   const host = apiHost(reference.base_url);
   const endpoint = `repos/${repositoryEndpoint(reference.repository)}/pulls/${reference.number}`;
-  const metadata = JSON.parse(execute(root, ['api', '--hostname', host, endpoint]));
-  const files = parsePaginatedJson(execute(root, [
+  return JSON.parse(execute(root, ['api', '--hostname', host, endpoint]));
+}
+
+// File manifest via GraphQL's `PullRequest.files` connection — requests only
+// path/additions/deletions/changeType, never patch content (GraphQL has no
+// patch field to request in the first place, unlike the REST files listing
+// below). Paginated at 100 files per page.
+export function getPullRequestFiles(root, reference, execute = run) {
+  const [owner, repo] = reference.repository.split('/');
+  const files = [];
+  let after = null;
+  for (;;) {
+    const args = [
+      'api', 'graphql',
+      '-f', `query=${PULL_REQUEST_FILES_QUERY}`,
+      '-f', `owner=${owner}`,
+      '-f', `repo=${repo}`,
+      '-F', `pr=${reference.number}`,
+    ];
+    if (after) args.push('-f', `after=${after}`);
+    const json = execute(root, args);
+    const page = JSON.parse(json).data.repository.pullRequest.files;
+    files.push(...page.nodes);
+    if (!page.pageInfo.hasNextPage) break;
+    after = page.pageInfo.endCursor;
+  }
+  return files;
+}
+
+// The REST files listing, patches included — GitHub's only surface for patch
+// text (GraphQL doesn't expose it). Callers (providers/github.mjs) are
+// responsible for caching this per (reference, headSha) so a batch of diff
+// requests doesn't repeat this call — this function itself always fetches.
+export function getPullRequestFilesWithPatches(root, reference, execute = run) {
+  const host = apiHost(reference.base_url);
+  const endpoint = `repos/${repositoryEndpoint(reference.repository)}/pulls/${reference.number}`;
+  return parsePaginatedJson(execute(root, [
     'api', '--hostname', host, '--paginate', '--slurp', `${endpoint}/files?per_page=100`,
   ]));
-  let diff = '';
+}
+
+// Full raw unified diff — on-demand only, never called by the list/manifest
+// routes.
+export function getFullDiff(root, reference, execute = run) {
+  const host = apiHost(reference.base_url);
+  const endpoint = `repos/${repositoryEndpoint(reference.repository)}/pulls/${reference.number}`;
   try {
-    diff = execute(root, [
+    return execute(root, [
       'api', '--hostname', host,
       '-H', 'Accept: application/vnd.github.diff',
       endpoint,
     ]);
   } catch (error) {
-    if (!isOversizedPullRequestDiff(error)) throw error;
+    if (isOversizedPullRequestDiff(error)) return '';
+    throw error;
   }
-  return { metadata, files, diff };
 }
 
 // Counts review threads (from any reviewer, including bots like GitHub Copilot) that

@@ -139,6 +139,19 @@ export interface PullRequestBranch {
   sha: string | null;
 }
 
+// A files-manifest entry — no `patch` field at all (area
+// pull-request-file-and-diff-loading: the manifest never carries diff
+// content, not even an empty placeholder for it).
+export interface PullRequestFileManifestEntry {
+  path: string;
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed';
+  additions: number;
+  deletions: number;
+  changes: number;
+}
+
+// A file-diffs batch entry — the same shape the old bundled PR payload
+// carried per file, patch included, fetched only for the requested paths.
 export interface PullRequestFile {
   path: string;
   previousPath: string | null;
@@ -162,14 +175,31 @@ export interface AvailablePullRequest {
   url: string;
   state: 'open' | 'closed' | 'merged';
   draft: boolean;
+  mergeableState: string | null;
   author: { login: string; url: string | null; avatarUrl: string | null } | null;
   head: PullRequestBranch;
   base: PullRequestBranch;
+  headSha: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
   stats: { additions: number; deletions: number; changedFiles: number; commits: number };
-  files: PullRequestFile[];
-  filesComplete: boolean;
-  fullDiff: string;
-  fullDiffAvailable: boolean;
+}
+
+export interface PullRequestFilesPayload {
+  number: number;
+  files: PullRequestFileManifestEntry[];
+}
+
+export interface PullRequestFileDiffsPayload {
+  number: number;
+  headSha: string | null;
+  diffs: PullRequestFile[];
+}
+
+export interface PullRequestFullDiffPayload {
+  number: number;
+  diff: string;
+  diffAvailable: boolean;
 }
 
 export interface UnavailablePullRequest {

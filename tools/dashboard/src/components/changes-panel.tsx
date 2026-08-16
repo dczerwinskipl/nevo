@@ -24,6 +24,7 @@ import type {
   AvailablePullRequest,
   DashboardChange,
   PullRequestFile,
+  PullRequestFileManifestEntry,
   PullRequestResult,
   UnavailablePullRequest,
 } from '@/lib/types';
@@ -31,7 +32,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { usePullRequests } from '@/hooks/use-dashboard-data';
+import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
 
 type DiffViewMode = 'split' | 'unified';
 
@@ -85,21 +86,40 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-function isContentUnchangedRename(file: PullRequestFile) {
-  return file.status === 'renamed' && !file.patchAvailable && file.changes === 0;
+function isContentUnchangedRename(file: PullRequestFileManifestEntry, diff: PullRequestFile | undefined) {
+  return file.status === 'renamed' && diff !== undefined && !diff.patchAvailable && file.changes === 0;
 }
 
-function renderablePatch(file: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
+function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newFileName: string | null) {
   const oldPath = oldFileName ? `a/${oldFileName}` : '/dev/null';
   const newPath = newFileName ? `b/${newFileName}` : '/dev/null';
-  return `--- ${oldPath}\n+++ ${newPath}\n${file.patch}`;
+  return `--- ${oldPath}\n+++ ${newPath}\n${diff.patch}`;
 }
 
-function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFile; mode: DiffViewMode; initiallyOpen?: boolean }) {
+// The diff itself is hydrated on demand (area pull-request-file-and-diff-loading)
+// — `file` is always available from the manifest immediately, `diff` arrives
+// later (background batch, or immediately if `onRequestDiff` jumps the queue).
+function FileChange({
+  file,
+  diff,
+  mode,
+  initiallyOpen = true,
+  onRequestDiff,
+}: {
+  file: PullRequestFileManifestEntry;
+  diff: PullRequestFile | undefined;
+  mode: DiffViewMode;
+  initiallyOpen?: boolean;
+  onRequestDiff: (path: string) => void;
+}) {
   const [open, setOpen] = useState(initiallyOpen);
-  const oldFileName = file.status === 'added' ? null : (file.previousPath || file.path);
+  const oldFileName = file.status === 'added' ? null : (diff?.previousPath || file.path);
   const newFileName = file.status === 'removed' ? null : file.path;
-  const contentUnchangedRename = isContentUnchangedRename(file);
+  const contentUnchangedRename = isContentUnchangedRename(file, diff);
+
+  useEffect(() => {
+    if (open && !diff) onRequestDiff(file.path);
+  }, [open, diff, file.path, onRequestDiff]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
@@ -112,7 +132,7 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
         <ChevronDown className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !open && '-rotate-90')} />
         <FileDiff className="size-3.5 shrink-0 text-[var(--muted)]" />
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--foreground)]" title={file.path}>
-          {file.previousPath && file.previousPath !== file.path ? `${file.previousPath} → ${file.path}` : file.path}
+          {diff?.previousPath && diff.previousPath !== file.path ? `${diff.previousPath} → ${file.path}` : file.path}
         </span>
         <Badge className="hidden text-[9px] sm:inline-flex">{FILE_STATUS_LABELS[file.status]}</Badge>
         <span className="inline-flex items-center text-[10px] font-semibold text-emerald-300"><Plus className="size-3" />{file.additions}</span>
@@ -120,7 +140,11 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
       </button>
 
       {open && (
-        file.patchAvailable ? (
+        !diff ? (
+          <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--muted)]">
+            <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie diffu…
+          </div>
+        ) : diff.patchAvailable ? (
           <div className="nevo-diff-view max-w-full overflow-x-auto border-t border-[var(--border)]">
             <DiffView
               data={{
@@ -128,7 +152,7 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
                 newFile: { fileName: newFileName },
                 // GitHub's per-file `patch` starts at the first @@ hunk. DiffView's
                 // parser also requires the unified-diff file headers to find it.
-                hunks: [renderablePatch(file, oldFileName, newFileName)],
+                hunks: [renderablePatch(diff, oldFileName, newFileName)],
               }}
               registerHighlighter={highlighter}
               diffViewMode={mode === 'split' ? DiffModeEnum.SplitGitHub : DiffModeEnum.Unified}
@@ -142,7 +166,7 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
           <div className="border-t border-[var(--border)] px-4 py-7 text-center">
             <p className="text-xs font-semibold text-[var(--foreground)]">Plik przeniesiony bez zmian treści</p>
             <p className="mt-1 break-all font-mono text-[10px] leading-5 text-[var(--muted)]">
-              {file.previousPath} → {file.path}
+              {diff.previousPath} → {file.path}
             </p>
           </div>
         ) : (
@@ -158,12 +182,18 @@ function FileChange({ file, mode, initiallyOpen = true }: { file: PullRequestFil
   );
 }
 
-function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
+function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChange; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
-  const collapseFilesInitially = pullRequest.files.length > 50;
-  const incompleteDiff = !pullRequest.fullDiffAvailable
-    || !pullRequest.filesComplete
-    || pullRequest.files.some(file => !file.patchAvailable && !isContentUnchangedRename(file));
+  const filesQuery = usePullRequestFiles(change, pullRequest, open);
+  const files = filesQuery.data?.files ?? [];
+  const { diffs, requestDiff } = usePullRequestFileDiffs(change, pullRequest, files, open);
+  const fullDiffQuery = useFullDiff(change, pullRequest.number);
+  const collapseFilesInitially = files.length > 50;
+  const filesByPath = new Map(files.map(file => [file.path, file]));
+  const incompleteDiff = Array.from(diffs.values()).some(diff => {
+    const manifestEntry = filesByPath.get(diff.path);
+    return !diff.patchAvailable && !(manifestEntry && isContentUnchangedRename(manifestEntry, diff));
+  });
 
   return (
     <Card className="overflow-hidden">
@@ -224,14 +254,22 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
             </div>
           )}
 
-          {pullRequest.files.length ? (
+          {filesQuery.loading ? (
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-5 py-10 text-center text-xs text-[var(--muted)]">
+              <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie listy plików…
+            </div>
+          ) : filesQuery.error ? (
+            <div className="rounded-xl border border-red-400/20 px-5 py-10 text-center text-xs text-red-300">{filesQuery.error}</div>
+          ) : files.length ? (
             <div className="space-y-3">
-              {pullRequest.files.map(file => (
+              {files.map(file => (
                 <FileChange
-                  key={`${file.previousPath || ''}:${file.path}`}
+                  key={file.path}
                   file={file}
+                  diff={diffs.get(file.path)}
                   mode={mode}
                   initiallyOpen={!collapseFilesInitially}
+                  onRequestDiff={requestDiff}
                 />
               ))}
             </div>
@@ -241,14 +279,25 @@ function PullRequestCard({ pullRequest, mode }: { pullRequest: AvailablePullRequ
             </div>
           )}
 
-          {incompleteDiff && pullRequest.fullDiffAvailable && (
-            <details className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]">
+          {incompleteDiff && (
+            <details
+              className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]"
+              onToggle={event => { if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading) void fullDiffQuery.load(); }}
+            >
               <summary className="cursor-pointer bg-[var(--surface-raised)] px-4 py-3 text-[11px] font-semibold text-[var(--foreground)]">
                 Pełny surowy diff z providera
               </summary>
-              <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
-                {pullRequest.fullDiff}
-              </pre>
+              {fullDiffQuery.loading ? (
+                <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--muted)]">
+                  <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
+                </div>
+              ) : fullDiffQuery.error ? (
+                <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-red-300">{fullDiffQuery.error}</div>
+              ) : fullDiffQuery.data ? (
+                <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
+                  {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}
+                </pre>
+              ) : null}
             </details>
           )}
         </div>
@@ -432,7 +481,7 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
       </div>
 
       {detailPullRequest.availability === 'available'
-        ? <PullRequestCard pullRequest={detailPullRequest} mode={mode} />
+        ? <PullRequestCard change={change} pullRequest={detailPullRequest} mode={mode} />
         : <UnavailableCard result={detailPullRequest} />}
     </div>
   );
