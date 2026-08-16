@@ -37,8 +37,13 @@ export function defaultSpecsSpawner(root, args) {
 }
 
 function parseReport(output, label) {
+  const nonProgress = String(output || '')
+    .split(/\r?\n/)
+    .filter(line => !line.startsWith('@@nevo:progress@@'))
+    .join('\n')
+    .trim();
   try {
-    return JSON.parse(output);
+    return JSON.parse(nonProgress);
   } catch {
     throw new Error(`Unable to parse ${label} report.`);
   }

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { parseProgressLine } from '../lib/operation-progress.mjs';
 import { handleVerify, handleApprove, handleSelfCheck } from '../specs.mjs';
 import { loadSpecificationActions } from '../dashboard/server/actions.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint, loadChange } from '../specs/service.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-cli-instrumentation-${process.pid}-${Date.now()}-${Math.random()}`);
@@ -46,6 +47,10 @@ function fixture() {
     '```',
   ].join('\n'));
 
+  const change = loadChange('test-change', activeDir);
+  const specFingerprint = computeChangeFingerprint(change);
+  const taskFingerprint = computeTaskFingerprint(change, 'task-draft');
+
   mkdirSync(join(changeDir, 'reviews'), { recursive: true });
   writeFileSync(join(changeDir, 'reviews', 'spec.md'), [
     '---',
@@ -57,7 +62,9 @@ function fixture() {
     'unresolved_required_fixes: 0',
     'unresolved_owner_decisions: 0',
     'unresolved_needs_clarification: 0',
-    'spec_fingerprint: dummy',
+    `spec_fingerprint: ${specFingerprint}`,
+    'task_fingerprints:',
+    `  task-draft: ${taskFingerprint}`,
     '---',
   ].join('\n'));
 
@@ -153,7 +160,7 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     const sample = fixture();
     try {
       const output = captureStdout(() => {
-        handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir, check: true });
+        handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);

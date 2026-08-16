@@ -252,13 +252,6 @@ export function handleApprove(changeSlug, taskId, options = {}) {
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
-  const emitter = createProgressEmitter();
-  emitter.operationStarted({ type: 'approve', steps: [
-    { id: 'validate-approval', label: 'Validate approval' },
-    { id: 'approve-task', label: 'Approve task' },
-  ]});
-
-  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
   // D14, task 07 — "review-exempt deterministic approval": re-verifies all six
   // conditions itself (defense in depth alongside `validate`'s own hard error)
   // rather than trusting a `type: mechanical` declaration at face value.
@@ -278,16 +271,16 @@ export function handleApprove(changeSlug, taskId, options = {}) {
     mechanicalExempt, taskId, currentTaskFingerprint,
   });
   if (options.check) {
-    if (result.ok) {
-      emitter.stepCompleted({ id: 'validate-approval' });
-      emitter.operationCompleted({ result });
-    } else {
-      emitter.stepFailed({ id: 'validate-approval', error: result.reason });
-      emitter.operationFailed({ error: result.reason });
-    }
     console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
     return result;
   }
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'approve', steps: [
+    { id: 'validate-approval', label: 'Validate approval' },
+    { id: 'approve-task', label: 'Approve task' },
+  ]});
+  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
   const inspection = inspectApprovePostconditions(result);
 
   if (inspection.result === 'not_retryable') {
@@ -465,6 +458,12 @@ export function handleComplete(changeSlug, taskId) {
 export function handleVerify(changeSlug, taskId, options = {}) {
   const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
+  const transition = validateTransition('verify', task.status);
+
+  if (options.check) {
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
+    return transition;
+  }
 
   const emitter = createProgressEmitter();
   emitter.operationStarted({ type: 'verify', steps: [
@@ -473,18 +472,6 @@ export function handleVerify(changeSlug, taskId, options = {}) {
   ]});
 
   emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
-  const transition = validateTransition('verify', task.status);
-  if (options.check) {
-    if (transition.ok) {
-      emitter.stepCompleted({ id: 'validate-transition' });
-      emitter.operationCompleted({ result: transition });
-    } else {
-      emitter.stepFailed({ id: 'validate-transition', error: transition.reason });
-      emitter.operationFailed({ error: transition.reason });
-    }
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
-    return transition;
-  }
   if (!transition.ok) {
     emitter.stepFailed({ id: 'validate-transition', error: transition.reason });
     emitter.operationFailed({ error: transition.reason });
@@ -1226,6 +1213,13 @@ export function handleFinalize(changeSlug, options = {}) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
 
+  if (options.check) {
+    const facts = gatherFinalizeFacts(branch, change);
+    const result = validateFinalize(change, facts);
+    console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
+    return;
+  }
+
   const emitter = createProgressEmitter();
   emitter.operationStarted({ type: 'finalize', steps: [
     { id: 'validate-specs', label: 'Validate specs' },
@@ -1240,16 +1234,6 @@ export function handleFinalize(changeSlug, options = {}) {
 
   const facts = gatherFinalizeFacts(branch, change, emitter);
   const result = validateFinalize(change, facts);
-
-  if (options.check) {
-    if (result.ok) {
-      emitter.operationCompleted({ result, summary: 'Finalize check passed' });
-    } else {
-      emitter.operationFailed({ error: result.reason || 'Finalize check failed' });
-    }
-    console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
-    return;
-  }
 
   if (!result.ok) {
     emitter.operationFailed({ error: result.reason || 'Finalize gate blocked' });
