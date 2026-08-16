@@ -1,6 +1,4 @@
-// tools/specs/gates.mjs — Single source of truth (SSOT) for lifecycle and action gates
-
-import { TERMINAL_STATUSES, completionHardStop, validateTransition } from './lifecycle.mjs';
+import { TERMINAL_STATUSES, completionHardStop, validateTransition } from './lifecycle-primitives.mjs';
 
 /**
  * Registry of validator building blocks.

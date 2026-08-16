@@ -458,11 +458,16 @@ export function handleComplete(changeSlug, taskId) {
 export function handleVerify(changeSlug, taskId, options = {}) {
   const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
-  const transition = validateTransition('verify', task.status);
+  const gateResult = evaluateGate('task.verify', { task, change }, { mode: 'full' });
 
   if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
-    return transition;
+    const result = {
+      ok: gateResult.ok,
+      ...(gateResult.idempotent ? { idempotent: true } : {}),
+      ...(gateResult.reason ? { reason: gateResult.reason } : {}),
+    };
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
+    return result;
   }
 
   const emitter = createProgressEmitter();
@@ -472,14 +477,14 @@ export function handleVerify(changeSlug, taskId, options = {}) {
   ]});
 
   emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
-  if (!transition.ok) {
-    emitter.stepFailed({ id: 'validate-transition', error: transition.reason });
-    emitter.operationFailed({ error: transition.reason });
-    throw new CliError(transition.reason);
+  if (!gateResult.ok) {
+    emitter.stepFailed({ id: 'validate-transition', error: gateResult.reason });
+    emitter.operationFailed({ error: gateResult.reason });
+    throw new CliError(gateResult.reason);
   }
   emitter.stepCompleted({ id: 'validate-transition' });
 
-  if (transition.idempotent) {
+  if (gateResult.idempotent) {
     emitter.operationCompleted({ summary: `Task '${taskId}' is already verified.` });
     console.log(`Task '${taskId}' is already verified.`);
     return;

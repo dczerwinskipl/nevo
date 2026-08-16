@@ -174,7 +174,7 @@ export class OperationRuntime {
     state.error = errorObj;
 
     for (const step of state.steps) {
-      if (step.status === 'running' || step.status === 'pending') {
+      if (step.status === 'running') {
         step.status = 'failed';
         if (!step.error) {
           step.error = errorObj;

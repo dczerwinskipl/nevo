@@ -1,86 +1,19 @@
-// Task and change status rules for tools/specs.mjs — no Commander, no
-// filesystem access. See docs/ai/specification-workflow.md and
-// references/review-policy.md for the policy this enforces.
+import {
+  TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
+  TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
+  depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
+} from './lifecycle-primitives.mjs';
 
 import {
   evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
 } from './gates.mjs';
 
 export {
+  TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
+  TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
+  depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
   evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
 };
-
-// Separate status sets for separate concepts — a task being "done" for
-// dependency purposes is not the same question as a change being active.
-export const TERMINAL_STATUSES = new Set(['implemented', 'verified', 'archived', 'abandoned']);
-// `abandoned` is terminal (finalize doesn't wait on it) but must not satisfy a
-// dependent's depends_on — a dependent cannot build on work that was dropped.
-export const DEPENDENCY_SATISFYING_STATUSES = new Set(['implemented', 'verified', 'archived']);
-export const READY_STATUSES = new Set(['approved']);
-export const ACTIVE_CHANGE_STATUSES = new Set(['approved', 'in-implementation', 'draft']);
-
-// `blocked`/`needs-decision` are removed from the vocabulary entirely (D16) —
-// `execution.suspension` is now the only supported temporary-blocker model, at
-// both task and change level. This is the single enum both levels validate
-// against (validation.mjs); no new status names are introduced (C7).
-export const TASK_STATUSES = new Set([
-  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
-]);
-export const CHANGE_STATUSES = new Set([
-  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
-]);
-export const REMOVED_STATUSES = new Set(['blocked', 'needs-decision']);
-
-/** The fixed migration message D16 requires for a removed status value. */
-export function removedStatusMessage(value) {
-  return `Status \`${value}\` is no longer supported. Use \`execution.suspension\`.`;
-}
-
-export function depsSatisfied(task, change) {
-  const deps = task.depends_on || [];
-  return deps.every(depId => {
-    const dep = change.tasks.find(t => t.id === depId);
-    return Boolean(dep) && DEPENDENCY_SATISFYING_STATUSES.has(dep.status);
-  });
-}
-
-export function isTaskReady(task, change) {
-  return READY_STATUSES.has(task.status) && depsSatisfied(task, change);
-}
-
-// ── Task lifecycle state machine ───────────────────────────────────────────
-//
-// The one place task status transitions are defined. Every command that
-// changes a task's status validates against this table instead of assigning
-// an arbitrary status.
-
-export const TRANSITIONS = {
-  approve: { from: 'draft', to: 'approved' },
-  start: { from: 'approved', to: 'in-implementation' },
-  complete: { from: 'in-implementation', to: 'implemented' },
-  verify: { from: 'implemented', to: 'verified' },
-};
-
-/**
- * Validate a status transition for `command` against the task's current
- * status. Returns `{ ok: true, idempotent: boolean }` on success —
- * `idempotent: true` means the task is already at the target status, which
- * is treated as a safe no-op (re-running a command should not be an error),
- * never as license to skip a transition's own gate checks the first time it
- * actually runs. Returns `{ ok: false, reason }` for any other status.
- */
-export function validateTransition(command, currentStatus) {
-  const rule = TRANSITIONS[command];
-  if (!rule) throw new Error(`Unknown transition command '${command}'`);
-  if (currentStatus === rule.to) return { ok: true, idempotent: true };
-  if (currentStatus !== rule.from) {
-    return {
-      ok: false,
-      reason: `Task has status '${currentStatus}' — '${command}' requires status '${rule.from}'.`,
-    };
-  }
-  return { ok: true, idempotent: false };
-}
 
 /**
  * Pure approval-gate check: given a task's current status, its change's review
@@ -701,44 +634,6 @@ export function deriveBatchProgress(change, intent) {
   const checkpointReached = Boolean(checkpointTask) && completed.includes(checkpointTask);
 
   return { completed, current, next, failed, checkpointTask, checkpointReached };
-}
-
-/**
- * Hard-stop predicate (D24, third refinement pass) — checked before any risk
- * signal, never a fallthrough case inside the risk-signal logic, and never
- * bypassable by a full `task-review`. Returns `{ code, detail }` or `null`.
- * A hard stop's report reads `self_check.status`/`failed_criteria` directly —
- * it is not a separate, parallel record of the same fact (D28).
- */
-export function hardStopReason(task) {
-  if (!task.self_check) {
-    return { code: 'unresolved-self-check', detail: 'No self-check has been recorded for this task yet.' };
-  }
-  if (task.self_check.status === 'failed') {
-    return {
-      code: 'failed-self-check',
-      detail: `Self-check failed: ${(task.self_check.failed_criteria || []).join(', ') || '(no failed_criteria recorded)'}`,
-    };
-  }
-  return null;
-}
-
-/**
- * Whether `complete` must refuse this task (D24/D28, PR re-review packet
- * 02). Outside an active batch, only an *existing, failed* self-check blocks
- * completion — self-check stays optional there, unchanged from the original
- * behavior. Inside an active batch that includes this task, a *missing*
- * self-check blocks it too: the area doc's hard-stop list names "an
- * unresolved self-check" unconditionally (same predicate `hardStopReason`
- * already reports for `batch-status`), so a task must never reach
- * `implemented` inside a batch without ever having been self-checked, not
- * only when a self-check exists and failed. Returns the same
- * `hardStopReason` shape, or `null`.
- */
-export function completionHardStop(task, { inActiveBatch = false } = {}) {
-  const stop = hardStopReason(task);
-  if (!stop) return null;
-  return (task.self_check || inActiveBatch) ? stop : null;
 }
 
 // Every evidence-based full-review risk signal (D11, corrected by D24 to

@@ -13,7 +13,7 @@ tasks:
   - id: dashboard-data-loading-contracts
     order: 1
     file: tasks/01-dashboard-data-loading-contracts.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
       review_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
@@ -42,7 +42,7 @@ tasks:
   - id: pr-file-manifest-and-diff-hydration
     order: 2
     file: tasks/02-pr-file-manifest-and-diff-hydration.md
-    status: implemented
+    status: verified
     depends_on: [ dashboard-data-loading-contracts ]
     implementation:
       baseline_revision: 505d19be3467db453f8ebb557131fe666edf3132
@@ -75,7 +75,7 @@ tasks:
   - id: changes-grouping-and-filtering
     order: 3
     file: tasks/03-changes-grouping-and-filtering.md
-    status: implemented
+    status: verified
     depends_on: [ pr-file-manifest-and-diff-hydration ]
     implementation:
       baseline_revision: be2b988d2d1f5160b879a5c42222f90d93457b75
@@ -104,7 +104,7 @@ tasks:
   - id: operation-progress-contract-and-transport
     order: 4
     file: tasks/04-operation-progress-contract-and-transport.md
-    status: implemented
+    status: verified
     depends_on: [ dashboard-data-loading-contracts ]
     self_check:
       fingerprint: 0c8a8237bae11e70bd1dd470cf30c564ce61abea64f2f7e1c2c6148199af7baa

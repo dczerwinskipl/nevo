@@ -158,6 +158,50 @@ test('OperationRuntime — lifecycle, snapshots, and SSE subscriptions', async (
     assert.equal(receivedLate.length, 2); // events 4 and 5 (afterSequence 3)
   });
 
+  await t.test('failOperation only transitions running step to failed; completed remain completed and pending remain pending', () => {
+    const runtime = createOperationRuntime({ idFactory: () => 'multi-step-op' });
+    const opId = runtime.createOperation({
+      type: 'finalize',
+      steps: [
+        { id: 's1', label: 'Step 1' },
+        { id: 's2', label: 'Step 2' },
+        { id: 's3', label: 'Step 3' },
+        { id: 's4', label: 'Step 4' },
+      ],
+    });
+
+    // 1. Step 1 completed
+    runtime.recordEvent(opId, { type: 'operation.step.started', id: 's1' });
+    runtime.recordEvent(opId, { type: 'operation.step.completed', id: 's1' });
+
+    // 2. Step 2 running
+    runtime.recordEvent(opId, { type: 'operation.step.started', id: 's2' });
+
+    // 3. Step 3 & 4 remain pending
+
+    // 4. Operation fails
+    runtime.failOperation(opId, { message: 'Step 2 crashed' });
+
+    const snapshot = runtime.getSnapshot(opId);
+    assert.equal(snapshot.status, 'failed');
+    assert.equal(snapshot.steps.length, 4);
+
+    // 1. Step 1 remains completed
+    assert.equal(snapshot.steps[0].id, 's1');
+    assert.equal(snapshot.steps[0].status, 'completed');
+
+    // 2. Step 2 transitioned from running -> failed
+    assert.equal(snapshot.steps[1].id, 's2');
+    assert.equal(snapshot.steps[1].status, 'failed');
+    assert.equal(snapshot.steps[1].error.message, 'Step 2 crashed');
+
+    // 3. Step 3 & 4 remain pending
+    assert.equal(snapshot.steps[2].id, 's3');
+    assert.equal(snapshot.steps[2].status, 'pending');
+    assert.equal(snapshot.steps[3].id, 's4');
+    assert.equal(snapshot.steps[3].status, 'pending');
+  });
+
   await t.test('shutdown marks running operations as failed with 503 error on new operations', () => {
     const runtime = createOperationRuntime({ idFactory: () => 'shut-op' });
     const opId = runtime.createOperation({ type: 'task-test' });

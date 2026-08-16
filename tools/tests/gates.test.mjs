@@ -188,3 +188,63 @@ test('Task Request Human Verification Gate (task.request-human-verification)', a
     assert.ok(res.reason.includes('has a hard-stopped self-check'));
   });
 });
+
+test('Task Verify Gate (task.verify)', async (t) => {
+  await t.test('allows verify when task status is implemented', () => {
+    const context = {
+      task: { id: 'task-1', status: 'implemented' },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const res = evaluateGate('task.verify', context, { mode: 'full' });
+    assert.equal(res.status, 'allowed');
+    assert.equal(res.ok, true);
+    assert.equal(res.idempotent, false);
+  });
+
+  await t.test('treats verify as idempotent when task is already verified', () => {
+    const context = {
+      task: { id: 'task-1', status: 'verified' },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const res = evaluateGate('task.verify', context, { mode: 'full' });
+    assert.equal(res.status, 'allowed');
+    assert.equal(res.ok, true);
+    assert.equal(res.idempotent, true);
+  });
+
+  await t.test('blocks verify when task is in draft or in-implementation', () => {
+    const draftContext = {
+      task: { id: 'task-1', status: 'draft' },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const draftRes = evaluateGate('task.verify', draftContext, { mode: 'full' });
+    assert.equal(draftRes.status, 'blocked');
+    assert.equal(draftRes.ok, false);
+    assert.ok(draftRes.reason.includes("Task has status 'draft' — 'verify' requires status 'implemented'"));
+
+    const implContext = {
+      task: { id: 'task-1', status: 'in-implementation' },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const implRes = evaluateGate('task.verify', implContext, { mode: 'full' });
+    assert.equal(implRes.status, 'blocked');
+    assert.equal(implRes.ok, false);
+    assert.ok(implRes.reason.includes("Task has status 'in-implementation' — 'verify' requires status 'implemented'"));
+  });
+});
+
+test('Architecture: Unidirectional Lifecycle & Gate Dependencies', async (t) => {
+  await t.test('gates.mjs does not import lifecycle.mjs (no circular dependencies)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const gatesSource = readFileSync(new URL('../specs/gates.mjs', import.meta.url), 'utf8');
+    const primitivesSource = readFileSync(new URL('../specs/lifecycle-primitives.mjs', import.meta.url), 'utf8');
+
+    // gates.mjs must only import primitives, never lifecycle.mjs
+    assert.doesNotMatch(gatesSource, /from\s+['"]\.\/lifecycle\.mjs['"]/);
+    assert.match(gatesSource, /from\s+['"]\.\/lifecycle-primitives\.mjs['"]/);
+
+    // lifecycle-primitives.mjs must not import gates.mjs or lifecycle.mjs
+    assert.doesNotMatch(primitivesSource, /from\s+['"]\.\/gates\.mjs['"]/);
+    assert.doesNotMatch(primitivesSource, /from\s+['"]\.\/lifecycle\.mjs['"]/);
+  });
+});

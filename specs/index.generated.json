@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T13:25:11.450Z",
+  "generated": "2026-08-16T14:03:51.247Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -401,7 +401,7 @@
           "id": "dashboard-data-loading-contracts",
           "order": 1,
           "file": "tasks/01-dashboard-data-loading-contracts.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "4b333e3471b0fb46f6b94e7097945c851598b7fc",
             "review_revision": "4b333e3471b0fb46f6b94e7097945c851598b7fc",
@@ -442,7 +442,7 @@
           "id": "pr-file-manifest-and-diff-hydration",
           "order": 2,
           "file": "tasks/02-pr-file-manifest-and-diff-hydration.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "dashboard-data-loading-contracts"
           ],
@@ -487,7 +487,7 @@
           "id": "changes-grouping-and-filtering",
           "order": 3,
           "file": "tasks/03-changes-grouping-and-filtering.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "pr-file-manifest-and-diff-hydration"
           ],
@@ -528,7 +528,7 @@
           "id": "operation-progress-contract-and-transport",
           "order": 4,
           "file": "tasks/04-operation-progress-contract-and-transport.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "dashboard-data-loading-contracts"
           ],
