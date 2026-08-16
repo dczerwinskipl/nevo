@@ -152,3 +152,7 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 27
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 28
