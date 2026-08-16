@@ -42,8 +42,10 @@ tasks:
   - id: pr-file-manifest-and-diff-hydration
     order: 2
     file: tasks/02-pr-file-manifest-and-diff-hydration.md
-    status: draft
+    status: in-implementation
     depends_on: [ dashboard-data-loading-contracts ]
+    implementation:
+      baseline_revision: 505d19be3467db453f8ebb557131fe666edf3132
   - id: changes-grouping-and-filtering
     order: 3
     file: tasks/03-changes-grouping-and-filtering.md

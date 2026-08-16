@@ -1,7 +1,7 @@
 ---
 review-of: spec
 change: dashboard-loading-and-progress
-generated: 2026-08-15
+generated: 2026-08-16
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
@@ -10,13 +10,7 @@ unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 278ffac6028e74226fdece85a315ebdd997eeef6c8608a0737b70a499dd118cf
 task_fingerprints:
-  dashboard-data-loading-contracts: b615f9a39c3409c6bb66237da2c095084e29ec2ffdc7b7b60b94f0fe82457671
   pr-file-manifest-and-diff-hydration: 17d8b78f5eeb35b6c1f1c6668ddf7a7b07717cf3fa00b97b358d1dbf1cb547d0
-  changes-grouping-and-filtering: db51f0d8a22eabb2ff863fc4ba4d1de95faa4c7ba924b6cf93b17699c0ca9487
-  operation-progress-contract-and-transport: a56a8ddf9c46502d97d8c0a0663c95cd5c39336f0500d07de7bdf5ea32a9a336
-  cli-step-instrumentation-gate-and-verification: 054cf91e31bb35443f964585b2bb03dfac7e88dfeddb077e33d3b857349b51aa
-  cli-step-instrumentation-tests-and-audits: bc7ab39d1aea1028060debbe83ad1c5b3de347fabfad25b0fba81b8e1ac32bfa
-  dashboard-operation-progress-ui: a7c11ca7dfbb1db94cb75476295aa451d4aebd4cc4643514753297014a42b722
 ---
 
 # Review: dashboard-loading-and-progress
@@ -26,43 +20,47 @@ task_fingerprints:
 - [x] No unresolved clarification request
 - [x] Verdict: ready-for-approval
 
-The owner corrected one internal inconsistency between tasks 04 and 05, introduced by
-the prior D11 pass. Confirmed by direct inspection: task 04 both (a) stated in its
-Implementation constraints and AC that `finalizeGate` "keeps its existing `GET`-path
-caller too, until task 05 replaces it" (deferring the `GET /actions` finalize-probe fix
-to task 05), and (b) still carried an unconditional AC3 — "`GET /api/specs/active/:slug/actions`
-never invokes `finalize --check` ... to compute finalize's button state" — plus a matching
-Implementation-constraints paragraph claiming task 04 itself performs that change. Those
-two statements contradicted each other; AC3 and the paragraph predate this change and
-were never reconciled with the D11 pass's own "until task 05" framing.
+Scoped review (`--tasks 2`, task `pr-file-manifest-and-diff-hydration`). The prior
+`reviews/spec.md` (an `--all` run, generated 2026-08-15) was read as this run's
+baseline; task 01 (`dashboard-data-loading-contracts`) has since been approved and
+implemented (commit `4b333e3`), unrelated to task 02. Both `node tools/specs.mjs
+fingerprint dashboard-loading-and-progress` and `node tools/specs.mjs fingerprint
+dashboard-loading-and-progress --task pr-file-manifest-and-diff-hydration` reproduced
+exactly the values already recorded in the prior review, confirming nothing relevant to
+this task's readiness changed since that pass — `overview.md`, the task dependency
+graph's shape, `owner-decisions.md`, `areas/pull-request-file-and-diff-loading.md`, and
+`tasks/02-pr-file-manifest-and-diff-hydration.md` were all re-read fresh regardless.
 
-Resolved by removing task 04's ownership entirely: its `GET /api/specs/active/:slug/actions`
-paragraph now states plainly that the route is untouched by this task (content and
-behavior both stay task 05's job, per D4), AC3 is deleted, the remaining acceptance
-criteria renumbered (1-10, no gap), and an explicit "Out of scope" bullet added naming
-the `GET`-path `finalize --check` removal as task 05's responsibility, not task 04's.
-Task 05 already owned this correctly (Implementation constraints, AC8) and needed no
-scope change — only its own Goal-section item numbering was fixed (the list had jumped
-1, 3, 4, then 2, because the CLI-only item — self-check — was physically reordered to
-the end of the section in the D9/D10 pass while keeping its original number). It now
-reads 1 (gate re-check), 2 (task acceptance), 3 (finalize), 4 (self-check, CLI-only),
-matching physical order; the one existing "item 1 above" cross-reference still points at
-the correct item. `owner-decisions.md`'s D11 consequences line was updated to match
-("Goal items 1 and 3," not "1 and 4"). A self-inflicted semantic-reference gap was also
-caught and fixed: task 04's Dependencies section names `D7` by number (as the precedent
-D8 mirrors) without declaring it in `semantic_references.decisions` — added.
+Gating validation: passed (`node tools/specs.mjs validate` — 12 changes, no errors;
+`node tools/docs.mjs validate` — 64 documents, no errors). Non-gating repository check:
+passed (`node tools/specs.mjs check`, `node tools/docs.mjs check` — indexes current).
 
-Applied to `owner-decisions.md` (D11's consequences line only — no new decision, no
-scope/decision change), `tasks/04-operation-progress-contract-and-transport.md`
-(`GET`-path paragraph reworded, AC3 removed and list renumbered, new Out-of-scope
-bullet, `D7` added to `semantic_references`), and
-`tasks/05-cli-step-instrumentation-gate-and-verification.md` (Goal-section renumbering
-only — no content or scope change). No other file needed changes; tasks 01, 02, 03, 06,
-07 and every area doc were re-read and confirmed unaffected by this fix. Re-validated
-(`node tools/specs.mjs validate`, `node tools/docs.mjs validate`), re-indexed
-(`node tools/specs.mjs generate`, `node tools/docs.mjs generate`), non-gating checks
-clean (`node tools/specs.mjs check`, `node tools/docs.mjs check`), and every task
-fingerprint recomputed from scratch (04 and 05 changed directly; 06 and 07 changed by
-fingerprint-folding through their `dependency_contracts` on 04/05; 01/02/03 unchanged, as
-expected; the change-level fingerprint is unchanged since neither `overview.md` nor the
-task dependency graph's shape moved).
+Semantic-reference completeness (D26/D29) checked directly against task 02's current
+content: declared `semantic_references` are `decisions: [D3, D5]`, `constraints: [C2]`,
+`dependency_contracts: [dashboard-data-loading-contracts]`. D3 (field lists are a floor)
+is load-bearing — the task's own Implementation constraints cite it directly. D5 (PR-list
+refresh must not rely on `specs-changed` SSE) is load-bearing — the diff cache's
+`headSha` discovery depends on that mechanism per the area doc. C2 (breaking dashboard
+routes in place is acceptable) is load-bearing given this task splits/replaces existing
+routes. `dependency_contracts: [dashboard-data-loading-contracts]` matches `depends_on`.
+No missing, stale, or unnecessary reference found. D1/D2/D4/D6-D11 were checked and are
+not load-bearing for task 02's own content (grouping/picomatch, operation-progress scope,
+`GET /actions`, cancellation, task 05/06/01/04 sequencing, D9/D10 operation-vocabulary
+boundary, D11 one-process rule — all belong to other areas/tasks, explicitly named "Out
+of scope" in task 02 itself for the operation-progress ones).
+
+`depends_on: [dashboard-data-loading-contracts]` resolves and is acyclic (validated).
+`allowed_paths`/`forbidden_paths` are present and unambiguous. All 8 acceptance criteria
+are testable (6 automated via `npm --prefix tools/dashboard test`, 2 inspection-based
+with a named, concrete inspection target). No open owner decision applies to task 02. No
+documentation/ADR impact specific to this task beyond the change-wide ADR recommendation
+already recorded against task 04.
+
+## Implementation readiness
+
+- May implementation start now? No — `implementation_allowed: false`.
+- Is `pr-file-manifest-and-diff-hydration` `approved` in `change.yaml`? No — currently
+  `draft`.
+- What has to happen first? Nothing further from this review; owner approval
+  (`/nevo-ai:spec-approve dashboard-loading-and-progress
+  pr-file-manifest-and-diff-hydration`) is the remaining step.
