@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T06:46:20.167Z",
+  "generated": "2026-08-16T06:50:47.356Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -483,10 +483,13 @@
           "id": "changes-grouping-and-filtering",
           "order": 3,
           "file": "tasks/03-changes-grouping-and-filtering.md",
-          "status": "draft",
+          "status": "in-implementation",
           "depends_on": [
             "pr-file-manifest-and-diff-hydration"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "be2b988d2d1f5160b879a5c42222f90d93457b75"
+          }
         },
         {
           "id": "operation-progress-contract-and-transport",

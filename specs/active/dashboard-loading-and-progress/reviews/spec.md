@@ -10,7 +10,7 @@ unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 278ffac6028e74226fdece85a315ebdd997eeef6c8608a0737b70a499dd118cf
 task_fingerprints:
-  pr-file-manifest-and-diff-hydration: 17d8b78f5eeb35b6c1f1c6668ddf7a7b07717cf3fa00b97b358d1dbf1cb547d0
+  changes-grouping-and-filtering: db51f0d8a22eabb2ff863fc4ba4d1de95faa4c7ba924b6cf93b17699c0ca9487
 ---
 
 # Review: dashboard-loading-and-progress
@@ -20,47 +20,64 @@ task_fingerprints:
 - [x] No unresolved clarification request
 - [x] Verdict: ready-for-approval
 
-Scoped review (`--tasks 2`, task `pr-file-manifest-and-diff-hydration`). The prior
-`reviews/spec.md` (an `--all` run, generated 2026-08-15) was read as this run's
-baseline; task 01 (`dashboard-data-loading-contracts`) has since been approved and
-implemented (commit `4b333e3`), unrelated to task 02. Both `node tools/specs.mjs
-fingerprint dashboard-loading-and-progress` and `node tools/specs.mjs fingerprint
-dashboard-loading-and-progress --task pr-file-manifest-and-diff-hydration` reproduced
-exactly the values already recorded in the prior review, confirming nothing relevant to
-this task's readiness changed since that pass — `overview.md`, the task dependency
-graph's shape, `owner-decisions.md`, `areas/pull-request-file-and-diff-loading.md`, and
-`tasks/02-pr-file-manifest-and-diff-hydration.md` were all re-read fresh regardless.
+Scoped review (`--tasks 3`, task `changes-grouping-and-filtering`). The prior
+`reviews/spec.md` (scoped to task 02, generated 2026-08-16) was read as this run's
+baseline — it recorded no fingerprint for task 03, so there is no baseline finding to
+re-verify for this task specifically; a fresh review of task 03's current content ran in
+full regardless. `change.yaml`, `overview.md`, every `areas/*.md` file, and
+`owner-decisions.md` were re-read fresh, plus task 03's own file in full.
+
+`node tools/specs.mjs fingerprint dashboard-loading-and-progress` reproduced the exact
+`spec_fingerprint` already recorded in the prior review (`278ffac6...`), confirming
+`overview.md` and the task graph's shape are unchanged. `node tools/specs.mjs fingerprint
+dashboard-loading-and-progress --task pr-file-manifest-and-diff-hydration` (the one
+out-of-scope task with a recorded baseline fingerprint, now `implemented`) also
+reproduced its recorded value unchanged (`17d8b78f...`), so nothing about task 02's
+scope invalidates task 03's readiness. Task 01 carries no baseline fingerprint in the
+current review file (last reviewed under an earlier `--all` pass whose file content this
+scoped chain has since superseded) — there is nothing to invalidate it against, and
+task 03 does not depend on it. Note: `references/review-policy.md`'s "task 12 onward"
+D32 grandfather language for the scoped-verdict guard (step 7a) and semantic-reference
+completeness (step 5a) refers to a different change's own task numbering (confirmed by
+inspection — not applicable here, a 7-task change); consistent with the immediately
+preceding review of this same change, semantic-reference completeness and the
+out-of-scope-baseline check were both performed directly rather than skipped, as above.
 
 Gating validation: passed (`node tools/specs.mjs validate` — 12 changes, no errors;
 `node tools/docs.mjs validate` — 64 documents, no errors). Non-gating repository check:
 passed (`node tools/specs.mjs check`, `node tools/docs.mjs check` — indexes current).
 
-Semantic-reference completeness (D26/D29) checked directly against task 02's current
-content: declared `semantic_references` are `decisions: [D3, D5]`, `constraints: [C2]`,
-`dependency_contracts: [dashboard-data-loading-contracts]`. D3 (field lists are a floor)
-is load-bearing — the task's own Implementation constraints cite it directly. D5 (PR-list
-refresh must not rely on `specs-changed` SSE) is load-bearing — the diff cache's
-`headSha` discovery depends on that mechanism per the area doc. C2 (breaking dashboard
-routes in place is acceptable) is load-bearing given this task splits/replaces existing
-routes. `dependency_contracts: [dashboard-data-loading-contracts]` matches `depends_on`.
-No missing, stale, or unnecessary reference found. D1/D2/D4/D6-D11 were checked and are
-not load-bearing for task 02's own content (grouping/picomatch, operation-progress scope,
-`GET /actions`, cancellation, task 05/06/01/04 sequencing, D9/D10 operation-vocabulary
-boundary, D11 one-process rule — all belong to other areas/tasks, explicitly named "Out
-of scope" in task 02 itself for the operation-progress ones).
+Semantic-reference completeness (D26/D29) checked directly against task 03's current
+content: declared `semantic_references` are `decisions: [D1]`, `constraints: [C3]`,
+`dependency_contracts: [pr-file-manifest-and-diff-hydration]`. D1 (add `picomatch` as a
+direct dependency, not a hand-rolled matcher) is load-bearing — the task's Goal and
+Implementation constraints cite it directly, and D1 is already a resolved,
+already-made owner decision (confirmed in `owner-decisions.md`), not an open
+`OWNER_DECISION` finding. C3 (new external dependencies require owner approval) is
+load-bearing given D1 adds `picomatch`. `dependency_contracts:
+[pr-file-manifest-and-diff-hydration]` matches `depends_on` — task 03 needs the file
+manifest and hydration priority queue from task 02. Checked and confirmed not
+load-bearing for task 03's own content: D2-D11 (all scoped to other areas/tasks per
+their own "Affected artifacts"; D3 is explicitly scoped to tasks 01-02 only), and C1/C2/C4
+(no gate-rule change, no route-breaking change, no runtime-specific requirement actually
+asserted by task 03's text). No missing, stale, or unnecessary reference found.
 
-`depends_on: [dashboard-data-loading-contracts]` resolves and is acyclic (validated).
-`allowed_paths`/`forbidden_paths` are present and unambiguous. All 8 acceptance criteria
-are testable (6 automated via `npm --prefix tools/dashboard test`, 2 inspection-based
-with a named, concrete inspection target). No open owner decision applies to task 02. No
-documentation/ADR impact specific to this task beyond the change-wide ADR recommendation
-already recorded against task 04.
+`depends_on: [pr-file-manifest-and-diff-hydration]` resolves and is acyclic (validated);
+that task is `status: implemented` in `change.yaml`, so task 03 is dependency-ready.
+`allowed_paths`/`forbidden_paths` are present and unambiguous, with no overlap between
+the two lists. All 6 acceptance criteria are automated
+(`npm --prefix tools/dashboard test`). `picomatch` is confirmed still only a transitive
+dependency of `tools/dashboard/package-lock.json` today (not yet a direct dependency),
+consistent with the area's "Current state" and with D1 not yet implemented. No open
+owner decision applies to task 03 — D1 is already resolved. No documentation/ADR impact
+specific to this task beyond the change-wide ADR recommendation already recorded against
+task 04.
 
 ## Implementation readiness
 
 - May implementation start now? No — `implementation_allowed: false`.
-- Is `pr-file-manifest-and-diff-hydration` `approved` in `change.yaml`? No — currently
+- Is `changes-grouping-and-filtering` `approved` in `change.yaml`? No — currently
   `draft`.
 - What has to happen first? Nothing further from this review; owner approval
-  (`/nevo-ai:spec-approve dashboard-loading-and-progress
-  pr-file-manifest-and-diff-hydration`) is the remaining step.
+  (`/nevo-ai:spec-approve dashboard-loading-and-progress changes-grouping-and-filtering`)
+  is the remaining step.

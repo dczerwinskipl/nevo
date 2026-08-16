@@ -71,8 +71,10 @@ tasks:
   - id: changes-grouping-and-filtering
     order: 3
     file: tasks/03-changes-grouping-and-filtering.md
-    status: draft
+    status: in-implementation
     depends_on: [ pr-file-manifest-and-diff-hydration ]
+    implementation:
+      baseline_revision: be2b988d2d1f5160b879a5c42222f90d93457b75
   - id: operation-progress-contract-and-transport
     order: 4
     file: tasks/04-operation-progress-contract-and-transport.md
