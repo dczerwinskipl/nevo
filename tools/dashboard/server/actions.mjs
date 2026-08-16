@@ -89,16 +89,6 @@ function getLocalBranchTracking(root) {
   }
 }
 
-function cheapTaskGate(task) {
-  const action = ACTIONABLE_TASK_STATUSES.get(task.status);
-  if (!action) return null;
-  return {
-    action,
-    enabled: true,
-    reason: null,
-  };
-}
-
 function cheapFinalizeGate(change, worktree) {
   const allVerified = change.tasks.length > 0 && change.tasks.every(t => t.status === 'verified');
   const clean = Boolean(worktree?.clean);
@@ -143,7 +133,7 @@ export function loadSpecificationActions({
       ...tracking,
     },
     tasks: Object.fromEntries(change.tasks
-      .map(task => [task.id, cheapTaskGate(task)])
+      .map(task => [task.id, taskGate(runSpecs, root, slug, task)])
       .filter(([, gate]) => gate)),
     finalize: {
       enabled: finalize.enabled,

@@ -76,8 +76,9 @@ test('projects contextual task gates, finalize validation, and worktree state fo
       clean: false, total: 2, staged: 1, unstaged: 1, untracked: 0, files: [],
       branch: 'feature/sample', hasUpstream: true, ahead: 0, behind: 0,
     });
-    // GET /actions must not execute specs.mjs runner / heavy checks during polling
-    assert.equal(calls.length, 0);
+    assert.ok(calls.some(args => args.join(' ') === 'approve sample design-task --check'));
+    assert.ok(calls.some(args => args.join(' ') === 'verify sample implemented-task --check'));
+    assert.ok(!calls.some(args => args[0] === 'finalize'), 'must not run heavy finalize check during GET /actions');
   } finally {
     sample.cleanup();
   }

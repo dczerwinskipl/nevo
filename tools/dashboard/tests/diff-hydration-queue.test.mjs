@@ -11,6 +11,7 @@ import test from 'node:test';
 import { QueryClient, QueryObserver, QueriesObserver } from '@tanstack/react-query';
 
 import { createBatchQueriesManager } from '../src/hooks/use-batch-queries.ts';
+import { ApiError } from '../src/lib/types.ts';
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -652,6 +653,54 @@ test('controlled retry policy: 404 does not retry, transient error retries at mo
   assert.deepEqual(recovered, { path: 'ok.ts', patch: 'recovered' });
   assert.equal(transientManager.get({ path: 'ok.ts' })?.patch, 'recovered');
 });
+
+// ---------------------------------------------------------------------------
+// 15. HTTP fetch adapter with ApiError: status propagation governs retries
+// ---------------------------------------------------------------------------
+test('HTTP fetch adapter with ApiError propagates status: 404 does not retry, 503/504 retries at most once', async () => {
+  const queryClient = createTestQueryClient();
+  let fetchAttempts404 = 0;
+
+  // Real fetchFileDiffsBatch adapter behavior throwing ApiError
+  const adapterFetch404 = async () => {
+    fetchAttempts404 += 1;
+    throw new ApiError('Pull request file-diffs API: 404 Pull request not found', 404);
+  };
+
+  const manager404 = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'http-404-test'],
+    queryKey: (req) => ['diff-http-404', req.path],
+    fetchBatch: adapterFetch404,
+    resolve: () => null,
+    windowMs: 5,
+    retryDelay: 10,
+  });
+
+  await assert.rejects(() => manager404.load({ path: 'missing.ts' }), (err) => err instanceof ApiError && err.status === 404);
+  await sleep(30);
+  assert.equal(fetchAttempts404, 1, 'HTTP 404 via ApiError must not be retried by the query manager');
+
+  let fetchAttempts504 = 0;
+  const adapterFetch504 = async () => {
+    fetchAttempts504 += 1;
+    throw new ApiError('Pull request file-diffs API: 504 Gateway Timeout', 504);
+  };
+
+  const manager504 = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'http-504-test'],
+    queryKey: (req) => ['diff-http-504', req.path],
+    fetchBatch: adapterFetch504,
+    resolve: () => null,
+    windowMs: 5,
+    retryDelay: 10,
+  });
+
+  await assert.rejects(() => manager504.load({ path: 'timeout.ts' }), (err) => err instanceof ApiError && err.status === 504);
+  assert.equal(fetchAttempts504, 2, 'HTTP 504 via ApiError must retry at most once (2 attempts total)');
+});
+
 
 
 

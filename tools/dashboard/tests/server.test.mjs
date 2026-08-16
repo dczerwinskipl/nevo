@@ -444,20 +444,32 @@ test('slow async pull request operation does not block parallel health or docume
   }
 });
 
-test('GET /actions does not execute heavy specs runner or finalize check during polling', () => {
+test('GET /actions evaluates task-level gate with check preflight and disables invalid task actions without heavy finalize probe', () => {
   const root = join(tmpdir(), `nevo-server-actions-${process.pid}-${Date.now()}`);
   const activeDir = join(root, 'specs', 'active');
   const changeDir = join(activeDir, 'sample-change');
   mkdirSync(changeDir, { recursive: true });
-  writeFileSync(join(changeDir, 'change.yaml'), 'id: sample-change\ntitle: Sample\ntasks: []\n');
+  writeFileSync(join(changeDir, 'change.yaml'), [
+    'id: sample-change',
+    'title: Sample',
+    'tasks:',
+    '  - id: failing-task',
+    '    status: draft',
+    '  - id: passing-task',
+    '    status: implemented',
+    '',
+  ].join('\n'));
 
   try {
-    let specsRunnerCalls = 0;
+    const specsRunnerCalls = [];
     const actions = loadSpecificationActions({
       slug: 'sample-change',
       activeDir,
-      runSpecs: () => {
-        specsRunnerCalls++;
+      runSpecs: (_root, args) => {
+        specsRunnerCalls.push(args);
+        if (args.includes('failing-task')) {
+          return JSON.stringify({ result: { ok: false, reason: 'Task review incomplete.' } });
+        }
         return JSON.stringify({ result: { ok: true } });
       },
       worktreeLoader: () => ({ clean: true, total: 0, staged: 0, unstaged: 0, untracked: 0, files: [] }),
@@ -466,8 +478,10 @@ test('GET /actions does not execute heavy specs runner or finalize check during 
     });
 
     assert.equal(actions.slug, 'sample-change');
-    assert.equal(actions.worktree.clean, true);
-    assert.equal(specsRunnerCalls, 0, 'GET /actions must not execute specs.mjs runner / heavy checks');
+    assert.deepEqual(actions.tasks['failing-task'], { action: 'approve', enabled: false, reason: 'Task review incomplete.' });
+    assert.deepEqual(actions.tasks['passing-task'], { action: 'verify', enabled: true, reason: null });
+    // Heavy finalize probe is NOT executed during GET /actions
+    assert.ok(!specsRunnerCalls.some(args => args[0] === 'finalize'), 'must not run finalize probe during GET /actions');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

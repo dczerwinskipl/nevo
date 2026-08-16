@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useBatchQueries } from './use-batch-queries';
 import type { BatchQueriesHandle } from './use-batch-queries';
 
-import type {
+import {
+  ApiError,
   AvailablePullRequest,
   DashboardChange,
   DashboardPayload,
@@ -290,7 +291,14 @@ async function fetchFileDiffsBatch(change: DashboardChange, number: number, path
       body: JSON.stringify({ paths, headSha }),
     },
   );
-  if (!response.ok) throw new Error(`Pull request file-diffs API: ${response.status}`);
+  if (!response.ok) {
+    let errorDetail = '';
+    try {
+      const errJson = await response.json();
+      errorDetail = errJson.error ? `: ${errJson.error}` : '';
+    } catch {}
+    throw new ApiError(`Pull request file-diffs API: ${response.status}${errorDetail}`, response.status);
+  }
   return (await response.json() as PullRequestFileDiffsPayload).diffs;
 }
 
