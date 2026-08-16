@@ -296,6 +296,9 @@ export const actionDefinitions = {
     steps: [
       { id: 'validate-transition', label: 'Validate transition' },
       { id: 'verify-task', label: 'Verify task' },
+      { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+      { id: 'commit-verification', label: 'Commit verification' },
+      { id: 'push-verification', label: 'Push verification' },
     ],
   },
   complete: {

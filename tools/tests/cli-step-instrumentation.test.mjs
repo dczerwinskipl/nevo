@@ -97,7 +97,7 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     const sample = fixture();
     try {
       const output = captureStdout(() => {
-        handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir });
+        handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);

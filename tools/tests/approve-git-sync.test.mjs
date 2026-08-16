@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { handleApprove } from '../specs.mjs';
+import { handleApprove, handleVerify } from '../specs.mjs';
 import {
   computeChangeFingerprint,
   computeTaskFingerprint,
@@ -251,6 +251,51 @@ test('Approve post-action sync and Git integration', async (t) => {
       });
 
       assert.ok(git.isWorkingTreeClean(fixture.cloneDir));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('verify with Git rebuilds metadata, commits with changeSlug/taskId, and pushes', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // First approve task
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      // Mark implemented (as agent would after completing implementation)
+      const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
+      const content = readFileSync(changeYamlPath, 'utf8').replace('status: approved', 'status: implemented');
+      writeFileSync(changeYamlPath, content);
+      execFileSync('git', ['add', '.'], { cwd: fixture.cloneDir });
+      execFileSync('git', ['commit', '-m', 'feat: complete task-1 implementation'], { cwd: fixture.cloneDir });
+      execFileSync('git', ['push'], { cwd: fixture.cloneDir });
+
+      // Owner verifies task on dashboard
+      handleVerify('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      // Task status is now verified
+      const updatedChange = readFileSync(changeYamlPath, 'utf8');
+      assert.ok(updatedChange.includes('status: verified'));
+
+      // Working tree clean
+      assert.ok(git.isWorkingTreeClean(fixture.cloneDir));
+
+      // Branch pushed
+      const branch = git.getCurrentBranch(fixture.cloneDir);
+      const ab = git.getAheadBehind(fixture.cloneDir, branch);
+      assert.equal(ab.ahead, 0);
+
+      // Latest commit message contains changeSlug/taskId
+      const lastCommit = execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim();
+      assert.equal(lastCommit, 'chore(specs): verify test-change/task-1');
     } finally {
       fixture.cleanup();
     }

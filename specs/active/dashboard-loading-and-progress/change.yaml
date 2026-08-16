@@ -118,7 +118,7 @@ tasks:
   - id: cli-step-instrumentation-gate-and-verification
     order: 5
     file: tasks/05-cli-step-instrumentation-gate-and-verification.md
-    status: implemented
+    status: verified
     depends_on: [ operation-progress-contract-and-transport ]
     self_check:
       fingerprint: 872f9b8fe4f934fd5672f58b98bc7f512020cc34553a1b0efa394f6ce08e7a38

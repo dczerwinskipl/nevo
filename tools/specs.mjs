@@ -519,6 +519,7 @@ export function handleComplete(changeSlug, taskId) {
 }
 
 export function handleVerify(changeSlug, taskId, options = {}) {
+  const gitRoot = options.gitRoot || ROOT;
   const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
   const gateResult = evaluateGate('task.verify', { task, change }, { mode: 'full' });
@@ -533,12 +534,22 @@ export function handleVerify(changeSlug, taskId, options = {}) {
     return result;
   }
 
-  const emitter = createProgressEmitter();
-  emitter.operationStarted({ type: 'verify', steps: [
+  const useGit = options.git !== false && options.gitIntegration !== false;
+
+  const steps = [
     { id: 'validate-transition', label: 'Validate transition' },
     { id: 'verify-task', label: 'Verify task' },
-  ]});
+    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+  ];
+  if (useGit) {
+    steps.push({ id: 'commit-verification', label: 'Commit verification' });
+    steps.push({ id: 'push-verification', label: 'Push verification' });
+  }
 
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'verify', steps });
+
+  // 1. Validate transition
   emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
   if (!gateResult.ok) {
     emitter.stepFailed({ id: 'validate-transition', error: gateResult.reason });
@@ -547,17 +558,81 @@ export function handleVerify(changeSlug, taskId, options = {}) {
   }
   emitter.stepCompleted({ id: 'validate-transition' });
 
-  if (gateResult.idempotent) {
-    emitter.operationCompleted({ summary: `Task '${taskId}' is already verified.` });
-    console.log(`Task '${taskId}' is already verified.`);
-    return;
+  // 2. Verify task
+  emitter.stepStarted({ id: 'verify-task', label: 'Verify task' });
+  if (task.status !== 'verified') {
+    setTaskStatus(change, taskId, 'verified');
+  }
+  emitter.stepCompleted({ id: 'verify-task' });
+
+  // 3. Rebuild metadata
+  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
+
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
+  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
+  emitter.stepCompleted({ id: 'rebuild-metadata' });
+
+  // 4 & 5. Git commit & push (if enabled)
+  if (useGit) {
+    emitter.stepStarted({ id: 'commit-verification', label: 'Commit verification' });
+    const dirtyPaths = git.getDirtyPaths(gitRoot);
+    const allowedPrefix = `specs/active/${changeSlug}/`;
+    const allowedExact = new Set([
+      'specs/active.generated.md',
+      'specs/archive.generated.md',
+      'specs/index.generated.json',
+    ]);
+
+    const normalizePath = p => p.replace(/\\/g, '/');
+    const isAllowed = p => {
+      const norm = normalizePath(p);
+      return norm.startsWith(allowedPrefix) || allowedExact.has(norm);
+    };
+
+    const unrelated = dirtyPaths.filter(p => !isAllowed(p));
+    if (unrelated.length > 0) {
+      const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+      emitter.stepFailed({ id: 'commit-verification', error: err });
+      emitter.operationFailed({ error: err });
+      throw new CliError(err);
+    }
+
+    const verifyDirty = dirtyPaths.filter(isAllowed);
+    if (verifyDirty.length > 0) {
+      try {
+        runGit(['add', '--', ...verifyDirty], gitRoot);
+        runGit(['commit', '-m', `chore(specs): verify ${changeSlug}/${taskId}`], gitRoot);
+      } catch (e) {
+        emitter.stepFailed({ id: 'commit-verification', error: e.message });
+        emitter.operationFailed({ error: e.message });
+        throw new CliError(`Commit verification failed: ${e.message}`);
+      }
+    }
+    emitter.stepCompleted({ id: 'commit-verification' });
+
+    emitter.stepStarted({ id: 'push-verification', label: 'Push verification' });
+    try {
+      const branch = git.getCurrentBranch(gitRoot);
+      const ab = git.getAheadBehind(gitRoot, branch);
+      if (!ab.hasUpstream || ab.ahead > 0) {
+        git.push(gitRoot, branch);
+      }
+      emitter.stepCompleted({ id: 'push-verification' });
+    } catch (e) {
+      emitter.stepFailed({ id: 'push-verification', error: e.message });
+      emitter.operationFailed({ error: e.message });
+      throw new CliError(`Push verification failed: ${e.message}`);
+    }
   }
 
-  emitter.stepStarted({ id: 'verify-task', label: 'Verify task' });
-  setTaskStatus(change, taskId, 'verified');
-  emitter.stepCompleted({ id: 'verify-task' });
-  emitter.operationCompleted({ summary: `Task '${taskId}' marked as verified.` });
-  console.log(`Task '${taskId}' marked as verified.`);
+  const summary = `Task '${taskId}' (${changeSlug}) marked as verified.`;
+  emitter.operationCompleted({ summary });
+  console.log(summary);
 }
 
 // ── Self-check (D28) — the single write path for self_check ────────────────
@@ -1512,6 +1587,7 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .option('--check', 'Report the verification gate only — no status write')
+    .option('--no-git', 'Skip automatic Git commit and push after verification')
     .action((changeSlug, taskId, opts) => handleVerify(changeSlug, taskId, opts));
 
   program.command('archive')
