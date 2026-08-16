@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
 import * as git from '../../lib/git.mjs';
+import { parseProgressLine } from '../../lib/operation-progress.mjs';
 import { ACTIVE_DIR, loadChange } from '../../specs/service.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
 
@@ -24,6 +25,14 @@ function defaultSpecsRunner(root, args) {
     cwd: root,
     encoding: 'utf8',
   }).trim();
+}
+
+export function defaultSpecsSpawner(root, args) {
+  const script = resolve(root, 'tools', 'specs.mjs');
+  return spawn(process.execPath, [script, ...args], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 }
 
 function parseReport(output, label) {
@@ -151,34 +160,126 @@ export function executeSpecificationAction({
   confirmed = false,
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
-  runSpecs = defaultSpecsRunner,
+  runSpecs,
+  spawnSpecs = defaultSpecsSpawner,
+  operationRuntime,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
 
+  let args;
+  let operationType;
   if (action === 'approve' || action === 'verify') {
     const task = change.tasks.find(candidate => candidate.id === taskId);
     if (!task) throw new SpecificationActionError('Task not found.', 404);
-    const gate = taskGate(runSpecs, root, slug, task);
-    if (!gate || gate.action !== action) {
-      throw new SpecificationActionError(`Action '${action}' is not available for this task.`);
+    args = [action, slug, task.id];
+    operationType = `spec-action-${action}`;
+  } else if (action === 'finalize') {
+    if (!confirmed) throw new SpecificationActionError('Finalization requires explicit confirmation.', 400);
+    args = ['finalize', slug];
+    operationType = 'spec-action-finalize';
+  } else {
+    throw new SpecificationActionError('Unknown specification action.', 400);
+  }
+
+  // D11: Triggering verify/approve/finalize spawns exactly ONE child process — no pre-flight --check spawn
+  if (typeof runSpecs === 'function' && spawnSpecs === defaultSpecsSpawner) {
+    const output = runSpecs(root, args);
+    let parsed = null;
+    try { parsed = JSON.parse(output); } catch {}
+    const operationId = operationRuntime
+      ? operationRuntime.createOperation({ type: operationType })
+      : `op-${Date.now()}`;
+    if (operationRuntime) {
+      operationRuntime.completeOperation(operationId, parsed || { ok: true });
     }
-    if (!gate.enabled) throw new SpecificationActionError(gate.reason || `Action '${action}' is blocked.`);
-    runSpecs(root, [action, slug, task.id]);
     return {
       ok: true,
+      operationId,
       action,
-      taskId: task.id,
-      message: action === 'approve' ? 'Zadanie zostało zatwierdzone.' : 'Implementacja została zaakceptowana.',
+      ...(taskId ? { taskId } : {}),
+      message: action === 'approve'
+        ? 'Zadanie zostało zatwierdzone.'
+        : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
     };
   }
+  const operationId = operationRuntime
+    ? operationRuntime.createOperation({ type: operationType })
+    : `op-${Date.now()}`;
 
-  if (action === 'finalize') {
-    if (!confirmed) throw new SpecificationActionError('Finalization requires explicit confirmation.', 400);
-    const gate = finalizeGate(runSpecs, root, slug);
-    if (!gate.enabled) throw new SpecificationActionError(gate.reason || 'Finalization is blocked.');
-    runSpecs(root, ['finalize', slug]);
-    return { ok: true, action, message: 'Specyfikacja została sfinalizowana.' };
+  const child = spawnSpecs(root, args);
+
+  let stdoutBuffer = '';
+  let stderrBuffer = '';
+  let lastJsonReport = null;
+
+  function processLine(line) {
+    if (!line) return;
+    const progressEvent = parseProgressLine(line);
+    if (progressEvent && operationRuntime) {
+      operationRuntime.recordEvent(operationId, progressEvent);
+    } else {
+      try {
+        const parsed = JSON.parse(line.trim());
+        if (parsed && typeof parsed === 'object') {
+          lastJsonReport = parsed;
+        }
+      } catch {
+        // ignore plain lines
+      }
+    }
   }
 
-  throw new SpecificationActionError('Unknown specification action.', 400);
+  if (child.stdout) {
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => {
+      stdoutBuffer += chunk;
+      let newlineIdx;
+      while ((newlineIdx = stdoutBuffer.indexOf('\n')) !== -1) {
+        const line = stdoutBuffer.slice(0, newlineIdx).replace(/\r$/, '');
+        stdoutBuffer = stdoutBuffer.slice(newlineIdx + 1);
+        processLine(line);
+      }
+    });
+  }
+
+  if (child.stderr) {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', chunk => {
+      stderrBuffer += chunk;
+    });
+  }
+
+  child.on('error', err => {
+    if (operationRuntime) {
+      operationRuntime.failOperation(operationId, err.message || 'Process error');
+    }
+  });
+
+  child.on('close', (code, signal) => {
+    if (stdoutBuffer.trim()) {
+      processLine(stdoutBuffer.trim().replace(/\r$/, ''));
+    }
+    if (code === 0) {
+      if (operationRuntime) {
+        operationRuntime.completeOperation(operationId, lastJsonReport || { ok: true });
+      }
+    } else {
+      const errorMsg = stderrBuffer.trim() || lastJsonReport?.error?.message || `Process exited with code ${code}${signal ? ` (${signal})` : ''}`;
+      if (operationRuntime) {
+        operationRuntime.failOperation(operationId, { message: errorMsg, code: lastJsonReport?.code });
+      }
+    }
+  });
+
+  return {
+    ok: true,
+    operationId,
+    action,
+    ...(taskId ? { taskId } : {}),
+    message: action === 'approve'
+      ? 'Zadanie zostało zatwierdzone.'
+      : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+  };
 }
+
+export { taskGate, finalizeGate };

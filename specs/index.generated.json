@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T11:58:03.598Z",
+  "generated": "2026-08-16T12:45:38.056Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -528,19 +528,53 @@
           "id": "operation-progress-contract-and-transport",
           "order": 4,
           "file": "tasks/04-operation-progress-contract-and-transport.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "dashboard-data-loading-contracts"
-          ]
+          ],
+          "self_check": {
+            "fingerprint": "0c8a8237bae11e70bd1dd470cf30c564ce61abea64f2f7e1c2c6148199af7baa",
+            "revision": "96ce4c547c69a4921b908d326540d9b2768c8bc2",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "cli-step-instrumentation-gate-and-verification",
           "order": 5,
           "file": "tasks/05-cli-step-instrumentation-gate-and-verification.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "operation-progress-contract-and-transport"
-          ]
+          ],
+          "self_check": {
+            "fingerprint": "872f9b8fe4f934fd5672f58b98bc7f512020cc34553a1b0efa394f6ce08e7a38",
+            "revision": "96ce4c547c69a4921b908d326540d9b2768c8bc2",
+            "commands": [
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "cli-step-instrumentation-tests-and-audits",

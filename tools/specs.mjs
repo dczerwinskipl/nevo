@@ -15,6 +15,7 @@ import { updateYamlFile } from './lib/yaml.mjs';
 import { splitShellWords } from './lib/shell-words.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
+import { createProgressEmitter } from './lib/operation-progress.mjs';
 import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
   computeChangeFingerprint, computeTaskFingerprint, loadReview,
@@ -246,10 +247,17 @@ export function handleFingerprint(changeSlug, options = {}) {
 }
 
 export function handleApprove(changeSlug, taskId, options = {}) {
-  const change = requireChange(changeSlug);
+  const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'approve', steps: [
+    { id: 'validate-approval', label: 'Validate approval' },
+    { id: 'approve-task', label: 'Approve task' },
+  ]});
+
+  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
   // D14, task 07 — "review-exempt deterministic approval": re-verifies all six
   // conditions itself (defense in depth alongside `validate`'s own hard error)
   // rather than trusting a `type: mechanical` declaration at face value.
@@ -269,12 +277,21 @@ export function handleApprove(changeSlug, taskId, options = {}) {
     mechanicalExempt, taskId, currentTaskFingerprint,
   });
   if (options.check) {
+    if (result.ok) {
+      emitter.stepCompleted({ id: 'validate-approval' });
+      emitter.operationCompleted({ result });
+    } else {
+      emitter.stepFailed({ id: 'validate-approval', error: result.reason });
+      emitter.operationFailed({ error: result.reason });
+    }
     console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
     return result;
   }
   const inspection = inspectApprovePostconditions(result);
 
   if (inspection.result === 'not_retryable') {
+    emitter.stepFailed({ id: 'validate-approval', error: inspection.reason });
+    emitter.operationFailed({ error: inspection.reason });
     // REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE — recoverable, confirm-required:
     // re-run the review, then retry approval. Persisted so a resumed session
     // knows a confirmation is still owed, without re-deriving it from prose.
@@ -289,10 +306,19 @@ export function handleApprove(changeSlug, taskId, options = {}) {
     }
     throw new CliError(inspection.reason);
   }
-  if (inspection.result === 'completed') { console.log(`Task '${taskId}' is already approved.`); return; }
+  if (inspection.result === 'completed') {
+    emitter.stepCompleted({ id: 'validate-approval' });
+    emitter.operationCompleted({ summary: `Task '${taskId}' is already approved.` });
+    console.log(`Task '${taskId}' is already approved.`);
+    return;
+  }
 
+  emitter.stepCompleted({ id: 'validate-approval' });
+  emitter.stepStarted({ id: 'approve-task', label: 'Approve task' });
   clearTaskSuspension(change, taskId);
   setTaskStatus(change, taskId, 'approved');
+  emitter.stepCompleted({ id: 'approve-task' });
+  emitter.operationCompleted({ summary: `Task '${taskId}' marked as approved.` });
   console.log(
     mechanicalExempt
       ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
@@ -442,18 +468,45 @@ export function handleComplete(changeSlug, taskId) {
 }
 
 export function handleVerify(changeSlug, taskId, options = {}) {
-  const change = requireChange(changeSlug);
+  const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
 
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'verify', steps: [
+    { id: 'validate-transition', label: 'Validate transition' },
+    { id: 'verify-task', label: 'Verify task' },
+  ]});
+
+  emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
   const transition = validateTransition('verify', task.status);
   if (options.check) {
+    if (transition.ok) {
+      emitter.stepCompleted({ id: 'validate-transition' });
+      emitter.operationCompleted({ result: transition });
+    } else {
+      emitter.stepFailed({ id: 'validate-transition', error: transition.reason });
+      emitter.operationFailed({ error: transition.reason });
+    }
     console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
     return transition;
   }
-  if (!transition.ok) throw new CliError(transition.reason);
-  if (transition.idempotent) { console.log(`Task '${taskId}' is already verified.`); return; }
+  if (!transition.ok) {
+    emitter.stepFailed({ id: 'validate-transition', error: transition.reason });
+    emitter.operationFailed({ error: transition.reason });
+    throw new CliError(transition.reason);
+  }
+  emitter.stepCompleted({ id: 'validate-transition' });
 
+  if (transition.idempotent) {
+    emitter.operationCompleted({ summary: `Task '${taskId}' is already verified.` });
+    console.log(`Task '${taskId}' is already verified.`);
+    return;
+  }
+
+  emitter.stepStarted({ id: 'verify-task', label: 'Verify task' });
   setTaskStatus(change, taskId, 'verified');
+  emitter.stepCompleted({ id: 'verify-task' });
+  emitter.operationCompleted({ summary: `Task '${taskId}' marked as verified.` });
   console.log(`Task '${taskId}' marked as verified.`);
 }
 
@@ -496,7 +549,27 @@ export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gi
   const commands = parseVerificationCommands(body);
   if (!commands.length) throw new CliError(`Task '${taskId}' has no "## Verification" commands to run.`);
 
-  const commandResults = commands.map(runVerificationCommand);
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({
+    type: 'task-verification',
+    totalSteps: commands.length,
+    steps: commands.map((cmd, idx) => ({ id: `cmd-${idx + 1}`, label: cmd })),
+  });
+
+  const commandResults = [];
+  for (let idx = 0; idx < commands.length; idx++) {
+    const cmd = commands[idx];
+    const stepId = `cmd-${idx + 1}`;
+    emitter.stepStarted({ id: stepId, label: cmd, total: commands.length });
+    const result = runVerificationCommand(cmd);
+    commandResults.push(result);
+    if (result.exit_code === 0) {
+      emitter.stepCompleted({ id: stepId, detail: 'Passed' });
+    } else {
+      emitter.stepFailed({ id: stepId, error: { message: `Exit code ${result.exit_code}`, code: String(result.exit_code) } });
+    }
+  }
+
   const currentRevision = git.getCurrentRevision(gitRoot);
   const selfCheck = buildSelfCheckResult({
     commandResults,
@@ -533,9 +606,11 @@ export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gi
   }
 
   if (selfCheck.status === 'failed') {
+    emitter.operationFailed({ error: { message: `Self-check FAILED: ${selfCheck.failed_criteria.join(', ')}` }, summary: 'Self-check failed' });
     console.log(`Self-check FAILED for '${taskId}': ${selfCheck.failed_criteria.join(', ')}`);
     process.exitCode = 1;
   } else {
+    emitter.operationCompleted({ result: selfCheck, summary: `Self-check passed for '${taskId}'.` });
     console.log(`Self-check passed for '${taskId}'.`);
   }
 }
@@ -884,35 +959,65 @@ function runDotnetCheck(name, args) {
 // handleFinalize so `--check` (read-only) and the real run share exactly one code path
 // for "what does the current state look like" — the only difference between them is
 // whether the result is acted on.
-function gatherFinalizeFacts(branch, change) {
+function gatherFinalizeFacts(branch, change, emitter = null) {
   const verification = [];
 
+  emitter?.stepStarted({ id: 'validate-specs', label: 'Validate specs' });
   const specErrors = validateSpecs();
-  verification.push({ name: 'specs validate', passed: specErrors.length === 0, detail: specErrors[0] });
-  const specCheckProblems = checkSpecsIndexes();
-  verification.push({ name: 'specs check', passed: specCheckProblems.length === 0, detail: specCheckProblems[0] });
+  const specPassed = specErrors.length === 0;
+  verification.push({ name: 'specs validate', passed: specPassed, detail: specErrors[0] });
+  if (specPassed) emitter?.stepCompleted({ id: 'validate-specs' });
+  else emitter?.stepFailed({ id: 'validate-specs', error: specErrors[0] || 'Spec validation failed' });
 
+  emitter?.stepStarted({ id: 'check-specs-indexes', label: 'Check spec indexes' });
+  const specCheckProblems = checkSpecsIndexes();
+  const specCheckPassed = specCheckProblems.length === 0;
+  verification.push({ name: 'specs check', passed: specCheckPassed, detail: specCheckProblems[0] });
+  if (specCheckPassed) emitter?.stepCompleted({ id: 'check-specs-indexes' });
+  else emitter?.stepFailed({ id: 'check-specs-indexes', error: specCheckProblems[0] || 'Spec indexes stale' });
+
+  emitter?.stepStarted({ id: 'validate-docs', label: 'Validate docs' });
   const docs = scanDocs();
   const docErrors = validateDocs(docs);
-  verification.push({ name: 'docs validate', passed: docErrors.length === 0, detail: docErrors[0] });
-  const docCheckProblems = checkDocsIndexes(docs);
-  verification.push({ name: 'docs check', passed: docCheckProblems.length === 0, detail: docCheckProblems[0] });
+  const docPassed = docErrors.length === 0;
+  verification.push({ name: 'docs validate', passed: docPassed, detail: docErrors[0] });
+  if (docPassed) emitter?.stepCompleted({ id: 'validate-docs' });
+  else emitter?.stepFailed({ id: 'validate-docs', error: docErrors[0] || 'Docs validation failed' });
 
+  emitter?.stepStarted({ id: 'check-docs-indexes', label: 'Check docs indexes' });
+  const docCheckProblems = checkDocsIndexes(docs);
+  const docCheckPassed = docCheckProblems.length === 0;
+  verification.push({ name: 'docs check', passed: docCheckPassed, detail: docCheckProblems[0] });
+  if (docCheckPassed) emitter?.stepCompleted({ id: 'check-docs-indexes' });
+  else emitter?.stepFailed({ id: 'check-docs-indexes', error: docCheckProblems[0] || 'Docs indexes stale' });
+
+  emitter?.stepStarted({ id: 'check-pr-review', label: 'Check PR and review state' });
   let pr = null;
   const ghAvailable = github.isGhAvailable();
   if (!ghAvailable) {
     verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
+    emitter?.stepFailed({ id: 'check-pr-review', error: 'GitHub CLI not available' });
   } else {
     pr = github.getPrForBranch(ROOT, branch);
     if (pr) {
       pr.unresolvedThreads = pr.state === 'MERGED' ? 0 : github.getUnresolvedReviewThreadCount(ROOT, pr.number);
     }
+    emitter?.stepCompleted({ id: 'check-pr-review' });
   }
 
   if (pr?.baseRefName) {
     if (git.touchesPaths(ROOT, `origin/${pr.baseRefName}`, branch, ['src', 'tests'])) {
-      verification.push(runDotnetCheck('dotnet build', ['build']));
-      verification.push(runDotnetCheck('dotnet test', ['test']));
+      emitter?.stepStarted({ id: 'dotnet-build', label: 'Dotnet build' });
+      const buildRes = runDotnetCheck('dotnet build', ['build']);
+      verification.push(buildRes);
+      if (buildRes.passed) emitter?.stepCompleted({ id: 'dotnet-build' });
+      else emitter?.stepFailed({ id: 'dotnet-build', error: buildRes.detail || 'Build failed' });
+
+      emitter?.stepStarted({ id: 'dotnet-test', label: 'Dotnet test' });
+      const testRes = runDotnetCheck('dotnet test', ['test']);
+      verification.push(testRes);
+      if (testRes.passed) emitter?.stepCompleted({ id: 'dotnet-test' });
+      else emitter?.stepFailed({ id: 'dotnet-test', error: testRes.detail || 'Test failed' });
     } else {
       verification.push({ name: 'dotnet build/test', passed: true, detail: 'skipped — no src/**/tests/** changes on this branch' });
     }
@@ -1125,16 +1230,38 @@ export function handleBulkTransition(changeSlug, options = {}) {
 export function handleFinalize(changeSlug, options = {}) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
-  const facts = gatherFinalizeFacts(branch, change);
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'finalize', steps: [
+    { id: 'validate-specs', label: 'Validate specs' },
+    { id: 'check-specs-indexes', label: 'Check spec indexes' },
+    { id: 'validate-docs', label: 'Validate docs' },
+    { id: 'check-docs-indexes', label: 'Check docs indexes' },
+    { id: 'check-pr-review', label: 'Check PR and review state' },
+    { id: 'archive-change', label: 'Archive specification' },
+    { id: 'push-and-merge', label: 'Push and merge' },
+    { id: 'post-merge-check', label: 'Post-merge check' },
+  ]});
+
+  const facts = gatherFinalizeFacts(branch, change, emitter);
   const result = validateFinalize(change, facts);
 
   if (options.check) {
+    if (result.ok) {
+      emitter.operationCompleted({ result, summary: 'Finalize check passed' });
+    } else {
+      emitter.operationFailed({ error: result.reason || 'Finalize check failed' });
+    }
     console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
     return;
   }
 
-  if (!result.ok) throw new CliError(result.reason);
+  if (!result.ok) {
+    emitter.operationFailed({ error: result.reason || 'Finalize gate blocked' });
+    throw new CliError(result.reason);
+  }
 
+  emitter.stepStarted({ id: 'archive-change', label: 'Archive specification' });
   if (location === 'active') {
     handleArchive(changeSlug);
     if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
@@ -1142,17 +1269,24 @@ export function handleFinalize(changeSlug, options = {}) {
     console.log(`Change '${changeSlug}' is already archived.`);
     if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): finalize ${changeSlug}`);
   }
+  emitter.stepCompleted({ id: 'archive-change' });
 
   if (result.idempotent) {
+    emitter.operationCompleted({ summary: 'PR was already merged.' });
     console.log('PR was already merged. Any pending local changes were committed — push manually if the remote branch still exists.');
     return;
   }
 
+  emitter.stepStarted({ id: 'push-and-merge', label: 'Push and merge' });
   git.push(ROOT, branch);
   github.mergePr(ROOT, facts.pr.number);
+  emitter.stepCompleted({ id: 'push-and-merge' });
 
+  emitter.stepStarted({ id: 'post-merge-check', label: 'Post-merge check' });
   const postMerge = runPostMergeCheck(ROOT, branch, gatherPostMergeCheckFailures);
   if (!postMerge.ok) {
+    emitter.stepFailed({ id: 'post-merge-check', error: 'Post-merge check failed' });
+    emitter.operationFailed({ error: 'Post-merge check failed' });
     console.error(`Post-merge check FAILED after merging PR #${facts.pr.number} (merged SHA: ${postMerge.mergedSha}).`);
     for (const f of postMerge.failed) console.error(`  - ${f.name}${f.detail ? `: ${f.detail}` : ''}`);
     console.error(
@@ -1167,6 +1301,8 @@ export function handleFinalize(changeSlug, options = {}) {
     return;
   }
 
+  emitter.stepCompleted({ id: 'post-merge-check' });
+  emitter.operationCompleted({ summary: `Pushed and merged PR #${facts.pr.number} (squash).` });
   console.log(
     `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed — ` +
     `branch '${postMerge.deletedBranch}' deleted.`
