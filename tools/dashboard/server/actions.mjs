@@ -79,6 +79,44 @@ function requireActiveChange(slug, activeDir) {
   return change;
 }
 
+function getLocalBranchTracking(root) {
+  try {
+    const raw = execFileSync('git', ['-C', root, 'rev-list', '--left-right', '--count', '@{u}...HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const [behind, ahead] = raw.split(/\s+/).map(Number);
+    return { hasUpstream: true, ahead: Number.isFinite(ahead) ? ahead : 0, behind: Number.isFinite(behind) ? behind : 0 };
+  } catch {
+    return { hasUpstream: false, ahead: null, behind: null };
+  }
+}
+
+function cheapTaskGate(task) {
+  const action = ACTIONABLE_TASK_STATUSES.get(task.status);
+  if (!action) return null;
+  return {
+    action,
+    enabled: true,
+    reason: null,
+  };
+}
+
+function cheapFinalizeGate(change, worktree) {
+  const allVerified = change.tasks.length > 0 && change.tasks.every(t => t.status === 'verified');
+  const clean = Boolean(worktree?.clean);
+  const enabled = allVerified && clean;
+  let reason = null;
+  if (!allVerified) {
+    reason = 'Wszystkie zadania muszą być zweryfikowane.';
+  } else if (!clean) {
+    reason = 'Katalog roboczy zawiera niezacommitowane zmiany.';
+  }
+  return {
+    enabled,
+    reason,
+    checks: [],
+    pullRequest: null,
+  };
+}
+
 export function loadSpecificationActions({
   slug,
   activeDir = ACTIVE_DIR,
@@ -86,10 +124,13 @@ export function loadSpecificationActions({
   runSpecs = defaultSpecsRunner,
   worktreeLoader = git.getWorkingTreeSummary,
   branchLoader = git.getCurrentBranch,
+  trackingLoader = getLocalBranchTracking,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
-  const finalize = finalizeGate(runSpecs, root, slug);
   const worktree = worktreeLoader(root);
+  const branch = branchLoader(root);
+  const tracking = trackingLoader(root, branch);
+  const finalize = cheapFinalizeGate(change, worktree);
 
   return {
     id: change.id || change._slug,
@@ -98,11 +139,11 @@ export function loadSpecificationActions({
     generatedAt: new Date().toISOString(),
     worktree: {
       ...worktree,
-      branch: branchLoader(root),
-      ...finalize.branch,
+      branch,
+      ...tracking,
     },
     tasks: Object.fromEntries(change.tasks
-      .map(task => [task.id, taskGate(runSpecs, root, slug, task)])
+      .map(task => [task.id, cheapTaskGate(task)])
       .filter(([, gate]) => gate)),
     finalize: {
       enabled: finalize.enabled,

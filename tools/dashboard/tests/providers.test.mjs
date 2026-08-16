@@ -10,7 +10,7 @@ import {
   getPullRequestFilesWithPatches,
   getPullRequestMetadata,
 } from '../../lib/github.mjs';
-import { createGitHubProvider, mapGitHubFileManifest, mapGitHubPullRequest } from '../server/providers/github.mjs';
+import { classifyUpstreamError, createGitHubProvider, mapGitHubFileManifest, mapGitHubPullRequest } from '../server/providers/github.mjs';
 import {
   createProviderRegistry,
   loadSpecificationPullRequestFileDiffs,
@@ -327,4 +327,35 @@ test('failure in cold fetch releases in-flight state so future requests can retr
   assert.equal(result.length, 1);
   assert.equal(fetchCount, 2);
 });
+
+test('PR metadata is cached across subsequent calls within TTL (cache hit)', async () => {
+  let metadataCalls = 0;
+  const provider = createGitHubProvider({
+    fetchMetadata: async () => {
+      metadataCalls++;
+      return githubMetadata();
+    },
+  });
+
+  const first = await provider.load('fixture-root', githubReference);
+  assert.equal(metadataCalls, 1);
+  assert.equal(first.number, 42);
+
+  // Subsequent call short after is a cache hit
+  const second = await provider.load('fixture-root', githubReference);
+  assert.equal(metadataCalls, 1, 'subsequent call must hit result cache without gh call');
+  assert.equal(second.number, 42);
+});
+
+test('classifyUpstreamError maps timeouts to 504 and connection drops to 503', () => {
+  const timeoutErr = classifyUpstreamError(new Error('TLS handshake timeout after 10000ms'));
+  assert.equal(timeoutErr.status, 504);
+
+  const resetErr = classifyUpstreamError(new Error('wsarecv: connection was forcibly closed by the remote host'));
+  assert.equal(resetErr.status, 503);
+
+  const genericErr = classifyUpstreamError(new Error('API error 500'));
+  assert.equal(genericErr.status, 502);
+});
+
 

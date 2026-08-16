@@ -503,7 +503,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                               key={path}
                               file={file}
                               mode={mode}
-                              initiallyOpen={!collapseFilesInitially}
+                              initiallyOpen={false}
                               diffHandle={diffHandle}
                               req={req}
                             />

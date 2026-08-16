@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
+import { loadSpecificationActions } from '../server/actions.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
 
 function fakeHub() {
@@ -439,4 +443,90 @@ test('slow async pull request operation does not block parallel health or docume
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
+
+test('GET /actions does not execute heavy specs runner or finalize check during polling', () => {
+  const root = join(tmpdir(), `nevo-server-actions-${process.pid}-${Date.now()}`);
+  const activeDir = join(root, 'specs', 'active');
+  const changeDir = join(activeDir, 'sample-change');
+  mkdirSync(changeDir, { recursive: true });
+  writeFileSync(join(changeDir, 'change.yaml'), 'id: sample-change\ntitle: Sample\ntasks: []\n');
+
+  try {
+    let specsRunnerCalls = 0;
+    const actions = loadSpecificationActions({
+      slug: 'sample-change',
+      activeDir,
+      runSpecs: () => {
+        specsRunnerCalls++;
+        return JSON.stringify({ result: { ok: true } });
+      },
+      worktreeLoader: () => ({ clean: true, total: 0, staged: 0, unstaged: 0, untracked: 0, files: [] }),
+      branchLoader: () => 'feature/sample',
+      trackingLoader: () => ({ hasUpstream: true, ahead: 0, behind: 0 }),
+    });
+
+    assert.equal(actions.slug, 'sample-change');
+    assert.equal(actions.worktree.clean, true);
+    assert.equal(specsRunnerCalls, 0, 'GET /actions must not execute specs.mjs runner / heavy checks');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('serves accurate 504/503/502 status codes on upstream provider errors instead of 404', async () => {
+  const server = createDashboardServer({
+    dataLoader: () => ({ active: [], archive: [] }),
+    pullRequestFileDiffsLoader: async ({ number }) => {
+      if (number === 404) return null; // Genuine not found
+      if (number === 504) {
+        const err = new Error('TLS handshake timeout');
+        err.status = 504;
+        throw err;
+      }
+      if (number === 503) {
+        const err = new Error('Connection reset by peer');
+        err.status = 503;
+        throw err;
+      }
+      throw new Error('Unknown GitHub failure');
+    },
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const res404 = await fetch(`${baseUrl}/api/specs/active/sample/pull-requests/404/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.js'] }),
+    });
+    assert.equal(res404.status, 404);
+
+    const res504 = await fetch(`${baseUrl}/api/specs/active/sample/pull-requests/504/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.js'] }),
+    });
+    assert.equal(res504.status, 504);
+    assert.match((await res504.json()).error, /timeout/);
+
+    const res503 = await fetch(`${baseUrl}/api/specs/active/sample/pull-requests/503/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.js'] }),
+    });
+    assert.equal(res503.status, 503);
+
+    const res502 = await fetch(`${baseUrl}/api/specs/active/sample/pull-requests/500/file-diffs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: ['a.js'] }),
+    });
+    assert.equal(res502.status, 502);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
 

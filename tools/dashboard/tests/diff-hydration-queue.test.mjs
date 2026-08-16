@@ -595,4 +595,63 @@ test('scoped group preload: opening one group only preloads that group files, no
   assert.ok(!batchCalls[1].includes('c1.ts'));
 });
 
+// ---------------------------------------------------------------------------
+// 14. Controlled retry policy: 4xx is not retried, 503/504 retries max once
+// ---------------------------------------------------------------------------
+test('controlled retry policy: 404 does not retry, transient error retries at most once and recovers', async () => {
+  const queryClient = createTestQueryClient();
+  let fetchAttempts404 = 0;
+
+  const notFoundManager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', '404-test'],
+    queryKey: (req) => ['diff-404', req.path],
+    fetchBatch: async (requests) => {
+      fetchAttempts404 += 1;
+      const err = new Error('Not found');
+      err.status = 404;
+      throw err;
+    },
+    resolve: (res, req) => null,
+    windowMs: 5,
+    retryDelay: 10,
+  });
+
+  await assert.rejects(() => notFoundManager.load({ path: 'missing.ts' }), /Not found/);
+  await sleep(30);
+  assert.equal(fetchAttempts404, 1, '404 error must not be retried');
+
+  let fetchAttempts503 = 0;
+  let shouldFail503 = true;
+
+  const transientManager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', '503-test'],
+    queryKey: (req) => ['diff-503', req.path],
+    fetchBatch: async (requests) => {
+      fetchAttempts503 += 1;
+      if (shouldFail503) {
+        const err = new Error('Service Unavailable');
+        err.status = 503;
+        throw err;
+      }
+      return [{ path: 'ok.ts', patch: 'recovered' }];
+    },
+    resolve: (res, req) => res.find((r) => r.path === req.path) ?? null,
+    windowMs: 5,
+    retryDelay: 10,
+  });
+
+  // First trial: fails, retries once (total 2 attempts), and fails
+  await assert.rejects(() => transientManager.load({ path: 'ok.ts' }), /Service Unavailable/);
+  assert.equal(fetchAttempts503, 2, '503 must retry exactly once (2 attempts total)');
+
+  // Recovery trial: subsequent load after transient recovery succeeds and updates cache
+  shouldFail503 = false;
+  const recovered = await transientManager.reload({ path: 'ok.ts' });
+  assert.deepEqual(recovered, { path: 'ok.ts', patch: 'recovered' });
+  assert.equal(transientManager.get({ path: 'ok.ts' })?.patch, 'recovered');
+});
+
+
 

@@ -106,23 +106,15 @@ export async function loadSpecificationPullRequestFiles({
   if (!lookup) return null;
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
-  try {
-    // The per-project changeView/generatedFiles config is delivered here
-    // (area changes-grouping-and-filtering: "folded into the task-02
-    // files-manifest response" is one of the named implementation options)
-    // rather than a separate route, since it's only ever needed alongside
-    // the file manifest itself.
-    const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: root });
-    const files = await provider.loadFiles(root, lookup.reference);
-    return {
-      number: Number(number),
-      files,
-      changeView,
-      generatedFiles,
-    };
-  } catch {
-    return null;
-  }
+
+  const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: root });
+  const files = await provider.loadFiles(root, lookup.reference);
+  return {
+    number: Number(number),
+    files,
+    changeView,
+    generatedFiles,
+  };
 }
 
 export async function loadSpecificationPullRequestFileDiffs({
@@ -140,16 +132,13 @@ export async function loadSpecificationPullRequestFileDiffs({
   if (!lookup) return null;
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
-  try {
-    const diffs = await provider.loadFileDiffs(root, lookup.reference, paths, headSha);
-    return {
-      number: Number(number),
-      headSha,
-      diffs,
-    };
-  } catch {
-    return null;
-  }
+
+  const diffs = await provider.loadFileDiffs(root, lookup.reference, paths, headSha);
+  return {
+    number: Number(number),
+    headSha,
+    diffs,
+  };
 }
 
 export async function loadSpecificationPullRequestFullDiff({
@@ -165,10 +154,7 @@ export async function loadSpecificationPullRequestFullDiff({
   if (!lookup) return null;
   const provider = registry.get(lookup.reference.provider);
   if (!provider) return null;
-  try {
-    const result = await provider.loadFullDiff(root, lookup.reference);
-    return { number: Number(number), ...result };
-  } catch {
-    return null;
-  }
+
+  const result = await provider.loadFullDiff(root, lookup.reference);
+  return { number: Number(number), ...result };
 }

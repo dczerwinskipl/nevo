@@ -227,8 +227,9 @@ export function createDashboardServer({
           const files = await pullRequestFilesLoader({ source, slug, number });
           if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return; }
           sendJson(response, 200, files);
-        } catch {
-          sendJson(response, 500, { error: 'Unable to load pull request files' });
+        } catch (error) {
+          const status = typeof error?.status === 'number' ? error.status : 502;
+          sendJson(response, status, { error: error?.message || 'Unable to load pull request files' });
         }
         return;
       }
@@ -239,8 +240,9 @@ export function createDashboardServer({
           const diff = await pullRequestFullDiffLoader({ source, slug, number });
           if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return; }
           sendJson(response, 200, diff);
-        } catch {
-          sendJson(response, 500, { error: 'Unable to load pull request diff' });
+        } catch (error) {
+          const status = typeof error?.status === 'number' ? error.status : 502;
+          sendJson(response, status, { error: error?.message || 'Unable to load pull request diff' });
         }
         return;
       }
@@ -259,9 +261,9 @@ export function createDashboardServer({
         if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return; }
         sendJson(response, 200, diffs);
       } catch (error) {
-        const known = error instanceof SpecificationActionError;
-        sendJson(response, known ? error.status : 500, {
-          error: known ? error.message : 'Unable to load pull request file diffs.',
+        const status = typeof error?.status === 'number' ? error.status : (error instanceof SpecificationActionError ? error.status : 502);
+        sendJson(response, status, {
+          error: error?.message || 'Unable to load pull request file diffs.',
         });
       }
       return;

@@ -67,6 +67,18 @@ export interface BatchQueriesOptions<TRequest, TBatchResult, TResult = TBatchRes
 
   /** How long to treat a cached result as fresh. Default: Infinity (invalidate explicitly). */
   staleTime?: number;
+
+  /**
+   * Retry policy for failed batch items.
+   * Default: 0 retries on 4xx status, max 1 retry on 5xx/network errors.
+   */
+  retry?: boolean | number | ((failureCount: number, error: unknown) => boolean);
+
+  /**
+   * Delay in ms between retries.
+   * Default: 500ms.
+   */
+  retryDelay?: number | ((retryAttempt: number, error: unknown) => number);
 }
 
 export interface BatchQueriesHandle<TRequest, TResult> {
@@ -115,6 +127,14 @@ export interface BatchQueriesManager<TRequest, TBatchResult, TResult> {
   updateOptions: (options: BatchQueriesOptions<TRequest, TBatchResult, TResult>) => void;
 }
 
+function defaultBatchRetry(failureCount: number, error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    return false;
+  }
+  return failureCount < 1;
+}
+
 export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBatchResult>(
   options: BatchQueriesOptions<TRequest, TBatchResult, TResult> & { queryClient: QueryClient },
 ): BatchQueriesManager<TRequest, TBatchResult, TResult> {
@@ -127,12 +147,16 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
     windowMs = 20,
     maxBatchSize = 15,
     staleTime = Infinity,
+    retry = defaultBatchRetry,
+    retryDelay = 500,
   } = options;
 
   const scope = JSON.stringify(scopeKey ?? []);
   let currentFetchBatch = fetchBatch;
   let currentResolve = resolve;
   let currentStaleTime = staleTime;
+  let currentRetry = retry;
+  let currentRetryDelay = retryDelay;
 
   const batcher: Batcher<TBatchResult, TRequest, TResult> = create<TBatchResult, TRequest, TResult>({
     name: `useBatchQueries:${scope}`,
@@ -148,6 +172,8 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
       queryKey: queryKey(request),
       queryFn: makeQueryFn(request),
       staleTime: currentStaleTime,
+      retry: currentRetry,
+      retryDelay: currentRetryDelay,
     });
   };
 
@@ -157,6 +183,8 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
         queryKey: queryKey(request),
         queryFn: makeQueryFn(request),
         staleTime: currentStaleTime,
+        retry: currentRetry,
+        retryDelay: currentRetryDelay,
       });
     }
   };
@@ -167,6 +195,8 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
       queryKey: queryKey(request),
       queryFn: makeQueryFn(request),
       staleTime: 0,
+      retry: currentRetry,
+      retryDelay: currentRetryDelay,
     });
   };
 
@@ -178,6 +208,8 @@ export function createBatchQueriesManager<TRequest, TBatchResult, TResult = TBat
     currentFetchBatch = nextOptions.fetchBatch;
     currentResolve = nextOptions.resolve;
     currentStaleTime = nextOptions.staleTime ?? Infinity;
+    currentRetry = nextOptions.retry ?? defaultBatchRetry;
+    currentRetryDelay = nextOptions.retryDelay ?? 500;
   };
 
   return {

@@ -112,12 +112,44 @@ function diffCacheKey(reference, headSha) {
 // once, regardless of how many separate hydration batches ask for it (area
 // pull-request-file-and-diff-loading AC8). No eviction — "no requirement to
 // explicitly purge them in this change" (area doc).
+export class UpstreamProviderError extends Error {
+  constructor(message, status = 502) {
+    super(message);
+    this.name = 'UpstreamProviderError';
+    this.status = status;
+  }
+}
+
+export function classifyUpstreamError(error) {
+  if (error instanceof UpstreamProviderError) return error;
+  const msg = String(error?.message || error || '');
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')) {
+    return new UpstreamProviderError(`Upstream timeout: ${msg}`, 504);
+  }
+  if (
+    lower.includes('econnreset') ||
+    lower.includes('wsarecv') ||
+    lower.includes('temporarily unavailable') ||
+    lower.includes('connection reset') ||
+    lower.includes('forcibly closed') ||
+    lower.includes('network error')
+  ) {
+    return new UpstreamProviderError(`Upstream service unavailable: ${msg}`, 503);
+  }
+  return new UpstreamProviderError(msg || 'Upstream provider error', 502);
+}
+
 export function createGitHubProvider({
   fetchMetadata = getPullRequestMetadataAsync,
   fetchFiles = getPullRequestFilesAsync,
   fetchFilesWithPatches = getPullRequestFilesWithPatchesAsync,
   fetchFullDiff = getFullDiffAsync,
   cache = new Map(),
+  metadataCache = new Map(),
+  filesCache = new Map(),
+  metadataTtlMs = 30000,
 } = {}) {
   const inFlightMetadata = new Map();
   const inFlightFiles = new Map();
@@ -128,47 +160,89 @@ export function createGitHubProvider({
     id: 'github',
     async load(root, reference) {
       const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
-      let pending = inFlightMetadata.get(key);
-      const isReused = Boolean(pending);
-      if (!pending) {
-        pending = (async () => {
-          try {
-            const start = performance.now();
-            const raw = await fetchMetadata(root, reference);
-            const duration = Math.round(performance.now() - start);
-            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
-              console.log(`[github] op=pr-metadata pr=#${reference.number} total=${duration}ms reused=${isReused ? 'yes' : 'no'}`);
-            }
-            return mapGitHubPullRequest(reference, raw);
-          } finally {
-            inFlightMetadata.delete(key);
-          }
-        })();
-        inFlightMetadata.set(key, pending);
+
+      const cached = metadataCache.get(key);
+      if (cached && Date.now() - cached.timestamp < metadataTtlMs) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-metadata pr=#${reference.number} cache=hit`);
+        }
+        return cached.data;
       }
+
+      let pending = inFlightMetadata.get(key);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-metadata pr=#${reference.number} cache=miss inflight=reuse`);
+        }
+        return await pending;
+      }
+
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=pr-metadata pr=#${reference.number} cache=miss inflight=create`);
+      }
+
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const raw = await fetchMetadata(root, reference);
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=pr-metadata pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          const data = mapGitHubPullRequest(reference, raw);
+          metadataCache.set(key, { data, timestamp: Date.now() });
+          return data;
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightMetadata.delete(key);
+        }
+      })();
+      inFlightMetadata.set(key, pending);
       return await pending;
     },
 
     async loadFiles(root, reference) {
       const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
-      let pending = inFlightFiles.get(key);
-      const isReused = Boolean(pending);
-      if (!pending) {
-        pending = (async () => {
-          try {
-            const start = performance.now();
-            const nodes = await fetchFiles(root, reference);
-            const duration = Math.round(performance.now() - start);
-            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
-              console.log(`[github] op=pr-files pr=#${reference.number} total=${duration}ms reused=${isReused ? 'yes' : 'no'}`);
-            }
-            return mapGitHubFileManifest(nodes);
-          } finally {
-            inFlightFiles.delete(key);
-          }
-        })();
-        inFlightFiles.set(key, pending);
+
+      const cached = filesCache.get(key);
+      if (cached && Date.now() - cached.timestamp < metadataTtlMs) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-files pr=#${reference.number} cache=hit`);
+        }
+        return cached.data;
       }
+
+      let pending = inFlightFiles.get(key);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=pr-files pr=#${reference.number} cache=miss inflight=reuse`);
+        }
+        return await pending;
+      }
+
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=pr-files pr=#${reference.number} cache=miss inflight=create`);
+      }
+
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const nodes = await fetchFiles(root, reference);
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=pr-files pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          const data = mapGitHubFileManifest(nodes);
+          filesCache.set(key, { data, timestamp: Date.now() });
+          return data;
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightFiles.delete(key);
+        }
+      })();
+      inFlightFiles.set(key, pending);
       return await pending;
     },
 
@@ -178,8 +252,15 @@ export function createGitHubProvider({
 
       if (!byPath) {
         let pending = inFlightPatches.get(key);
-        const isReused = Boolean(pending);
-        if (!pending) {
+        if (pending) {
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=miss inflight=reuse`);
+          }
+          byPath = await pending;
+        } else {
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=miss inflight=create`);
+          }
           pending = (async () => {
             try {
               const start = performance.now();
@@ -188,16 +269,18 @@ export function createGitHubProvider({
               const map = new Map(rawFiles.map((file) => [file.filename, file]));
               cache.set(key, map);
               if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
-                console.log(`[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms cache=miss reused=${isReused ? 'yes' : 'no'}`);
+                console.log(`[file-diffs] pr=#${reference.number} files=${rawFiles.length} total=${duration}ms status=200`);
               }
               return map;
+            } catch (error) {
+              throw classifyUpstreamError(error);
             } finally {
               inFlightPatches.delete(key);
             }
           })();
           inFlightPatches.set(key, pending);
+          byPath = await pending;
         }
-        byPath = await pending;
       } else {
         if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
           console.log(`[file-diffs] pr=#${reference.number} requested=${paths.length} cache=hit`);
@@ -210,22 +293,31 @@ export function createGitHubProvider({
     async loadFullDiff(root, reference) {
       const key = `${reference.provider}|${reference.base_url}|${reference.repository}|${reference.number}`;
       let pending = inFlightFullDiff.get(key);
-      if (!pending) {
-        pending = (async () => {
-          try {
-            const start = performance.now();
-            const diff = (await fetchFullDiff(root, reference)) || '';
-            const duration = Math.round(performance.now() - start);
-            if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
-              console.log(`[github] op=full-diff pr=#${reference.number} total=${duration}ms`);
-            }
-            return { diff, diffAvailable: Boolean(diff.trim()) };
-          } finally {
-            inFlightFullDiff.delete(key);
-          }
-        })();
-        inFlightFullDiff.set(key, pending);
+      if (pending) {
+        if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+          console.log(`[github] op=full-diff pr=#${reference.number} inflight=reuse`);
+        }
+        return await pending;
       }
+      if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+        console.log(`[github] op=full-diff pr=#${reference.number} inflight=create`);
+      }
+      pending = (async () => {
+        try {
+          const start = performance.now();
+          const diff = (await fetchFullDiff(root, reference)) || '';
+          const duration = Math.round(performance.now() - start);
+          if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {
+            console.log(`[github] op=full-diff pr=#${reference.number} total=${duration}ms status=200`);
+          }
+          return { diff, diffAvailable: Boolean(diff.trim()) };
+        } catch (error) {
+          throw classifyUpstreamError(error);
+        } finally {
+          inFlightFullDiff.delete(key);
+        }
+      })();
+      inFlightFullDiff.set(key, pending);
       return await pending;
     },
   };
