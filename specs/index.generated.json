@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T10:54:17.560Z",
+  "generated": "2026-08-16T11:02:07.504Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -448,7 +448,7 @@
           ],
           "implementation": {
             "baseline_revision": "505d19be3467db453f8ebb557131fe666edf3132",
-            "review_revision": "d2d1254609f34e268011cbbcc627b036918a5362",
+            "review_revision": "b60380285aae1b4197b3105e467132b017bc1b70",
             "changed_paths": [
               "tools/dashboard/server/index.mjs",
               "tools/dashboard/server/providers/github.mjs",
@@ -466,7 +466,7 @@
           },
           "self_check": {
             "fingerprint": "e195eb0ae494883694cbe6a7bfc10bdd734d55f0e2adcf8fd540bdc18e4b5079",
-            "revision": "d2d1254609f34e268011cbbcc627b036918a5362",
+            "revision": "b60380285aae1b4197b3105e467132b017bc1b70",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
@@ -490,7 +490,7 @@
           ],
           "implementation": {
             "baseline_revision": "be2b988d2d1f5160b879a5c42222f90d93457b75",
-            "review_revision": "d2d1254609f34e268011cbbcc627b036918a5362",
+            "review_revision": "b60380285aae1b4197b3105e467132b017bc1b70",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
@@ -507,7 +507,7 @@
           },
           "self_check": {
             "fingerprint": "a4891e96db4b6c382516c2d3f5a17df34768a53b370129b54365ad9b6f4cc525",
-            "revision": "d2d1254609f34e268011cbbcc627b036918a5362",
+            "revision": "b60380285aae1b4197b3105e467132b017bc1b70",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

@@ -23,7 +23,7 @@ import {
   RefreshCw,
   UserRound,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
   AvailablePullRequest,
@@ -103,10 +103,8 @@ function renderablePatch(diff: PullRequestFile, oldFileName: string | null, newF
   return `--- ${oldPath}\n+++ ${newPath}\n${diff.patch}`;
 }
 
-// The diff itself is hydrated on demand (area pull-request-file-and-diff-loading)
-// — `file` is always available from the manifest immediately, `diff` arrives
-// later (background batch via preload, or immediately if load() jumps the queue).
-// `diffHandle.useItem(req)` reacts to cache updates via TanStack Query observer.
+// The diff itself is hydrated progressively in the background, or on demand when
+// the user explicitly expands a collapsed file.
 function FileChange({
   file,
   mode,
@@ -127,23 +125,22 @@ function FileChange({
   const newFileName = file.status === 'removed' ? null : file.path;
   const contentUnchangedRename = isContentUnchangedRename(file, diff);
 
-  useEffect(() => {
-    // When the file is open and its diff is not yet available and not errored, request it now.
-    // TanStack Query (via usePullRequestFileDiffs) deduplicates in-flight requests, so
-    // calling load() here is safe even when background preload already issued
-    // the same request — no duplicate fetch is produced (bug #1 fix).
-    if (open && diff === undefined && !diffItem.isError && !diffItem.isFetching) {
-      diffHandle.load(req).catch(() => {});
-    }
-  }, [open, diff, diffItem.isError, diffItem.isFetching, diffHandle, req]);
-
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
       <button
         type="button"
         className="flex w-full items-center gap-3 bg-[var(--surface-raised)] px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] sm:px-4"
         aria-expanded={open}
-        onClick={() => setOpen(value => !value)}
+        onClick={() => {
+          setOpen(prev => {
+            const next = !prev;
+            // Explicit user expansion: if diff not yet cached/loaded, jump the queue now.
+            if (next && diff === undefined) {
+              diffHandle.load(req).catch(() => {});
+            }
+            return next;
+          });
+        }}
       >
         <ChevronDown className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !open && '-rotate-90')} />
         <FileDiff className="size-3.5 shrink-0 text-[var(--muted)]" />
@@ -216,43 +213,33 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
   const files = filesQuery.data?.files ?? [];
   const filesByPath = new Map(files.map(file => [file.path, file]));
 
-  // Filtering (which files are hidden) and grouping never re-fetch the
-  // manifest — both are pure re-derivations from `files`, already loaded
-  // (area changes-grouping-and-filtering AC3).
   const allPaths = files.map(file => file.path);
   const visibility = computeVisibility(allPaths, filesQuery.data?.generatedFiles, hideGenerated);
-  // Independent of the toggle's current state, purely for the label/count.
   const generatedCount = computeVisibility(allPaths, filesQuery.data?.generatedFiles, true).hiddenCount;
-  const visiblePathSet = new Set(visibility.visiblePaths);
-  const visibleFiles = files.filter(file => visiblePathSet.has(file.path));
   const groups = groupFiles(visibility.visiblePaths, groupMode, filesQuery.data?.changeView);
 
-  // Background hydration only ever sees the currently-visible files — a
-  // hidden generated file gets zero diff requests until it's shown (AC4).
-  //   - usePullRequestFileDiffs is backed by TanStack Query, so:
-  //   - preload() re-runs when visibleFiles changes (filter toggle), but TQ
-  //     deduplicates any item already in-flight or cached (bug #3 fix).
-  //   - load() from FileChange.onLoad deduplicates against the same in-flight
-  //     requests that preload() may have started (bug #1 fix).
   const diffHandle = usePullRequestFileDiffs(change, pullRequest);
 
   // Derive the FileDiffRequest for a manifest entry.
-  const toRequest = (file: { path: string }): FileDiffRequest => ({
+  const toRequest = useCallback((file: { path: string }): FileDiffRequest => ({
     provider: pullRequest.reference.provider,
     baseUrl: pullRequest.reference.baseUrl,
     repository: pullRequest.reference.repository,
     number: pullRequest.number,
     headSha: pullRequest.headSha,
     path: file.path,
-  });
+  }), [pullRequest]);
 
   // Priority-ordered visible requests (active group first, then other groups).
-  const visibleDiffRequests = groups.flatMap(group =>
-    group.paths
-      .map(path => filesByPath.get(path))
-      .filter((file): file is PullRequestFileManifestEntry => Boolean(file))
-      .map(toRequest),
-  );
+  const visibleDiffRequests = useMemo(() => {
+    return groups.flatMap(group =>
+      group.paths
+        .map(path => filesByPath.get(path))
+        .filter((file): file is PullRequestFileManifestEntry => Boolean(file))
+        .map(toRequest),
+    );
+  }, [groups, filesByPath, toRequest]);
+
   // Reactive subscription to all visible diff queries — updates incompleteDiff
   // automatically as diffs arrive or fail without polling get() or manual forceRender.
   const visibleDiffItems = diffHandle.useItems(visibleDiffRequests);
@@ -263,9 +250,12 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
 
   const fullDiffQuery = useFullDiff(change, pullRequest);
   const collapseFilesInitially = files.length > 50;
-  const incompleteDiff = visibleFiles.some((file, index) => {
+
+  // Evaluated by matching each request to its manifest entry via filesByPath
+  const incompleteDiff = visibleDiffRequests.some((req, index) => {
+    const file = filesByPath.get(req.path);
     const diff = visibleDiffItems[index]?.data;
-    return diff !== undefined && diff !== null && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
+    return file && diff !== undefined && diff !== null && !diff.patchAvailable && !isContentUnchangedRename(file, diff);
   });
 
   return (

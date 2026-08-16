@@ -369,6 +369,7 @@ export function useProgressiveDiffPreload(
   diffHandle: BatchQueriesHandle<FileDiffRequest, PullRequestFile | null>,
   batchSize = 15,
 ): void {
+  const { preload, load } = diffHandle;
   useEffect(() => {
     if (!enabled || !requests.length) return;
 
@@ -378,10 +379,10 @@ export function useProgressiveDiffPreload(
       for (let i = 0; i < requests.length; i += batchSize) {
         if (cancelled) break;
         const chunk = requests.slice(i, i + batchSize);
-        diffHandle.preload(chunk);
+        preload(chunk);
         // Wait for all items in the current chunk to settle before scheduling next chunk
         await Promise.allSettled(
-          chunk.map((req) => diffHandle.load(req).catch(() => {})),
+          chunk.map((req) => load(req).catch(() => {})),
         );
       }
     }
@@ -391,7 +392,7 @@ export function useProgressiveDiffPreload(
     return () => {
       cancelled = true;
     };
-  }, [enabled, requests, diffHandle, batchSize]);
+  }, [enabled, requests, preload, load, batchSize]);
 }
 
 async function fetchFullDiff(change: DashboardChange, number: number) {

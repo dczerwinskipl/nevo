@@ -499,3 +499,55 @@ test('resolve returns concrete null (not undefined) when diff is missing in resp
   assert.strictEqual(manager.get({ path: 'nonexistent.ts' }), null);
   assert.strictEqual(manager.get({ path: 'never-requested.ts' }), undefined);
 });
+
+// ---------------------------------------------------------------------------
+// 12. Initial expanded state does not trigger explicit load() for all files
+// ---------------------------------------------------------------------------
+test('initial expanded state does not trigger explicit load() for all files on mount', async () => {
+  const queryClient = createTestQueryClient();
+  const explicitLoadCalls = [];
+
+  const manager = createBatchQueriesManager({
+    queryClient,
+    scopeKey: ['github', 'https://github.com', 'owner/repo', 42, 'sha-1'],
+    queryKey: (req) => ['nevo-file-diff', req.path],
+    fetchBatch: async (requests) => {
+      explicitLoadCalls.push(requests.map((r) => r.path));
+      return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
+    },
+    resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,
+    windowMs: 10,
+  });
+
+  // 30 files are initially rendered in expanded state (open=true) in UI.
+  // In the updated contract, initial mount only reads useItem() and does NOT call load().
+  const files = Array.from({ length: 30 }, (_, i) => ({ path: `initial-${i}.ts` }));
+
+  // Simulate rendering 30 initially open items with useItem observers
+  const observers = files.map(
+    (file) =>
+      new QueryObserver(queryClient, {
+        queryKey: ['nevo-file-diff', file.path],
+        enabled: false,
+        staleTime: Infinity,
+      }),
+  );
+
+  // Verify that setting up initial expanded UI observers produces 0 load/fetch calls
+  await sleep(25);
+  assert.equal(explicitLoadCalls.length, 0, 'initial mount in expanded state must not trigger fetch/load');
+
+  // Progressive preload schedules only chunk 0 (15 items)
+  const chunk0 = files.slice(0, 15);
+  manager.preload(chunk0);
+
+  await sleep(25);
+  assert.equal(explicitLoadCalls.length, 1, 'only progressive chunk was scheduled');
+  assert.equal(explicitLoadCalls[0].length, 15);
+  assert.equal(explicitLoadCalls[0][0], 'initial-0.ts');
+  assert.equal(explicitLoadCalls[0][14], 'initial-14.ts');
+
+  // Cleanup observers
+  observers.forEach((obs) => obs.destroy?.());
+});
+
