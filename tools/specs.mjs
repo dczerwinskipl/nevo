@@ -320,8 +320,9 @@ export function handleApprove(changeSlug, taskId, options = {}) {
   if (useGit) {
     const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
     if (baselineDirty.length > 0) {
-      if (baselineDirty.includes(changeYamlRel)) {
-        const err = `Cannot commit approval: '${changeYamlRel}' contains pre-existing uncommitted modifications.`;
+      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
+      if (dirtyTargets.length > 0) {
+        const err = `Cannot commit approval: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
         emitter.stepFailed({ id: 'validate-approval', error: err });
         emitter.operationFailed({ error: err });
         throw new CliError(err);
@@ -590,8 +591,9 @@ export function handleVerify(changeSlug, taskId, options = {}) {
   if (useGit) {
     const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
     if (baselineDirty.length > 0) {
-      if (baselineDirty.includes(changeYamlRel)) {
-        const err = `Cannot commit verification: '${changeYamlRel}' contains pre-existing uncommitted modifications.`;
+      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
+      if (dirtyTargets.length > 0) {
+        const err = `Cannot commit verification: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
         emitter.stepFailed({ id: 'validate-transition', error: err });
         emitter.operationFailed({ error: err });
         throw new CliError(err);

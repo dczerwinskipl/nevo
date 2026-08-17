@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { handleApprove, handleVerify } from '../specs.mjs';
+import { parseProgressLine } from '../lib/operation-progress.mjs';
 import {
   computeChangeFingerprint,
   computeTaskFingerprint,
@@ -239,27 +240,42 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('approve fails closed if change.yaml has pre-existing uncommitted modifications', () => {
-    const fixture = setupTempGitRepo();
-    try {
-      // Dirty change.yaml before approve
-      const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
-      writeFileSync(changeYamlPath, readFileSync(changeYamlPath, 'utf8') + '# manual dirty edit\n');
+  for (const genFile of ['specs/index.generated.json', 'specs/active.generated.md', 'specs/archive.generated.md']) {
+    await t.test(`approve fails closed if pre-existing dirty generated file ${genFile} exists`, () => {
+      const fixture = setupTempGitRepo();
+      try {
+        const genFilePath = join(fixture.cloneDir, genFile);
+        const dirtyContent = 'dirty content from previous agent/user work\n';
+        writeFileSync(genFilePath, dirtyContent);
 
-      assert.throws(
-        () => {
-          handleApprove('test-change', 'task-1', {
-            gitRoot: fixture.cloneDir,
-            activeDir: fixture.activeDir,
-            git: true,
-          });
-        },
-        err => err.message.includes('contains pre-existing uncommitted modifications'),
-      );
-    } finally {
-      fixture.cleanup();
-    }
-  });
+        const commitCountBefore = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+
+        assert.throws(
+          () => {
+            handleApprove('test-change', 'task-1', {
+              gitRoot: fixture.cloneDir,
+              activeDir: fixture.activeDir,
+              git: true,
+            });
+          },
+          err => err.message.includes('contains pre-existing uncommitted modifications'),
+        );
+
+        // Dirty content is untouched
+        assert.equal(readFileSync(genFilePath, 'utf8'), dirtyContent);
+
+        // No new commit created
+        const commitCountAfter = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+        assert.equal(commitCountBefore, commitCountAfter);
+
+        // Task status not mutated in change.yaml
+        const changeYaml = readFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml'), 'utf8');
+        assert.ok(changeYaml.includes('status: draft'));
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
 
   await t.test('real push failure during approve: commit created, push fails, retry performs missing push without duplicate commit', () => {
     const fixture = setupTempGitRepo();
@@ -267,17 +283,45 @@ test('Approve post-action sync and Git integration', async (t) => {
       // Break the remote URL to force push to genuinely fail
       execFileSync('git', ['remote', 'set-url', 'origin', 'http://127.0.0.1:9999/nonexistent.git'], { cwd: fixture.cloneDir });
 
+      const events = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = function (chunk, ...args) {
+        const line = typeof chunk === 'string' ? chunk : chunk?.toString() || '';
+        for (const l of line.split('\n')) {
+          const parsed = parseProgressLine(l);
+          if (parsed) events.push(parsed);
+        }
+        return originalWrite.call(process.stdout, chunk, ...args);
+      };
+
       // Run approve with git enabled
-      assert.throws(
-        () => {
-          handleApprove('test-change', 'task-1', {
-            gitRoot: fixture.cloneDir,
-            activeDir: fixture.activeDir,
-            git: true,
-          });
-        },
-        err => err.message.includes('Push approval failed'),
-      );
+      try {
+        assert.throws(
+          () => {
+            handleApprove('test-change', 'task-1', {
+              gitRoot: fixture.cloneDir,
+              activeDir: fixture.activeDir,
+              git: true,
+            });
+          },
+          err => err.message.includes('Push approval failed'),
+        );
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+
+      // Assert progress event structure: previous steps completed, push-approval failed, operation failed
+      const completedStepIds = events.filter(e => e.type === 'operation.step.completed').map(e => e.id || e.stepId);
+      assert.ok(completedStepIds.includes('validate-approval'));
+      assert.ok(completedStepIds.includes('approve-task'));
+      assert.ok(completedStepIds.includes('rebuild-metadata'));
+      assert.ok(completedStepIds.includes('commit-approval'));
+
+      const failedStep = events.find(e => e.type === 'operation.step.failed' && (e.id === 'push-approval' || e.stepId === 'push-approval'));
+      assert.ok(failedStep, 'Expected push-approval step to fail in progress stream');
+
+      const opFailed = events.find(e => e.type === 'operation.failed');
+      assert.ok(opFailed, 'Expected operation.failed in progress stream');
 
       // Verify: commit was created exactly once
       const commitCount = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
@@ -429,4 +473,58 @@ test('Approve post-action sync and Git integration', async (t) => {
       fixture.cleanup();
     }
   });
+
+  for (const genFile of ['specs/index.generated.json', 'specs/active.generated.md', 'specs/archive.generated.md']) {
+    await t.test(`verify fails closed if pre-existing dirty generated file ${genFile} exists`, () => {
+      const fixture = setupTempGitRepo();
+      try {
+        // First approve task
+        handleApprove('test-change', 'task-1', {
+          gitRoot: fixture.cloneDir,
+          activeDir: fixture.activeDir,
+          git: true,
+        });
+
+        // Mark implemented
+        const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
+        const content = readFileSync(changeYamlPath, 'utf8').replace('status: approved', 'status: implemented');
+        writeFileSync(changeYamlPath, content);
+        execFileSync('git', ['add', '.'], { cwd: fixture.cloneDir });
+        execFileSync('git', ['commit', '-m', 'feat: complete task-1 implementation'], { cwd: fixture.cloneDir });
+        execFileSync('git', ['push'], { cwd: fixture.cloneDir });
+
+        const commitCountBefore = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+
+        // Pre-dirty generated file
+        const genFilePath = join(fixture.cloneDir, genFile);
+        const dirtyContent = 'pre-existing dirty generated content before verify\n';
+        writeFileSync(genFilePath, dirtyContent);
+
+        assert.throws(
+          () => {
+            handleVerify('test-change', 'task-1', {
+              gitRoot: fixture.cloneDir,
+              activeDir: fixture.activeDir,
+              git: true,
+            });
+          },
+          err => err.message.includes('contains pre-existing uncommitted modifications'),
+        );
+
+        // Dirty content is untouched
+        assert.equal(readFileSync(genFilePath, 'utf8'), dirtyContent);
+
+        // No new commit created
+        const commitCountAfter = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+        assert.equal(commitCountBefore, commitCountAfter);
+
+        // Task status remains implemented (not verified)
+        const updatedChange = readFileSync(changeYamlPath, 'utf8');
+        assert.ok(updatedChange.includes('status: implemented'));
+        assert.ok(!updatedChange.includes('status: verified'));
+      } finally {
+        fixture.cleanup();
+      }
+    });
+  }
 });
