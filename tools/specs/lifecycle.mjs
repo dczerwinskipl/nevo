@@ -1,180 +1,21 @@
-// Task and change status rules for tools/specs.mjs — no Commander, no
-// filesystem access. See docs/ai/specification-workflow.md and
-// references/review-policy.md for the policy this enforces.
+import {
+  TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
+  TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
+  depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
+  validateApproval,
+} from './lifecycle-primitives.mjs';
 
-// Separate status sets for separate concepts — a task being "done" for
-// dependency purposes is not the same question as a change being active.
-export const TERMINAL_STATUSES = new Set(['implemented', 'verified', 'archived', 'abandoned']);
-// `abandoned` is terminal (finalize doesn't wait on it) but must not satisfy a
-// dependent's depends_on — a dependent cannot build on work that was dropped.
-export const DEPENDENCY_SATISFYING_STATUSES = new Set(['implemented', 'verified', 'archived']);
-export const READY_STATUSES = new Set(['approved']);
-export const ACTIVE_CHANGE_STATUSES = new Set(['approved', 'in-implementation', 'draft']);
+import {
+  evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
+} from './gates.mjs';
 
-// `blocked`/`needs-decision` are removed from the vocabulary entirely (D16) —
-// `execution.suspension` is now the only supported temporary-blocker model, at
-// both task and change level. This is the single enum both levels validate
-// against (validation.mjs); no new status names are introduced (C7).
-export const TASK_STATUSES = new Set([
-  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
-]);
-export const CHANGE_STATUSES = new Set([
-  'draft', 'approved', 'in-implementation', 'implemented', 'verified', 'abandoned', 'archived',
-]);
-export const REMOVED_STATUSES = new Set(['blocked', 'needs-decision']);
-
-/** The fixed migration message D16 requires for a removed status value. */
-export function removedStatusMessage(value) {
-  return `Status \`${value}\` is no longer supported. Use \`execution.suspension\`.`;
-}
-
-export function depsSatisfied(task, change) {
-  const deps = task.depends_on || [];
-  return deps.every(depId => {
-    const dep = change.tasks.find(t => t.id === depId);
-    return Boolean(dep) && DEPENDENCY_SATISFYING_STATUSES.has(dep.status);
-  });
-}
-
-export function isTaskReady(task, change) {
-  return READY_STATUSES.has(task.status) && depsSatisfied(task, change);
-}
-
-// ── Task lifecycle state machine ───────────────────────────────────────────
-//
-// The one place task status transitions are defined. Every command that
-// changes a task's status validates against this table instead of assigning
-// an arbitrary status.
-
-export const TRANSITIONS = {
-  approve: { from: 'draft', to: 'approved' },
-  start: { from: 'approved', to: 'in-implementation' },
-  complete: { from: 'in-implementation', to: 'implemented' },
-  verify: { from: 'implemented', to: 'verified' },
+export {
+  TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, READY_STATUSES, ACTIVE_CHANGE_STATUSES,
+  TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage,
+  depsSatisfied, isTaskReady, TRANSITIONS, validateTransition, hardStopReason, completionHardStop,
+  validateApproval,
+  evaluateGate, gateDefinitions, actionDefinitions, validatorRegistry, registerValidator,
 };
-
-/**
- * Validate a status transition for `command` against the task's current
- * status. Returns `{ ok: true, idempotent: boolean }` on success —
- * `idempotent: true` means the task is already at the target status, which
- * is treated as a safe no-op (re-running a command should not be an error),
- * never as license to skip a transition's own gate checks the first time it
- * actually runs. Returns `{ ok: false, reason }` for any other status.
- */
-export function validateTransition(command, currentStatus) {
-  const rule = TRANSITIONS[command];
-  if (!rule) throw new Error(`Unknown transition command '${command}'`);
-  if (currentStatus === rule.to) return { ok: true, idempotent: true };
-  if (currentStatus !== rule.from) {
-    return {
-      ok: false,
-      reason: `Task has status '${currentStatus}' — '${command}' requires status '${rule.from}'.`,
-    };
-  }
-  return { ok: true, idempotent: false };
-}
-
-/**
- * Pure approval-gate check: given a task's current status, its change's review
- * front matter (or null if no review file exists), and the freshly-computed
- * current spec fingerprint, decide whether `approve` may proceed. Does not
- * touch the filesystem — see handleApprove in tools/specs.mjs for the I/O
- * around this.
- *
- * `mechanicalExempt` (D14, task 07 — "review-exempt deterministic approval"):
- * when true, skips only the review/verdict/fingerprint checks below — the
- * `draft`→`approved` transition check above still applies unchanged, and the
- * caller still performs the same explicit `approve` write either way. The
- * caller (`tools/specs/validation.mjs`'s `computeMechanicalExemption`)
- * already re-verified all six D14 conditions before setting this, since
- * `validateApproval` itself stays filesystem-free.
- *
- * Returns `{ ok: true, idempotent: boolean }` or `{ ok: false, reason }`.
- */
-export function validateApproval(
-  taskStatus, review, currentFingerprint,
-  { mechanicalExempt = false, taskId = null, currentTaskFingerprint = null } = {}
-) {
-  const transition = validateTransition('approve', taskStatus);
-  if (!transition.ok) return transition;
-  if (transition.idempotent) return transition;
-
-  if (mechanicalExempt) return { ok: true, idempotent: false };
-
-  if (!review) {
-    return {
-      ok: false,
-      reason: 'No review found. A specification review must exist before a task can be approved.',
-    };
-  }
-  if (review.verdict !== 'ready-for-approval') {
-    return { ok: false, reason: `Review verdict is '${review.verdict}', not 'ready-for-approval'. Cannot approve.` };
-  }
-
-  const unresolvedFixes = Number(review.unresolved_required_fixes ?? 0);
-  const unresolvedDecisions = Number(review.unresolved_owner_decisions ?? 0);
-  const unresolvedClarifications = Number(review.unresolved_needs_clarification ?? 0);
-  if (unresolvedFixes > 0 || unresolvedDecisions > 0 || unresolvedClarifications > 0) {
-    return {
-      ok: false,
-      reason: `Review has unresolved items (required fixes: ${unresolvedFixes}, ` +
-        `owner decisions: ${unresolvedDecisions}, needs clarification: ${unresolvedClarifications}). ` +
-        `Cannot approve.`,
-    };
-  }
-
-  if (!review.spec_fingerprint) {
-    return {
-      ok: false,
-      code: 'missing-fingerprint',
-      reason: `Review is missing 'spec_fingerprint' front matter — it predates this check. ` +
-        `Re-run the review before approving.`,
-    };
-  }
-  if (review.spec_fingerprint !== currentFingerprint) {
-    return {
-      ok: false,
-      // Recovery classification (REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE) —
-      // handleApprove checks this code, not the message text, to decide whether
-      // to raise a classified RecoveryError.
-      code: 'stale-fingerprint',
-      reason: `Review is stale: its spec_fingerprint (${review.spec_fingerprint}) does not match ` +
-        `the current specification state (${currentFingerprint}). Re-run the review before approving.`,
-    };
-  }
-
-  // Task-level fingerprint (PR re-review packet 01): change_fingerprint
-  // deliberately excludes each task's own body/acceptance-criteria/context
-  // (D7 — otherwise any task edit would invalidate every other task's
-  // approval readiness). But a spec review's own "Semantic-reference
-  // completeness" step reads exactly that per-task content, so the reviewed
-  // task's own body changing after review must invalidate *this* task's
-  // approval even though it never touches change_fingerprint. Only checked
-  // when the caller passes `taskId` (handleApprove always does) — a review
-  // predating this check, or one that reviewed a different task set, is
-  // reported by name rather than silently skipped.
-  if (taskId) {
-    const recorded = review.task_fingerprints?.[taskId];
-    if (!recorded) {
-      return {
-        ok: false,
-        code: 'missing-task-fingerprint',
-        reason: `Review is missing a task_fingerprints entry for '${taskId}' — it predates this check, or reviewed ` +
-          `a different task set. Re-run the review before approving.`,
-      };
-    }
-    if (recorded !== currentTaskFingerprint) {
-      return {
-        ok: false,
-        code: 'stale-task-fingerprint',
-        reason: `Review is stale for task '${taskId}': its recorded task_fingerprints entry (${recorded}) does not ` +
-          `match the task's current content (${currentTaskFingerprint}). Re-run the review before approving.`,
-      };
-    }
-  }
-
-  return { ok: true, idempotent: false };
-}
 
 // ── Postcondition-based recovery (D8, D17, area recovery-and-resume) ───────
 //
@@ -695,44 +536,6 @@ export function deriveBatchProgress(change, intent) {
   return { completed, current, next, failed, checkpointTask, checkpointReached };
 }
 
-/**
- * Hard-stop predicate (D24, third refinement pass) — checked before any risk
- * signal, never a fallthrough case inside the risk-signal logic, and never
- * bypassable by a full `task-review`. Returns `{ code, detail }` or `null`.
- * A hard stop's report reads `self_check.status`/`failed_criteria` directly —
- * it is not a separate, parallel record of the same fact (D28).
- */
-export function hardStopReason(task) {
-  if (!task.self_check) {
-    return { code: 'unresolved-self-check', detail: 'No self-check has been recorded for this task yet.' };
-  }
-  if (task.self_check.status === 'failed') {
-    return {
-      code: 'failed-self-check',
-      detail: `Self-check failed: ${(task.self_check.failed_criteria || []).join(', ') || '(no failed_criteria recorded)'}`,
-    };
-  }
-  return null;
-}
-
-/**
- * Whether `complete` must refuse this task (D24/D28, PR re-review packet
- * 02). Outside an active batch, only an *existing, failed* self-check blocks
- * completion — self-check stays optional there, unchanged from the original
- * behavior. Inside an active batch that includes this task, a *missing*
- * self-check blocks it too: the area doc's hard-stop list names "an
- * unresolved self-check" unconditionally (same predicate `hardStopReason`
- * already reports for `batch-status`), so a task must never reach
- * `implemented` inside a batch without ever having been self-checked, not
- * only when a self-check exists and failed. Returns the same
- * `hardStopReason` shape, or `null`.
- */
-export function completionHardStop(task, { inActiveBatch = false } = {}) {
-  const stop = hardStopReason(task);
-  if (!stop) return null;
-  return (task.self_check || inActiveBatch) ? stop : null;
-}
-
 // Every evidence-based full-review risk signal (D11, corrected by D24 to
 // exclude the self-check outcome — that's hardStopReason's job instead).
 export const RISK_SIGNALS = new Set([
@@ -1116,76 +919,12 @@ export function computeBatchReviewVerdict({ ownerDecisionFindings = 0, otherFind
  * validateTransition's idempotent re-runs.
  */
 export function validateFinalize(change, facts) {
-  const notTerminal = change.tasks.filter(t => !TERMINAL_STATUSES.has(t.status));
-  if (notTerminal.length) {
-    return {
-      ok: false,
-      reason: `Task(s) not in a terminal status: ${notTerminal.map(t => t.id).join(', ')}. ` +
-        `Every task must be implemented/verified before finalizing.`,
-    };
-  }
-
-  // Follow-up ledger gate (D15, area context-and-validation-hardening,
-  // task 06) — a still-open, blocking-severity entry blocks finalize exactly
-  // like a non-terminal task, evaluated alongside it.
-  if (facts.openBlockingFollowUps?.length) {
-    return {
-      ok: false,
-      reason: `Open blocking follow-up(s): ${facts.openBlockingFollowUps.map(f => f.id).join(', ')}. ` +
-        `Resolve, or dismiss with a recorded owner decision, before finalizing.`,
-    };
-  }
-
-  if (!facts.gitClean) {
-    return { ok: false, reason: 'Working tree has uncommitted changes. Commit or discard them first.' };
-  }
-
-  if (facts.branch.behind > 0) {
-    return {
-      ok: false,
-      reason: `Local branch is ${facts.branch.behind} commit(s) behind its remote — pull/rebase first.`,
-    };
-  }
-  if (!facts.branch.hasUpstream || facts.branch.ahead > 0) {
-    return { ok: false, reason: 'Branch has commits not yet pushed to origin. Push before finalizing.' };
-  }
-
-  // facts.pr === null is ambiguous by itself: "checked, genuinely no PR" and "couldn't
-  // check" produce the same null. facts.ghAvailable is what disambiguates them — never
-  // report "no PR" when the real answer is "unknown," since that could send someone to
-  // open a second PR for a branch that already has one.
-  if (facts.ghAvailable === false) {
-    return { ok: false, reason: 'gh CLI is not available — cannot verify PR/review-thread state. Install/authenticate gh and retry.' };
-  }
-  if (!facts.pr) {
-    return { ok: false, reason: 'No pull request found for this branch. Open one before finalizing.' };
-  }
-  if (facts.pr.state === 'MERGED') {
-    return { ok: true, idempotent: true };
-  }
-  if (facts.pr.isDraft) {
-    return { ok: false, reason: `PR #${facts.pr.number} is still a draft.` };
-  }
-  if (facts.pr.state !== 'OPEN') {
-    return { ok: false, reason: `PR #${facts.pr.number} has state '${facts.pr.state}', expected 'OPEN' or 'MERGED'.` };
-  }
-  if (facts.pr.unresolvedThreads > 0) {
-    return {
-      ok: false,
-      reason: `PR #${facts.pr.number} has ${facts.pr.unresolvedThreads} unresolved review thread(s). ` +
-        `Resolve every comment (including bot reviewers) before finalizing.`,
-    };
-  }
-
-  const failedChecks = facts.verification.filter(v => !v.passed);
-  if (failedChecks.length) {
-    return {
-      ok: false,
-      reason: `Verification failed: ${failedChecks.map(v => v.detail ? `${v.name} (${v.detail})` : v.name).join('; ')}.`,
-    };
-  }
-
-  return { ok: true, idempotent: false };
+  const result = evaluateGate('finalize', { change, ...facts }, { mode: 'full' });
+  return {
+    ok: result.ok,
+    idempotent: result.idempotent,
+    ...(result.reason ? { reason: result.reason } : {}),
+  };
 }
 
 /**

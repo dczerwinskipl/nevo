@@ -5,7 +5,7 @@
 import { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
@@ -15,6 +15,7 @@ import { updateYamlFile } from './lib/yaml.mjs';
 import { splitShellWords } from './lib/shell-words.mjs';
 import * as git from './lib/git.mjs';
 import * as github from './lib/github.mjs';
+import { createProgressEmitter } from './lib/operation-progress.mjs';
 import {
   loadChange, listChanges, setTaskStatus, buildContextPacket, getNext,
   computeChangeFingerprint, computeTaskFingerprint, loadReview,
@@ -31,6 +32,7 @@ import {
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
+  evaluateGate,
   TERMINAL_STATUSES, DEPENDENCY_SATISFYING_STATUSES, isTaskReady, depsSatisfied, validateTransition, validateApproval,
   validateFinalize, deriveStage, inspectStartPostconditions, inspectApprovePostconditions, classifyDirtyWorktree,
   BATCH_SELECTION_MODES, selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
@@ -246,58 +248,155 @@ export function handleFingerprint(changeSlug, options = {}) {
 }
 
 export function handleApprove(changeSlug, taskId, options = {}) {
-  const change = requireChange(changeSlug);
+  const gitRoot = options.gitRoot || ROOT;
+  const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'approve');
 
-  // D14, task 07 — "review-exempt deterministic approval": re-verifies all six
-  // conditions itself (defense in depth alongside `validate`'s own hard error)
-  // rather than trusting a `type: mechanical` declaration at face value.
   const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);
-
   const review = loadReview(change);
-  // D7/D9 migration (task 09): compares against the change-level tier — a
-  // spec review's own scope — instead of the old whole-file hash, which
-  // invalidated on any status write, execution.suspension change, or
-  // unrelated task edit (exactly the cost D7 exists to remove). The
-  // task-level fingerprint (PR re-review packet 01) closes the gap this left:
-  // change_fingerprint excludes task body/AC/context by design, so this
-  // task's own content changing after review must still be caught.
   const currentFingerprint = computeChangeFingerprint(change);
   const currentTaskFingerprint = computeTaskFingerprint(change, taskId);
-  const result = validateApproval(task.status, review, currentFingerprint, {
-    mechanicalExempt, taskId, currentTaskFingerprint,
-  });
-  if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
-    return result;
-  }
-  const inspection = inspectApprovePostconditions(result);
 
-  if (inspection.result === 'not_retryable') {
-    // REC-07 STALE_REVIEW_AFTER_SEMANTIC_CHANGE — recoverable, confirm-required:
-    // re-run the review, then retry approval. Persisted so a resumed session
-    // knows a confirmation is still owed, without re-deriving it from prose.
-    // Covers all three staleness shapes (change-level, missing/stale
-    // task-level) — same recovery scenario, same remedy.
-    if (inspection.code === 'stale-fingerprint' || inspection.code === 'missing-task-fingerprint' || inspection.code === 'stale-task-fingerprint') {
+  const gateResult = evaluateGate('task.approve', {
+    task,
+    review,
+    currentFingerprint,
+    mechanicalExempt,
+    taskId,
+    currentTaskFingerprint,
+  }, { mode: 'full' });
+
+  if (options.check) {
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: gateResult }, null, 2));
+    return gateResult;
+  }
+
+  const useGit = options.git !== false && options.gitIntegration !== false;
+
+  const steps = [
+    { id: 'validate-approval', label: 'Validate approval' },
+    { id: 'approve-task', label: 'Approve task' },
+    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+  ];
+  if (useGit) {
+    steps.push({ id: 'commit-approval', label: 'Commit approval' });
+    steps.push({ id: 'push-approval', label: 'Push approval' });
+  }
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'approve', steps });
+
+  // 1. Validate approval
+  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
+  if (!gateResult.ok) {
+    emitter.stepFailed({ id: 'validate-approval', error: gateResult.reason });
+    emitter.operationFailed({ error: gateResult.reason });
+    if (gateResult.code === 'stale-fingerprint' || gateResult.code === 'missing-task-fingerprint' || gateResult.code === 'stale-task-fingerprint') {
       setTaskSuspension(change, taskId, {
         kind: 'confirm-required', code: 'REC-07', previous_action: 'approve',
         created_at: new Date().toISOString(),
       });
-      throw new RecoveryError('REC-07', { detail: inspection.reason });
+      throw new RecoveryError('REC-07', { detail: gateResult.reason });
     }
-    throw new CliError(inspection.reason);
+    throw new CliError(gateResult.reason);
   }
-  if (inspection.result === 'completed') { console.log(`Task '${taskId}' is already approved.`); return; }
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
 
-  clearTaskSuspension(change, taskId);
-  setTaskStatus(change, taskId, 'approved');
-  console.log(
-    mechanicalExempt
-      ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
-      : `Task '${taskId}' marked as approved.`
-  );
+  const normalizePath = p => p.replace(/\\/g, '/');
+  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
+  const allowedExact = new Set([
+    changeYamlRel,
+    normalizePath(relative(gitRoot, activeIndexMd)),
+    normalizePath(relative(gitRoot, archiveIndexMd)),
+    normalizePath(relative(gitRoot, indexJson)),
+  ]);
+
+  // Baseline dirty check
+  if (useGit) {
+    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    if (baselineDirty.length > 0) {
+      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
+      if (dirtyTargets.length > 0) {
+        const err = `Cannot commit approval: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
+        emitter.stepFailed({ id: 'validate-approval', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
+      if (unrelated.length > 0) {
+        const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+        emitter.stepFailed({ id: 'validate-approval', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+    }
+  }
+  emitter.stepCompleted({ id: 'validate-approval' });
+
+  // 2. Approve task
+  emitter.stepStarted({ id: 'approve-task', label: 'Approve task' });
+  if (task.status !== 'approved') {
+    clearTaskSuspension(change, taskId);
+    setTaskStatus(change, taskId, 'approved');
+  }
+  emitter.stepCompleted({ id: 'approve-task' });
+
+  // 3. Rebuild metadata
+  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
+  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
+  emitter.stepCompleted({ id: 'rebuild-metadata' });
+
+  // 4 & 5. Git commit & push (if enabled)
+  if (useGit) {
+    emitter.stepStarted({ id: 'commit-approval', label: 'Commit approval' });
+    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
+    if (unrelated.length > 0) {
+      const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+      emitter.stepFailed({ id: 'commit-approval', error: err });
+      emitter.operationFailed({ error: err });
+      throw new CliError(err);
+    }
+
+    const toStage = currentDirty.filter(p => allowedExact.has(p));
+    if (toStage.length > 0) {
+      try {
+        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
+        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): approve ${taskId}`], { encoding: 'utf8' });
+      } catch (e) {
+        emitter.stepFailed({ id: 'commit-approval', error: e.message });
+        emitter.operationFailed({ error: e.message });
+        throw new CliError(`Commit approval failed: ${e.message}`);
+      }
+    }
+    emitter.stepCompleted({ id: 'commit-approval' });
+
+    emitter.stepStarted({ id: 'push-approval', label: 'Push approval' });
+    try {
+      const branch = git.getCurrentBranch(gitRoot);
+      const ab = git.getAheadBehind(gitRoot, branch);
+      if (!ab.hasUpstream || ab.ahead > 0) {
+        git.push(gitRoot, branch);
+      }
+      emitter.stepCompleted({ id: 'push-approval' });
+    } catch (e) {
+      emitter.stepFailed({ id: 'push-approval', error: e.message });
+      emitter.operationFailed({ error: e.message });
+      throw new CliError(`Push approval failed: ${e.message}`);
+    }
+  }
+
+  const summary = mechanicalExempt
+    ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
+    : `Task '${taskId}' marked as approved.`;
+  emitter.operationCompleted({ summary });
+  console.log(summary);
 }
 
 // Postcondition-based start (D8 reference example, area recovery-and-resume):
@@ -414,27 +513,21 @@ export function handleStart(changeSlug, taskId, { activeDir = ACTIVE_DIR, gitRoo
 export function handleComplete(changeSlug, taskId) {
   const change = requireChange(changeSlug);
   const task = requireTask(change, taskId);
-
-  const transition = validateTransition('complete', task.status);
-  if (!transition.ok) throw new CliError(transition.reason);
-  if (transition.idempotent) { console.log(`Task '${taskId}' is already implemented.`); return; }
-
-  // D24, task 08 — a hard-stopped task (a recorded, still-failing self-check)
-  // can never be marked complete; a full task-review is never a substitute
-  // for correcting the implementation and rerunning the self-check (the only
-  // path that clears this). A task with no self_check at all is unaffected
-  // when it's not part of an active batch — self-check is optional there.
-  // Inside an active batch that includes this task, a *missing* self-check
-  // is a hard stop too (PR re-review packet 02) — see completionHardStop's
-  // own doc comment.
   const intent = loadBatchIntent(change);
   const inActiveBatch = Boolean(intent?.orderedTasks?.includes(taskId));
-  const stop = completionHardStop(task, { inActiveBatch });
-  if (stop) {
-    throw new CliError(
-      `Task '${taskId}' has a hard-stopped self-check (${stop.code}: ${stop.detail}) — ` +
-      `correct the implementation and rerun 'node tools/specs.mjs self-check ${changeSlug} ${taskId}' before marking it complete.`
-    );
+
+  const gateResult = evaluateGate('task.request-human-verification', {
+    task,
+    change,
+    inActiveBatch,
+  }, { mode: 'full' });
+
+  if (!gateResult.ok) {
+    throw new CliError(gateResult.reason);
+  }
+  if (gateResult.idempotent) {
+    console.log(`Task '${taskId}' is already implemented.`);
+    return;
   }
 
   setTaskStatus(change, taskId, 'implemented');
@@ -442,19 +535,136 @@ export function handleComplete(changeSlug, taskId) {
 }
 
 export function handleVerify(changeSlug, taskId, options = {}) {
-  const change = requireChange(changeSlug);
+  const gitRoot = options.gitRoot || ROOT;
+  const change = requireChange(changeSlug, options.activeDir);
   const task = requireTask(change, taskId);
+  const gateResult = evaluateGate('task.verify', { task, change }, { mode: 'full' });
 
-  const transition = validateTransition('verify', task.status);
   if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: transition }, null, 2));
-    return transition;
+    const result = {
+      ok: gateResult.ok,
+      ...(gateResult.idempotent ? { idempotent: true } : {}),
+      ...(gateResult.reason ? { reason: gateResult.reason } : {}),
+    };
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
+    return result;
   }
-  if (!transition.ok) throw new CliError(transition.reason);
-  if (transition.idempotent) { console.log(`Task '${taskId}' is already verified.`); return; }
 
-  setTaskStatus(change, taskId, 'verified');
-  console.log(`Task '${taskId}' marked as verified.`);
+  const useGit = options.git !== false && options.gitIntegration !== false;
+
+  const steps = [
+    { id: 'validate-transition', label: 'Validate transition' },
+    { id: 'verify-task', label: 'Verify task' },
+    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
+  ];
+  if (useGit) {
+    steps.push({ id: 'commit-verification', label: 'Commit verification' });
+    steps.push({ id: 'push-verification', label: 'Push verification' });
+  }
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'verify', steps });
+
+  // 1. Validate transition
+  emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
+  if (!gateResult.ok) {
+    emitter.stepFailed({ id: 'validate-transition', error: gateResult.reason });
+    emitter.operationFailed({ error: gateResult.reason });
+    throw new CliError(gateResult.reason);
+  }
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
+
+  const normalizePath = p => p.replace(/\\/g, '/');
+  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
+  const allowedExact = new Set([
+    changeYamlRel,
+    normalizePath(relative(gitRoot, activeIndexMd)),
+    normalizePath(relative(gitRoot, archiveIndexMd)),
+    normalizePath(relative(gitRoot, indexJson)),
+  ]);
+
+  // Baseline dirty check
+  if (useGit) {
+    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    if (baselineDirty.length > 0) {
+      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
+      if (dirtyTargets.length > 0) {
+        const err = `Cannot commit verification: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
+        emitter.stepFailed({ id: 'validate-transition', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
+      if (unrelated.length > 0) {
+        const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+        emitter.stepFailed({ id: 'validate-transition', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+    }
+  }
+  emitter.stepCompleted({ id: 'validate-transition' });
+
+  // 2. Verify task
+  emitter.stepStarted({ id: 'verify-task', label: 'Verify task' });
+  if (task.status !== 'verified') {
+    setTaskStatus(change, taskId, 'verified');
+  }
+  emitter.stepCompleted({ id: 'verify-task' });
+
+  // 3. Rebuild metadata
+  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
+  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
+  emitter.stepCompleted({ id: 'rebuild-metadata' });
+
+  // 4 & 5. Git commit & push (if enabled)
+  if (useGit) {
+    emitter.stepStarted({ id: 'commit-verification', label: 'Commit verification' });
+    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
+    if (unrelated.length > 0) {
+      const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+      emitter.stepFailed({ id: 'commit-verification', error: err });
+      emitter.operationFailed({ error: err });
+      throw new CliError(err);
+    }
+
+    const toStage = currentDirty.filter(p => allowedExact.has(p));
+    if (toStage.length > 0) {
+      try {
+        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
+        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): verify ${changeSlug}/${taskId}`], { encoding: 'utf8' });
+      } catch (e) {
+        emitter.stepFailed({ id: 'commit-verification', error: e.message });
+        emitter.operationFailed({ error: e.message });
+        throw new CliError(`Commit verification failed: ${e.message}`);
+      }
+    }
+    emitter.stepCompleted({ id: 'commit-verification' });
+
+    emitter.stepStarted({ id: 'push-verification', label: 'Push verification' });
+    try {
+      const branch = git.getCurrentBranch(gitRoot);
+      const ab = git.getAheadBehind(gitRoot, branch);
+      if (!ab.hasUpstream || ab.ahead > 0) {
+        git.push(gitRoot, branch);
+      }
+      emitter.stepCompleted({ id: 'push-verification' });
+    } catch (e) {
+      emitter.stepFailed({ id: 'push-verification', error: e.message });
+      emitter.operationFailed({ error: e.message });
+      throw new CliError(`Push verification failed: ${e.message}`);
+    }
+  }
+
+  const summary = `Task '${taskId}' (${changeSlug}) marked as verified.`;
+  emitter.operationCompleted({ summary });
+  console.log(summary);
 }
 
 // ── Self-check (D28) — the single write path for self_check ────────────────
@@ -496,7 +706,27 @@ export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gi
   const commands = parseVerificationCommands(body);
   if (!commands.length) throw new CliError(`Task '${taskId}' has no "## Verification" commands to run.`);
 
-  const commandResults = commands.map(runVerificationCommand);
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({
+    type: 'task-verification',
+    totalSteps: commands.length,
+    steps: commands.map((cmd, idx) => ({ id: `cmd-${idx + 1}`, label: cmd })),
+  });
+
+  const commandResults = [];
+  for (let idx = 0; idx < commands.length; idx++) {
+    const cmd = commands[idx];
+    const stepId = `cmd-${idx + 1}`;
+    emitter.stepStarted({ id: stepId, label: cmd, total: commands.length });
+    const result = runVerificationCommand(cmd);
+    commandResults.push(result);
+    if (result.exit_code === 0) {
+      emitter.stepCompleted({ id: stepId, detail: 'Passed' });
+    } else {
+      emitter.stepFailed({ id: stepId, error: { message: `Exit code ${result.exit_code}`, code: String(result.exit_code) } });
+    }
+  }
+
   const currentRevision = git.getCurrentRevision(gitRoot);
   const selfCheck = buildSelfCheckResult({
     commandResults,
@@ -532,10 +762,19 @@ export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gi
     }
   }
 
+  const built = buildSpecsIndexes({ activeDir });
+  writeSpecsIndexes(built, {
+    activeIndexMd: join(gitRoot, 'specs', 'active.generated.md'),
+    archiveIndexMd: join(gitRoot, 'specs', 'archive.generated.md'),
+    indexJson: join(gitRoot, 'specs', 'index.generated.json'),
+  });
+
   if (selfCheck.status === 'failed') {
+    emitter.operationFailed({ error: { message: `Self-check FAILED: ${selfCheck.failed_criteria.join(', ')}` }, summary: 'Self-check failed' });
     console.log(`Self-check FAILED for '${taskId}': ${selfCheck.failed_criteria.join(', ')}`);
     process.exitCode = 1;
   } else {
+    emitter.operationCompleted({ result: selfCheck, summary: `Self-check passed for '${taskId}'.` });
     console.log(`Self-check passed for '${taskId}'.`);
   }
 }
@@ -692,36 +931,50 @@ export function handleBatchStatus(changeSlug) {
 // the whole-batch diff since startRevision, cross-task integration, and open
 // blocking follow-up entries only. Evidence freshness (D19) is a distinct
 // step run immediately before, never folded silently into the review.
-export function handleBatchReview(changeSlug) {
-  const change = requireChange(changeSlug);
+export function handleBatchReview(changeSlug, options = {}) {
+  const gitRoot = options.gitRoot || ROOT;
+  const change = requireChange(changeSlug, options.activeDir);
   const intent = loadBatchIntent(change);
   if (!intent) throw new CliError(`Change '${changeSlug}' has no active batch.`);
 
+  const orderedTasks = intent.orderedTasks || [];
+  const taskSteps = orderedTasks.map(id => ({
+    id: `review-task-${id}`,
+    label: `Review task: ${id}`,
+  }));
+
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({
+    type: 'batch-review',
+    steps: [
+      { id: 'validate-batch-readiness', label: 'Validate batch readiness and evidence' },
+      ...taskSteps,
+      { id: 'generate-batch-report', label: 'Generate batch report' },
+    ],
+  });
+
+  emitter.stepStarted({ id: 'validate-batch-readiness', label: 'Validate batch readiness and evidence' });
   const progress = deriveBatchProgress(change, intent);
   if (progress.failed) {
     const failedTask = requireTask(change, progress.failed);
     const stop = hardStopReason(failedTask);
-    throw new CliError(
-      `Batch has a hard stop at '${progress.failed}'${stop ? ` (${stop.code}: ${stop.detail})` : ''} — ` +
-      `cannot run the gating review until it's resolved. A full task-review is never a substitute for this.`
-    );
+    const err = `Batch has a hard stop at '${progress.failed}'${stop ? ` (${stop.code}: ${stop.detail})` : ''} — ` +
+      `cannot run the gating review until it's resolved. A full task-review is never a substitute for this.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
   if (progress.current) {
-    throw new CliError(`Task '${progress.current}' is not yet complete — the gating review runs only once every batched task is terminal.`);
+    const err = `Task '${progress.current}' is not yet complete — the gating review runs only once every batched task is terminal.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
 
   const currentFingerprints = {};
   for (const id of intent.orderedTasks) currentFingerprints[id] = computeTaskFingerprint(change, id);
 
-  // Real whole-batch diff attribution (PR re-review packet 03) — the
-  // previous version passed `{}` for touched paths, so staleEvidenceTasks'
-  // overlap half (and any cross-task integration signal) could never fire.
-  // `changedFiles` is the complete diff since `startRevision` (requirement:
-  // "excludes anything that predates the batch"); each file is attributed to
-  // every batched task whose own declared allowed_paths/consequential_paths
-  // match it (attributeTouchedPaths' documented rule — see its own doc
-  // comment for how an ambiguous shared file is handled).
-  const changedFiles = git.getChangedFiles(ROOT, intent.startRevision);
+  const changedFiles = git.getChangedFiles(gitRoot, intent.startRevision);
   const taskDeclaredPaths = {};
   for (const id of intent.orderedTasks) {
     const t = requireTask(change, id);
@@ -732,18 +985,29 @@ export function handleBatchReview(changeSlug) {
 
   const stale = staleEvidenceTasks(change, intent.orderedTasks, touchedPaths, currentFingerprints);
   if (stale.length) {
-    throw new CliError(
-      `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
-      `before the gating review — the review never proceeds past stale, unrefreshed evidence.`
-    );
+    const err = `Stale evidence for: ${stale.join(', ')}. Rerun self-check (node tools/specs.mjs self-check ${changeSlug} <task-id>) ` +
+      `before the gating review — the review never proceeds past stale, unrefreshed evidence.`;
+    emitter.stepFailed({ id: 'validate-batch-readiness', error: err });
+    emitter.operationFailed({ error: err });
+    throw new CliError(err);
   }
+  emitter.stepCompleted({ id: 'validate-batch-readiness' });
 
   const followUps = loadFollowUps(change);
   const openBlocking = (followUps.follow_ups || []).filter(f => f.status === 'open' && f.severity === 'blocking');
-  // Deterministic structural findings (Phase 3, PR re-review packet 03) — the
-  // "no findings" case must be attributable to an explicit review step, not
-  // merely "no blocking follow-up happened to be open."
   const integrationFindings = detectBatchIntegrationFindings(intent, intent.orderedTasks, touchedPaths);
+
+  for (const id of orderedTasks) {
+    emitter.stepStarted({ id: `review-task-${id}`, label: `Review task: ${id}` });
+    const taskFindings = integrationFindings.filter(f => f.taskIds?.includes(id));
+    if (taskFindings.length > 0) {
+      emitter.stepCompleted({ id: `review-task-${id}`, detail: `${taskFindings.length} integration finding(s)` });
+    } else {
+      emitter.stepCompleted({ id: `review-task-${id}`, detail: 'Passed integration checks' });
+    }
+  }
+
+  emitter.stepStarted({ id: 'generate-batch-report', label: 'Generate batch report' });
   const verdict = computeBatchReviewVerdict({
     ownerDecisionFindings: openBlocking.length, otherFindings: integrationFindings.length,
   });
@@ -797,6 +1061,8 @@ export function handleBatchReview(changeSlug) {
 
   writeUtf8(reportFile, report);
   clearBatchIntent(change);
+  emitter.stepCompleted({ id: 'generate-batch-report' });
+  emitter.operationCompleted({ summary: `Batch review written (${batchId}): ${verdict}.` });
   console.log(`Batch review written: specs/active/${changeSlug}/reviews/batch-${batchId}.md`);
   console.log(`Verdict: ${verdict}`);
 }
@@ -884,35 +1150,65 @@ function runDotnetCheck(name, args) {
 // handleFinalize so `--check` (read-only) and the real run share exactly one code path
 // for "what does the current state look like" — the only difference between them is
 // whether the result is acted on.
-function gatherFinalizeFacts(branch, change) {
+function gatherFinalizeFacts(branch, change, emitter = null) {
   const verification = [];
 
+  emitter?.stepStarted({ id: 'validate-specs', label: 'Validate specs' });
   const specErrors = validateSpecs();
-  verification.push({ name: 'specs validate', passed: specErrors.length === 0, detail: specErrors[0] });
-  const specCheckProblems = checkSpecsIndexes();
-  verification.push({ name: 'specs check', passed: specCheckProblems.length === 0, detail: specCheckProblems[0] });
+  const specPassed = specErrors.length === 0;
+  verification.push({ name: 'specs validate', passed: specPassed, detail: specErrors[0] });
+  if (specPassed) emitter?.stepCompleted({ id: 'validate-specs' });
+  else emitter?.stepFailed({ id: 'validate-specs', error: specErrors[0] || 'Spec validation failed' });
 
+  emitter?.stepStarted({ id: 'check-specs-indexes', label: 'Check spec indexes' });
+  const specCheckProblems = checkSpecsIndexes();
+  const specCheckPassed = specCheckProblems.length === 0;
+  verification.push({ name: 'specs check', passed: specCheckPassed, detail: specCheckProblems[0] });
+  if (specCheckPassed) emitter?.stepCompleted({ id: 'check-specs-indexes' });
+  else emitter?.stepFailed({ id: 'check-specs-indexes', error: specCheckProblems[0] || 'Spec indexes stale' });
+
+  emitter?.stepStarted({ id: 'validate-docs', label: 'Validate docs' });
   const docs = scanDocs();
   const docErrors = validateDocs(docs);
-  verification.push({ name: 'docs validate', passed: docErrors.length === 0, detail: docErrors[0] });
-  const docCheckProblems = checkDocsIndexes(docs);
-  verification.push({ name: 'docs check', passed: docCheckProblems.length === 0, detail: docCheckProblems[0] });
+  const docPassed = docErrors.length === 0;
+  verification.push({ name: 'docs validate', passed: docPassed, detail: docErrors[0] });
+  if (docPassed) emitter?.stepCompleted({ id: 'validate-docs' });
+  else emitter?.stepFailed({ id: 'validate-docs', error: docErrors[0] || 'Docs validation failed' });
 
+  emitter?.stepStarted({ id: 'check-docs-indexes', label: 'Check docs indexes' });
+  const docCheckProblems = checkDocsIndexes(docs);
+  const docCheckPassed = docCheckProblems.length === 0;
+  verification.push({ name: 'docs check', passed: docCheckPassed, detail: docCheckProblems[0] });
+  if (docCheckPassed) emitter?.stepCompleted({ id: 'check-docs-indexes' });
+  else emitter?.stepFailed({ id: 'check-docs-indexes', error: docCheckProblems[0] || 'Docs indexes stale' });
+
+  emitter?.stepStarted({ id: 'load-pr-review', label: 'Load PR and review state' });
   let pr = null;
   const ghAvailable = github.isGhAvailable();
   if (!ghAvailable) {
     verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
+    emitter?.stepFailed({ id: 'load-pr-review', error: 'GitHub CLI not available' });
   } else {
     pr = github.getPrForBranch(ROOT, branch);
     if (pr) {
       pr.unresolvedThreads = pr.state === 'MERGED' ? 0 : github.getUnresolvedReviewThreadCount(ROOT, pr.number);
     }
+    emitter?.stepCompleted({ id: 'load-pr-review' });
   }
 
   if (pr?.baseRefName) {
     if (git.touchesPaths(ROOT, `origin/${pr.baseRefName}`, branch, ['src', 'tests'])) {
-      verification.push(runDotnetCheck('dotnet build', ['build']));
-      verification.push(runDotnetCheck('dotnet test', ['test']));
+      emitter?.stepStarted({ id: 'dotnet-build', label: 'Dotnet build' });
+      const buildRes = runDotnetCheck('dotnet build', ['build']);
+      verification.push(buildRes);
+      if (buildRes.passed) emitter?.stepCompleted({ id: 'dotnet-build' });
+      else emitter?.stepFailed({ id: 'dotnet-build', error: buildRes.detail || 'Build failed' });
+
+      emitter?.stepStarted({ id: 'dotnet-test', label: 'Dotnet test' });
+      const testRes = runDotnetCheck('dotnet test', ['test']);
+      verification.push(testRes);
+      if (testRes.passed) emitter?.stepCompleted({ id: 'dotnet-test' });
+      else emitter?.stepFailed({ id: 'dotnet-test', error: testRes.detail || 'Test failed' });
     } else {
       verification.push({ name: 'dotnet build/test', passed: true, detail: 'skipped — no src/**/tests/** changes on this branch' });
     }
@@ -1125,16 +1421,39 @@ export function handleBulkTransition(changeSlug, options = {}) {
 export function handleFinalize(changeSlug, options = {}) {
   const { change, location } = requireChangeAnywhere(changeSlug);
   const branch = git.getCurrentBranch(ROOT);
-  const facts = gatherFinalizeFacts(branch, change);
-  const result = validateFinalize(change, facts);
 
   if (options.check) {
+    const facts = gatherFinalizeFacts(branch, change);
+    const result = validateFinalize(change, facts);
     console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
     return;
   }
 
-  if (!result.ok) throw new CliError(result.reason);
+  const emitter = createProgressEmitter();
+  emitter.operationStarted({ type: 'finalize', steps: [
+    { id: 'validate-specs', label: 'Validate specs' },
+    { id: 'check-specs-indexes', label: 'Check spec indexes' },
+    { id: 'validate-docs', label: 'Validate docs' },
+    { id: 'check-docs-indexes', label: 'Check docs indexes' },
+    { id: 'load-pr-review', label: 'Load PR and review state' },
+    { id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' },
+    { id: 'archive-change', label: 'Archive specification' },
+    { id: 'push-and-merge', label: 'Push and merge' },
+    { id: 'post-merge-check', label: 'Post-merge check' },
+  ]});
 
+  const facts = gatherFinalizeFacts(branch, change, emitter);
+  emitter.stepStarted({ id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' });
+  const result = validateFinalize(change, facts);
+
+  if (!result.ok) {
+    emitter.stepFailed({ id: 'evaluate-finalize-gate', error: result.reason || 'Finalize gate blocked' });
+    emitter.operationFailed({ error: result.reason || 'Finalize gate blocked' });
+    throw new CliError(result.reason);
+  }
+  emitter.stepCompleted({ id: 'evaluate-finalize-gate' });
+
+  emitter.stepStarted({ id: 'archive-change', label: 'Archive specification' });
   if (location === 'active') {
     handleArchive(changeSlug);
     if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
@@ -1142,17 +1461,24 @@ export function handleFinalize(changeSlug, options = {}) {
     console.log(`Change '${changeSlug}' is already archived.`);
     if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): finalize ${changeSlug}`);
   }
+  emitter.stepCompleted({ id: 'archive-change' });
 
   if (result.idempotent) {
+    emitter.operationCompleted({ summary: 'PR was already merged.' });
     console.log('PR was already merged. Any pending local changes were committed — push manually if the remote branch still exists.');
     return;
   }
 
+  emitter.stepStarted({ id: 'push-and-merge', label: 'Push and merge' });
   git.push(ROOT, branch);
   github.mergePr(ROOT, facts.pr.number);
+  emitter.stepCompleted({ id: 'push-and-merge' });
 
+  emitter.stepStarted({ id: 'post-merge-check', label: 'Post-merge check' });
   const postMerge = runPostMergeCheck(ROOT, branch, gatherPostMergeCheckFailures);
   if (!postMerge.ok) {
+    emitter.stepFailed({ id: 'post-merge-check', error: 'Post-merge check failed' });
+    emitter.operationFailed({ error: 'Post-merge check failed' });
     console.error(`Post-merge check FAILED after merging PR #${facts.pr.number} (merged SHA: ${postMerge.mergedSha}).`);
     for (const f of postMerge.failed) console.error(`  - ${f.name}${f.detail ? `: ${f.detail}` : ''}`);
     console.error(
@@ -1167,6 +1493,8 @@ export function handleFinalize(changeSlug, options = {}) {
     return;
   }
 
+  emitter.stepCompleted({ id: 'post-merge-check' });
+  emitter.operationCompleted({ summary: `Pushed and merged PR #${facts.pr.number} (squash).` });
   console.log(
     `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed — ` +
     `branch '${postMerge.deletedBranch}' deleted.`
@@ -1284,6 +1612,7 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .option('--check', 'Report the approval gate only — no status write')
+    .option('--no-git', 'Skip automatic Git commit and push after approval')
     .action((changeSlug, taskId, opts) => handleApprove(changeSlug, taskId, opts));
 
   program.command('start')
@@ -1303,6 +1632,7 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<task>')
     .option('--check', 'Report the verification gate only — no status write')
+    .option('--no-git', 'Skip automatic Git commit and push after verification')
     .action((changeSlug, taskId, opts) => handleVerify(changeSlug, taskId, opts));
 
   program.command('archive')

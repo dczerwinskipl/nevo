@@ -77,14 +77,12 @@ Operation (no `operationId`/snapshot/SSE) here:
    instrumentation for free — but that wiring is not part of this task.
 
 Per task 04/area `operation-progress-contract.md`: the standalone
-`GET /api/specs/active/:slug/actions` read is explicitly **not** in scope here for
-either gate kind — no `operationId`, no steps, no SSE. The task-level probe there stays
-exactly as it runs today (genuinely cheap). The `finalize` probe there changes:
-`GET /actions` must no longer call `finalize --check` to compute finalize's button
-state (that now only happens as the first steps of a real `finalize` operation) —
-replace it with lightweight, already-cheaply-available facts (task-completion status,
-branch/PR existence via the existing `worktreeLoader`/`branchLoader`), not a computed
-enabled/disabled-with-reason verdict.
+`GET /api/specs/active/:slug/actions` read uses the generic `evaluateGate('finalize', context, { mode: 'fast' })`
+SSOT evaluator rather than invoking a subprocess `finalize --check`. In `fast` mode, cheap local checks
+(`tasks-terminal`, `follow-ups-blocking`, `working-tree-clean`, `branch-not-behind`, `branch-pushed`) are
+evaluated immediately, while expensive/upstream checks are skipped (`status: 'skipped'`), returning
+`status: 'needs-full-check'` (enabling the action for full execution) or `status: 'blocked'` if any cheap check
+fails. The spawned `finalize` action executes the full gate (`mode: 'full'`) as its operational steps.
 
 ## Dependencies
 
@@ -98,24 +96,16 @@ Depends on task 04 for the contract/helper/transport to emit into.
   grained progress inside a single command unless that command's own output already
   exposes it cheaply (e.g. a test runner that prints a running count) — do not add new
   output-parsing complexity to reverse-engineer progress from arbitrary command output.
-- The task-level (`verify`/`approve`) validation, now the first step of the one
-  already-spawned process (task 04 already removed the separate `taskGate` pre-flight
-  spawn — D11), is typically fast and largely atomic — represent it as a single step.
-  `finalize` is the opposite case — it must be decomposed into its real natural phases
-  (see Goal), never collapsed into one step, since that's exactly the gap the owner
-  correction closed. Neither case ever involves a second CLI process — both are
-  steps within the one process the dashboard already spawned for that POST.
-- `actions.mjs`'s `GET /api/specs/active/:slug/actions` handler for `finalize` changes:
-  stop calling `finalizeGate`/`finalize --check` there; compute the button's
-  availability from lightweight facts already available cheaply (task-completion
-  status from the change data, branch/PR existence via `worktreeLoader`/
-  `branchLoader`) instead. The task-level `GET` probe is unchanged. (This is the
-  `GET`-path fix, D4 — distinct from task 04's own `POST`-path pre-flight removal, D11;
-  both remove a `finalizeGate`/`--check` call site, but from different paths.)
-- Do not change what any of these commands decide (transition validity, gate pass/fail
-  criteria) — only add step-event emission around already-existing execution, and only
-  change *when* the full `finalize` check runs (moved from every `GET` poll to inside
-  the `finalize` operation itself), never *what* it decides.
+- The task-level (`verify`/`approve`) validation is evaluated via `evaluateGate` — represent
+  it as a semantic step of the spawned operation.
+  `finalize` is decomposed into its real natural phases (see Goal), never collapsed into one step.
+  Neither case involves a second CLI process — all are steps within the one process the dashboard
+  spawns for that action.
+- `actions.mjs`'s `GET /api/specs/active/:slug/actions` handler uses `evaluateGate('finalize', context, { mode: 'fast' })`
+  to determine finalize availability without running expensive network/compilation probes on polling reads.
+- Single source of truth (SSOT): All gate validations across CLI and dashboard share `evaluateGate` and
+  `validatorRegistry` (`tools/specs/gates.mjs`). Fast evaluation never fabricates missing upstream facts
+  (missing facts lead to `needs-full-check`, not false `passed`).
 
 ## Acceptance criteria
 

@@ -1,19 +1,20 @@
 id: dashboard-loading-and-progress
 title: Dashboard data loading and long-running operation progress
 type: architectural
-status: draft
+status: archived
 priority: 20
 created: 2026-08-15
 
 branch:
   mode: per-change
   prefix: feature
+  name: feature/dashboard-loading-and-progress-pt2
 
 tasks:
   - id: dashboard-data-loading-contracts
     order: 1
     file: tasks/01-dashboard-data-loading-contracts.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
       review_revision: 4b333e3471b0fb46f6b94e7097945c851598b7fc
@@ -42,7 +43,7 @@ tasks:
   - id: pr-file-manifest-and-diff-hydration
     order: 2
     file: tasks/02-pr-file-manifest-and-diff-hydration.md
-    status: implemented
+    status: verified
     depends_on: [ dashboard-data-loading-contracts ]
     implementation:
       baseline_revision: 505d19be3467db453f8ebb557131fe666edf3132
@@ -75,7 +76,7 @@ tasks:
   - id: changes-grouping-and-filtering
     order: 3
     file: tasks/03-changes-grouping-and-filtering.md
-    status: implemented
+    status: verified
     depends_on: [ pr-file-manifest-and-diff-hydration ]
     implementation:
       baseline_revision: be2b988d2d1f5160b879a5c42222f90d93457b75
@@ -104,27 +105,84 @@ tasks:
   - id: operation-progress-contract-and-transport
     order: 4
     file: tasks/04-operation-progress-contract-and-transport.md
-    status: draft
+    status: verified
     depends_on: [ dashboard-data-loading-contracts ]
+    self_check:
+      fingerprint: 0c8a8237bae11e70bd1dd470cf30c564ce61abea64f2f7e1c2c6148199af7baa
+      revision: 96ce4c547c69a4921b908d326540d9b2768c8bc2
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
   - id: cli-step-instrumentation-gate-and-verification
     order: 5
     file: tasks/05-cli-step-instrumentation-gate-and-verification.md
-    status: draft
+    status: verified
     depends_on: [ operation-progress-contract-and-transport ]
+    self_check:
+      fingerprint: 872f9b8fe4f934fd5672f58b98bc7f512020cc34553a1b0efa394f6ce08e7a38
+      revision: 96ce4c547c69a4921b908d326540d9b2768c8bc2
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
   - id: cli-step-instrumentation-tests-and-audits
     order: 6
     file: tasks/06-cli-step-instrumentation-tests-and-audits.md
-    status: draft
+    status: verified
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
-  - id: dashboard-operation-progress-ui
+    self_check:
+      fingerprint: 1245d76d7246c99b4d4197db084a4b4d93ed9bff4014fd8421319fd59109dad8
+      revision: cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
+  - id: approve-post-action-sync-and-git
     order: 7
-    file: tasks/07-dashboard-operation-progress-ui.md
-    status: draft
+    file: tasks/08-approve-post-action-sync-and-git.md
+    status: verified
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
+    self_check:
+      fingerprint: aa5c8ae62d6e464d3f12de3b2c22d26f12865bde220728277252c7e5f0224ca3
+      revision: cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d
+      commands:
+        - command: node --test tools/tests/approve-git-sync.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
+  - id: dashboard-operation-progress-ui
+    order: 8
+    file: tasks/07-dashboard-operation-progress-ui.md
+    status: verified
+    depends_on:
+      - operation-progress-contract-and-transport
+      - cli-step-instrumentation-gate-and-verification
+      - approve-post-action-sync-and-git
+    self_check:
+      fingerprint: be1fa1367ab77a0e5160214e215fb5fb6e65aedffcb50c6242c6c6372b6a512c
+      revision: cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
 spec_id: 8745682a-ea12-405a-b809-6836b062aa90
 pull_requests:
@@ -132,3 +190,7 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 27
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 28

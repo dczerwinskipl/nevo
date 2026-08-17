@@ -370,8 +370,11 @@ test('serves active-only lifecycle gates and executes explicit validated actions
       body: JSON.stringify({ action: 'verify', taskId: 'task-one' }),
     });
     assert.equal(action.status, 200);
-    assert.deepEqual(await action.json(), { ok: true, action: 'verify' });
-    assert.deepEqual(executions, [{ slug: 'sample-change', action: 'verify', taskId: 'task-one', confirmed: false }]);
+    assert.equal(executions.length, 1);
+    assert.equal(executions[0].slug, 'sample-change');
+    assert.equal(executions[0].action, 'verify');
+    assert.equal(executions[0].taskId, 'task-one');
+    assert.equal(executions[0].confirmed, false);
 
     const invalid = await fetch(`${baseUrl}/api/specs/active/sample-change/actions`, {
       method: 'POST',

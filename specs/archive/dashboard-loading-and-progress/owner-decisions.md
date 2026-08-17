@@ -326,3 +326,18 @@
 - **Affected artifacts:** `overview.md`, `areas/operation-progress-contract.md`,
   `tasks/04-operation-progress-contract-and-transport.md`,
   `tasks/05-cli-step-instrumentation-gate-and-verification.md`
+
+## D12: Symmetric metadata rebuild and Git integration for `verify` (owner task verification)
+
+- **Question:** Task approval (`approve`) was expanded into a multi-step operation with metadata rebuild, safe delta-only Git commit, and push. Should owner task verification (`verify`) follow the exact same multi-step lifecycle and Git sync contract?
+- **Decision:** Yes. Owner task verification (`handleVerify`) follows the symmetric multi-step sequence:
+  1. `validate-transition` — validate verification preconditions via `evaluateGate('task.verify', ...)`;
+  2. `verify-task` — set task status to `verified`;
+  3. `rebuild-metadata` — rebuild canonical derived specification indexes (`specs/active.generated.md`, `specs/archive.generated.md`, `specs/index.generated.json`);
+  4. `commit-verification` — create a Git commit containing only the files modified by verification and index generation (`chore(specs): verify <changeSlug>/<taskId>`), skipped when `gitIntegration` is false;
+  5. `push-verification` — push the current branch to its remote upstream, skipped when `gitIntegration` is false.
+  The same safety rules apply: strict delta-only staging, fail-closed refusal when unrelated dirty files exist or pre-existing uncommitted modifications in `change.yaml` are present, `--no-git` CLI flag opt-out, and full idempotent retry without duplicate commits.
+- **Rationale:** Owner verification in both the CLI and Dashboard should synchronize metadata and Git upstream atomically with the same safety guarantees as task approval, keeping remote worktrees and CI consistently updated.
+- **Consequences:** `tools/specs.mjs` implements symmetric progress emitter and Git sync in `handleVerify`; task 08 and `operation-progress-contract.md` document this contract explicitly.
+- **Date:** 2026-08-17
+- **Affected artifacts:** `areas/operation-progress-contract.md`, `tasks/08-approve-post-action-sync-and-git.md`

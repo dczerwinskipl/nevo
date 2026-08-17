@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { QueryKey } from '@tanstack/react-query';
+import type { QueryKey, QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { useBatchQueries } from './use-batch-queries';
 import type { BatchQueriesHandle } from './use-batch-queries';
@@ -466,6 +466,17 @@ async function executeSpecificationAction(change: DashboardChange, request: {
   return payload as SpecificationActionResult;
 }
 
+export async function invalidateDashboardQueries(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: MANIFEST_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: DOCUMENT_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: TASK_STATUSES_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: PULL_REQUEST_QUERY_KEY }),
+    queryClient.invalidateQueries({ queryKey: ACTIONS_QUERY_KEY }),
+  ]);
+}
+
 export function useSpecificationActions(change: DashboardChange, enabled = true) {
   const queryClient = useQueryClient();
   const active = enabled && change.source === 'active';
@@ -482,18 +493,13 @@ export function useSpecificationActions(change: DashboardChange, enabled = true)
     mutationFn: (request: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) => (
       executeSpecificationAction(change, request)
     ),
-    onSuccess: async () => {
-      // A mutation (verify/approve/finalize) is an explicit, known event —
-      // not the specs-changed SSE's unattributed fallback — but it can touch
-      // any task's status/manifest, so invalidate both broadly here too.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: MANIFEST_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: DOCUMENT_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: TASK_STATUSES_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: PULL_REQUEST_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: ACTIONS_QUERY_KEY }),
-      ]);
+    onSuccess: async (result) => {
+      // If the action returned an async operationId, invalidation is deferred
+      // until the operation reaches terminal status (operation.completed / operation.failed).
+      // If no operationId was returned (direct synchronous legacy), invalidate immediately.
+      if (!result?.operationId) {
+        await invalidateDashboardQueries(queryClient);
+      }
     },
   });
 

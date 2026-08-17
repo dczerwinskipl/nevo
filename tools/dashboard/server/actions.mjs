@@ -1,8 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
 import * as git from '../../lib/git.mjs';
-import { ACTIVE_DIR, loadChange } from '../../specs/service.mjs';
+import { parseProgressLine } from '../../lib/operation-progress.mjs';
+import { evaluateGate } from '../../specs/gates.mjs';
+import { ACTIVE_DIR, loadChange, loadFollowUps } from '../../specs/service.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
 
 const ACTIONABLE_TASK_STATUSES = new Map([
@@ -26,9 +28,23 @@ function defaultSpecsRunner(root, args) {
   }).trim();
 }
 
+export function defaultSpecsSpawner(root, args) {
+  const script = resolve(root, 'tools', 'specs.mjs');
+  return spawn(process.execPath, [script, ...args], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env,
+  });
+}
+
 function parseReport(output, label) {
+  const nonProgress = String(output || '')
+    .split(/\r?\n/)
+    .filter(line => !line.startsWith('@@nevo:progress@@'))
+    .join('\n')
+    .trim();
   try {
-    return JSON.parse(output);
+    return JSON.parse(nonProgress);
   } catch {
     throw new Error(`Unable to parse ${label} report.`);
   }
@@ -89,24 +105,6 @@ function getLocalBranchTracking(root) {
   }
 }
 
-function cheapFinalizeGate(change, worktree) {
-  const allVerified = change.tasks.length > 0 && change.tasks.every(t => t.status === 'verified');
-  const clean = Boolean(worktree?.clean);
-  const enabled = allVerified && clean;
-  let reason = null;
-  if (!allVerified) {
-    reason = 'Wszystkie zadania muszą być zweryfikowane.';
-  } else if (!clean) {
-    reason = 'Katalog roboczy zawiera niezacommitowane zmiany.';
-  }
-  return {
-    enabled,
-    reason,
-    checks: [],
-    pullRequest: null,
-  };
-}
-
 export function loadSpecificationActions({
   slug,
   activeDir = ACTIVE_DIR,
@@ -120,7 +118,21 @@ export function loadSpecificationActions({
   const worktree = worktreeLoader(root);
   const branch = branchLoader(root);
   const tracking = trackingLoader(root, branch);
-  const finalize = cheapFinalizeGate(change, worktree);
+
+  let openBlockingFollowUps = [];
+  try {
+    const followUps = loadFollowUps(change);
+    openBlockingFollowUps = (followUps.follow_ups || [])
+      .filter(f => f.status === 'open' && f.severity === 'blocking')
+      .map(f => ({ id: f.id, reason: f.reason }));
+  } catch {}
+
+  const gateResult = evaluateGate('finalize', {
+    change,
+    worktree,
+    branch: { ...tracking, branch },
+    openBlockingFollowUps,
+  }, { mode: 'fast' });
 
   return {
     id: change.id || change._slug,
@@ -136,10 +148,11 @@ export function loadSpecificationActions({
       .map(task => [task.id, taskGate(runSpecs, root, slug, task)])
       .filter(([, gate]) => gate)),
     finalize: {
-      enabled: finalize.enabled,
-      reason: finalize.reason,
-      checks: finalize.checks,
-      pullRequest: finalize.pullRequest,
+      enabled: gateResult.status === 'allowed' || gateResult.status === 'needs-full-check',
+      status: gateResult.status,
+      reason: gateResult.status === 'blocked' ? gateResult.reason : null,
+      checks: [],
+      pullRequest: null,
     },
   };
 }
@@ -151,34 +164,146 @@ export function executeSpecificationAction({
   confirmed = false,
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
-  runSpecs = defaultSpecsRunner,
+  runSpecs,
+  spawnSpecs = defaultSpecsSpawner,
+  operationRuntime,
+  onFinished,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
 
+  let args;
+  let operationType;
   if (action === 'approve' || action === 'verify') {
     const task = change.tasks.find(candidate => candidate.id === taskId);
     if (!task) throw new SpecificationActionError('Task not found.', 404);
-    const gate = taskGate(runSpecs, root, slug, task);
-    if (!gate || gate.action !== action) {
-      throw new SpecificationActionError(`Action '${action}' is not available for this task.`);
-    }
-    if (!gate.enabled) throw new SpecificationActionError(gate.reason || `Action '${action}' is blocked.`);
-    runSpecs(root, [action, slug, task.id]);
-    return {
-      ok: true,
-      action,
-      taskId: task.id,
-      message: action === 'approve' ? 'Zadanie zostało zatwierdzone.' : 'Implementacja została zaakceptowana.',
-    };
-  }
-
-  if (action === 'finalize') {
+    args = [action, slug, task.id];
+    operationType = `spec-action-${action}`;
+  } else if (action === 'finalize') {
     if (!confirmed) throw new SpecificationActionError('Finalization requires explicit confirmation.', 400);
-    const gate = finalizeGate(runSpecs, root, slug);
-    if (!gate.enabled) throw new SpecificationActionError(gate.reason || 'Finalization is blocked.');
-    runSpecs(root, ['finalize', slug]);
-    return { ok: true, action, message: 'Specyfikacja została sfinalizowana.' };
+    args = ['finalize', slug];
+    operationType = 'spec-action-finalize';
+  } else {
+    throw new SpecificationActionError('Unknown specification action.', 400);
   }
 
-  throw new SpecificationActionError('Unknown specification action.', 400);
+  let finished = false;
+  function markFinished() {
+    if (finished) return;
+    finished = true;
+    if (typeof onFinished === 'function') {
+      try { onFinished(); } catch {}
+    }
+  }
+
+  // D11: Triggering verify/approve/finalize spawns exactly ONE child process — no pre-flight --check spawn
+  if (typeof runSpecs === 'function' && spawnSpecs === defaultSpecsSpawner) {
+    try {
+      const output = runSpecs(root, args);
+      let parsed = null;
+      try { parsed = JSON.parse(output); } catch {}
+      const operationId = operationRuntime
+        ? operationRuntime.createOperation({ type: operationType })
+        : `op-${Date.now()}`;
+      if (operationRuntime) {
+        operationRuntime.completeOperation(operationId, parsed || { ok: true });
+      }
+      return {
+        ok: true,
+        operationId,
+        action,
+        ...(taskId ? { taskId } : {}),
+        message: action === 'approve'
+          ? 'Zadanie zostało zatwierdzone.'
+          : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+      };
+    } finally {
+      markFinished();
+    }
+  }
+
+  const operationId = operationRuntime
+    ? operationRuntime.createOperation({ type: operationType })
+    : `op-${Date.now()}`;
+
+  const child = spawnSpecs(root, args);
+
+  let stdoutBuffer = '';
+  let stderrBuffer = '';
+  let lastJsonReport = null;
+
+  function processLine(line) {
+    if (!line) return;
+    const progressEvent = parseProgressLine(line);
+    if (progressEvent && operationRuntime) {
+      operationRuntime.recordEvent(operationId, progressEvent);
+    } else {
+      try {
+        const parsed = JSON.parse(line.trim());
+        if (parsed && typeof parsed === 'object') {
+          lastJsonReport = parsed;
+        }
+      } catch {
+        // ignore plain lines
+      }
+    }
+  }
+
+  if (child.stdout) {
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => {
+      stdoutBuffer += chunk;
+      let newlineIdx;
+      while ((newlineIdx = stdoutBuffer.indexOf('\n')) !== -1) {
+        const line = stdoutBuffer.slice(0, newlineIdx).replace(/\r$/, '');
+        stdoutBuffer = stdoutBuffer.slice(newlineIdx + 1);
+        processLine(line);
+      }
+    });
+  }
+
+  if (child.stderr) {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', chunk => {
+      stderrBuffer += chunk;
+    });
+  }
+
+  child.on('error', err => {
+    if (operationRuntime) {
+      operationRuntime.failOperation(operationId, err.message || 'Process error');
+    }
+    markFinished();
+  });
+
+  child.on('close', (code, signal) => {
+    try {
+      if (stdoutBuffer.trim()) {
+        processLine(stdoutBuffer.trim().replace(/\r$/, ''));
+      }
+      if (code === 0) {
+        if (operationRuntime) {
+          operationRuntime.completeOperation(operationId, lastJsonReport || { ok: true });
+        }
+      } else {
+        const errorMsg = stderrBuffer.trim() || lastJsonReport?.error?.message || `Process exited with code ${code}${signal ? ` (${signal})` : ''}`;
+        if (operationRuntime) {
+          operationRuntime.failOperation(operationId, { message: errorMsg, code: lastJsonReport?.code });
+        }
+      }
+    } finally {
+      markFinished();
+    }
+  });
+
+  return {
+    ok: true,
+    operationId,
+    action,
+    ...(taskId ? { taskId } : {}),
+    message: action === 'approve'
+      ? 'Zadanie zostało zatwierdzone.'
+      : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+  };
 }
+
+export { taskGate, finalizeGate };

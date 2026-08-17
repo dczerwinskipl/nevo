@@ -27,6 +27,10 @@ import {
   createDefaultDashboardAiService,
   createTrustedNetworkAiAccessPolicy,
 } from './ai-services.mjs';
+import {
+  createOperationRuntime,
+  OperationNotFoundError,
+} from './operations.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
@@ -114,6 +118,7 @@ export function createDashboardServer({
   aiService,
   aiServiceFactory = createDefaultDashboardAiService,
   aiAccessPolicy = createTrustedNetworkAiAccessPolicy(),
+  operationRuntime = createOperationRuntime(),
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
   const runningActions = new Set();
@@ -137,6 +142,86 @@ export function createDashboardServer({
         sendJson,
         readJsonBody,
       });
+      return;
+    }
+
+    const operationRoute = url.pathname.match(/^\/api\/operations\/([^/]+)(\/events)?$/);
+    if (operationRoute) {
+      let operationId;
+      try {
+        operationId = decodeURIComponent(operationRoute[1]);
+      } catch {
+        sendJson(response, 404, { error: 'Operation not found' });
+        return;
+      }
+      if (!/^[a-z0-9][a-z0-9._:-]*$/i.test(operationId)) {
+        sendJson(response, 404, { error: 'Operation not found' });
+        return;
+      }
+
+      const isEvents = operationRoute[2] === '/events';
+      if (isEvents) {
+        if (method !== 'GET') {
+          sendJson(response, 405, { error: 'Method not allowed' });
+          return;
+        }
+        try {
+          const headerCursor = request.headers['last-event-id'];
+          const queryCursor = url.searchParams.get('after');
+          const afterSequence = Number(headerCursor ?? queryCursor ?? 0);
+          if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+            sendJson(response, 400, { error: 'Invalid event cursor.' });
+            return;
+          }
+          const snapshot = operationRuntime.getSnapshot(operationId);
+          response.writeHead(200, {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-cache, no-transform',
+            connection: 'keep-alive',
+          });
+          response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
+
+          const unsubscribe = operationRuntime.subscribe(operationId, {
+            afterSequence: snapshot.lastEventId,
+            onEvent: event => {
+              response.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+              if (event.type === 'operation.completed' || event.type === 'operation.failed') {
+                cleanup();
+                response.end();
+              }
+            },
+          });
+
+          if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+            unsubscribe();
+            response.end();
+            return;
+          }
+
+          const keepAlive = setInterval(() => response.write(': keep-alive\n\n'), 20_000);
+          const cleanup = () => {
+            clearInterval(keepAlive);
+            unsubscribe();
+          };
+          request.on('close', cleanup);
+        } catch (error) {
+          const status = error instanceof OperationNotFoundError ? 404 : 500;
+          sendJson(response, status, { error: error?.message || 'Unable to stream operation events' });
+        }
+        return;
+      }
+
+      if (method !== 'GET') {
+        sendJson(response, 405, { error: 'Method not allowed' });
+        return;
+      }
+      try {
+        const snapshot = operationRuntime.getSnapshot(operationId);
+        sendJson(response, 200, snapshot);
+      } catch (error) {
+        const status = error instanceof OperationNotFoundError ? 404 : 500;
+        sendJson(response, status, { error: error?.message || 'Operation not found' });
+      }
       return;
     }
 
@@ -174,6 +259,7 @@ export function createDashboardServer({
           return;
         }
         runningActions.add(slug);
+        let hasAsyncOperation = false;
         try {
           const body = await readJsonBody(request);
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -184,7 +270,21 @@ export function createDashboardServer({
             action: body.action,
             taskId: body.taskId,
             confirmed: body.confirmed === true,
+            operationRuntime,
+            onFinished: () => {
+              runningActions.delete(slug);
+            },
           });
+
+          if (result?.operationId && operationRuntime) {
+            try {
+              const snapshot = operationRuntime.getSnapshot(result.operationId);
+              if (snapshot.status === 'running') {
+                hasAsyncOperation = true;
+              }
+            } catch {}
+          }
+
           sendJson(response, 200, result);
         } catch (error) {
           const known = error instanceof SpecificationActionError;
@@ -192,7 +292,9 @@ export function createDashboardServer({
             error: known ? error.message : 'Unable to execute specification action.',
           });
         } finally {
-          runningActions.delete(slug);
+          if (!hasAsyncOperation) {
+            runningActions.delete(slug);
+          }
         }
         return;
       }
@@ -408,6 +510,7 @@ export function createDashboardServer({
   server.on('close', () => {
     eventHub.close?.();
     resolvedAiService?.turnRuntime?.shutdown?.();
+    operationRuntime.shutdown?.();
   });
   return server;
 }

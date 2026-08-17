@@ -1,8 +1,16 @@
-import { CheckCircle2, CircleDashed, GitBranch, LockKeyhole } from 'lucide-react';
+import { CheckCircle2, CircleDashed, GitBranch, LockKeyhole, Play } from 'lucide-react';
 
-import type { DashboardChange, DashboardLane, DashboardTask, StageId } from '@/lib/types';
+import type {
+  DashboardChange,
+  DashboardLane,
+  DashboardTask,
+  SpecificationOwnerAction,
+  SpecificationTaskActionGate,
+  StageId,
+} from '@/lib/types';
 import { cn, formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = {
   new: { dot: 'bg-slate-400', tint: 'bg-slate-400/7', line: 'border-slate-400/25' },
@@ -16,22 +24,35 @@ const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = 
 function TaskCard({
   task,
   lane,
+  actionGate,
   onSelect,
+  onAction,
 }: {
   task: DashboardTask;
   lane: DashboardLane;
-  onSelect?: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+  actionGate?: SpecificationTaskActionGate | null;
+  onSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
+  onAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
 }) {
   const tone = stageTone[lane.id];
   const isDone = lane.id === 'done';
+  const hasAction = actionGate?.enabled;
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={cn(
-        'block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+        'group relative block w-full cursor-pointer rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
         tone.line,
       )}
       onClick={event => onSelect?.(task, event.currentTarget)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect?.(task, event.currentTarget);
+        }
+      }}
       aria-label={`Otwórz szczegóły zadania: ${task.title}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -56,16 +77,44 @@ function TaskCard({
           </span>
         )}
       </div>
-    </button>
+
+      {hasAction && (
+        <div className="mt-3 border-t border-[var(--border)] pt-2.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 w-full gap-1.5 text-xs font-semibold text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10"
+            onClick={e => {
+              e.stopPropagation();
+              onAction?.(task, actionGate.action);
+            }}
+          >
+            {actionGate.action === 'approve' ? (
+              <>
+                <Play className="size-3" /> Zatwierdź zadanie
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="size-3" /> Zaakceptuj
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function StatusBoard({
   change,
+  actions,
   onTaskSelect,
+  onTaskAction,
 }: {
   change: DashboardChange;
-  onTaskSelect?: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+  actions?: Record<string, SpecificationTaskActionGate>;
+  onTaskSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
+  onTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">
@@ -79,28 +128,37 @@ export function StatusBoard({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          {change.lanes.map(lane => {
-            const tone = stageTone[lane.id];
-            return (
-              <div key={lane.id} className="min-w-0">
-                <div className="mb-2 flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className={cn('size-1.5 rounded-full', tone.dot)} />
-                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
-                  </div>
-                  <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
+        {change.lanes.map(lane => {
+          const tone = stageTone[lane.id];
+          return (
+            <div key={lane.id} className="min-w-0">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <span className={cn('size-1.5 rounded-full', tone.dot)} />
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
                 </div>
-                <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
-                  {lane.tasks.map(task => <TaskCard key={task.id} task={task} lane={lane} onSelect={onTaskSelect} />)}
-                  {lane.tasks.length === 0 && (
-                    <div className="flex h-20 items-center justify-center rounded-xl border border-transparent text-[10px] text-[var(--muted)]">
-                      Brak zadań
-                    </div>
-                  )}
-                </div>
+                <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
               </div>
-            );
-          })}
+              <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
+                {lane.tasks.map(task => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    lane={lane}
+                    actionGate={actions?.[task.id]}
+                    onSelect={onTaskSelect}
+                    onAction={onTaskAction}
+                  />
+                ))}
+                {lane.tasks.length === 0 && (
+                  <div className="flex h-20 items-center justify-center rounded-xl border border-transparent text-[10px] text-[var(--muted)]">
+                    Brak zadań
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
