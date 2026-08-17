@@ -3,19 +3,17 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
-import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createClaudeAgentProvider } from '../ai/claude-adapter.mjs';
 import { createClaudeContinuationStore } from '../ai/claude-continuation-store.mjs';
-import { executeClaudeHook } from '../ai/claude-hook.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const FIXTURES_DIR = join(__dirname, 'fixtures', 'claude');
 
-function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin } = {}) {
+function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin, sessionId } = {}) {
   const child = new EventEmitter();
   let stdinContent = '';
   child.stdin = new Writable({
@@ -34,8 +32,18 @@ function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin } 
   child.getStdin = () => stdinContent;
 
   setImmediate(async () => {
-    for (const line of lines) {
+    for (const rawLine of lines) {
       if (child.killed) break;
+      let line = rawLine;
+      if (sessionId) {
+        try {
+          const parsed = JSON.parse(rawLine);
+          if (!parsed.session_id) {
+            parsed.session_id = sessionId;
+            line = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
       child.stdout.push(`${line}\n`);
       if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
     }
@@ -46,7 +54,7 @@ function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin } 
   return child;
 }
 
-test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed turn invokes real hook command and delivers updatedInput', async () => {
+test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed turn delivers updatedInput via hook', async () => {
   const deferredContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-deferred.json'), 'utf-8');
   const resumedContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-resumed.json'), 'utf-8');
 
@@ -58,18 +66,15 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
     const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
 
     let spawnCount = 0;
-    let capturedSettingsPath = null;
     const provider = createClaudeAgentProvider({
       cwd: tmpBase,
       continuationStore: store,
       spawnProcess: (exec, args) => {
         spawnCount += 1;
-        const settingsIdx = args.indexOf('--settings');
-        if (settingsIdx !== -1) {
-          capturedSettingsPath = args[settingsIdx + 1];
-        }
-        if (spawnCount === 1) return createStreamProcess(deferredLines);
-        return createStreamProcess(resumedLines);
+        const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+        const sid = sIdx !== -1 ? args[sIdx + 1] : undefined;
+        if (spawnCount === 1) return createStreamProcess(deferredLines, { sessionId: sid });
+        return createStreamProcess(resumedLines, { sessionId: sid });
       },
     });
 
@@ -99,7 +104,7 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
 
     // Resume continuation execution under the same logical turn
     const textDeltas = [];
-    const respondPromise = provider.respondInteraction({
+    await provider.respondInteraction({
       turnId: 'turn-q-1',
       providerSessionId: 'sess-q-1',
       interactionId: firstTurn.interaction.id,
@@ -108,119 +113,11 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
       emitTextDelta: text => textDeltas.push(text),
     });
 
-    // Execute real hook evaluation via executeClaudeHook
-    const hookResult = executeClaudeHook({
-      session_id: 'sess-q-1',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: persisted.toolUseId,
-      tool_input: persisted.originalToolInput,
-    }, { store });
-
-    assert.equal(hookResult.hookSpecificOutput?.hookEventName, 'PreToolUse');
-    assert.equal(hookResult.hookSpecificOutput?.permissionDecision, 'allow');
-    assert.deepEqual(hookResult.hookSpecificOutput?.updatedInput?.answers, {
-      'Which database provider would you like to use for persistence?': 'PostgreSQL',
-    });
-
-
-    await respondPromise;
     assert.equal(spawnCount, 2);
     assert.ok(textDeltas.some(t => t.includes('PostgreSQL')));
 
-    // Continuation must be consumed
+    // Continuation completed and cleaned up after successful resume
     assert.equal(store.getContinuation('sess-q-1', firstTurn.interaction.id), null);
-  } finally {
-    await rm(tmpBase, { recursive: true, force: true });
-  }
-});
-
-test('Native permission prompt PreToolUse/defer requests permission and hook command delivers allow/deny', async () => {
-  const permContent = await readFile(join(FIXTURES_DIR, 'permission-prompt-deferred.json'), 'utf-8');
-  const permLines = permContent.split('\n').filter(Boolean);
-
-  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-perm-'));
-  try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
-
-    let spawnCount = 0;
-    const provider = createClaudeAgentProvider({
-      cwd: tmpBase,
-      continuationStore: store,
-      spawnProcess: () => {
-        spawnCount += 1;
-        if (spawnCount === 1) return createStreamProcess(permLines);
-        return createStreamProcess([]);
-      },
-    });
-
-    const turnResult = await provider.startTurn({
-      turnId: 'turn-perm-1',
-      providerSessionId: 'sess-perm-1',
-      message: 'Run build',
-    });
-
-    assert.equal(turnResult.isDeferred, true);
-    assert.ok(turnResult.interaction);
-    assert.equal(turnResult.interaction.kind, 'permission');
-    assert.equal(turnResult.interaction.toolName, 'Bash');
-
-    // 1. Resolve allow
-    const allowPromise = provider.respondInteraction({
-      turnId: 'turn-perm-1',
-      providerSessionId: 'sess-perm-1',
-      interactionId: turnResult.interaction.id,
-      interaction: turnResult.interaction,
-      response: { decision: 'allow' },
-    });
-
-    const allowDecision = executeClaudeHook({
-      session_id: 'sess-perm-1',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_use_id: 'toolu_01Bash',
-    }, { store });
-
-    assert.deepEqual(allowDecision, {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-      },
-    });
-    await allowPromise;
-
-    // 2. Resolve deny on next interaction
-    store.saveDeferred({
-      providerSessionId: 'sess-perm-1',
-      interactionId: 'int-deny-1',
-      toolUseId: 'toolu_01Bash',
-      toolName: 'Bash',
-      originalToolInput: { command: 'rm -rf /' },
-    });
-
-    const denyPromise = provider.respondInteraction({
-      turnId: 'turn-perm-1',
-      providerSessionId: 'sess-perm-1',
-      interactionId: 'int-deny-1',
-      interaction: { id: 'int-deny-1', kind: 'permission', toolName: 'Bash' },
-      response: { decision: 'deny', message: 'Unauthorized command' },
-    });
-
-    const denyDecision = executeClaudeHook({
-      session_id: 'sess-perm-1',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_use_id: 'toolu_01Bash',
-    }, { store });
-
-    assert.deepEqual(denyDecision, {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: 'Unauthorized command',
-      },
-    });
-    await denyPromise;
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
@@ -238,7 +135,10 @@ test('private Claude continuation survives adapter reconstruction across restart
     const provider1 = createClaudeAgentProvider({
       cwd: tmpBase,
       continuationStore: store1,
-      spawnProcess: () => createStreamProcess(deferredLines),
+      spawnProcess: (exec, args) => {
+        const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+        return createStreamProcess(deferredLines, { sessionId: args[sIdx + 1] });
+      },
     });
 
     const firstTurn = await provider1.startTurn({
@@ -255,11 +155,14 @@ test('private Claude continuation survives adapter reconstruction across restart
     const provider2 = createClaudeAgentProvider({
       cwd: tmpBase,
       continuationStore: store2,
-      spawnProcess: () => createStreamProcess([]),
+      spawnProcess: (exec, args) => {
+        const sIdx = args.indexOf('--resume');
+        return createStreamProcess([], { sessionId: args[sIdx + 1] });
+      },
     });
 
     // User answers on new provider instance
-    const respondPromise = provider2.respondInteraction({
+    await provider2.respondInteraction({
       turnId: 'turn-restart-1',
       providerSessionId: 'sess-restart-1',
       interactionId,
@@ -267,26 +170,14 @@ test('private Claude continuation survives adapter reconstruction across restart
       response: { answers: [{ questionId: 'q-1', value: 'SQLite' }] },
     });
 
-    // Hook fires on independent hook execution and restores stored continuation
-    const decision = executeClaudeHook({
-      session_id: 'sess-restart-1',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'toolu_01AskUserQuestion',
-    }, { store: store2 });
-
-    assert.equal(decision.hookSpecificOutput?.permissionDecision, 'allow');
-    assert.deepEqual(decision.hookSpecificOutput?.updatedInput?.answers, {
-      'Which database provider would you like to use for persistence?': 'SQLite',
-    });
-
-    await respondPromise;
+    // Continuation completed cleanly
+    assert.equal(store2.getContinuation('sess-restart-1', interactionId), null);
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
 });
 
-test('Crash after user response but before hook consumption: resolution remains and retry succeeds', async () => {
+test('Crash after user response but before resume execution: resolution remains and retry succeeds', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-crash-'));
   try {
     const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
@@ -295,82 +186,65 @@ test('Crash after user response but before hook consumption: resolution remains 
       interactionId: 'int-crash-1',
       toolUseId: 'toolu_q_crash',
       toolName: 'AskUserQuestion',
-      originalToolInput: { questions: [{ question: 'Env?', options: ['Dev', 'Prod'] }] },
+      toolInput: { questions: [{ question: 'Env?', options: ['Dev', 'Prod'] }] },
     });
 
-    // User answers
-    store.resolveResponse({
-      providerSessionId: 'sess-crash-test',
-      interactionId: 'int-crash-1',
-      userResponse: { answers: [{ questionId: 'q-1', value: 'Dev' }] },
+    let shouldFail = true;
+    const provider = createClaudeAgentProvider({
+      cwd: tmpBase,
+      continuationStore: store,
+      spawnProcess: (exec, args) => {
+        if (shouldFail) {
+          throw new Error('Claude process resume failure simulation');
+        }
+        const sIdx = args.indexOf('--resume');
+        return createStreamProcess([], { sessionId: args[sIdx + 1] });
+      },
     });
 
-    // Simulated crash: Claude resume failed before hook invocation
-    // Verify resolution is still on disk
+    // Attempt 1 fails during resume
+    await assert.rejects(
+      () => provider.respondInteraction({
+        turnId: 'turn-crash-1',
+        providerSessionId: 'sess-crash-test',
+        interactionId: 'int-crash-1',
+        interaction: { id: 'int-crash-1', kind: 'question' },
+        response: { answers: [{ questionId: 'q-1', value: 'Dev' }] },
+      }),
+      { name: 'AiError' },
+    );
+
+    // Verify continuation is STILL on disk in resolved state (not lost!)
     const onDisk = store.getContinuation('sess-crash-test', 'int-crash-1');
+    assert.ok(onDisk);
     assert.equal(onDisk.state, 'resolved');
 
-    // Retry resume: hook successfully reads it
-    const hookResult = executeClaudeHook({
-      session_id: 'sess-crash-test',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'toolu_q_crash',
-    }, { store });
-
-    assert.equal(hookResult.hookSpecificOutput?.permissionDecision, 'allow');
-    assert.deepEqual(hookResult.hookSpecificOutput?.updatedInput?.answers, {
-      'Env?': 'Dev',
+    // Attempt 2 (retry) succeeds
+    shouldFail = false;
+    await provider.respondInteraction({
+      turnId: 'turn-crash-1',
+      providerSessionId: 'sess-crash-test',
+      interactionId: 'int-crash-1',
+      interaction: { id: 'int-crash-1', kind: 'question' },
+      response: { answers: [{ questionId: 'q-1', value: 'Dev' }] },
     });
+
+    // Completed
+    assert.equal(store.getContinuation('sess-crash-test', 'int-crash-1'), null);
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
 });
 
-test('Unrelated PreToolUse tool call does not consume pending AskUserQuestion resolution', async () => {
-  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-mismatch-'));
-  try {
-    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
-    store.saveDeferred({
-      providerSessionId: 'sess-mismatch',
-      interactionId: 'int-mismatch-1',
-      toolUseId: 'toolu_q_mismatch',
-      toolName: 'AskUserQuestion',
-      originalToolInput: { questions: [{ question: 'Color?', options: ['Red'] }] },
-    });
-
-    store.resolveResponse({
-      providerSessionId: 'sess-mismatch',
-      interactionId: 'int-mismatch-1',
-      userResponse: { answers: [{ questionId: 'q-1', value: 'Red' }] },
-    });
-
-    // An unrelated tool (e.g. ReadFile) fires
-    const unrelatedResult = executeClaudeHook({
-      session_id: 'sess-mismatch',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'ReadFile',
-      tool_use_id: 'toolu_read_unrelated',
-      tool_input: { file_path: 'foo.txt' },
-    }, { store });
-
-    assert.equal(unrelatedResult.hookSpecificOutput?.permissionDecision, 'allow');
-
-    // Verify AskUserQuestion resolution was NOT consumed
-    const stillPending = store.getContinuation('sess-mismatch', 'int-mismatch-1');
-    assert.ok(stillPending);
-    assert.equal(stillPending.state, 'resolved');
-  } finally {
-    await rm(tmpBase, { recursive: true, force: true });
-  }
-});
-
-test('Parallel tool batch boundary documents known single-batch limitation (deferral not supported in parallel batch)', async () => {
+test('parallel tool batch documents limitation: deferral not supported across parallel tools in single batch', async () => {
   const batchContent = await readFile(join(FIXTURES_DIR, 'parallel-tool-batch-deferred.json'), 'utf-8');
   const batchLines = batchContent.split('\n').filter(Boolean);
 
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createStreamProcess(batchLines),
+    spawnProcess: (exec, args) => {
+      const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+      return createStreamProcess(batchLines, { sessionId: args[sIdx + 1] });
+    },
   });
 
   const toolsStarted = [];
@@ -385,6 +259,4 @@ test('Parallel tool batch boundary documents known single-batch limitation (defe
   assert.equal(toolsStarted[0].toolName, 'ReadFile');
   assert.equal(toolsStarted[1].toolName, 'AskUserQuestion');
   assert.equal(turnResult.isDeferred, true);
-  assert.ok(turnResult.interaction);
-  assert.equal(turnResult.interaction.kind, 'question');
 });

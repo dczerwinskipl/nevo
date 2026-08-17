@@ -57,15 +57,14 @@ Continuation record is consumed; Claude executes tool and continues generation
 ```
 
 
-## 3. Native Permissions Transport (Evaluated & Selected)
+## 3. Native Permissions Transport (Evaluated & Discovered)
 
-Task 03 discovery evaluated three potential transports for native permission prompts:
+Task 03 discovery evaluated potential transports for native permission prompts:
 1. `--permission-prompt-tool`: Requires bespoke IPC pipes per tool execution and is not uniformly supported across CLI versions.
-2. `PreToolUse/defer` (Selected): Extends the standard `PreToolUse` hook to dangerous tools (`Bash`, `WriteFile`, `Edit`). When a tool requires user permission, the hook returns `permissionDecision: "defer"` (`stop_reason: "tool_deferred"`). The adapter maps this to normalized `interaction.requested` (kind: `'permission'`). Upon user approval (`allow`), NEvo resumes with `permissionDecision: "allow"`; on denial (`deny`), NEvo resumes with `permissionDecision: "deny"` and message. This provides a single, uniform transport for both interactive questions and permission prompts.
-3. Agent SDK `canUseTool`: Bypasses the local CLI binary and requires direct API token integration, violating the local CLI subscription model.
+2. `PermissionRequest` hooks: Fire only when Claude Code is in interactive prompt mode. In headless execution (`claude -p` with `--permission-mode dontAsk`), permission interactive round-trip is not supported by the CLI binary without interactive prompt loop.
+3. Fictional in-process interceptors: Inventing custom permission wrappers on top of arbitrary tools was rejected.
 
-- **Decision:** Use `PreToolUse/defer` uniformly for both interactive questions (`AskUserQuestion`) and native permission prompts (`Bash`, `WriteFile`, `Edit`).
-
+- **Decision:** As non-interactive CLI does not support native permission round-trips without interactive prompt loops, `interactivePermissions` is set to `false`. Interactive multi-choice questions (`AskUserQuestion`) are fully supported and verified via `PreToolUse/defer` command hooks.
 
 ## 4. Cancellation & Process Cleanup
 
@@ -75,7 +74,7 @@ Task 03 discovery evaluated three potential transports for native permission pro
 
 ```ts
 export const CLAUDE_CAPABILITIES: AgentCapabilities = {
-  interactivePermissions: true,
+  interactivePermissions: false,
   interactiveQuestions: true,
   interactiveConfirmations: true,
   resumeSession: true,
@@ -83,5 +82,5 @@ export const CLAUDE_CAPABILITIES: AgentCapabilities = {
   toolCalls: true,
   reasoning: true,
   usage: true,
-};
 ```
+

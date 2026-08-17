@@ -59,8 +59,9 @@ test('ClaudeAgentProvider declares capabilities', () => {
   const provider = createClaudeAgentProvider();
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
-  assert.equal(provider.descriptor.capabilities.interactivePermissions, true);
+  assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
+
 });
 
 test('new Claude conversation uses --session-id and returns generated providerSessionId', async () => {

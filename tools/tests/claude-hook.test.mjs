@@ -11,9 +11,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const HOOK_SCRIPT_PATH = join(__dirname, '..', 'ai', 'claude-hook.mjs');
 
-function runHookProcess(inputObject, { cwd = process.cwd() } = {}) {
+function runHookSubprocess(inputObject, { cwd = process.cwd() } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('node', [HOOK_SCRIPT_PATH], {
+    const child = spawn(process.execPath, [HOOK_SCRIPT_PATH], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -25,10 +25,10 @@ function runHookProcess(inputObject, { cwd = process.cwd() } = {}) {
 
     child.on('close', code => {
       if (code !== 0) {
-        return reject(new Error(`Hook exited with code ${code}: ${stderr}`));
+        return reject(new Error(`Hook subprocess exited with code ${code}: ${stderr}`));
       }
       try {
-        const parsed = JSON.parse(stdout.trim());
+        const parsed = stdout.trim() ? JSON.parse(stdout.trim()) : null;
         resolve(parsed);
       } catch (err) {
         reject(new Error(`Failed to parse hook stdout: ${stdout} (${err.message})`));
@@ -36,13 +36,12 @@ function runHookProcess(inputObject, { cwd = process.cwd() } = {}) {
     });
 
     child.on('error', reject);
-    child.stdin.write(JSON.stringify(inputObject) + '\n');
-    child.stdin.end();
+    child.stdin.end(JSON.stringify(inputObject) + '\n');
   });
 }
 
-test('Hook executable: unconfigured / default tools return allow', async () => {
-  const result = await runHookProcess({
+test('Hook subprocess: unconfigured / default tools return allow', async () => {
+  const result = await runHookSubprocess({
     session_id: 'sess-test-1',
     hook_event_name: 'PreToolUse',
     tool_name: 'ReadFile',
@@ -58,8 +57,8 @@ test('Hook executable: unconfigured / default tools return allow', async () => {
   });
 });
 
-test('Hook executable: AskUserQuestion without resolved response returns defer', async () => {
-  const result = await runHookProcess({
+test('Hook subprocess: AskUserQuestion without resolved response returns defer', async () => {
+  const result = await runHookSubprocess({
     session_id: 'sess-test-q-1',
     hook_event_name: 'PreToolUse',
     tool_name: 'AskUserQuestion',
@@ -75,7 +74,7 @@ test('Hook executable: AskUserQuestion without resolved response returns defer',
   });
 });
 
-test('Hook executable: AskUserQuestion with resolved response maps answers to question text and returns allow + updatedInput', async () => {
+test('Hook subprocess: AskUserQuestion with resolved response maps answers to question text and returns allow + updatedInput', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-test-'));
   try {
     const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
@@ -84,7 +83,7 @@ test('Hook executable: AskUserQuestion with resolved response maps answers to qu
       interactionId: 'int-12345',
       toolUseId: 'toolu_q_99',
       toolName: 'AskUserQuestion',
-      originalToolInput: {
+      toolInput: {
         questions: [
           { question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] },
         ],
@@ -99,7 +98,7 @@ test('Hook executable: AskUserQuestion with resolved response maps answers to qu
       },
     });
 
-    const result = await runHookProcess({
+    const result = await runHookSubprocess({
       session_id: 'sess-q-resolve',
       hook_event_name: 'PreToolUse',
       tool_name: 'AskUserQuestion',
@@ -113,81 +112,64 @@ test('Hook executable: AskUserQuestion with resolved response maps answers to qu
 
     assert.equal(result.hookSpecificOutput?.hookEventName, 'PreToolUse');
     assert.equal(result.hookSpecificOutput?.permissionDecision, 'allow');
-    assert.deepEqual(result.hookSpecificOutput?.updatedInput?.answers, {
-      'What database do you prefer?': 'PostgreSQL',
+    assert.deepEqual(result.hookSpecificOutput?.updatedInput, {
+      questions: [
+        { question: 'What database do you prefer?', header: 'DB', options: ['PostgreSQL', 'SQLite'] },
+      ],
+      answers: {
+        'What database do you prefer?': 'PostgreSQL',
+      },
     });
 
-    // Continuation must be consumed
+    // Continuation marked delivered on disk (not deleted!)
     const remaining = store.getContinuation('sess-q-resolve', 'int-12345');
-    assert.equal(remaining, null);
+    assert.ok(remaining);
+    assert.equal(remaining.state, 'delivered');
+    assert.ok(remaining.deliveredAt);
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
 });
 
-test('Hook executable: Permission allow and deny responses return valid PreToolUse hookSpecificOutput', async () => {
-  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-perm-'));
+test('Hook subprocess: Wrong toolUseId correlation does not consume unrelated continuation and returns defer', async () => {
+  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-mismatch-'));
   try {
     const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
-
-    // 1. Allow
     store.saveDeferred({
-      providerSessionId: 'sess-perm-test',
-      interactionId: 'int-allow-1',
-      toolUseId: 'toolu_bash_1',
-      toolName: 'Bash',
-      originalToolInput: { command: 'npm test' },
-    });
-    store.resolveResponse({
-      providerSessionId: 'sess-perm-test',
-      interactionId: 'int-allow-1',
-      userResponse: { decision: 'allow' },
+      providerSessionId: 'sess-mismatch',
+      interactionId: 'int-mismatch-1',
+      toolUseId: 'tool-A',
+      toolName: 'AskUserQuestion',
+      toolInput: { questions: [{ question: 'Color?', options: ['Red'] }] },
     });
 
-    const allowResult = await runHookProcess({
-      session_id: 'sess-perm-test',
+    store.resolveResponse({
+      providerSessionId: 'sess-mismatch',
+      interactionId: 'int-mismatch-1',
+      userResponse: { answers: [{ questionId: 'q-1', value: 'Red' }] },
+    });
+
+    // Invoking hook with tool-B (different tool_use_id and different input)
+    const result = await runHookSubprocess({
+      session_id: 'sess-mismatch',
       hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_input: { command: 'npm test' },
-      tool_use_id: 'toolu_bash_1',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tool-B',
+      tool_input: { questions: [{ question: 'Size?', options: ['Large'] }] },
     }, { cwd: tmpBase });
 
-    assert.deepEqual(allowResult, {
+    // Must return defer for unresolved tool-B
+    assert.deepEqual(result, {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
+        permissionDecision: 'defer',
       },
     });
 
-    // 2. Deny
-    store.saveDeferred({
-      providerSessionId: 'sess-perm-test',
-      interactionId: 'int-deny-1',
-      toolUseId: 'toolu_bash_2',
-      toolName: 'Bash',
-      originalToolInput: { command: 'rm -rf /' },
-    });
-    store.resolveResponse({
-      providerSessionId: 'sess-perm-test',
-      interactionId: 'int-deny-1',
-      userResponse: { decision: 'deny', message: 'Forbidden destructive command' },
-    });
-
-    const denyResult = await runHookProcess({
-      session_id: 'sess-perm-test',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_input: { command: 'rm -rf /' },
-      tool_use_id: 'toolu_bash_2',
-    }, { cwd: tmpBase });
-
-    assert.deepEqual(denyResult, {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: 'Forbidden destructive command',
-      },
-    });
+    // Must leave int-mismatch-1 unconsumed in resolved state
+    const record = store.getContinuation('sess-mismatch', 'int-mismatch-1');
+    assert.ok(record);
+    assert.equal(record.state, 'resolved');
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }

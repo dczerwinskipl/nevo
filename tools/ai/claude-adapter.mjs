@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -15,7 +15,7 @@ const __dirname = dirname(__filename);
 const HOOK_SCRIPT_PATH = join(__dirname, 'claude-hook.mjs');
 
 export const CLAUDE_CAPABILITIES = Object.freeze({
-  interactivePermissions: true,
+  interactivePermissions: false,
   interactiveQuestions: true,
   interactiveConfirmations: true,
   resumeSession: true,
@@ -57,12 +57,12 @@ export class ClaudeAgentProvider {
   }
 
   #createSettingsFile() {
-    const hookCmd = `node "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
+    const hookCmd = `${process.execPath} "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
     const settings = {
       hooks: {
         PreToolUse: [
           {
-            matcher: '*',
+            matcher: 'AskUserQuestion',
             hooks: [
               {
                 type: 'command',
@@ -151,8 +151,8 @@ export class ClaudeAgentProvider {
         try { unlinkSync(settingsPath); } catch {}
       };
 
-      const materializeSessionIfNeeded = async (sessionIdInEvent) => {
-        if (!isMaterialized && sessionIdInEvent === effectiveSessionId) {
+      const maybeConfirmSession = async (event) => {
+        if (!isMaterialized && event.session_id === effectiveSessionId) {
           isMaterialized = true;
           if (setProviderSessionId) {
             try {
@@ -177,7 +177,7 @@ export class ClaudeAgentProvider {
         }
 
         if (event.session_id) {
-          await materializeSessionIfNeeded(event.session_id);
+          await maybeConfirmSession(event);
         }
 
         switch (event.type) {
@@ -301,27 +301,17 @@ export class ClaudeAgentProvider {
 
         if (isDeferred && deferredPayload) {
           const publicInteractionId = `int-${randomUUID()}`;
-          let interaction;
-          if (deferredPayload.name === 'AskUserQuestion') {
-            interaction = {
-              id: publicInteractionId,
-              kind: 'question',
-              questions: deferredPayload.input?.questions?.map((q, idx) => ({
-                id: `q-${idx + 1}`,
-                question: q.question,
-                header: q.header,
-                options: q.options,
-                multiSelect: q.multiSelect,
-              })) || [],
-            };
-          } else {
-            interaction = {
-              id: publicInteractionId,
-              kind: 'permission',
-              toolName: deferredPayload.name,
-              input: deferredPayload.input,
-            };
-          }
+          const interaction = {
+            id: publicInteractionId,
+            kind: 'question',
+            questions: deferredPayload.input?.questions?.map((q, idx) => ({
+              id: `q-${idx + 1}`,
+              question: q.question,
+              header: q.header,
+              options: q.options,
+              multiSelect: q.multiSelect,
+            })) || [],
+          };
 
           // Durable persistence of private Claude continuation metadata
           try {
@@ -330,7 +320,8 @@ export class ClaudeAgentProvider {
               interactionId: publicInteractionId,
               toolUseId: deferredPayload.id,
               toolName: deferredPayload.name,
-              originalToolInput: deferredPayload.input,
+              toolInput: deferredPayload.input,
+              kind: 'question',
             });
           } catch (persistErr) {
             return reject(persistErr);
@@ -353,7 +344,7 @@ export class ClaudeAgentProvider {
         }
 
         if (!isMaterialized && isInitialTurn) {
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude exited without materializing session ID.'));
+          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude process exited before confirming session materialization'));
         }
 
         resolve({ operation, providerSessionId: effectiveSessionId });
@@ -404,22 +395,30 @@ export class ClaudeAgentProvider {
       userResponse: response,
     });
 
-    // Resume Claude turn; the PreToolUse hook command process will read the resolution
-    return this.startTurn({
-      turnId,
-      providerSessionId,
-      message: 'Continue',
-      signal,
-      setOperation,
-      emitDelta,
-      emitTextDelta,
-      emitReasoningDelta,
-      emitToolStarted,
-      emitToolUpdated,
-      emitToolCompleted,
-      emitUsageUpdated,
-      emitEvent,
-    });
+    try {
+      const turnResult = await this.startTurn({
+        turnId,
+        providerSessionId,
+        message: 'Continue',
+        signal,
+        setOperation,
+        emitDelta,
+        emitTextDelta,
+        emitReasoningDelta,
+        emitToolStarted,
+        emitToolUpdated,
+        emitToolCompleted,
+        emitUsageUpdated,
+        emitEvent,
+      });
+
+      // Turn completed successfully: complete/cleanup continuation record
+      this.#continuationStore.complete({ providerSessionId, interactionId });
+      return turnResult;
+    } catch (err) {
+      // Continuation remains stored so retry is possible
+      throw err;
+    }
   }
 
   async cancelTurn({ operation } = {}) {
