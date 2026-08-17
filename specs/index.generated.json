@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:07.435Z",
+  "generated": "2026-08-17T18:05:15.065Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -37,7 +37,7 @@
           "id": "claude-provider-adapter",
           "order": 4,
           "file": "tasks/04-claude-provider-adapter.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "provider-neutral-core-and-capabilities"
           ]

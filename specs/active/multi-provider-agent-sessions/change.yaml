@@ -27,7 +27,7 @@ tasks:
   - id: claude-provider-adapter
     order: 4
     file: tasks/04-claude-provider-adapter.md
-    status: draft
+    status: approved
     depends_on: [ provider-neutral-core-and-capabilities ]
   - id: claude-interaction-and-deferral
     order: 5
