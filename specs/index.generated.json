@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:20.383Z",
+  "generated": "2026-08-17T18:05:25.898Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -56,7 +56,7 @@
           "id": "agent-session-http-sse-api",
           "order": 6,
           "file": "tasks/06-agent-session-http-sse-api.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "session-binding-and-execution-context",
             "claude-interaction-and-deferral"
