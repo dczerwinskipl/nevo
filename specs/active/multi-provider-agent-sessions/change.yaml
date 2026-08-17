@@ -177,4 +177,8 @@ pull_requests:
     base_url: https://github.com
     repository: dczerwinskipl/nevo
     number: 29
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 30
 spec_id: d9d40a17-cb1b-4cb5-b562-36f9bc75b726
