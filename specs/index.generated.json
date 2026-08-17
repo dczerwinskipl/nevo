@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T10:11:52.158Z",
+  "generated": "2026-08-17T13:03:39.873Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -600,7 +600,7 @@
           "id": "dashboard-operation-progress-ui",
           "order": 8,
           "file": "tasks/07-dashboard-operation-progress-ui.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification",
