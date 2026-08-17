@@ -17,26 +17,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
+import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import {
-  useAiMessages,
   useAiProviders,
-  useAiSession,
-  useAiSessions,
-  useAiTurn,
-  useCancelAiTurn,
   useCreateAiSession,
-  useResolveAiInteraction,
-  useStartAiTurn,
 } from '@/hooks/use-dashboard-data';
-import { composeChatMessages, createTurnIdempotencyKey, initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type {
   AiInteraction,
   AiMessage,
   AiQuestionInteraction,
   AiSession,
-  AiTurnEvent,
-  AiTurnSnapshot,
   DashboardChange,
+  NormalizedMessage,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -106,11 +100,7 @@ function QuestionPrompt({ interaction, disabled, onResolve }: { interaction: AiQ
   );
 }
 
-function applySnapshot(snapshot: AiTurnSnapshot, processEvent: (event: AiTurnEvent) => void, setPending: (interaction: AiInteraction | null) => void, setTurnStatus: (status: AiTurnSnapshot['status']) => void) {
-  snapshot.events.forEach(processEvent);
-  setPending(snapshot.pendingInteraction);
-  setTurnStatus(snapshot.status);
-}
+
 
 function useChatVisualViewport() {
   const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({
@@ -186,143 +176,57 @@ export function AiChatPage({
   backLabel: string;
   onSwitchSession: (session: AiSession) => void;
 }) {
-  const sessionQuery = useAiSession(provider, sessionId);
-  const messagesQuery = useAiMessages(provider, sessionId);
-  const relatedSessions = useAiSessions({ specId: sessionQuery.data?.specId, enabled: Boolean(sessionQuery.data?.specId) });
-  const [turnId, setTurnId] = useState<string | null>(initialTurnId);
-  const turnQuery = useAiTurn(turnId);
-  const startTurn = useStartAiTurn(provider, sessionId);
-  const resolveInteraction = useResolveAiInteraction(turnId);
-  const cancelTurn = useCancelAiTurn(turnId);
-  const [composer, setComposer] = useState('');
-  const [optimisticUser, setOptimisticUser] = useState<string | null>(null);
-  const [liveDeltas, setLiveDeltas] = useState<Record<string, string>>({});
-  const [pending, setPending] = useState<AiInteraction | null>(null);
-  const [turnStatus, setTurnStatus] = useState<AiTurnSnapshot['status'] | null>(null);
-  const [connection, setConnection] = useState<'idle' | 'connected' | 'reconnecting'>('idle');
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const processedEvents = useRef(new Set<number>());
+  const [composer, setComposer] = useState('');
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
 
-  const change = changes.find(item => item.specId === sessionQuery.data?.specId) ?? null;
-  const linkedTasks = sessionQuery.data?.taskIds.map(taskId => change?.tasks.find(task => task.id === taskId)?.title || taskId) ?? [];
-  const terminal = turnStatus === 'completed' || turnStatus === 'failed';
-  const live = turnStatus === 'running' || turnStatus === 'waitingForUser';
+  const assistant = useNevoAssistantRuntime({
+    provider,
+    providerSessionId: sessionId,
+    onTurnCompleted: () => {
+      onTurnChange(null);
+    },
+    onError: (err) => {
+      setSubmissionError(err.message);
+    },
+  });
 
-  const processEvent = useCallback((event: AiTurnEvent) => {
-    if (processedEvents.current.has(event.id)) return;
-    processedEvents.current.add(event.id);
-    if (event.type === 'message.delta' && event.messageId && event.delta) {
-      setLiveDeltas(previous => ({ ...previous, [event.messageId!]: `${previous[event.messageId!] || ''}${event.delta}` }));
-    } else if (event.type === 'interaction.requested' && event.interaction) {
-      setPending(event.interaction);
-      setTurnStatus('waitingForUser');
-    } else if (event.type === 'interaction.resolved') {
-      setPending(null);
-      setTurnStatus('running');
-    } else if (event.type === 'turn.started') setTurnStatus('running');
-    else if (event.type === 'turn.completed') setTurnStatus('completed');
-    else if (event.type === 'turn.failed') setTurnStatus('failed');
-  }, []);
+  const session = assistant.sessionDetails;
+  const change = changes.find(item => item.specId === session?.specId) ?? null;
+  const linkedTasks = session?.taskId ? [session.taskId] : [];
 
   useEffect(() => {
-    setTurnId(initialTurnId);
-    processedEvents.current = new Set();
-    setLiveDeltas({});
-    setPending(null);
-    setTurnStatus(null);
-    setOptimisticUser(null);
-    setSubmissionError(null);
-  }, [initialTurnId, provider, sessionId]);
-
-  useEffect(() => {
-    if (turnQuery.data) applySnapshot(turnQuery.data, processEvent, setPending, setTurnStatus);
-  }, [processEvent, turnQuery.data]);
-
-  useEffect(() => {
-    if (!turnId || terminal) return;
-    const source = new EventSource(`/api/ai/turns/${encodeURIComponent(turnId)}/events`);
-    source.onopen = () => setConnection('connected');
-    source.addEventListener('snapshot', event => {
-      applySnapshot(JSON.parse((event as MessageEvent).data) as AiTurnSnapshot, processEvent, setPending, setTurnStatus);
-    });
-    for (const type of ['turn.started', 'message.delta', 'interaction.requested', 'interaction.resolved', 'turn.completed', 'turn.failed', 'activity']) {
-      source.addEventListener(type, event => processEvent(JSON.parse((event as MessageEvent).data) as AiTurnEvent));
-    }
-    source.onerror = () => {
-      setConnection('reconnecting');
-      void turnQuery.refresh().then(result => {
-        if (result.data) applySnapshot(result.data, processEvent, setPending, setTurnStatus);
-      });
-    };
-    return () => source.close();
-  }, [processEvent, terminal, turnId]); // turnQuery.refresh is stable for a mounted query.
-
-  useEffect(() => {
-    if (!terminal) return;
-    setConnection('idle');
-    void Promise.all([messagesQuery.refresh(), sessionQuery.refresh(), relatedSessions.refresh()]).then(() => {
-      setOptimisticUser(null);
-      setLiveDeltas({});
-    });
-  }, [terminal]); // Refresh exactly once per terminal transition.
+    onTurnChange(assistant.activeTurnId);
+  }, [assistant.activeTurnId, onTurnChange]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
-  }, [liveDeltas, messagesQuery.messages.length, pending]);
+  }, [assistant.messages, assistant.pendingInteraction]);
 
   useEffect(() => {
     if (!chatViewport.keyboardOpen) return;
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
-  const submitMessage = useCallback(async (message: string) => {
-    const text = message.trim();
-    if (!text || live || startTurn.starting || sessionQuery.data?.status === 'completed' || sessionQuery.data?.capabilities.startTurn === false) return;
-    startTurn.reset();
+  const submitMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || assistant.isRunning) return;
     setSubmissionError(null);
-    setOptimisticUser(text);
     setComposer('');
-    processedEvents.current = new Set();
-    setLiveDeltas({});
-    setPending(null);
-    setTurnStatus('running');
-    try {
-      const result = await startTurn.start({ message: text, idempotencyKey: createTurnIdempotencyKey() });
-      setTurnId(result.turnId);
-      onTurnChange(result.turnId);
-      await messagesQuery.refresh();
-      setOptimisticUser(null);
-    } catch (error) {
-      setTurnStatus(null);
-      setOptimisticUser(null);
-      setSubmissionError(error instanceof Error ? error.message : 'Nie udało się rozpocząć turnu.');
-    }
-  }, [live, messagesQuery, onTurnChange, sessionQuery.data, startTurn]);
+    await assistant.sendTurn(trimmed);
+  }, [assistant]);
 
   useEffect(() => {
-    if (!initialMessage || initialSent.current || sessionQuery.loading || !sessionQuery.data) return;
+    if (!initialMessage || initialSent.current) return;
     initialSent.current = true;
     void submitMessage(initialMessage).finally(onInitialMessageConsumed);
-  }, [initialMessage, onInitialMessageConsumed, sessionQuery.data, sessionQuery.loading, submitMessage]);
+  }, [initialMessage, onInitialMessageConsumed, submitMessage]);
 
-  const resolve = async (response: unknown) => {
-    if (!pending) return;
-    const snapshot = await resolveInteraction.resolve({ interactionId: pending.id, response });
-    applySnapshot(snapshot, processEvent, setPending, setTurnStatus);
-  };
-
-  const displayMessages: Array<Pick<AiMessage, 'id' | 'role' | 'text'>> = composeChatMessages(
-    messagesQuery.messages,
-    optimisticUser,
-    liveDeltas,
-  );
-
-  const session = sessionQuery.data;
   const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
+
   const header = (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
       <div className="mx-auto max-w-6xl">
@@ -331,52 +235,101 @@ export function AiChatPage({
           <Button variant="secondary" size="sm" className="hidden shrink-0 sm:inline-flex" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-sm font-semibold text-[var(--foreground)]">{session?.title || (session ? `Sesja ${session.sessionId.slice(0, 12)}` : 'Wczytywanie sesji…')}</p>
-              {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{session.status}</span>}
+              <p className="truncate text-sm font-semibold text-[var(--foreground)]">{session?.title || (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}</p>
+              {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
             </div>
           </div>
-          {session && relatedSessions.sessions.length > 1 && <label className="relative hidden sm:block"><span className="sr-only">Przełącz sesję</span><select value={`${session.provider}:${session.sessionId}`} onChange={event => { const selected = relatedSessions.sessions.find(item => `${item.provider}:${item.sessionId}` === event.target.value); if (selected) onSwitchSession(selected); }} className="h-9 max-w-52 appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-3 pr-8 text-xs"><option value={`${session.provider}:${session.sessionId}`}>Bieżąca sesja</option>{relatedSessions.sessions.filter(item => item.sessionId !== session.sessionId || item.provider !== session.provider).map(item => <option key={`${item.provider}:${item.sessionId}`} value={`${item.provider}:${item.sessionId}`}>{item.title || item.sessionId}</option>)}</select><ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3 -translate-y-1/2 text-[var(--muted)]" /></label>}
-          {session && live && session.capabilities.cancelTurn && <Button variant="secondary" size="sm" disabled={cancelTurn.cancelling} onClick={() => void cancelTurn.cancel().then(snapshot => applySnapshot(snapshot, processEvent, setPending, setTurnStatus))}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>}
+          {assistant.isRunning && assistant.capabilities?.cancelTurn && (
+            <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
+          )}
         </div>
-        <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'wczytywanie kontekstu'} · {session?.provider || provider}</p>
+        <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'sesja'} · {provider}</p>
       </div>
     </header>
   );
 
-  if (sessionQuery.loading || messagesQuery.loading) return <div className={shellClassName} style={shellStyle}>{header}<div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />Wczytywanie rozmowy…</div></div>;
-  if (sessionQuery.error || messagesQuery.error || !session) return <div className={shellClassName} style={shellStyle}>{header}<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"><AlertTriangle className="size-7 text-red-300" /><h1 className="mt-4 text-lg font-semibold">Nie udało się otworzyć sesji</h1><p className="mt-2 text-sm text-[var(--muted)]">{sessionQuery.error || messagesQuery.error}</p></div></div>;
-
   return (
-    <div className={shellClassName} style={shellStyle}>
-      {header}
+    <AssistantRuntimeProvider runtime={assistant.runtime}>
+      <div className={shellClassName} style={shellStyle}>
+        {header}
 
-      <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
-        <div className="mx-auto max-w-4xl space-y-5">
-          {!displayMessages.length && !live && <div className="py-16 text-center"><Bot className="mx-auto size-7 text-[var(--accent)]" /><h2 className="mt-4 text-base font-semibold">Nowa rozmowa</h2><p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p></div>}
-          {displayMessages.map(message => <ChatMessage key={message.id} message={message} />)}
-          {(startTurn.starting || (live && !pending && Object.keys(liveDeltas).length === 0)) && <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status"><LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />Mock przygotowuje odpowiedź…</div>}
-          {connection === 'reconnecting' && <div className="flex items-center justify-center gap-2 text-xs text-amber-200"><RefreshCw className="size-3.5 animate-spin" />Ponowne łączenie; turn nadal działa na serwerze…</div>}
-          {pending?.kind === 'permission' && session.capabilities.resolveInteractions && <PermissionPrompt interaction={pending} disabled={resolveInteraction.resolving} onResolve={response => void resolve(response)} />}
-          {pending?.kind === 'question' && session.capabilities.resolveInteractions && <QuestionPrompt interaction={pending} disabled={resolveInteraction.resolving} onResolve={response => void resolve(response)} />}
-          {(submissionError || turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error) && <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">{submissionError || turnQuery.error || startTurn.error || resolveInteraction.error || cancelTurn.error}</div>}
-          {turnStatus === 'failed' && <div className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">Turn został przerwany lub zakończył się błędem. Możesz spróbować wysłać kolejną wiadomość.</div>}
+        <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
+          <div className="mx-auto max-w-4xl space-y-5">
+            {!assistant.messages.length && !assistant.isRunning && (
+              <div className="py-16 text-center">
+                <Bot className="mx-auto size-7 text-[var(--accent)]" />
+                <h2 className="mt-4 text-base font-semibold">Nowa rozmowa ({provider})</h2>
+                <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
+              </div>
+            )}
+            {assistant.messages.map(message => <ChatMessage key={message.id} message={message} />)}
+            {assistant.isRunning && !assistant.pendingInteraction && (
+              <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
+                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />
+                {provider} generuje odpowiedź…
+              </div>
+            )}
+            {assistant.pendingInteraction?.kind === 'permission' && (
+              <PermissionPrompt
+                interaction={assistant.pendingInteraction as Extract<AiInteraction, { kind: 'permission' }>}
+                disabled={false}
+                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+              />
+            )}
+            {assistant.pendingInteraction?.kind === 'question' && (
+              <QuestionPrompt
+                interaction={assistant.pendingInteraction as AiQuestionInteraction}
+                disabled={false}
+                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+              />
+            )}
+            {submissionError && (
+              <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">
+                {submissionError}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
-        <form className="mx-auto flex max-w-4xl items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
-          <label className="min-w-0 flex-1"><span className="sr-only">Wiadomość</span><textarea rows={1} value={composer} onChange={event => setComposer(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitMessage(composer); } }} disabled={session.status === 'completed' || !session.capabilities.startTurn} placeholder={session.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : live ? 'Turn trwa — możesz przygotować kolejną wiadomość' : 'Napisz wiadomość…'} className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm" /></label>
-          <Button size="icon" className="size-11 shrink-0" type="submit" disabled={!composer.trim() || live || startTurn.starting || session.status === 'completed' || !session.capabilities.startTurn} aria-label="Wyślij wiadomość">{startTurn.starting ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</Button>
-        </form>
-      </footer>
-    </div>
+        <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
+          <form className="mx-auto flex max-w-4xl items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
+            <label className="min-w-0 flex-1">
+              <span className="sr-only">Wiadomość</span>
+              <textarea
+                rows={1}
+                value={composer}
+                onChange={event => setComposer(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void submitMessage(composer);
+                  }
+                }}
+                disabled={session?.status === 'completed'}
+                placeholder={session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
+                className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+              />
+            </label>
+            <Button
+              size="icon"
+              className="size-11 shrink-0"
+              type="submit"
+              disabled={!composer.trim() || assistant.isRunning || session?.status === 'completed'}
+              aria-label="Wyślij wiadomość"
+            >
+              {assistant.isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+            </Button>
+          </form>
+        </footer>
+      </div>
+    </AssistantRuntimeProvider>
   );
 }
 
 export function CreateAiSessionDialog({ change, onClose, onCreated }: { change: DashboardChange; onClose: () => void; onCreated: (session: AiSession, initialMessage: string | null) => void }) {
   const providers = useAiProviders();
   const createSession = useCreateAiSession();
-  const enabledProviders = providers.data?.providers.filter(provider => provider.enabled && provider.capabilities.createSession) ?? [];
+  const enabledProviders = providers.data?.providers.filter(provider => provider.enabled) ?? [];
   const [provider, setProvider] = useState('');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');

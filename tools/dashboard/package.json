@@ -14,6 +14,7 @@
     "start": "node server/index.mjs"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.15.14",
     "@git-diff-view/lowlight": "^0.1.7",
     "@git-diff-view/react": "^0.1.7",
     "@radix-ui/react-slot": "^1.3.3",
