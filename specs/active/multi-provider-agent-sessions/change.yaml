@@ -22,7 +22,7 @@ tasks:
   - id: claude-interaction-transport-discovery
     order: 3
     file: tasks/03-claude-interaction-transport-discovery.md
-    status: draft
+    status: approved
     depends_on: [ provider-neutral-core-and-capabilities ]
   - id: claude-provider-adapter
     order: 4

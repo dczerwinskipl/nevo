@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:00.405Z",
+  "generated": "2026-08-17T18:05:07.435Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -28,7 +28,7 @@
           "id": "claude-interaction-transport-discovery",
           "order": 3,
           "file": "tasks/03-claude-interaction-transport-discovery.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "provider-neutral-core-and-capabilities"
           ]
