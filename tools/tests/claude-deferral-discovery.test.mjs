@@ -112,10 +112,13 @@ test('parallel tool batch fixture documents and handles known single-batch limit
   const content = await readFile(join(FIXTURES_DIR, 'parallel-tool-batch-deferred.json'), 'utf-8');
   const events = parseStreamJson(content);
 
-  const deltaEvent = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
-  assert.ok(deltaEvent);
-  assert.ok(deltaEvent.parallel_tools_in_batch.length > 1);
+  const toolUseBlocks = events.filter(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
+  assert.equal(toolUseBlocks.length, 2);
 
-  // Verifies that deferral specifies exactly one active deferred tool use
-  assert.equal(deltaEvent.deferred_tool_use.id, 'toolu_parallel_02');
+  const endTurnDelta = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
+  assert.ok(endTurnDelta);
+
+  const deferredDelta = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
+  assert.equal(deferredDelta, undefined, 'Parallel tool batch does not produce tool_deferred stop reason');
 });
+

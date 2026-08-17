@@ -259,10 +259,12 @@ test('parallel tool batch documents limitation: deferral not supported across pa
   });
 
   assert.equal(toolsStarted.length, 2);
-  assert.equal(toolsStarted[0].toolName, 'ReadFile');
-  assert.equal(toolsStarted[1].toolName, 'AskUserQuestion');
-  assert.equal(turnResult.isDeferred, true);
+  assert.equal(toolsStarted[0].toolName, 'Read');
+  assert.equal(toolsStarted[1].toolName, 'Read');
+  assert.notEqual(turnResult.isDeferred, true);
+  assert.equal(turnResult.interaction, undefined);
 });
+
 
 test('Full integration: adapter -> generated settings -> real claude-hook.mjs subprocess execution', async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-full-bridge-'));

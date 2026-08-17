@@ -1,7 +1,7 @@
-{"type":"message_start","message":{"id":"msg_01AQ1W8QhMhKz2e1a3b4c5d8","type":"message","role":"assistant","model":"claude-3-7-sonnet-20250219","content":[]}}
-{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_parallel_01","name":"ReadFile","input":{"path":"package.json"}}}
+{"type":"message_start","message":{"id":"msg_01AQ1W8QhMhKz2e1a3b4c5d8","type":"message","role":"assistant","model":"claude-sonnet-5","content":[]}}
+{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_parallel_01","name":"Read","input":{"file_path":"package.json"}}}
 {"type":"content_block_stop","index":0}
-{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_parallel_02","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed with package install?","multiSelect":false}]}}}
+{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_parallel_02","name":"Read","input":{"file_path":"AGENTS.md"}}}
 {"type":"content_block_stop","index":1}
-{"type":"message_delta","delta":{"stop_reason":"tool_deferred","stop_sequence":null},"deferred_tool_use":{"id":"toolu_parallel_02","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed with package install?","multiSelect":false}]}},"parallel_tools_in_batch":[{"id":"toolu_parallel_01","name":"ReadFile"},{"id":"toolu_parallel_02","name":"AskUserQuestion"}]}
+{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":2328,"output_tokens":707}}
 {"type":"message_stop"}

@@ -56,6 +56,9 @@ maps answers by question text, and outputs:
 Continuation record is consumed; Claude executes tool and continues generation
 ```
 
+- **Parallel Tool Batch Limitation:** Interactive `AskUserQuestion` deferral is supported for a single deferred tool call. Parallel tool batches are not guaranteed/supported for the defer/resume interaction flow and must not be exposed as a recoverable Nevo interaction unless Claude actually returns a supported `deferred_tool_use` contract.
+
+
 
 ## 3. Native Permissions Transport (Evaluated & Discovered)
 
