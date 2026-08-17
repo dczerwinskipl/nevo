@@ -110,7 +110,7 @@ tasks:
   - id: claude-interaction-and-deferral
     order: 5
     file: tasks/05-claude-interaction-and-deferral.md
-    status: implemented
+    status: verified
     depends_on:
       - claude-interaction-transport-discovery
       - claude-provider-adapter
