@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
-import { AiChatPage, CreateAiSessionDialog } from '@/components/ai-chat';
+import { AiChatPage } from '@/components/ai-chat';
+import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
 import { Button } from '@/components/ui/button';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import type { AiSession, DashboardChange } from '@/lib/types';
@@ -47,9 +48,9 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
-  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
-  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
+  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => (typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null));
+  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
@@ -57,6 +58,9 @@ export default function App() {
     () => source.find(change => change.slug === selectedSlug) ?? null,
     [source, selectedSlug],
   );
+
+  const activeSlugs = useMemo(() => new Set((data?.active ?? []).map(item => item.slug)), [data?.active]);
+  const archiveSlugs = useMemo(() => new Set((data?.archive ?? []).map(item => item.slug)), [data?.archive]);
 
   useEffect(() => {
     if (!data) return;
@@ -66,6 +70,17 @@ export default function App() {
     }
     if (selectedSlug && !source.some(change => change.slug === selectedSlug)) setSelectedSlug(null);
   }, [data, mode, selectedSlug, source]);
+
+  useEffect(() => {
+    if (!selectedSlug) return;
+    if (mode === 'active' && !activeSlugs.has(selectedSlug)) {
+      if (archiveSlugs.has(selectedSlug)) setMode('archive');
+      else setSelectedSlug(null);
+    } else if (mode === 'archive' && !archiveSlugs.has(selectedSlug)) {
+      if (activeSlugs.has(selectedSlug)) setMode('active');
+      else setSelectedSlug(null);
+    }
+  }, [activeSlugs, archiveSlugs, mode, selectedSlug]);
 
   useEffect(() => {
     const restoreRoute = () => {
@@ -94,12 +109,13 @@ export default function App() {
       setMode(change.source);
       setSelectedSlug(change.slug);
     }
-    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
+    const effectiveSessionId = session.providerSessionId || session.sessionId;
+    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(effectiveSessionId)}`;
     const nextOriginTaskId = originTaskId === undefined ? (sessionRoute ? chatOriginTaskId : null) : originTaskId;
-    const historyState = { nevoSession: true, provider: session.provider, sessionId: session.sessionId, originTaskId: nextOriginTaskId };
+    const historyState = { nevoSession: true, provider: session.provider, sessionId: effectiveSessionId, originTaskId: nextOriginTaskId };
     if (replaceHistory) window.history.replaceState(historyState, '', path);
     else window.history.pushState(historyState, '', path);
-    setSessionRoute({ provider: session.provider, sessionId: session.sessionId, turnId: null });
+    setSessionRoute({ provider: session.provider, sessionId: effectiveSessionId, turnId: null });
     setPendingInitialMessage(initialMessage);
     setChatOriginTaskId(nextOriginTaskId);
     setSidebarOpen(false);
@@ -204,7 +220,7 @@ export default function App() {
         />
       )}
       {createChange && (
-        <CreateAiSessionDialog
+        <AiSessionCreateModal
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {

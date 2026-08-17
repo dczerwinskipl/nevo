@@ -780,7 +780,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
           actionError={actionsQuery.executionError}
           onRetry={() => void taskDocumentQuery.refresh()}
           onAction={() => void executeTaskAction()}
-          sessions={sessionsQuery.sessions.filter(session => session.taskIds.includes(selectedTask.id))}
+          sessions={sessionsQuery.sessions.filter(session => (session.taskIds && session.taskIds.includes(selectedTask.id)) || session.taskId === selectedTask.id)}
           sessionsLoading={sessionsQuery.loading}
           sessionsError={sessionsQuery.error}
           onSessionsRetry={() => void sessionsQuery.refresh()}

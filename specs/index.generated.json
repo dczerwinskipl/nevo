@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T20:39:05.493Z",
+  "generated": "2026-08-17T20:40:50.794Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -308,10 +308,40 @@
           "id": "dashboard-session-ux-and-spec-binding",
           "order": 9,
           "file": "tasks/09-dashboard-session-ux-and-spec-binding.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "custom-renderers-and-interaction-ui"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ba3a52c712a0407e36bb8b64fef499de85cfa7d9",
+            "review_revision": "ba3a52c712a0407e36bb8b64fef499de85cfa7d9",
+            "changed_paths": [
+              "tools/dashboard/src/App.tsx",
+              "tools/dashboard/src/components/ai-session-create-modal.tsx",
+              "tools/dashboard/src/components/ai-session-list.tsx",
+              "tools/dashboard/src/components/spec-detail.tsx"
+            ],
+            "worktree_patch_fingerprint": "d0c167ed37b3280d6c2f9103e96a11a20d9ea3a54a60190f0030b6dce2f569c0"
+          },
+          "self_check": {
+            "fingerprint": "b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4",
+            "revision": "ba3a52c712a0407e36bb8b64fef499de85cfa7d9",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "antigravity-adapter-and-events",
