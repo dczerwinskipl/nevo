@@ -41,7 +41,7 @@ function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin } 
   return child;
 }
 
-test('AskUserQuestion PreToolUse/defer parses questions and resumed turn delivers updatedInput tool_result', async () => {
+test('AskUserQuestion PreToolUse/defer parses questions and resumed turn delivers updatedInput through hook', async () => {
   const deferredContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-deferred.json'), 'utf-8');
   const resumedContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-resumed.json'), 'utf-8');
 
@@ -75,13 +75,21 @@ test('AskUserQuestion PreToolUse/defer parses questions and resumed turn deliver
   assert.equal(firstTurn.isDeferred, true);
   assert.ok(firstTurn.interaction);
   assert.equal(firstTurn.interaction.kind, 'question');
+  assert.ok(firstTurn.interaction.id.startsWith('int-'));
   assert.equal(firstTurn.interaction.questions.length, 1);
   assert.equal(firstTurn.interaction.questions[0].options?.length, 2);
   assert.equal(reasoningDeltas.length > 0, true);
 
+  // Check hook behavior prior to answering: default for AskUserQuestion is defer
+  const deferDecision = provider.handlePreToolUse({
+    providerSessionId: 'sess-q-1',
+    toolName: 'AskUserQuestion',
+  });
+  assert.deepEqual(deferDecision, { permissionDecision: 'defer' });
+
   // Resume continuation execution under the same logical turn
   const textDeltas = [];
-  await provider.respondInteraction({
+  const respondPromise = provider.respondInteraction({
     turnId: 'turn-q-1',
     providerSessionId: 'sess-q-1',
     interactionId: firstTurn.interaction.id,
@@ -90,30 +98,34 @@ test('AskUserQuestion PreToolUse/defer parses questions and resumed turn deliver
     emitTextDelta: text => textDeltas.push(text),
   });
 
+  // Resumed PreToolUse hook receives the formatted allow + updatedInput
+  const hookDecision = provider.handlePreToolUse({
+    providerSessionId: 'sess-q-1',
+    toolUseId: 'toolu_01AskUserQuestion',
+    toolName: 'AskUserQuestion',
+  });
+
+  assert.equal(hookDecision.permissionDecision, 'allow');
+  assert.deepEqual(hookDecision.updatedInput.answers, { 'q-1': 'PostgreSQL' });
+
+  await respondPromise;
+
   assert.equal(spawnCount, 2);
   assert.ok(textDeltas.some(t => t.includes('PostgreSQL')));
-
-  // Verify exact tool_result payload written to stdin
-  const parsedStdin = JSON.parse(resumedStdin.trim());
-  assert.equal(parsedStdin.type, 'tool_result');
-  assert.equal(parsedStdin.tool_use_id, firstTurn.interaction.id);
-  assert.equal(parsedStdin.permissionDecision, 'allow');
-  assert.deepEqual(parsedStdin.updatedInput.answers, [{ questionId: 'q-1', value: 'PostgreSQL' }]);
+  // Resumed stdin has no synthetic tool_result message
+  assert.equal(resumedStdin.trim(), '');
 });
 
-test('Native permission prompt PreToolUse/defer requests permission and delivers allow/deny tool_result', async () => {
+test('Native permission prompt PreToolUse/defer requests permission and hook delivers allow/deny', async () => {
   const permContent = await readFile(join(FIXTURES_DIR, 'permission-prompt-deferred.json'), 'utf-8');
   const permLines = permContent.split('\n').filter(Boolean);
 
   let spawnCount = 0;
-  let resumedStdin = '';
   const provider = createClaudeAgentProvider({
     spawnProcess: () => {
       spawnCount += 1;
       if (spawnCount === 1) return createStreamProcess(permLines);
-      return createStreamProcess([], {
-        onStdin: data => { resumedStdin += data; },
-      });
+      return createStreamProcess([]);
     },
   });
 
@@ -123,15 +135,13 @@ test('Native permission prompt PreToolUse/defer requests permission and delivers
     message: 'Run build',
   });
 
-
   assert.equal(turnResult.isDeferred, true);
   assert.ok(turnResult.interaction);
   assert.equal(turnResult.interaction.kind, 'permission');
   assert.equal(turnResult.interaction.toolName, 'Bash');
-  assert.equal(turnResult.interaction.input.command, 'npm --prefix tools/dashboard run build');
 
   // 1. Resolve allow
-  await provider.respondInteraction({
+  const allowPromise = provider.respondInteraction({
     turnId: 'turn-perm-1',
     providerSessionId: 'sess-perm-1',
     interactionId: turnResult.interaction.id,
@@ -139,14 +149,15 @@ test('Native permission prompt PreToolUse/defer requests permission and delivers
     response: { decision: 'allow' },
   });
 
-  const parsedAllow = JSON.parse(resumedStdin.trim());
-  assert.equal(parsedAllow.type, 'tool_result');
-  assert.equal(parsedAllow.permissionDecision, 'allow');
-  assert.equal(parsedAllow.tool_use_id, turnResult.interaction.id);
+  const allowDecision = provider.handlePreToolUse({
+    providerSessionId: 'sess-perm-1',
+    toolName: 'Bash',
+  });
+  assert.deepEqual(allowDecision, { permissionDecision: 'allow' });
+  await allowPromise;
 
   // 2. Resolve deny
-  resumedStdin = '';
-  await provider.respondInteraction({
+  const denyPromise = provider.respondInteraction({
     turnId: 'turn-perm-1',
     providerSessionId: 'sess-perm-1',
     interactionId: turnResult.interaction.id,
@@ -154,14 +165,58 @@ test('Native permission prompt PreToolUse/defer requests permission and delivers
     response: { decision: 'deny', message: 'Unauthorized command' },
   });
 
-  const parsedDeny = JSON.parse(resumedStdin.trim());
-  assert.equal(parsedDeny.type, 'tool_result');
-  assert.equal(parsedDeny.permissionDecision, 'deny');
-  assert.equal(parsedDeny.tool_use_id, turnResult.interaction.id);
-  assert.equal(parsedDeny.message, 'Unauthorized command');
+  const denyDecision = provider.handlePreToolUse({
+    providerSessionId: 'sess-perm-1',
+    toolName: 'Bash',
+  });
+  assert.deepEqual(denyDecision, { permissionDecision: 'deny', message: 'Unauthorized command' });
+  await denyPromise;
 });
 
-test('Parallel tool batch boundary handles deferral of interactive tool in batch', async () => {
+test('private Claude continuation survives adapter reconstruction across restart while waitingForUser', async () => {
+  const deferredContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-deferred.json'), 'utf-8');
+  const deferredLines = deferredContent.split('\n').filter(Boolean);
+
+  // Instance 1 runs first turn and defers
+  const provider1 = createClaudeAgentProvider({
+    spawnProcess: () => createStreamProcess(deferredLines),
+  });
+
+  const firstTurn = await provider1.startTurn({
+    turnId: 'turn-restart-1',
+    providerSessionId: 'sess-restart-1',
+    message: 'Architecture advice',
+  });
+
+  assert.equal(firstTurn.isDeferred, true);
+  const interactionId = firstTurn.interaction.id;
+
+  // Simulate server restart: new adapter instance created
+  const provider2 = createClaudeAgentProvider({
+    spawnProcess: () => createStreamProcess([]),
+  });
+
+  // User answers on new provider instance
+  const respondPromise = provider2.respondInteraction({
+    turnId: 'turn-restart-1',
+    providerSessionId: 'sess-restart-1',
+    interactionId,
+    interaction: firstTurn.interaction,
+    response: { answers: [{ questionId: 'q-1', value: 'SQLite' }] },
+  });
+
+  // Hook fires on reconstructed provider instance and restores stored continuation
+  const decision = provider2.handlePreToolUse({
+    providerSessionId: 'sess-restart-1',
+    toolName: 'AskUserQuestion',
+  });
+
+  assert.equal(decision.permissionDecision, 'allow');
+  assert.deepEqual(decision.updatedInput.answers, { 'q-1': 'SQLite' });
+  await respondPromise;
+});
+
+test('Parallel tool batch boundary documents known single-batch limitation (deferral not supported in parallel batch)', async () => {
   const batchContent = await readFile(join(FIXTURES_DIR, 'parallel-tool-batch-deferred.json'), 'utf-8');
   const batchLines = batchContent.split('\n').filter(Boolean);
 

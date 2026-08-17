@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import {
   AiError,
   AiValidationError,
@@ -21,7 +23,8 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
-  #deferredTools = new Map();
+  #privateContinuations = new Map();
+  #pendingHookDecisions = new Map();
 
   constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
     this.#executable = executable;
@@ -35,6 +38,67 @@ export class ClaudeAgentProvider {
     });
   }
 
+  #getContinuationFilePath(providerSessionId) {
+    return join(this.#cwd, '.nevo-ai-local', 'transcripts', 'claude', `${providerSessionId}.continuation.json`);
+  }
+
+  #saveContinuation(providerSessionId, continuation) {
+    this.#privateContinuations.set(`${providerSessionId}\u0000${continuation.interactionId}`, continuation);
+    try {
+      const filePath = this.#getContinuationFilePath(providerSessionId);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, JSON.stringify(continuation, null, 2), 'utf-8');
+    } catch {
+      // Best-effort persistence for recovery
+    }
+  }
+
+  #loadContinuation(providerSessionId, interactionId) {
+    const memoryKey = `${providerSessionId}\u0000${interactionId}`;
+    if (this.#privateContinuations.has(memoryKey)) {
+      return this.#privateContinuations.get(memoryKey);
+    }
+    try {
+      const filePath = this.#getContinuationFilePath(providerSessionId);
+      if (existsSync(filePath)) {
+        const raw = readFileSync(filePath, 'utf-8');
+        const continuation = JSON.parse(raw);
+        if (continuation?.interactionId === interactionId || !interactionId) {
+          this.#privateContinuations.set(memoryKey, continuation);
+          return continuation;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    return null;
+  }
+
+  #deleteContinuation(providerSessionId, interactionId) {
+    this.#privateContinuations.delete(`${providerSessionId}\u0000${interactionId}`);
+    try {
+      const filePath = this.#getContinuationFilePath(providerSessionId);
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
+    } catch {}
+  }
+
+  /**
+   * Hook resolver invoked when Claude PreToolUse fires during execution.
+   */
+  handlePreToolUse({ providerSessionId, toolUseId, toolName, input } = {}) {
+    const decision = this.#pendingHookDecisions.get(providerSessionId);
+    if (decision) {
+      this.#pendingHookDecisions.delete(providerSessionId);
+      return decision;
+    }
+    if (toolName === 'AskUserQuestion') {
+      return { permissionDecision: 'defer' };
+    }
+    return { permissionDecision: 'allow' };
+  }
+
   async startTurn({
     turnId,
     providerSessionId,
@@ -42,7 +106,6 @@ export class ClaudeAgentProvider {
     identity,
     message,
     prompt,
-    continuationPayload,
     signal,
     setOperation,
     emitDelta,
@@ -56,13 +119,14 @@ export class ClaudeAgentProvider {
     requestInteraction,
   } = {}) {
     const userPrompt = message ?? prompt;
-    if (!continuationPayload && (!userPrompt || typeof userPrompt !== 'string')) {
+    const isContinuation = !userPrompt && Boolean(this.#pendingHookDecisions.get(providerSessionId));
+
+    if (!isContinuation && (!userPrompt || typeof userPrompt !== 'string')) {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
     const isInitialTurn = !providerSessionId;
     const effectiveSessionId = providerSessionId || randomUUID();
-    if (setProviderSessionId) setProviderSessionId(effectiveSessionId);
 
     const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
     const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, effectiveSessionId];
@@ -94,8 +158,23 @@ export class ClaudeAgentProvider {
       let activeTool = null;
       let isDeferred = false;
       let deferredPayload = null;
+      let isMaterialized = !isInitialTurn;
 
-      const processLine = line => {
+      const materializeSessionIfNeeded = async () => {
+        if (!isMaterialized) {
+          isMaterialized = true;
+          if (setProviderSessionId) {
+            try {
+              await setProviderSessionId(effectiveSessionId);
+            } catch (bindingErr) {
+              try { child.kill('SIGINT'); } catch {}
+              reject(bindingErr);
+            }
+          }
+        }
+      };
+
+      const processLine = async line => {
         const trimmed = line.trim();
         if (!trimmed) return;
         let event;
@@ -104,6 +183,9 @@ export class ClaudeAgentProvider {
         } catch {
           return;
         }
+
+        // On first valid Claude output event, establish session materialization
+        await materializeSessionIfNeeded();
 
         switch (event.type) {
           case 'content_block_start': {
@@ -186,7 +268,9 @@ export class ClaudeAgentProvider {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
-        for (const line of lines) processLine(line);
+        for (const line of lines) {
+          processLine(line).catch(reject);
+        }
       });
 
       let stderrOutput = '';
@@ -199,17 +283,20 @@ export class ClaudeAgentProvider {
       });
 
       child.on('close', async exitCode => {
-        if (lineBuffer.trim()) processLine(lineBuffer);
+        if (lineBuffer.trim()) {
+          try { await processLine(lineBuffer); } catch (e) { return reject(e); }
+        }
 
         if (operation.cancelled) {
           return reject(new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 }));
         }
 
         if (isDeferred && deferredPayload) {
+          const publicInteractionId = `int-${randomUUID()}`;
           let interaction;
           if (deferredPayload.name === 'AskUserQuestion') {
             interaction = {
-              id: deferredPayload.id,
+              id: publicInteractionId,
               kind: 'question',
               questions: deferredPayload.input?.questions?.map((q, idx) => ({
                 id: `q-${idx + 1}`,
@@ -221,20 +308,27 @@ export class ClaudeAgentProvider {
             };
           } else {
             interaction = {
-              id: deferredPayload.id,
+              id: publicInteractionId,
               kind: 'permission',
               toolName: deferredPayload.name,
               input: deferredPayload.input,
             };
           }
-          this.#deferredTools.set(`${effectiveSessionId}\u0000${interaction.id}`, {
+
+          // Persist private Claude continuation metadata
+          this.#saveContinuation(effectiveSessionId, {
+            interactionId: publicInteractionId,
+            providerSessionId: effectiveSessionId,
             toolUseId: deferredPayload.id,
             toolName: deferredPayload.name,
             toolInput: deferredPayload.input,
+            createdAt: new Date().toISOString(),
           });
+
           if (typeof emitEvent === 'function') {
             emitEvent('interaction.requested', { interaction });
           }
+
           return resolve({
             operation: null,
             isDeferred: true,
@@ -247,27 +341,28 @@ export class ClaudeAgentProvider {
           return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${stderrOutput || 'Unknown error'}`));
         }
 
+        // Ensure session is materialized even if empty stdout on exit 0
+        await materializeSessionIfNeeded();
         resolve({ operation, providerSessionId: effectiveSessionId });
       });
 
-      // Write stdin payload
-      try {
-        let inputMessage;
-        if (continuationPayload) {
-          inputMessage = JSON.stringify(continuationPayload);
-        } else {
-          inputMessage = JSON.stringify({
+      // Write initial user input to child stdin if not a hook continuation
+      if (userPrompt) {
+        try {
+          const inputMessage = JSON.stringify({
             type: 'user',
             message: {
               role: 'user',
               content: userPrompt,
             },
           });
+          child.stdin?.write(`${inputMessage}\n`);
+          child.stdin?.end();
+        } catch (err) {
+          // stdin write failed
         }
-        child.stdin?.write(`${inputMessage}\n`);
+      } else {
         child.stdin?.end();
-      } catch (err) {
-        // stdin write failed
       }
     });
   }
@@ -293,45 +388,45 @@ export class ClaudeAgentProvider {
       throw new AiValidationError("'providerSessionId' is required.");
     }
 
-    const deferredKey = `${providerSessionId}\u0000${interactionId}`;
-    const deferred = this.#deferredTools.get(deferredKey) || {
-      toolUseId: interaction?.id || interactionId,
+    const continuation = this.#loadContinuation(providerSessionId, interactionId) || {
+      interactionId,
+      toolUseId: interactionId,
       toolName: interaction?.toolName || (interaction?.kind === 'question' ? 'AskUserQuestion' : 'Bash'),
       toolInput: interaction?.input,
     };
-    this.#deferredTools.delete(deferredKey);
 
-    let continuationPayload;
-    if (interaction?.kind === 'question' || deferred.toolName === 'AskUserQuestion') {
-      continuationPayload = {
-        type: 'tool_result',
-        tool_use_id: deferred.toolUseId,
+    let hookDecision;
+    if (interaction?.kind === 'question' || continuation.toolName === 'AskUserQuestion') {
+      const answersMap = {};
+      for (const ans of (response?.answers || [])) {
+        if (ans.questionId) answersMap[ans.questionId] = ans.value;
+      }
+      hookDecision = {
         permissionDecision: 'allow',
         updatedInput: {
-          questions: deferred.toolInput?.questions || interaction?.questions || [],
-          answers: response?.answers || [],
+          ...(continuation.toolInput || {}),
+          answers: answersMap,
         },
       };
     } else if (interaction?.kind === 'permission') {
       const isAllowed = response?.decision === 'allow';
-      continuationPayload = {
-        type: 'tool_result',
-        tool_use_id: deferred.toolUseId,
+      hookDecision = {
         permissionDecision: isAllowed ? 'allow' : 'deny',
         ...(isAllowed ? {} : { message: response?.message || 'Permission denied by user' }),
       };
     } else {
-      continuationPayload = {
-        type: 'tool_result',
-        tool_use_id: deferred.toolUseId,
+      hookDecision = {
         permissionDecision: response?.confirmed ? 'allow' : 'deny',
       };
     }
 
+    // Register pending hook decision for the resumed PreToolUse invocation
+    this.#pendingHookDecisions.set(providerSessionId, hookDecision);
+    this.#deleteContinuation(providerSessionId, interactionId);
+
     return this.startTurn({
       turnId,
       providerSessionId,
-      continuationPayload,
       signal,
       setOperation,
       emitDelta,

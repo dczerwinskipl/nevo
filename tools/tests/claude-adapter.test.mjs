@@ -102,6 +102,65 @@ test('existing Claude conversation uses --resume', async () => {
   assert.equal(capturedCalls[0].args[resumeIndex + 1], 'existing-uuid-12345');
 });
 
+test('spawn failure before establishment does not call setProviderSessionId', async () => {
+  let established = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => {
+      throw new Error('Immediate spawn failure');
+    },
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-spawn-fail',
+      message: 'Hello',
+      setProviderSessionId: id => { established = id; },
+    }),
+    { name: 'AiError' },
+  );
+
+  assert.equal(established, null);
+});
+
+test('provider process failure before session materialization rejects before establishment', async () => {
+  let established = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => createMockProcess([], { exitCode: 1 }),
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-exit-fail',
+      message: 'Hello',
+      setProviderSessionId: id => { established = id; },
+    }),
+    { name: 'AiError' },
+  );
+
+  assert.equal(established, null);
+});
+
+test('successful establishment calls setProviderSessionId upon first stream event', async () => {
+  let established = null;
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'Hello world' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-success',
+    message: 'Hello',
+    setProviderSessionId: async id => { established = id; },
+  });
+
+  assert.ok(established);
+  assert.equal(result.providerSessionId, established);
+});
+
 test('backend/provider adapter reconstruction between new chat and first message cannot turn first invocation into --resume', async () => {
   const capturedCalls = [];
   const lines = [
@@ -224,7 +283,7 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
   assert.deepEqual(usage, { tokensIn: 50, tokensOut: 25 });
 });
 
-test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and emits interaction', async () => {
+test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and emits interaction with sanitized public ID', async () => {
   const lines = [
     JSON.stringify({
       type: 'content_block_start',
@@ -269,8 +328,9 @@ test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and emits int
   assert.ok(result.interaction);
   assert.equal(result.interaction.kind, 'question');
   assert.equal(result.interaction.questions[0].question, 'Choose style?');
+  assert.notEqual(result.interaction.id, 'toolu_q_01', 'Public interaction id must be decoupled from internal toolUseId');
+  assert.ok(result.interaction.id.startsWith('int-'));
 });
-
 
 test('ClaudeAgentProvider supports turn cancellation', async () => {
   const lines = [
