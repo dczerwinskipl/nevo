@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:41.474Z",
+  "generated": "2026-08-17T18:05:48.753Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -84,7 +84,7 @@
           "id": "dashboard-session-ux-and-spec-binding",
           "order": 9,
           "file": "tasks/09-dashboard-session-ux-and-spec-binding.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "custom-renderers-and-interaction-ui"
           ]

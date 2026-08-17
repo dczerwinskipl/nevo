@@ -56,7 +56,7 @@ tasks:
   - id: dashboard-session-ux-and-spec-binding
     order: 9
     file: tasks/09-dashboard-session-ux-and-spec-binding.md
-    status: draft
+    status: approved
     depends_on: [ custom-renderers-and-interaction-ui ]
   - id: antigravity-adapter-and-events
     order: 10
