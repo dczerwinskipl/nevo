@@ -40,7 +40,7 @@ tasks:
   - id: session-binding-and-execution-context
     order: 2
     file: tasks/02-session-binding-and-execution-context.md
-    status: implemented
+    status: verified
     depends_on: [ provider-neutral-core-and-capabilities ]
     implementation:
       baseline_revision: 62fc03b212b30cdb7a113d6e458736169e34a4f6
