@@ -13,7 +13,7 @@ tasks:
   - id: provider-neutral-core-and-capabilities
     order: 1
     file: tasks/01-provider-neutral-core-and-capabilities.md
-    status: draft
+    status: approved
   - id: session-binding-and-execution-context
     order: 2
     file: tasks/02-session-binding-and-execution-context.md
