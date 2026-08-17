@@ -131,7 +131,13 @@ export function createDashboardServer({
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
 
-    if (url.pathname.startsWith('/api/ai/')) {
+    if (
+      url.pathname.startsWith('/api/ai/') ||
+      url.pathname === '/api/agent-sessions' ||
+      url.pathname.startsWith('/api/agent-sessions/') ||
+      url.pathname === '/api/agent-providers' ||
+      url.pathname.startsWith('/api/agent-providers/')
+    ) {
       await handleAiRequest({
         request,
         response,

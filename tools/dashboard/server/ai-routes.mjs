@@ -1,5 +1,6 @@
 import {
   AiError,
+  AiNotFoundError,
   AiValidationError,
   publicAiError,
   validateAiMessage,
@@ -81,10 +82,15 @@ export async function handleAiRequest({
   sendJson,
   readJsonBody,
 }) {
-  if (!url.pathname.startsWith('/api/ai/')) return false;
+  const isAgentSessionRoute = url.pathname.startsWith('/api/agent-sessions') || url.pathname === '/api/agent-sessions';
+  const isAgentProviderRoute = url.pathname.startsWith('/api/agent-providers') || url.pathname === '/api/agent-providers';
+  const isLegacyAiRoute = url.pathname.startsWith('/api/ai/');
+
+  if (!isAgentSessionRoute && !isAgentProviderRoute && !isLegacyAiRoute) return false;
 
   try {
-    if (url.pathname === '/api/ai/providers') {
+    // 1. Providers endpoint
+    if (url.pathname === '/api/agent-providers' || url.pathname === '/api/ai/providers') {
       authorize(accessPolicy, 'read', request);
       if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
       sendJson(response, 200, {
@@ -94,7 +100,27 @@ export async function handleAiRequest({
       return true;
     }
 
-    if (url.pathname === '/api/ai/sessions') {
+    // 2. Turns with atomic session creation: POST /api/agent-sessions/turns
+    if (url.pathname === '/api/agent-sessions/turns') {
+      authorize(accessPolicy, 'control', request);
+      if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
+      const body = assertBodyObject(await readJsonBody(request, 128 * 1024));
+      const provider = decodedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
+      if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
+      if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
+      const result = await service.startTurn(provider, undefined, {
+        message: body.message ?? body.prompt,
+        specId: body.specId,
+        taskId: body.taskId,
+        purpose: body.purpose,
+        idempotencyKey: body.idempotencyKey,
+      });
+      sendJson(response, result.idempotent ? 200 : 201, result);
+      return true;
+    }
+
+    // 3. Sessions listing & creation / binding
+    if (url.pathname === '/api/agent-sessions' || url.pathname === '/api/ai/sessions') {
       if (method === 'GET') {
         authorize(accessPolicy, 'read', request);
         const specId = url.searchParams.get('specId') || undefined;
@@ -111,22 +137,112 @@ export async function handleAiRequest({
         const body = assertBodyObject(await readJsonBody(request, 16_384));
         const provider = decodedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
         if (!UUID_PATTERN.test(body.specId || '')) throw new AiValidationError('Invalid specification ID.');
-        if (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId))) {
-          throw new AiValidationError('Task IDs must be an array of stable IDs.');
+
+        if (body.providerSessionId) {
+          const providerSessionId = decodedSessionId(body.providerSessionId);
+          if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
+          const binding = service.bindingService
+            ? await service.bindingService.bindSession({
+                provider,
+                providerSessionId,
+                specId: body.specId,
+                taskId: body.taskId,
+                purpose: body.purpose,
+              })
+            : { provider, providerSessionId, specId: body.specId, taskId: body.taskId };
+          sendJson(response, 201, { session: binding });
+          return true;
         }
-        const session = await service.createSession(provider, {
-          specId: body.specId,
-          taskIds: body.taskIds,
-          ...(body.title === undefined ? {} : { title: body.title }),
-        });
-        sendJson(response, 201, { session });
-        return true;
+
+        if (typeof service.createSession === 'function') {
+          if (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId))) {
+            throw new AiValidationError('Task IDs must be an array of stable IDs.');
+          }
+          const session = await service.createSession(provider, {
+            specId: body.specId,
+            taskIds: body.taskIds,
+            ...(body.title === undefined ? {} : { title: body.title }),
+          });
+          sendJson(response, 201, { session });
+          return true;
+        }
+
+        throw new AiValidationError('providerSessionId is required to bind an existing session.');
       }
       sendJson(response, 405, { error: 'Method not allowed' });
       return true;
     }
 
-    const messagesRoute = url.pathname.match(/^\/api\/ai\/sessions\/([^/]+)\/([^/]+)\/messages$/);
+    // 4. Session SSE Events: GET /api/agent-sessions/:provider/:providerSessionId/events
+    const sessionEventsRoute = url.pathname.match(/^\/api\/agent-sessions\/([^/]+)\/([^/]+)\/events$/);
+    if (sessionEventsRoute) {
+      authorize(accessPolicy, 'read', request);
+      if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
+      const provider = decodedSegment(sessionEventsRoute[1], PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = decodedSessionId(sessionEventsRoute[2]);
+      const headerCursor = request.headers['last-event-id'];
+      const queryCursor = url.searchParams.get('after');
+      const afterSequence = Number(headerCursor ?? queryCursor ?? 0);
+      if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new AiValidationError('Invalid event cursor.');
+
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+      });
+      response.write(': connected\n\n');
+
+      const unsubscribe = service.subscribeToSession(provider, providerSessionId, {
+        afterSequence,
+        onEvent: event => writeSse(response, event.type, event, event.seq ?? event.id),
+      });
+
+      const keepAlive = setInterval(() => response.write(': keep-alive\n\n'), 20_000);
+      keepAlive.unref();
+      request.on('close', () => {
+        clearInterval(keepAlive);
+        unsubscribe();
+      });
+      return true;
+    }
+
+    // 5. Session Interaction respond: POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond
+    const sessionInteractionRoute = url.pathname.match(/^\/api\/agent-sessions\/([^/]+)\/([^/]+)\/interactions\/([^/]+)\/respond$/);
+    if (sessionInteractionRoute) {
+      authorize(accessPolicy, 'control', request);
+      if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
+      const provider = decodedSegment(sessionInteractionRoute[1], PROVIDER_PATTERN, 'provider ID');
+      const providerSessionId = decodedSessionId(sessionInteractionRoute[2]);
+      const interactionId = decodedSegment(sessionInteractionRoute[3], TURN_PATTERN, 'interaction ID');
+      const body = assertBodyObject(await readJsonBody(request, 16_384));
+
+      let turnId = body.turnId;
+      if (!turnId) {
+        const transcript = await service.getTranscript(provider, providerSessionId);
+        turnId = transcript?.activeTurn?.turnId;
+      }
+      if (!turnId) {
+        throw new AiNotFoundError('No active turn found for this session.', { provider, providerSessionId });
+      }
+
+      const turn = await service.resolveInteraction(turnId, interactionId, body);
+      sendJson(response, 200, { turn });
+      return true;
+    }
+
+    // 6. Session Turn Cancel: POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel
+    const sessionTurnCancelRoute = url.pathname.match(/^\/api\/agent-sessions\/([^/]+)\/([^/]+)\/turns\/([^/]+)\/cancel$/);
+    if (sessionTurnCancelRoute) {
+      authorize(accessPolicy, 'control', request);
+      if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
+      const turnId = decodedSegment(sessionTurnCancelRoute[3], TURN_PATTERN, 'turn ID');
+      await readJsonBody(request, 512);
+      sendJson(response, 200, { turn: await service.cancelTurn(turnId) });
+      return true;
+    }
+
+    // 7. Messages: GET /api/agent-sessions/:provider/:providerSessionId/messages or /api/ai/sessions/:provider/:providerSessionId/messages
+    const messagesRoute = url.pathname.match(/^\/api\/(?:agent-sessions|ai\/sessions)\/([^/]+)\/([^/]+)\/messages$/);
     if (messagesRoute) {
       authorize(accessPolicy, 'read', request);
       if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
@@ -137,7 +253,8 @@ export async function handleAiRequest({
       return true;
     }
 
-    const turnsRoute = url.pathname.match(/^\/api\/ai\/sessions\/([^/]+)\/([^/]+)\/turns$/);
+    // 8. Subsequent Turns: POST /api/agent-sessions/:provider/:providerSessionId/turns or /api/ai/sessions/:provider/:providerSessionId/turns
+    const turnsRoute = url.pathname.match(/^\/api\/(?:agent-sessions|ai\/sessions)\/([^/]+)\/([^/]+)\/turns$/);
     if (turnsRoute) {
       authorize(accessPolicy, 'control', request);
       if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
@@ -145,49 +262,119 @@ export async function handleAiRequest({
       const provider = decodedSegment(turnsRoute[1], PROVIDER_PATTERN, 'provider ID');
       const sessionId = decodedSessionId(turnsRoute[2]);
       const result = await service.startTurn(provider, sessionId, {
-        message: body.message,
+        message: body.message ?? body.prompt,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
       sendJson(response, result.idempotent ? 200 : 202, result);
       return true;
     }
 
-    const sessionRoute = url.pathname.match(/^\/api\/ai\/sessions\/([^/]+)\/([^/]+)$/);
+    // 9. Session Details & Snapshot: GET/DELETE /api/agent-sessions/:provider/:providerSessionId or GET /api/ai/sessions/:provider/:providerSessionId
+    const sessionRoute = url.pathname.match(/^\/api\/(?:agent-sessions|ai\/sessions)\/([^/]+)\/([^/]+)$/);
     if (sessionRoute) {
-      authorize(accessPolicy, 'read', request);
-      if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
       const provider = decodedSegment(sessionRoute[1], PROVIDER_PATTERN, 'provider ID');
-      const sessionId = decodedSessionId(sessionRoute[2]);
-      sendJson(response, 200, { session: await service.getSession(provider, sessionId) });
+      const providerSessionId = decodedSessionId(sessionRoute[2]);
+
+      if (method === 'DELETE') {
+        authorize(accessPolicy, 'control', request);
+        if (service.bindingService) {
+          await service.bindingService.unbindSession(provider, providerSessionId);
+        }
+        sendJson(response, 200, { unbind: true });
+        return true;
+      }
+
+      if (method === 'GET') {
+        authorize(accessPolicy, 'read', request);
+        const descriptor = service.registry?.get(provider);
+        const capabilities = descriptor?.capabilities || {};
+        const binding = service.bindingService
+          ? await service.bindingService.getBinding(provider, providerSessionId)
+          : await service.getSession(provider, providerSessionId);
+        const transcript = service.transcriptCache
+          ? await service.transcriptCache.getTranscript(provider, providerSessionId)
+          : await service.getTranscript(provider, providerSessionId);
+
+        let activeTurn = null;
+        let pendingInteraction = transcript?.pendingInteraction || null;
+
+        if (transcript?.activeTurn?.turnId) {
+          try {
+            const turnSnapshot = service.getTurn(transcript.activeTurn.turnId);
+            if (turnSnapshot && turnSnapshot.status !== 'completed' && turnSnapshot.status !== 'failed') {
+              activeTurn = {
+                turnId: turnSnapshot.turnId,
+                startedAt: turnSnapshot.startedAt,
+                status: turnSnapshot.status,
+              };
+              pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
+            }
+          } catch {
+            activeTurn = transcript.activeTurn;
+          }
+        }
+
+        const status = activeTurn
+          ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
+          : 'idle';
+
+        const session = {
+          provider,
+          providerSessionId,
+          sessionId: providerSessionId,
+          status,
+          capabilities,
+          specId: binding?.specId,
+          taskId: binding?.taskId,
+          purpose: binding?.purpose,
+          title: binding?.title || binding?.purpose || `${provider} session`,
+          createdAt: binding?.createdAt || transcript?.createdAt || transcript?.updatedAt || new Date().toISOString(),
+          lastSeenAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
+          lastActivityAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
+          activeTurn,
+          pendingInteraction,
+          messages: transcript?.messages || [],
+          lastEventSeq: transcript?.lastEventSeq || 0,
+          updatedAt: transcript?.updatedAt || new Date().toISOString(),
+        };
+
+        sendJson(response, 200, { session });
+        return true;
+      }
+
+      sendJson(response, 405, { error: 'Method not allowed' });
       return true;
     }
 
-    const interactionRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/interactions\/([^/]+)\/response$/);
-    if (interactionRoute) {
+    // 10. Legacy Interaction Response: POST /api/ai/turns/:turnId/interactions/:interactionId/response
+    const legacyInteractionRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/interactions\/([^/]+)\/response$/);
+    if (legacyInteractionRoute) {
       authorize(accessPolicy, 'control', request);
       if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
-      const turnId = decodedSegment(interactionRoute[1], TURN_PATTERN, 'turn ID');
-      const interactionId = decodedSegment(interactionRoute[2], TURN_PATTERN, 'interaction ID');
+      const turnId = decodedSegment(legacyInteractionRoute[1], TURN_PATTERN, 'turn ID');
+      const interactionId = decodedSegment(legacyInteractionRoute[2], TURN_PATTERN, 'interaction ID');
       const body = assertBodyObject(await readJsonBody(request, 16_384));
       sendJson(response, 200, { turn: await service.resolveInteraction(turnId, interactionId, body) });
       return true;
     }
 
-    const cancelRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/cancel$/);
-    if (cancelRoute) {
+    // 11. Legacy Turn Cancel: POST /api/ai/turns/:turnId/cancel
+    const legacyCancelRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/cancel$/);
+    if (legacyCancelRoute) {
       authorize(accessPolicy, 'control', request);
       if (method !== 'POST') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
-      const turnId = decodedSegment(cancelRoute[1], TURN_PATTERN, 'turn ID');
+      const turnId = decodedSegment(legacyCancelRoute[1], TURN_PATTERN, 'turn ID');
       await readJsonBody(request, 512);
       sendJson(response, 200, { turn: await service.cancelTurn(turnId) });
       return true;
     }
 
-    const eventRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/events$/);
-    if (eventRoute) {
+    // 12. Legacy Turn Events: GET /api/ai/turns/:turnId/events
+    const legacyEventRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)\/events$/);
+    if (legacyEventRoute) {
       authorize(accessPolicy, 'read', request);
       if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
-      const turnId = decodedSegment(eventRoute[1], TURN_PATTERN, 'turn ID');
+      const turnId = decodedSegment(legacyEventRoute[1], TURN_PATTERN, 'turn ID');
       const headerCursor = request.headers['last-event-id'];
       const queryCursor = url.searchParams.get('after');
       const afterSequence = Number(headerCursor ?? queryCursor ?? 0);
@@ -209,6 +396,7 @@ export async function handleAiRequest({
         return true;
       }
       const keepAlive = setInterval(() => response.write(': keep-alive\n\n'), 20_000);
+      keepAlive.unref();
       request.on('close', () => {
         clearInterval(keepAlive);
         unsubscribe();
@@ -216,11 +404,12 @@ export async function handleAiRequest({
       return true;
     }
 
-    const turnRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)$/);
-    if (turnRoute) {
+    // 13. Legacy Turn Details: GET /api/ai/turns/:turnId
+    const legacyTurnRoute = url.pathname.match(/^\/api\/ai\/turns\/([^/]+)$/);
+    if (legacyTurnRoute) {
       authorize(accessPolicy, 'read', request);
       if (method !== 'GET') return sendJson(response, 405, { error: 'Method not allowed' }) ?? true;
-      const turnId = decodedSegment(turnRoute[1], TURN_PATTERN, 'turn ID');
+      const turnId = decodedSegment(legacyTurnRoute[1], TURN_PATTERN, 'turn ID');
       sendJson(response, 200, { turn: service.getTurn(turnId) });
       return true;
     }
@@ -232,3 +421,4 @@ export async function handleAiRequest({
     return true;
   }
 }
+

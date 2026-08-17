@@ -1,19 +1,26 @@
 import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
+import { ClaudeAgentProvider } from '../../ai/claude-adapter.mjs';
 import { createAiAdapterRegistry } from '../../ai/registry.mjs';
 import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
+import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
+import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
 
 export function createDefaultDashboardAiService({ dataLoader } = {}) {
-  const data = dataLoader();
-  const demonstration = data.active?.find(specification => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId)
+  const data = dataLoader ? dataLoader() : {};
+  const demonstration = data.active?.find(specification => specification.slug === 'multi-provider-agent-sessions' && specification.specId)
+    || data.active?.find(specification => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId)
     || data.active?.find(specification => specification.specId);
-  const adapter = createMockAiAdapter(demonstration ? {
+  const mockAdapter = createMockAiAdapter(demonstration ? {
     specId: demonstration.specId,
     taskIds: demonstration.tasks?.map(task => task.id) || [],
   } : {});
-  const registry = createAiAdapterRegistry([adapter]);
-  const turnRuntime = createAiTurnRuntime({ registry });
-  return createAiSessionService({ registry, turnRuntime });
+  const claudeAdapter = new ClaudeAgentProvider();
+  const registry = createAiAdapterRegistry([mockAdapter, claudeAdapter]);
+  const transcriptCache = createTranscriptCacheService();
+  const bindingService = createAgentSessionBindingService();
+  const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
+  return createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
 }
 
 export function createTrustedNetworkAiAccessPolicy() {
@@ -22,3 +29,4 @@ export function createTrustedNetworkAiAccessPolicy() {
     return true;
   };
 }
+
