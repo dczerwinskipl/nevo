@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-16T14:33:06.048Z",
+  "generated": "2026-08-17T10:07:55.131Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -580,7 +580,7 @@
           "id": "cli-step-instrumentation-tests-and-audits",
           "order": 6,
           "file": "tasks/06-cli-step-instrumentation-tests-and-audits.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
