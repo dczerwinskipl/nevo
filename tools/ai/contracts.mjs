@@ -7,7 +7,20 @@ export const AI_SESSION_STATUSES = Object.freeze([
   'completed',
 ]);
 
+export const AGENT_CAPABILITIES = Object.freeze([
+  'interactivePermissions',
+  'interactiveQuestions',
+  'interactiveConfirmations',
+  'resumeSession',
+  'cancelTurn',
+  'toolCalls',
+  'reasoning',
+  'usage',
+]);
+
+// Backward-compatible alias combining legacy and modern capability names
 export const AI_CAPABILITIES = Object.freeze([
+  ...AGENT_CAPABILITIES,
   'listSessions',
   'sessionMetadata',
   'messages',
@@ -16,21 +29,41 @@ export const AI_CAPABILITIES = Object.freeze([
   'streamEvents',
   'resumeTurn',
   'resolveInteractions',
-  'cancelTurn',
 ]);
 
-export const AI_EVENT_TYPES = Object.freeze([
+export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
+  interactivePermissions: false,
+  interactiveQuestions: false,
+  interactiveConfirmations: false,
+  resumeSession: false,
+  cancelTurn: false,
+  toolCalls: false,
+  reasoning: false,
+  usage: false,
+});
+
+export const AGENT_EVENT_TYPES = Object.freeze([
   'turn.started',
-  'message.delta',
+  'message.started',
+  'text.delta',
+  'reasoning.delta',
+  'tool.started',
+  'tool.updated',
+  'tool.completed',
   'interaction.requested',
   'interaction.resolved',
+  'usage.updated',
   'turn.completed',
   'turn.failed',
+  // legacy backward-compatibility
+  'message.delta',
   'activity',
 ]);
 
+export const AI_EVENT_TYPES = AGENT_EVENT_TYPES;
+
 const SESSION_STATUS_SET = new Set(AI_SESSION_STATUSES);
-const EVENT_TYPE_SET = new Set(AI_EVENT_TYPES);
+const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
@@ -68,15 +101,19 @@ export class AiNotFoundError extends AiError {
   }
 }
 
-export class AiUnsupportedOperationError extends AiError {
+export class CapabilityNotSupportedError extends AiError {
   constructor(provider, capability) {
-    super('AI_UNSUPPORTED_OPERATION', `Provider '${provider}' does not support '${capability}'.`, {
+    super('AI_UNSUPPORTED_OPERATION', `Provider '${provider}' does not support capability '${capability}'.`, {
       status: 409,
       details: { provider, capability },
     });
-    this.name = 'AiUnsupportedOperationError';
+    this.name = 'CapabilityNotSupportedError';
+    this.provider = provider;
+    this.capability = capability;
   }
 }
+
+export const AiUnsupportedOperationError = CapabilityNotSupportedError;
 
 export class AiTurnConflictError extends AiError {
   constructor(turnId) {
@@ -122,11 +159,24 @@ export function normalizeTimestamp(value, field) {
   return new Date(time).toISOString();
 }
 
-function normalizeCapabilities(value, field = 'capabilities') {
+export function validateAgentIdentity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AiValidationError('AgentIdentity must be an object.');
+  }
+  const provider = requiredString(value.provider, 'provider');
+  const providerSessionId = requiredString(value.providerSessionId, 'providerSessionId', { opaque: true });
+  return { provider, providerSessionId };
+}
+
+export function normalizeCapabilities(value, field = 'capabilities') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AiValidationError(`'${field}' must be an object.`, { field });
   }
-  return Object.fromEntries(AI_CAPABILITIES.map(capability => [capability, value[capability] === true]));
+  const normalized = {};
+  for (const capability of AI_CAPABILITIES) {
+    normalized[capability] = value[capability] === true;
+  }
+  return normalized;
 }
 
 export function validateAiSession(value) {
@@ -138,7 +188,7 @@ export function validateAiSession(value) {
     throw new AiValidationError("'specId' must be a UUID.", { field: 'specId' });
   }
   const provider = requiredString(value.provider, 'provider');
-  const sessionId = requiredString(value.sessionId, 'sessionId', { opaque: true });
+  const sessionId = requiredString(value.sessionId ?? value.providerSessionId, 'sessionId', { opaque: true });
   if (!Array.isArray(value.taskIds) || value.taskIds.some(taskId => typeof taskId !== 'string' || !ID_PATTERN.test(taskId))) {
     throw new AiValidationError("'taskIds' must be an array of stable task IDs.", { field: 'taskIds' });
   }
@@ -158,6 +208,7 @@ export function validateAiSession(value) {
     specId,
     provider,
     sessionId,
+    providerSessionId: sessionId,
     taskIds: [...new Set(value.taskIds)],
     ...(value.title == null ? {} : { title: optionalString(value.title, 'title', 200) }),
     status: value.status,
@@ -174,7 +225,9 @@ export function compareAiSessionsByActivity(left, right) {
   const created = Date.parse(right.createdAt) - Date.parse(left.createdAt);
   if (created !== 0) return created;
   const provider = left.provider.localeCompare(right.provider);
-  return provider || left.sessionId.localeCompare(right.sessionId);
+  const leftId = left.sessionId ?? left.providerSessionId ?? '';
+  const rightId = right.sessionId ?? right.providerSessionId ?? '';
+  return provider || leftId.localeCompare(rightId);
 }
 
 export function sortAiSessions(sessions) {
@@ -193,6 +246,9 @@ export function validateAiMessage(value) {
     id: requiredString(value.id, 'id'),
     role: value.role,
     text,
+    ...(value.reasoning == null ? {} : { reasoning: optionalString(value.reasoning, 'reasoning', 100_000) }),
+    ...(Array.isArray(value.toolCalls) ? { toolCalls: structuredClone(value.toolCalls) } : {}),
+    ...(value.interaction ? { interaction: structuredClone(value.interaction) } : {}),
     createdAt: normalizeTimestamp(value.createdAt, 'createdAt'),
   };
 }
@@ -231,7 +287,7 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
   }
   if (value.kind === 'question') {
     if (!Array.isArray(value.questions) || value.questions.length === 0 || value.questions.length > 20) {
-      throw new AiValidationError("Question interactions require 1-20 questions.", { field: 'interaction.questions' });
+      throw new AiValidationError('Question interactions require 1-20 questions.', { field: 'interaction.questions' });
     }
     const questions = value.questions.map((question, index) => {
       const questionId = question?.id ?? (assignIds ? `question-${idFactory()}` : undefined);
@@ -257,7 +313,16 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
     }
     return { ...base, questions };
   }
-  throw new AiValidationError("Interaction 'kind' must be permission or question.", { field: 'interaction.kind' });
+  if (value.kind === 'confirmation') {
+    return {
+      ...base,
+      title: requiredString(value.title ?? 'Confirm Action', 'interaction.title', { opaque: true, max: 200 }),
+      message: requiredString(value.message, 'interaction.message', { opaque: true, max: 2_000 }),
+      ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
+      ...(value.payload === undefined ? {} : { payload: structuredClone(value.payload) }),
+    };
+  }
+  throw new AiValidationError("Interaction 'kind' must be permission, question, or confirmation.", { field: 'interaction.kind' });
 }
 
 export function validateInteractionResponse(interaction, value) {
@@ -270,6 +335,17 @@ export function validateInteractionResponse(interaction, value) {
     }
     return {
       decision: value.decision,
+      ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
+    };
+  }
+  if (interaction.kind === 'confirmation') {
+    if (typeof value.confirmed !== 'boolean' && !['confirm', 'cancel', 'allow', 'deny'].includes(value.decision)) {
+      throw new AiValidationError("Confirmation response must specify 'confirmed' or 'decision'.", { field: 'confirmed' });
+    }
+    const confirmed = typeof value.confirmed === 'boolean' ? value.confirmed : (value.decision === 'confirm' || value.decision === 'allow');
+    return {
+      confirmed,
+      decision: confirmed ? 'confirm' : 'cancel',
       ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
     };
   }
@@ -299,29 +375,112 @@ export function validateInteractionResponse(interaction, value) {
 
 export function validateAiEvent(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !EVENT_TYPE_SET.has(value.type)) {
-    throw new AiValidationError(`Event type must be one of ${AI_EVENT_TYPES.join(', ')}.`, { field: 'type' });
+    throw new AiValidationError(`Event type must be one of ${AGENT_EVENT_TYPES.join(', ')}.`, { field: 'type' });
   }
   rejectProviderFields(value);
+  const idValue = value.id ?? value.seq;
   const base = {
-    id: Number.isSafeInteger(value.id) && value.id > 0 ? value.id : (() => { throw new AiValidationError("Event 'id' must be a positive integer.", { field: 'id' }); })(),
+    id: Number.isSafeInteger(idValue) && idValue > 0 ? idValue : (() => { throw new AiValidationError("Event 'id' must be a positive integer.", { field: 'id' }); })(),
     type: value.type,
     turnId: requiredString(value.turnId, 'turnId'),
     timestamp: normalizeTimestamp(value.timestamp, 'timestamp'),
   };
+  if (value.seq !== undefined && Number.isSafeInteger(value.seq)) {
+    base.seq = value.seq;
+  }
+  if (value.type === 'message.started') {
+    return {
+      ...base,
+      messageId: requiredString(value.messageId, 'messageId'),
+      role: ['assistant', 'user', 'system'].includes(value.role) ? value.role : 'assistant',
+    };
+  }
+  if (value.type === 'text.delta') {
+    const text = value.text ?? value.delta;
+    return {
+      ...base,
+      text: requiredString(text, 'text', { opaque: true, max: 50_000 }),
+      ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+    };
+  }
   if (value.type === 'message.delta') {
-    return { ...base, messageId: requiredString(value.messageId, 'messageId'), delta: requiredString(value.delta, 'delta', { opaque: true, max: 50_000 }) };
+    const delta = value.delta ?? value.text;
+    return {
+      ...base,
+      messageId: requiredString(value.messageId ?? `message-${base.turnId}`, 'messageId'),
+      delta: requiredString(delta, 'delta', { opaque: true, max: 50_000 }),
+      text: delta,
+    };
+  }
+  if (value.type === 'reasoning.delta') {
+    return {
+      ...base,
+      text: requiredString(value.text, 'text', { opaque: true, max: 50_000 }),
+      ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+    };
+  }
+  if (value.type === 'tool.started') {
+    return {
+      ...base,
+      toolId: requiredString(value.toolId, 'toolId'),
+      toolName: requiredString(value.toolName, 'toolName', { opaque: true, max: 100 }),
+      input: value.input === undefined ? {} : structuredClone(value.input),
+    };
+  }
+  if (value.type === 'tool.updated') {
+    return {
+      ...base,
+      toolId: requiredString(value.toolId, 'toolId'),
+      ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
+      ...(value.status ? { status: requiredString(value.status, 'status', { opaque: true, max: 50 }) } : {}),
+    };
+  }
+  if (value.type === 'tool.completed') {
+    return {
+      ...base,
+      toolId: requiredString(value.toolId, 'toolId'),
+      ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
+      ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+    };
   }
   if (value.type === 'interaction.requested') {
     return { ...base, interaction: normalizeInteraction(value.interaction) };
   }
   if (value.type === 'interaction.resolved') {
-    return { ...base, interactionId: requiredString(value.interactionId, 'interactionId') };
+    return {
+      ...base,
+      interactionId: requiredString(value.interactionId, 'interactionId'),
+      ...(value.response !== undefined ? { response: structuredClone(value.response) } : {}),
+    };
+  }
+  if (value.type === 'usage.updated') {
+    return {
+      ...base,
+      ...(typeof value.tokensIn === 'number' ? { tokensIn: value.tokensIn } : {}),
+      ...(typeof value.tokensOut === 'number' ? { tokensOut: value.tokensOut } : {}),
+      ...(typeof value.cost === 'number' ? { cost: value.cost } : {}),
+    };
+  }
+  if (value.type === 'turn.completed') {
+    return {
+      ...base,
+      ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+      ...(value.finishReason ? { finishReason: requiredString(value.finishReason, 'finishReason', { opaque: true, max: 50 }) } : {}),
+    };
   }
   if (value.type === 'turn.failed') {
-    return { ...base, error: { code: requiredString(value.error?.code, 'error.code'), message: requiredString(value.error?.message, 'error.message', { opaque: true, max: 2_000 }) } };
+    return {
+      ...base,
+      error: {
+        code: requiredString(value.error?.code, 'error.code'),
+        message: requiredString(value.error?.message, 'error.message', { opaque: true, max: 2_000 }),
+      },
+    };
   }
   return { ...base, ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}) };
 }
+
+export const validateAgentEvent = validateAiEvent;
 
 export function validateProviderDescriptor(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -339,3 +498,4 @@ export function publicAiError(error) {
   if (error instanceof AiError) return error;
   return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
 }
+

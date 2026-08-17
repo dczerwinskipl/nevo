@@ -3,14 +3,16 @@ import {
   AiError,
   AiNotFoundError,
   AiTurnConflictError,
-  AiUnsupportedOperationError,
+  CapabilityNotSupportedError,
   normalizeInteraction,
   publicAiError,
+  validateAgentIdentity,
   validateInteractionResponse,
 } from './contracts.mjs';
+import { createTranscriptCacheService } from './transcript-cache.mjs';
 
-function sessionKey(provider, sessionId) {
-  return `${provider}\u0000${sessionId}`;
+function sessionKey(provider, providerSessionId) {
+  return `${provider}\u0000${providerSessionId}`;
 }
 
 function publicFailure(error) {
@@ -27,23 +29,30 @@ export class AiTurnRuntime {
 
   constructor({
     registry,
-    maxEventsPerTurn = 250,
+    transcriptCache,
+    maxEventsPerTurn = 500,
     maxRetainedTurns = 100,
     idFactory = randomUUID,
     clock = () => new Date(),
   } = {}) {
     this.registry = registry;
+    this.transcriptCache = transcriptCache ?? createTranscriptCacheService();
     this.maxEventsPerTurn = maxEventsPerTurn;
     this.maxRetainedTurns = maxRetainedTurns;
     this.idFactory = idFactory;
     this.clock = clock;
   }
 
-  async startTurn({ provider, sessionId, message, idempotencyKey } = {}) {
+  async startTurn({ provider, providerSessionId, sessionId, message, prompt, idempotencyKey } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
+    const targetSessionId = providerSessionId ?? sessionId;
+    const identity = validateAgentIdentity({ provider, providerSessionId: targetSessionId });
+    const inputMessage = message ?? prompt;
+
     const adapter = this.registry.require(provider, 'startTurn', 'startTurn');
-    const key = sessionKey(provider, sessionId);
+    const key = sessionKey(identity.provider, identity.providerSessionId);
     const releaseStartLock = await this.#acquireStartLock(key);
+
     try {
       const existingId = this.#activeBySession.get(key);
       if (existingId) {
@@ -53,12 +62,18 @@ export class AiTurnRuntime {
         }
         throw new AiTurnConflictError(existingId);
       }
-      const metadataAdapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
-      const session = await metadataAdapter.getSession(sessionId);
-      if (session.status === 'completed') {
-        throw new AiUnsupportedOperationError(provider, 'resumeTurn');
+
+      if (this.registry.has(provider)) {
+        const descriptor = this.registry.get(provider).descriptor;
+        if (descriptor.capabilities.sessionMetadata && typeof adapter.getSession === 'function') {
+          const session = await adapter.getSession(identity.providerSessionId);
+          if (session?.status === 'completed' && !descriptor.capabilities.resumeSession && !descriptor.capabilities.resumeTurn) {
+            throw new CapabilityNotSupportedError(provider, 'resumeTurn');
+          }
+        }
       }
-      if (typeof message !== 'string' || message.trim().length === 0 || message.length > 100_000) {
+
+      if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
         throw new AiError('AI_VALIDATION_ERROR', 'A non-empty message is required.', { status: 400 });
       }
       if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 200)) {
@@ -66,10 +81,21 @@ export class AiTurnRuntime {
       }
 
       const turnId = `turn-${this.idFactory()}`;
+      const startedAt = this.#timestamp();
+
+      if (this.transcriptCache) {
+        this.transcriptCache.recordUserMessage(identity.provider, identity.providerSessionId, {
+          text: inputMessage,
+          createdAt: startedAt,
+        });
+      }
+
       const state = {
         turnId,
-        provider,
-        sessionId,
+        provider: identity.provider,
+        providerSessionId: identity.providerSessionId,
+        sessionId: identity.providerSessionId,
+        identity,
         key,
         idempotencyKey,
         status: 'running',
@@ -81,14 +107,15 @@ export class AiTurnRuntime {
         abortController: new AbortController(),
         adapter,
         privateOperation: undefined,
-        startedAt: this.#timestamp(),
+        startedAt,
         completedAt: undefined,
       };
+
       this.#turns.set(turnId, state);
       this.#activeBySession.set(key, turnId);
       this.#notifyAdapterState(state);
       this.#emit(state, 'turn.started');
-      queueMicrotask(() => this.#run(state, message));
+      queueMicrotask(() => this.#run(state, inputMessage));
       return { turnId, idempotent: false };
     } finally {
       releaseStartLock();
@@ -110,16 +137,36 @@ export class AiTurnRuntime {
 
   async #run(state, message) {
     try {
-      const result = await state.adapter.startTurn({
+      const turnResult = state.adapter.startTurn({
         turnId: state.turnId,
-        sessionId: state.sessionId,
+        sessionId: state.providerSessionId,
+        providerSessionId: state.providerSessionId,
+        identity: state.identity,
         message,
+        prompt: message,
         signal: state.abortController.signal,
         setOperation: operation => { state.privateOperation = operation; },
         emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
+        emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
+        emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
+        emitToolStarted: tool => this.#emitToolStarted(state, tool),
+        emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
+        emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
+        emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
+        emitEvent: (type, data) => this.#emit(state, type, data),
         requestInteraction: interaction => this.#requestInteraction(state, interaction),
       });
-      if (result?.operation !== undefined) state.privateOperation = result.operation;
+
+      if (turnResult && typeof turnResult[Symbol.asyncIterator] === 'function') {
+        for await (const event of turnResult) {
+          if (this.#isTerminal(state)) break;
+          this.#emit(state, event.type, event);
+        }
+      } else {
+        const result = await turnResult;
+        if (result?.operation !== undefined) state.privateOperation = result.operation;
+      }
+
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
@@ -131,7 +178,43 @@ export class AiTurnRuntime {
     if (typeof delta !== 'string' || delta.length === 0 || delta.length > 50_000) {
       throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid message delta.', { status: 502 });
     }
-    this.#emit(state, 'message.delta', { messageId, delta });
+    this.#emit(state, 'text.delta', { messageId, text: delta, delta });
+  }
+
+  #emitTextDelta(state, text, messageId = `message-${state.turnId}`) {
+    if (this.#isTerminal(state)) return;
+    if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid text delta.', { status: 502 });
+    }
+    this.#emit(state, 'text.delta', { messageId, text, delta: text });
+  }
+
+  #emitReasoningDelta(state, text, messageId = `message-${state.turnId}`) {
+    if (this.#isTerminal(state)) return;
+    if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid reasoning delta.', { status: 502 });
+    }
+    this.#emit(state, 'reasoning.delta', { messageId, text });
+  }
+
+  #emitToolStarted(state, { toolId, toolName, input } = {}) {
+    if (this.#isTerminal(state)) return;
+    this.#emit(state, 'tool.started', { toolId, toolName, input });
+  }
+
+  #emitToolUpdated(state, { toolId, output, status } = {}) {
+    if (this.#isTerminal(state)) return;
+    this.#emit(state, 'tool.updated', { toolId, output, status });
+  }
+
+  #emitToolCompleted(state, { toolId, output, durationMs } = {}) {
+    if (this.#isTerminal(state)) return;
+    this.#emit(state, 'tool.completed', { toolId, output, durationMs });
+  }
+
+  #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {
+    if (this.#isTerminal(state)) return;
+    this.#emit(state, 'usage.updated', { tokensIn, tokensOut, cost });
   }
 
   #requestInteraction(state, value) {
@@ -168,7 +251,7 @@ export class AiTurnRuntime {
     state.status = 'running';
     state.sessionStatus = 'running';
     this.#notifyAdapterState(state);
-    this.#emit(state, 'interaction.resolved', { interactionId });
+    this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
     pending.resolve(normalized);
     return this.getSnapshot(turnId);
   }
@@ -179,7 +262,9 @@ export class AiTurnRuntime {
     const adapter = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
     await adapter.cancelTurn({
       turnId,
-      sessionId: state.sessionId,
+      sessionId: state.providerSessionId,
+      providerSessionId: state.providerSessionId,
+      identity: state.identity,
       operation: state.privateOperation,
     });
     state.abortController.abort();
@@ -192,7 +277,8 @@ export class AiTurnRuntime {
     return {
       turnId: state.turnId,
       provider: state.provider,
-      sessionId: state.sessionId,
+      sessionId: state.providerSessionId,
+      providerSessionId: state.providerSessionId,
       status: state.status,
       sessionStatus: state.sessionStatus,
       startedAt: state.startedAt,
@@ -206,7 +292,7 @@ export class AiTurnRuntime {
   getEvents(turnId, afterSequence = 0) {
     const state = this.#get(turnId);
     const cursor = Number(afterSequence) || 0;
-    return state.events.filter(event => event.id > cursor).map(event => structuredClone(event));
+    return state.events.filter(event => (event.id ?? event.seq ?? 0) > cursor).map(event => structuredClone(event));
   }
 
   subscribe(turnId, { afterSequence = 0, onEvent } = {}) {
@@ -246,11 +332,15 @@ export class AiTurnRuntime {
       const evicted = this.#terminalOrder.shift();
       this.#turns.delete(evicted);
     }
+    if (this.transcriptCache) {
+      this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+    }
   }
 
   #emit(state, type, data = {}) {
     const event = {
       id: ++state.sequence,
+      seq: state.sequence,
       type,
       turnId: state.turnId,
       timestamp: this.#timestamp(),
@@ -258,6 +348,11 @@ export class AiTurnRuntime {
     };
     state.events.push(event);
     if (state.events.length > this.maxEventsPerTurn) state.events.shift();
+
+    if (this.transcriptCache) {
+      this.transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
+    }
+
     for (const subscriber of state.subscribers) subscriber(structuredClone(event));
     return event;
   }
@@ -265,7 +360,8 @@ export class AiTurnRuntime {
   #notifyAdapterState(state) {
     state.adapter.onTurnState?.({
       turnId: state.turnId,
-      sessionId: state.sessionId,
+      sessionId: state.providerSessionId,
+      providerSessionId: state.providerSessionId,
       turnStatus: state.status,
       sessionStatus: state.sessionStatus,
       timestamp: this.#timestamp(),
@@ -291,3 +387,4 @@ export class AiTurnRuntime {
 export function createAiTurnRuntime(options) {
   return new AiTurnRuntime(options);
 }
+

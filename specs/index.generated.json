@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:06:09.296Z",
+  "generated": "2026-08-17T18:11:29.316Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -13,7 +13,40 @@
           "id": "provider-neutral-core-and-capabilities",
           "order": 1,
           "file": "tasks/01-provider-neutral-core-and-capabilities.md",
-          "status": "approved"
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "52e126bf0977adeeb1126d0122300c232092b5b1",
+            "review_revision": "52e126bf0977adeeb1126d0122300c232092b5b1",
+            "changed_paths": [
+              "tools/ai/contracts.mjs",
+              "tools/ai/registry.mjs",
+              "tools/ai/service.mjs",
+              "tools/ai/transcript-cache.mjs",
+              "tools/ai/turn-runtime.mjs",
+              "tools/tests/ai-contracts.test.mjs",
+              "tools/tests/ai-turn-runtime.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "e05aeaba2299fd046c210252a97476c41be33ed28f8253e893c609357a49f04d"
+          },
+          "self_check": {
+            "fingerprint": "43398bc2fb27fa5a7debe9706cb5fb35a408111e0672e23fb7068506115de773",
+            "revision": "52e126bf0977adeeb1126d0122300c232092b5b1",
+            "commands": [
+              {
+                "command": "node --test tools/tests/ai-contracts.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/ai-turn-runtime.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "session-binding-and-execution-context",

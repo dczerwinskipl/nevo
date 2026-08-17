@@ -1,9 +1,10 @@
-import { sortAiSessions, validateAiSession } from './contracts.mjs';
+import { sortAiSessions, validateAiSession, validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
-  constructor({ registry, turnRuntime } = {}) {
+  constructor({ registry, turnRuntime, transcriptCache } = {}) {
     this.registry = registry;
     this.turnRuntime = turnRuntime;
+    this.transcriptCache = transcriptCache ?? turnRuntime?.transcriptCache;
   }
 
   listProviders() {
@@ -24,14 +25,37 @@ export class AiSessionService {
     )));
   }
 
-  async getSession(provider, sessionId) {
+  async getSession(provider, providerSessionId) {
     const adapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
-    return validateAiSession(await adapter.getSession(sessionId));
+    return validateAiSession(await adapter.getSession(providerSessionId));
   }
 
-  async listMessages(provider, sessionId) {
-    const adapter = this.registry.require(provider, 'messages', 'listMessages');
-    return adapter.listMessages(sessionId);
+  async listMessages(provider, providerSessionId) {
+    if (this.registry.has(provider)) {
+      const descriptor = this.registry.get(provider).descriptor;
+      if (descriptor.capabilities.messages) {
+        const adapter = this.registry.require(provider, 'messages', 'listMessages');
+        return adapter.listMessages(providerSessionId);
+      }
+    }
+    if (this.transcriptCache) {
+      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
+      return transcript.messages || [];
+    }
+    return [];
+  }
+
+  async getTranscript(provider, providerSessionId) {
+    if (this.transcriptCache) {
+      return this.transcriptCache.getTranscript(provider, providerSessionId);
+    }
+    return {
+      provider,
+      providerSessionId,
+      messages: await this.listMessages(provider, providerSessionId),
+      lastEventSeq: 0,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   async createSession(provider, input) {
@@ -39,9 +63,9 @@ export class AiSessionService {
     return validateAiSession(await adapter.createSession(input));
   }
 
-  async startTurn(provider, sessionId, input) {
+  async startTurn(provider, providerSessionId, input) {
     this.registry.require(provider, 'startTurn', 'startTurn');
-    return this.turnRuntime.startTurn({ provider, sessionId, ...input });
+    return this.turnRuntime.startTurn({ provider, providerSessionId, sessionId: providerSessionId, ...input });
   }
 
   getTurn(turnId) {
@@ -64,3 +88,4 @@ export class AiSessionService {
 export function createAiSessionService(options) {
   return new AiSessionService(options);
 }
+

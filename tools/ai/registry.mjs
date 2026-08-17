@@ -1,6 +1,6 @@
 import {
   AiNotFoundError,
-  AiUnsupportedOperationError,
+  CapabilityNotSupportedError,
   validateProviderDescriptor,
 } from './contracts.mjs';
 
@@ -20,6 +20,18 @@ export class AiAdapterRegistry {
     return this;
   }
 
+  unregister(provider) {
+    return this.#adapters.delete(provider);
+  }
+
+  has(provider) {
+    return this.#adapters.has(provider);
+  }
+
+  list() {
+    return [...this.#adapters.keys()];
+  }
+
   descriptors() {
     return [...this.#adapters.values()].map(entry => entry.descriptor);
   }
@@ -32,8 +44,8 @@ export class AiAdapterRegistry {
 
   require(provider, capability, method) {
     const entry = this.get(provider);
-    if (!entry.descriptor.capabilities[capability] || typeof entry.adapter[method] !== 'function') {
-      throw new AiUnsupportedOperationError(provider, capability);
+    if (!entry.descriptor.capabilities[capability] || (method && typeof entry.adapter[method] !== 'function')) {
+      throw new CapabilityNotSupportedError(provider, capability);
     }
     return entry.adapter;
   }
@@ -42,3 +54,4 @@ export class AiAdapterRegistry {
 export function createAiAdapterRegistry(adapters) {
   return new AiAdapterRegistry(adapters);
 }
+

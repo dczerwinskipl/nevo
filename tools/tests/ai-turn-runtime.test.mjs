@@ -1,21 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
+import { createTranscriptCacheService } from '../ai/transcript-cache.mjs';
 
 const capabilities = {
+  interactivePermissions: true,
+  interactiveQuestions: true,
+  interactiveConfirmations: true,
+  resumeSession: false,
+  cancelTurn: true,
+  toolCalls: true,
+  reasoning: true,
+  usage: true,
   listSessions: true,
   sessionMetadata: true,
   messages: true,
   createSession: true,
   startTurn: true,
   streamEvents: true,
-  resumeTurn: false,
-  resolveInteractions: true,
-  cancelTurn: true,
 };
 
-function createFixture({ sessionLookupGate } = {}) {
+function createFixture({ sessionLookupGate, transcriptCache } = {}) {
   let starts = 0;
   let cancels = 0;
   let status = 'idle';
@@ -26,7 +35,7 @@ function createFixture({ sessionLookupGate } = {}) {
       return { sessionId, status };
     },
     onTurnState(update) { status = update.sessionStatus; },
-    async startTurn({ message, emitDelta, requestInteraction, signal }) {
+    async startTurn({ message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
       starts += 1;
       emitDelta('one ');
       if (message === 'permission') {
@@ -38,6 +47,11 @@ function createFixture({ sessionLookupGate } = {}) {
           questions: [{ question: 'Same?' }, { question: 'Same?' }],
         });
         emitDelta(response.answers.map(answer => answer.value).join(','));
+      } else if (message === 'tools-and-reasoning') {
+        emitReasoningDelta('thinking...');
+        emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
+        emitToolCompleted({ toolId: 't1', output: ['file.txt'], durationMs: 40 });
+        emitUsageUpdated({ tokensIn: 50, tokensOut: 20 });
       } else if (message === 'hang') {
         await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
       }
@@ -48,6 +62,7 @@ function createFixture({ sessionLookupGate } = {}) {
   let id = 0;
   const runtime = createAiTurnRuntime({
     registry: createAiAdapterRegistry([adapter]),
+    transcriptCache,
     idFactory: () => String(++id),
     clock: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++)); })(),
   });
@@ -63,25 +78,25 @@ async function waitFor(read, predicate, message = 'condition') {
   assert.fail(`Timed out waiting for ${message}.`);
 }
 
-test('turns stream ordered deltas and complete with a waiting session', async () => {
+test('turns stream ordered deltas (text.delta) and complete with a waiting session', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 's1', message: 'normal' });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 's1', message: 'normal' });
   const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion');
-  assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'message.delta', 'message.delta', 'turn.completed']);
+  assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'text.delta', 'text.delta', 'turn.completed']);
   assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4]);
   assert.equal(snapshot.sessionStatus, 'waitingForUser');
 });
 
 test('permission and question interactions pause, resolve by stable IDs, and continue the same turn', async () => {
   const fixture = createFixture();
-  const permission = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'permission', message: 'permission' });
+  const permission = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'permission', message: 'permission' });
   const paused = await waitFor(() => fixture.runtime.getSnapshot(permission.turnId), value => value.pendingInteraction, 'permission');
   assert.equal(paused.status, 'waitingForUser');
   await fixture.runtime.resolveInteraction(permission.turnId, paused.pendingInteraction.id, { decision: 'allow' });
   const completed = await waitFor(() => fixture.runtime.getSnapshot(permission.turnId), value => value.status === 'completed', 'permission completion');
   assert.equal(completed.events.filter(event => event.type === 'turn.started').length, 1);
 
-  const question = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'question', message: 'question' });
+  const question = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'question', message: 'question' });
   const asked = await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.pendingInteraction, 'question');
   const [first, second] = asked.pendingInteraction.questions;
   assert.notEqual(first.id, second.id);
@@ -96,8 +111,8 @@ test('permission and question interactions pause, resolve by stable IDs, and con
 
 test('duplicate, unknown, and cross-turn responses cannot resolve another request', async () => {
   const fixture = createFixture();
-  const first = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'first', message: 'permission' });
-  const second = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'second', message: 'permission' });
+  const first = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'first', message: 'permission' });
+  const second = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'second', message: 'permission' });
   const one = await waitFor(() => fixture.runtime.getSnapshot(first.turnId), value => value.pendingInteraction, 'first pending');
   const two = await waitFor(() => fixture.runtime.getSnapshot(second.turnId), value => value.pendingInteraction, 'second pending');
   await assert.rejects(() => fixture.runtime.resolveInteraction(first.turnId, two.pendingInteraction.id, { decision: 'allow' }), { name: 'AiNotFoundError' });
@@ -108,7 +123,7 @@ test('duplicate, unknown, and cross-turn responses cannot resolve another reques
 
 test('unsubscribe does not cancel and reconnect replays missed events plus pending snapshot', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'reconnect', message: 'permission' });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'reconnect', message: 'permission' });
   const firstEvents = [];
   const unsubscribe = fixture.runtime.subscribe(turnId, { onEvent: event => firstEvents.push(event) });
   unsubscribe();
@@ -124,7 +139,7 @@ test('unsubscribe does not cancel and reconnect replays missed events plus pendi
 
 test('explicit cancellation is capability-aware and produces one terminal event', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'cancel', message: 'hang' });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel', message: 'hang' });
   await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
   const snapshot = await fixture.runtime.cancelTurn(turnId);
   assert.equal(fixture.cancels, 1);
@@ -135,7 +150,7 @@ test('explicit cancellation is capability-aware and produces one terminal event'
 
 test('shutdown interrupts active turns without losing session identity', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'shutdown', message: 'hang' });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'shutdown', message: 'hang' });
   await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'running turn');
   fixture.runtime.shutdown();
   const snapshot = fixture.runtime.getSnapshot(turnId);
@@ -147,10 +162,10 @@ test('shutdown interrupts active turns without losing session identity', async (
 
 test('single-active-turn invariant rejects duplicates and honors a matching idempotency retry', async () => {
   const fixture = createFixture();
-  const first = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
-  const retry = await fixture.runtime.startTurn({ provider: 'fake', sessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
+  const first = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
+  const retry = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-1' });
   assert.deepEqual(retry, { turnId: first.turnId, idempotent: true });
-  await assert.rejects(() => fixture.runtime.startTurn({ provider: 'fake', sessionId: 'locked', message: 'hang', idempotencyKey: 'request-2' }), error => {
+  await assert.rejects(() => fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'locked', message: 'hang', idempotencyKey: 'request-2' }), error => {
     assert.equal(error.code, 'AI_TURN_CONFLICT');
     assert.equal(error.turnId, first.turnId);
     return true;
@@ -164,8 +179,8 @@ test('concurrent starts for one session invoke the adapter only once', async () 
   const sessionLookupGate = new Promise(resolve => { releaseLookup = resolve; });
   const fixture = createFixture({ sessionLookupGate });
   const starts = [
-    fixture.runtime.startTurn({ provider: 'fake', sessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-1' }),
-    fixture.runtime.startTurn({ provider: 'fake', sessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-2' }),
+    fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-1' }),
+    fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-2' }),
   ];
 
   await new Promise(resolve => setImmediate(resolve));
@@ -180,3 +195,45 @@ test('concurrent starts for one session invoke the adapter only once', async () 
   assert.equal(fixture.starts, 1);
   fixture.runtime.shutdown();
 });
+
+test('transcript caching persists messages, tool invocations, reasoning, and preserves lastEventSeq invariant', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-transcript-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture = createFixture({ transcriptCache });
+
+    const { turnId } = await fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-cache-test',
+      message: 'tools-and-reasoning',
+    });
+
+    await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'turn completion');
+
+    const transcript = await transcriptCache.getTranscript('fake', 'sess-cache-test');
+    assert.equal(transcript.provider, 'fake');
+    assert.equal(transcript.providerSessionId, 'sess-cache-test');
+    assert.equal(transcript.messages.length >= 2, true); // user + assistant
+
+    const userMsg = transcript.messages[0];
+    assert.equal(userMsg.role, 'user');
+    assert.equal(userMsg.text, 'tools-and-reasoning');
+
+    const assistantMsg = transcript.messages[1];
+    assert.equal(assistantMsg.role, 'assistant');
+    assert.equal(assistantMsg.reasoning, 'thinking...');
+    assert.equal(assistantMsg.text, 'one two');
+    assert.equal(assistantMsg.toolCalls?.length, 1);
+    assert.equal(assistantMsg.toolCalls[0].name, 'ReadDir');
+    assert.equal(assistantMsg.toolCalls[0].status, 'completed');
+
+    // Invariant check: lastEventSeq matches highest sequence
+    assert.equal(transcript.lastEventSeq > 0, true);
+    assert.equal(transcript.lastEventSeq, 8);
+    const snapshot = fixture.runtime.getSnapshot(turnId);
+    assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
