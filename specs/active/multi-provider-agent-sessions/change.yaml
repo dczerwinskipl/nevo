@@ -63,3 +63,8 @@ tasks:
       - antigravity-event-and-tool-mapping
 
 spec_id: d9d40a17-cb1b-4cb5-b562-36f9bc75b726
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 29
