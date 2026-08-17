@@ -56,7 +56,34 @@ export interface DashboardPayload {
   archive: DashboardChange[];
 }
 
-export type SpecificationDocumentKind = 'overview' | 'area' | 'task';
+export type SpecificationDocumentKind = 'overview' | 'area' | 'task' | string;
+
+export type SpecificationSectionType = 'document' | 'directory';
+
+export interface SpecificationManifestDocumentSection {
+  id: string;
+  type: 'document';
+  label: string;
+  icon?: string;
+  template?: string;
+  available: boolean;
+  document: SpecificationManifestDocument | null;
+}
+
+export interface SpecificationManifestDirectorySection {
+  id: string;
+  type: 'directory';
+  label: string;
+  singularLabel?: string;
+  icon?: string;
+  template?: string;
+  available: boolean;
+  documents: SpecificationManifestDocument[];
+}
+
+export type SpecificationManifestSection =
+  | SpecificationManifestDocumentSection
+  | SpecificationManifestDirectorySection;
 
 // Manifest entries carry no markdown body (area dashboard-data-loading-contracts:
 // "which documents exist ... but not their bodies") — only enough to render
@@ -88,6 +115,7 @@ export interface SpecificationManifest {
   overview: SpecificationManifestDocument;
   areas: SpecificationManifestDocument[];
   tasks: SpecificationManifestTaskDocument[];
+  sections: SpecificationManifestSection[];
 }
 
 export interface SpecificationDocument {

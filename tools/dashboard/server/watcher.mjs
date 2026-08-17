@@ -5,7 +5,8 @@ import { ACTIVE_DIR, ARCHIVE_DIR } from '../../specs/service.mjs';
 export function isRelevantSpecPath(fileName) {
   if (!fileName) return true;
   const normalized = String(fileName).replace(/\\/g, '/');
-  return /(?:^|\/)(?:change\.ya?ml|overview\.md|owner-decisions\.md|follow-ups\.ya?ml|tasks\/.*\.md|areas\/.*\.md)$/i.test(normalized);
+  if (/\.generated\./i.test(normalized)) return false;
+  return /\.(?:md|ya?ml)$/i.test(normalized);
 }
 
 // Repo-relative prefix each watched root's own file names get joined onto,

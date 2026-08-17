@@ -1,0 +1,6 @@
+{"type":"message_start","message":{"id":"msg_01AQ1W8QhMhKz2e1a3b4c5d7","type":"message","role":"assistant","model":"claude-3-7-sonnet-20250219","content":[]}}
+{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"Great! Based on your selection of PostgreSQL, I will configure the connection string and migration scripts."}}
+{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\n\nI have prepared the schema definitions and verified connection pooling settings."}}
+{"type":"content_block_stop","index":0}
+{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":82}}
+{"type":"message_stop"}

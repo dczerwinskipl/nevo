@@ -10,7 +10,8 @@ import { ACTIVE_DIR } from '../../specs/service.mjs';
 test('recognizes source files that should trigger a refresh', () => {
   assert.equal(isRelevantSpecPath('sample/change.yaml'), true);
   assert.equal(isRelevantSpecPath('sample/tasks/01-task.md'), true);
-  assert.equal(isRelevantSpecPath('sample/reviews/spec.md'), false);
+  assert.equal(isRelevantSpecPath('sample/reviews/spec.md'), true);
+  assert.equal(isRelevantSpecPath('sample/solution-options.md'), true);
   assert.equal(isRelevantSpecPath('active.generated.md'), false);
 });
 

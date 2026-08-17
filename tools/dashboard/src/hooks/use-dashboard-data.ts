@@ -84,12 +84,15 @@ export function handleSpecsChanged(queryClient: ReturnType<typeof useQueryClient
     predicate: query => {
       const key = query.queryKey as QueryKey;
       if (key[0] !== DOCUMENT_QUERY_KEY[0]) return false;
-      // A changed file's own repo-relative path (`specs/active/<slug>/tasks/x.md`)
-      // matches a manifest document's `path` field exactly — no separate
-      // mapping table needed to know which docId a raw fs event touched.
       const manifest = queryClient.getQueryData<SpecificationManifest>([MANIFEST_QUERY_KEY[0], key[1], key[2]]);
       if (!manifest) return true; // nothing cached to compare against — invalidate to be safe
-      const matchingDoc = [manifest.overview, ...manifest.areas, ...manifest.tasks].find(d => d.docId === key[3]);
+      const allDocs = [
+        manifest.overview,
+        ...manifest.areas,
+        ...manifest.tasks,
+        ...(manifest.sections || []).flatMap(s => s.type === 'document' ? (s.document ? [s.document] : []) : s.documents),
+      ];
+      const matchingDoc = allDocs.find(d => d?.docId === key[3]);
       return Boolean(matchingDoc?.path && files.includes(matchingDoc.path));
     },
   });

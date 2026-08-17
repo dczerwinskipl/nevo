@@ -1,6 +1,7 @@
 import {
   AiNotFoundError,
-  AiUnsupportedOperationError,
+  AiValidationError,
+  CapabilityNotSupportedError,
   validateProviderDescriptor,
 } from './contracts.mjs';
 
@@ -12,12 +13,35 @@ export class AiAdapterRegistry {
   }
 
   register(adapter) {
-    const descriptor = validateProviderDescriptor(adapter?.descriptor);
+    if (!adapter || typeof adapter !== 'object') {
+      throw new AiValidationError('Adapter must be an object.');
+    }
+    const descriptor = validateProviderDescriptor(adapter.descriptor);
+    for (const method of ['startTurn', 'cancelTurn']) {
+      if (typeof adapter[method] !== 'function') {
+        throw new AiValidationError(`Adapter for provider '${descriptor.id}' must implement required method '${method}'.`, {
+          provider: descriptor.id,
+          method,
+        });
+      }
+    }
     if (this.#adapters.has(descriptor.id)) {
       throw new Error(`AI provider '${descriptor.id}' is already registered.`);
     }
     this.#adapters.set(descriptor.id, { adapter, descriptor });
     return this;
+  }
+
+  unregister(provider) {
+    return this.#adapters.delete(provider);
+  }
+
+  has(provider) {
+    return this.#adapters.has(provider);
+  }
+
+  list() {
+    return [...this.#adapters.keys()];
   }
 
   descriptors() {
@@ -32,8 +56,8 @@ export class AiAdapterRegistry {
 
   require(provider, capability, method) {
     const entry = this.get(provider);
-    if (!entry.descriptor.capabilities[capability] || typeof entry.adapter[method] !== 'function') {
-      throw new AiUnsupportedOperationError(provider, capability);
+    if (!entry.descriptor.capabilities[capability] || (method && typeof entry.adapter[method] !== 'function')) {
+      throw new CapabilityNotSupportedError(provider, capability);
     }
     return entry.adapter;
   }

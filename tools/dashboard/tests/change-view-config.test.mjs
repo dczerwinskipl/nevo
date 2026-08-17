@@ -47,3 +47,24 @@ test('a malformed config file falls back to defaults rather than throwing', () =
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard, AI, Specs, Docs, Tests, Other)', async () => {
+  const { assignGroup } = await import('../src/lib/changes-grouping.ts');
+  assert.equal(assignGroup('tools/dashboard/src/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard');
+  assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard');
+  assert.equal(assignGroup('tools/ai/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
+  assert.equal(assignGroup('.claude/skills/demo.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
+  assert.equal(assignGroup('.cursor/rules/main.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
+  assert.equal(assignGroup('tools/specs.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Specs');
+  assert.equal(assignGroup('tools/specs/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Specs');
+  assert.equal(assignGroup('tools/docs.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Docs');
+  assert.equal(assignGroup('tools/docs/indexer.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Docs');
+  assert.equal(assignGroup('tools/tests/specs.test.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Tests');
+  assert.equal(assignGroup('tools/lib/common.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Other');
+  assert.equal(assignGroup('specs/active/my-change/change.yaml', DEFAULT_CHANGE_VIEW), 'Specs');
+  assert.equal(assignGroup('src/NEvo.Core/Engine.cs', DEFAULT_CHANGE_VIEW), 'Source');
+  assert.equal(assignGroup('tests/NEvo.Tests/EngineTests.cs', DEFAULT_CHANGE_VIEW), 'Tests');
+  assert.equal(assignGroup('docs/development/local-setup.md', DEFAULT_CHANGE_VIEW), 'Docs');
+  assert.equal(assignGroup('README.md', DEFAULT_CHANGE_VIEW), 'Other');
+});
+

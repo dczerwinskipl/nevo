@@ -1,14 +1,15 @@
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowUpRight,
   BookOpenText,
   Boxes,
   CalendarClock,
   CheckCircle2,
-  ChevronRight,
   CircleDotDashed,
+  ClipboardCheck,
   FileCode2,
+  FileText,
+  Folder,
   GitPullRequest,
   Layers3,
   LayoutDashboard,
@@ -18,15 +19,19 @@ import {
   MessagesSquare,
   MessageSquarePlus,
   RefreshCw,
+  Scale,
+  Workflow,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   DashboardChange,
   DashboardTask,
   AiSession,
-  SpecificationManifest,
+  OperationSnapshot,
+  SpecificationManifestSection,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
@@ -49,17 +54,35 @@ import {
   invalidateDashboardQueries,
 } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
-
-type DetailTab = 'overview' | 'specification' | 'areas' | 'changes';
+import { DocumentSectionPanel } from '@/components/document-section-panel';
+import { DirectorySectionPanel } from '@/components/directory-section-panel';
 
 const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
 
-const DETAIL_TABS: Array<{ id: DetailTab; label: string; icon: typeof LayoutDashboard }> = [
-  { id: 'overview', label: 'Przegląd', icon: LayoutDashboard },
-  { id: 'specification', label: 'Specyfikacja', icon: BookOpenText },
-  { id: 'areas', label: 'Obszary', icon: Boxes },
-  { id: 'changes', label: 'Zmiany', icon: GitPullRequest },
-];
+const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
+  LayoutDashboard,
+  BookOpenText,
+  Boxes,
+  GitPullRequest,
+  Workflow,
+  Scale,
+  ClipboardCheck,
+  FileCode2,
+  FileText,
+  Folder,
+};
+
+function resolveTabIcon(iconName?: string, type?: string): ComponentType<{ className?: string }> {
+  if (iconName && ICON_MAP[iconName]) return ICON_MAP[iconName];
+  return type === 'directory' ? Boxes : BookOpenText;
+}
+
+export interface SpecTabItem {
+  id: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  section?: SpecificationManifestSection;
+}
 
 function MetricCard({ icon, label, value, helper }: { icon: React.ReactNode; label: string; value: string; helper: string }) {
   return (
@@ -273,6 +296,7 @@ function OverviewPanel({
   actions,
   taskActions,
   onDirectTaskAction,
+  onBatchTaskAction,
   onCreateSession,
 }: {
   change: DashboardChange;
@@ -285,6 +309,7 @@ function OverviewPanel({
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
+  onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
 }) {
   return (
@@ -347,169 +372,16 @@ function OverviewPanel({
           actions={taskActions}
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
+          onBatchAction={onBatchTaskAction}
         />
       </div>
     </>
   );
 }
 
-function SpecificationPanel({
-  change,
-  manifest,
-  manifestLoading,
-  manifestError,
-  onManifestRetry,
-  enabled,
-}: {
-  change: DashboardChange;
-  manifest: SpecificationManifest | null;
-  manifestLoading: boolean;
-  manifestError: string | null;
-  onManifestRetry: () => void;
-  enabled: boolean;
-}) {
-  // Eliminates request waterfall: request overview document immediately in parallel with manifest
-  const overviewQuery = useSpecificationDocument(change, 'overview', enabled);
-
-  if (overviewQuery.loading) return <ContentLoading />;
-  if (overviewQuery.error) return <ContentError message={overviewQuery.error} onRetry={() => void overviewQuery.refresh()} />;
-  if (!overviewQuery.data?.available) {
-    if (manifestLoading) return <ContentLoading />;
-    if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
-    return <EmptyDocument title="Brak głównego dokumentu" detail="Ta specyfikacja nie zawiera opcjonalnego pliku overview.md." />;
-  }
-  return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
-        {overviewQuery.data.path || manifest?.overview.path || 'overview.md'}
-      </div>
-      <article className="px-5 py-7 sm:px-8 sm:py-9">
-        <MarkdownContent markdown={overviewQuery.data.markdown} />
-      </article>
-    </Card>
-  );
-}
-
-function AreasPanel({
-  change,
-  manifest,
-  manifestLoading,
-  manifestError,
-  onManifestRetry,
-  enabled,
-}: {
-  change: DashboardChange;
-  manifest: SpecificationManifest | null;
-  manifestLoading: boolean;
-  manifestError: string | null;
-  onManifestRetry: () => void;
-  enabled: boolean;
-}) {
-  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
-  const areaTriggerIdRef = useRef<string | null>(null);
-  const selectedArea = selectedAreaId
-    ? manifest?.areas.find(area => area.id === selectedAreaId) ?? null
-    : null;
-  const areaDocumentQuery = useSpecificationDocument(change, selectedArea?.docId ?? null, enabled && Boolean(selectedArea));
-
-  useEffect(() => {
-    if (selectedAreaId && !manifest?.areas.some(area => area.id === selectedAreaId)) {
-      setSelectedAreaId(null);
-    }
-  }, [manifest, selectedAreaId]);
-
-  if (manifestLoading) return <ContentLoading />;
-  if (manifestError) return <ContentError message={manifestError} onRetry={onManifestRetry} />;
-  if (!manifest?.areas.length) {
-    return <EmptyDocument title="Brak dokumentów obszarów" detail="Ta specyfikacja nie ma dodatkowych dokumentów w katalogu areas/." />;
-  }
-
-  if (selectedArea) {
-    return (
-      <div>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="-ml-2"
-            onClick={() => {
-              const triggerId = areaTriggerIdRef.current;
-              setSelectedAreaId(null);
-              requestAnimationFrame(() => { if (triggerId) document.getElementById(triggerId)?.focus(); });
-            }}
-          >
-            <ArrowLeft className="mr-2 size-3.5" /> Wróć do obszarów
-          </Button>
-          <span className="max-w-full truncate text-[10px] text-[var(--muted)] sm:max-w-[60%]">{selectedArea.path}</span>
-        </div>
-
-        {areaDocumentQuery.loading ? (
-          <ContentLoading />
-        ) : areaDocumentQuery.error ? (
-          <ContentError message={areaDocumentQuery.error} onRetry={() => void areaDocumentQuery.refresh()} />
-        ) : (
-          <Card className="overflow-hidden">
-            <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszar</p>
-              <h2 className="mt-2 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{selectedArea.title}</h2>
-            </div>
-            <article className="px-5 py-7 sm:px-8 sm:py-9">
-              <MarkdownContent markdown={areaDocumentQuery.data?.markdown ?? ''} />
-            </article>
-          </Card>
-        )}
-      </div>
-    );
-  }
-
-  const areaCountLabel = manifest.areas.length === 1
-    ? '1 obszar'
-    : manifest.areas.length < 5
-      ? `${manifest.areas.length} obszary`
-      : `${manifest.areas.length} obszarów`;
-
-  return (
-    <div>
-      <div className="mb-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Obszary</p>
-        <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{areaCountLabel}</h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">Wybierz obszar, aby otworzyć jego dokument.</p>
-      </div>
-
-      <div className="space-y-3">
-        {manifest.areas.map(area => {
-          const triggerId = `area-trigger-${area.id}`;
-          return (
-            <Card key={area.id} className="overflow-hidden transition-colors hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--border))]">
-              <button
-                id={triggerId}
-                type="button"
-                className="flex w-full items-center gap-3 p-4 text-left sm:p-5"
-                onClick={() => {
-                  areaTriggerIdRef.current = triggerId;
-                  setSelectedAreaId(area.id);
-                }}
-              >
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted)]">
-                  <Boxes className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold leading-5 text-[var(--foreground)] sm:text-base">{area.title}</h3>
-                  {area.path && <p className="mt-2 truncate font-mono text-[10px] text-[var(--muted)]">{area.path}</p>}
-                </div>
-                <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />
-              </button>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
     try {
@@ -527,8 +399,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   });
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
-  const manifestEnabled = activeTab === 'specification' || activeTab === 'areas';
-  const manifestQuery = useSpecificationManifest(change, manifestEnabled);
+  const manifestQuery = useSpecificationManifest(change, true);
   const taskDocId = selectedTaskId ? `task:${selectedTaskId}` : null;
   const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(selectedTaskId));
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
@@ -537,6 +408,35 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const selectedTaskDocument = (selectedTaskId ? taskDocumentQuery.data as SpecificationTaskDocument | null : null);
   const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
   const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
+
+  const visibleTabs = useMemo<SpecTabItem[]>(() => {
+    const tabs: SpecTabItem[] = [
+      { id: 'overview', label: 'Przegląd', icon: LayoutDashboard },
+    ];
+
+    if (manifestQuery.data?.sections && manifestQuery.data.sections.length > 0) {
+      for (const section of manifestQuery.data.sections) {
+        if (section.available) {
+          tabs.push({
+            id: section.id,
+            label: section.label,
+            icon: resolveTabIcon(section.icon, section.type),
+            section,
+          });
+        }
+      }
+    } else if (manifestQuery.data) {
+      if (manifestQuery.data.overview?.available) {
+        tabs.push({ id: 'specification', label: 'Specyfikacja', icon: BookOpenText });
+      }
+      if (manifestQuery.data.areas && manifestQuery.data.areas.length > 0) {
+        tabs.push({ id: 'areas', label: 'Obszary', icon: Boxes });
+      }
+    }
+
+    tabs.push({ id: 'changes', label: 'Zmiany', icon: GitPullRequest });
+    return tabs;
+  }, [manifestQuery.data]);
 
   const updateActiveOperation = useCallback((opId: string | null, title?: string) => {
     setActiveOperationId(opId);
@@ -554,8 +454,20 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     } catch {}
   }, [change.slug]);
 
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['overview']));
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
   useEffect(() => {
     setActiveTab('overview');
+    setVisitedTabs(new Set(['overview']));
     setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
     try {
@@ -616,6 +528,46 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     }
   }, [actionsQuery, updateActiveOperation]);
 
+  const executeBatchTaskAction = useCallback(async (tasks: DashboardTask[], actionName: SpecificationOwnerAction) => {
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      try {
+        const taskId = task.id;
+        const res = await actionsQuery.execute({ action: actionName, taskId });
+        if (res?.operationId) {
+          updateActiveOperation(
+            res.operationId,
+            actionName === 'approve'
+              ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
+              : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`
+          );
+
+          // Wait for the spawned operation to reach a terminal state before running next task
+          const startTime = Date.now();
+          let isTerminal = false;
+          while (!isTerminal && Date.now() - startTime < 60000) {
+            await new Promise(r => setTimeout(r, 350));
+            try {
+              const checkRes = await fetch(`/api/operations/${encodeURIComponent(res.operationId)}`, { cache: 'no-store' });
+              if (checkRes.ok) {
+                const snap = (await checkRes.json()) as OperationSnapshot;
+                if (snap.status === 'completed') {
+                  isTerminal = true;
+                } else if (snap.status === 'failed') {
+                  return; // Stop batch execution if a task fails
+                }
+              }
+            } catch {
+              // retry polling
+            }
+          }
+        }
+      } catch {
+        break;
+      }
+    }
+  }, [actionsQuery, updateActiveOperation]);
+
   const executeFinalize = useCallback(async () => {
     try {
       const res = await actionsQuery.execute({ action: 'finalize', confirmed: true });
@@ -630,13 +582,13 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex = currentIndex;
-    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % visibleTabs.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
     else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = DETAIL_TABS.length - 1;
+    else if (event.key === 'End') nextIndex = visibleTabs.length - 1;
     else return;
     event.preventDefault();
-    const nextTab = DETAIL_TABS[nextIndex];
+    const nextTab = visibleTabs[nextIndex];
     setActiveTab(nextTab.id);
     requestAnimationFrame(() => document.getElementById(`spec-tab-${nextTab.id}`)?.focus());
   };
@@ -682,7 +634,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
       <nav className="mt-9 overflow-x-auto border-b border-[var(--border)]" aria-label="Widoki specyfikacji">
         <div className="flex min-w-max gap-1" role="tablist">
-          {DETAIL_TABS.map((tab, index) => {
+          {visibleTabs.map((tab, index) => {
             const Icon = tab.icon;
             const selected = activeTab === tab.id;
             return (
@@ -709,13 +661,13 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         </div>
       </nav>
 
-      <div
-        id={`spec-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`spec-tab-${activeTab}`}
-        className="mt-7"
-      >
-        {activeTab === 'overview' && (
+      <div className="mt-7">
+        <div
+          id="spec-panel-overview"
+          role="tabpanel"
+          aria-labelledby="spec-tab-overview"
+          className={cn(activeTab !== 'overview' && 'hidden')}
+        >
           <OverviewPanel
             change={change}
             onTaskSelect={openTask}
@@ -727,6 +679,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
             onCreateSession={onCreateSession}
             taskActions={actionsQuery.data?.tasks}
             onDirectTaskAction={executeDirectTaskAction}
+            onBatchTaskAction={executeBatchTaskAction}
             actions={
               change.source === 'active' ? (
                 <div className="mb-9 max-w-xl">
@@ -746,31 +699,72 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
               ) : null
             }
           />
-        )}
-        {activeTab === 'specification' && (
-          <SpecificationPanel
-            change={change}
-            manifest={manifestQuery.data}
-            manifestLoading={manifestQuery.loading}
-            manifestError={manifestQuery.error}
-            onManifestRetry={() => void manifestQuery.refresh()}
-            enabled={activeTab === 'specification'}
-          />
-        )}
-        {activeTab === 'areas' && (
-          <AreasPanel
-            change={change}
-            manifest={manifestQuery.data}
-            manifestLoading={manifestQuery.loading}
-            manifestError={manifestQuery.error}
-            onManifestRetry={() => void manifestQuery.refresh()}
-            enabled={activeTab === 'areas'}
-          />
-        )}
-        {activeTab === 'changes' && (
-          <Suspense fallback={<ContentLoading />}>
-            <ChangesPanel change={change} />
-          </Suspense>
+        </div>
+
+        {visibleTabs.filter(t => t.id !== 'overview' && t.id !== 'changes').map(tab => {
+          if (!visitedTabs.has(tab.id)) return null;
+          const section = tab.section;
+          return (
+            <div
+              key={tab.id}
+              id={`spec-panel-${tab.id}`}
+              role="tabpanel"
+              aria-labelledby={`spec-tab-${tab.id}`}
+              className={cn(activeTab !== tab.id && 'hidden')}
+            >
+              {section ? (
+                section.type === 'directory' ? (
+                  <DirectorySectionPanel
+                    change={change}
+                    section={section}
+                    enabled={visitedTabs.has(tab.id)}
+                  />
+                ) : (
+                  <DocumentSectionPanel
+                    change={change}
+                    docId={section.document?.docId || (section.id === 'specification' ? 'overview' : section.id)}
+                    fallbackPath={section.document?.path}
+                    fallbackTitle={section.label}
+                    enabled={visitedTabs.has(tab.id)}
+                  />
+                )
+              ) : tab.id === 'specification' ? (
+                <DocumentSectionPanel
+                  change={change}
+                  docId="overview"
+                  fallbackPath={manifestQuery.data?.overview?.path || 'overview.md'}
+                  fallbackTitle="Specyfikacja"
+                  enabled={visitedTabs.has(tab.id)}
+                />
+              ) : tab.id === 'areas' ? (
+                <DirectorySectionPanel
+                  change={change}
+                  section={{
+                    id: 'areas',
+                    type: 'directory',
+                    label: 'Obszary',
+                    singularLabel: 'Obszar',
+                    available: (manifestQuery.data?.areas?.length ?? 0) > 0,
+                    documents: manifestQuery.data?.areas || [],
+                  }}
+                  enabled={visitedTabs.has(tab.id)}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+
+        {visitedTabs.has('changes') && (
+          <div
+            id="spec-panel-changes"
+            role="tabpanel"
+            aria-labelledby="spec-tab-changes"
+            className={cn(activeTab !== 'changes' && 'hidden')}
+          >
+            <Suspense fallback={<ContentLoading />}>
+              <ChangesPanel change={change} />
+            </Suspense>
+          </div>
         )}
       </div>
 

@@ -283,7 +283,7 @@ tools/dashboard/dist/
 tools/dashboard/*.tsbuildinfo
 
 # Local AI provider discovery and session registry evidence
-/.nevo-ai-local/
+.nevo-ai-local/
 
 # Visual Studio 6 build log
 *.plg

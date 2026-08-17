@@ -1,104 +1,289 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  AiUnsupportedOperationError,
+  AGENT_CAPABILITIES,
+  DEFAULT_AGENT_CAPABILITIES,
+  CapabilityNotSupportedError,
+  validateAgentEvent,
+  validateAgentIdentity,
   validateAiEvent,
-  validateAiSession,
   validateInteractionResponse,
-  sortAiSessions,
+  normalizeCapabilities,
 } from '../ai/contracts.mjs';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiSessionService } from '../ai/service.mjs';
+import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 
 const capabilities = Object.freeze({
-  listSessions: true,
-  sessionMetadata: true,
-  messages: true,
-  createSession: true,
-  startTurn: true,
-  streamEvents: true,
-  resumeTurn: false,
-  resolveInteractions: true,
-  cancelTurn: false,
+  interactivePermissions: true,
+  interactiveQuestions: true,
+  interactiveConfirmations: true,
+  resumeSession: false,
+  cancelTurn: true,
+  toolCalls: true,
+  reasoning: true,
+  usage: true,
 });
 
-function session(overrides = {}) {
-  return {
-    specId: '70609aaf-bb62-40bf-a25e-bec65c583495',
-    provider: 'fake',
-    sessionId: 'opaque/id?yes',
-    taskIds: ['task-a'],
-    status: 'idle',
-    createdAt: '2026-08-15T10:00:00Z',
-    lastActivityAt: '2026-08-15T11:00:00Z',
-    capabilities,
-    ...overrides,
-  };
-}
+test('validateAgentIdentity enforces canonical pair (provider, providerSessionId)', () => {
+  const identity = validateAgentIdentity({ provider: 'claude', providerSessionId: 'sess-123' });
+  assert.deepEqual(identity, { provider: 'claude', providerSessionId: 'sess-123' });
 
-test('complete sessions normalize and invalid required fields are rejected', () => {
-  const value = validateAiSession(session());
-  assert.equal(value.lastActivityAt, '2026-08-15T11:00:00.000Z');
-  for (const field of ['specId', 'provider', 'sessionId', 'taskIds', 'status', 'createdAt', 'lastActivityAt']) {
-    const invalid = session();
-    delete invalid[field];
-    assert.throws(() => validateAiSession(invalid), { name: 'AiValidationError' }, field);
-  }
-  assert.throws(() => validateAiSession(session({ specId: 'slug-not-uuid' })), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentIdentity({ provider: '', providerSessionId: 's1' }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentIdentity({ provider: 'claude', providerSessionId: '' }), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentIdentity(null), { name: 'AiValidationError' });
 });
 
-test('session sorting is activity descending with deterministic ties and no isActive', () => {
-  const sorted = sortAiSessions([
-    session({ provider: 'z', sessionId: '2', lastActivityAt: '2026-08-15T12:00:00Z' }),
-    session({ provider: 'a', sessionId: '1', lastActivityAt: '2026-08-15T12:00:00Z' }),
-    session({ provider: 'a', sessionId: '0', lastActivityAt: '2026-08-15T13:00:00Z', isActive: true }),
-  ]);
-  assert.deepEqual(sorted.map(item => item.sessionId), ['0', '1', '2']);
-  assert.equal('isActive' in sorted[0], false);
+test('normalizeCapabilities normalizes canonical AGENT_CAPABILITIES', () => {
+  const normalized = normalizeCapabilities({
+    interactivePermissions: true,
+    toolCalls: true,
+  });
+  assert.equal(normalized.interactivePermissions, true);
+  assert.equal(normalized.toolCalls, true);
+  assert.equal(normalized.interactiveQuestions, false);
+  assert.equal(normalized.reasoning, false);
 });
 
-test('unsupported capabilities return a normalized error without invoking methods', async () => {
+test('unsupported capabilities return CapabilityNotSupportedError without invoking methods', async () => {
   let invoked = false;
   const adapter = {
     descriptor: { id: 'limited', label: 'Limited', capabilities: {} },
-    async createSession() { invoked = true; },
+    async startTurn() {},
+    async cancelTurn() { invoked = true; },
   };
-  const service = createAiSessionService({ registry: createAiAdapterRegistry([adapter]) });
-  await assert.rejects(() => service.createSession('limited', {}), error => {
-    assert.ok(error instanceof AiUnsupportedOperationError);
-    assert.deepEqual(error.toJSON().error.details, { provider: 'limited', capability: 'createSession' });
+  const registry = createAiAdapterRegistry([adapter]);
+  assert.throws(() => registry.require('limited', 'cancelTurn', 'cancelTurn'), error => {
+    assert.ok(error instanceof CapabilityNotSupportedError);
+    assert.equal(error.name, 'CapabilityNotSupportedError');
+    assert.deepEqual(error.toJSON().error.details, { provider: 'limited', capability: 'cancelTurn' });
     return true;
   });
   assert.equal(invoked, false);
 });
 
-test('required events validate stable interaction and question IDs and reject provider request fields', () => {
+test('registry rejects provider adapters missing required methods (startTurn, cancelTurn)', () => {
+  assert.throws(
+    () => createAiAdapterRegistry([{ descriptor: { id: 'missing-all', label: 'Missing', capabilities: {} } }]),
+    { name: 'AiValidationError' },
+  );
+
+  assert.throws(
+    () => createAiAdapterRegistry([{
+      descriptor: { id: 'missing-start', label: 'Missing', capabilities: {} },
+      async cancelTurn() {},
+    }]),
+    { name: 'AiValidationError' },
+  );
+
+  assert.throws(
+    () => createAiAdapterRegistry([{
+      descriptor: { id: 'missing-cancel', label: 'Missing', capabilities: {} },
+      async startTurn() {},
+    }]),
+    { name: 'AiValidationError' },
+  );
+});
+
+test('required events validate all normalized schemas and reject provider request fields', () => {
   const base = { id: 1, turnId: 'turn-1', timestamp: '2026-08-15T12:00:00Z' };
   for (const event of [
     { ...base, type: 'turn.started' },
-    { ...base, type: 'message.delta', messageId: 'message-1', delta: 'hello' },
+    { ...base, type: 'message.started', messageId: 'msg-1', role: 'assistant' },
+    { ...base, type: 'text.delta', text: 'hello' },
+    { ...base, type: 'reasoning.delta', text: 'thinking about code' },
+    { ...base, type: 'tool.started', toolId: 'tool-1', toolName: 'Shell', input: { command: 'npm test' } },
+    { ...base, type: 'tool.updated', toolId: 'tool-1', output: 'running...', status: 'running' },
+    { ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success', durationMs: 150 },
     { ...base, type: 'interaction.requested', interaction: { id: 'int-1', kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } } },
     { ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Choose?', multiSelect: false }] } },
-    { ...base, type: 'interaction.resolved', interactionId: 'int-2' },
-    { ...base, type: 'turn.completed' },
+    { ...base, type: 'interaction.requested', interaction: { id: 'int-3', kind: 'confirmation', message: 'Proceed with changes?' } },
+    { ...base, type: 'interaction.resolved', interactionId: 'int-2', response: { answers: [{ questionId: 'q-1', value: 'yes' }] } },
+    { ...base, type: 'usage.updated', tokensIn: 100, tokensOut: 50, cost: 0.002 },
+    { ...base, type: 'turn.completed', durationMs: 1200, finishReason: 'stop' },
     { ...base, type: 'turn.failed', error: { code: 'FAILED', message: 'failed' } },
-  ]) assert.equal(validateAiEvent(event).type, event.type);
+  ]) assert.equal(validateAgentEvent(event).type, event.type);
+
   assert.throws(() => validateAiEvent({ ...base, type: 'turn.started', providerRequestId: 'secret' }), { name: 'AiValidationError' });
   assert.throws(() => validateAiEvent({ ...base, type: 'interaction.requested', interaction: { id: 'i', kind: 'permission', toolName: 'x', input: { rawPayload: {} } } }), { name: 'AiValidationError' });
 
   const question = validateAiEvent({ ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Same?' }, { id: 'q-2', question: 'Same?' }] } }).interaction;
   assert.deepEqual(validateInteractionResponse(question, { answers: [{ questionId: 'q-1', value: 'A' }, { questionId: 'q-2', value: 'B' }] }).answers.map(item => item.questionId), ['q-1', 'q-2']);
   assert.throws(() => validateInteractionResponse(question, { answers: [{ questionId: 'Same?', value: 'A' }, { questionId: 'q-2', value: 'B' }] }));
+
+  const confirmation = { id: 'int-3', kind: 'confirmation', title: 'Confirm', message: 'Sure?' };
+  assert.deepEqual(validateInteractionResponse(confirmation, { confirmed: true }), { confirmed: true, decision: 'confirm' });
+  assert.deepEqual(validateInteractionResponse(confirmation, { decision: 'deny' }), { confirmed: false, decision: 'cancel' });
 });
 
-test('two adapters are selected through one registry and neutral service', async () => {
+test('multi-provider registry supports multiple registered providers (claude, antigravity, mock)', async () => {
   function fake(id) {
     return {
       descriptor: { id, label: id.toUpperCase(), capabilities },
-      async listSessions() { return [session({ provider: id, sessionId: `${id}-session` })]; },
+      async startTurn() {},
+      async cancelTurn() {},
     };
   }
-  const service = createAiSessionService({ registry: createAiAdapterRegistry([fake('alpha'), fake('beta')]) });
-  const sessions = await service.listSessions();
-  assert.deepEqual(sessions.map(item => item.provider), ['alpha', 'beta']);
+  const registry = createAiAdapterRegistry([fake('claude'), fake('antigravity'), fake('mock')]);
+  assert.deepEqual(registry.list(), ['claude', 'antigravity', 'mock']);
+  assert.equal(registry.has('claude'), true);
+  assert.equal(registry.has('antigravity'), true);
+  assert.equal(registry.has('mock'), true);
 });
+
+test('AiSessionService uses binding service for listings and transcript cache for messages', async () => {
+  const bindingService = {
+    async listBindings(filters) {
+      return [{ provider: 'claude', providerSessionId: 'sess-1', specId: filters?.specId }];
+    },
+    async getBinding(provider, providerSessionId) {
+      return { provider, providerSessionId, specId: 'my-spec' };
+    },
+  };
+  const transcriptCache = {
+    async getTranscript(provider, providerSessionId) {
+      return { provider, providerSessionId, messages: [{ role: 'user', text: 'hi' }] };
+    },
+  };
+  const adapter = {
+    descriptor: { id: 'claude', label: 'Claude', capabilities },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const registry = createAiAdapterRegistry([adapter]);
+  const service = createAiSessionService({ registry, bindingService, transcriptCache });
+
+  const sessions = await service.listSessions({ specId: 'spec-123' });
+  assert.deepEqual(sessions, [{ provider: 'claude', providerSessionId: 'sess-1', specId: 'spec-123' }]);
+
+  const session = await service.getSession('claude', 'sess-1');
+  assert.deepEqual(session, { provider: 'claude', providerSessionId: 'sess-1', specId: 'my-spec' });
+
+  const messages = await service.listMessages('claude', 'sess-1');
+  assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+});
+
+test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {
+  const bindings = [];
+  const bindingService = {
+    async bindSession(binding) {
+      bindings.push(binding);
+      return binding;
+    },
+    async listBindings() {
+      return bindings;
+    },
+  };
+
+  let resumeCalledWith = null;
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId, message, emitTextDelta }) {
+      if (!providerSessionId) {
+        const newId = 'fake-allocated-uuid-999';
+        setProviderSessionId(newId);
+        emitTextDelta('first turn response');
+        return { providerSessionId: newId };
+      } else {
+        resumeCalledWith = providerSessionId;
+        emitTextDelta('second turn response');
+        return { providerSessionId };
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  // 1. First prompt in blank chat without providerSessionId
+  const turn1 = await service.startTurn('fake', null, {
+    message: 'First prompt from new chat',
+    specId: 'spec-integration-test',
+    taskId: 'task-1',
+  });
+
+  // Direct return value MUST have providerSessionId populated
+  assert.equal(turn1.providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].provider, 'fake');
+  assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings[0].specId, 'spec-integration-test');
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn1.turnId);
+    if (snap?.status === 'completed') break;
+    await new Promise(r => setTimeout(r, 5));
+  }
+
+  // 2. Second prompt resumes using the established providerSessionId
+  const turn2 = await service.startTurn('fake', 'fake-allocated-uuid-999', {
+    message: 'Follow-up prompt',
+  });
+
+  assert.equal(turn2.providerSessionId, 'fake-allocated-uuid-999');
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn2.turnId);
+    if (snap?.status === 'completed') break;
+    await new Promise(r => setTimeout(r, 5));
+  }
+
+  assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
+});
+
+test('first-turn binding failure causes startTurn rejection and turn failure', async () => {
+  const bindingService = {
+    async bindSession() {
+      throw new Error('Database/disk binding error simulation');
+    },
+  };
+
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId }) {
+      if (!providerSessionId) {
+        await setProviderSessionId('new-fail-uuid');
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  await assert.rejects(
+    () => service.startTurn('fake', null, { message: 'hi', specId: 'spec-1' }),
+    { message: 'Database/disk binding error simulation' },
+  );
+});
+
+test('first-turn request without specId does not require binding and resolves cleanly', async () => {
+  let bound = false;
+  const bindingService = {
+    async bindSession() { bound = true; },
+  };
+
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId, emitTextDelta }) {
+      if (!providerSessionId) {
+        await setProviderSessionId('new-unbound-uuid');
+        emitTextDelta('done');
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  const result = await service.startTurn('fake', null, { message: 'free chat' });
+  assert.equal(result.providerSessionId, 'new-unbound-uuid');
+  assert.equal(bound, false);
+});
+
+

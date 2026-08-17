@@ -1,9 +1,11 @@
-import { sortAiSessions, validateAiSession } from './contracts.mjs';
+import { AiError, validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
-  constructor({ registry, turnRuntime } = {}) {
+  constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
     this.registry = registry;
     this.turnRuntime = turnRuntime;
+    this.transcriptCache = transcriptCache ?? turnRuntime?.transcriptCache;
+    this.bindingService = bindingService;
   }
 
   listProviders() {
@@ -11,38 +13,67 @@ export class AiSessionService {
   }
 
   async listSessions(filters = {}) {
-    const providers = filters.provider ? [filters.provider] : this.registry.descriptors().filter(item => item.enabled).map(item => item.id);
-    const sessions = [];
-    for (const provider of providers) {
-      const adapter = this.registry.require(provider, 'listSessions', 'listSessions');
-      const values = await adapter.listSessions(filters);
-      sessions.push(...values.map(validateAiSession));
+    if (this.bindingService) {
+      return this.bindingService.listBindings(filters);
     }
-    return sortAiSessions(sessions.filter(session => (
-      (!filters.specId || session.specId === filters.specId)
-      && (!filters.taskId || session.taskIds.includes(filters.taskId))
-    )));
+    return [];
   }
 
-  async getSession(provider, sessionId) {
-    const adapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
-    return validateAiSession(await adapter.getSession(sessionId));
+  async getSession(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (this.bindingService) {
+      return this.bindingService.getBinding(provider, providerSessionId);
+    }
+    return null;
   }
 
-  async listMessages(provider, sessionId) {
-    const adapter = this.registry.require(provider, 'messages', 'listMessages');
-    return adapter.listMessages(sessionId);
+  async listMessages(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (this.transcriptCache) {
+      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
+      return transcript.messages || [];
+    }
+    return [];
   }
 
-  async createSession(provider, input) {
-    const adapter = this.registry.require(provider, 'createSession', 'createSession');
-    return validateAiSession(await adapter.createSession(input));
+  async getTranscript(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (this.transcriptCache) {
+      return this.transcriptCache.getTranscript(provider, providerSessionId);
+    }
+    return {
+      provider,
+      providerSessionId,
+      messages: [],
+      lastEventSeq: 0,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
-  async startTurn(provider, sessionId, input) {
-    this.registry.require(provider, 'startTurn', 'startTurn');
-    return this.turnRuntime.startTurn({ provider, sessionId, ...input });
+  async startTurn(provider, providerSessionId, input = {}) {
+    if (providerSessionId) {
+      validateAgentIdentity({ provider, providerSessionId });
+    }
+    const onSessionEstablished = async (allocatedSessionId) => {
+      if (input.specId && this.bindingService) {
+        await this.bindingService.bindSession({
+          provider,
+          providerSessionId: allocatedSessionId,
+          specId: input.specId,
+          taskId: input.taskId,
+          purpose: input.purpose || 'interactive',
+        });
+      }
+    };
+    return this.turnRuntime.startTurn({
+      provider,
+      providerSessionId,
+      ...input,
+      onSessionEstablished,
+    });
   }
+
+
 
   getTurn(turnId) {
     return this.turnRuntime.getSnapshot(turnId);
@@ -51,6 +82,11 @@ export class AiSessionService {
   subscribeToTurn(turnId, options) {
     return this.turnRuntime.subscribe(turnId, options);
   }
+
+  subscribeToSession(provider, providerSessionId, options) {
+    return this.turnRuntime.subscribeToSession({ provider, providerSessionId }, options);
+  }
+
 
   async resolveInteraction(turnId, interactionId, response) {
     return this.turnRuntime.resolveInteraction(turnId, interactionId, response);
