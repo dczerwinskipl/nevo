@@ -290,3 +290,74 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
   }
 });
 
+test('session control endpoints enforce strict correlation between provider, session, turn, and interaction', async () => {
+  const { service } = createStack();
+  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // 1. Start turns on two distinct sessions
+    const startA = await fetch(`${baseUrl}/api/agent-sessions/mock/session-alpha/turns`, control({
+      message: 'permission on alpha',
+      idempotencyKey: 'key-alpha',
+    }));
+    const { turnId: turnIdA } = await startA.json();
+    const turnA = await waitFor(baseUrl, turnIdA, t => t.pendingInteraction);
+
+    const startB = await fetch(`${baseUrl}/api/agent-sessions/mock/session-beta/turns`, control({
+      message: 'permission on beta',
+      idempotencyKey: 'key-beta',
+    }));
+    const { turnId: turnIdB } = await startB.json();
+    const turnB = await waitFor(baseUrl, turnIdB, t => t.pendingInteraction);
+
+    // 2. Cross-session cancel attempt: trying to cancel turnIdA using session-beta route
+    const crossCancel = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/session-beta/turns/${turnIdA}/cancel`,
+      control({}),
+    );
+    assert.equal(crossCancel.status, 404);
+    const crossCancelJson = await crossCancel.json();
+    assert.equal(crossCancelJson.error.code, 'AI_NOT_FOUND');
+
+    // Verify session-alpha turn is still waitingForUser and NOT cancelled
+    const checkTurnA = await (await fetch(`${baseUrl}/api/ai/turns/${turnIdA}`)).json();
+    assert.equal(checkTurnA.turn.status, 'waitingForUser');
+
+    // 3. Cross-session interaction response: trying to resolve turnA's interaction using session-beta route
+    const crossRespond = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/session-beta/interactions/${turnA.pendingInteraction.id}/respond`,
+      control({ decision: 'allow', turnId: turnIdA }),
+    );
+    assert.equal(crossRespond.status, 404);
+    const crossRespondJson = await crossRespond.json();
+    assert.equal(crossRespondJson.error.code, 'AI_NOT_FOUND');
+
+    // 4. Non-pending interaction ID on session-alpha
+    const fakeRespond = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/session-alpha/interactions/non-existent-interaction/respond`,
+      control({ decision: 'allow' }),
+    );
+    assert.equal(fakeRespond.status, 404);
+
+    // 5. Normal matching-session interaction response and cancel still work
+    const validRespond = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/session-alpha/interactions/${turnA.pendingInteraction.id}/respond`,
+      control({ decision: 'allow' }),
+    );
+    assert.equal(validRespond.status, 200);
+    const completedA = await waitFor(baseUrl, turnIdA, t => t.status === 'completed');
+    assert.equal(completedA.status, 'completed');
+
+    const validCancel = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/session-beta/turns/${turnIdB}/cancel`,
+      control({}),
+    );
+    assert.equal(validCancel.status, 200);
+    const cancelledB = await waitFor(baseUrl, turnIdB, t => t.status === 'failed');
+    assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
+  } finally {
+    await closeServer(server);
+  }
+});
+

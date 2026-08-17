@@ -15,10 +15,190 @@ export interface UseNevoAssistantRuntimeOptions {
   onError?: (error: Error) => void;
 }
 
+export const SUPPORTED_AGENT_EVENT_TYPES = [
+  'turn.started',
+  'message.started',
+  'text.delta',
+  'reasoning.delta',
+  'tool.started',
+  'tool.updated',
+  'tool.completed',
+  'interaction.requested',
+  'interaction.resolved',
+  'usage.updated',
+  'turn.completed',
+  'turn.failed',
+] as const;
+
+export type SupportedAgentEventType = (typeof SUPPORTED_AGENT_EVENT_TYPES)[number];
+
+export interface AgentEventSourceLike {
+  addEventListener(type: string, listener: (event: MessageEvent) => void): void;
+  removeEventListener?(type: string, listener: (event: MessageEvent) => void): void;
+  onmessage?: ((event: MessageEvent) => void) | null;
+  close(): void;
+}
+
+/**
+ * Subscribes to all supported named AgentEvent types as well as generic onmessage fallback.
+ * Returns an unsubscribe / cleanup function.
+ */
+export function subscribeAgentEventSource(
+  eventSource: AgentEventSourceLike,
+  onEvent: (event: AgentEvent) => void,
+): () => void {
+  const handleRaw = (rawEvent: MessageEvent) => {
+    try {
+      const data = typeof rawEvent.data === 'string' ? JSON.parse(rawEvent.data) : rawEvent.data;
+      if (data && typeof data === 'object' && typeof data.type === 'string') {
+        onEvent(data as AgentEvent);
+      }
+    } catch (err) {
+      console.warn('Failed to parse SSE agent event:', err);
+    }
+  };
+
+  for (const type of SUPPORTED_AGENT_EVENT_TYPES) {
+    eventSource.addEventListener(type, handleRaw);
+  }
+  eventSource.onmessage = handleRaw;
+
+  return () => {
+    for (const type of SUPPORTED_AGENT_EVENT_TYPES) {
+      eventSource.removeEventListener?.(type, handleRaw);
+    }
+    if (eventSource.onmessage === handleRaw) {
+      eventSource.onmessage = null;
+    }
+    eventSource.close();
+  };
+}
+
 export function createTurnIdempotencyKey(prefix = 'turn'): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 10);
   return `${prefix}-${timestamp}-${random}`;
+}
+
+export function applyAgentEvent(
+  prevMessages: NormalizedMessage[],
+  event: AgentEvent,
+): NormalizedMessage[] {
+  switch (event.type) {
+    case 'text.delta': {
+      const text = event.text ?? event.delta ?? '';
+      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
+      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      if (existingIdx >= 0) {
+        const updated = [...prevMessages];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          text: updated[existingIdx].text + text,
+        };
+        return updated;
+      }
+      return [
+        ...prevMessages,
+        {
+          id: msgId,
+          role: 'assistant',
+          text,
+          createdAt: event.timestamp || new Date().toISOString(),
+        },
+      ];
+    }
+
+    case 'reasoning.delta': {
+      const reasoning = event.text ?? '';
+      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
+      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      if (existingIdx >= 0) {
+        const updated = [...prevMessages];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          reasoning: (updated[existingIdx].reasoning || '') + reasoning,
+        };
+        return updated;
+      }
+      return [
+        ...prevMessages,
+        {
+          id: msgId,
+          role: 'assistant',
+          text: '',
+          reasoning,
+          createdAt: event.timestamp || new Date().toISOString(),
+        },
+      ];
+    }
+
+    case 'tool.started': {
+      const msgId = `msg-${event.turnId || 'current'}`;
+      const toolCall = {
+        id: event.toolId || `tool-${Date.now()}`,
+        name: event.toolName || 'tool',
+        input: event.input,
+        status: 'running' as const,
+      };
+      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      if (existingIdx >= 0) {
+        const updated = [...prevMessages];
+        const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
+        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
+        return updated;
+      }
+      return [
+        ...prevMessages,
+        {
+          id: msgId,
+          role: 'assistant',
+          text: '',
+          toolCalls: [toolCall],
+          createdAt: event.timestamp || new Date().toISOString(),
+        },
+      ];
+    }
+
+    case 'tool.updated': {
+      const msgId = `msg-${event.turnId || 'current'}`;
+      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      if (existingIdx >= 0) {
+        const updated = [...prevMessages];
+        const calls = (updated[existingIdx].toolCalls || []).map((tc) =>
+          tc.id === event.toolId
+            ? { ...tc, input: event.input ?? tc.input, status: (event.status as any) || tc.status }
+            : tc
+        );
+        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
+        return updated;
+      }
+      return prevMessages;
+    }
+
+    case 'tool.completed': {
+      const msgId = `msg-${event.turnId || 'current'}`;
+      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      if (existingIdx >= 0) {
+        const updated = [...prevMessages];
+        const calls = (updated[existingIdx].toolCalls || []).map((tc) =>
+          tc.id === event.toolId
+            ? {
+                ...tc,
+                output: event.output,
+                status: (event.status as any) || 'completed',
+                durationMs: event.durationMs,
+              }
+            : tc
+        );
+        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
+        return updated;
+      }
+      return prevMessages;
+    }
+
+    default:
+      return prevMessages;
+  }
 }
 
 export function useNevoAssistantRuntime({
@@ -81,167 +261,57 @@ export function useNevoAssistantRuntime({
   useEffect(() => {
     if (!provider || !providerSessionId) return;
 
-    const controller = new AbortController();
     const cursor = lastSeqRef.current;
     const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${cursor}`;
-
     const eventSource = new EventSource(url);
 
-    eventSource.onmessage = (rawEvent) => {
-      try {
-        const event: AgentEvent = JSON.parse(rawEvent.data);
-        const seq = event.seq ?? event.id ?? 0;
-        if (seq <= lastSeqRef.current) return; // Deduplication cursor check
+    const handleAgentEvent = (event: AgentEvent) => {
+      const seq = event.seq ?? event.id ?? 0;
+      if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
-        setLastEventSeq(seq);
-        lastSeqRef.current = seq;
+      setLastEventSeq(seq);
+      lastSeqRef.current = seq;
 
-        switch (event.type) {
-          case 'turn.started':
-            setIsRunning(true);
-            if (event.turnId) setActiveTurnId(event.turnId);
-            break;
+      setMessages((prev) => applyAgentEvent(prev, event));
 
-          case 'text.delta': {
-            const text = event.text ?? event.delta ?? '';
-            const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-            setMessages((prev) => {
-              const existingIdx = prev.findIndex((m) => m.id === msgId);
-              if (existingIdx >= 0) {
-                const updated = [...prev];
-                updated[existingIdx] = {
-                  ...updated[existingIdx],
-                  text: updated[existingIdx].text + text,
-                };
-                return updated;
-              }
-              return [
-                ...prev,
-                {
-                  id: msgId,
-                  role: 'assistant',
-                  text,
-                  createdAt: event.timestamp || new Date().toISOString(),
-                },
-              ];
-            });
-            break;
+      switch (event.type) {
+        case 'turn.started':
+          setIsRunning(true);
+          if (event.turnId) setActiveTurnId(event.turnId);
+          break;
+
+        case 'interaction.requested':
+          setPendingInteraction(event.interaction || null);
+          setIsRunning(false);
+          break;
+
+        case 'interaction.resolved':
+          setPendingInteraction(null);
+          setIsRunning(true);
+          break;
+
+        case 'turn.completed':
+          setIsRunning(false);
+          setActiveTurnId(null);
+          setPendingInteraction(null);
+          onTurnCompleted?.();
+          break;
+
+        case 'turn.failed':
+          setIsRunning(false);
+          setActiveTurnId(null);
+          setPendingInteraction(null);
+          if (event.error) {
+            onError?.(new Error(event.error.message));
           }
-
-          case 'reasoning.delta': {
-            const reasoning = event.text ?? '';
-            const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-            setMessages((prev) => {
-              const existingIdx = prev.findIndex((m) => m.id === msgId);
-              if (existingIdx >= 0) {
-                const updated = [...prev];
-                updated[existingIdx] = {
-                  ...updated[existingIdx],
-                  reasoning: (updated[existingIdx].reasoning || '') + reasoning,
-                };
-                return updated;
-              }
-              return [
-                ...prev,
-                {
-                  id: msgId,
-                  role: 'assistant',
-                  text: '',
-                  reasoning,
-                  createdAt: event.timestamp || new Date().toISOString(),
-                },
-              ];
-            });
-            break;
-          }
-
-          case 'tool.started': {
-            const msgId = `msg-${event.turnId || 'current'}`;
-            const toolCall = {
-              id: event.toolId || `tool-${Date.now()}`,
-              name: event.toolName || 'tool',
-              input: event.input,
-              status: 'running' as const,
-            };
-            setMessages((prev) => {
-              const existingIdx = prev.findIndex((m) => m.id === msgId);
-              if (existingIdx >= 0) {
-                const updated = [...prev];
-                const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
-                updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
-                return updated;
-              }
-              return [
-                ...prev,
-                {
-                  id: msgId,
-                  role: 'assistant',
-                  text: '',
-                  toolCalls: [toolCall],
-                  createdAt: event.timestamp || new Date().toISOString(),
-                },
-              ];
-            });
-            break;
-          }
-
-          case 'tool.completed': {
-            const msgId = `msg-${event.turnId || 'current'}`;
-            setMessages((prev) => {
-              const existingIdx = prev.findIndex((m) => m.id === msgId);
-              if (existingIdx >= 0) {
-                const updated = [...prev];
-                const calls = (updated[existingIdx].toolCalls || []).map((tc) =>
-                  tc.id === event.toolId
-                    ? { ...tc, output: event.output, status: 'completed' as const, durationMs: event.durationMs }
-                    : tc
-                );
-                updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
-                return updated;
-              }
-              return prev;
-            });
-            break;
-          }
-
-          case 'interaction.requested':
-            setPendingInteraction(event.interaction || null);
-            setIsRunning(false);
-            break;
-
-          case 'interaction.resolved':
-            setPendingInteraction(null);
-            setIsRunning(true);
-            break;
-
-          case 'turn.completed':
-            setIsRunning(false);
-            setActiveTurnId(null);
-            setPendingInteraction(null);
-            onTurnCompleted?.();
-            break;
-
-          case 'turn.failed':
-            setIsRunning(false);
-            setActiveTurnId(null);
-            setPendingInteraction(null);
-            if (event.error) {
-              onError?.(new Error(event.error.message));
-            }
-            break;
-        }
-      } catch (err) {
-        console.warn('Failed to parse SSE event:', err);
+          break;
       }
     };
 
-    eventSource.onerror = () => {
-      // Reconnection handled automatically by browser EventSource
-    };
+    const unsubscribe = subscribeAgentEventSource(eventSource, handleAgentEvent);
 
     return () => {
-      controller.abort();
-      eventSource.close();
+      unsubscribe();
     };
   }, [provider, providerSessionId, onTurnCompleted, onError]);
 

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T20:42:58.821Z",
+  "generated": "2026-08-17T21:32:15.878Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -199,7 +199,7 @@
           ],
           "implementation": {
             "baseline_revision": "55b58f00b6d5f3338ac58f1dca0b6e000540d85f",
-            "review_revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "review_revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "changed_paths": [
               "tools/dashboard/server/ai-routes.mjs",
               "tools/dashboard/server/ai-services.mjs",
@@ -207,11 +207,11 @@
               "tools/dashboard/tests/ai-contract-drift.test.mjs",
               "tools/dashboard/tests/ai-server.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "8d8807a53688e056e4b9a5c24f626663455d2246628f16d8e64a15f09b8e44e9"
           },
           "self_check": {
             "fingerprint": "538874743b20a3d14aa4def220facd2990fb906fdb7c6dabc1f4939e772c74fe",
-            "revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
@@ -235,17 +235,18 @@
           ],
           "implementation": {
             "baseline_revision": "82bf98b31bde74e1725083acbcfd7549947f76e2",
-            "review_revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "review_revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
-              "tools/dashboard/src/lib/nevo-assistant-runtime.ts"
+              "tools/dashboard/src/lib/nevo-assistant-runtime.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "752500a8a444dc071792b8da2072f2d549e312e4347b99eee07c8ad40b86fe00"
           },
           "self_check": {
             "fingerprint": "4435b9d25dec1d13521efcfe6d4a5dcb80d097b789f63d131f14c873ed3c5f08",
-            "revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
@@ -273,7 +274,7 @@
           ],
           "implementation": {
             "baseline_revision": "0f273e677c99db8c16bbb07037781654c89bf008",
-            "review_revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "review_revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "changed_paths": [
               "tools/dashboard/src/components/ai-chat.tsx",
               "tools/dashboard/src/components/ai-interaction-prompt.tsx",
@@ -284,7 +285,7 @@
           },
           "self_check": {
             "fingerprint": "ba8791ef1727371c1d9c67de2882b31ac84e75717831c953190c7bcdf3af42ad",
-            "revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
@@ -312,7 +313,7 @@
           ],
           "implementation": {
             "baseline_revision": "ba3a52c712a0407e36bb8b64fef499de85cfa7d9",
-            "review_revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "review_revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "changed_paths": [
               "tools/dashboard/src/App.tsx",
               "tools/dashboard/src/components/ai-session-create-modal.tsx",
@@ -323,7 +324,7 @@
           },
           "self_check": {
             "fingerprint": "b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4",
-            "revision": "5b640c0868eb425525c8fb4a583bb69e2c6fc70e",
+            "revision": "ebda4aaac38637b6d3e41cb2caed01e7087cfcf4",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
