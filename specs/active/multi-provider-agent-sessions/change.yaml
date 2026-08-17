@@ -63,7 +63,7 @@ tasks:
   - id: claude-interaction-transport-discovery
     order: 3
     file: tasks/03-claude-interaction-transport-discovery.md
-    status: implemented
+    status: verified
     depends_on: [ provider-neutral-core-and-capabilities ]
     implementation:
       baseline_revision: ee44e9304062aef70682e987c78b388012af0cf5
