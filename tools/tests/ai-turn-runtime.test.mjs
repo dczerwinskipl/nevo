@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,11 +8,12 @@ import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../ai/transcript-cache.mjs';
 
+
 const capabilities = Object.freeze({
   interactivePermissions: true,
   interactiveQuestions: true,
   interactiveConfirmations: true,
-  resumeSession: false,
+  resumeSession: true,
   cancelTurn: true,
   toolCalls: true,
   reasoning: true,
@@ -19,28 +21,31 @@ const capabilities = Object.freeze({
 });
 
 function createFixture({ sessionLookupGate, transcriptCache } = {}) {
+  const cache = transcriptCache ?? createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-test-cache-${randomUUID()}`) });
   let starts = 0;
   let cancels = 0;
+  let continuations = 0;
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, signal }) {
       if (!providerSessionId && setProviderSessionId) {
         setProviderSessionId('sess-auto-allocated');
       }
-
+      setOperation?.({ cancelled: false });
 
       if (sessionLookupGate) await sessionLookupGate;
       starts += 1;
       emitDelta('one ');
       if (message === 'permission') {
-        const response = await requestInteraction({ kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } });
-        emitDelta(response.decision);
+        return {
+          isDeferred: true,
+          interaction: { id: `int-perm-${starts}`, kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } },
+        };
       } else if (message === 'question') {
-        const response = await requestInteraction({
-          kind: 'question',
-          questions: [{ question: 'Same?' }, { question: 'Same?' }],
-        });
-        emitDelta(response.answers.map(answer => answer.value).join(','));
+        return {
+          isDeferred: true,
+          interaction: { id: `int-q-${starts}`, kind: 'question', questions: [{ id: 'q-1', question: 'Same?' }, { id: 'q-2', question: 'Same?' }] },
+        };
       } else if (message === 'tools-and-reasoning') {
         emitReasoningDelta('thinking...');
         emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
@@ -51,17 +56,27 @@ function createFixture({ sessionLookupGate, transcriptCache } = {}) {
       }
       emitDelta('two');
     },
+    async respondInteraction({ interaction, response, emitDelta }) {
+      continuations += 1;
+      if (interaction?.kind === 'permission') {
+        emitDelta(response.decision);
+      } else if (interaction?.kind === 'question') {
+        emitDelta(response.answers.map(a => a.value).join(','));
+      }
+      emitDelta('two');
+    },
     async cancelTurn() { cancels += 1; },
   };
   let id = 0;
   const runtime = createAiTurnRuntime({
     registry: createAiAdapterRegistry([adapter]),
-    transcriptCache,
+    transcriptCache: cache,
     idFactory: () => String(++id),
     clock: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++)); })(),
   });
-  return { runtime, get starts() { return starts; }, get cancels() { return cancels; } };
+  return { runtime, get starts() { return starts; }, get cancels() { return cancels; }, get continuations() { return continuations; } };
 }
+
 
 async function waitFor(read, predicate, message = 'condition') {
   for (let index = 0; index < 100; index += 1) {
@@ -98,6 +113,7 @@ test('permission and question interactions pause, resolve by stable IDs, and con
   await fixture.runtime.resolveInteraction(permission.turnId, paused.pendingInteraction.id, { decision: 'allow' });
   const completed = await waitFor(() => fixture.runtime.getSnapshot(permission.turnId), value => value.status === 'completed', 'permission completion');
   assert.equal(completed.events.filter(event => event.type === 'turn.started').length, 1);
+  assert.equal(fixture.continuations, 1);
 
   const question = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'question', message: 'question' });
   const asked = await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.pendingInteraction, 'question');
@@ -110,6 +126,7 @@ test('permission and question interactions pause, resolve by stable IDs, and con
     answers: [{ questionId: first.id, value: 'A' }, { questionId: second.id, value: 'B' }],
   });
   await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.status === 'completed', 'question completion');
+  assert.equal(fixture.continuations, 2);
 });
 
 test('duplicate, unknown, and cross-turn responses cannot resolve another request', async () => {
@@ -124,23 +141,79 @@ test('duplicate, unknown, and cross-turn responses cannot resolve another reques
   fixture.runtime.shutdown();
 });
 
-test('unsubscribe does not cancel and reconnect replays missed events plus pending snapshot', async () => {
+test('session-wide monotonic sequence numbering across multiple turns', async () => {
   const fixture = createFixture();
-  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'reconnect', message: 'permission' });
-  const firstEvents = [];
-  const unsubscribe = fixture.runtime.subscribe(turnId, { onEvent: event => firstEvents.push(event) });
-  unsubscribe();
-  const paused = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
-  assert.equal(fixture.cancels, 0);
-  const replay = [];
-  const close = fixture.runtime.subscribe(turnId, { afterSequence: 1, onEvent: event => replay.push(event) });
-  assert.ok(replay.some(event => event.type === 'interaction.requested'));
-  assert.equal(paused.pendingInteraction.kind, 'permission');
-  close();
-  fixture.runtime.shutdown();
+  const sessionIdentity = { provider: 'fake', providerSessionId: 'sess-monotonic' };
+
+  // Turn 1
+  const turn1 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
+  const snap1 = await waitFor(() => fixture.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
+  assert.deepEqual(snap1.events.map(e => e.seq), [1, 2, 3, 4]);
+
+  // Turn 2
+  const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
+  const snap2 = await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
+  assert.deepEqual(snap2.events.map(e => e.seq), [5, 6, 7, 8]);
 });
 
-test('explicit cancellation is capability-aware and produces one terminal event', async () => {
+test('session-scoped subscription receives events across turns with monotonic sequence', async () => {
+  const fixture = createFixture();
+  const sessionIdentity = { provider: 'fake', providerSessionId: 'sess-sub' };
+  const sessionEvents = [];
+
+  const unsub = fixture.runtime.subscribeToSession(sessionIdentity, {
+    onEvent: ev => sessionEvents.push(ev),
+  });
+
+  const turn1 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
+  await waitFor(() => fixture.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
+
+  const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
+  await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
+
+  assert.equal(sessionEvents.length, 8);
+  assert.deepEqual(sessionEvents.map(e => e.seq), [1, 2, 3, 4, 5, 6, 7, 8]);
+  unsub();
+});
+
+test('reconstruction after restart preserves session sequence from transcript cache lastEventSeq', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-restart-seq-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture1 = createFixture({ transcriptCache });
+
+    // Run turn 1 on runtime 1
+    const turn1 = await fixture1.runtime.startTurn({ provider: 'fake', providerSessionId: 'sess-restart', message: 'normal' });
+    await waitFor(() => fixture1.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
+    await transcriptCache.flush('fake', 'sess-restart');
+
+    const transcript = await transcriptCache.getTranscript('fake', 'sess-restart');
+    assert.equal(transcript.lastEventSeq, 4);
+
+    // Reconstruct runtime 2 (simulating server restart)
+    const fixture2 = createFixture({ transcriptCache });
+    const turn2 = await fixture2.runtime.startTurn({ provider: 'fake', providerSessionId: 'sess-restart', message: 'normal' });
+    const snap2 = await waitFor(() => fixture2.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
+
+    // Sequence must continue at 5, 6, 7, 8
+    assert.deepEqual(snap2.events.map(e => e.seq), [5, 6, 7, 8]);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('cancellation while in waitingForUser transitions to failed without process kill', async () => {
+  const fixture = createFixture();
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel-waiting', message: 'permission' });
+  await waitFor(() => fixture.runtime.getSnapshot(turnId), v => v.status === 'waitingForUser');
+
+  const snap = await fixture.runtime.cancelTurn(turnId);
+  assert.equal(snap.status, 'failed');
+  assert.equal(snap.pendingInteraction, null);
+  assert.equal(fixture.cancels, 0); // No child process was live to kill
+});
+
+test('explicit cancellation of running turn is capability-aware and produces one terminal event', async () => {
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel', message: 'hang' });
   await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');

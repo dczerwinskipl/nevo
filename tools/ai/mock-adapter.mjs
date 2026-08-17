@@ -83,20 +83,26 @@ export class MockAiAdapter {
     await this.#emitChunks(parts, messageId, emit, signal);
 
     if (normalized.includes('permission') || normalized.includes('zgod')) {
-      const response = await requestInteraction({
+      const interaction = {
+        id: `int-${turnId || '1'}`,
         kind: 'permission',
         toolName: 'Shell',
         input: { command: 'npm --prefix tools/dashboard test' },
         details: 'Run the dashboard test suite.',
-      });
-      interactionSummary = response.decision === 'allow'
-        ? 'Permission was allowed. '
-        : `Permission was denied${response.message ? `: ${response.message}` : ''}. `;
+      };
+      return {
+        operation: null,
+        isDeferred: true,
+        providerSessionId: effectiveSessionId,
+        interaction,
+      };
     } else if (normalized.includes('question') || normalized.includes('pytan')) {
-      const response = await requestInteraction({
+      const interaction = {
+        id: `int-${turnId || '1'}`,
         kind: 'question',
         questions: [
           {
+            id: 'q-style',
             question: 'Which implementation style should the mock use?',
             header: 'Style',
             options: [
@@ -106,6 +112,7 @@ export class MockAiAdapter {
             multiSelect: false,
           },
           {
+            id: 'q-checks',
             question: 'Which verification should run?',
             header: 'Checks',
             options: [
@@ -115,12 +122,16 @@ export class MockAiAdapter {
             multiSelect: true,
           },
         ],
-      });
-      interactionSummary = `Answers received: ${response.answers.map(answer => Array.isArray(answer.value) ? answer.value.join(', ') : answer.value).join('; ')}. `;
+      };
+      return {
+        operation: null,
+        isDeferred: true,
+        providerSessionId: effectiveSessionId,
+        interaction,
+      };
     }
 
     const ending = [
-      ...(interactionSummary ? [interactionSummary] : []),
       'Wynik demonstracyjny jest celowo dłuższy, ',
       'żeby było widać narastanie treści w interfejsie. ',
       'W prawdziwej integracji te same neutralne zdarzenia mogą pochodzić ',
@@ -131,7 +142,40 @@ export class MockAiAdapter {
       'Mock turn jest gotowy.',
     ];
     await this.#emitChunks(ending, messageId, emit, signal);
+    return { providerSessionId: effectiveSessionId };
   }
+
+  async respondInteraction({
+    turnId,
+    providerSessionId,
+    interactionId,
+    interaction,
+    response,
+    signal,
+    setOperation,
+    emitDelta,
+    emitTextDelta,
+  } = {}) {
+    const emit = emitTextDelta || emitDelta || (() => {});
+    const messageId = `assistant-${providerSessionId}-${turnId || '1'}`;
+    let summary = '';
+    if (interaction?.kind === 'permission') {
+      summary = response.decision === 'allow' ? 'Permission was allowed. ' : 'Permission was denied. ';
+    } else if (interaction?.kind === 'question') {
+      summary = `Answers received: ${response.answers?.map(a => Array.isArray(a.value) ? a.value.join(', ') : a.value).join('; ')}. `;
+    } else {
+      summary = response.confirmed ? 'Confirmed. ' : 'Cancelled. ';
+    }
+
+    const ending = [
+      summary,
+      'Wynik demonstracyjny po wznowieniu. ',
+      'Mock turn kontynuuje wykonanie po interakcji i kończy się sukcesem.',
+    ];
+    await this.#emitChunks(ending, messageId, emit, signal);
+    return { providerSessionId };
+  }
+
 
   async cancelTurn({ operation } = {}) {
     if (operation) operation.cancelled = true;

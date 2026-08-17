@@ -10,7 +10,6 @@ import {
   validateAgentIdentity,
   validateInteractionResponse,
 } from './contracts.mjs';
-
 import { createTranscriptCacheService } from './transcript-cache.mjs';
 
 function sessionKey(provider, providerSessionId) {
@@ -26,6 +25,9 @@ export class AiTurnRuntime {
   #turns = new Map();
   #activeBySession = new Map();
   #startQueueBySession = new Map();
+  #sessionSequences = new Map();
+  #sessionSubscribers = new Map();
+  #sessionEvents = new Map();
   #terminalOrder = [];
   #closed = false;
 
@@ -90,6 +92,19 @@ export class AiTurnRuntime {
 
       const startedAt = this.#timestamp();
 
+      let initialSeq = 0;
+      if (!isNewSession) {
+        if (this.#sessionSequences.has(key)) {
+          initialSeq = this.#sessionSequences.get(key);
+        } else if (this.transcriptCache) {
+          try {
+            const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
+            initialSeq = transcript.lastEventSeq || 0;
+            this.#sessionSequences.set(key, initialSeq);
+          } catch {}
+        }
+      }
+
       if (!isNewSession && this.transcriptCache) {
         this.transcriptCache.recordUserMessage(provider, providerSessionId, {
           text: inputMessage,
@@ -106,7 +121,7 @@ export class AiTurnRuntime {
         idempotencyKey,
         onSessionEstablished,
         status: 'running',
-        sequence: 0,
+        sequence: initialSeq,
         events: [],
         subscribers: new Set(),
         pendingInteraction: null,
@@ -151,6 +166,11 @@ export class AiTurnRuntime {
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
+          let seq = this.#sessionSequences.get(state.key) || 0;
+          if (seq < state.sequence) {
+            seq = state.sequence;
+            this.#sessionSequences.set(state.key, seq);
+          }
           if (this.transcriptCache) {
             this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
               text: message,
@@ -165,8 +185,6 @@ export class AiTurnRuntime {
           }
         }
       };
-
-
 
       const turnResult = state.adapter.startTurn({
         turnId: state.turnId,
@@ -188,17 +206,26 @@ export class AiTurnRuntime {
         requestInteraction: interaction => this.#requestInteraction(state, interaction),
       });
 
+      let result;
       if (turnResult && typeof turnResult[Symbol.asyncIterator] === 'function') {
         for await (const event of turnResult) {
           if (this.#isTerminal(state)) break;
           this.#emit(state, event.type, event);
         }
       } else {
-        const result = await turnResult;
+        result = await turnResult;
         if (result?.providerSessionId) {
           setProviderSessionId(result.providerSessionId);
         }
         if (result?.operation !== undefined) state.privateOperation = result.operation;
+      }
+
+      if (result?.isDeferred) {
+        state.status = 'waitingForUser';
+        state.pendingInteraction = result.interaction;
+        state.privateOperation = null;
+        this.#notifyAdapterState(state);
+        return;
       }
 
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
@@ -207,6 +234,42 @@ export class AiTurnRuntime {
     }
   }
 
+  async #runContinuation(state, interactionId, interaction, response) {
+    try {
+      let result;
+      if (typeof state.adapter.respondInteraction === 'function') {
+        result = await state.adapter.respondInteraction({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          interactionId,
+          interaction,
+          response,
+          signal: state.abortController.signal,
+          setOperation: op => { state.privateOperation = op; },
+          emitDelta: (delta, msgId) => this.#emitDelta(state, delta, msgId),
+          emitTextDelta: (text, msgId) => this.#emitTextDelta(state, text, msgId),
+          emitReasoningDelta: (text, msgId) => this.#emitReasoningDelta(state, text, msgId),
+          emitToolStarted: tool => this.#emitToolStarted(state, tool),
+          emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
+          emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
+          emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
+          emitEvent: (type, data) => this.#emit(state, type, data),
+        });
+      }
+
+      if (result?.isDeferred) {
+        state.status = 'waitingForUser';
+        state.pendingInteraction = result.interaction;
+        state.privateOperation = null;
+        this.#notifyAdapterState(state);
+        return;
+      }
+
+      if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
+    } catch (error) {
+      if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
+    }
+  }
 
   #emitDelta(state, delta, messageId = `message-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
@@ -267,38 +330,73 @@ export class AiTurnRuntime {
       idFactory: () => this.idFactory(),
     });
     state.status = 'waitingForUser';
+    state.pendingInteraction = interaction;
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.requested', { interaction });
-    return new Promise((resolve, reject) => {
-      state.pendingInteraction = { interaction, resolve, reject };
-    });
+    return interaction;
   }
 
   async resolveInteraction(turnId, interactionId, response) {
-    const state = this.#get(turnId);
+    let state = this.#turns.get(turnId);
+    if (!state && this.transcriptCache) {
+      // Check if we can reconstitute from persisted active turn in transcript cache (e.g. after server restart)
+      for (const [key, cached] of this.transcriptCache.entries?.() || []) {
+        if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
+          state = {
+            turnId,
+            provider: cached.provider,
+            providerSessionId: cached.providerSessionId,
+            identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
+            key: sessionKey(cached.provider, cached.providerSessionId),
+            status: 'waitingForUser',
+            pendingInteraction: structuredClone(cached.pendingInteraction),
+            sequence: cached.lastEventSeq || 0,
+            events: [],
+            subscribers: new Set(),
+            abortController: new AbortController(),
+            adapter: this.registry.get(cached.provider).adapter,
+            startedAt: cached.activeTurn.startedAt,
+          };
+          this.#turns.set(turnId, state);
+          this.#activeBySession.set(state.key, turnId);
+          this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
+          break;
+        }
+      }
+    }
+    if (!state) {
+      state = this.#get(turnId);
+    }
     const pending = state.pendingInteraction;
-    if (!pending || pending.interaction.id !== interactionId) {
+    if (!pending || pending.id !== interactionId) {
       throw new AiNotFoundError('The pending interaction was not found for this turn.', { turnId, interactionId });
     }
-    const normalized = validateInteractionResponse(pending.interaction, response);
+    const normalized = validateInteractionResponse(pending, response);
+    const interaction = state.pendingInteraction;
     state.pendingInteraction = null;
     state.status = 'running';
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
-    pending.resolve(normalized);
+    queueMicrotask(() => this.#runContinuation(state, interactionId, interaction, normalized));
     return this.getSnapshot(turnId);
   }
 
   async cancelTurn(turnId) {
     const state = this.#get(turnId);
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
+    if (state.status === 'waitingForUser') {
+      this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
+      return this.getSnapshot(turnId);
+    }
     const adapter = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
-    await adapter.cancelTurn({
-      turnId,
-      providerSessionId: state.providerSessionId,
-      identity: state.identity,
-      operation: state.privateOperation,
-    });
+    if (state.privateOperation) {
+      await adapter.cancelTurn({
+        turnId,
+        providerSessionId: state.providerSessionId,
+        identity: state.identity,
+        operation: state.privateOperation,
+      });
+    }
     state.abortController.abort();
     this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
     return this.getSnapshot(turnId);
@@ -314,7 +412,7 @@ export class AiTurnRuntime {
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: state.sequence,
-      pendingInteraction: state.pendingInteraction ? structuredClone(state.pendingInteraction.interaction) : null,
+      pendingInteraction: state.pendingInteraction ? structuredClone(state.pendingInteraction) : null,
       events: state.events.map(event => structuredClone(event)),
     };
   }
@@ -333,6 +431,29 @@ export class AiTurnRuntime {
     return () => state.subscribers.delete(onEvent);
   }
 
+  subscribeToSession({ provider, providerSessionId }, { afterSequence = 0, onEvent } = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
+    const key = sessionKey(provider, providerSessionId);
+    let subs = this.#sessionSubscribers.get(key);
+    if (!subs) {
+      subs = new Set();
+      this.#sessionSubscribers.set(key, subs);
+    }
+    const recent = this.#sessionEvents.get(key) || [];
+    const cursor = Number(afterSequence) || 0;
+    for (const event of recent) {
+      if ((event.seq ?? event.id ?? 0) > cursor) {
+        onEvent(structuredClone(event));
+      }
+    }
+    subs.add(onEvent);
+    return () => {
+      subs.delete(onEvent);
+      if (subs.size === 0) this.#sessionSubscribers.delete(key);
+    };
+  }
+
   shutdown() {
     if (this.#closed) return;
     this.#closed = true;
@@ -345,11 +466,7 @@ export class AiTurnRuntime {
 
   #finish(state, type, error) {
     if (this.#isTerminal(state)) return;
-    if (state.pendingInteraction) {
-      const pending = state.pendingInteraction;
-      state.pendingInteraction = null;
-      pending.reject(error || new AiError('AI_TURN_TERMINAL', 'The turn ended.', { status: 409 }));
-    }
+    state.pendingInteraction = null;
     state.status = type === 'turn.completed' ? 'completed' : 'failed';
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
@@ -366,10 +483,27 @@ export class AiTurnRuntime {
     }
   }
 
+  #getNextSeq(state) {
+    if (state.provider && state.providerSessionId) {
+      const key = sessionKey(state.provider, state.providerSessionId);
+      let current = this.#sessionSequences.get(key);
+      if (current === undefined) {
+        current = state.sequence || 0;
+      }
+      current += 1;
+      this.#sessionSequences.set(key, current);
+      state.sequence = current;
+      return current;
+    }
+    state.sequence = (state.sequence || 0) + 1;
+    return state.sequence;
+  }
+
   #emit(state, type, data = {}) {
+    const seq = this.#getNextSeq(state);
     const event = {
-      id: ++state.sequence,
-      seq: state.sequence,
+      id: seq,
+      seq,
       type,
       turnId: state.turnId,
       timestamp: this.#timestamp(),
@@ -378,10 +512,25 @@ export class AiTurnRuntime {
     state.events.push(event);
     if (state.events.length > this.maxEventsPerTurn) state.events.shift();
 
-    if (this.transcriptCache && state.providerSessionId) {
-      this.transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
-    }
+    if (state.provider && state.providerSessionId) {
+      const key = sessionKey(state.provider, state.providerSessionId);
+      let sessionEvents = this.#sessionEvents.get(key);
+      if (!sessionEvents) {
+        sessionEvents = [];
+        this.#sessionEvents.set(key, sessionEvents);
+      }
+      sessionEvents.push(event);
+      if (sessionEvents.length > 500) sessionEvents.shift();
 
+      if (this.transcriptCache) {
+        this.transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
+      }
+
+      const sessionSubs = this.#sessionSubscribers.get(key);
+      if (sessionSubs) {
+        for (const subscriber of sessionSubs) subscriber(structuredClone(event));
+      }
+    }
 
     for (const subscriber of state.subscribers) subscriber(structuredClone(event));
     return event;

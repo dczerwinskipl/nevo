@@ -51,20 +51,28 @@ export interface AgentProvider {
     prompt?: string;
     signal?: AbortSignal;
     [key: string]: unknown;
-  }): AsyncIterable<AgentEvent> | Promise<{ providerSessionId?: string; [key: string]: unknown }>;
+  }): Promise<{ providerSessionId?: string; isDeferred?: boolean; interaction?: unknown; [key: string]: unknown }> | AsyncIterable<AgentEvent>;
 
-  cancelTurn(input: { turnId: string; providerSessionId: string }): Promise<void>;
-  respondInteraction?(identity: AgentIdentity, response: InteractionResponse): Promise<void>;
+  cancelTurn(input: { turnId: string; providerSessionId?: string; operation?: unknown }): Promise<void>;
+
+  respondInteraction?(input: {
+    turnId: string;
+    providerSessionId: string;
+    interactionId: string;
+    interaction?: unknown;
+    response: unknown;
+    signal?: AbortSignal;
+    [key: string]: unknown;
+  }): Promise<{ isDeferred?: boolean; interaction?: unknown; [key: string]: unknown }> | AsyncIterable<AgentEvent>;
 }
-
-
 ```
 
 - If an unsupported method is called on a provider (e.g. `respondInteraction` when `interactivePermissions` and `interactiveQuestions` are false), the provider throws `CapabilityNotSupportedError`.
 
+
 ## 3. Normalized Event Stream (`AgentEvent`)
 
-All provider-specific stream deltas are normalized into standard events using `text.delta`:
+All provider-specific stream deltas are normalized into standard events using `text.delta`. Event sequences (`seq`, `id`) are **strictly monotonic per `(provider, providerSessionId)`** across all turns and continuation execution segments:
 
 - `turn.started`: `{ turnId, timestamp }`
 - `message.started`: `{ messageId, role: 'assistant' | 'user', timestamp }`
@@ -117,15 +125,15 @@ While providers are the source of truth for session continuity, NEvo maintains a
 
 - `GET /api/agent-sessions`: List session bindings (supports filtering by query parameters `specId` or `taskId`).
 - `POST /api/agent-sessions`: Register an existing session binding or start a new provider session with initial turn and spec/task binding.
-
 - `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, pending interaction snapshot, and normalized message thread history with `lastEventSeq` cursor.
 - `DELETE /api/agent-sessions/:provider/:providerSessionId`: Remove local session binding.
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`: Cancel an active turn.
-- `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`: Submit user response to pending interaction.
-- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting normalized `AgentEvent` objects (carrying monotonic sequence `seq`).
+- `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`: Submit user response to pending interaction (starts continuation execution under active turn).
+- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting session-wide normalized `AgentEvent` objects (carrying monotonic sequence `seq`).
 
 ## 6. SSE Reconnection & Event Deduplication
 
-- Client connects to SSE stream after populating thread history.
-- Events carry monotonic turn sequence numbers (`seq`). The client runtime filters out any events with $\text{seq} \le \text{lastEventSeq}$ already present in the initial snapshot, preventing duplicated tokens or tool cards across reconnects and server restarts.
+- Client connects to session SSE stream after populating thread history.
+- Events carry monotonic session sequence numbers (`seq`). The client runtime filters out any events with $\text{seq} \le \text{lastEventSeq}$ already present in the initial snapshot, preventing duplicated tokens or tool cards across reconnects and server restarts.
+

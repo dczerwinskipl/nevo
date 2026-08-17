@@ -83,6 +83,11 @@ export class AiSessionService {
     return this.turnRuntime.subscribe(turnId, options);
   }
 
+  subscribeToSession(provider, providerSessionId, options) {
+    return this.turnRuntime.subscribeToSession({ provider, providerSessionId }, options);
+  }
+
+
   async resolveInteraction(turnId, interactionId, response) {
     return this.turnRuntime.resolveInteraction(turnId, interactionId, response);
   }

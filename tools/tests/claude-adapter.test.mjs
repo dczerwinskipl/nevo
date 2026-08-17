@@ -224,7 +224,7 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
   assert.deepEqual(usage, { tokensIn: 50, tokensOut: 25 });
 });
 
-test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and requests interaction', async () => {
+test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and emits interaction', async () => {
   const lines = [
     JSON.stringify({
       type: 'content_block_start',
@@ -259,22 +259,18 @@ test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and requests 
     spawnProcess: () => createMockProcess(lines),
   });
 
-  let requestedInteraction = null;
   const result = await provider.startTurn({
     turnId: 'turn-q-1',
     providerSessionId: 'sess-q-1',
     message: 'Ask me',
-    requestInteraction: async interaction => {
-      requestedInteraction = interaction;
-      return { answers: [{ questionId: 'q-1', value: 'Option A' }] };
-    },
   });
 
-  assert.ok(requestedInteraction);
-  assert.equal(requestedInteraction.kind, 'question');
-  assert.equal(requestedInteraction.questions[0].question, 'Choose style?');
-  assert.deepEqual(result.interactionResult, { answers: [{ questionId: 'q-1', value: 'Option A' }] });
+  assert.equal(result.isDeferred, true);
+  assert.ok(result.interaction);
+  assert.equal(result.interaction.kind, 'question');
+  assert.equal(result.interaction.questions[0].question, 'Choose style?');
 });
+
 
 test('ClaudeAgentProvider supports turn cancellation', async () => {
   const lines = [

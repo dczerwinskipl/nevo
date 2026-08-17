@@ -49,7 +49,6 @@ test('AskUserQuestion PreToolUse/defer pauses, captures questions, and completes
     },
   });
 
-  let requestedInteraction = null;
   const toolCalls = [];
   const reasoningDeltas = [];
 
@@ -59,31 +58,24 @@ test('AskUserQuestion PreToolUse/defer pauses, captures questions, and completes
     message: 'Architecture advice',
     emitReasoningDelta: text => reasoningDeltas.push(text),
     emitToolStarted: tool => toolCalls.push(tool),
-    requestInteraction: async interaction => {
-      requestedInteraction = interaction;
-      return { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] };
-    },
   });
 
   assert.equal(spawnCount, 1);
-  assert.ok(requestedInteraction);
-  assert.equal(requestedInteraction.kind, 'question');
-  assert.equal(requestedInteraction.questions.length, 1);
-  assert.equal(requestedInteraction.questions[0].options?.length, 2);
+  assert.equal(firstTurn.isDeferred, true);
+  assert.ok(firstTurn.interaction);
+  assert.equal(firstTurn.interaction.kind, 'question');
+  assert.equal(firstTurn.interaction.questions.length, 1);
+  assert.equal(firstTurn.interaction.questions[0].options?.length, 2);
   assert.equal(reasoningDeltas.length > 0, true);
 
-  // Resume turn with user answers
-  const resumeResult = await provider.respondInteraction(
-    { provider: 'claude', providerSessionId: 'sess-q-1' },
-    { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] }
-  );
-  assert.equal(resumeResult.resumed, true);
-
+  // Resume continuation execution under the same logical turn
   const textDeltas = [];
-  await provider.startTurn({
-    turnId: 'turn-q-2',
+  await provider.respondInteraction({
+    turnId: 'turn-q-1',
     providerSessionId: 'sess-q-1',
-    message: 'User selected PostgreSQL',
+    interactionId: firstTurn.interaction.id,
+    interaction: firstTurn.interaction,
+    response: { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] },
     emitTextDelta: text => textDeltas.push(text),
   });
 
@@ -99,22 +91,17 @@ test('Native permission prompt PreToolUse/defer requests permission and resolves
     spawnProcess: () => createStreamProcess(permLines),
   });
 
-  let requestedPermission = null;
   const turnResult = await provider.startTurn({
     turnId: 'turn-perm-1',
     providerSessionId: 'sess-perm-1',
     message: 'Run build',
-    requestInteraction: async interaction => {
-      requestedPermission = interaction;
-      return { decision: 'allow' };
-    },
   });
 
-  assert.ok(requestedPermission);
-  assert.equal(requestedPermission.kind, 'permission');
-  assert.equal(requestedPermission.toolName, 'Bash');
-  assert.equal(requestedPermission.input.command, 'npm --prefix tools/dashboard run build');
-  assert.deepEqual(turnResult.interactionResult, { decision: 'allow' });
+  assert.equal(turnResult.isDeferred, true);
+  assert.ok(turnResult.interaction);
+  assert.equal(turnResult.interaction.kind, 'permission');
+  assert.equal(turnResult.interaction.toolName, 'Bash');
+  assert.equal(turnResult.interaction.input.command, 'npm --prefix tools/dashboard run build');
 });
 
 test('Parallel tool batch boundary handles deferral of interactive tool in batch', async () => {
@@ -126,22 +113,17 @@ test('Parallel tool batch boundary handles deferral of interactive tool in batch
   });
 
   const toolsStarted = [];
-  let interactionRequested = null;
-
-  await provider.startTurn({
+  const turnResult = await provider.startTurn({
     turnId: 'turn-batch-1',
     providerSessionId: 'sess-batch-1',
     message: 'Parallel test',
     emitToolStarted: tool => toolsStarted.push(tool),
-    requestInteraction: async interaction => {
-      interactionRequested = interaction;
-      return { answers: [{ questionId: 'q-1', value: 'Yes' }] };
-    },
   });
 
   assert.equal(toolsStarted.length, 2);
   assert.equal(toolsStarted[0].toolName, 'ReadFile');
   assert.equal(toolsStarted[1].toolName, 'AskUserQuestion');
-  assert.ok(interactionRequested);
-  assert.equal(interactionRequested.kind, 'question');
+  assert.equal(turnResult.isDeferred, true);
+  assert.ok(turnResult.interaction);
+  assert.equal(turnResult.interaction.kind, 'question');
 });

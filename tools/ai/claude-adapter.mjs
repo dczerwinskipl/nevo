@@ -50,8 +50,10 @@ export class ClaudeAgentProvider {
     emitToolUpdated,
     emitToolCompleted,
     emitUsageUpdated,
+    emitEvent,
     requestInteraction,
   } = {}) {
+
     const userPrompt = message ?? prompt;
     if (!userPrompt || typeof userPrompt !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
@@ -206,32 +208,36 @@ export class ClaudeAgentProvider {
         }
 
         if (isDeferred && deferredPayload) {
-          try {
-            let interactionResult;
-            if (deferredPayload.name === 'AskUserQuestion') {
-              interactionResult = await requestInteraction({
-                id: deferredPayload.id,
-                kind: 'question',
-                questions: deferredPayload.input.questions.map((q, idx) => ({
-                  id: `q-${idx + 1}`,
-                  question: q.question,
-                  header: q.header,
-                  options: q.options,
-                  multiSelect: q.multiSelect,
-                })),
-              });
-            } else {
-              interactionResult = await requestInteraction({
-                id: deferredPayload.id,
-                kind: 'permission',
-                toolName: deferredPayload.name,
-                input: deferredPayload.input,
-              });
-            }
-            return resolve({ operation, interactionResult });
-          } catch (intErr) {
-            return reject(intErr);
+          let interaction;
+          if (deferredPayload.name === 'AskUserQuestion') {
+            interaction = {
+              id: deferredPayload.id,
+              kind: 'question',
+              questions: deferredPayload.input?.questions?.map((q, idx) => ({
+                id: `q-${idx + 1}`,
+                question: q.question,
+                header: q.header,
+                options: q.options,
+                multiSelect: q.multiSelect,
+              })) || [],
+            };
+          } else {
+            interaction = {
+              id: deferredPayload.id,
+              kind: 'permission',
+              toolName: deferredPayload.name,
+              input: deferredPayload.input,
+            };
           }
+          if (emitEvent) {
+            emitEvent('interaction.requested', { interaction });
+          }
+          return resolve({
+            operation: null,
+            isDeferred: true,
+            providerSessionId: effectiveSessionId,
+            interaction,
+          });
         }
 
         if (exitCode !== 0 && !isDeferred) {
@@ -259,16 +265,53 @@ export class ClaudeAgentProvider {
     });
   }
 
-  async respondInteraction(identity, response) {
-    if (!identity || !identity.providerSessionId) {
-      throw new AiValidationError("'identity.providerSessionId' is required.");
+  async respondInteraction({
+    turnId,
+    providerSessionId,
+    interactionId,
+    interaction,
+    response,
+    signal,
+    setOperation,
+    emitDelta,
+    emitTextDelta,
+    emitReasoningDelta,
+    emitToolStarted,
+    emitToolUpdated,
+    emitToolCompleted,
+    emitUsageUpdated,
+    emitEvent,
+  } = {}) {
+    if (!providerSessionId) {
+      throw new AiValidationError("'providerSessionId' is required.");
     }
-    return {
-      providerSessionId: identity.providerSessionId,
-      response: structuredClone(response),
-      resumed: true,
-    };
+    let userPrompt;
+    if (interaction?.kind === 'question') {
+      const answersText = response?.answers?.map(a => `${a.questionId}: ${Array.isArray(a.value) ? a.value.join(', ') : a.value}`).join('; ');
+      userPrompt = answersText || 'User answered the questions.';
+    } else if (interaction?.kind === 'permission') {
+      userPrompt = response?.decision === 'allow' ? 'Permission granted. Proceed.' : 'Permission denied. Do not execute.';
+    } else {
+      userPrompt = response?.confirmed ? 'Confirmed.' : 'Cancelled.';
+    }
+
+    return this.startTurn({
+      turnId,
+      providerSessionId,
+      message: userPrompt,
+      signal,
+      setOperation,
+      emitDelta,
+      emitTextDelta,
+      emitReasoningDelta,
+      emitToolStarted,
+      emitToolUpdated,
+      emitToolCompleted,
+      emitUsageUpdated,
+      emitEvent,
+    });
   }
+
 
   async cancelTurn({ operation } = {}) {
     if (operation) {
