@@ -108,17 +108,17 @@ test('native permission prompt deferred fixture maps to normalized permission in
   assert.equal(normalized.input.command, 'npm --prefix tools/dashboard run build');
 });
 
-test('parallel tool batch fixture documents and handles known single-batch limitation', async () => {
-  const content = await readFile(join(FIXTURES_DIR, 'parallel-tool-batch-deferred.json'), 'utf-8');
+test('parallel tool calls fixture parses multiple concurrent tool uses and completes turn', async () => {
+  const content = await readFile(join(FIXTURES_DIR, 'parallel-tool-calls.json'), 'utf-8');
   const events = parseStreamJson(content);
 
   const toolUseBlocks = events.filter(e => e.type === 'content_block_start' && e.content_block?.type === 'tool_use');
   assert.equal(toolUseBlocks.length, 2);
+  assert.equal(toolUseBlocks[0].content_block?.name, 'Read');
+  assert.equal(toolUseBlocks[1].content_block?.name, 'Read');
 
   const endTurnDelta = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'end_turn');
   assert.ok(endTurnDelta);
-
-  const deferredDelta = events.find(e => e.type === 'message_delta' && e.delta?.stop_reason === 'tool_deferred');
-  assert.equal(deferredDelta, undefined, 'Parallel tool batch does not produce tool_deferred stop reason');
 });
+
 

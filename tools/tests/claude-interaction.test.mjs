@@ -239,9 +239,10 @@ test('Crash after user response but before resume execution: resolution remains 
   }
 });
 
-test('parallel tool batch documents limitation: deferral not supported across parallel tools in single batch', async () => {
-  const batchContent = await readFile(join(FIXTURES_DIR, 'parallel-tool-batch-deferred.json'), 'utf-8');
+test('parallel tool calls emit multiple tool events and complete turn without deferral', async () => {
+  const batchContent = await readFile(join(FIXTURES_DIR, 'parallel-tool-calls.json'), 'utf-8');
   const batchLines = batchContent.split('\n').filter(Boolean);
+
 
   const provider = createClaudeAgentProvider({
     spawnProcess: (exec, args) => {
