@@ -144,34 +144,8 @@ export function OperationProgressView({
 
   return (
     <div className="space-y-4 p-5 sm:p-6 text-xs">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-semibold text-zinc-200 truncate">
-            {formatOperationType(snapshot.type)}
-          </span>
-          <span className="text-zinc-500 font-mono text-[11px]">#{snapshot.id}</span>
-        </div>
-        <div className="shrink-0">
-          {isRunning && (
-            <span className="inline-flex items-center gap-1.5 font-medium text-sky-400 text-[11px]">
-              <LoaderCircle className="size-3.5 animate-spin" /> W toku…
-            </span>
-          )}
-          {isCompleted && (
-            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400 text-[11px]">
-              <CheckCircle2 className="size-3.5" /> Ukończono
-            </span>
-          )}
-          {isFailed && (
-            <span className="inline-flex items-center gap-1.5 font-medium text-rose-400 text-[11px]">
-              <AlertCircle className="size-3.5" /> Błąd
-            </span>
-          )}
-        </div>
-      </div>
-
       {snapshot.steps.length > 0 && (
-        <ul className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
+        <ul className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
           {snapshot.steps.map((step) => (
             <OperationStepRow key={step.id} step={step} />
           ))}
@@ -246,6 +220,10 @@ export function OperationModal({
 
   if (!open || !operationId) return null;
 
+  const isCompleted = snapshot?.status === 'completed';
+  const isFailed = snapshot?.status === 'failed';
+  const isRunning = snapshot?.status === 'running';
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 backdrop-blur-sm p-0 sm:items-center sm:p-4"
@@ -260,12 +238,29 @@ export function OperationModal({
         className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-5 py-3.5 sm:px-6">
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">
-            {title || 'Przebieg operacji'}
+          <h2 className="text-sm font-semibold text-[var(--foreground)] truncate pr-3" title={title}>
+            {title || (snapshot ? formatOperationType(snapshot.type) : 'Przebieg operacji')}
           </h2>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij podgląd operacji">
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-3 shrink-0">
+            {isRunning && (
+              <span className="inline-flex items-center gap-1.5 font-medium text-sky-400 text-xs">
+                <LoaderCircle className="size-3.5 animate-spin" /> W toku…
+              </span>
+            )}
+            {isCompleted && (
+              <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400 text-xs">
+                <CheckCircle2 className="size-3.5" /> Ukończono
+              </span>
+            )}
+            {isFailed && (
+              <span className="inline-flex items-center gap-1.5 font-medium text-rose-400 text-xs">
+                <AlertCircle className="size-3.5" /> Błąd
+              </span>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij podgląd operacji">
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <OperationProgressView
