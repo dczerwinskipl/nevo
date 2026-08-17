@@ -73,7 +73,7 @@ tasks:
   - id: final-verification-and-architecture-docs
     order: 12
     file: tasks/12-final-verification-and-architecture-docs.md
-    status: draft
+    status: approved
     depends_on: [ multi-provider-consistency-audit-and-refinement ]
 
 pull_requests:
