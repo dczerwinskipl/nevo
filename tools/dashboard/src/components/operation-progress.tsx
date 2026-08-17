@@ -78,6 +78,23 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
   );
 }
 
+export function formatOperationType(type: string): string {
+  switch (type) {
+    case 'spec-action-approve':
+      return 'Zatwierdzanie zadania';
+    case 'spec-action-verify':
+      return 'Weryfikacja implementacji';
+    case 'spec-action-finalize':
+      return 'Finalizacja specyfikacji';
+    case 'batch-review':
+      return 'Przegląd batcha zadań';
+    case 'task-verification':
+      return 'Self-check zadania';
+    default:
+      return type.replace(/^spec-action-/, '').replace(/-/g, ' ');
+  }
+}
+
 export function OperationProgressView({
   snapshot,
   loading,
@@ -121,44 +138,40 @@ export function OperationProgressView({
   const isCompleted = snapshot.status === 'completed';
   const isFailed = snapshot.status === 'failed';
   const isRunning = snapshot.status === 'running';
+  const resultSummary = typeof (snapshot.result as { summary?: string })?.summary === 'string'
+    ? (snapshot.result as { summary: string }).summary
+    : null;
 
   return (
     <div className="space-y-4 p-5 sm:p-6 text-xs">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 pb-3">
-        <div className="flex items-center gap-2">
-          <Badge
-            className={cn(
-              'capitalize font-mono text-[10px]',
-              isRunning && 'border-sky-500/30 bg-sky-500/10 text-sky-300',
-              isCompleted && 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-              isFailed && 'border-rose-500/30 bg-rose-500/10 text-rose-300',
-            )}
-          >
-            {snapshot.type || 'Operation'}
-          </Badge>
-          <span className="text-zinc-400 font-mono text-[11px]">#{snapshot.id}</span>
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-semibold text-zinc-200 truncate">
+            {formatOperationType(snapshot.type)}
+          </span>
+          <span className="text-zinc-500 font-mono text-[11px]">#{snapshot.id}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="shrink-0">
           {isRunning && (
-            <Badge className="border-sky-500/40 text-sky-300 flex items-center gap-1">
-              <LoaderCircle className="size-3 animate-spin" /> W toku
-            </Badge>
+            <span className="inline-flex items-center gap-1.5 font-medium text-sky-400 text-[11px]">
+              <LoaderCircle className="size-3.5 animate-spin" /> W toku…
+            </span>
           )}
           {isCompleted && (
-            <Badge className="border-emerald-500/40 text-emerald-300 flex items-center gap-1">
-              <Check className="size-3" /> Zakończono pomyślnie
-            </Badge>
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400 text-[11px]">
+              <CheckCircle2 className="size-3.5" /> Ukończono
+            </span>
           )}
           {isFailed && (
-            <Badge className="border-rose-500/40 text-rose-300 flex items-center gap-1">
-              <AlertCircle className="size-3" /> Błąd operacji
-            </Badge>
+            <span className="inline-flex items-center gap-1.5 font-medium text-rose-400 text-[11px]">
+              <AlertCircle className="size-3.5" /> Błąd
+            </span>
           )}
         </div>
       </div>
 
       {snapshot.steps.length > 0 && (
-        <ul className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+        <ul className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
           {snapshot.steps.map((step) => (
             <OperationStepRow key={step.id} step={step} />
           ))}
@@ -176,15 +189,10 @@ export function OperationProgressView({
         </div>
       )}
 
-      {isCompleted && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/30 p-3 text-emerald-200">
-          <p className="text-xs font-semibold flex items-center gap-1.5">
-            <CheckCircle2 className="size-3.5 text-emerald-400" />
-            {typeof (snapshot.result as { summary?: string })?.summary === 'string'
-              ? (snapshot.result as { summary: string }).summary
-              : 'Wszystkie kroki zostały pomyślnie wykonane.'}
-          </p>
-        </div>
+      {isCompleted && resultSummary && (
+        <p className="text-[11px] text-zinc-400 italic px-1">
+          {resultSummary}
+        </p>
       )}
 
       {onDismiss && (
