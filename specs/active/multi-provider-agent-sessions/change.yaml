@@ -210,20 +210,20 @@ tasks:
   - id: dashboard-session-ux-and-spec-binding
     order: 9
     file: tasks/09-dashboard-session-ux-and-spec-binding.md
-    status: implemented
+    status: verified
     depends_on: [ custom-renderers-and-interaction-ui ]
     implementation:
       baseline_revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
-      review_revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
+      review_revision: 414a51f74a7215070ae86f5a39b38cf0acb75cd6
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-session-create-modal.tsx
         - tools/dashboard/src/components/ai-session-list.tsx
         - tools/dashboard/src/components/spec-detail.tsx
-      worktree_patch_fingerprint: d0c167ed37b3280d6c2f9103e96a11a20d9ea3a54a60190f0030b6dce2f569c0
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4
-      revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
+      revision: 414a51f74a7215070ae86f5a39b38cf0acb75cd6
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
