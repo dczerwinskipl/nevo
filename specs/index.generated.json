@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:55.337Z",
+  "generated": "2026-08-17T18:06:02.276Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -102,7 +102,7 @@
           "id": "multi-provider-consistency-audit-and-refinement",
           "order": 11,
           "file": "tasks/11-multi-provider-consistency-audit-and-refinement.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-session-ux-and-spec-binding",
             "antigravity-adapter-and-events"
