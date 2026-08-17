@@ -141,22 +141,27 @@ export function StatusBoard({
                   <span className={cn('size-1.5 rounded-full', tone.dot)} />
                   <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {actionableTasks.length > 1 && firstAction && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-5 px-1.5 text-[9px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10"
-                      onClick={() => onBatchAction?.(actionableTasks, firstAction)}
-                      title={firstAction === 'approve' ? 'Zatwierdź wszystkie kwalifikujące się zadania' : 'Zaakceptuj wszystkie kwalifikujące się zadania'}
-                    >
-                      {firstAction === 'approve' ? 'Zatwierdź wszystkie' : 'Zaakceptuj wszystkie'} ({actionableTasks.length})
-                    </Button>
-                  )}
-                  <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
-                </div>
+                <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
               </div>
               <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
+                {actionableTasks.length > 1 && firstAction && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 w-full gap-1.5 text-xs font-semibold text-[var(--accent)] border border-[var(--accent)]/40 bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 shadow-xs"
+                    onClick={() => onBatchAction?.(actionableTasks, firstAction)}
+                  >
+                    {firstAction === 'approve' ? (
+                      <>
+                        <Play className="size-3" /> Zatwierdź wszystkie ({actionableTasks.length})
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="size-3" /> Zaakceptuj wszystkie ({actionableTasks.length})
+                      </>
+                    )}
+                  </Button>
+                )}
                 {lane.tasks.map(task => (
                   <TaskCard
                     key={task.id}
