@@ -2,9 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   AiError,
-  AiNotFoundError,
   AiValidationError,
-  CapabilityNotSupportedError,
   normalizeInteraction,
 } from './contracts.mjs';
 
@@ -23,7 +21,6 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
-  #sessions = new Map();
 
   constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
     this.#executable = executable;
@@ -38,19 +35,18 @@ export class ClaudeAgentProvider {
   }
 
   async createSession({ title } = {}) {
-    const sessionId = randomUUID();
+    const providerSessionId = randomUUID();
     const now = new Date().toISOString();
-    const session = {
+    return {
       provider: 'claude',
-      providerSessionId: sessionId,
-      title: title || `Claude session ${sessionId.slice(0, 8)}`,
+      providerSessionId,
+      title: title || `Claude session ${providerSessionId.slice(0, 8)}`,
       createdAt: now,
       lastActivityAt: now,
       capabilities: CLAUDE_CAPABILITIES,
     };
-    this.#sessions.set(sessionId, session);
-    return structuredClone(session);
   }
+
 
   async startTurn({
     turnId,

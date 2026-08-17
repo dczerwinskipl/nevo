@@ -1,4 +1,4 @@
-import { CapabilityNotSupportedError, validateAgentIdentity } from './contracts.mjs';
+import { AiError, validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -55,8 +55,12 @@ export class AiSessionService {
     if (typeof entry.adapter?.createSession === 'function') {
       return entry.adapter.createSession(input);
     }
-    throw new CapabilityNotSupportedError(provider, 'createSession');
+    throw new AiError('AI_UNSUPPORTED_OPERATION', `Provider '${provider}' does not support creating sessions.`, {
+      status: 400,
+      details: { provider, operation: 'createSession' },
+    });
   }
+
 
   async startTurn(provider, providerSessionId, input = {}) {
     validateAgentIdentity({ provider, providerSessionId });

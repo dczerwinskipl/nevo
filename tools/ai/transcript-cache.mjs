@@ -159,10 +159,9 @@ export class SessionTranscriptCacheService {
         }
         break;
       }
-      case 'text.delta':
-      case 'message.delta': {
+      case 'text.delta': {
         const msg = getOrCreateAssistantMsg(event.messageId || `message-${event.turnId}`);
-        const delta = event.text ?? event.delta ?? '';
+        const delta = event.text || '';
         msg.text += delta;
         break;
       }

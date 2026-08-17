@@ -1783,7 +1783,7 @@ export function buildProgram() {
     .requiredOption('--spec <slug-or-id>', 'Specification slug or canonical spec_id UUID')
     .option('--task <id>', 'Optional task ID')
     .requiredOption('--provider <provider>', 'Provider ID (e.g. claude, antigravity, mock)')
-    .requiredOption('--session-id <providerSessionId>', 'Provider session ID')
+    .requiredOption('--session-id, --provider-session-id <providerSessionId>', 'Provider session ID')
     .option('--purpose <purpose>', 'Binding purpose', 'attached')
     .action(opts => handleAgentSessionAttach(opts));
 
@@ -1795,14 +1795,16 @@ export async function handleAgentSessionAttach(opts) {
   if (opts.task && specInfo.change) {
     requireTask(specInfo.change, opts.task);
   }
+  const providerSessionId = opts.providerSessionId || opts.sessionId;
   const bindingService = createAgentSessionBindingService();
   const binding = await bindingService.bindSession({
     provider: opts.provider,
-    providerSessionId: opts.sessionId,
+    providerSessionId,
     specId: specInfo.specId,
     taskId: opts.task || undefined,
     purpose: opts.purpose || 'attached',
   });
+
   console.log(`Bound session '${binding.providerSessionId}' (${binding.provider}) to spec '${binding.specId}'${binding.taskId ? ` (task: ${binding.taskId})` : ''}.`);
   return binding;
 }

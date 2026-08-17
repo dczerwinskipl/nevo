@@ -1,7 +1,7 @@
 import {
-  AiNotFoundError,
   AiValidationError,
 } from './contracts.mjs';
+
 
 const MOCK_CAPABILITIES = Object.freeze({
   interactivePermissions: true,
