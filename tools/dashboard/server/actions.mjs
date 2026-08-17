@@ -33,6 +33,10 @@ export function defaultSpecsSpawner(root, args) {
   return spawn(process.execPath, [script, ...args], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      NEVO_STEP_DELAY_MS: process.env.NEVO_STEP_DELAY_MS || '350',
+    },
   });
 }
 

@@ -45,6 +45,17 @@ export function parseProgressLine(line) {
   }
 }
 
+function maybeDelay() {
+  const ms = Number(process.env.NEVO_STEP_DELAY_MS || 0);
+  if (ms > 0) {
+    try {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 /**
  * Create a structured progress emitter writing to an output stream (e.g. process.stdout).
  */
@@ -53,6 +64,7 @@ export function createProgressEmitter({
   clock = () => new Date(),
 } = {}) {
   function emit(type, payload = {}) {
+    maybeDelay();
     const formatted = formatProgressEvent(type, payload, clock);
     if (out && typeof out.write === 'function') {
       out.write(formatted);

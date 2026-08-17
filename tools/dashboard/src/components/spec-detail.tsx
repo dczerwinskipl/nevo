@@ -27,6 +27,7 @@ import type {
   DashboardTask,
   AiSession,
   SpecificationManifest,
+  SpecificationOwnerAction,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
 } from '@/lib/types';
@@ -270,16 +271,20 @@ function OverviewPanel({
   onSessionsRetry,
   onOpenSession,
   actions,
+  taskActions,
+  onDirectTaskAction,
   onCreateSession,
 }: {
   change: DashboardChange;
-  onTaskSelect: (task: DashboardTask, trigger: HTMLButtonElement) => void;
+  onTaskSelect: (task: DashboardTask, trigger: HTMLElement) => void;
   sessions: AiSession[];
   sessionsLoading: boolean;
   sessionsError: string | null;
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
   actions: React.ReactNode;
+  taskActions?: Record<string, SpecificationTaskActionGate>;
+  onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
 }) {
   return (
@@ -337,7 +342,12 @@ function OverviewPanel({
       )}
 
       <div className="mt-11">
-        <StatusBoard change={change} onTaskSelect={onTaskSelect} />
+        <StatusBoard
+          change={change}
+          actions={taskActions}
+          onTaskSelect={onTaskSelect}
+          onTaskAction={onDirectTaskAction}
+        />
       </div>
     </>
   );
@@ -516,7 +526,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     }
   });
   const [finalizeOpen, setFinalizeOpen] = useState(false);
-  const taskTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestEnabled = activeTab === 'specification' || activeTab === 'areas';
   const manifestQuery = useSpecificationManifest(change, manifestEnabled);
   const taskDocId = selectedTaskId ? `task:${selectedTaskId}` : null;
@@ -558,7 +568,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     }
   }, [change.slug, initialTaskId]);
 
-  const openTask = useCallback((task: DashboardTask, trigger: HTMLButtonElement) => {
+  const openTask = useCallback((task: DashboardTask, trigger: HTMLElement) => {
     taskTriggerRef.current = trigger;
     actionsQuery.resetExecution();
     setSelectedTaskId(task.id);
@@ -590,6 +600,21 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
       // The mutation exposes its sanitized error in the dialog footer.
     }
   }, [actionsQuery, closeTask, selectedTask, selectedTaskAction, updateActiveOperation]);
+
+  const executeDirectTaskAction = useCallback(async (task: DashboardTask, actionName: SpecificationOwnerAction) => {
+    try {
+      const taskId = task.id;
+      const res = await actionsQuery.execute({ action: actionName, taskId });
+      if (res?.operationId) {
+        updateActiveOperation(
+          res.operationId,
+          actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
+        );
+      }
+    } catch {
+      // Handled in mutation state
+    }
+  }, [actionsQuery, updateActiveOperation]);
 
   const executeFinalize = useCallback(async () => {
     try {
@@ -690,9 +715,38 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         aria-labelledby={`spec-tab-${activeTab}`}
         className="mt-7"
       >
-        {activeTab === 'overview' && <OverviewPanel change={change} onTaskSelect={openTask} sessions={sessionsQuery.sessions} sessionsLoading={sessionsQuery.loading} sessionsError={sessionsQuery.error} onSessionsRetry={() => void sessionsQuery.refresh()} onOpenSession={onOpenSession} onCreateSession={onCreateSession} actions={change.source === 'active' ? (
-          <div className="mb-9 max-w-xl"><RepositoryActionsCard data={actionsQuery.data} loading={actionsQuery.loading} refreshing={actionsQuery.refreshing} error={actionsQuery.error} executing={actionsQuery.executing} onRefresh={() => void actionsQuery.refresh()} onFinalize={() => { actionsQuery.resetExecution(); setFinalizeOpen(true); }} /></div>
-        ) : null} />}
+        {activeTab === 'overview' && (
+          <OverviewPanel
+            change={change}
+            onTaskSelect={openTask}
+            sessions={sessionsQuery.sessions}
+            sessionsLoading={sessionsQuery.loading}
+            sessionsError={sessionsQuery.error}
+            onSessionsRetry={() => void sessionsQuery.refresh()}
+            onOpenSession={onOpenSession}
+            onCreateSession={onCreateSession}
+            taskActions={actionsQuery.data?.tasks}
+            onDirectTaskAction={executeDirectTaskAction}
+            actions={
+              change.source === 'active' ? (
+                <div className="mb-9 max-w-xl">
+                  <RepositoryActionsCard
+                    data={actionsQuery.data}
+                    loading={actionsQuery.loading}
+                    refreshing={actionsQuery.refreshing}
+                    error={actionsQuery.error}
+                    executing={actionsQuery.executing}
+                    onRefresh={() => void actionsQuery.refresh()}
+                    onFinalize={() => {
+                      actionsQuery.resetExecution();
+                      setFinalizeOpen(true);
+                    }}
+                  />
+                </div>
+              ) : null
+            }
+          />
+        )}
         {activeTab === 'specification' && (
           <SpecificationPanel
             change={change}
