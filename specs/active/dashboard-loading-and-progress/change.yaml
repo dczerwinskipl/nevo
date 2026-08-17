@@ -179,11 +179,25 @@ tasks:
   - id: dashboard-operation-progress-ui
     order: 8
     file: tasks/07-dashboard-operation-progress-ui.md
-    status: approved
+    status: implemented
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
       - approve-post-action-sync-and-git
+    implementation:
+      baseline_revision: fdc008add2fa0b8e7da0c804d2e7fbca100652a3
+      review_revision: fdc008add2fa0b8e7da0c804d2e7fbca100652a3
+      changed_paths: []
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 4d11930e7d50a3a5735c26adf3418d723e6d57f4300a09eb4e9344f269b35cfd
+      revision: fdc008add2fa0b8e7da0c804d2e7fbca100652a3
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
 spec_id: 8745682a-ea12-405a-b809-6836b062aa90
 pull_requests:
