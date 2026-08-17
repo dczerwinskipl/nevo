@@ -135,10 +135,10 @@ export class ClaudeContinuationStore {
         if (record.state !== 'resolved' && record.state !== 'delivered') continue;
 
         const fingerprint = canonicalToolFingerprint(toolName, toolInput);
-        const matches =
-          (toolUseId && record.toolUseId === toolUseId) ||
-          (!toolUseId && record.toolFingerprint === fingerprint) ||
-          (record.toolFingerprint === fingerprint);
+        const matches = toolUseId
+          ? record.toolUseId === toolUseId
+          : record.toolFingerprint === fingerprint;
+
 
         if (matches) {
           return record;

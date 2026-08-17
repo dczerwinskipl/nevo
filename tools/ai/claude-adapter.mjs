@@ -57,7 +57,8 @@ export class ClaudeAgentProvider {
   }
 
   #createSettingsFile() {
-    const hookCmd = `${process.execPath} "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
+    const hookCmd = `node "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
+
     const settings = {
       hooks: {
         PreToolUse: [
@@ -238,7 +239,7 @@ export class ClaudeAgentProvider {
           case 'message_delta': {
             if (event.delta?.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use;
+              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || activeTool;
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -251,12 +252,11 @@ export class ClaudeAgentProvider {
           case 'result': {
             if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              if (event.deferred_tool_use) {
-                deferredPayload = event.deferred_tool_use;
-              }
+              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload || activeTool;
             }
             break;
           }
+
           case 'error': {
             cleanupSettings();
             reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.'));
@@ -267,12 +267,14 @@ export class ClaudeAgentProvider {
         }
       };
 
+      let processingQueue = Promise.resolve();
+
       child.stdout?.on('data', chunk => {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
-          processLine(line).catch(err => {
+          processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
             cleanupSettings();
             reject(err);
           });
@@ -290,10 +292,17 @@ export class ClaudeAgentProvider {
       });
 
       child.on('close', async exitCode => {
+        try {
+          await processingQueue;
+        } catch (e) {
+          cleanupSettings();
+          return reject(e);
+        }
         cleanupSettings();
         if (lineBuffer.trim()) {
           try { await processLine(lineBuffer); } catch (e) { return reject(e); }
         }
+
 
         if (operation.cancelled) {
           return reject(new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 }));

@@ -131,34 +131,36 @@ test('Hook subprocess: AskUserQuestion with resolved response maps answers to qu
   }
 });
 
-test('Hook subprocess: Wrong toolUseId correlation does not consume unrelated continuation and returns defer', async () => {
-  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-mismatch-'));
+test('Hook subprocess: same tool input but mismatched tool_use_id fails correlation and returns defer', async () => {
+  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-sameinput-'));
   try {
     const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const sameInput = { questions: [{ question: 'Which database?', options: ['PostgreSQL', 'SQLite'] }] };
+
     store.saveDeferred({
-      providerSessionId: 'sess-mismatch',
-      interactionId: 'int-mismatch-1',
+      providerSessionId: 'sess-same-input',
+      interactionId: 'int-same-1',
       toolUseId: 'tool-A',
       toolName: 'AskUserQuestion',
-      toolInput: { questions: [{ question: 'Color?', options: ['Red'] }] },
+      toolInput: sameInput,
     });
 
     store.resolveResponse({
-      providerSessionId: 'sess-mismatch',
-      interactionId: 'int-mismatch-1',
-      userResponse: { answers: [{ questionId: 'q-1', value: 'Red' }] },
+      providerSessionId: 'sess-same-input',
+      interactionId: 'int-same-1',
+      userResponse: { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] },
     });
 
-    // Invoking hook with tool-B (different tool_use_id and different input)
+    // Incoming hook has tool_use_id: 'tool-B' with EXACT SAME INPUT
     const result = await runHookSubprocess({
-      session_id: 'sess-mismatch',
+      session_id: 'sess-same-input',
       hook_event_name: 'PreToolUse',
       tool_name: 'AskUserQuestion',
       tool_use_id: 'tool-B',
-      tool_input: { questions: [{ question: 'Size?', options: ['Large'] }] },
+      tool_input: sameInput,
     }, { cwd: tmpBase });
 
-    // Must return defer for unresolved tool-B
+    // Must return defer for unresolved tool-B because toolUseId does not match!
     assert.deepEqual(result, {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
@@ -166,10 +168,70 @@ test('Hook subprocess: Wrong toolUseId correlation does not consume unrelated co
       },
     });
 
-    // Must leave int-mismatch-1 unconsumed in resolved state
-    const record = store.getContinuation('sess-mismatch', 'int-mismatch-1');
+    // Stored continuation remains in resolved state
+    const record = store.getContinuation('sess-same-input', 'int-same-1');
     assert.ok(record);
     assert.equal(record.state, 'resolved');
+  } finally {
+    await rm(tmpBase, { recursive: true, force: true });
+  }
+});
+
+test('Hook subprocess: retry after delivery returns the same decision until parent execution completes', async () => {
+  const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-hook-retry-delivered-'));
+  try {
+    const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+    const toolInput = { questions: [{ question: 'Deploy env?', options: ['Staging', 'Prod'] }] };
+
+    store.saveDeferred({
+      providerSessionId: 'sess-retry-del',
+      interactionId: 'int-del-1',
+      toolUseId: 'tool-del-1',
+      toolName: 'AskUserQuestion',
+      toolInput,
+    });
+
+    store.resolveResponse({
+      providerSessionId: 'sess-retry-del',
+      interactionId: 'int-del-1',
+      userResponse: { answers: [{ questionId: 'q-1', value: 'Staging' }] },
+    });
+
+    // 1st hook invocation: executes and marks delivered
+    const result1 = await runHookSubprocess({
+      session_id: 'sess-retry-del',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tool-del-1',
+      tool_input: toolInput,
+    }, { cwd: tmpBase });
+
+    assert.equal(result1.hookSpecificOutput?.permissionDecision, 'allow');
+    assert.deepEqual(result1.hookSpecificOutput?.updatedInput?.answers, {
+      'Deploy env?': 'Staging',
+    });
+
+    const recordAfterFirst = store.getContinuation('sess-retry-del', 'int-del-1');
+    assert.equal(recordAfterFirst.state, 'delivered');
+
+    // Resumed process fails before completion.
+    // 2nd hook invocation (retry): executes again and returns the exact same allow decision
+    const result2 = await runHookSubprocess({
+      session_id: 'sess-retry-del',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tool-del-1',
+      tool_input: toolInput,
+    }, { cwd: tmpBase });
+
+    assert.equal(result2.hookSpecificOutput?.permissionDecision, 'allow');
+    assert.deepEqual(result2.hookSpecificOutput?.updatedInput?.answers, {
+      'Deploy env?': 'Staging',
+    });
+
+    // Parent completes successfully: cleanup continuation
+    store.complete({ providerSessionId: 'sess-retry-del', interactionId: 'int-del-1' });
+    assert.equal(store.getContinuation('sess-retry-del', 'int-del-1'), null);
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
