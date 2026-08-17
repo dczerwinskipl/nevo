@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:15.065Z",
+  "generated": "2026-08-17T18:05:20.383Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -46,7 +46,7 @@
           "id": "claude-interaction-and-deferral",
           "order": 5,
           "file": "tasks/05-claude-interaction-and-deferral.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "claude-interaction-transport-discovery",
             "claude-provider-adapter"
