@@ -295,6 +295,7 @@ function OverviewPanel({
   actions,
   taskActions,
   onDirectTaskAction,
+  onBatchTaskAction,
   onCreateSession,
 }: {
   change: DashboardChange;
@@ -307,6 +308,7 @@ function OverviewPanel({
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
+  onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
 }) {
   return (
@@ -369,6 +371,7 @@ function OverviewPanel({
           actions={taskActions}
           onTaskSelect={onTaskSelect}
           onTaskAction={onDirectTaskAction}
+          onBatchAction={onBatchTaskAction}
         />
       </div>
     </>
@@ -524,6 +527,23 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     }
   }, [actionsQuery, updateActiveOperation]);
 
+  const executeBatchTaskAction = useCallback(async (tasks: DashboardTask[], actionName: SpecificationOwnerAction) => {
+    for (const task of tasks) {
+      try {
+        const taskId = task.id;
+        const res = await actionsQuery.execute({ action: actionName, taskId });
+        if (res?.operationId) {
+          updateActiveOperation(
+            res.operationId,
+            actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
+          );
+        }
+      } catch {
+        break;
+      }
+    }
+  }, [actionsQuery, updateActiveOperation]);
+
   const executeFinalize = useCallback(async () => {
     try {
       const res = await actionsQuery.execute({ action: 'finalize', confirmed: true });
@@ -635,6 +655,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
             onCreateSession={onCreateSession}
             taskActions={actionsQuery.data?.tasks}
             onDirectTaskAction={executeDirectTaskAction}
+            onBatchTaskAction={executeBatchTaskAction}
             actions={
               change.source === 'active' ? (
                 <div className="mb-9 max-w-xl">

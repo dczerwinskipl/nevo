@@ -110,11 +110,13 @@ export function StatusBoard({
   actions,
   onTaskSelect,
   onTaskAction,
+  onBatchAction,
 }: {
   change: DashboardChange;
   actions?: Record<string, SpecificationTaskActionGate>;
   onTaskSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
   onTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
+  onBatchAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">
@@ -130,6 +132,8 @@ export function StatusBoard({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {change.lanes.map(lane => {
           const tone = stageTone[lane.id];
+          const actionableTasks = lane.tasks.filter(task => actions?.[task.id]?.enabled);
+          const firstAction = actionableTasks.length > 0 ? actions?.[actionableTasks[0].id]?.action : null;
           return (
             <div key={lane.id} className="min-w-0">
               <div className="mb-2 flex items-center justify-between px-1">
@@ -137,7 +141,20 @@ export function StatusBoard({
                   <span className={cn('size-1.5 rounded-full', tone.dot)} />
                   <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
                 </div>
-                <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
+                <div className="flex items-center gap-1.5">
+                  {actionableTasks.length > 1 && firstAction && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 px-1.5 text-[9px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10"
+                      onClick={() => onBatchAction?.(actionableTasks, firstAction)}
+                      title={firstAction === 'approve' ? 'Zatwierdź wszystkie kwalifikujące się zadania' : 'Zaakceptuj wszystkie kwalifikujące się zadania'}
+                    >
+                      {firstAction === 'approve' ? 'Zatwierdź wszystkie' : 'Zaakceptuj wszystkie'} ({actionableTasks.length})
+                    </Button>
+                  )}
+                  <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
+                </div>
               </div>
               <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
                 {lane.tasks.map(task => (
