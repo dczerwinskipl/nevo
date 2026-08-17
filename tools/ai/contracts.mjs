@@ -191,108 +191,118 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
   rejectProviderFields(value, 'interaction');
   const id = value.id ?? (assignIds ? `interaction-${idFactory()}` : undefined);
   const base = { id: requiredString(id, 'interaction.id'), kind: value.kind };
-  if (value.kind === 'permission') {
-    const input = value.input;
-    if (input !== undefined) {
-      const encoded = JSON.stringify(input);
-      if (!input || typeof input !== 'object' || Array.isArray(input) || encoded.length > 4_096) {
-        throw new AiValidationError("Permission 'input' must be a bounded normalized object.", { field: 'interaction.input' });
-      }
-      rejectProviderFields(input, 'interaction.input');
-    }
-    return {
-      ...base,
-      toolName: requiredString(value.toolName, 'interaction.toolName', { opaque: true, max: 100 }),
-      ...(input === undefined ? {} : { input: structuredClone(input) }),
-      ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
-    };
-  }
-  if (value.kind === 'question') {
-    if (!Array.isArray(value.questions) || value.questions.length === 0 || value.questions.length > 20) {
-      throw new AiValidationError('Question interactions require 1-20 questions.', { field: 'interaction.questions' });
-    }
-    const questions = value.questions.map((question, index) => {
-      const questionId = question?.id ?? (assignIds ? `question-${idFactory()}` : undefined);
-      const options = question?.options;
-      if (options !== undefined && (!Array.isArray(options) || options.length > 20)) {
-        throw new AiValidationError("Question 'options' must be an array of at most 20 items.", { field: `interaction.questions[${index}].options` });
+
+  switch (value.kind) {
+    case 'permission': {
+      const input = value.input;
+      if (input !== undefined) {
+        const encoded = JSON.stringify(input);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || encoded.length > 4_096) {
+          throw new AiValidationError("Permission 'input' must be a bounded normalized object.", { field: 'interaction.input' });
+        }
+        rejectProviderFields(input, 'interaction.input');
       }
       return {
-        id: requiredString(questionId, `interaction.questions[${index}].id`),
-        question: requiredString(question?.question, `interaction.questions[${index}].question`, { opaque: true, max: 1_000 }),
-        ...(question?.header == null ? {} : { header: optionalString(question.header, `interaction.questions[${index}].header`, 100) }),
-        ...(options === undefined ? {} : {
-          options: options.map((option, optionIndex) => ({
-            label: requiredString(option?.label, `interaction.questions[${index}].options[${optionIndex}].label`, { opaque: true, max: 200 }),
-            ...(option?.description == null ? {} : { description: optionalString(option.description, 'option.description', 500) }),
-          })),
-        }),
-        multiSelect: question?.multiSelect === true,
+        ...base,
+        toolName: requiredString(value.toolName, 'interaction.toolName', { opaque: true, max: 100 }),
+        ...(input === undefined ? {} : { input: structuredClone(input) }),
+        ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
       };
-    });
-    if (new Set(questions.map(question => question.id)).size !== questions.length) {
-      throw new AiValidationError('Question IDs must be unique within an interaction.', { field: 'interaction.questions' });
     }
-    return { ...base, questions };
+    case 'question': {
+      if (!Array.isArray(value.questions) || value.questions.length === 0 || value.questions.length > 20) {
+        throw new AiValidationError('Question interactions require 1-20 questions.', { field: 'interaction.questions' });
+      }
+      const questions = value.questions.map((question, index) => {
+        const questionId = question?.id ?? (assignIds ? `question-${idFactory()}` : undefined);
+        const options = question?.options;
+        if (options !== undefined && (!Array.isArray(options) || options.length > 20)) {
+          throw new AiValidationError("Question 'options' must be an array of at most 20 items.", { field: `interaction.questions[${index}].options` });
+        }
+        return {
+          id: requiredString(questionId, `interaction.questions[${index}].id`),
+          question: requiredString(question?.question, `interaction.questions[${index}].question`, { opaque: true, max: 1_000 }),
+          ...(question?.header == null ? {} : { header: optionalString(question.header, `interaction.questions[${index}].header`, 100) }),
+          ...(options === undefined ? {} : {
+            options: options.map((option, optionIndex) => ({
+              label: requiredString(option?.label, `interaction.questions[${index}].options[${optionIndex}].label`, { opaque: true, max: 200 }),
+              ...(option?.description == null ? {} : { description: optionalString(option.description, 'option.description', 500) }),
+            })),
+          }),
+          multiSelect: question?.multiSelect === true,
+        };
+      });
+      if (new Set(questions.map(question => question.id)).size !== questions.length) {
+        throw new AiValidationError('Question IDs must be unique within an interaction.', { field: 'interaction.questions' });
+      }
+      return { ...base, questions };
+    }
+    case 'confirmation': {
+      return {
+        ...base,
+        title: requiredString(value.title ?? 'Confirm Action', 'interaction.title', { opaque: true, max: 200 }),
+        message: requiredString(value.message, 'interaction.message', { opaque: true, max: 2_000 }),
+        ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
+        ...(value.payload === undefined ? {} : { payload: structuredClone(value.payload) }),
+      };
+    }
+    default:
+      throw new AiValidationError("Interaction 'kind' must be permission, question, or confirmation.", { field: 'interaction.kind' });
   }
-  if (value.kind === 'confirmation') {
-    return {
-      ...base,
-      title: requiredString(value.title ?? 'Confirm Action', 'interaction.title', { opaque: true, max: 200 }),
-      message: requiredString(value.message, 'interaction.message', { opaque: true, max: 2_000 }),
-      ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
-      ...(value.payload === undefined ? {} : { payload: structuredClone(value.payload) }),
-    };
-  }
-  throw new AiValidationError("Interaction 'kind' must be permission, question, or confirmation.", { field: 'interaction.kind' });
 }
 
 export function validateInteractionResponse(interaction, value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AiValidationError('Interaction response must be an object.');
   }
-  if (interaction.kind === 'permission') {
-    if (!['allow', 'deny'].includes(value.decision)) {
-      throw new AiValidationError("Permission response 'decision' must be allow or deny.", { field: 'decision' });
+  switch (interaction.kind) {
+    case 'permission': {
+      if (!['allow', 'deny'].includes(value.decision)) {
+        throw new AiValidationError("Permission response 'decision' must be allow or deny.", { field: 'decision' });
+      }
+      return {
+        decision: value.decision,
+        ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
+      };
     }
-    return {
-      decision: value.decision,
-      ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
-    };
+    case 'confirmation': {
+      if (typeof value.confirmed !== 'boolean' && !['confirm', 'cancel', 'allow', 'deny'].includes(value.decision)) {
+        throw new AiValidationError("Confirmation response must specify 'confirmed' or 'decision'.", { field: 'confirmed' });
+      }
+      const confirmed = typeof value.confirmed === 'boolean' ? value.confirmed : (value.decision === 'confirm' || value.decision === 'allow');
+      return {
+        confirmed,
+        decision: confirmed ? 'confirm' : 'cancel',
+        ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
+      };
+    }
+    case 'question': {
+      if (!Array.isArray(value.answers) || value.answers.length !== interaction.questions.length) {
+        throw new AiValidationError('Question responses require one answer per question.', { field: 'answers' });
+      }
+      const expected = new Set(interaction.questions.map(question => question.id));
+      const seen = new Set();
+      const answers = value.answers.map((answer, index) => {
+        const questionId = requiredString(answer?.questionId, `answers[${index}].questionId`);
+        if (!expected.has(questionId) || seen.has(questionId)) {
+          throw new AiValidationError('Answers must correlate to each unique question ID.', { field: `answers[${index}].questionId` });
+        }
+        seen.add(questionId);
+        const raw = answer?.value;
+        if (typeof raw !== 'string' && !Array.isArray(raw)) {
+          throw new AiValidationError("Answer 'value' must be a string or string array.", { field: `answers[${index}].value` });
+        }
+        const values = Array.isArray(raw) ? raw : [raw];
+        if (values.length === 0 || values.some(item => typeof item !== 'string' || item.length > 1_000)) {
+          throw new AiValidationError("Answer 'value' is invalid or too large.", { field: `answers[${index}].value` });
+        }
+        return { questionId, value: Array.isArray(raw) ? [...raw] : raw };
+      });
+      return { answers };
+    }
+    default:
+      throw new AiValidationError(`Unknown interaction kind '${interaction.kind}'.`, { field: 'interaction.kind' });
   }
-  if (interaction.kind === 'confirmation') {
-    if (typeof value.confirmed !== 'boolean' && !['confirm', 'cancel', 'allow', 'deny'].includes(value.decision)) {
-      throw new AiValidationError("Confirmation response must specify 'confirmed' or 'decision'.", { field: 'confirmed' });
-    }
-    const confirmed = typeof value.confirmed === 'boolean' ? value.confirmed : (value.decision === 'confirm' || value.decision === 'allow');
-    return {
-      confirmed,
-      decision: confirmed ? 'confirm' : 'cancel',
-      ...(value.message == null ? {} : { message: optionalString(value.message, 'message', 1_000) }),
-    };
-  }
-  if (!Array.isArray(value.answers) || value.answers.length !== interaction.questions.length) {
-    throw new AiValidationError('Question responses require one answer per question.', { field: 'answers' });
-  }
-  const expected = new Set(interaction.questions.map(question => question.id));
-  const seen = new Set();
-  const answers = value.answers.map((answer, index) => {
-    const questionId = requiredString(answer?.questionId, `answers[${index}].questionId`);
-    if (!expected.has(questionId) || seen.has(questionId)) {
-      throw new AiValidationError('Answers must correlate to each unique question ID.', { field: `answers[${index}].questionId` });
-    }
-    seen.add(questionId);
-    const raw = answer?.value;
-    if (typeof raw !== 'string' && !Array.isArray(raw)) {
-      throw new AiValidationError("Answer 'value' must be a string or string array.", { field: `answers[${index}].value` });
-    }
-    const values = Array.isArray(raw) ? raw : [raw];
-    if (values.length === 0 || values.some(item => typeof item !== 'string' || item.length > 1_000)) {
-      throw new AiValidationError("Answer 'value' is invalid or too large.", { field: `answers[${index}].value` });
-    }
-    return { questionId, value: Array.isArray(raw) ? [...raw] : raw };
-  });
-  return { answers };
 }
 
 export function validateAgentEvent(value) {
@@ -310,88 +320,101 @@ export function validateAgentEvent(value) {
   if (value.seq !== undefined && Number.isSafeInteger(value.seq)) {
     base.seq = value.seq;
   }
-  if (value.type === 'message.started') {
-    return {
-      ...base,
-      messageId: requiredString(value.messageId, 'messageId'),
-      role: ['assistant', 'user', 'system'].includes(value.role) ? value.role : 'assistant',
-    };
+
+  switch (value.type) {
+    case 'message.started':
+      return {
+        ...base,
+        messageId: requiredString(value.messageId, 'messageId'),
+        role: ['assistant', 'user', 'system'].includes(value.role) ? value.role : 'assistant',
+      };
+
+    case 'text.delta': {
+      const text = value.text ?? value.delta;
+      return {
+        ...base,
+        text: requiredString(text, 'text', { opaque: true, max: 50_000 }),
+        ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+      };
+    }
+
+    case 'reasoning.delta':
+      return {
+        ...base,
+        text: requiredString(value.text, 'text', { opaque: true, max: 50_000 }),
+        ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+      };
+
+    case 'tool.started':
+      return {
+        ...base,
+        toolId: requiredString(value.toolId, 'toolId'),
+        toolName: requiredString(value.toolName, 'toolName', { opaque: true, max: 100 }),
+        input: value.input === undefined ? {} : structuredClone(value.input),
+      };
+
+    case 'tool.updated':
+      return {
+        ...base,
+        toolId: requiredString(value.toolId, 'toolId'),
+        ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
+        ...(value.status ? { status: requiredString(value.status, 'status', { opaque: true, max: 50 }) } : {}),
+      };
+
+    case 'tool.completed':
+      return {
+        ...base,
+        toolId: requiredString(value.toolId, 'toolId'),
+        ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
+        ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+      };
+
+    case 'interaction.requested':
+      return {
+        ...base,
+        interaction: normalizeInteraction(value.interaction),
+      };
+
+    case 'interaction.resolved':
+      return {
+        ...base,
+        interactionId: requiredString(value.interactionId, 'interactionId'),
+        ...(value.response !== undefined ? { response: structuredClone(value.response) } : {}),
+      };
+
+    case 'usage.updated':
+      return {
+        ...base,
+        ...(typeof value.tokensIn === 'number' ? { tokensIn: value.tokensIn } : {}),
+        ...(typeof value.tokensOut === 'number' ? { tokensOut: value.tokensOut } : {}),
+        ...(typeof value.cost === 'number' ? { cost: value.cost } : {}),
+      };
+
+    case 'turn.completed':
+      return {
+        ...base,
+        ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+        ...(value.finishReason ? { finishReason: requiredString(value.finishReason, 'finishReason', { opaque: true, max: 50 }) } : {}),
+      };
+
+    case 'turn.failed':
+      return {
+        ...base,
+        error: {
+          code: requiredString(value.error?.code, 'error.code'),
+          message: requiredString(value.error?.message, 'error.message', { opaque: true, max: 2_000 }),
+        },
+      };
+
+    case 'turn.started':
+    default:
+      return {
+        ...base,
+        ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+      };
   }
-  if (value.type === 'text.delta') {
-    const text = value.text ?? value.delta;
-    return {
-      ...base,
-      text: requiredString(text, 'text', { opaque: true, max: 50_000 }),
-      ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
-    };
-  }
-  if (value.type === 'reasoning.delta') {
-    return {
-      ...base,
-      text: requiredString(value.text, 'text', { opaque: true, max: 50_000 }),
-      ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
-    };
-  }
-  if (value.type === 'tool.started') {
-    return {
-      ...base,
-      toolId: requiredString(value.toolId, 'toolId'),
-      toolName: requiredString(value.toolName, 'toolName', { opaque: true, max: 100 }),
-      input: value.input === undefined ? {} : structuredClone(value.input),
-    };
-  }
-  if (value.type === 'tool.updated') {
-    return {
-      ...base,
-      toolId: requiredString(value.toolId, 'toolId'),
-      ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
-      ...(value.status ? { status: requiredString(value.status, 'status', { opaque: true, max: 50 }) } : {}),
-    };
-  }
-  if (value.type === 'tool.completed') {
-    return {
-      ...base,
-      toolId: requiredString(value.toolId, 'toolId'),
-      ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
-      ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
-    };
-  }
-  if (value.type === 'interaction.requested') {
-    return { ...base, interaction: normalizeInteraction(value.interaction) };
-  }
-  if (value.type === 'interaction.resolved') {
-    return {
-      ...base,
-      interactionId: requiredString(value.interactionId, 'interactionId'),
-      ...(value.response !== undefined ? { response: structuredClone(value.response) } : {}),
-    };
-  }
-  if (value.type === 'usage.updated') {
-    return {
-      ...base,
-      ...(typeof value.tokensIn === 'number' ? { tokensIn: value.tokensIn } : {}),
-      ...(typeof value.tokensOut === 'number' ? { tokensOut: value.tokensOut } : {}),
-      ...(typeof value.cost === 'number' ? { cost: value.cost } : {}),
-    };
-  }
-  if (value.type === 'turn.completed') {
-    return {
-      ...base,
-      ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
-      ...(value.finishReason ? { finishReason: requiredString(value.finishReason, 'finishReason', { opaque: true, max: 50 }) } : {}),
-    };
-  }
-  if (value.type === 'turn.failed') {
-    return {
-      ...base,
-      error: {
-        code: requiredString(value.error?.code, 'error.code'),
-        message: requiredString(value.error?.message, 'error.message', { opaque: true, max: 2_000 }),
-      },
-    };
-  }
-  return { ...base, ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}) };
 }
+
 
 export const validateAiEvent = validateAgentEvent;
 
