@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:14:14.671Z",
+  "generated": "2026-08-17T18:15:46.403Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -125,10 +125,34 @@
           "id": "claude-provider-adapter",
           "order": 4,
           "file": "tasks/04-claude-provider-adapter.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "provider-neutral-core-and-capabilities"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "49c507542fdff98e395b08d2c974cbad8963333b",
+            "review_revision": "49c507542fdff98e395b08d2c974cbad8963333b",
+            "changed_paths": [
+              "tools/ai/claude-adapter.mjs",
+              "tools/tests/claude-adapter.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "86b37fdd9e06c2211f2b2da132384409cc32f2f1fda7829a1df5d41882b231d9",
+            "revision": "49c507542fdff98e395b08d2c974cbad8963333b",
+            "commands": [
+              {
+                "command": "node --test tools/tests/claude-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "claude-interaction-and-deferral",
