@@ -312,9 +312,9 @@ export function buildContextPacket(change, task) {
 
   const branchMode = change.branch?.mode || 'per-change';
   const prefix = change.branch?.prefix || 'feature';
-  const branch = branchMode === 'per-task'
+  const branch = change.branch?.name || (branchMode === 'per-task'
     ? `${prefix}/${change._slug}/${task.id}`
-    : `${prefix}/${change._slug}`;
+    : `${prefix}/${change._slug}`);
 
   const contextRequired = (taskFm.context?.required || []).map(p =>
     p.startsWith('../') ? join('specs/active', change._slug, p).replace(/\\/g, '/') : p
