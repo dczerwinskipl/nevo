@@ -61,7 +61,7 @@ tasks:
   - id: antigravity-adapter-and-events
     order: 10
     file: tasks/10-antigravity-adapter-and-events.md
-    status: draft
+    status: approved
     depends_on: [ agent-session-http-sse-api ]
   - id: multi-provider-consistency-audit-and-refinement
     order: 11

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:48.753Z",
+  "generated": "2026-08-17T18:05:55.337Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -93,7 +93,7 @@
           "id": "antigravity-adapter-and-events",
           "order": 10,
           "file": "tasks/10-antigravity-adapter-and-events.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "agent-session-http-sse-api"
           ]
