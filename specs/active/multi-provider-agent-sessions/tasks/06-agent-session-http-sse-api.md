@@ -35,11 +35,13 @@ Expose the complete provider-neutral agent session API on the dashboard server, 
 
 - Update `tools/dashboard/server/ai-routes.mjs` to handle `/api/agent-sessions` endpoints using `(provider, providerSessionId)` locators.
 - Support `GET /api/agent-sessions` filtering by query parameters `specId` or `taskId` via `AgentSessionBindingService`.
-- Support `POST /api/agent-sessions` starting a provider session and registering initial spec/task binding.
+- Support `POST /api/agent-sessions` attaching an existing pre-allocated session `(provider, providerSessionId)` to a spec/task binding.
+- Support starting turns with atomic session creation on first prompt (`POST /api/agent-sessions/turns` with `{ provider, message, specId?, taskId? }` returning `{ turnId, providerSessionId }`) and resumption on subsequent turns (`POST /api/agent-sessions/:provider/:providerSessionId/turns`).
 - Expose session state snapshot and normalized thread history in `GET /api/agent-sessions/:provider/:providerSessionId` (including status, active turn, pending interaction, capabilities, and normalized messages with `lastEventSeq` cursor reading from `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`).
-- Support SSE event endpoint (`GET /api/agent-sessions/:provider/:providerSessionId/events`) broadcasting normalized `AgentEvent` streams with sequence numbers for reconnect/replay deduplication.
+- Support SSE event endpoint (`GET /api/agent-sessions/:provider/:providerSessionId/events`) broadcasting session-wide normalized `AgentEvent` streams with sequence numbers for reconnect/replay deduplication.
 - Support interaction response endpoint (`POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`).
 - Ensure no provider credentials, internal process tokens, or raw provider formats leak to API responses.
+
 
 ## Verification
 

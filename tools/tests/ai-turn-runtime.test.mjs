@@ -312,6 +312,8 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     const snapshot = fixture.runtime.getSnapshot(turnId);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
   } finally {
-    await rm(tmpDir, { recursive: true, force: true });
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+

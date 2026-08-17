@@ -21,6 +21,7 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
+  #deferredTools = new Map();
 
   constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
     this.#executable = executable;
@@ -41,6 +42,7 @@ export class ClaudeAgentProvider {
     identity,
     message,
     prompt,
+    continuationPayload,
     signal,
     setOperation,
     emitDelta,
@@ -53,9 +55,8 @@ export class ClaudeAgentProvider {
     emitEvent,
     requestInteraction,
   } = {}) {
-
     const userPrompt = message ?? prompt;
-    if (!userPrompt || typeof userPrompt !== 'string') {
+    if (!continuationPayload && (!userPrompt || typeof userPrompt !== 'string')) {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
@@ -65,9 +66,6 @@ export class ClaudeAgentProvider {
 
     const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
     const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, effectiveSessionId];
-
-
-
 
     return new Promise((resolve, reject) => {
       let child;
@@ -229,7 +227,12 @@ export class ClaudeAgentProvider {
               input: deferredPayload.input,
             };
           }
-          if (emitEvent) {
+          this.#deferredTools.set(`${effectiveSessionId}\u0000${interaction.id}`, {
+            toolUseId: deferredPayload.id,
+            toolName: deferredPayload.name,
+            toolInput: deferredPayload.input,
+          });
+          if (typeof emitEvent === 'function') {
             emitEvent('interaction.requested', { interaction });
           }
           return resolve({
@@ -247,16 +250,20 @@ export class ClaudeAgentProvider {
         resolve({ operation, providerSessionId: effectiveSessionId });
       });
 
-
-      // Write initial user input to child stdin as stream-json user message
+      // Write stdin payload
       try {
-        const inputMessage = JSON.stringify({
-          type: 'user',
-          message: {
-            role: 'user',
-            content: userPrompt,
-          },
-        });
+        let inputMessage;
+        if (continuationPayload) {
+          inputMessage = JSON.stringify(continuationPayload);
+        } else {
+          inputMessage = JSON.stringify({
+            type: 'user',
+            message: {
+              role: 'user',
+              content: userPrompt,
+            },
+          });
+        }
         child.stdin?.write(`${inputMessage}\n`);
         child.stdin?.end();
       } catch (err) {
@@ -285,20 +292,46 @@ export class ClaudeAgentProvider {
     if (!providerSessionId) {
       throw new AiValidationError("'providerSessionId' is required.");
     }
-    let userPrompt;
-    if (interaction?.kind === 'question') {
-      const answersText = response?.answers?.map(a => `${a.questionId}: ${Array.isArray(a.value) ? a.value.join(', ') : a.value}`).join('; ');
-      userPrompt = answersText || 'User answered the questions.';
+
+    const deferredKey = `${providerSessionId}\u0000${interactionId}`;
+    const deferred = this.#deferredTools.get(deferredKey) || {
+      toolUseId: interaction?.id || interactionId,
+      toolName: interaction?.toolName || (interaction?.kind === 'question' ? 'AskUserQuestion' : 'Bash'),
+      toolInput: interaction?.input,
+    };
+    this.#deferredTools.delete(deferredKey);
+
+    let continuationPayload;
+    if (interaction?.kind === 'question' || deferred.toolName === 'AskUserQuestion') {
+      continuationPayload = {
+        type: 'tool_result',
+        tool_use_id: deferred.toolUseId,
+        permissionDecision: 'allow',
+        updatedInput: {
+          questions: deferred.toolInput?.questions || interaction?.questions || [],
+          answers: response?.answers || [],
+        },
+      };
     } else if (interaction?.kind === 'permission') {
-      userPrompt = response?.decision === 'allow' ? 'Permission granted. Proceed.' : 'Permission denied. Do not execute.';
+      const isAllowed = response?.decision === 'allow';
+      continuationPayload = {
+        type: 'tool_result',
+        tool_use_id: deferred.toolUseId,
+        permissionDecision: isAllowed ? 'allow' : 'deny',
+        ...(isAllowed ? {} : { message: response?.message || 'Permission denied by user' }),
+      };
     } else {
-      userPrompt = response?.confirmed ? 'Confirmed.' : 'Cancelled.';
+      continuationPayload = {
+        type: 'tool_result',
+        tool_use_id: deferred.toolUseId,
+        permissionDecision: response?.confirmed ? 'allow' : 'deny',
+      };
     }
 
     return this.startTurn({
       turnId,
       providerSessionId,
-      message: userPrompt,
+      continuationPayload,
       signal,
       setOperation,
       emitDelta,
@@ -311,7 +344,6 @@ export class ClaudeAgentProvider {
       emitEvent,
     });
   }
-
 
   async cancelTurn({ operation } = {}) {
     if (operation) {
@@ -328,4 +360,3 @@ export class ClaudeAgentProvider {
 export function createClaudeAgentProvider(options) {
   return new ClaudeAgentProvider(options);
 }
-

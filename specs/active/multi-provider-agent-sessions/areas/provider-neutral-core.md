@@ -124,13 +124,15 @@ While providers are the source of truth for session continuity, NEvo maintains a
 ## 5. HTTP & SSE API Surface
 
 - `GET /api/agent-sessions`: List session bindings (supports filtering by query parameters `specId` or `taskId`).
-- `POST /api/agent-sessions`: Register an existing session binding or start a new provider session with initial turn and spec/task binding.
+- `POST /api/agent-sessions`: Attach an existing pre-allocated session `(provider, providerSessionId)` to a spec/task binding.
+- `POST /api/agent-sessions/turns`: Start initial turn in a new thread without pre-existing session ID (with `{ provider, message, specId?, taskId? }`, returns `{ turnId, providerSessionId }`).
 - `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, pending interaction snapshot, and normalized message thread history with `lastEventSeq` cursor.
 - `DELETE /api/agent-sessions/:provider/:providerSessionId`: Remove local session binding.
-- `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).
+- `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a subsequent turn on an existing session (with prompt, optional attachments).
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`: Cancel an active turn.
 - `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`: Submit user response to pending interaction (starts continuation execution under active turn).
 - `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting session-wide normalized `AgentEvent` objects (carrying monotonic sequence `seq`).
+
 
 ## 6. SSE Reconnection & Event Deduplication
 

@@ -132,14 +132,65 @@ export class AiTurnRuntime {
         completedAt: undefined,
       };
 
+      let resolveEstablished;
+      let rejectEstablished;
+      const establishedPromise = new Promise((resolve, reject) => {
+        resolveEstablished = resolve;
+        rejectEstablished = reject;
+      });
+
+      if (!isNewSession) {
+        resolveEstablished(providerSessionId);
+      }
+
+      const setProviderSessionId = async (allocatedSessionId) => {
+        if (!state.providerSessionId && allocatedSessionId) {
+          state.providerSessionId = allocatedSessionId;
+          state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
+          state.key = sessionKey(state.provider, allocatedSessionId);
+          this.#activeBySession.set(state.key, state.turnId);
+          let seq = this.#sessionSequences.get(state.key) || 0;
+          if (seq < state.sequence) {
+            seq = state.sequence;
+            this.#sessionSequences.set(state.key, seq);
+          }
+          if (this.transcriptCache) {
+            this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
+              text: inputMessage,
+              createdAt: state.startedAt,
+            });
+            for (const ev of state.events) {
+              this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
+            }
+          }
+          if (state.onSessionEstablished) {
+            try {
+              await state.onSessionEstablished(allocatedSessionId);
+            } catch (bindingErr) {
+              rejectEstablished(bindingErr);
+              throw bindingErr;
+            }
+          }
+          resolveEstablished(allocatedSessionId);
+        }
+      };
+
       this.#turns.set(turnId, state);
       if (!isNewSession) {
         this.#activeBySession.set(key, turnId);
       }
       this.#notifyAdapterState(state);
       this.#emit(state, 'turn.started');
-      queueMicrotask(() => this.#run(state, inputMessage));
-      return { turnId, providerSessionId: state.providerSessionId, idempotent: false };
+      queueMicrotask(() => this.#run(state, inputMessage, setProviderSessionId, rejectEstablished));
+
+      try {
+        const establishedSessionId = await establishedPromise;
+        return { turnId, providerSessionId: establishedSessionId, idempotent: false };
+      } catch (err) {
+        state.abortController.abort();
+        this.#finish(state, 'turn.failed', err);
+        throw err;
+      }
     } finally {
       releaseStartLock();
     }
@@ -158,34 +209,8 @@ export class AiTurnRuntime {
     };
   }
 
-  async #run(state, message) {
+  async #run(state, message, setProviderSessionId, rejectEstablished) {
     try {
-      const setProviderSessionId = (allocatedSessionId) => {
-        if (!state.providerSessionId && allocatedSessionId) {
-          state.providerSessionId = allocatedSessionId;
-          state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
-          state.key = sessionKey(state.provider, allocatedSessionId);
-          this.#activeBySession.set(state.key, state.turnId);
-          let seq = this.#sessionSequences.get(state.key) || 0;
-          if (seq < state.sequence) {
-            seq = state.sequence;
-            this.#sessionSequences.set(state.key, seq);
-          }
-          if (this.transcriptCache) {
-            this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
-              text: message,
-              createdAt: state.startedAt,
-            });
-            for (const ev of state.events) {
-              this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
-            }
-          }
-          if (state.onSessionEstablished) {
-            try { state.onSessionEstablished(allocatedSessionId); } catch {}
-          }
-        }
-      };
-
       const turnResult = state.adapter.startTurn({
         turnId: state.turnId,
         providerSessionId: state.providerSessionId,
@@ -215,7 +240,7 @@ export class AiTurnRuntime {
       } else {
         result = await turnResult;
         if (result?.providerSessionId) {
-          setProviderSessionId(result.providerSessionId);
+          await setProviderSessionId(result.providerSessionId);
         }
         if (result?.operation !== undefined) state.privateOperation = result.operation;
       }
@@ -230,9 +255,13 @@ export class AiTurnRuntime {
 
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
+      if (rejectEstablished) {
+        try { rejectEstablished(error); } catch {}
+      }
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
     }
   }
+
 
   async #runContinuation(state, interactionId, interaction, response) {
     try {

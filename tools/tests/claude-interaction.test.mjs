@@ -10,15 +10,23 @@ import { createClaudeAgentProvider } from '../ai/claude-adapter.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, 'fixtures', 'claude');
 
-function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2 } = {}) {
+function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2, onStdin } = {}) {
   const child = new EventEmitter();
-  child.stdin = new Writable({ write(c, e, cb) { cb(); } });
+  let stdinContent = '';
+  child.stdin = new Writable({
+    write(c, e, cb) {
+      stdinContent += c.toString();
+      if (onStdin) onStdin(c.toString());
+      cb();
+    },
+  });
   child.stdout = new Readable({ read() {} });
   child.stderr = new Readable({ read() {} });
   child.kill = () => {
     child.killed = true;
     setImmediate(() => child.emit('close', 0));
   };
+  child.getStdin = () => stdinContent;
 
   setImmediate(async () => {
     for (const line of lines) {
@@ -33,7 +41,7 @@ function createStreamProcess(lines = [], { exitCode = 0, delayMs = 2 } = {}) {
   return child;
 }
 
-test('AskUserQuestion PreToolUse/defer pauses, captures questions, and completes after user response', async () => {
+test('AskUserQuestion PreToolUse/defer parses questions and resumed turn delivers updatedInput tool_result', async () => {
   const deferredContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-deferred.json'), 'utf-8');
   const resumedContent = await readFile(join(FIXTURES_DIR, 'ask-user-question-resumed.json'), 'utf-8');
 
@@ -41,11 +49,14 @@ test('AskUserQuestion PreToolUse/defer pauses, captures questions, and completes
   const resumedLines = resumedContent.split('\n').filter(Boolean);
 
   let spawnCount = 0;
+  let resumedStdin = '';
   const provider = createClaudeAgentProvider({
     spawnProcess: () => {
       spawnCount += 1;
       if (spawnCount === 1) return createStreamProcess(deferredLines);
-      return createStreamProcess(resumedLines);
+      return createStreamProcess(resumedLines, {
+        onStdin: data => { resumedStdin += data; },
+      });
     },
   });
 
@@ -81,14 +92,29 @@ test('AskUserQuestion PreToolUse/defer pauses, captures questions, and completes
 
   assert.equal(spawnCount, 2);
   assert.ok(textDeltas.some(t => t.includes('PostgreSQL')));
+
+  // Verify exact tool_result payload written to stdin
+  const parsedStdin = JSON.parse(resumedStdin.trim());
+  assert.equal(parsedStdin.type, 'tool_result');
+  assert.equal(parsedStdin.tool_use_id, firstTurn.interaction.id);
+  assert.equal(parsedStdin.permissionDecision, 'allow');
+  assert.deepEqual(parsedStdin.updatedInput.answers, [{ questionId: 'q-1', value: 'PostgreSQL' }]);
 });
 
-test('Native permission prompt PreToolUse/defer requests permission and resolves', async () => {
+test('Native permission prompt PreToolUse/defer requests permission and delivers allow/deny tool_result', async () => {
   const permContent = await readFile(join(FIXTURES_DIR, 'permission-prompt-deferred.json'), 'utf-8');
   const permLines = permContent.split('\n').filter(Boolean);
 
+  let spawnCount = 0;
+  let resumedStdin = '';
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createStreamProcess(permLines),
+    spawnProcess: () => {
+      spawnCount += 1;
+      if (spawnCount === 1) return createStreamProcess(permLines);
+      return createStreamProcess([], {
+        onStdin: data => { resumedStdin += data; },
+      });
+    },
   });
 
   const turnResult = await provider.startTurn({
@@ -97,11 +123,42 @@ test('Native permission prompt PreToolUse/defer requests permission and resolves
     message: 'Run build',
   });
 
+
   assert.equal(turnResult.isDeferred, true);
   assert.ok(turnResult.interaction);
   assert.equal(turnResult.interaction.kind, 'permission');
   assert.equal(turnResult.interaction.toolName, 'Bash');
   assert.equal(turnResult.interaction.input.command, 'npm --prefix tools/dashboard run build');
+
+  // 1. Resolve allow
+  await provider.respondInteraction({
+    turnId: 'turn-perm-1',
+    providerSessionId: 'sess-perm-1',
+    interactionId: turnResult.interaction.id,
+    interaction: turnResult.interaction,
+    response: { decision: 'allow' },
+  });
+
+  const parsedAllow = JSON.parse(resumedStdin.trim());
+  assert.equal(parsedAllow.type, 'tool_result');
+  assert.equal(parsedAllow.permissionDecision, 'allow');
+  assert.equal(parsedAllow.tool_use_id, turnResult.interaction.id);
+
+  // 2. Resolve deny
+  resumedStdin = '';
+  await provider.respondInteraction({
+    turnId: 'turn-perm-1',
+    providerSessionId: 'sess-perm-1',
+    interactionId: turnResult.interaction.id,
+    interaction: turnResult.interaction,
+    response: { decision: 'deny', message: 'Unauthorized command' },
+  });
+
+  const parsedDeny = JSON.parse(resumedStdin.trim());
+  assert.equal(parsedDeny.type, 'tool_result');
+  assert.equal(parsedDeny.permissionDecision, 'deny');
+  assert.equal(parsedDeny.tool_use_id, turnResult.interaction.id);
+  assert.equal(parsedDeny.message, 'Unauthorized command');
 });
 
 test('Parallel tool batch boundary handles deferral of interactive tool in batch', async () => {

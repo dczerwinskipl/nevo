@@ -204,23 +204,25 @@ test('integration: new chat -> first prompt -> provider identity created and bou
     taskId: 'task-1',
   });
 
+  // Direct return value MUST have providerSessionId populated
+  assert.equal(turn1.providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].provider, 'fake');
+  assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings[0].specId, 'spec-integration-test');
+
   for (let i = 0; i < 50; i++) {
     const snap = service.getTurn(turn1.turnId);
     if (snap?.status === 'completed') break;
     await new Promise(r => setTimeout(r, 5));
   }
 
-  const snap1 = service.getTurn(turn1.turnId);
-  assert.equal(snap1.providerSessionId, 'fake-allocated-uuid-999');
-  assert.equal(bindings.length, 1);
-  assert.equal(bindings[0].provider, 'fake');
-  assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
-  assert.equal(bindings[0].specId, 'spec-integration-test');
-
   // 2. Second prompt resumes using the established providerSessionId
   const turn2 = await service.startTurn('fake', 'fake-allocated-uuid-999', {
     message: 'Follow-up prompt',
   });
+
+  assert.equal(turn2.providerSessionId, 'fake-allocated-uuid-999');
 
   for (let i = 0; i < 50; i++) {
     const snap = service.getTurn(turn2.turnId);
@@ -230,4 +232,58 @@ test('integration: new chat -> first prompt -> provider identity created and bou
 
   assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
 });
+
+test('first-turn binding failure causes startTurn rejection and turn failure', async () => {
+  const bindingService = {
+    async bindSession() {
+      throw new Error('Database/disk binding error simulation');
+    },
+  };
+
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId }) {
+      if (!providerSessionId) {
+        await setProviderSessionId('new-fail-uuid');
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  await assert.rejects(
+    () => service.startTurn('fake', null, { message: 'hi', specId: 'spec-1' }),
+    { message: 'Database/disk binding error simulation' },
+  );
+});
+
+test('first-turn request without specId does not require binding and resolves cleanly', async () => {
+  let bound = false;
+  const bindingService = {
+    async bindSession() { bound = true; },
+  };
+
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId, emitTextDelta }) {
+      if (!providerSessionId) {
+        await setProviderSessionId('new-unbound-uuid');
+        emitTextDelta('done');
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  const result = await service.startTurn('fake', null, { message: 'free chat' });
+  assert.equal(result.providerSessionId, 'new-unbound-uuid');
+  assert.equal(bound, false);
+});
+
 
