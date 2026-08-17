@@ -19,7 +19,7 @@ The previous specification (`specs/archive/ai-sessions-live-chat-integration/`) 
 ### 3. Replace
 - **Handcrafted Chat UI (`tools/dashboard/src/components/ai-chat.tsx`):** Completely replaced by `@assistant-ui/react` and `NevoAssistantRuntime`. Hand-rolled autoscroll, token stitching, and prompt state machines are discarded in favor of battle-tested primitives.
 - **Synthetic Nevo Session Model & `nevoSessionId`:** Replaced by provider-owned sessions identified by `(provider, providerSessionId)`.
-- **Stdin Request-Response Model:** Replaced by officially supported `PreToolUse/defer` roundtrip across short-lived CLI processes for Claude questions and permissions.
+- **Stdin Request-Response Model:** Replaced by officially supported `PreToolUse/defer` roundtrip across short-lived CLI processes for `AskUserQuestion` and targeted Task 03 discovery for native permissions.
 - **Claude-Specific Types in UI (`tools/dashboard/src/lib/types.ts`):** Removed in favor of generic `AgentIdentity`, `AgentCapabilities`, and `AgentEvent` types.
 
 ### 4. Archive / Obsolete

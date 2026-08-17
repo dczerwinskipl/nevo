@@ -19,8 +19,8 @@ NEvo History API (/history) + SSE Stream (/events)
 - **`NevoAssistantRuntime`:**
   - Implements the runtime contract expected by `@assistant-ui/react`.
   - Communicates solely through the provider-neutral backend HTTP/SSE API using `(provider, providerSessionId)`.
-  - **Thread Initialization & Page Reload:** Fetches `GET /api/agent-sessions/:provider/:providerSessionId` (session state and pending interaction) and `GET /api/agent-sessions/:provider/:providerSessionId/history` (normalized message thread from local read-model cache), populating the thread instantly on reload.
-  - **Live Streaming & Deduplication:** Connects to `GET /api/agent-sessions/:provider/:providerSessionId/events` (SSE), ignoring events already present in the initial history snapshot.
+  - **Thread Initialization & Page Reload:** Fetches `GET /api/agent-sessions/:provider/:providerSessionId` (session state, pending interaction, and normalized thread history with `lastEventSeq` from local read-model cache), populating the thread instantly on reload.
+  - **Live Streaming & Deduplication:** Connects to `GET /api/agent-sessions/:provider/:providerSessionId/events` (SSE), applying only events newer than `lastEventSeq` to eliminate duplicates.
   - **Interactions:** Renders `interaction.requested` as active UI cards in the thread and submits responses to `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`.
   - **Turns & Cancellation:** Submits user prompts via `POST /api/agent-sessions/:provider/:providerSessionId/turns` and turn cancellation via `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`.
 

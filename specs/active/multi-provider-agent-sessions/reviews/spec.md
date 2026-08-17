@@ -8,28 +8,28 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 632b747f4ece6552d1dc3927bc14ba3f83734ba047370e10165f447a93fafd54
+spec_fingerprint: 36c0653f2484609d8f3edaecb4f439a5598c8500ba877ad233e9ec6c00cd41eb
 task_fingerprints:
-  provider-neutral-core-and-capabilities: f1243477ab2ddef721d56eee35992cf17dea4fc091b47121e63304f292dc70d0
+  provider-neutral-core-and-capabilities: 902ab4b6eda68ef111ac31269dedec53414cfc0ba2fccfa99e8b4b29fefb9892
   session-binding-and-execution-context: c4de81d3f56d5b83433665759d01a2dcdf0b1f5faca49500a3765c401572b304
-  claude-interaction-transport-discovery: 123201d8fd5d58d25f2effe63718a55a64916aedf45eb7f540d11816e22b8527
-  claude-provider-adapter: 04aaba0ba1f10af7b36ba96c6c765daa530fdbe2297dc78c0fba05cb01fd45ba
-  claude-interaction-and-deferral: a563ffe6a028a9cc6635859990afc589b3447ee85995d5c5d96f6da183fa8349
-  agent-session-http-sse-api: f5e20ada292bfdfc62858de684f125b948021b90c673ff38d5168b6a602b8633
-  assistant-ui-integration-and-adapter: 6319e2077110ce0e0f1f7f2c6fbab3cf6b1c1a53899a7f6c46e7bc378c41d37c
-  custom-renderers-and-interaction-ui: 579ea72d2d99151adc2d93d72d3f1505ac035d316d477df49c70382a946d2a96
+  claude-interaction-transport-discovery: eaf69325659496418c14a0bf0d730a1ff8bc2d88c63ebad5a900a8a15650b754
+  claude-provider-adapter: 86b37fdd9e06c2211f2b2da132384409cc32f2f1fda7829a1df5d41882b231d9
+  claude-interaction-and-deferral: 1809b913b9675aead2b0e3d4bb4f29f171e10302f53a669ab156cf6606e8fb7e
+  agent-session-http-sse-api: af56e586af9fafbc2fba074dbd07e8a8da870e55431e740aeed5f312ee4c8108
+  assistant-ui-integration-and-adapter: 799d8fce6ae11b9953d5eeb43290f496af84de16993cf7b21b9211b80c4c02be
+  custom-renderers-and-interaction-ui: 8960f28a8864503d94f785d1c817ae1eb173f158f0a098f361e43b60c3424322
   dashboard-session-ux-and-spec-binding: 4f657080a956f5316d3c71c4fdec3f2e4776e2987e4b1a4f6c6348c867f79485
   antigravity-adapter-and-events: c94fc2329e0128c9be0d862a14f1875061d0fe2f9d0bf3ac93aa2ba7accb11c7
   multi-provider-consistency-audit-and-refinement: 34561999ef32a1c32ca8e43bab1409ed7bd56f9fa278bf124fd2f0a74ccce46a
-  final-verification-and-architecture-docs: 0f786291aa36e1f904d2a35ee1c37a07a07f4eb45422621147067254ce75cbcf
+  final-verification-and-architecture-docs: 0ca5c1fab0bb1b1484a7fbbfe97b8c5b5614e3d26497b9447cfd37680e68e76f
 ---
 
 # Specification Self-Review: multi-provider-agent-sessions
 
-Comprehensive self-review of the refined `multi-provider-agent-sessions` specification following the architectural re-review:
-- `AskUserQuestion` is decided as `PreToolUse/defer` roundtrip; native permissions mechanism is discovered and selected in Task 03.
-- Page reload thread restoration and reconnect semantics are grounded in a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) and `/history` API without creating a synthetic Nevo session lifecycle.
-- Agent execution context and auto-binding integrate into the real shared command execution boundary of `tools/specs.mjs`.
+Comprehensive self-review of the refined `multi-provider-agent-sessions` specification following owner feedback on Claude interaction transport, reconnect/history contracts, and real tooling execution paths:
+- **`AskUserQuestion` vs Native Permissions:** `AskUserQuestion` is definitively resolved as `PreToolUse/defer` roundtrip. Native Claude permission prompt transport remains unresolved until Task 03 discovery (`--permission-prompt-tool` vs `PreToolUse/defer` vs `canUseTool`).
+- **Normalized UI Read-Model Cache & Reconnect:** Providers own conversation continuity. NEvo maintains a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) exposing a snapshot with `lastEventSeq` cursor via `GET /api/agent-sessions/:provider/:providerSessionId`. Clients populate `@assistant-ui/react` before connecting to SSE, applying only events newer than the cursor to prevent duplicate events.
+- **Real Tooling Execution Boundary:** Agent execution context integrates at the shared practical command execution boundary in `tools/specs.mjs`, avoiding fictitious command names and automatically binding `(provider, providerSessionId)` to `specId`/`taskId`.
 
 ## Evaluation Summary
 
@@ -39,11 +39,11 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 
 ### 2. Claude Interaction Transport Decomposition
 - **Finding:** `AskUserQuestion` is resolved via `PreToolUse/defer`, while native permission prompts remain open for Task 03 discovery.
-- **Verification:** D5, `areas/claude-provider.md`, Task 03, and Task 05 cleanly separate the decided question deferral from the permissions mechanism comparison (`--permission-prompt-tool`, `PreToolUse/defer`, `canUseTool`).
+- **Verification:** D5, `areas/claude-provider.md`, Task 03, and Task 05 cleanly separate the decided question deferral from the permissions mechanism comparison.
 
 ### 3. Thread History & Reconnection Contract
-- **Finding:** Concrete execution path established for thread restoration across page reloads without state loss.
-- **Verification:** Local normalized UI read-model cache under `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json` serves `GET /api/agent-sessions/:provider/:providerSessionId/history`, populating `@assistant-ui/react` before live SSE stream connection with event deduplication.
+- **Finding:** Concrete execution path established for thread restoration across page reloads and server restarts without state loss.
+- **Verification:** Local normalized UI read-model cache serves `GET /api/agent-sessions/:provider/:providerSessionId` with `lastEventSeq`, populating `@assistant-ui/react` before live SSE stream connection with event deduplication.
 
 ### 4. Real Tooling Execution Path Integration
 - **Finding:** Task 02 integrates at the real shared execution boundary of `tools/specs.mjs` for agent-driven workflows.

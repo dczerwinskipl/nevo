@@ -95,14 +95,13 @@ While providers are the source of truth for session continuity, NEvo maintains a
   }
   ```
 - **Update Lifecycle:** Updated automatically upon `interaction.requested`, `turn.completed`, or `turn.failed`.
-- **Page Reload:** Dashboard fetches `GET /api/agent-sessions/:provider/:providerSessionId` (snapshot + pending interaction) and `GET /api/agent-sessions/:provider/:providerSessionId/history` (messages), immediately populating the `@assistant-ui/react` thread.
+- **Page Reload:** Dashboard fetches `GET /api/agent-sessions/:provider/:providerSessionId` (snapshot, pending interaction, and normalized thread history with `lastEventSeq`), immediately populating the `@assistant-ui/react` thread.
 
 ## 5. HTTP & SSE API Surface
 
 - `GET /api/agent-sessions`: List session bindings (supports filtering by query parameters `specId` or `taskId`).
 - `POST /api/agent-sessions`: Register a session binding or start a new provider session with initial spec/task binding.
-- `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, and pending interaction snapshot.
-- `GET /api/agent-sessions/:provider/:providerSessionId/history`: Get normalized message thread history for dashboard UI initialization.
+- `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, pending interaction snapshot, and normalized message thread history with `lastEventSeq` cursor.
 - `DELETE /api/agent-sessions/:provider/:providerSessionId`: Remove local session binding.
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`: Cancel an active turn.
