@@ -1,0 +1,48 @@
+---
+id: multi-provider-agent-sessions.provider-neutral-core-and-capabilities
+status: draft
+change: multi-provider-agent-sessions
+context:
+  required:
+    - specs/active/multi-provider-agent-sessions/overview.md
+    - specs/active/multi-provider-agent-sessions/areas/provider-neutral-core.md
+    - specs/active/multi-provider-agent-sessions/owner-decisions.md
+    - tools/ai/contracts.mjs
+    - tools/ai/registry.mjs
+    - tools/ai/service.mjs
+    - tools/ai/turn-runtime.mjs
+  optional:
+    - specs/active/multi-provider-agent-sessions/areas/migration-and-superseded-spec.md
+allowed_paths:
+  - tools/ai/**
+  - tools/tests/ai-contracts.test.mjs
+  - tools/tests/ai-turn-runtime.test.mjs
+forbidden_paths:
+  - src/**
+  - tools/dashboard/src/**
+semantic_references:
+  decisions: [D1, D2]
+  constraints: [C1, C2, C3, C4, C5]
+---
+
+# Task: Provider-neutral core and capabilities
+
+## Goal
+
+Extend the shared `tools/ai/` layer with explicit `AgentCapabilities`, multi-provider registration, neutral event streaming definitions (`AgentEvent`), turn idempotency, and workstation-local session persistence under `.nevo-ai-local/`.
+
+## Requirements
+
+- Update `tools/ai/contracts.mjs` to define `AgentCapabilities` (`interactivePermissions`, `interactiveQuestions`, `interactiveConfirmations`, `resumeSession`, `cancelTurn`, `toolCalls`, `reasoning`, `usage`).
+- Define normalized `AgentEvent` schemas (`turn.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.updated`, `tool.completed`, `interaction.requested`, `interaction.resolved`, `usage.updated`, `turn.completed`, `turn.failed`).
+- Update `tools/ai/registry.mjs` to support multiple registered providers (`claude`, `antigravity`, `mock`).
+- Update `tools/ai/turn-runtime.mjs` to manage active turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation.
+- Persist session metadata under `.nevo-ai-local/sessions.json` mapping `nevoSessionId` to `(provider, providerSessionId, specId, taskIds)`.
+
+## Verification
+
+```bash
+node --test tools/tests/ai-contracts.test.mjs
+node --test tools/tests/ai-turn-runtime.test.mjs
+node tools/specs.mjs validate
+```

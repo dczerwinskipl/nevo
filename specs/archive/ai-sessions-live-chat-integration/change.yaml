@@ -1,7 +1,7 @@
 id: ai-sessions-live-chat-integration
 title: AI sessions and live chat integration
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-08-15
 
@@ -231,27 +231,27 @@ tasks:
   - id: claude-readiness-discovery
     order: 9
     file: tasks/09-claude-readiness-discovery.md
-    status: draft
+    status: abandoned
     depends_on: [ part1-integration-verification-and-docs ]
   - id: local-ai-registry-and-manual-attach
     order: 10
     file: tasks/10-local-ai-registry-and-manual-attach.md
-    status: draft
+    status: abandoned
     depends_on: [ claude-readiness-discovery ]
   - id: ai-session-context-cli-preflight
     order: 11
     file: tasks/11-ai-session-context-cli-preflight.md
-    status: draft
+    status: abandoned
     depends_on: [ local-ai-registry-and-manual-attach ]
   - id: claude-hooks-and-invocation-context
     order: 12
     file: tasks/12-claude-hooks-and-invocation-context.md
-    status: draft
+    status: abandoned
     depends_on: [ ai-session-context-cli-preflight ]
   - id: claude-session-adapter
     order: 13
     file: tasks/13-claude-session-adapter.md
-    status: draft
+    status: abandoned
     depends_on:
       - claude-readiness-discovery
       - local-ai-registry-and-manual-attach
@@ -259,7 +259,7 @@ tasks:
   - id: claude-live-chat-e2e-and-docs
     order: 14
     file: tasks/14-claude-live-chat-e2e-and-docs.md
-    status: draft
+    status: abandoned
     depends_on:
       - claude-session-adapter
       - fullscreen-chat-and-session-creation

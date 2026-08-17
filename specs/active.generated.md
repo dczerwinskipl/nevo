@@ -4,4 +4,4 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
-| `ai-sessions-live-chat-integration` | AI sessions and live chat integration | draft | 10 | 2026-08-15 |
+| `multi-provider-agent-sessions` | Multi-provider local agent chat and session integration | draft | 10 | 2026-08-17 |

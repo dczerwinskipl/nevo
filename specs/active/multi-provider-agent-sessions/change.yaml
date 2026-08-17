@@ -1,0 +1,65 @@
+id: multi-provider-agent-sessions
+title: Multi-provider local agent chat and session integration
+type: architectural
+status: draft
+priority: 10
+created: 2026-08-17
+
+branch:
+  mode: per-change
+  name: feature/multi-provider-agent-sessions
+
+tasks:
+  - id: provider-neutral-core-and-capabilities
+    order: 1
+    file: tasks/01-provider-neutral-core-and-capabilities.md
+    status: draft
+  - id: claude-provider-adapter
+    order: 2
+    file: tasks/02-claude-provider-adapter.md
+    status: draft
+    depends_on: [ provider-neutral-core-and-capabilities ]
+  - id: claude-interaction-and-tools
+    order: 3
+    file: tasks/03-claude-interaction-and-tools.md
+    status: draft
+    depends_on: [ claude-provider-adapter ]
+  - id: agent-session-http-sse-api
+    order: 4
+    file: tasks/04-agent-session-http-sse-api.md
+    status: draft
+    depends_on: [ claude-interaction-and-tools ]
+  - id: assistant-ui-integration-and-adapter
+    order: 5
+    file: tasks/05-assistant-ui-integration-and-adapter.md
+    status: draft
+    depends_on: [ agent-session-http-sse-api ]
+  - id: custom-renderers-and-interaction-ui
+    order: 6
+    file: tasks/06-custom-renderers-and-interaction-ui.md
+    status: draft
+    depends_on: [ assistant-ui-integration-and-adapter ]
+  - id: dashboard-session-ux-and-spec-links
+    order: 7
+    file: tasks/07-dashboard-session-ux-and-spec-links.md
+    status: draft
+    depends_on: [ custom-renderers-and-interaction-ui ]
+  - id: antigravity-adapter
+    order: 8
+    file: tasks/08-antigravity-adapter.md
+    status: draft
+    depends_on: [ agent-session-http-sse-api ]
+  - id: antigravity-event-and-tool-mapping
+    order: 9
+    file: tasks/09-antigravity-event-and-tool-mapping.md
+    status: draft
+    depends_on: [ antigravity-adapter ]
+  - id: multi-provider-consistency-review-and-docs
+    order: 10
+    file: tasks/10-multi-provider-consistency-review-and-docs.md
+    status: draft
+    depends_on:
+      - dashboard-session-ux-and-spec-links
+      - antigravity-event-and-tool-mapping
+
+spec_id: d9d40a17-cb1b-4cb5-b562-36f9bc75b726
