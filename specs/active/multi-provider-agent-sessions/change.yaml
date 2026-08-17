@@ -89,7 +89,7 @@ tasks:
   - id: claude-provider-adapter
     order: 4
     file: tasks/04-claude-provider-adapter.md
-    status: implemented
+    status: verified
     depends_on: [ provider-neutral-core-and-capabilities ]
     implementation:
       baseline_revision: 49c507542fdff98e395b08d2c974cbad8963333b
