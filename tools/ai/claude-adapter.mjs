@@ -43,7 +43,6 @@ export class ClaudeAgentProvider {
     const session = {
       provider: 'claude',
       providerSessionId: sessionId,
-      sessionId,
       title: title || `Claude session ${sessionId.slice(0, 8)}`,
       createdAt: now,
       lastActivityAt: now,
@@ -53,31 +52,10 @@ export class ClaudeAgentProvider {
     return structuredClone(session);
   }
 
-
-  async getSession(providerSessionId) {
-    if (this.#sessions.has(providerSessionId)) {
-      return structuredClone(this.#sessions.get(providerSessionId));
-    }
-    const now = new Date().toISOString();
-    return {
-      provider: 'claude',
-      sessionId: providerSessionId,
-      providerSessionId,
-      status: 'idle',
-      createdAt: now,
-      lastActivityAt: now,
-      capabilities: CLAUDE_CAPABILITIES,
-    };
-  }
-
-  async listSessions() {
-    return [...this.#sessions.values()].map(s => structuredClone(s));
-  }
-
   async startTurn({
     turnId,
-    sessionId,
     providerSessionId,
+    identity,
     message,
     prompt,
     signal,
@@ -91,14 +69,14 @@ export class ClaudeAgentProvider {
     emitUsageUpdated,
     requestInteraction,
   } = {}) {
-    const targetSessionId = providerSessionId ?? sessionId;
-    if (!targetSessionId) throw new AiValidationError("'providerSessionId' is required.");
+    if (!providerSessionId) throw new AiValidationError("'providerSessionId' is required.");
     const userPrompt = message ?? prompt;
     if (!userPrompt || typeof userPrompt !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
-    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--resume', targetSessionId];
+    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--resume', providerSessionId];
+
 
     return new Promise((resolve, reject) => {
       let child;

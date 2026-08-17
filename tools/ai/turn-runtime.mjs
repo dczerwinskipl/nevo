@@ -43,10 +43,9 @@ export class AiTurnRuntime {
     this.clock = clock;
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, idempotencyKey } = {}) {
+  async startTurn({ provider, providerSessionId, message, prompt, idempotencyKey } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
-    const targetSessionId = providerSessionId ?? sessionId;
-    const identity = validateAgentIdentity({ provider, providerSessionId: targetSessionId });
+    const identity = validateAgentIdentity({ provider, providerSessionId });
     const inputMessage = message ?? prompt;
     const entry = this.registry.get(provider);
     const adapter = entry.adapter;
@@ -54,9 +53,6 @@ export class AiTurnRuntime {
       throw new CapabilityNotSupportedError(provider, 'startTurn');
     }
     const key = sessionKey(identity.provider, identity.providerSessionId);
-
-
-
 
     const releaseStartLock = await this.#acquireStartLock(key);
 
@@ -68,16 +64,6 @@ export class AiTurnRuntime {
           return { turnId: existingId, idempotent: true };
         }
         throw new AiTurnConflictError(existingId);
-      }
-
-      if (this.registry.has(provider)) {
-        const descriptor = this.registry.get(provider).descriptor;
-        if (descriptor.capabilities.sessionMetadata && typeof adapter.getSession === 'function') {
-          const session = await adapter.getSession(identity.providerSessionId);
-          if (session?.status === 'completed' && !descriptor.capabilities.resumeSession && !descriptor.capabilities.resumeTurn) {
-            throw new CapabilityNotSupportedError(provider, 'resumeTurn');
-          }
-        }
       }
 
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
@@ -101,12 +87,10 @@ export class AiTurnRuntime {
         turnId,
         provider: identity.provider,
         providerSessionId: identity.providerSessionId,
-        sessionId: identity.providerSessionId,
         identity,
         key,
         idempotencyKey,
         status: 'running',
-        sessionStatus: 'running',
         sequence: 0,
         events: [],
         subscribers: new Set(),
@@ -146,7 +130,6 @@ export class AiTurnRuntime {
     try {
       const turnResult = state.adapter.startTurn({
         turnId: state.turnId,
-        sessionId: state.providerSessionId,
         providerSessionId: state.providerSessionId,
         identity: state.identity,
         message,
@@ -239,7 +222,6 @@ export class AiTurnRuntime {
       idFactory: () => this.idFactory(),
     });
     state.status = 'waitingForUser';
-    state.sessionStatus = 'waitingForUser';
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.requested', { interaction });
     return new Promise((resolve, reject) => {
@@ -256,7 +238,6 @@ export class AiTurnRuntime {
     const normalized = validateInteractionResponse(pending.interaction, response);
     state.pendingInteraction = null;
     state.status = 'running';
-    state.sessionStatus = 'running';
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
     pending.resolve(normalized);
@@ -269,7 +250,6 @@ export class AiTurnRuntime {
     const adapter = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
     await adapter.cancelTurn({
       turnId,
-      sessionId: state.providerSessionId,
       providerSessionId: state.providerSessionId,
       identity: state.identity,
       operation: state.privateOperation,
@@ -284,10 +264,8 @@ export class AiTurnRuntime {
     return {
       turnId: state.turnId,
       provider: state.provider,
-      sessionId: state.providerSessionId,
       providerSessionId: state.providerSessionId,
       status: state.status,
-      sessionStatus: state.sessionStatus,
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: state.sequence,
@@ -328,7 +306,6 @@ export class AiTurnRuntime {
       pending.reject(error || new AiError('AI_TURN_TERMINAL', 'The turn ended.', { status: 409 }));
     }
     state.status = type === 'turn.completed' ? 'completed' : 'failed';
-    state.sessionStatus = type === 'turn.completed' ? 'waitingForUser' : 'idle';
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
     this.#notifyAdapterState(state);
@@ -367,10 +344,9 @@ export class AiTurnRuntime {
   #notifyAdapterState(state) {
     state.adapter.onTurnState?.({
       turnId: state.turnId,
-      sessionId: state.providerSessionId,
+      provider: state.provider,
       providerSessionId: state.providerSessionId,
-      turnStatus: state.status,
-      sessionStatus: state.sessionStatus,
+      status: state.status,
       timestamp: this.#timestamp(),
     });
   }
@@ -394,4 +370,3 @@ export class AiTurnRuntime {
 export function createAiTurnRuntime(options) {
   return new AiTurnRuntime(options);
 }
-

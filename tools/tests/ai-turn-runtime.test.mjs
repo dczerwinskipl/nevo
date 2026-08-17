@@ -7,7 +7,7 @@ import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../ai/transcript-cache.mjs';
 
-const capabilities = {
+const capabilities = Object.freeze({
   interactivePermissions: true,
   interactiveQuestions: true,
   interactiveConfirmations: true,
@@ -16,26 +16,15 @@ const capabilities = {
   toolCalls: true,
   reasoning: true,
   usage: true,
-  listSessions: true,
-  sessionMetadata: true,
-  messages: true,
-  createSession: true,
-  startTurn: true,
-  streamEvents: true,
-};
+});
 
 function createFixture({ sessionLookupGate, transcriptCache } = {}) {
   let starts = 0;
   let cancels = 0;
-  let status = 'idle';
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async getSession(sessionId) {
+    async startTurn({ providerSessionId, message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
       if (sessionLookupGate) await sessionLookupGate;
-      return { sessionId, status };
-    },
-    onTurnState(update) { status = update.sessionStatus; },
-    async startTurn({ message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
       starts += 1;
       emitDelta('one ');
       if (message === 'permission') {
@@ -78,13 +67,22 @@ async function waitFor(read, predicate, message = 'condition') {
   assert.fail(`Timed out waiting for ${message}.`);
 }
 
-test('turns stream ordered deltas (text.delta) and complete with a waiting session', async () => {
+test('turns stream ordered deltas (text.delta) and complete with terminal snapshot', async () => {
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 's1', message: 'normal' });
   const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion');
   assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'text.delta', 'text.delta', 'turn.completed']);
   assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4]);
-  assert.equal(snapshot.sessionStatus, 'waitingForUser');
+  assert.equal(snapshot.providerSessionId, 's1');
+  assert.equal(snapshot.sessionId, undefined);
+});
+
+test('runtime rejects legacy sessionId and enforces canonical providerSessionId', async () => {
+  const fixture = createFixture();
+  await assert.rejects(
+    () => fixture.runtime.startTurn({ provider: 'fake', sessionId: 'legacy-only', message: 'hello' }),
+    { name: 'AiValidationError' },
+  );
 });
 
 test('permission and question interactions pause, resolve by stable IDs, and continue the same turn', async () => {
@@ -155,7 +153,8 @@ test('shutdown interrupts active turns without losing session identity', async (
   fixture.runtime.shutdown();
   const snapshot = fixture.runtime.getSnapshot(turnId);
   assert.equal(snapshot.status, 'failed');
-  assert.equal(snapshot.sessionId, 'shutdown');
+  assert.equal(snapshot.providerSessionId, 'shutdown');
+  assert.equal(snapshot.sessionId, undefined);
   assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_INTERRUPTED');
   assert.equal(fixture.cancels, 0);
 });
@@ -238,4 +237,3 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
-

@@ -1,8 +1,6 @@
 import {
   AiNotFoundError,
-  AiUnsupportedOperationError,
-  validateAiMessage,
-  validateAgentIdentity,
+  AiValidationError,
 } from './contracts.mjs';
 
 const MOCK_CAPABILITIES = Object.freeze({
@@ -16,31 +14,15 @@ const MOCK_CAPABILITIES = Object.freeze({
   usage: true,
 });
 
-const READ_ONLY_CAPABILITIES = Object.freeze({
-  ...MOCK_CAPABILITIES,
-  interactivePermissions: false,
-  interactiveQuestions: false,
-  interactiveConfirmations: false,
-  cancelTurn: false,
-});
-
-function isoAt(minutes) {
-  return new Date(Date.UTC(2026, 7, 15, 8, minutes)).toISOString();
-}
-
 function padded(value) {
   return String(value).padStart(3, '0');
 }
 
 export class MockAiAdapter {
-  #sessions = new Map();
-  #messages = new Map();
   #createdCounter = 0;
-  #messageCounter = 0;
-  #clockTick = 0;
   #streamDelayMs;
 
-  constructor({ specId, taskIds = [], streamDelayMs = 45 } = {}) {
+  constructor({ streamDelayMs = 20 } = {}) {
     this.#streamDelayMs = streamDelayMs;
     this.descriptor = Object.freeze({
       id: 'mock',
@@ -48,92 +30,54 @@ export class MockAiAdapter {
       enabled: true,
       capabilities: MOCK_CAPABILITIES,
     });
-    if (specId) this.seedDemonstration({ specId, taskIds });
-  }
-
-  seedDemonstration({ specId, taskIds = [] }) {
-    for (const [taskIndex, taskValue] of taskIds.entries()) {
-      const taskId = typeof taskValue === 'string' ? taskValue : taskValue.id;
-      for (let variant = 0; variant < 4; variant += 1) {
-        const sessionId = `demo-${taskId}-${variant + 1}`;
-        if (this.#sessions.has(sessionId)) continue;
-        const completed = variant >= 2;
-        const createdMinute = taskIndex * 20 + variant * 3;
-        const session = {
-          provider: 'mock',
-          sessionId,
-          providerSessionId: sessionId,
-          title: `${completed ? 'Completed' : 'Current'} ${taskId} conversation ${variant + 1}`,
-          createdAt: isoAt(createdMinute),
-          lastActivityAt: isoAt(createdMinute + 2),
-          ...(completed ? { completedAt: isoAt(createdMinute + 2) } : {}),
-          capabilities: completed ? READ_ONLY_CAPABILITIES : MOCK_CAPABILITIES,
-        };
-        this.#sessions.set(sessionId, session);
-        this.#messages.set(sessionId, [
-          this.#fixtureMessage(`${sessionId}-m1`, 'user', `Help me with ${taskId}.`, createdMinute),
-          this.#fixtureMessage(`${sessionId}-m2`, 'assistant', `I reviewed the requirements for ${taskId}.`, createdMinute + 1),
-          this.#fixtureMessage(`${sessionId}-m3`, 'assistant', completed ? 'The demonstration task is complete.' : 'What would you like to do next?', createdMinute + 2),
-        ]);
-      }
-    }
-    return this;
-  }
-
-  async listSessions() {
-    return [...this.#sessions.values()].map(session => structuredClone(session));
-  }
-
-  async getSession(sessionId) {
-    const session = this.#sessions.get(sessionId);
-    if (!session) throw new AiNotFoundError(`Mock session '${sessionId}' was not found.`, { provider: 'mock', sessionId });
-    return structuredClone(session);
-  }
-
-  async listMessages(sessionId) {
-    await this.getSession(sessionId);
-    return (this.#messages.get(sessionId) || []).map(message => structuredClone(message));
   }
 
   async createSession({ title } = {}) {
-    const sessionId = `session-${padded(++this.#createdCounter)}`;
-    const createdAt = this.#nextTimestamp();
-    const session = {
+    const providerSessionId = `mock-session-${padded(++this.#createdCounter)}`;
+    return {
       provider: 'mock',
-      sessionId,
-      providerSessionId: sessionId,
-      ...(title ? { title } : { title: `Mock session ${this.#createdCounter}` }),
-      createdAt,
-      lastActivityAt: createdAt,
-      capabilities: MOCK_CAPABILITIES,
+      providerSessionId,
+      title: title || `Mock session ${this.#createdCounter}`,
     };
-    this.#sessions.set(sessionId, session);
-    this.#messages.set(sessionId, []);
-    return structuredClone(session);
   }
 
+  async startTurn({
+    turnId,
+    providerSessionId,
+    identity,
+    message,
+    prompt,
+    emitDelta,
+    emitTextDelta,
+    emitReasoningDelta,
+    emitToolStarted,
+    emitToolCompleted,
+    emitUsageUpdated,
+    requestInteraction,
+    signal,
+    setOperation,
+  } = {}) {
+    if (!providerSessionId) throw new AiValidationError("'providerSessionId' is required.");
+    const inputMessage = message ?? prompt;
+    if (!inputMessage || typeof inputMessage !== 'string') {
+      throw new AiValidationError('A valid message/prompt is required.');
+    }
 
-  onTurnState({ sessionId, sessionStatus, timestamp }) {
-    const session = this.#sessions.get(sessionId);
-    if (!session || session.status === 'completed') return;
-    session.status = sessionStatus;
-    session.lastActivityAt = new Date(Math.max(
-      Date.parse(session.createdAt),
-      Date.parse(session.lastActivityAt),
-      Date.parse(timestamp),
-    )).toISOString();
-  }
-
-  async startTurn({ sessionId, message, emitDelta, requestInteraction, signal, setOperation }) {
-    const session = this.#sessions.get(sessionId);
-    if (!session) throw new AiNotFoundError(`Mock session '${sessionId}' was not found.`);
-    if (session.status === 'completed') throw new AiUnsupportedOperationError('mock', 'resumeTurn');
     const operation = { cancelled: false };
-    setOperation(operation);
-    this.#appendMessage(sessionId, 'user', message);
+    if (setOperation) setOperation(operation);
 
-    const normalized = message.toLowerCase();
-    const messageId = `assistant-${sessionId}-${this.#messageCounter + 1}`;
+    const normalized = inputMessage.toLowerCase();
+    const messageId = `assistant-${providerSessionId}-${turnId || '1'}`;
+    const emit = emitTextDelta || emitDelta || (() => {});
+
+    if (normalized.includes('tools') || normalized.includes('reasoning')) {
+      if (emitReasoningDelta) emitReasoningDelta('Thinking through the problem...', messageId);
+      if (emitToolStarted) emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
+      await this.#yield(signal);
+      if (emitToolCompleted) emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15 });
+      if (emitUsageUpdated) emitUsageUpdated({ tokensIn: 50, tokensOut: 25, cost: 0.001 });
+    }
+
     const parts = [
       'Przeanalizowałem Twoją wiadomość i powiązany kontekst. ',
       'Najpierw porządkuję wymagania, ',
@@ -142,7 +86,7 @@ export class MockAiAdapter {
       'tak jak provider korzystający ze streamu zdarzeń.\n\n',
     ];
     let interactionSummary = '';
-    await this.#emitChunks(parts, messageId, emitDelta, signal);
+    await this.#emitChunks(parts, messageId, emit, signal);
 
     if (normalized.includes('permission') || normalized.includes('zgod')) {
       const response = await requestInteraction({
@@ -192,45 +136,25 @@ export class MockAiAdapter {
       'a pełna odpowiedź trafia do historii dopiero po zakończeniu. ',
       'Mock turn jest gotowy.',
     ];
-    await this.#emitChunks(ending, messageId, emitDelta, signal);
-    this.#appendMessage(sessionId, 'assistant', [...parts, ...ending].join(''));
+    await this.#emitChunks(ending, messageId, emit, signal);
   }
 
-  async cancelTurn({ operation }) {
+  async cancelTurn({ operation } = {}) {
     if (operation) operation.cancelled = true;
   }
 
-  #appendMessage(sessionId, role, text) {
-    const message = validateAiMessage({
-      id: `mock-message-${padded(++this.#messageCounter)}`,
-      role,
-      text,
-      createdAt: this.#nextTimestamp(),
-    });
-    this.#messages.get(sessionId).push(message);
-    return message;
-  }
-
-  #fixtureMessage(id, role, text, minute) {
-    return validateAiMessage({ id, role, text, createdAt: isoAt(minute) });
-  }
-
-  #nextTimestamp() {
-    return new Date(Date.UTC(2026, 7, 15, 14, this.#clockTick++)).toISOString();
-  }
-
   #yield(signal) {
-    if (signal.aborted) return Promise.reject(new Error('Mock turn aborted.'));
+    if (signal?.aborted) return Promise.reject(new Error('Mock turn aborted.'));
     return new Promise((resolve, reject) => {
       const onAbort = () => {
         clearTimeout(timer);
         reject(new Error('Mock turn aborted.'));
       };
       const timer = setTimeout(() => {
-        signal.removeEventListener('abort', onAbort);
+        signal?.removeEventListener('abort', onAbort);
         resolve();
       }, this.#streamDelayMs);
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 

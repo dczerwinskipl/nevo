@@ -103,3 +103,39 @@ test('multi-provider registry supports multiple registered providers (claude, an
   assert.equal(registry.has('antigravity'), true);
   assert.equal(registry.has('mock'), true);
 });
+
+test('AiSessionService uses binding service for listings and transcript cache for messages', async () => {
+  const bindingService = {
+    async listBindings(filters) {
+      return [{ provider: 'claude', providerSessionId: 'sess-1', specId: filters?.specId }];
+    },
+    async getBinding(provider, providerSessionId) {
+      return { provider, providerSessionId, specId: 'my-spec' };
+    },
+  };
+  const transcriptCache = {
+    async getTranscript(provider, providerSessionId) {
+      return { provider, providerSessionId, messages: [{ role: 'user', text: 'hi' }] };
+    },
+  };
+  const adapter = {
+    descriptor: { id: 'claude', label: 'Claude', capabilities },
+    async createSession({ title }) {
+      return { provider: 'claude', providerSessionId: 'new-sess-1', title };
+    },
+  };
+  const registry = createAiAdapterRegistry([adapter]);
+  const service = createAiSessionService({ registry, bindingService, transcriptCache });
+
+  const sessions = await service.listSessions({ specId: 'spec-123' });
+  assert.deepEqual(sessions, [{ provider: 'claude', providerSessionId: 'sess-1', specId: 'spec-123' }]);
+
+  const session = await service.getSession('claude', 'sess-1');
+  assert.deepEqual(session, { provider: 'claude', providerSessionId: 'sess-1', specId: 'my-spec' });
+
+  const messages = await service.listMessages('claude', 'sess-1');
+  assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+
+  const created = await service.createSession('claude', { title: 'New Conversation' });
+  assert.deepEqual(created, { provider: 'claude', providerSessionId: 'new-sess-1', title: 'New Conversation' });
+});

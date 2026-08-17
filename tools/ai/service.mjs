@@ -1,4 +1,4 @@
-import { validateAgentIdentity } from './contracts.mjs';
+import { CapabilityNotSupportedError, validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -16,68 +16,51 @@ export class AiSessionService {
     if (this.bindingService) {
       return this.bindingService.listBindings(filters);
     }
-    const providers = filters.provider ? [filters.provider] : this.registry.descriptors().filter(item => item.enabled).map(item => item.id);
-    const sessions = [];
-    for (const provider of providers) {
-      const adapter = this.registry.get(provider);
-      if (typeof adapter?.listSessions === 'function') {
-        const values = await adapter.listSessions(filters);
-        sessions.push(...values);
-      }
-    }
-    return sessions;
+    return [];
   }
 
   async getSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.bindingService) {
-      const binding = await this.bindingService.getBinding(provider, providerSessionId);
-      if (binding) return binding;
+      return this.bindingService.getBinding(provider, providerSessionId);
     }
-    const adapter = this.registry.get(provider);
-    if (typeof adapter?.getSession === 'function') {
-      return adapter.getSession(providerSessionId);
-    }
-    return { provider, providerSessionId };
+    return null;
   }
 
   async listMessages(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
       return transcript.messages || [];
-    }
-    if (this.registry.has(provider)) {
-      const adapter = this.registry.get(provider);
-      if (typeof adapter.listMessages === 'function') {
-        return adapter.listMessages(providerSessionId);
-      }
     }
     return [];
   }
 
   async getTranscript(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       return this.transcriptCache.getTranscript(provider, providerSessionId);
     }
     return {
       provider,
       providerSessionId,
-      messages: await this.listMessages(provider, providerSessionId),
+      messages: [],
       lastEventSeq: 0,
       updatedAt: new Date().toISOString(),
     };
   }
 
-  async createSession(provider, input) {
-    const adapter = this.registry.get(provider);
-    if (typeof adapter?.createSession === 'function') {
-      return adapter.createSession(input);
+  async createSession(provider, input = {}) {
+    const entry = this.registry.get(provider);
+    if (typeof entry.adapter?.createSession === 'function') {
+      return entry.adapter.createSession(input);
     }
-    throw new Error(`Provider '${provider}' does not support creating sessions.`);
+    throw new CapabilityNotSupportedError(provider, 'createSession');
   }
 
-  async startTurn(provider, providerSessionId, input) {
-    return this.turnRuntime.startTurn({ provider, providerSessionId, sessionId: providerSessionId, ...input });
+  async startTurn(provider, providerSessionId, input = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    return this.turnRuntime.startTurn({ provider, providerSessionId, ...input });
   }
 
   getTurn(turnId) {
