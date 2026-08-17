@@ -156,7 +156,7 @@ tasks:
   - id: approve-post-action-sync-and-git
     order: 7
     file: tasks/08-approve-post-action-sync-and-git.md
-    status: implemented
+    status: verified
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
