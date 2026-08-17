@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T20:37:45.759Z",
+  "generated": "2026-08-17T20:38:01.353Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -229,13 +229,13 @@
           "id": "assistant-ui-integration-and-adapter",
           "order": 7,
           "file": "tasks/07-assistant-ui-integration-and-adapter.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "agent-session-http-sse-api"
           ],
           "implementation": {
             "baseline_revision": "82bf98b31bde74e1725083acbcfd7549947f76e2",
-            "review_revision": "82bf98b31bde74e1725083acbcfd7549947f76e2",
+            "review_revision": "838509b628e9448e8f45d77e9aac9d145b5ffa89",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
@@ -243,11 +243,11 @@
               "tools/dashboard/src/lib/nevo-assistant-runtime.ts",
               "tools/dashboard/src/lib/types.ts"
             ],
-            "worktree_patch_fingerprint": "f226ad11f66fe31c343c06b846da6b1fd042527c9ac11c6d6d45cb0bcd09a9df"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "994e7ff441047544905184d230bcf6aeac9df98722414de6ce1b9cdfa6097695",
-            "revision": "82bf98b31bde74e1725083acbcfd7549947f76e2",
+            "revision": "838509b628e9448e8f45d77e9aac9d145b5ffa89",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
