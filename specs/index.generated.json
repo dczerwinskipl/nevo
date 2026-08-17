@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:05:33.116Z",
+  "generated": "2026-08-17T18:05:41.474Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -75,7 +75,7 @@
           "id": "custom-renderers-and-interaction-ui",
           "order": 8,
           "file": "tasks/08-custom-renderers-and-interaction-ui.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "assistant-ui-integration-and-adapter"
           ]
