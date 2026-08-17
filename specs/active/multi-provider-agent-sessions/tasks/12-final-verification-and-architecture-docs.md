@@ -18,8 +18,8 @@ forbidden_paths:
   - src/**
   - tools/**
 semantic_references:
-  decisions: [D1, D2, D4, D5, D6, D7]
-  constraints: [C1, C3, C4, C6, C7, C9]
+  decisions: [D1, D2, D3, D4, D5, D6, D7]
+  constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10]
 ---
 
 # Task: Final verification and architecture docs

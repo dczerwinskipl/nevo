@@ -18,7 +18,7 @@ forbidden_paths:
   - src/**
   - tools/dashboard/server/**
 semantic_references:
-  decisions: [D1, D3]
+  decisions: [D1, D3, D5]
   constraints: [C1, C4, C7]
 ---
 

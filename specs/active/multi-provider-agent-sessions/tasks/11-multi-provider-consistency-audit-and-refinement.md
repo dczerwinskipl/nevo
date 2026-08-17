@@ -20,8 +20,8 @@ allowed_paths:
 forbidden_paths:
   - src/**
 semantic_references:
-  decisions: [D1, D4]
-  constraints: [C1, C4, C7, C9]
+  decisions: [D1, D2, D4]
+  constraints: [C1, C2, C3, C4, C7, C9]
 ---
 
 # Task: Multi-provider consistency audit and refinement

@@ -17,8 +17,8 @@ forbidden_paths:
   - src/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D1, D4]
-  constraints: [C1, C4, C9]
+  decisions: [D1, D2, D4]
+  constraints: [C1, C3, C4, C9]
 ---
 
 # Task: Antigravity adapter and events

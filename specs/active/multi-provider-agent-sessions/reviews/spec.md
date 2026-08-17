@@ -8,20 +8,20 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 26c3fa74909b032bef61f6bb89ef7dfed2da076666e11e8177c635d2fb16fb9b
+spec_fingerprint: 4061cca7d8b5be77a8724d6d1f158aa7da63f711dee1e5076b9bfae9dc31dbc8
 task_fingerprints:
-  provider-neutral-core-and-capabilities: e7ead9a02facea4be068e89b08b930732dcd7c24bd86a5799781ba9c42cd052e
-  session-binding-and-execution-context: c2f01a74ae82aab08bf6e2c8652ba6ec7df28da243392d267c366c73da6f1d5c
+  provider-neutral-core-and-capabilities: b6601fbe310b8688cd9ae1c6752e2b84687e4f826345c6fceca599dcbd589fc9
+  session-binding-and-execution-context: 861f4cf85f14a834546aef9af76558d283a4be40d4bffde994764cfc4e60e057
   claude-interaction-transport-discovery: 6346e70b9e73d3238620edbb38acc859d3f42b07ab4c55b9c440d457f98e4b5d
-  claude-provider-adapter: 39a42b79760d41529fe10b6bf843ec8168cb87e7eaa4b52974a40a99252327db
+  claude-provider-adapter: 0029935eb92a3ee89a36b9bc19d925322f31a9ae7b9686316befa0bb615bce24
   claude-interaction-and-deferral: 096f5b8a945d8cdb385b4e51bb9b6055f0caf3c6d77a7af21e7748de474c4864
-  agent-session-http-sse-api: dfe6a17ff31e5d4eb904623e82e6ca395d17ab68ac5d6c71602cdebc59f646c2
+  agent-session-http-sse-api: 0684801368c5008ec643e7ed3938263e2315fffbb2633d72d5e1de992044496d
   assistant-ui-integration-and-adapter: 6c2f6a2058efe0ae6263fa87005a9c3dd94ec165b87b93ad686def979ecc3a6e
-  custom-renderers-and-interaction-ui: 9a9cb0db4f54f1eb6e65f5911d9a42f94536c6e4c8e064d8437494894c096cca
+  custom-renderers-and-interaction-ui: b5d7f72d5f85ae80e32be5ddb0e237be048c053fded423488430a7a86930f560
   dashboard-session-ux-and-spec-binding: 2c9c454d592c86d5bdd9ad180d2c5e70313d314f81a2c38df89c3d570e96a07c
-  antigravity-adapter-and-events: 76c82b60282ece80289666ff96a7f286651557c63056d9ec563952d198fe7137
-  multi-provider-consistency-audit-and-refinement: f8460b2efd79f3068aece43bece8c2f409d37822353748a46b275046d0b9c510
-  final-verification-and-architecture-docs: 0b3cb9d1d27ff6f2c439947a1a138546819eb8b684da4bdc77124bae542ab69b
+  antigravity-adapter-and-events: c94fc2329e0128c9be0d862a14f1875061d0fe2f9d0bf3ac93aa2ba7accb11c7
+  multi-provider-consistency-audit-and-refinement: 34561999ef32a1c32ca8e43bab1409ed7bd56f9fa278bf124fd2f0a74ccce46a
+  final-verification-and-architecture-docs: a5f62224aff4793a29f5a34aeeab8d6064dd6a4f3e4376aa990f57e4e50d450d
 ---
 
 # Specification Self-Review: multi-provider-agent-sessions
@@ -32,21 +32,25 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 
 ### 1. Canonical Session Identity & Elimination of Synthetic Nevo Lifecycle
 - **Finding:** All traces of `nevoSessionId` and `NEVO_AGENT_SESSION_ID` have been removed.
-- **Verification:** Canonical identity is `AgentIdentity { provider, providerSessionId }`. The HTTP REST and SSE APIs use clean locators `/api/agent-sessions/:provider/:providerSessionId/...` without artificial wrapping.
+- **Verification:** Canonical identity is `AgentIdentity { provider, providerSessionId }`. D2 explicitly records: *Providers own AI session identity and lifecycle. Nevo identifies a session by `(provider, providerSessionId)` and stores only local bindings between provider sessions and specs/tasks.*
 
 ### 2. Provider-Neutral Session Binding & Execution Context
 - **Finding:** Session-to-spec/task binding is managed by the shared `AgentSessionBindingService` and `AgentExecutionContext` (Task 02) used across CLI commands (`agent-session attach`, `spec refine`, `spec review`, `task start`), provider hooks, and dashboard actions.
 - **Verification:** Common resolver translates both human-readable slugs and immutable UUIDs into canonical `specId`. Many-to-one historical bindings are stored in `.nevo-ai-local/sessions.json` outside version control.
 
-### 3. Provider Interaction Transport & Real CLI Semantics
+### 3. Semantic References Consistency
+- **Finding:** All 12 tasks reference valid, defined decisions (D1–D7) and constraints (C1–C10).
+- **Verification:** Zero dangling semantic references detected across all task files.
+
+### 4. Provider Interaction Transport & Real CLI Semantics
 - **Finding:** The spec strictly rejects unrealistic stdin/stdout bidirectional streaming within a single running process.
 - **Verification:** Task 03 establishes a narrow discovery phase for `PreToolUse/defer` roundtrip (version check >= 2.1.89, fixtures, parallel tool call limitations, native permission mechanism selection). Task 05 explicitly implements resumption via `claude --resume <providerSessionId>` with `updatedInput`.
 
-### 4. Capability Contract & Error Invariants
+### 5. Capability Contract & Error Invariants
 - **Finding:** Provider differences are represented through `AgentCapabilities`.
 - **Verification:** Unambiguous contract: calling an unsupported capability throws a standard `CapabilityNotSupportedError`. `text.delta` is uniformly enforced across all adapters and events.
 
-### 5. Task Scopes & Feasible Verification Boundaries
+### 6. Task Scopes & Feasible Verification Boundaries
 - **Finding:** Every task's declared `allowed_paths` directly matches its acceptance criteria and verification commands.
 - **Verification:** Task 11 (`multi-provider-consistency-audit-and-refinement`) is equipped with permissions across `tools/ai/**`, `tools/dashboard/**`, and `tools/tests/**` to resolve any detected cross-layer drift, while Task 12 focuses on documentation and end-to-end repository checks.
 

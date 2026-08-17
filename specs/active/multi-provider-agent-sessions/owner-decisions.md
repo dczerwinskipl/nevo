@@ -7,12 +7,12 @@
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/contracts.mjs`, `tools/dashboard/src/lib/types.ts`, all areas.
 
-## D2: Providers own session lifecycle; Nevo owns local spec/task bindings
+## D2: Providers own AI session identity and lifecycle
 
 - **Question:** Should NEvo invent a synthetic session model and lifecycle state machine layered over provider sessions?
-- **Options considered:** Synthetic Nevo session lifecycle with `nevoSessionId` | Providers own session lifecycle; Nevo canonically identifies sessions by `(provider, providerSessionId)` and stores local spec/task bindings
-- **Decision:** Providers own session lifecycle. The canonical identifier of an AI session is the `AgentIdentity` pair `(provider, providerSessionId)`. NEvo does not invent a secondary `nevoSessionId` or artificial session state machine; it stores local bindings mapping specs/tasks to AI sessions.
-- **Consequences:** Backend does not manage long-running daemon processes or dual session states; turn execution spawns/resumes CLI processes on demand via provider adapters.
+- **Options considered:** Synthetic Nevo session lifecycle with `nevoSessionId` | Providers own session identity and lifecycle; Nevo identifies sessions by `(provider, providerSessionId)` and stores local spec/task bindings
+- **Decision:** Providers own AI session identity and lifecycle. Nevo identifies a session by `(provider, providerSessionId)` and stores only local bindings between provider sessions and specs/tasks. Short-lived process execution is an adapter concern and does not create a separate Nevo session lifecycle.
+- **Consequences:** Backend does not manage long-running daemon processes, synthetic session IDs, or dual session states; turn execution spawns/resumes CLI processes on demand via provider adapters.
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/contracts.mjs`, `tools/ai/service.mjs`, `tools/ai/binding-service.mjs`, all areas.
 

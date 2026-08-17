@@ -74,20 +74,20 @@ Provide a robust, multi-provider chat and session integration for local AI codin
 The implementation is organized into 3 sequential parts (12 tasks total) plus future extension:
 
 - **Part 1: Backend Foundation, CLI Binding & Discovery** (Tasks 01–06)
-  - Neutral core contracts, capability schema, persistence under `.nevo-ai-local/`
-  - Unified session binding service and `AgentExecutionContext` for CLI and hooks
-  - Narrow Claude interaction transport discovery (`PreToolUse/defer` & native permissions)
-  - Claude CLI provider adapter (short-lived process, stream-json parsing, resume, cancel)
-  - Claude interaction adapter (`PreToolUse/defer` roundtrip, tool events, parallel batch limitation)
-  - Neutral HTTP and SSE session API with reconnect and interaction response routes
+  - Task 01: `provider-neutral-core-and-capabilities` (Core contracts, `AgentIdentity { provider, providerSessionId }`, capabilities, event schemas)
+  - Task 02: `session-binding-and-execution-context` (Shared `AgentSessionBindingService`, `AgentExecutionContext`, canonical resolver, `agent-session attach` CLI)
+  - Task 03: `claude-interaction-transport-discovery` (Narrow `PreToolUse/defer` discovery, min version >= 2.1.89, fixtures, native permissions comparison)
+  - Task 04: `claude-provider-adapter` (Claude CLI short-lived process, stream-json parsing, resume via UUID, cancel)
+  - Task 05: `claude-interaction-and-deferral` (`AskUserQuestion` deferral roundtrip, native permission handling, parallel tool call limitation)
+  - Task 06: `agent-session-http-sse-api` (Provider-neutral REST endpoints `/api/agent-sessions/:provider/:providerSessionId/...`, SSE stream with reconnect)
 - **Part 2: Frontend Chat Replacement (`assistant-ui`)** (Tasks 07–09)
-  - Integration of `@assistant-ui/react` and custom `NevoAssistantRuntime` adapter
-  - Custom tool call, thinking accordion, and interactive permission/question components
-  - Dashboard session navigation, spec/task context linking, and multi-provider selection
+  - Task 07: `assistant-ui-integration-and-adapter` (`@assistant-ui/react`, custom `NevoAssistantRuntime` adapter, removal of legacy chat mechanics)
+  - Task 08: `custom-renderers-and-interaction-ui` (Tailwind/Radix renderers for thinking accordion, tool cards, permission prompts, question forms)
+  - Task 09: `dashboard-session-ux-and-spec-binding` (Sidebar session list, provider badges, spec detail session panel, new session modal)
 - **Part 3: Antigravity Provider & Multi-Provider Consistency** (Tasks 10–12)
-  - Antigravity CLI adapter with verified session/resume and honest capability declaration
-  - Multi-provider consistency audit and contract refinement across Claude and Antigravity
-  - Final end-to-end verification, architecture documentation, and ADR updates
+  - Task 10: `antigravity-adapter-and-events` (Antigravity CLI adapter, verified session resume, stream parsing, capability enforcement)
+  - Task 11: `multi-provider-consistency-audit-and-refinement` (Cross-provider consistency audit, eliminating provider bias in backend and UI)
+  - Task 12: `final-verification-and-architecture-docs` (ADR-0007 update, architecture docs in `docs/development/`, full repo verification)
 - **Part 4: Future Provider Extension** (Out of initial implementation scope)
   - Codex App Server / ACP adapter
 
