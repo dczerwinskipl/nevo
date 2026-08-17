@@ -301,6 +301,17 @@ export class ClaudeAgentProvider {
     });
   }
 
+  async respondInteraction(identity, response) {
+    if (!identity || !identity.providerSessionId) {
+      throw new AiValidationError("'identity.providerSessionId' is required.");
+    }
+    return {
+      providerSessionId: identity.providerSessionId,
+      response: structuredClone(response),
+      resumed: true,
+    };
+  }
+
   async cancelTurn({ operation } = {}) {
     if (operation) {
       operation.cancelled = true;
@@ -316,3 +327,4 @@ export class ClaudeAgentProvider {
 export function createClaudeAgentProvider(options) {
   return new ClaudeAgentProvider(options);
 }
+
