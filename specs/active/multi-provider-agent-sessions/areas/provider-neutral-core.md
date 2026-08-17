@@ -40,14 +40,25 @@ export class CapabilityNotSupportedError extends Error {
   }
 }
 
+export interface ProviderSessionDescriptor {
+  provider: string;
+  providerSessionId: string;
+  title?: string;
+  createdAt?: string;
+  lastActivityAt?: string;
+  capabilities?: AgentCapabilities;
+}
+
 export interface AgentProvider {
   readonly id: string;
   readonly capabilities: AgentCapabilities;
 
+  createSession(input?: { title?: string }): Promise<ProviderSessionDescriptor>;
   startTurn(identity: AgentIdentity, input: TurnInput): AsyncIterable<AgentEvent>;
   cancelTurn(identity: AgentIdentity, turnId: string): Promise<void>;
-  respondInteraction(identity: AgentIdentity, response: InteractionResponse): Promise<void>;
+  respondInteraction?(identity: AgentIdentity, response: InteractionResponse): Promise<void>;
 }
+
 ```
 
 - If an unsupported method is called on a provider (e.g. `respondInteraction` when `interactivePermissions` and `interactiveQuestions` are false), the provider throws `CapabilityNotSupportedError`.

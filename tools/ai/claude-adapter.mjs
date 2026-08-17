@@ -21,6 +21,7 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
+  #pendingInitSessions = new Set();
 
   constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
     this.#executable = executable;
@@ -36,6 +37,7 @@ export class ClaudeAgentProvider {
 
   async createSession({ title } = {}) {
     const providerSessionId = randomUUID();
+    this.#pendingInitSessions.add(providerSessionId);
     const now = new Date().toISOString();
     return {
       provider: 'claude',
@@ -46,7 +48,6 @@ export class ClaudeAgentProvider {
       capabilities: CLAUDE_CAPABILITIES,
     };
   }
-
 
   async startTurn({
     turnId,
@@ -71,7 +72,10 @@ export class ClaudeAgentProvider {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
-    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--resume', providerSessionId];
+    const isInitialTurn = this.#pendingInitSessions.delete(providerSessionId);
+    const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
+    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, providerSessionId];
+
 
 
     return new Promise((resolve, reject) => {

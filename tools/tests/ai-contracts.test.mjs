@@ -48,6 +48,8 @@ test('unsupported capabilities return CapabilityNotSupportedError without invoki
   let invoked = false;
   const adapter = {
     descriptor: { id: 'limited', label: 'Limited', capabilities: {} },
+    async createSession() {},
+    async startTurn() {},
     async cancelTurn() { invoked = true; },
   };
   const registry = createAiAdapterRegistry([adapter]);
@@ -58,6 +60,31 @@ test('unsupported capabilities return CapabilityNotSupportedError without invoki
     return true;
   });
   assert.equal(invoked, false);
+});
+
+test('registry rejects provider adapters missing required methods (createSession, startTurn, cancelTurn)', () => {
+  assert.throws(
+    () => createAiAdapterRegistry([{ descriptor: { id: 'missing-all', label: 'Missing', capabilities: {} } }]),
+    { name: 'AiValidationError' },
+  );
+
+  assert.throws(
+    () => createAiAdapterRegistry([{
+      descriptor: { id: 'missing-start', label: 'Missing', capabilities: {} },
+      async createSession() {},
+      async cancelTurn() {},
+    }]),
+    { name: 'AiValidationError' },
+  );
+
+  assert.throws(
+    () => createAiAdapterRegistry([{
+      descriptor: { id: 'missing-cancel', label: 'Missing', capabilities: {} },
+      async createSession() {},
+      async startTurn() {},
+    }]),
+    { name: 'AiValidationError' },
+  );
 });
 
 test('required events validate all normalized schemas and reject provider request fields', () => {
@@ -95,6 +122,9 @@ test('multi-provider registry supports multiple registered providers (claude, an
   function fake(id) {
     return {
       descriptor: { id, label: id.toUpperCase(), capabilities },
+      async createSession() {},
+      async startTurn() {},
+      async cancelTurn() {},
     };
   }
   const registry = createAiAdapterRegistry([fake('claude'), fake('antigravity'), fake('mock')]);
@@ -123,6 +153,8 @@ test('AiSessionService uses binding service for listings and transcript cache fo
     async createSession({ title }) {
       return { provider: 'claude', providerSessionId: 'new-sess-1', title };
     },
+    async startTurn() {},
+    async cancelTurn() {},
   };
   const registry = createAiAdapterRegistry([adapter]);
   const service = createAiSessionService({ registry, bindingService, transcriptCache });
@@ -139,3 +171,4 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   const created = await service.createSession('claude', { title: 'New Conversation' });
   assert.deepEqual(created, { provider: 'claude', providerSessionId: 'new-sess-1', title: 'New Conversation' });
 });
+

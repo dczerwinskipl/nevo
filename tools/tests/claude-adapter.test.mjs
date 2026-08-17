@@ -55,6 +55,61 @@ test('ClaudeAgentProvider declares capabilities and creates UUID sessions', asyn
   assert.equal(session.title, 'Test Session');
 });
 
+test('first turn for newly created session uses --session-id and subsequent turn uses --resume', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  // 1. Create a new session
+  const created = await provider.createSession({ title: 'New Conversation' });
+  const uuid = created.providerSessionId;
+
+  // 2. First turn for the newly created session
+  await provider.startTurn({
+    turnId: 'turn-1',
+    providerSessionId: uuid,
+    message: 'First prompt',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  assert.ok(capturedCalls[0].args.includes('--session-id'), 'First turn must use --session-id');
+  assert.ok(!capturedCalls[0].args.includes('--resume'), 'Fresh UUID must never go directly to --resume');
+  assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--session-id') + 1], uuid);
+
+  // 3. Second turn for the same session
+  await provider.startTurn({
+    turnId: 'turn-2',
+    providerSessionId: uuid,
+    message: 'Follow-up prompt',
+  });
+
+  assert.equal(capturedCalls.length, 2);
+  assert.ok(capturedCalls[1].args.includes('--resume'), 'Subsequent turn must use --resume');
+  assert.ok(!capturedCalls[1].args.includes('--session-id'), 'Subsequent turn must not use --session-id');
+  assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--resume') + 1], uuid);
+
+  // 4. Pre-existing session passed directly to startTurn (not from createSession)
+  await provider.startTurn({
+    turnId: 'turn-3',
+    providerSessionId: 'external-existing-session-uuid',
+    message: 'Resume external prompt',
+  });
+
+  assert.equal(capturedCalls.length, 3);
+  assert.ok(capturedCalls[2].args.includes('--resume'), 'Pre-existing session must use --resume');
+  assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--resume') + 1], 'external-existing-session-uuid');
+});
+
+
 
 test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoning', async () => {
   const lines = [
