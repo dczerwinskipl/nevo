@@ -1,7 +1,7 @@
 id: dashboard-loading-and-progress
 title: Dashboard data loading and long-running operation progress
 type: architectural
-status: draft
+status: archived
 priority: 20
 created: 2026-08-15
 

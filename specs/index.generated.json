@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T14:06:17.729Z",
+  "generated": "2026-08-17T14:06:34.427Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -390,10 +390,26 @@
       ]
     },
     {
+      "id": "architecture-documentation",
+      "specId": "051f8c73-3dc3-459f-84a2-994c0c2aff39",
+      "title": "Architecture documentation",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-08-01",
+      "tasks": [
+        {
+          "id": "core-architecture-docs",
+          "order": 1,
+          "file": "tasks/01-core-architecture-docs.md",
+          "status": "verified"
+        }
+      ]
+    },
+    {
       "id": "dashboard-loading-and-progress",
       "specId": "8745682a-ea12-405a-b809-6836b062aa90",
       "title": "Dashboard data loading and long-running operation progress",
-      "status": "draft",
+      "status": "archived",
       "priority": 20,
       "created": "2026-08-15",
       "tasks": [
@@ -655,22 +671,6 @@
             ],
             "status": "passed"
           }
-        }
-      ]
-    },
-    {
-      "id": "architecture-documentation",
-      "specId": "051f8c73-3dc3-459f-84a2-994c0c2aff39",
-      "title": "Architecture documentation",
-      "status": "archived",
-      "priority": 10,
-      "created": "2026-08-01",
-      "tasks": [
-        {
-          "id": "core-architecture-docs",
-          "order": 1,
-          "file": "tasks/01-core-architecture-docs.md",
-          "status": "verified"
         }
       ]
     },
