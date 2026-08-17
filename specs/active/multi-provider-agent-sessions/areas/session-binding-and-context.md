@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-This area defines the shared, provider-neutral session binding service and CLI execution context that associates local agent sessions `(provider, providerSessionId)` with NEvo specifications and tasks.
+This area defines the shared, provider-neutral session binding service and CLI execution context that associates local agent sessions `(provider, providerSessionId)` with NEvo specifications and tasks at the shared execution boundary of the repository's tooling.
 
 ## 1. Domain Model
 
@@ -32,7 +32,7 @@ export interface AgentExecutionContext {
 
 - The binding service accepts either `spec-slug` or `spec_id` UUID.
 - A common resolver resolves human-readable slugs (`change.id`) or UUIDs (`spec_id`) into a canonical `specId` before reading or storing bindings.
-- Task identifiers are validated against the manifest tasks if present.
+- Task identifiers are validated against manifest tasks if present.
 
 ## 3. Shared Binding Service (`AgentSessionBindingService`)
 
@@ -44,18 +44,20 @@ A single backend service responsible for:
 - Persisting mappings locally in `.nevo-ai-local/sessions.json`.
 - **Deduplication Semantics:** Repeatedly binding the same `(provider, providerSessionId)` to the same scope updates `lastSeenAt` and `purpose` idempotently without creating duplicate records.
 
-All entry points (CLI `agent-session attach`, lifecycle commands, dashboard session creation, provider hooks) delegate directly to this service — no duplicated binding logic.
+## 4. Real Tooling Execution Boundary & Auto-Binding
 
-## 4. CLI Execution Context & Auto-Binding
-
-- CLI commands accept an optional execution context via environment variables:
+- Agent-driven workflows (such as specification refinement, review, task implementation) drive the Node lifecycle CLI (`tools/specs.mjs` commands: `context`, `approve`, `start`, `complete`, `verify`, etc.).
+- `AgentExecutionContext` is injected via environment variables:
   `NEVO_AGENT_PROVIDER=claude NEVO_AGENT_PROVIDER_SESSION_ID=<uuid>`
-- When commands such as `spec refine`, `spec review`, or `task start` execute within an agent session, they automatically register or update the binding between `(provider, providerSessionId)` and the targeted `specId` / `taskId`.
-- CLI commands provide a standalone attachment utility:
-  `node tools/specs.mjs agent-session attach --spec <slug-or-id> [--task <id>] --provider claude --session-id <providerSessionId>`
+- Instead of implementing special-case binding logic in individual commands, the execution context is integrated at the shared practical execution boundary in `tools/specs.mjs` (e.g. command pre-action lifecycle / change-loading pipeline). When an agent runs tooling with a known `specId`/`taskId`, the session binding is automatically registered or refreshed in `AgentSessionBindingService`.
+- If a command does not yet know the spec identity (e.g. creating a new spec), the binding is recorded as soon as the canonical spec identity is established.
 
-## 5. Many-to-One / History-Oriented Association
+## 5. Explicit CLI Attach Fallback
 
-- A single specification or task can be associated with multiple agent sessions over time (e.g. initial implementation in Claude, review in Gemini, bugfix in Claude).
-- If a session initially bound only to a specification begins work on a specific task, the binding record is updated with the `taskId` and `purpose` while retaining its canonical `specId` and history.
+- CLI provides a standalone attachment utility:
+  `node tools/specs.mjs agent-session attach --spec <slug-or-id> [--task <id>] --provider <provider> --session-id <providerSessionId>`
+
+## 6. Many-to-One / History-Oriented Association
+
+- A single specification or task can be associated with multiple agent sessions over time.
 - Bindings are strictly stored in local user storage (`.nevo-ai-local/`) and never committed to version control. Two developers working on the same branch maintain independent local session bindings.

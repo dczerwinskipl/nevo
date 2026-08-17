@@ -13,6 +13,7 @@ allowed_paths:
   - tools/ai/binding-service.mjs
   - tools/ai/contracts.mjs
   - tools/specs.mjs
+  - tools/specs/service.mjs
   - tools/tests/agent-binding.test.mjs
 forbidden_paths:
   - src/**
@@ -26,7 +27,7 @@ semantic_references:
 
 ## Goal
 
-Implement the shared `AgentSessionBindingService` and CLI `AgentExecutionContext`, supporting canonical `spec-slug`/`spec-id` resolution, history-oriented many-to-one bindings of `(provider, providerSessionId)` to specs and tasks, auto-binding in command workflows, and the `agent-session attach` CLI utility.
+Implement the shared `AgentSessionBindingService` and CLI `AgentExecutionContext`, supporting canonical `spec-slug`/`spec-id` resolution, history-oriented many-to-one bindings of `(provider, providerSessionId)` to specs and tasks, auto-binding at the real tooling execution boundary, and the `agent-session attach` CLI utility.
 
 ## Requirements
 
@@ -35,7 +36,7 @@ Implement the shared `AgentSessionBindingService` and CLI `AgentExecutionContext
 - Implement `agent-session attach` command in `tools/specs.mjs`:
   `node tools/specs.mjs agent-session attach --spec <slug-or-id> [--task <id>] --provider <provider> --session-id <providerSessionId>`
 - Implement `AgentExecutionContext` reader supporting environment-variable-based session propagation (`NEVO_AGENT_PROVIDER`, `NEVO_AGENT_PROVIDER_SESSION_ID`).
-- Implement automatic binding in common CLI commands (`spec refine`, `spec review`, `task start`) when `AgentExecutionContext` is present.
+- Inspect the real spec tooling invocation structure (`tools/specs.mjs`, `tools/specs/service.mjs`) and integrate `AgentExecutionContext` at the lowest shared practical execution boundary used by agent-driven spec/task workflows, so commands that know their spec/task scope automatically register or refresh the current `(provider, providerSessionId)` binding without duplicating logic in individual command handlers.
 - Store all bindings in `.nevo-ai-local/sessions.json` without committing runtime session data to git.
 
 ## Verification

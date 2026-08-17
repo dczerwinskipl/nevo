@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-This area defines the common domain contracts, data models, capability system, turn runtime, and HTTP/SSE API layer for multi-provider agent sessions.
+This area defines the common domain contracts, data models, capability system, turn runtime, normalized UI read-model cache, and HTTP/SSE API layer for multi-provider agent sessions.
 
 ## 1. Domain Models & Canonical Identity
 
@@ -17,7 +17,7 @@ export interface AgentIdentity {
 
 - **Canonical Identity:** The pair `(provider, providerSessionId)` is the single identifier used across backend APIs, routing, and bindings.
 - **No Synthetic Nevo Session ID:** No `nevoSessionId` or synthetic session state layer is introduced.
-- **Provider-Owned Lifecycle:** Session state, continuation, transcript retention, and process execution are managed by providers and their backend adapters.
+- **Provider-Owned Lifecycle:** Session state, continuation, and process execution are managed by providers and their backend adapters.
 
 ## 2. Provider Interface & Capability Model
 
@@ -69,23 +69,47 @@ All provider-specific stream deltas are normalized into standard events using `t
 - `turn.completed`: `{ turnId, durationMs, finishReason }`
 - `turn.failed`: `{ turnId, error: { message, code } }`
 
-## 4. HTTP & SSE API Surface
+## 4. Normalized UI Read-Model Cache & Thread Persistence
+
+While providers are the source of truth for session continuity, NEvo maintains a provider-neutral normalized UI read-model cache to allow instant thread restoration in the dashboard across page reloads without re-invoking provider processes:
+
+- **Storage Location:** `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`.
+- **Data Model:**
+  ```ts
+  export interface NormalizedMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    text: string;
+    reasoning?: string;
+    toolCalls?: Array<{ id: string; name: string; input: unknown; output?: unknown; status: string }>;
+    interaction?: { id: string; kind: string; payload: unknown; response?: unknown };
+    createdAt: string;
+  }
+  export interface SessionTranscriptCache {
+    provider: string;
+    providerSessionId: string;
+    messages: NormalizedMessage[];
+    activeTurn?: { turnId: string; startedAt: string };
+    pendingInteraction?: { interactionId: string; kind: string; payload: unknown };
+    updatedAt: string;
+  }
+  ```
+- **Update Lifecycle:** Updated automatically upon `interaction.requested`, `turn.completed`, or `turn.failed`.
+- **Page Reload:** Dashboard fetches `GET /api/agent-sessions/:provider/:providerSessionId` (snapshot + pending interaction) and `GET /api/agent-sessions/:provider/:providerSessionId/history` (messages), immediately populating the `@assistant-ui/react` thread.
+
+## 5. HTTP & SSE API Surface
 
 - `GET /api/agent-sessions`: List session bindings (supports filtering by query parameters `specId` or `taskId`).
 - `POST /api/agent-sessions`: Register a session binding or start a new provider session with initial spec/task binding.
 - `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, and pending interaction snapshot.
+- `GET /api/agent-sessions/:provider/:providerSessionId/history`: Get normalized message thread history for dashboard UI initialization.
 - `DELETE /api/agent-sessions/:provider/:providerSessionId`: Remove local session binding.
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`: Cancel an active turn.
 - `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`: Submit user response to pending interaction.
-- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting normalized `AgentEvent` objects (supports reconnection).
+- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting normalized `AgentEvent` objects.
 
-## 5. Reconnect & Transcript Semantics
+## 6. SSE Reconnection & Event Deduplication
 
-- **Source of Truth:** The provider CLI retains full conversation history.
-- **Turn Buffering:** NEvo maintains an in-memory event buffer for active turns indexed by `(provider, providerSessionId)`.
-- **State Reconnection:** When the frontend reloads or reconnects SSE:
-  1. `GET /api/agent-sessions/:provider/:providerSessionId` delivers the current state snapshot (including any pending `interactionId` and turn status).
-  2. `GET /api/agent-sessions/:provider/:providerSessionId/events` resumes listening for live events.
-  3. If an interaction was pending, the dashboard displays the interactive form immediately without re-invoking the provider process.
-- **Short-Lived Turn Lifecycle:** Turns spawn a short-lived process. Deferrals exit the process; user responses trigger a new resumed process.
+- Client connects to SSE stream after populating thread history.
+- Events carry monotonic turn sequence numbers or timestamps. The client runtime ignores events already reflected in the loaded history snapshot, preventing duplicated tokens or tool cards.

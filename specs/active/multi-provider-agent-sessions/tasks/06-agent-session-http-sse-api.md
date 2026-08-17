@@ -29,7 +29,7 @@ semantic_references:
 
 ## Goal
 
-Expose the complete provider-neutral agent session API on the dashboard server, supporting session listing/creation with spec/task binding, turn initiation, turn cancellation, interaction resolution, state snapshots, and real-time SSE event streaming with reconnect support using canonical `(provider, providerSessionId)` routing.
+Expose the complete provider-neutral agent session API on the dashboard server, supporting session listing/creation with spec/task binding, turn initiation, turn cancellation, interaction resolution, state snapshots, normalized message history, and real-time SSE event streaming with reconnect support using canonical `(provider, providerSessionId)` routing.
 
 ## Requirements
 
@@ -37,6 +37,7 @@ Expose the complete provider-neutral agent session API on the dashboard server, 
 - Support `GET /api/agent-sessions` filtering by query parameters `specId` or `taskId` via `AgentSessionBindingService`.
 - Support `POST /api/agent-sessions` starting a provider session and registering initial spec/task binding.
 - Expose session state snapshot in `GET /api/agent-sessions/:provider/:providerSessionId` (including status, active turn, pending interaction, and capabilities).
+- Expose normalized thread history in `GET /api/agent-sessions/:provider/:providerSessionId/history` reading from `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json` for initial UI thread population.
 - Support SSE event endpoint (`GET /api/agent-sessions/:provider/:providerSessionId/events`) broadcasting normalized `AgentEvent` streams with reconnect/replay support.
 - Support interaction response endpoint (`POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`).
 - Ensure no provider credentials, internal process tokens, or raw provider formats leak to API responses.

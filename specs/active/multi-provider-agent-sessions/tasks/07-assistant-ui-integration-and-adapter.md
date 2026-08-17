@@ -35,7 +35,7 @@ Install `@assistant-ui/react` in `tools/dashboard` and build a dedicated `NevoAs
 ## Requirements
 
 - Add `@assistant-ui/react` dependency to `tools/dashboard/package.json`.
-- Implement `NevoAssistantRuntime` in `tools/dashboard/src/lib/nevo-assistant-runtime.ts` consuming SSE stream events (`text.delta`, `tool.*`, `interaction.requested`) via `/api/agent-sessions/:provider/:providerSessionId/events` and delegating turn execution/cancellation to NEvo API.
+- Implement `NevoAssistantRuntime` in `tools/dashboard/src/lib/nevo-assistant-runtime.ts` fetching initial message thread from `GET /api/agent-sessions/:provider/:providerSessionId/history`, consuming live SSE stream events via `/api/agent-sessions/:provider/:providerSessionId/events` with event deduplication, and delegating turn execution/cancellation to NEvo API.
 - Support initial state restoration from session snapshot (`GET /api/agent-sessions/:provider/:providerSessionId`) when the page reloads.
 - Replace manual token accumulation and auto-scroll logic in `tools/dashboard/src/components/ai-chat.tsx` with `@assistant-ui/react` thread and composer primitives.
 - Verify React 19 compatibility and TypeScript types.

@@ -2,12 +2,12 @@
 
 ## Responsibilities
 
-This area replaces handcrafted chat mechanics in the NEvo Dashboard with `@assistant-ui/react`, bridged via a custom `NevoAssistantRuntime` adapter, styled to seamlessly blend with the existing NEvo design system.
+This area replaces handcrafted chat mechanics in the NEvo Dashboard with `@assistant-ui/react`, bridged via a custom `NevoAssistantRuntime` adapter, styled to seamlessly blend with the existing NEvo design system and support instant thread restoration upon page reload.
 
 ## 1. Architecture & Runtime Adapter
 
 ```text
-NEvo Agent Session API / SSE Stream (AgentEvent)
+NEvo History API (/history) + SSE Stream (/events)
                      ↓
         NevoAssistantRuntime (Adapter)
                      ↓
@@ -19,12 +19,10 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 - **`NevoAssistantRuntime`:**
   - Implements the runtime contract expected by `@assistant-ui/react`.
   - Communicates solely through the provider-neutral backend HTTP/SSE API using `(provider, providerSessionId)`.
-  - Connects to `GET /api/agent-sessions/:provider/:providerSessionId/events` (SSE) with reconnection support.
-  - Translates `text.delta` into streaming markdown blocks.
-  - Translates `tool.*` events into structured tool call states (pending, running, complete, error).
-  - Handles `interaction.requested` by exposing interactive widgets in the thread.
-  - Retrieves initial thread and pending interaction state from `GET /api/agent-sessions/:provider/:providerSessionId` on reload.
-  - Submits user input via `POST /api/agent-sessions/:provider/:providerSessionId/turns` and cancellation via `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`.
+  - **Thread Initialization & Page Reload:** Fetches `GET /api/agent-sessions/:provider/:providerSessionId` (session state and pending interaction) and `GET /api/agent-sessions/:provider/:providerSessionId/history` (normalized message thread from local read-model cache), populating the thread instantly on reload.
+  - **Live Streaming & Deduplication:** Connects to `GET /api/agent-sessions/:provider/:providerSessionId/events` (SSE), ignoring events already present in the initial history snapshot.
+  - **Interactions:** Renders `interaction.requested` as active UI cards in the thread and submits responses to `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`.
+  - **Turns & Cancellation:** Submits user prompts via `POST /api/agent-sessions/:provider/:providerSessionId/turns` and turn cancellation via `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`.
 
 ## 2. Custom Renderers & NEvo Design Tokens
 
@@ -38,6 +36,6 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 
 ## 3. Session Navigation & Context Surfaces
 
-- **Specification Detail View:** Collapsible or tabbed session pane showing active sessions linked to the current `specId`.
+- **Specification Detail View:** Session pane showing active sessions linked to the current `specId`.
 - **Sidebar Integration:** Multi-provider session switcher with provider badges (Claude, Antigravity, Mock) and status indicators (`running`, `waitingForUser`, `idle`).
 - **New Session Modal:** Provider selector dropdown, initial prompt input, and optional task tagging, calling backend `POST /api/agent-sessions` with `{ provider, specId, taskId? }`.

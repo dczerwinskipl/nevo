@@ -26,7 +26,7 @@ semantic_references:
 
 ## Goal
 
-Build NEvo-tailored UI renderers for thinking/reasoning blocks, tool call inspection, interactive permission approval prompts, and interactive question forms inside the `@assistant-ui/react` thread.
+Build NEvo-tailored UI renderers for thinking/reasoning blocks, tool call inspection, interactive permission approval prompts, and interactive question forms inside the `@assistant-ui/react` thread, correlating pending interactions across reloads.
 
 ## Requirements
 
@@ -34,6 +34,7 @@ Build NEvo-tailored UI renderers for thinking/reasoning blocks, tool call inspec
 - Implement tool call inspection card component (`ai-tool-view.tsx`) showing tool status, arguments, and syntax-highlighted outputs.
 - Implement interactive permission prompt card with "Allow" and "Deny" actions, shown only when provider capabilities support permissions.
 - Implement interactive question card for user clarification with text input and choice buttons.
+- Correlate pending interactions from initial session snapshot with the restored thread state so prompts display immediately on reload.
 - Connect interaction responses to `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`.
 
 ## Verification

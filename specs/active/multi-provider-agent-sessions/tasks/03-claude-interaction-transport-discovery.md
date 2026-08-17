@@ -25,15 +25,15 @@ semantic_references:
 
 ## Goal
 
-Perform targeted discovery of Claude Code's `PreToolUse/defer` mechanism, verify the minimum supported CLI version (>= 2.1.89), capture real fixtures for `AskUserQuestion` deferral, test the roundtrip resume flow, verify parallel tool batch boundaries, and evaluate native permission request mechanisms.
+Perform targeted discovery of Claude Code's `PreToolUse/defer` mechanism for `AskUserQuestion`, verify minimum supported CLI version (>= 2.1.89), capture real fixtures, test the roundtrip resume flow, verify parallel tool batch boundaries, and evaluate/select the native permission request transport mechanism.
 
 ## Requirements
 
 - Verify that installed `claude` CLI version satisfies minimum requirement for `PreToolUse` deferral (>= 2.1.89).
 - Capture and persist real CLI fixture for `AskUserQuestion -> stop_reason: 'tool_deferred' -> deferred_tool_use`.
-- Verify full roundtrip flow: `PreToolUse/defer -> process exit -> resume -> updatedInput -> execution continuation`.
+- Verify full roundtrip flow for `AskUserQuestion`: `PreToolUse/defer -> process exit -> resume -> updatedInput -> execution continuation`.
 - Verify and document behavior under parallel tool calls in a single batch as an explicit known limitation.
-- Evaluate native permission prompt mechanisms (`--permission-prompt-tool`, `PreToolUse/defer`, `canUseTool`), select one approach preserving native permission semantics without building an artificial custom engine, and record the decision in `docs/development/ai-sessions.md`.
+- Evaluate native permission prompt transport mechanisms (`--permission-prompt-tool`, `PreToolUse/defer`, `canUseTool`), select one approach preserving native permission semantics without building an artificial custom engine, and record the decision in `docs/development/ai-sessions.md`.
 - Save representative fixture data under `tools/tests/fixtures/claude/` for downstream adapter unit tests.
 
 ## Verification

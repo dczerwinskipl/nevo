@@ -35,29 +35,31 @@
 - **Date:** 2026-08-17
 - **Affected artifacts:** `change.yaml`, `overview.md`, `areas/antigravity-provider.md`.
 
-## D5: Claude interaction transport via `PreToolUse/defer` roundtrip
+## D5: Claude interaction transport decomposition (`AskUserQuestion` decided; permissions via discovery)
 
-- **Question:** How should Claude interactive questions (`AskUserQuestion`) and permission prompts be transported between the Claude CLI and NEvo?
-- **Options considered:** Undocumented bidirectional stdin/stdout streaming within one running process | Custom user-prompt engine intercepting all tool uses | Officially supported `PreToolUse` deferral with process exit and resume with `updatedInput`
-- **Decision:** Officially supported `PreToolUse/defer` flow. When Claude triggers `AskUserQuestion`, the hook defers tool execution (`stop_reason: "tool_deferred"`), the process exits, NEvo maps this to `interaction.requested`, and upon user response resumes the session with `updatedInput`.
+- **Question:** How should Claude interactive questions and permission prompts be transported between the Claude CLI and NEvo?
+- **Options considered:** Undocumented bidirectional stdin/stdout streaming within one running process | Assume `PreToolUse/defer` for all interactions prematurely | Decide `AskUserQuestion` via `PreToolUse/defer` and discover native permissions mechanism in Task 03
+- **Decision:**
+  - **`AskUserQuestion` (Decided):** Officially supported `PreToolUse/defer` flow. When Claude triggers `AskUserQuestion`, the hook defers tool execution (`stop_reason: "tool_deferred"`), the process exits, NEvo maps this to `interaction.requested`, and upon user response resumes the session (`claude --resume <providerSessionId>`) with `updatedInput`.
+  - **Native Permissions (Discovery Required):** The exact transport for native permission prompts is not pre-decided. Task 03 discovery compares `--permission-prompt-tool`, `PreToolUse/defer`, and Agent SDK `canUseTool`, and selects the mechanism preserving native permission semantics without building an artificial custom engine.
 - **Known Limitation:** `PreToolUse/defer` does not support interactive deferrals across parallel tool calls in a single batch (documented and tested constraint).
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/claude-adapter.mjs`, `areas/claude-provider.md`, Task 03, Task 05.
 
-## D6: Unified session binding service and CLI execution context
+## D6: Unified session binding service and real tooling execution path
 
 - **Question:** How should AI sessions be bound to specifications and tasks across the CLI, hooks, and dashboard?
-- **Options considered:** Duplicate attach logic in every CLI command and dashboard action | Store a single mutable `currentSessionId` per spec | Unified `AgentSessionBindingService` with `AgentExecutionContext` supporting many-to-one history
-- **Decision:** A single shared `AgentSessionBindingService` and `AgentExecutionContext`. Resolves `spec-slug` or `spec-id` canonically to `specId`, maintains many-to-one historical session bindings of `(provider, providerSessionId)`, and supports auto-binding during CLI commands, hooks, and dashboard session creation.
-- **Consequences:** All entry points (`agent-session attach`, `spec refine`, `spec review`, `task start`, dashboard) share identical binding logic and persist bindings locally in `.nevo-ai-local/sessions.json`.
+- **Options considered:** Duplicate attach logic in every CLI command handler | Store a single mutable `currentSessionId` per spec | Unified `AgentSessionBindingService` integrated at the lowest shared practical execution boundary in `tools/specs.mjs`
+- **Decision:** A single shared `AgentSessionBindingService` and `AgentExecutionContext`. Resolves `spec-slug` or `spec-id` canonically to `specId`, maintains many-to-one historical session bindings of `(provider, providerSessionId)`, and integrates `AgentExecutionContext` (`NEVO_AGENT_PROVIDER`, `NEVO_AGENT_PROVIDER_SESSION_ID`) into the shared command execution boundary of `tools/specs.mjs` so agent-driven workflows automatically bind active sessions. Explicit fallback provided via `node tools/specs.mjs agent-session attach`.
+- **Consequences:** All entry points share identical binding logic and persist bindings locally in `.nevo-ai-local/sessions.json`.
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/binding-service.mjs`, `areas/session-binding-and-context.md`, Task 02.
 
-## D7: SSE Reconnect, Event Snapshot, and State Replay
+## D7: Normalized UI read-model cache, SSE Reconnect, and Page Reload
 
-- **Question:** How should the frontend handle SSE reconnection, page refreshes, and pending interactions?
-- **Options considered:** Ephemeral stream with no history | Reconstructing process on reload | Session snapshot endpoint (`GET /api/agent-sessions/:provider/:providerSessionId`) plus pending interaction persistence in local state
-- **Decision:** Provider owns full transcript history. NEvo maintains in-memory turn event buffers during active execution and persists session state (status, active turn, pending interaction) in `.nevo-ai-local/sessions.json` indexed by `(provider, providerSessionId)`. Reconnecting clients fetch session snapshot and re-attach to the SSE event stream.
-- **Consequences:** Reloading the dashboard restores the exact pending interaction and thread state without re-invoking the provider process.
+- **Question:** How should the dashboard restore conversation thread history, handle SSE reconnection, and correlate pending interactions across page reloads without creating a synthetic Nevo session lifecycle?
+- **Options considered:** Ephemeral stream with no history | Re-executing provider on reload | Provider owns conversation session lifecycle, while NEvo maintains a local normalized UI read-model cache
+- **Decision:** Providers remain the sole source of truth for session continuation and lifecycle. NEvo maintains a local, provider-neutral normalized UI read-model cache under `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json` storing normalized messages, completed turn events, and active interaction state. On page reload, the dashboard fetches the thread history and state snapshot (`GET /api/agent-sessions/:provider/:providerSessionId`), initializes the `@assistant-ui/react` thread, correlates any pending interaction with the active message, and reconnects to the live SSE stream with deduplication.
+- **Consequences:** Page refresh restores the full chat UI and pending interaction cards instantly without restarting or re-invoking provider processes.
 - **Date:** 2026-08-17
-- **Affected artifacts:** `tools/dashboard/server/ai-routes.mjs`, `tools/dashboard/src/lib/nevo-assistant-runtime.ts`, `areas/provider-neutral-core.md`.
+- **Affected artifacts:** `tools/dashboard/server/ai-routes.mjs`, `tools/dashboard/src/lib/nevo-assistant-runtime.ts`, `areas/provider-neutral-core.md`, `areas/assistant-ui-frontend.md`.
