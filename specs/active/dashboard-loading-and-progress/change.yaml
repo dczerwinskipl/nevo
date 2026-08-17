@@ -169,7 +169,7 @@ tasks:
   - id: dashboard-operation-progress-ui
     order: 8
     file: tasks/07-dashboard-operation-progress-ui.md
-    status: implemented
+    status: verified
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
