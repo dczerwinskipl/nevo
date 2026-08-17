@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T14:06:06.265Z",
+  "generated": "2026-08-17T14:06:11.013Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -605,7 +605,7 @@
           "id": "approve-post-action-sync-and-git",
           "order": 7,
           "file": "tasks/08-approve-post-action-sync-and-git.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
