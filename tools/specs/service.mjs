@@ -138,6 +138,32 @@ export function resolveStableSpecId(change) {
 }
 
 /**
+ * Canonical specification resolver supporting both human-readable slug and immutable UUID spec_id.
+ */
+export function resolveCanonicalSpec(identifier, { activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  if (!identifier || typeof identifier !== 'string') {
+    throw new CliError('Specification identifier (slug or spec_id) is required.');
+  }
+  const trimmed = identifier.trim();
+  if (isValidSpecId(trimmed)) {
+    const all = [...listChanges(activeDir), ...listChanges(archiveDir)];
+    const match = all.find(c => c.spec_id === trimmed);
+    if (match) {
+      return { specId: match.spec_id, slug: match._slug, change: match };
+    }
+    return { specId: trimmed, slug: null, change: null };
+  }
+
+  const change = loadChange(trimmed, activeDir) || loadChange(trimmed, archiveDir);
+  if (!change) {
+    throw new CliError(`Specification '${trimmed}' not found.`);
+  }
+  const specId = resolveStableSpecId(change);
+  return { specId, slug: change._slug, change };
+}
+
+
+/**
  * Idempotent backfill (D2, AC3): assigns a fresh, globally unique `spec_id`
  * to every active/archived manifest that doesn't already have a valid one —
  * never rewrites an existing valid value. Uniqueness is checked against every

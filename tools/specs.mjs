@@ -26,9 +26,10 @@ import {
   loadBatchIntent, writeBatchIntent, clearBatchIntent, writeBulkTransition,
   writeImplementationProvenance,
   loadChangeAnywhere, addPullRequestReference,
-  backfillSpecIds,
+  backfillSpecIds, resolveCanonicalSpec, isValidSpecId,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
+import { readAgentExecutionContext, createAgentSessionBindingService } from './ai/binding-service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
 import {
@@ -48,6 +49,25 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // ── Command handlers ────────────────────────────────────────────────────────
 // Plain functions, testable without touching process.argv or Commander.
 
+function autoBindAgentSession(change, taskId, purpose) {
+  const context = readAgentExecutionContext();
+  if (context && change) {
+    try {
+      const specId = change.spec_id;
+      if (specId && isValidSpecId(specId)) {
+        const bindingService = createAgentSessionBindingService();
+        bindingService.bindSessionSync({
+          provider: context.provider,
+          providerSessionId: context.providerSessionId,
+          specId,
+          taskId: taskId || undefined,
+          purpose,
+        });
+      }
+    } catch {}
+  }
+}
+
 function reportErrors(errors) {
   errors.forEach(e => console.error(e));
   process.exitCode = 1;
@@ -56,6 +76,7 @@ function reportErrors(errors) {
 function requireChange(slug, baseDir = ACTIVE_DIR) {
   const change = loadChange(slug, baseDir);
   if (!change) throw new CliError(`Change '${slug}' not found in specs/active/`);
+  autoBindAgentSession(change);
   return change;
 }
 
@@ -65,15 +86,20 @@ function requireChange(slug, baseDir = ACTIVE_DIR) {
 // scenario status/finalize/comments need to keep working for, not error out on.
 function requireChangeAnywhere(slug) {
   const located = loadChangeAnywhere(slug);
-  if (located) return located;
+  if (located) {
+    autoBindAgentSession(located);
+    return located;
+  }
   throw new CliError(`Change '${slug}' not found in specs/active/ or specs/archive/`);
 }
 
 function requireTask(change, taskId) {
   const task = change.tasks.find(t => t.id === taskId);
   if (!task) throw new CliError(`Task '${taskId}' not found in change '${change._slug}'`);
+  autoBindAgentSession(change, taskId);
   return task;
 }
+
 
 // Structural writers for the operational `execution.suspension` block (D8) —
 // mirrors service.mjs's setTaskStatus, kept here since service.mjs is outside
@@ -1744,8 +1770,38 @@ export function buildProgram() {
     .requiredOption('--failing-sha <sha>', 'The merged SHA the failed post-merge check reported')
     .action((changeSlug, opts) => handleFinalizeRepairBranch(changeSlug, opts));
 
+  const agentSession = program.command('agent-session')
+    .description('AI agent session management');
+
+  agentSession.command('attach')
+    .description('Attach an external AI agent session to a specification and optional task')
+    .requiredOption('--spec <slug-or-id>', 'Specification slug or canonical spec_id UUID')
+    .option('--task <id>', 'Optional task ID')
+    .requiredOption('--provider <provider>', 'Provider ID (e.g. claude, antigravity, mock)')
+    .requiredOption('--session-id <providerSessionId>', 'Provider session ID')
+    .option('--purpose <purpose>', 'Binding purpose', 'attached')
+    .action(opts => handleAgentSessionAttach(opts));
+
   return program;
 }
+
+export async function handleAgentSessionAttach(opts) {
+  const specInfo = resolveCanonicalSpec(opts.spec);
+  if (opts.task && specInfo.change) {
+    requireTask(specInfo.change, opts.task);
+  }
+  const bindingService = createAgentSessionBindingService();
+  const binding = await bindingService.bindSession({
+    provider: opts.provider,
+    providerSessionId: opts.sessionId,
+    specId: specInfo.specId,
+    taskId: opts.task || undefined,
+    purpose: opts.purpose || 'attached',
+  });
+  console.log(`Bound session '${binding.providerSessionId}' (${binding.provider}) to spec '${binding.specId}'${binding.taskId ? ` (task: ${binding.taskId})` : ''}.`);
+  return binding;
+}
+
 
 async function runCli() {
   const program = buildProgram();
