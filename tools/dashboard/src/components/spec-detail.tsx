@@ -30,6 +30,7 @@ import type {
   DashboardChange,
   DashboardTask,
   AiSession,
+  OperationSnapshot,
   SpecificationManifestSection,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
@@ -528,15 +529,38 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   }, [actionsQuery, updateActiveOperation]);
 
   const executeBatchTaskAction = useCallback(async (tasks: DashboardTask[], actionName: SpecificationOwnerAction) => {
-    for (const task of tasks) {
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
       try {
         const taskId = task.id;
         const res = await actionsQuery.execute({ action: actionName, taskId });
         if (res?.operationId) {
           updateActiveOperation(
             res.operationId,
-            actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
+            actionName === 'approve'
+              ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
+              : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`
           );
+
+          // Wait for the spawned operation to reach a terminal state before running next task
+          const startTime = Date.now();
+          let isTerminal = false;
+          while (!isTerminal && Date.now() - startTime < 60000) {
+            await new Promise(r => setTimeout(r, 350));
+            try {
+              const checkRes = await fetch(`/api/operations/${encodeURIComponent(res.operationId)}`, { cache: 'no-store' });
+              if (checkRes.ok) {
+                const snap = (await checkRes.json()) as OperationSnapshot;
+                if (snap.status === 'completed') {
+                  isTerminal = true;
+                } else if (snap.status === 'failed') {
+                  return; // Stop batch execution if a task fails
+                }
+              }
+            } catch {
+              // retry polling
+            }
+          }
         }
       } catch {
         break;
