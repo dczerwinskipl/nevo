@@ -21,22 +21,23 @@ forbidden_paths:
   - src/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D1, D2]
-  constraints: [C1, C2, C3, C4, C5]
+  decisions: [D1, D2, D7]
+  constraints: [C1, C2, C3, C4, C5, C8]
 ---
 
 # Task: Provider-neutral core and capabilities
 
 ## Goal
 
-Extend the shared `tools/ai/` layer with explicit `AgentCapabilities`, multi-provider registration, neutral event streaming definitions (`AgentEvent`), turn idempotency, and workstation-local session persistence under `.nevo-ai-local/`.
+Extend the shared `tools/ai/` layer with explicit `AgentCapabilities`, `CapabilityNotSupportedError`, multi-provider registry, normalized event schemas (`text.delta`), turn idempotency, short-lived turn runtime lifecycle, and local session persistence under `.nevo-ai-local/`.
 
 ## Requirements
 
 - Update `tools/ai/contracts.mjs` to define `AgentCapabilities` (`interactivePermissions`, `interactiveQuestions`, `interactiveConfirmations`, `resumeSession`, `cancelTurn`, `toolCalls`, `reasoning`, `usage`).
+- Define `CapabilityNotSupportedError` thrown when unsupported capabilities are invoked.
 - Define normalized `AgentEvent` schemas (`turn.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.updated`, `tool.completed`, `interaction.requested`, `interaction.resolved`, `usage.updated`, `turn.completed`, `turn.failed`).
 - Update `tools/ai/registry.mjs` to support multiple registered providers (`claude`, `antigravity`, `mock`).
-- Update `tools/ai/turn-runtime.mjs` to manage active turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation.
+- Update `tools/ai/turn-runtime.mjs` to manage short-lived turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation.
 - Persist session metadata under `.nevo-ai-local/sessions.json` mapping `nevoSessionId` to `(provider, providerSessionId, specId, taskIds)`.
 
 ## Verification

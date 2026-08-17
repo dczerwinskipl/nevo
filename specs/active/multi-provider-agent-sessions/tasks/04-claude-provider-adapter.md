@@ -27,14 +27,14 @@ semantic_references:
 
 ## Goal
 
-Implement the `AgentProvider` adapter for Claude Code CLI (`claude`), supporting process spawning with stream-json I/O, session creation with UUID assignment, session resumption via `providerSessionId`, text delta streaming, turn cancellation, and error mapping.
+Implement the `AgentProvider` adapter for Claude Code CLI (`claude`), supporting short-lived process execution with stream-json I/O, session creation with UUID assignment, session resumption via `providerSessionId`, `text.delta` streaming, turn cancellation, and error mapping.
 
 ## Requirements
 
 - Implement `ClaudeAgentProvider` adhering to `AgentProvider` in `tools/ai/claude-adapter.mjs`.
 - Declare `CLAUDE_CAPABILITIES` with all supported features.
-- Execute `claude` CLI with `--print --output-format stream-json --input-format stream-json`.
-- Parse stdout JSON lines, mapping text deltas, thinking blocks, and completion events to `AgentEvent`s.
+- Execute `claude` CLI in short-lived turn mode with `--print --output-format stream-json --input-format stream-json`.
+- Parse stdout JSON lines, mapping text deltas to `text.delta`, thinking blocks to `reasoning.delta`, and completion events to `turn.completed`.
 - Support session resumption (`--resume <providerSessionId>`) and initial session creation (`--session-id <uuid>`).
 - Implement `cancelTurn` by sending process termination signals cleanly.
 

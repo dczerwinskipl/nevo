@@ -18,10 +18,11 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 
 - **`NevoAssistantRuntime`:**
   - Implements the runtime contract expected by `@assistant-ui/react`.
-  - Connects to `GET /api/agent-sessions/:sessionId/events` (SSE).
+  - Connects to `GET /api/agent-sessions/:sessionId/events` (SSE) with reconnection support.
   - Translates `text.delta` into streaming markdown blocks.
   - Translates `tool.*` events into structured tool call states (pending, running, complete, error).
   - Handles `interaction.requested` by exposing interactive widgets in the thread.
+  - Retrieves initial thread and pending interaction state from `GET /api/agent-sessions/:sessionId` on reload.
   - Submits user input via `POST /api/agent-sessions/:sessionId/turns` and cancellation via `POST /api/agent-sessions/:sessionId/turns/:turnId/cancel`.
 
 ## 2. Custom Renderers & NEvo Design Tokens
@@ -30,12 +31,12 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 - **Thinking / Reasoning Blocks:** Collapsible accordions with subtle pulsing animations during generation.
 - **Tool Call Cards:** Clean inspection cards showing tool name, formatted inputs, and collapsible outputs with syntax highlighting.
 - **Interaction Forms:**
-  - *Permission Prompts:* Action card with command/diff preview, "Allow", "Deny", and "Always Allow" buttons.
+  - *Permission Prompts:* Action card with command/diff preview, "Allow", "Deny", and "Always Allow" buttons (rendered only when `capabilities.interactivePermissions` is true).
   - *Questions / Clarifications:* Interactive form controls for multiple-choice or freeform text answers with validation.
 - **Composer:** Resizable auto-growing textarea with keybindings (Enter to send, Shift+Enter for newline, Esc to cancel).
 
 ## 3. Session Navigation & Context Surfaces
 
-- **Specification Detail View:** Collapsible or tabbed session pane showing active sessions linked to the current `spec_id`.
+- **Specification Detail View:** Collapsible or tabbed session pane showing active sessions linked to the current `specId`.
 - **Sidebar Integration:** Multi-provider session switcher with provider badges (Claude, Antigravity, Mock) and status indicators (`running`, `waitingForUser`, `idle`).
-- **New Session Modal:** Provider selector dropdown, initial prompt input, and optional task tagging.
+- **New Session Modal:** Provider selector dropdown, initial prompt input, and optional task tagging using shared `AgentSessionBindingService`.

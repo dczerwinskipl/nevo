@@ -6,7 +6,7 @@ context:
   required:
     - specs/active/multi-provider-agent-sessions/overview.md
     - specs/active/multi-provider-agent-sessions/areas/assistant-ui-frontend.md
-    - specs/active/multi-provider-agent-sessions/tasks/05-assistant-ui-integration-and-adapter.md
+    - specs/active/multi-provider-agent-sessions/tasks/07-assistant-ui-integration-and-adapter.md
     - tools/dashboard/src/components/ai-chat.tsx
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
@@ -19,7 +19,7 @@ forbidden_paths:
   - tools/dashboard/server/**
 semantic_references:
   decisions: [D1, D3]
-  constraints: [C1, C4, C6]
+  constraints: [C1, C4, C7]
 ---
 
 # Task: Custom renderers and interaction UI
@@ -32,7 +32,7 @@ Build NEvo-tailored UI renderers for thinking/reasoning blocks, tool call inspec
 
 - Implement custom reasoning/thinking accordion renderer matching NEvo design system.
 - Implement tool call inspection card component (`ai-tool-view.tsx`) showing tool status, arguments, and syntax-highlighted outputs.
-- Implement interactive permission prompt card with "Allow" and "Deny" actions.
+- Implement interactive permission prompt card with "Allow" and "Deny" actions, shown only when provider capabilities support permissions.
 - Implement interactive question card for user clarification with text input and choice buttons.
 - Connect interaction responses to `POST /api/agent-sessions/:sessionId/interactions/:interactionId/respond`.
 
