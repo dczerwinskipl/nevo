@@ -54,19 +54,24 @@ function autoBindAgentSession(change, taskId, purpose) {
   if (context && change) {
     try {
       const specId = change.spec_id;
-      if (specId && isValidSpecId(specId)) {
-        const bindingService = createAgentSessionBindingService();
-        bindingService.bindSessionSync({
-          provider: context.provider,
-          providerSessionId: context.providerSessionId,
-          specId,
-          taskId: taskId || undefined,
-          purpose,
-        });
+      if (!specId || !isValidSpecId(specId)) {
+        console.error(`[nevo-ai] Warning: Cannot auto-bind session: change '${change._slug || 'unknown'}' has no valid spec_id.`);
+        return;
       }
-    } catch {}
+      const bindingService = createAgentSessionBindingService();
+      bindingService.bindSessionSync({
+        provider: context.provider,
+        providerSessionId: context.providerSessionId,
+        specId,
+        taskId: taskId || undefined,
+        purpose,
+      });
+    } catch (err) {
+      console.error(`[nevo-ai] Warning: Failed to auto-bind agent session (${context.provider}/${context.providerSessionId}): ${err.message}`);
+    }
   }
 }
+
 
 function reportErrors(errors) {
   errors.forEach(e => console.error(e));

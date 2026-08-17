@@ -1,12 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-export const AI_SESSION_STATUSES = Object.freeze([
-  'running',
-  'waitingForUser',
-  'idle',
-  'completed',
-]);
-
 export const AGENT_CAPABILITIES = Object.freeze([
   'interactivePermissions',
   'interactiveQuestions',
@@ -16,19 +9,6 @@ export const AGENT_CAPABILITIES = Object.freeze([
   'toolCalls',
   'reasoning',
   'usage',
-]);
-
-// Backward-compatible alias combining legacy and modern capability names
-export const AI_CAPABILITIES = Object.freeze([
-  ...AGENT_CAPABILITIES,
-  'listSessions',
-  'sessionMetadata',
-  'messages',
-  'createSession',
-  'startTurn',
-  'streamEvents',
-  'resumeTurn',
-  'resolveInteractions',
 ]);
 
 export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
@@ -55,16 +35,11 @@ export const AGENT_EVENT_TYPES = Object.freeze([
   'usage.updated',
   'turn.completed',
   'turn.failed',
-  // legacy backward-compatibility
-  'message.delta',
-  'activity',
 ]);
 
 export const AI_EVENT_TYPES = AGENT_EVENT_TYPES;
 
-const SESSION_STATUS_SET = new Set(AI_SESSION_STATUSES);
 const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
 export class AiError extends Error {
@@ -173,66 +148,13 @@ export function normalizeCapabilities(value, field = 'capabilities') {
     throw new AiValidationError(`'${field}' must be an object.`, { field });
   }
   const normalized = {};
-  for (const capability of AI_CAPABILITIES) {
+  for (const capability of AGENT_CAPABILITIES) {
     normalized[capability] = value[capability] === true;
   }
   return normalized;
 }
 
-export function validateAiSession(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AiValidationError('Session must be an object.');
-  }
-  const specId = requiredString(value.specId, 'specId');
-  if (!UUID_PATTERN.test(specId)) {
-    throw new AiValidationError("'specId' must be a UUID.", { field: 'specId' });
-  }
-  const provider = requiredString(value.provider, 'provider');
-  const sessionId = requiredString(value.sessionId ?? value.providerSessionId, 'sessionId', { opaque: true });
-  if (!Array.isArray(value.taskIds) || value.taskIds.some(taskId => typeof taskId !== 'string' || !ID_PATTERN.test(taskId))) {
-    throw new AiValidationError("'taskIds' must be an array of stable task IDs.", { field: 'taskIds' });
-  }
-  if (!SESSION_STATUS_SET.has(value.status)) {
-    throw new AiValidationError(`'status' must be one of ${AI_SESSION_STATUSES.join(', ')}.`, { field: 'status' });
-  }
-  const createdAt = normalizeTimestamp(value.createdAt, 'createdAt');
-  const lastActivityAt = normalizeTimestamp(value.lastActivityAt, 'lastActivityAt');
-  const completedAt = value.completedAt == null ? undefined : normalizeTimestamp(value.completedAt, 'completedAt');
-  if (Date.parse(lastActivityAt) < Date.parse(createdAt)) {
-    throw new AiValidationError("'lastActivityAt' cannot be before 'createdAt'.", { field: 'lastActivityAt' });
-  }
-  if (value.status === 'completed' && !completedAt) {
-    throw new AiValidationError("Completed sessions require 'completedAt'.", { field: 'completedAt' });
-  }
-  return {
-    specId,
-    provider,
-    sessionId,
-    providerSessionId: sessionId,
-    taskIds: [...new Set(value.taskIds)],
-    ...(value.title == null ? {} : { title: optionalString(value.title, 'title', 200) }),
-    status: value.status,
-    createdAt,
-    lastActivityAt,
-    ...(completedAt ? { completedAt } : {}),
-    capabilities: normalizeCapabilities(value.capabilities),
-  };
-}
-
-export function compareAiSessionsByActivity(left, right) {
-  const activity = Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt);
-  if (activity !== 0) return activity;
-  const created = Date.parse(right.createdAt) - Date.parse(left.createdAt);
-  if (created !== 0) return created;
-  const provider = left.provider.localeCompare(right.provider);
-  const leftId = left.sessionId ?? left.providerSessionId ?? '';
-  const rightId = right.sessionId ?? right.providerSessionId ?? '';
-  return provider || leftId.localeCompare(rightId);
-}
-
-export function sortAiSessions(sessions) {
-  return sessions.map(validateAiSession).sort(compareAiSessionsByActivity);
-}
+export const normalizeAgentCapabilities = normalizeCapabilities;
 
 export function validateAiMessage(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -373,7 +295,7 @@ export function validateInteractionResponse(interaction, value) {
   return { answers };
 }
 
-export function validateAiEvent(value) {
+export function validateAgentEvent(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !EVENT_TYPE_SET.has(value.type)) {
     throw new AiValidationError(`Event type must be one of ${AGENT_EVENT_TYPES.join(', ')}.`, { field: 'type' });
   }
@@ -401,15 +323,6 @@ export function validateAiEvent(value) {
       ...base,
       text: requiredString(text, 'text', { opaque: true, max: 50_000 }),
       ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
-    };
-  }
-  if (value.type === 'message.delta') {
-    const delta = value.delta ?? value.text;
-    return {
-      ...base,
-      messageId: requiredString(value.messageId ?? `message-${base.turnId}`, 'messageId'),
-      delta: requiredString(delta, 'delta', { opaque: true, max: 50_000 }),
-      text: delta,
     };
   }
   if (value.type === 'reasoning.delta') {
@@ -480,7 +393,7 @@ export function validateAiEvent(value) {
   return { ...base, ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}) };
 }
 
-export const validateAgentEvent = validateAiEvent;
+export const validateAiEvent = validateAgentEvent;
 
 export function validateProviderDescriptor(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -498,4 +411,3 @@ export function publicAiError(error) {
   if (error instanceof AiError) return error;
   return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
 }
-

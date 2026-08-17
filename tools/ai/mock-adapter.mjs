@@ -1,28 +1,26 @@
 import {
   AiNotFoundError,
   AiUnsupportedOperationError,
-  compareAiSessionsByActivity,
   validateAiMessage,
-  validateAiSession,
+  validateAgentIdentity,
 } from './contracts.mjs';
 
 const MOCK_CAPABILITIES = Object.freeze({
-  listSessions: true,
-  sessionMetadata: true,
-  messages: true,
-  createSession: true,
-  startTurn: true,
-  streamEvents: true,
-  resumeTurn: false,
-  resolveInteractions: true,
+  interactivePermissions: true,
+  interactiveQuestions: true,
+  interactiveConfirmations: true,
+  resumeSession: true,
   cancelTurn: true,
+  toolCalls: true,
+  reasoning: true,
+  usage: true,
 });
 
 const READ_ONLY_CAPABILITIES = Object.freeze({
   ...MOCK_CAPABILITIES,
-  startTurn: false,
-  resumeTurn: false,
-  resolveInteractions: false,
+  interactivePermissions: false,
+  interactiveQuestions: false,
+  interactiveConfirmations: false,
   cancelTurn: false,
 });
 
@@ -61,18 +59,16 @@ export class MockAiAdapter {
         if (this.#sessions.has(sessionId)) continue;
         const completed = variant >= 2;
         const createdMinute = taskIndex * 20 + variant * 3;
-        const session = validateAiSession({
-          specId,
+        const session = {
           provider: 'mock',
           sessionId,
-          taskIds: [taskId],
+          providerSessionId: sessionId,
           title: `${completed ? 'Completed' : 'Current'} ${taskId} conversation ${variant + 1}`,
-          status: completed ? 'completed' : (variant === 0 ? 'waitingForUser' : 'idle'),
           createdAt: isoAt(createdMinute),
           lastActivityAt: isoAt(createdMinute + 2),
           ...(completed ? { completedAt: isoAt(createdMinute + 2) } : {}),
           capabilities: completed ? READ_ONLY_CAPABILITIES : MOCK_CAPABILITIES,
-        });
+        };
         this.#sessions.set(sessionId, session);
         this.#messages.set(sessionId, [
           this.#fixtureMessage(`${sessionId}-m1`, 'user', `Help me with ${taskId}.`, createdMinute),
@@ -85,7 +81,7 @@ export class MockAiAdapter {
   }
 
   async listSessions() {
-    return [...this.#sessions.values()].map(session => structuredClone(session)).sort(compareAiSessionsByActivity);
+    return [...this.#sessions.values()].map(session => structuredClone(session));
   }
 
   async getSession(sessionId) {
@@ -99,24 +95,23 @@ export class MockAiAdapter {
     return (this.#messages.get(sessionId) || []).map(message => structuredClone(message));
   }
 
-  async createSession({ specId, taskIds = [], title } = {}) {
+  async createSession({ title } = {}) {
     const sessionId = `session-${padded(++this.#createdCounter)}`;
     const createdAt = this.#nextTimestamp();
-    const session = validateAiSession({
-      specId,
+    const session = {
       provider: 'mock',
       sessionId,
-      taskIds,
+      providerSessionId: sessionId,
       ...(title ? { title } : { title: `Mock session ${this.#createdCounter}` }),
-      status: 'idle',
       createdAt,
       lastActivityAt: createdAt,
       capabilities: MOCK_CAPABILITIES,
-    });
+    };
     this.#sessions.set(sessionId, session);
     this.#messages.set(sessionId, []);
     return structuredClone(session);
   }
+
 
   onTurnState({ sessionId, sessionStatus, timestamp }) {
     const session = this.#sessions.get(sessionId);

@@ -6,7 +6,6 @@ import {
   AiValidationError,
   CapabilityNotSupportedError,
   normalizeInteraction,
-  validateAiSession,
 } from './contracts.mjs';
 
 export const CLAUDE_CAPABILITIES = Object.freeze({
@@ -18,12 +17,6 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
-  listSessions: true,
-  sessionMetadata: true,
-  messages: true,
-  createSession: true,
-  startTurn: true,
-  streamEvents: true,
 });
 
 export class ClaudeAgentProvider {
@@ -44,25 +37,22 @@ export class ClaudeAgentProvider {
     });
   }
 
-  async createSession({ specId, taskIds = [], title } = {}) {
-    if (!specId) throw new AiValidationError("'specId' is required.");
+  async createSession({ title } = {}) {
     const sessionId = randomUUID();
     const now = new Date().toISOString();
-    const session = validateAiSession({
-      specId,
+    const session = {
       provider: 'claude',
-      sessionId,
       providerSessionId: sessionId,
-      taskIds,
+      sessionId,
       title: title || `Claude session ${sessionId.slice(0, 8)}`,
-      status: 'idle',
       createdAt: now,
       lastActivityAt: now,
       capabilities: CLAUDE_CAPABILITIES,
-    });
+    };
     this.#sessions.set(sessionId, session);
     return structuredClone(session);
   }
+
 
   async getSession(providerSessionId) {
     if (this.#sessions.has(providerSessionId)) {

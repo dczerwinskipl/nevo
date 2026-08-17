@@ -1,10 +1,11 @@
-import { sortAiSessions, validateAiSession, validateAgentIdentity } from './contracts.mjs';
+import { validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
-  constructor({ registry, turnRuntime, transcriptCache } = {}) {
+  constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
     this.registry = registry;
     this.turnRuntime = turnRuntime;
     this.transcriptCache = transcriptCache ?? turnRuntime?.transcriptCache;
+    this.bindingService = bindingService;
   }
 
   listProviders() {
@@ -12,35 +13,44 @@ export class AiSessionService {
   }
 
   async listSessions(filters = {}) {
+    if (this.bindingService) {
+      return this.bindingService.listBindings(filters);
+    }
     const providers = filters.provider ? [filters.provider] : this.registry.descriptors().filter(item => item.enabled).map(item => item.id);
     const sessions = [];
     for (const provider of providers) {
-      const adapter = this.registry.require(provider, 'listSessions', 'listSessions');
-      const values = await adapter.listSessions(filters);
-      sessions.push(...values.map(validateAiSession));
+      const adapter = this.registry.get(provider);
+      if (typeof adapter?.listSessions === 'function') {
+        const values = await adapter.listSessions(filters);
+        sessions.push(...values);
+      }
     }
-    return sortAiSessions(sessions.filter(session => (
-      (!filters.specId || session.specId === filters.specId)
-      && (!filters.taskId || session.taskIds.includes(filters.taskId))
-    )));
+    return sessions;
   }
 
   async getSession(provider, providerSessionId) {
-    const adapter = this.registry.require(provider, 'sessionMetadata', 'getSession');
-    return validateAiSession(await adapter.getSession(providerSessionId));
+    validateAgentIdentity({ provider, providerSessionId });
+    if (this.bindingService) {
+      const binding = await this.bindingService.getBinding(provider, providerSessionId);
+      if (binding) return binding;
+    }
+    const adapter = this.registry.get(provider);
+    if (typeof adapter?.getSession === 'function') {
+      return adapter.getSession(providerSessionId);
+    }
+    return { provider, providerSessionId };
   }
 
   async listMessages(provider, providerSessionId) {
-    if (this.registry.has(provider)) {
-      const descriptor = this.registry.get(provider).descriptor;
-      if (descriptor.capabilities.messages) {
-        const adapter = this.registry.require(provider, 'messages', 'listMessages');
-        return adapter.listMessages(providerSessionId);
-      }
-    }
     if (this.transcriptCache) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
       return transcript.messages || [];
+    }
+    if (this.registry.has(provider)) {
+      const adapter = this.registry.get(provider);
+      if (typeof adapter.listMessages === 'function') {
+        return adapter.listMessages(providerSessionId);
+      }
     }
     return [];
   }
@@ -59,12 +69,14 @@ export class AiSessionService {
   }
 
   async createSession(provider, input) {
-    const adapter = this.registry.require(provider, 'createSession', 'createSession');
-    return validateAiSession(await adapter.createSession(input));
+    const adapter = this.registry.get(provider);
+    if (typeof adapter?.createSession === 'function') {
+      return adapter.createSession(input);
+    }
+    throw new Error(`Provider '${provider}' does not support creating sessions.`);
   }
 
   async startTurn(provider, providerSessionId, input) {
-    this.registry.require(provider, 'startTurn', 'startTurn');
     return this.turnRuntime.startTurn({ provider, providerSessionId, sessionId: providerSessionId, ...input });
   }
 
@@ -88,4 +100,3 @@ export class AiSessionService {
 export function createAiSessionService(options) {
   return new AiSessionService(options);
 }
-

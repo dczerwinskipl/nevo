@@ -182,10 +182,12 @@ test('concurrent starts for one session invoke the adapter only once', async () 
     fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-1' }),
     fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'concurrent', message: 'hang', idempotencyKey: 'request-2' }),
   ];
+  const allSettledPromise = Promise.allSettled(starts);
 
   await new Promise(resolve => setImmediate(resolve));
   releaseLookup();
-  const results = await Promise.allSettled(starts);
+  const results = await allSettledPromise;
+
   const fulfilled = results.filter(result => result.status === 'fulfilled');
   const rejected = results.filter(result => result.status === 'rejected');
   assert.equal(fulfilled.length, 1);

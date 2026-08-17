@@ -47,14 +47,14 @@ test('ClaudeAgentProvider declares capabilities and creates UUID sessions', asyn
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
 
   const session = await provider.createSession({
-    specId: 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726',
-    taskIds: ['04-claude-provider-adapter'],
+    title: 'Test Session',
   });
 
   assert.equal(session.provider, 'claude');
   assert.ok(session.providerSessionId);
-  assert.equal(session.taskIds[0], '04-claude-provider-adapter');
+  assert.equal(session.title, 'Test Session');
 });
+
 
 test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoning', async () => {
   const lines = [

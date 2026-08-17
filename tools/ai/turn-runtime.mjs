@@ -48,9 +48,16 @@ export class AiTurnRuntime {
     const targetSessionId = providerSessionId ?? sessionId;
     const identity = validateAgentIdentity({ provider, providerSessionId: targetSessionId });
     const inputMessage = message ?? prompt;
-
-    const adapter = this.registry.require(provider, 'startTurn', 'startTurn');
+    const entry = this.registry.get(provider);
+    const adapter = entry.adapter;
+    if (typeof adapter.startTurn !== 'function') {
+      throw new CapabilityNotSupportedError(provider, 'startTurn');
+    }
     const key = sessionKey(identity.provider, identity.providerSessionId);
+
+
+
+
     const releaseStartLock = await this.#acquireStartLock(key);
 
     try {
