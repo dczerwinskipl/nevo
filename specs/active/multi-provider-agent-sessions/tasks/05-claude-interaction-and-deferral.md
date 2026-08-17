@@ -32,7 +32,7 @@ Implement `PreToolUse/defer` roundtrip flow for `AskUserQuestion`, integrate nat
 - Intercept `AskUserQuestion` via `PreToolUse` hook returning `permissionDecision: 'defer'`.
 - Map tool deferral stop reason into normalized `interaction.requested` (kind `question`) with stable `interactionId`.
 - Implement native permission prompt handling based on the chosen mechanism from Task 03 discovery, emitting `interaction.requested` (kind `permission`).
-- Implement `respondInteraction` to resume Claude session (`--resume <uuid>`) providing `updatedInput` / decisions to the hook without relying on active stdin pipes.
+- Implement `respondInteraction` to resume Claude session (`--resume <providerSessionId>`) providing `updatedInput` / decisions to the hook without relying on active stdin pipes.
 - Map tool execution started, updated, and completed events with sanitized inputs and outputs.
 - Test parallel tool call boundary and ensure graceful error handling if parallel deferrals occur.
 

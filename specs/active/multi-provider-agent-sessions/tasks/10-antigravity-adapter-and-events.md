@@ -32,8 +32,8 @@ Implement the `AgentProvider` adapter for Antigravity / Gemini CLI (`agy` / `agy
 - Implement `AntigravityAgentProvider` in `tools/ai/antigravity-adapter.mjs` adhering to `AgentProvider`.
 - Declare `ANTIGRAVITY_CAPABILITIES` reflecting real CLI features (with `interactivePermissions: false`).
 - Throw `CapabilityNotSupportedError` if unsupported operations (such as interactive permission responses) are invoked.
-- Support process spawning, stream reading, and conversation ID capture.
-- Support session resumption across turns using internal conversation IDs.
+- Support process spawning, stream reading, and conversation ID capture as `providerSessionId`.
+- Support session resumption across turns using `(provider, providerSessionId)`.
 - Parse Antigravity output stream into normalized `text.delta`, `reasoning.delta`, and `tool.*` events.
 - Register the provider in `tools/ai/registry.mjs`.
 

@@ -9,8 +9,8 @@ This area implements the `AgentProvider` adapter for the local Antigravity / Gem
 - Antigravity CLI provides modern multi-session workflows and conversation resumption.
 - The adapter manages:
   1. Spawning Antigravity process per turn with machine-readable output.
-  2. Capturing `providerSessionId` (internal conversation ID) and mapping to `nevoSessionId`.
-  3. Resuming existing conversations in new processes across turns.
+  2. Capturing `providerSessionId` (internal conversation ID).
+  3. Resuming existing conversations in new processes across turns using `(provider, providerSessionId)`.
   4. Parsing output stream into normalized `text.delta`, `reasoning.delta`, and `tool.*` events.
 
 ## 2. Honest Capability Modeling & Error Semantics

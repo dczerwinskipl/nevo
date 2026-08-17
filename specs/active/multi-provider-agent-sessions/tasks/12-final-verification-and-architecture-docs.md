@@ -18,8 +18,8 @@ forbidden_paths:
   - src/**
   - tools/**
 semantic_references:
-  decisions: [D1, D4, D5, D6, D7]
-  constraints: [C1, C4, C6, C7, C9]
+  decisions: [D1, D2, D4, D5, D6, D7]
+  constraints: [C1, C3, C4, C6, C7, C9]
 ---
 
 # Task: Final verification and architecture docs
@@ -30,7 +30,7 @@ Document the completed multi-provider local agent chat and session architecture 
 
 ## Requirements
 
-- Update `docs/decisions/ADR-0007-provider-neutral-ai-sessions.md` documenting the multi-provider capability architecture, short-lived turn lifecycles, `PreToolUse/defer` interaction transport, and `@assistant-ui/react` runtime.
+- Update `docs/decisions/ADR-0007-provider-neutral-ai-sessions.md` documenting the provider-owned session lifecycle, `(provider, providerSessionId)` canonical identity, shared `AgentSessionBindingService`, `PreToolUse/defer` interaction transport, and `@assistant-ui/react` runtime.
 - Update `docs/development/ai-sessions.md` with operational guidance for Claude and Antigravity local integrations.
 - Run complete test suite and index checks.
 

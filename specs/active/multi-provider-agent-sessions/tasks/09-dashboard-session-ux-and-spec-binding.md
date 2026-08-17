@@ -29,13 +29,13 @@ semantic_references:
 
 ## Goal
 
-Integrate multi-provider session navigation, provider badges, specification and task linking using the shared `AgentSessionBindingService`, session creation modal, and responsive mobile-first full-screen chat mode into the NEvo Dashboard.
+Integrate multi-provider session navigation, provider badges, specification and task linking using the provider-neutral backend API, session creation modal, and responsive mobile-first full-screen chat mode into the NEvo Dashboard.
 
 ## Requirements
 
-- Update `tools/dashboard/src/components/app-sidebar.tsx` and `ai-session-list.tsx` to display multi-provider badges (Claude, Antigravity, Mock) and active turn state indicators.
-- In `spec-detail.tsx`, display sessions linked to the active `specId` with direct deep-linking into chat.
-- Implement session creation modal allowing provider selection and spec/task association via `AgentSessionBindingService`.
+- Update `tools/dashboard/src/components/app-sidebar.tsx` and `ai-session-list.tsx` to display multi-provider badges (Claude, Antigravity, Mock) and active turn state indicators indexed by `(provider, providerSessionId)`.
+- In `spec-detail.tsx`, display sessions linked to the active `specId` via `GET /api/agent-sessions?specId=...` with direct deep-linking into chat.
+- Implement session creation modal allowing provider selection and spec/task association via backend `POST /api/agent-sessions`.
 - Ensure seamless responsive transitions between desktop split-panel and full-screen mobile chat.
 
 ## Verification

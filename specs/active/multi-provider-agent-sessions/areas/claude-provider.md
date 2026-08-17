@@ -27,7 +27,7 @@ Hook returns permissionDecision: "defer"
         ↓
 Claude process exits cleanly with:
   stop_reason: "tool_deferred"
-  session_id: <uuid>
+  session_id: <providerSessionId>
   deferred_tool_use: { id, name, input }
         ↓
 Nevo Adapter captures deferral and emits interaction.requested (kind: 'question')
@@ -35,7 +35,7 @@ Nevo Adapter captures deferral and emits interaction.requested (kind: 'question'
 User answers question in Dashboard UI
         ↓
 Nevo triggers resume on same session:
-  claude --resume <uuid>
+  claude --resume <providerSessionId>
         ↓
 PreToolUse Hook re-executes with allow + updatedInput containing user answers
         ↓

@@ -29,16 +29,17 @@ semantic_references:
 
 ## Goal
 
-Extend the shared `tools/ai/` layer with explicit `AgentCapabilities`, `CapabilityNotSupportedError`, multi-provider registry, normalized event schemas (`text.delta`), turn idempotency, short-lived turn runtime lifecycle, and local session persistence under `.nevo-ai-local/`.
+Extend the shared `tools/ai/` layer with canonical `AgentIdentity { provider, providerSessionId }`, explicit `AgentCapabilities`, `CapabilityNotSupportedError`, multi-provider registry, normalized event schemas (`text.delta`), turn idempotency, short-lived turn runtime lifecycle, and local session persistence under `.nevo-ai-local/`.
 
 ## Requirements
 
-- Update `tools/ai/contracts.mjs` to define `AgentCapabilities` (`interactivePermissions`, `interactiveQuestions`, `interactiveConfirmations`, `resumeSession`, `cancelTurn`, `toolCalls`, `reasoning`, `usage`).
+- Update `tools/ai/contracts.mjs` to define `AgentIdentity { provider, providerSessionId }` as the canonical AI session identifier (eliminating any `nevoSessionId`).
+- Define `AgentCapabilities` (`interactivePermissions`, `interactiveQuestions`, `interactiveConfirmations`, `resumeSession`, `cancelTurn`, `toolCalls`, `reasoning`, `usage`).
 - Define `CapabilityNotSupportedError` thrown when unsupported capabilities are invoked.
 - Define normalized `AgentEvent` schemas (`turn.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.updated`, `tool.completed`, `interaction.requested`, `interaction.resolved`, `usage.updated`, `turn.completed`, `turn.failed`).
 - Update `tools/ai/registry.mjs` to support multiple registered providers (`claude`, `antigravity`, `mock`).
-- Update `tools/ai/turn-runtime.mjs` to manage short-lived turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation.
-- Persist session metadata under `.nevo-ai-local/sessions.json` mapping `nevoSessionId` to `(provider, providerSessionId, specId, taskIds)`.
+- Update `tools/ai/turn-runtime.mjs` to manage short-lived turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation indexed by `(provider, providerSessionId)`.
+- Persist session metadata under `.nevo-ai-local/sessions.json` mapping `(provider, providerSessionId)` to `(specId, taskIds)`.
 
 ## Verification
 

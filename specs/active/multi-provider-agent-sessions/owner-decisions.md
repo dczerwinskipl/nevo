@@ -7,14 +7,14 @@
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/contracts.mjs`, `tools/dashboard/src/lib/types.ts`, all areas.
 
-## D2: Separation of Nevo session identity and provider process lifecycle
+## D2: Providers own session lifecycle; Nevo owns local spec/task bindings
 
-- **Question:** How should session state be persisted and mapped to local CLI processes?
-- **Options considered:** One long-running background process per session | Stateless CLI calls with no session identity | Durable Nevo session mapped to `(provider, providerSessionId)` with short-lived turn processes
-- **Decision:** Durable Nevo session mapped to `(provider, providerSessionId)`. Sessions survive turn execution; turn execution spawns/resumes short-lived CLI processes on demand.
-- **Consequences:** Backend does not need to maintain heavyweight daemon processes when idle; CLI processes are cleanly re-attached via resume flags.
+- **Question:** Should NEvo invent a synthetic session model and lifecycle state machine layered over provider sessions?
+- **Options considered:** Synthetic Nevo session lifecycle with `nevoSessionId` | Providers own session lifecycle; Nevo canonically identifies sessions by `(provider, providerSessionId)` and stores local spec/task bindings
+- **Decision:** Providers own session lifecycle. The canonical identifier of an AI session is the `AgentIdentity` pair `(provider, providerSessionId)`. NEvo does not invent a secondary `nevoSessionId` or artificial session state machine; it stores local bindings mapping specs/tasks to AI sessions.
+- **Consequences:** Backend does not manage long-running daemon processes or dual session states; turn execution spawns/resumes CLI processes on demand via provider adapters.
 - **Date:** 2026-08-17
-- **Affected artifacts:** `tools/ai/service.mjs`, `tools/ai/turn-runtime.mjs`, `areas/provider-neutral-core.md`.
+- **Affected artifacts:** `tools/ai/contracts.mjs`, `tools/ai/service.mjs`, `tools/ai/binding-service.mjs`, all areas.
 
 ## D3: Frontend chat runtime library selection (`assistant-ui`)
 
@@ -48,7 +48,7 @@
 
 - **Question:** How should AI sessions be bound to specifications and tasks across the CLI, hooks, and dashboard?
 - **Options considered:** Duplicate attach logic in every CLI command and dashboard action | Store a single mutable `currentSessionId` per spec | Unified `AgentSessionBindingService` with `AgentExecutionContext` supporting many-to-one history
-- **Decision:** A single shared `AgentSessionBindingService` and `AgentExecutionContext`. Resolves `spec-slug` or `spec-id` canonically to `specId`, maintains many-to-one historical session bindings, and supports auto-binding during CLI commands, hooks, and dashboard session creation.
+- **Decision:** A single shared `AgentSessionBindingService` and `AgentExecutionContext`. Resolves `spec-slug` or `spec-id` canonically to `specId`, maintains many-to-one historical session bindings of `(provider, providerSessionId)`, and supports auto-binding during CLI commands, hooks, and dashboard session creation.
 - **Consequences:** All entry points (`agent-session attach`, `spec refine`, `spec review`, `task start`, dashboard) share identical binding logic and persist bindings locally in `.nevo-ai-local/sessions.json`.
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/ai/binding-service.mjs`, `areas/session-binding-and-context.md`, Task 02.
@@ -56,8 +56,8 @@
 ## D7: SSE Reconnect, Event Snapshot, and State Replay
 
 - **Question:** How should the frontend handle SSE reconnection, page refreshes, and pending interactions?
-- **Options considered:** Ephemeral stream with no history | Reconstructing process on reload | Session snapshot endpoint (`GET /api/agent-sessions/:sessionId`) plus pending interaction persistence in local state
-- **Decision:** Provider owns full transcript history. NEvo maintains in-memory turn event buffers during active execution and persists session state (status, active turn, pending interaction) in `.nevo-ai-local/sessions.json`. Reconnecting clients fetch session snapshot and re-attach to the SSE event stream.
+- **Options considered:** Ephemeral stream with no history | Reconstructing process on reload | Session snapshot endpoint (`GET /api/agent-sessions/:provider/:providerSessionId`) plus pending interaction persistence in local state
+- **Decision:** Provider owns full transcript history. NEvo maintains in-memory turn event buffers during active execution and persists session state (status, active turn, pending interaction) in `.nevo-ai-local/sessions.json` indexed by `(provider, providerSessionId)`. Reconnecting clients fetch session snapshot and re-attach to the SSE event stream.
 - **Consequences:** Reloading the dashboard restores the exact pending interaction and thread state without re-invoking the provider process.
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/dashboard/server/ai-routes.mjs`, `tools/dashboard/src/lib/nevo-assistant-runtime.ts`, `areas/provider-neutral-core.md`.

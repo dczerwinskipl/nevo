@@ -18,7 +18,7 @@ forbidden_paths:
   - src/**
   - tools/dashboard/src/**
 semantic_references:
-  decisions: [D6]
+  decisions: [D2, D6]
   constraints: [C3, C6, C10]
 ---
 
@@ -26,15 +26,16 @@ semantic_references:
 
 ## Goal
 
-Implement the shared `AgentSessionBindingService` and CLI `AgentExecutionContext`, supporting canonical `spec-slug`/`spec-id` resolution, history-oriented many-to-one session-to-spec/task bindings, and the `agent-session attach` CLI utility.
+Implement the shared `AgentSessionBindingService` and CLI `AgentExecutionContext`, supporting canonical `spec-slug`/`spec-id` resolution, history-oriented many-to-one bindings of `(provider, providerSessionId)` to specs and tasks, auto-binding in command workflows, and the `agent-session attach` CLI utility.
 
 ## Requirements
 
-- Implement `AgentSessionBindingService` in `tools/ai/binding-service.mjs` to bind, list, and unbind sessions associated with `specId` and optional `taskId`.
+- Implement `AgentSessionBindingService` in `tools/ai/binding-service.mjs` to bind, list, and unbind sessions identified by `(provider, providerSessionId)` associated with `specId` and optional `taskId`.
 - Implement canonical spec resolver handling both human-readable `slug` and immutable UUID `spec_id`.
 - Implement `agent-session attach` command in `tools/specs.mjs`:
-  `node tools/specs.mjs agent-session attach --spec <slug-or-id> [--task <id>] --provider <provider> --session-id <uuid>`
-- Implement `AgentExecutionContext` reader supporting environment-variable-based session propagation (`NEVO_AGENT_PROVIDER`, `NEVO_AGENT_SESSION_ID`).
+  `node tools/specs.mjs agent-session attach --spec <slug-or-id> [--task <id>] --provider <provider> --session-id <providerSessionId>`
+- Implement `AgentExecutionContext` reader supporting environment-variable-based session propagation (`NEVO_AGENT_PROVIDER`, `NEVO_AGENT_PROVIDER_SESSION_ID`).
+- Implement automatic binding in common CLI commands (`spec refine`, `spec review`, `task start`) when `AgentExecutionContext` is present.
 - Store all bindings in `.nevo-ai-local/sessions.json` without committing runtime session data to git.
 
 ## Verification

@@ -34,7 +34,7 @@ Build NEvo-tailored UI renderers for thinking/reasoning blocks, tool call inspec
 - Implement tool call inspection card component (`ai-tool-view.tsx`) showing tool status, arguments, and syntax-highlighted outputs.
 - Implement interactive permission prompt card with "Allow" and "Deny" actions, shown only when provider capabilities support permissions.
 - Implement interactive question card for user clarification with text input and choice buttons.
-- Connect interaction responses to `POST /api/agent-sessions/:sessionId/interactions/:interactionId/respond`.
+- Connect interaction responses to `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`.
 
 ## Verification
 

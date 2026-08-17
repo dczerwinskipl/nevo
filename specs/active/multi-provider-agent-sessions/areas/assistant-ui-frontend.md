@@ -18,12 +18,13 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 
 - **`NevoAssistantRuntime`:**
   - Implements the runtime contract expected by `@assistant-ui/react`.
-  - Connects to `GET /api/agent-sessions/:sessionId/events` (SSE) with reconnection support.
+  - Communicates solely through the provider-neutral backend HTTP/SSE API using `(provider, providerSessionId)`.
+  - Connects to `GET /api/agent-sessions/:provider/:providerSessionId/events` (SSE) with reconnection support.
   - Translates `text.delta` into streaming markdown blocks.
   - Translates `tool.*` events into structured tool call states (pending, running, complete, error).
   - Handles `interaction.requested` by exposing interactive widgets in the thread.
-  - Retrieves initial thread and pending interaction state from `GET /api/agent-sessions/:sessionId` on reload.
-  - Submits user input via `POST /api/agent-sessions/:sessionId/turns` and cancellation via `POST /api/agent-sessions/:sessionId/turns/:turnId/cancel`.
+  - Retrieves initial thread and pending interaction state from `GET /api/agent-sessions/:provider/:providerSessionId` on reload.
+  - Submits user input via `POST /api/agent-sessions/:provider/:providerSessionId/turns` and cancellation via `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`.
 
 ## 2. Custom Renderers & NEvo Design Tokens
 
@@ -39,4 +40,4 @@ NEvo Agent Session API / SSE Stream (AgentEvent)
 
 - **Specification Detail View:** Collapsible or tabbed session pane showing active sessions linked to the current `specId`.
 - **Sidebar Integration:** Multi-provider session switcher with provider badges (Claude, Antigravity, Mock) and status indicators (`running`, `waitingForUser`, `idle`).
-- **New Session Modal:** Provider selector dropdown, initial prompt input, and optional task tagging using shared `AgentSessionBindingService`.
+- **New Session Modal:** Provider selector dropdown, initial prompt input, and optional task tagging, calling backend `POST /api/agent-sessions` with `{ provider, specId, taskId? }`.

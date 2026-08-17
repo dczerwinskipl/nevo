@@ -33,7 +33,7 @@ Perform a comprehensive consistency audit across Claude and Antigravity provider
 ## Requirements
 
 - Audit `tools/ai/contracts.mjs`, `tools/ai/service.mjs`, and API routes for residual Claude-specific naming, structures, or assumptions.
-- Ensure all provider adapters and server responses strictly use `text.delta`.
+- Ensure all provider adapters and server responses strictly use `text.delta` and `(provider, providerSessionId)` identification.
 - Verify that the frontend gracefully handles providers without interactive permissions (such as Antigravity) without failing or attempting unsupported interaction flows.
 - Refactor any discovered contract drift across backend and frontend layers.
 

@@ -10,57 +10,59 @@ change: multi-provider-agent-sessions
 
 ## Context
 
-NEvo Dashboard provides a local, file-backed workspace for specifications, tasks, lifecycle gates, and pull request reviews. The previous specification (`ai-sessions-live-chat-integration`) laid the foundation for specification identity and basic session abstractions, but was heavily focused on Claude as a solitary provider, assumed unrealistic long-running stdin/stdout process interaction, and relied on handcrafted chat mechanics.
+NEvo Dashboard provides a local, file-backed workspace for specifications, tasks, lifecycle gates, and pull request reviews. The previous specification (`ai-sessions-live-chat-integration`) attempted to layer an artificial Nevo-owned session lifecycle and synthetic session IDs over provider sessions, while assuming unrealistic long-running stdin/stdout loops.
 
-This specification supersedes the architectural approach of the older spec. It establishes a truly **provider-neutral local agent chat and session architecture** based on confirmed provider runtime capabilities. The system enables users to leverage their existing local subscriptions (Claude, Antigravity/Gemini, and later Codex/ACP) through local CLI processes on their workstation, without separate API billing, direct frontend-to-CLI coupling, or fragile persistent process loops.
+This specification supersedes that approach with an essential simplification: **Nevo does not own AI session lifecycles. Providers own their sessions; Nevo stores local provider-neutral bindings from specs and tasks to provider session identities `(provider, providerSessionId)` and uses backend adapters to interact with those sessions.**
 
 ## Goal
 
-Provide a robust, full-featured multi-provider chat and session experience within the NEvo Dashboard and CLI workflow:
-1. **Multi-provider local runtime**: Backend-managed local agent processes (Claude first, Antigravity/Gemini second, Codex later) authenticated via existing local subscriptions.
-2. **Provider-neutral contracts & capability model**: Clean separation of Nevo session identity (`nevoSessionId`), provider identity, and provider internal session IDs (`providerSessionId`). Explicit `AgentCapabilities` contract where unsupported operations fail with standard `CapabilityNotSupportedError`.
-3. **Short-lived turn process & interaction deferral**: Turns execute via short-lived CLI processes. Interactive questions (`AskUserQuestion`) and permissions use verified `PreToolUse/defer` roundtrip resuming across processes, eliminating stdin request-response assumptions.
-4. **Unified session binding & execution context**: Shared `AgentSessionBindingService` and `AgentExecutionContext` linking agent sessions to `specId` and optional `taskId` across CLI commands, hooks, and dashboard actions in a history-oriented many-to-one relationship.
-5. **Normalized event model with reconnect & replay**: Standardized streaming event model (`turn.started`, `text.delta`, `reasoning.delta`, `tool.*`, `interaction.requested`, `turn.completed`, `turn.failed`). SSE reconnect support with initial state snapshot and pending interaction persistence.
-6. **Modern React Chat UI**: Adoption of `@assistant-ui/react` connected via a clean `NevoAssistantRuntime` adapter to replace manual chat mechanics, customized with NEvo styling, tool renderers, thinking accordions, and interactive forms.
-7. **Workstation-local persistence**: Session metadata and bindings stored locally under `.nevo-ai-local/sessions.json`, kept strictly outside version control.
+Provide a robust, multi-provider chat and session integration for local AI coding agents within the NEvo Dashboard and CLI workflow:
+1. **Provider-owned local sessions**: Local agent processes (Claude first, Antigravity/Gemini second, Codex later) authenticate via existing user subscriptions without separate token billing.
+2. **Canonical session identity**: An agent session is identified solely by its `(provider, providerSessionId)` pair. No artificial `nevoSessionId` or secondary lifecycle state machine is introduced.
+3. **Provider-neutral binding service**: A shared `AgentSessionBindingService` and `AgentExecutionContext` associate `(provider, providerSessionId)` with canonical `specId` and optional `taskId` across CLI commands, hooks, and dashboard actions in a history-oriented many-to-one mapping.
+4. **Capability-driven provider adapters**: Differences in provider behavior (interactive questions, permissions, tool streaming, cancellation) are declared via `AgentCapabilities`. Unsupported operations fail predictably with `CapabilityNotSupportedError`.
+5. **Short-lived turn process & interaction deferral**: Turns execute via short-lived CLI processes. Interactive questions (`AskUserQuestion`) and permissions use verified `PreToolUse/defer` roundtrip resuming across processes, eliminating stdin request-response assumptions.
+6. **Normalized streaming events with reconnect support**: Standardized streaming event model (`turn.started`, `text.delta`, `reasoning.delta`, `tool.*`, `interaction.requested`, `turn.completed`, `turn.failed`). SSE reconnect support with initial state snapshot and pending interaction persistence indexed by `(provider, providerSessionId)`.
+7. **Modern React Chat UI**: Adoption of `@assistant-ui/react` connected via a clean `NevoAssistantRuntime` adapter to replace manual chat mechanics, customized with NEvo styling, tool renderers, thinking accordions, and interactive forms.
+8. **Workstation-local persistence**: Session bindings and local cache stored under `.nevo-ai-local/sessions.json`, kept strictly outside version control so multiple developers work independently without Git conflicts.
 
 ## Non-goals
 
+- Inventing a Nevo-owned session lifecycle or duplicate session IDs (`nevoSessionId`).
 - Implementing cloud-hosted AI proxy servers or billing gateways.
 - Maintaining long-running background daemon processes waiting on stdin pipes.
 - Exposing raw provider protocols or CLI arguments to the frontend.
 - Implementing Codex in the initial scope (architecture remains future-compatible).
-- Committing local session credentials, transcripts, or provider tokens to git.
+- Committing local session credentials, transcripts, or provider session IDs to git.
 
 ## Classification
 
 | Signal | Rating | Reason |
 |---|---|---|
-| Behavioral clarity | GREEN | Comprehensive requirements, verified `PreToolUse/defer` interaction flow, capability model, and explicit integration priorities. |
-| Public surface impact | RED | Introduces normalized multi-provider HTTP/SSE API, capability schemas, CLI session attach commands, and frontend chat adapter. |
+| Behavioral clarity | GREEN | Simplified architecture: providers own session lifecycle, Nevo owns local spec/task bindings and adapter communication. |
+| Public surface impact | RED | Introduces normalized multi-provider HTTP/SSE API (`/api/agent-sessions/:provider/:providerSessionId/...`), capability schemas, CLI session attach commands, and frontend chat adapter. |
 | Package boundary impact | RED | Spans `tools/ai/`, specification tooling runtime context, dashboard backend routes, and dashboard client architecture. |
-| Blast radius | RED | Replaces frontend chat UI, extends backend turn runtime for multi-provider adapters, adds Antigravity adapter alongside Claude, and unifies CLI session binding. |
-| Reversibility | YELLOW | Local session state lives under `.nevo-ai-local/`; API is backward-compatible with spec identity. |
+| Blast radius | RED | Replaces frontend chat UI, unifies session binding across CLI and dashboard, implements Claude `PreToolUse/defer` adapter, and adds Antigravity adapter. |
+| Reversibility | YELLOW | Local session bindings live under `.nevo-ai-local/`; API is backward-compatible with spec identity. |
 
 **Classification: A — Architectural.**
 
 ## Constraints
 
 - **C1.** Frontend isolation: The frontend must never communicate directly with provider CLIs or consume raw provider events.
-- **C2.** Provider-neutral backend API: Public REST/SSE endpoints use generic names (`/api/agent-sessions/...`), never provider-specific routes.
-- **C3.** Session identity separation: `nevoSessionId` is distinct from internal `providerSessionId`. Provider IDs and tokens stay local and are never committed.
+- **C2.** Provider-neutral backend API: Public REST/SSE endpoints use generic names (`/api/agent-sessions/:provider/:providerSessionId/...`), never provider-specific routes.
+- **C3.** Canonical session identity: Sessions are canonically identified by `(provider, providerSessionId)`. Nevo does not own a separate `nevoSessionId` or artificial session lifecycle. Provider session IDs and local bindings stay local under `.nevo-ai-local/` and are never committed to version control.
 - **C4.** Capability model: Provider differences (e.g. interactive questions, tool streaming, permissions, cancellation) are declared via `AgentCapabilities`, not hardcoded provider branches (`if (provider === 'claude')`). Invoking an unsupported capability throws a normalized `CapabilityNotSupportedError`.
-- **C5.** Short-lived process lifecycle vs durable session: A Nevo session persists across multiple turns. Turns spawn or resume short-lived provider CLI processes. Interactions (e.g. `AskUserQuestion`) exit the process via `PreToolUse/defer` and resume in a new process upon user response, rather than holding open stdin pipes.
+- **C5.** Provider-owned lifecycle & short-lived processes: Providers own their session lifecycles. Turn execution spawns or resumes short-lived CLI processes. Interactive deferrals (e.g. `AskUserQuestion`) exit the process and resume on user response without holding open stdin pipes.
 - **C6.** Unified session binding & execution context: Agent sessions bind to specifications (`specId`) and optionally tasks (`taskId`) via a shared `AgentSessionBindingService` and `AgentExecutionContext` used uniformly across CLI commands, hooks, and dashboard.
 - **C7.** UI separation: Chat UI uses `@assistant-ui/react` as the underlying runtime library, bridged via a Nevo frontend adapter (`NevoAssistantRuntime`).
-- **C8.** Reconnect and transcript semantics: SSE streams support reconnection via session snapshot replay. Pending interactions and session metadata are persisted in `.nevo-ai-local/` across page reloads.
+- **C8.** Reconnect and pending interaction semantics: SSE streams support reconnection via session state snapshot. Pending interactions and session bindings are indexed by `(provider, providerSessionId)` and persisted in `.nevo-ai-local/` across page reloads.
 - **C9.** Multi-provider validation: Antigravity is a mandatory second provider with verified modern session/resume support to ensure the abstraction does not leak Claude-specific assumptions.
 - **C10.** Git safety: No credentials, session tokens, or raw transcripts in version control. All local state lives under `.nevo-ai-local/`.
 
 ## Affected Areas
 
-1. `areas/provider-neutral-core.md`: Core contracts, session identity, capability model, turn runtime, SSE/HTTP API, reconnect/replay semantics.
+1. `areas/provider-neutral-core.md`: Core contracts, canonical identity `(provider, providerSessionId)`, capability model, turn runtime, SSE/HTTP API, reconnect/replay semantics.
 2. `areas/session-binding-and-context.md`: Shared `AgentSessionBindingService`, `AgentExecutionContext`, spec/task correlation, CLI `agent-session attach`, hook integration.
 3. `areas/claude-provider.md`: Claude Code CLI adapter, `PreToolUse/defer` interaction transport discovery, streaming json parsing, resume, permissions, and question handling.
 4. `areas/assistant-ui-frontend.md`: `@assistant-ui/react` integration, `NevoAssistantRuntime` adapter, styling, custom renderers for tools/interactions.
@@ -91,7 +93,7 @@ The implementation is organized into 3 sequential parts (12 tasks total) plus fu
 
 ## Acceptance Criteria & Verification
 
-1. **AC1 — Neutral Session & Capability Model:** `AgentProvider` interface supports dynamic capability querying (`AgentCapabilities`), normalized `text.delta` event stream, and throws standard `CapabilityNotSupportedError` on unsupported operations. Verified via `tools/tests/ai-contracts.test.mjs`.
+1. **AC1 — Neutral Session & Capability Model:** `AgentProvider` interface supports dynamic capability querying (`AgentCapabilities`), normalized `text.delta` event stream, and throws standard `CapabilityNotSupportedError` on unsupported operations. Sessions are identified solely by `(provider, providerSessionId)`. Verified via `tools/tests/ai-contracts.test.mjs`.
 2. **AC2 — Shared Session Binding & CLI Execution Context:** `AgentSessionBindingService` and `AgentExecutionContext` resolve `spec-slug` and `spec-id` canonically and bind multiple sessions to specs/tasks across CLI commands, hooks, and dashboard actions. Verified via `tools/tests/agent-binding.test.mjs`.
 3. **AC3 — Claude Interaction Discovery & Deferral Roundtrip:** `PreToolUse/defer` flow verified for `AskUserQuestion`, capturing fixtures and executing full roundtrip (`defer -> exit -> resume -> updatedInput -> continuation`) without stdin request-response pipes. Verified via `tools/tests/claude-deferral-discovery.test.mjs` and `tools/tests/claude-interaction.test.mjs`.
 4. **AC4 — Claude Vertical Slice:** Real Claude CLI can be invoked for turns, supports resume via `providerSessionId`, streams deltas, handles native permissions, and supports cancellation. Verified via `tools/tests/claude-adapter.test.mjs`.

@@ -1,18 +1,18 @@
 # Solution Option Analysis
 
-## 1. Provider Integration Strategy
+## 1. AI Session Ownership & Identity Strategy
 
-### Option A: Direct Provider Branching (Rejected)
-Hardcode provider logic across server endpoints and React components using conditionals (`if (provider === 'claude') ... else if (provider === 'antigravity') ...`).
+### Option A: Synthetic Nevo-Owned Session Lifecycle (Rejected)
+Introduce a custom Nevo session state machine with `nevoSessionId`, wrapping provider sessions and attempting to normalize lifecycle states (`running`, `waitingForUser`, `idle`, `completed`) in a parallel state layer.
 
-- **Pros:** Fast to prototype single features.
-- **Cons:** High coupling, fragile codebase, impossible to add Codex or ACP cleanly, frontend leaks provider protocols and differences.
+- **Pros:** Unified internal state object.
+- **Cons:** Violates real provider lifecycles; causes impedance mismatch with short-lived CLI processes and provider-managed history; adds unnecessary complexity and sync overhead.
 
-### Option B: Provider-Neutral Contracts with Dynamic Capability Model (Selected)
-Introduce a clean `AgentProvider` interface where every provider implements normalized methods (`startSession`, `resumeSession`, `startTurn`, `cancelTurn`, `respondInteraction`) and reports its `AgentCapabilities` (`interactivePermissions`, `interactiveQuestions`, `toolCalls`, `reasoning`, `cancelTurn`, `usage`). The backend normalizes all events into standard `AgentEvent` objects.
+### Option B: Provider-Owned Session Lifecycle with Local Spec/Task Bindings (Selected)
+Providers own their sessions, history, and lifecycles. NEvo canonically identifies an AI session as `AgentIdentity { provider, providerSessionId }`. NEvo provides a local, history-oriented binding service mapping `specId` and optional `taskId` to AI sessions, interacting with sessions through provider-specific backend adapters.
 
-- **Pros:** Complete provider neutrality, clean separation of concerns, easy to extend with Antigravity, Codex, ACP, or Mock adapters.
-- **Cons:** Requires rigorous normalization layer in provider adapters.
+- **Pros:** Radically simpler domain model; perfectly matches CLI process reality; zero git pollution; true multi-provider flexibility.
+- **Cons:** Requires adapters to handle all provider-specific execution and error semantics cleanly.
 
 ---
 
