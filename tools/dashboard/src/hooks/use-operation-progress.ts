@@ -46,6 +46,10 @@ export function useOperationProgress(
       updated.lastEventId = event.id;
     }
 
+    if (event.type === 'snapshot' || ((event as { status?: string }).status && Array.isArray((event as { steps?: unknown[] }).steps))) {
+      return event as unknown as OperationSnapshot;
+    }
+
     if (event.type === 'operation.started') {
       updated.status = 'running';
       if (Array.isArray(event.steps)) {
@@ -186,12 +190,12 @@ export function useOperationProgress(
       const url = `/api/operations/${encodeURIComponent(operationId)}/events?after=${initialSnap.lastEventId || 0}`;
       eventSource = new EventSource(url);
 
-      eventSource.onmessage = (event) => {
+      const handleEventData = (eventData: string) => {
         if (!isSubscribed) return;
         try {
-          const parsed = JSON.parse(event.data) as OperationEvent;
+          const parsed = JSON.parse(eventData) as OperationEvent;
           setSnapshot((prev) => {
-            if (!prev) return prev;
+            if (!prev) return parsed as unknown as OperationSnapshot;
             const next = applyEvent(prev, parsed);
             if (next.status === 'completed' || next.status === 'failed') {
               if (!terminalNotifiedRef.current) {
@@ -206,6 +210,25 @@ export function useOperationProgress(
           // Ignore unparseable SSE frame
         }
       };
+
+      eventSource.onmessage = (event) => handleEventData(event.data);
+
+      const eventTypes = [
+        'snapshot',
+        'operation.started',
+        'operation.step.started',
+        'operation.step.progress',
+        'operation.step.completed',
+        'operation.step.failed',
+        'operation.completed',
+        'operation.failed',
+      ];
+
+      for (const type of eventTypes) {
+        eventSource.addEventListener(type, (event: MessageEvent) => {
+          handleEventData(event.data);
+        });
+      }
 
       eventSource.onerror = () => {
         if (!isSubscribed) return;
