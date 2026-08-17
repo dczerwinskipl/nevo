@@ -138,24 +138,6 @@ tasks:
     depends_on:
       - operation-progress-contract-and-transport
       - cli-step-instrumentation-gate-and-verification
-    execution:
-      suspension:
-        kind: owner-decision
-        code: REC-06
-        previous_action: start
-        created_at: 2026-08-17T10:10:22.497Z
-    self_check:
-      fingerprint: 0a11c71d5d514e9292aba915ccd3ca1d553db1abcbbb4819e60fea9f16568770
-      revision: 8884ce59f98897b94f65683068cac8ecf0654e85
-      commands:
-        - command: node --test tools/tests/*.test.mjs
-          exit_code: 1
-        - command: node tools/specs.mjs check
-          exit_code: 1
-      status: failed
-      failed_criteria:
-        - node --test tools/tests/*.test.mjs
-        - node tools/specs.mjs check
   - id: approve-post-action-sync-and-git
     order: 7
     file: tasks/08-approve-post-action-sync-and-git.md
