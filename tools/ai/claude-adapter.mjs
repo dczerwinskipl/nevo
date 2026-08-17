@@ -1,12 +1,18 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import {
   AiError,
   AiValidationError,
-  normalizeInteraction,
 } from './contracts.mjs';
+import { createClaudeContinuationStore } from './claude-continuation-store.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const HOOK_SCRIPT_PATH = join(__dirname, 'claude-hook.mjs');
 
 export const CLAUDE_CAPABILITIES = Object.freeze({
   interactivePermissions: true,
@@ -23,13 +29,21 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
-  #privateContinuations = new Map();
-  #pendingHookDecisions = new Map();
+  #continuationStore;
+  #hookScriptPath;
 
-  constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
+  constructor({
+    executable = 'claude',
+    cwd = process.cwd(),
+    spawnProcess = spawn,
+    continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
+    hookScriptPath = HOOK_SCRIPT_PATH,
+  } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
+    this.#continuationStore = continuationStore;
+    this.#hookScriptPath = hookScriptPath;
     this.descriptor = Object.freeze({
       id: 'claude',
       label: 'Claude Code',
@@ -38,65 +52,30 @@ export class ClaudeAgentProvider {
     });
   }
 
-  #getContinuationFilePath(providerSessionId) {
-    return join(this.#cwd, '.nevo-ai-local', 'transcripts', 'claude', `${providerSessionId}.continuation.json`);
+  get continuationStore() {
+    return this.#continuationStore;
   }
 
-  #saveContinuation(providerSessionId, continuation) {
-    this.#privateContinuations.set(`${providerSessionId}\u0000${continuation.interactionId}`, continuation);
-    try {
-      const filePath = this.#getContinuationFilePath(providerSessionId);
-      mkdirSync(dirname(filePath), { recursive: true });
-      writeFileSync(filePath, JSON.stringify(continuation, null, 2), 'utf-8');
-    } catch {
-      // Best-effort persistence for recovery
-    }
-  }
-
-  #loadContinuation(providerSessionId, interactionId) {
-    const memoryKey = `${providerSessionId}\u0000${interactionId}`;
-    if (this.#privateContinuations.has(memoryKey)) {
-      return this.#privateContinuations.get(memoryKey);
-    }
-    try {
-      const filePath = this.#getContinuationFilePath(providerSessionId);
-      if (existsSync(filePath)) {
-        const raw = readFileSync(filePath, 'utf-8');
-        const continuation = JSON.parse(raw);
-        if (continuation?.interactionId === interactionId || !interactionId) {
-          this.#privateContinuations.set(memoryKey, continuation);
-          return continuation;
-        }
-      }
-    } catch {
-      // Fallback
-    }
-    return null;
-  }
-
-  #deleteContinuation(providerSessionId, interactionId) {
-    this.#privateContinuations.delete(`${providerSessionId}\u0000${interactionId}`);
-    try {
-      const filePath = this.#getContinuationFilePath(providerSessionId);
-      if (existsSync(filePath)) {
-        unlinkSync(filePath);
-      }
-    } catch {}
-  }
-
-  /**
-   * Hook resolver invoked when Claude PreToolUse fires during execution.
-   */
-  handlePreToolUse({ providerSessionId, toolUseId, toolName, input } = {}) {
-    const decision = this.#pendingHookDecisions.get(providerSessionId);
-    if (decision) {
-      this.#pendingHookDecisions.delete(providerSessionId);
-      return decision;
-    }
-    if (toolName === 'AskUserQuestion') {
-      return { permissionDecision: 'defer' };
-    }
-    return { permissionDecision: 'allow' };
+  #createSettingsFile() {
+    const hookCmd = `node "${this.#hookScriptPath.replace(/\\/g, '/')}"`;
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: [
+              {
+                type: 'command',
+                command: hookCmd,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const settingsPath = join(tmpdir(), `nevo-claude-settings-${randomUUID()}.json`);
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    return settingsPath;
   }
 
   async startTurn({
@@ -119,17 +98,24 @@ export class ClaudeAgentProvider {
     requestInteraction,
   } = {}) {
     const userPrompt = message ?? prompt;
-    const isContinuation = !userPrompt && Boolean(this.#pendingHookDecisions.get(providerSessionId));
-
-    if (!isContinuation && (!userPrompt || typeof userPrompt !== 'string')) {
+    if (!userPrompt || typeof userPrompt !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
     const isInitialTurn = !providerSessionId;
     const effectiveSessionId = providerSessionId || randomUUID();
 
+    const settingsPath = this.#createSettingsFile();
     const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
-    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, effectiveSessionId];
+    const args = [
+      '-p',
+      '--verbose',
+      '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
+      '--settings', settingsPath,
+      sessionFlag, effectiveSessionId,
+      '--permission-mode', 'dontAsk',
+    ];
 
     return new Promise((resolve, reject) => {
       let child;
@@ -140,6 +126,7 @@ export class ClaudeAgentProvider {
           env: { ...process.env, CLAUDE_INTERACTIVE: '0' },
         });
       } catch (err) {
+        try { unlinkSync(settingsPath); } catch {}
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }));
       }
 
@@ -160,14 +147,19 @@ export class ClaudeAgentProvider {
       let deferredPayload = null;
       let isMaterialized = !isInitialTurn;
 
-      const materializeSessionIfNeeded = async () => {
-        if (!isMaterialized) {
+      const cleanupSettings = () => {
+        try { unlinkSync(settingsPath); } catch {}
+      };
+
+      const materializeSessionIfNeeded = async (sessionIdInEvent) => {
+        if (!isMaterialized && sessionIdInEvent === effectiveSessionId) {
           isMaterialized = true;
           if (setProviderSessionId) {
             try {
               await setProviderSessionId(effectiveSessionId);
             } catch (bindingErr) {
               try { child.kill('SIGINT'); } catch {}
+              cleanupSettings();
               reject(bindingErr);
             }
           }
@@ -184,8 +176,9 @@ export class ClaudeAgentProvider {
           return;
         }
 
-        // On first valid Claude output event, establish session materialization
-        await materializeSessionIfNeeded();
+        if (event.session_id) {
+          await materializeSessionIfNeeded(event.session_id);
+        }
 
         switch (event.type) {
           case 'content_block_start': {
@@ -255,7 +248,17 @@ export class ClaudeAgentProvider {
             }
             break;
           }
+          case 'result': {
+            if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
+              isDeferred = true;
+              if (event.deferred_tool_use) {
+                deferredPayload = event.deferred_tool_use;
+              }
+            }
+            break;
+          }
           case 'error': {
+            cleanupSettings();
             reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || 'Claude turn failed.'));
             break;
           }
@@ -269,7 +272,10 @@ export class ClaudeAgentProvider {
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
-          processLine(line).catch(reject);
+          processLine(line).catch(err => {
+            cleanupSettings();
+            reject(err);
+          });
         }
       });
 
@@ -279,10 +285,12 @@ export class ClaudeAgentProvider {
       });
 
       child.on('error', err => {
+        cleanupSettings();
         reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err }));
       });
 
       child.on('close', async exitCode => {
+        cleanupSettings();
         if (lineBuffer.trim()) {
           try { await processLine(lineBuffer); } catch (e) { return reject(e); }
         }
@@ -315,15 +323,18 @@ export class ClaudeAgentProvider {
             };
           }
 
-          // Persist private Claude continuation metadata
-          this.#saveContinuation(effectiveSessionId, {
-            interactionId: publicInteractionId,
-            providerSessionId: effectiveSessionId,
-            toolUseId: deferredPayload.id,
-            toolName: deferredPayload.name,
-            toolInput: deferredPayload.input,
-            createdAt: new Date().toISOString(),
-          });
+          // Durable persistence of private Claude continuation metadata
+          try {
+            this.#continuationStore.saveDeferred({
+              providerSessionId: effectiveSessionId,
+              interactionId: publicInteractionId,
+              toolUseId: deferredPayload.id,
+              toolName: deferredPayload.name,
+              originalToolInput: deferredPayload.input,
+            });
+          } catch (persistErr) {
+            return reject(persistErr);
+          }
 
           if (typeof emitEvent === 'function') {
             emitEvent('interaction.requested', { interaction });
@@ -341,28 +352,26 @@ export class ClaudeAgentProvider {
           return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${stderrOutput || 'Unknown error'}`));
         }
 
-        // Ensure session is materialized even if empty stdout on exit 0
-        await materializeSessionIfNeeded();
+        if (!isMaterialized && isInitialTurn) {
+          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude exited without materializing session ID.'));
+        }
+
         resolve({ operation, providerSessionId: effectiveSessionId });
       });
 
-      // Write initial user input to child stdin if not a hook continuation
-      if (userPrompt) {
-        try {
-          const inputMessage = JSON.stringify({
-            type: 'user',
-            message: {
-              role: 'user',
-              content: userPrompt,
-            },
-          });
-          child.stdin?.write(`${inputMessage}\n`);
-          child.stdin?.end();
-        } catch (err) {
-          // stdin write failed
-        }
-      } else {
+      // Write initial user input to child stdin
+      try {
+        const inputMessage = JSON.stringify({
+          type: 'user',
+          message: {
+            role: 'user',
+            content: userPrompt,
+          },
+        });
+        child.stdin?.write(`${inputMessage}\n`);
         child.stdin?.end();
+      } catch (err) {
+        // stdin write failed
       }
     });
   }
@@ -388,45 +397,18 @@ export class ClaudeAgentProvider {
       throw new AiValidationError("'providerSessionId' is required.");
     }
 
-    const continuation = this.#loadContinuation(providerSessionId, interactionId) || {
+    // Persist resolution in continuation store BEFORE spawning resume
+    this.#continuationStore.resolveResponse({
+      providerSessionId,
       interactionId,
-      toolUseId: interactionId,
-      toolName: interaction?.toolName || (interaction?.kind === 'question' ? 'AskUserQuestion' : 'Bash'),
-      toolInput: interaction?.input,
-    };
+      userResponse: response,
+    });
 
-    let hookDecision;
-    if (interaction?.kind === 'question' || continuation.toolName === 'AskUserQuestion') {
-      const answersMap = {};
-      for (const ans of (response?.answers || [])) {
-        if (ans.questionId) answersMap[ans.questionId] = ans.value;
-      }
-      hookDecision = {
-        permissionDecision: 'allow',
-        updatedInput: {
-          ...(continuation.toolInput || {}),
-          answers: answersMap,
-        },
-      };
-    } else if (interaction?.kind === 'permission') {
-      const isAllowed = response?.decision === 'allow';
-      hookDecision = {
-        permissionDecision: isAllowed ? 'allow' : 'deny',
-        ...(isAllowed ? {} : { message: response?.message || 'Permission denied by user' }),
-      };
-    } else {
-      hookDecision = {
-        permissionDecision: response?.confirmed ? 'allow' : 'deny',
-      };
-    }
-
-    // Register pending hook decision for the resumed PreToolUse invocation
-    this.#pendingHookDecisions.set(providerSessionId, hookDecision);
-    this.#deleteContinuation(providerSessionId, interactionId);
-
+    // Resume Claude turn; the PreToolUse hook command process will read the resolution
     return this.startTurn({
       turnId,
       providerSessionId,
+      message: 'Continue',
       signal,
       setOperation,
       emitDelta,

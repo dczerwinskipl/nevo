@@ -8,7 +8,7 @@ import {
   CLAUDE_CAPABILITIES,
 } from '../ai/claude-adapter.mjs';
 
-function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
+function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId } = {}) {
   const child = new EventEmitter();
   child.stdin = new Writable({
     write(chunk, encoding, callback) { callback(); },
@@ -27,8 +27,18 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {})
   };
 
   setImmediate(async () => {
-    for (const line of stdoutLines) {
+    for (const rawLine of stdoutLines) {
       if (child.killed) break;
+      let line = rawLine;
+      if (sessionId) {
+        try {
+          const parsed = JSON.parse(rawLine);
+          if (!parsed.session_id) {
+            parsed.session_id = sessionId;
+            line = JSON.stringify(parsed);
+          }
+        } catch {}
+      }
       child.stdout.push(`${line}\n`);
       if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
     }
@@ -38,6 +48,12 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {})
 
   return child;
 }
+
+function extractSessionId(args = []) {
+  const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+  return sIdx !== -1 ? args[sIdx + 1] : undefined;
+}
+
 
 test('ClaudeAgentProvider declares capabilities', () => {
   const provider = createClaudeAgentProvider();
@@ -57,7 +73,7 @@ test('new Claude conversation uses --session-id and returns generated providerSe
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
-      return createMockProcess(lines);
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
     },
   });
 
@@ -85,7 +101,7 @@ test('existing Claude conversation uses --resume', async () => {
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
-      return createMockProcess(lines);
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
     },
   });
 
@@ -148,7 +164,7 @@ test('successful establishment calls setProviderSessionId upon first stream even
   ];
 
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createMockProcess(lines),
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
   });
 
   const result = await provider.startTurn({
@@ -175,7 +191,7 @@ test('backend/provider adapter reconstruction between new chat and first message
   const provider2 = createClaudeAgentProvider({
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
-      return createMockProcess(lines);
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
     },
   });
 
@@ -204,7 +220,7 @@ test('failure before successful first Claude invocation does not cause retry to 
       if (shouldFail) {
         throw new Error('Process spawn failure simulation');
       }
-      return createMockProcess(lines);
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
     },
   });
 
@@ -235,7 +251,7 @@ test('externally attached existing providerSessionId still uses --resume', async
   const provider = createClaudeAgentProvider({
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
-      return createMockProcess(lines);
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
     },
   });
 
@@ -262,8 +278,9 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
   ];
 
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createMockProcess(lines),
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
   });
+
 
   const textDeltas = [];
   const reasoningDeltas = [];
@@ -315,7 +332,7 @@ test('ClaudeAgentProvider intercepts AskUserQuestion tool_deferred and emits int
   ];
 
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createMockProcess(lines),
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
   });
 
   const result = await provider.startTurn({
@@ -339,8 +356,9 @@ test('ClaudeAgentProvider supports turn cancellation', async () => {
 
   const abortController = new AbortController();
   const provider = createClaudeAgentProvider({
-    spawnProcess: () => createMockProcess(lines, { delayMs: 50 }),
+    spawnProcess: (executable, args) => createMockProcess(lines, { delayMs: 50, sessionId: extractSessionId(args) }),
   });
+
 
   const turnPromise = provider.startTurn({
     turnId: 'turn-cancel-1',
