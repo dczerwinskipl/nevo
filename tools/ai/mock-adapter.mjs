@@ -32,18 +32,10 @@ export class MockAiAdapter {
     });
   }
 
-  async createSession({ title } = {}) {
-    const providerSessionId = `mock-session-${padded(++this.#createdCounter)}`;
-    return {
-      provider: 'mock',
-      providerSessionId,
-      title: title || `Mock session ${this.#createdCounter}`,
-    };
-  }
-
   async startTurn({
     turnId,
     providerSessionId,
+    setProviderSessionId,
     identity,
     message,
     prompt,
@@ -57,11 +49,13 @@ export class MockAiAdapter {
     signal,
     setOperation,
   } = {}) {
-    if (!providerSessionId) throw new AiValidationError("'providerSessionId' is required.");
+    const effectiveSessionId = providerSessionId || `mock-session-${padded(++this.#createdCounter)}`;
+    if (setProviderSessionId) setProviderSessionId(effectiveSessionId);
     const inputMessage = message ?? prompt;
     if (!inputMessage || typeof inputMessage !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
+
 
     const operation = { cancelled: false };
     if (setOperation) setOperation(operation);

@@ -50,22 +50,30 @@ export class AiSessionService {
     };
   }
 
-  async createSession(provider, input = {}) {
-    const entry = this.registry.get(provider);
-    if (typeof entry.adapter?.createSession === 'function') {
-      return entry.adapter.createSession(input);
+  async startTurn(provider, providerSessionId, input = {}) {
+    if (providerSessionId) {
+      validateAgentIdentity({ provider, providerSessionId });
     }
-    throw new AiError('AI_UNSUPPORTED_OPERATION', `Provider '${provider}' does not support creating sessions.`, {
-      status: 400,
-      details: { provider, operation: 'createSession' },
+    const onSessionEstablished = async (allocatedSessionId) => {
+      if (input.specId && this.bindingService) {
+        await this.bindingService.bindSession({
+          provider,
+          providerSessionId: allocatedSessionId,
+          specId: input.specId,
+          taskId: input.taskId,
+          purpose: input.purpose || 'interactive',
+        });
+      }
+    };
+    return this.turnRuntime.startTurn({
+      provider,
+      providerSessionId,
+      ...input,
+      onSessionEstablished,
     });
   }
 
 
-  async startTurn(provider, providerSessionId, input = {}) {
-    validateAgentIdentity({ provider, providerSessionId });
-    return this.turnRuntime.startTurn({ provider, providerSessionId, ...input });
-  }
 
   getTurn(turnId) {
     return this.turnRuntime.getSnapshot(turnId);

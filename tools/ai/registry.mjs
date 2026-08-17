@@ -17,7 +17,7 @@ export class AiAdapterRegistry {
       throw new AiValidationError('Adapter must be an object.');
     }
     const descriptor = validateProviderDescriptor(adapter.descriptor);
-    for (const method of ['createSession', 'startTurn', 'cancelTurn']) {
+    for (const method of ['startTurn', 'cancelTurn']) {
       if (typeof adapter[method] !== 'function') {
         throw new AiValidationError(`Adapter for provider '${descriptor.id}' must implement required method '${method}'.`, {
           provider: descriptor.id,

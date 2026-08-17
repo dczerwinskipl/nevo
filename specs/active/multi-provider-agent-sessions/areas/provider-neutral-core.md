@@ -40,24 +40,23 @@ export class CapabilityNotSupportedError extends Error {
   }
 }
 
-export interface ProviderSessionDescriptor {
-  provider: string;
-  providerSessionId: string;
-  title?: string;
-  createdAt?: string;
-  lastActivityAt?: string;
-  capabilities?: AgentCapabilities;
-}
-
 export interface AgentProvider {
   readonly id: string;
   readonly capabilities: AgentCapabilities;
 
-  createSession(input?: { title?: string }): Promise<ProviderSessionDescriptor>;
-  startTurn(identity: AgentIdentity, input: TurnInput): AsyncIterable<AgentEvent>;
-  cancelTurn(identity: AgentIdentity, turnId: string): Promise<void>;
+  startTurn(input: {
+    turnId: string;
+    providerSessionId?: string;
+    message: string;
+    prompt?: string;
+    signal?: AbortSignal;
+    [key: string]: unknown;
+  }): AsyncIterable<AgentEvent> | Promise<{ providerSessionId?: string; [key: string]: unknown }>;
+
+  cancelTurn(input: { turnId: string; providerSessionId: string }): Promise<void>;
   respondInteraction?(identity: AgentIdentity, response: InteractionResponse): Promise<void>;
 }
+
 
 ```
 
@@ -117,7 +116,8 @@ While providers are the source of truth for session continuity, NEvo maintains a
 ## 5. HTTP & SSE API Surface
 
 - `GET /api/agent-sessions`: List session bindings (supports filtering by query parameters `specId` or `taskId`).
-- `POST /api/agent-sessions`: Register a session binding or start a new provider session with initial spec/task binding.
+- `POST /api/agent-sessions`: Register an existing session binding or start a new provider session with initial turn and spec/task binding.
+
 - `GET /api/agent-sessions/:provider/:providerSessionId`: Get session details, binding metadata, capabilities, active turn, pending interaction snapshot, and normalized message thread history with `lastEventSeq` cursor.
 - `DELETE /api/agent-sessions/:provider/:providerSessionId`: Remove local session binding.
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).

@@ -21,7 +21,6 @@ export class ClaudeAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
-  #pendingInitSessions = new Set();
 
   constructor({ executable = 'claude', cwd = process.cwd(), spawnProcess = spawn } = {}) {
     this.#executable = executable;
@@ -35,23 +34,10 @@ export class ClaudeAgentProvider {
     });
   }
 
-  async createSession({ title } = {}) {
-    const providerSessionId = randomUUID();
-    this.#pendingInitSessions.add(providerSessionId);
-    const now = new Date().toISOString();
-    return {
-      provider: 'claude',
-      providerSessionId,
-      title: title || `Claude session ${providerSessionId.slice(0, 8)}`,
-      createdAt: now,
-      lastActivityAt: now,
-      capabilities: CLAUDE_CAPABILITIES,
-    };
-  }
-
   async startTurn({
     turnId,
     providerSessionId,
+    setProviderSessionId,
     identity,
     message,
     prompt,
@@ -66,15 +52,18 @@ export class ClaudeAgentProvider {
     emitUsageUpdated,
     requestInteraction,
   } = {}) {
-    if (!providerSessionId) throw new AiValidationError("'providerSessionId' is required.");
     const userPrompt = message ?? prompt;
     if (!userPrompt || typeof userPrompt !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
-    const isInitialTurn = this.#pendingInitSessions.delete(providerSessionId);
+    const isInitialTurn = !providerSessionId;
+    const effectiveSessionId = providerSessionId || randomUUID();
+    if (setProviderSessionId) setProviderSessionId(effectiveSessionId);
+
     const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
-    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, providerSessionId];
+    const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', sessionFlag, effectiveSessionId];
+
 
 
 
@@ -249,8 +238,9 @@ export class ClaudeAgentProvider {
           return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${stderrOutput || 'Unknown error'}`));
         }
 
-        resolve({ operation });
+        resolve({ operation, providerSessionId: effectiveSessionId });
       });
+
 
       // Write initial user input to child stdin as stream-json user message
       try {

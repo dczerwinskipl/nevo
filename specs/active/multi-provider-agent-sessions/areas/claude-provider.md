@@ -7,8 +7,9 @@ This area implements the `AgentProvider` adapter for local Claude Code CLI (`cla
 ## 1. Process Execution & Stream Protocol
 
 - **CLI Invocations:**
-  - Turn execution: `claude -p --output-format stream-json --input-format stream-json --resume <providerSessionId>`
-  - Initial session creation: `claude -p --output-format stream-json --input-format stream-json --session-id <newUuid>`
+  - Initial session turn (when `providerSessionId` is omitted): `claude -p --output-format stream-json --input-format stream-json --session-id <newUuid>`
+  - Continuation turn (when `providerSessionId` is provided): `claude -p --output-format stream-json --input-format stream-json --resume <providerSessionId>`
+
 - **Short-Lived Turn Model:**
   - Each turn spawns a short-lived `claude` process.
   - The process streams line-delimited JSON objects on `stdout` and exits when the turn finishes or a tool is deferred.

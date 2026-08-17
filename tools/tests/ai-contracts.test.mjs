@@ -12,6 +12,7 @@ import {
 } from '../ai/contracts.mjs';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiSessionService } from '../ai/service.mjs';
+import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 
 const capabilities = Object.freeze({
   interactivePermissions: true,
@@ -48,7 +49,6 @@ test('unsupported capabilities return CapabilityNotSupportedError without invoki
   let invoked = false;
   const adapter = {
     descriptor: { id: 'limited', label: 'Limited', capabilities: {} },
-    async createSession() {},
     async startTurn() {},
     async cancelTurn() { invoked = true; },
   };
@@ -62,7 +62,7 @@ test('unsupported capabilities return CapabilityNotSupportedError without invoki
   assert.equal(invoked, false);
 });
 
-test('registry rejects provider adapters missing required methods (createSession, startTurn, cancelTurn)', () => {
+test('registry rejects provider adapters missing required methods (startTurn, cancelTurn)', () => {
   assert.throws(
     () => createAiAdapterRegistry([{ descriptor: { id: 'missing-all', label: 'Missing', capabilities: {} } }]),
     { name: 'AiValidationError' },
@@ -71,7 +71,6 @@ test('registry rejects provider adapters missing required methods (createSession
   assert.throws(
     () => createAiAdapterRegistry([{
       descriptor: { id: 'missing-start', label: 'Missing', capabilities: {} },
-      async createSession() {},
       async cancelTurn() {},
     }]),
     { name: 'AiValidationError' },
@@ -80,7 +79,6 @@ test('registry rejects provider adapters missing required methods (createSession
   assert.throws(
     () => createAiAdapterRegistry([{
       descriptor: { id: 'missing-cancel', label: 'Missing', capabilities: {} },
-      async createSession() {},
       async startTurn() {},
     }]),
     { name: 'AiValidationError' },
@@ -122,7 +120,6 @@ test('multi-provider registry supports multiple registered providers (claude, an
   function fake(id) {
     return {
       descriptor: { id, label: id.toUpperCase(), capabilities },
-      async createSession() {},
       async startTurn() {},
       async cancelTurn() {},
     };
@@ -150,9 +147,6 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   };
   const adapter = {
     descriptor: { id: 'claude', label: 'Claude', capabilities },
-    async createSession({ title }) {
-      return { provider: 'claude', providerSessionId: 'new-sess-1', title };
-    },
     async startTurn() {},
     async cancelTurn() {},
   };
@@ -167,8 +161,73 @@ test('AiSessionService uses binding service for listings and transcript cache fo
 
   const messages = await service.listMessages('claude', 'sess-1');
   assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+});
 
-  const created = await service.createSession('claude', { title: 'New Conversation' });
-  assert.deepEqual(created, { provider: 'claude', providerSessionId: 'new-sess-1', title: 'New Conversation' });
+test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {
+  const bindings = [];
+  const bindingService = {
+    async bindSession(binding) {
+      bindings.push(binding);
+      return binding;
+    },
+    async listBindings() {
+      return bindings;
+    },
+  };
+
+  let resumeCalledWith = null;
+  const adapter = {
+    descriptor: { id: 'fake', label: 'Fake', capabilities },
+    async startTurn({ providerSessionId, setProviderSessionId, message, emitTextDelta }) {
+      if (!providerSessionId) {
+        const newId = 'fake-allocated-uuid-999';
+        setProviderSessionId(newId);
+        emitTextDelta('first turn response');
+        return { providerSessionId: newId };
+      } else {
+        resumeCalledWith = providerSessionId;
+        emitTextDelta('second turn response');
+        return { providerSessionId };
+      }
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAiAdapterRegistry([adapter]);
+  const turnRuntime = createAiTurnRuntime({ registry });
+  const service = createAiSessionService({ registry, turnRuntime, bindingService });
+
+  // 1. First prompt in blank chat without providerSessionId
+  const turn1 = await service.startTurn('fake', null, {
+    message: 'First prompt from new chat',
+    specId: 'spec-integration-test',
+    taskId: 'task-1',
+  });
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn1.turnId);
+    if (snap?.status === 'completed') break;
+    await new Promise(r => setTimeout(r, 5));
+  }
+
+  const snap1 = service.getTurn(turn1.turnId);
+  assert.equal(snap1.providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].provider, 'fake');
+  assert.equal(bindings[0].providerSessionId, 'fake-allocated-uuid-999');
+  assert.equal(bindings[0].specId, 'spec-integration-test');
+
+  // 2. Second prompt resumes using the established providerSessionId
+  const turn2 = await service.startTurn('fake', 'fake-allocated-uuid-999', {
+    message: 'Follow-up prompt',
+  });
+
+  for (let i = 0; i < 50; i++) {
+    const snap = service.getTurn(turn2.turnId);
+    if (snap?.status === 'completed') break;
+    await new Promise(r => setTimeout(r, 5));
+  }
+
+  assert.equal(resumeCalledWith, 'fake-allocated-uuid-999');
 });
 

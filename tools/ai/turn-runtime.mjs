@@ -3,12 +3,14 @@ import {
   AiError,
   AiNotFoundError,
   AiTurnConflictError,
+  AiValidationError,
   CapabilityNotSupportedError,
   normalizeInteraction,
   publicAiError,
   validateAgentIdentity,
   validateInteractionResponse,
 } from './contracts.mjs';
+
 import { createTranscriptCacheService } from './transcript-cache.mjs';
 
 function sessionKey(provider, providerSessionId) {
@@ -43,27 +45,40 @@ export class AiTurnRuntime {
     this.clock = clock;
   }
 
-  async startTurn({ provider, providerSessionId, message, prompt, idempotencyKey } = {}) {
+  async startTurn({ provider, providerSessionId, sessionId, message, prompt, idempotencyKey, onSessionEstablished } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
-    const identity = validateAgentIdentity({ provider, providerSessionId });
+    if (sessionId !== undefined) {
+      throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
+    }
+    if (!provider || typeof provider !== 'string') {
+      throw new AiValidationError('A valid provider is required.');
+    }
+    if (providerSessionId !== undefined && providerSessionId !== null) {
+      validateAgentIdentity({ provider, providerSessionId });
+    }
     const inputMessage = message ?? prompt;
     const entry = this.registry.get(provider);
     const adapter = entry.adapter;
     if (typeof adapter.startTurn !== 'function') {
       throw new CapabilityNotSupportedError(provider, 'startTurn');
     }
-    const key = sessionKey(identity.provider, identity.providerSessionId);
+
+    const isNewSession = !providerSessionId;
+    const turnId = `turn-${this.idFactory()}`;
+    const key = isNewSession ? `new-turn\u0000${turnId}` : sessionKey(provider, providerSessionId);
 
     const releaseStartLock = await this.#acquireStartLock(key);
 
     try {
-      const existingId = this.#activeBySession.get(key);
-      if (existingId) {
-        const existing = this.#turns.get(existingId);
-        if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
-          return { turnId: existingId, idempotent: true };
+      if (!isNewSession) {
+        const existingId = this.#activeBySession.get(key);
+        if (existingId) {
+          const existing = this.#turns.get(existingId);
+          if (idempotencyKey && existing?.idempotencyKey === idempotencyKey) {
+            return { turnId: existingId, idempotent: true };
+          }
+          throw new AiTurnConflictError(existingId);
         }
-        throw new AiTurnConflictError(existingId);
       }
 
       if (typeof inputMessage !== 'string' || inputMessage.trim().length === 0 || inputMessage.length > 100_000) {
@@ -73,11 +88,10 @@ export class AiTurnRuntime {
         throw new AiError('AI_VALIDATION_ERROR', 'The idempotency key is invalid.', { status: 400 });
       }
 
-      const turnId = `turn-${this.idFactory()}`;
       const startedAt = this.#timestamp();
 
-      if (this.transcriptCache) {
-        this.transcriptCache.recordUserMessage(identity.provider, identity.providerSessionId, {
+      if (!isNewSession && this.transcriptCache) {
+        this.transcriptCache.recordUserMessage(provider, providerSessionId, {
           text: inputMessage,
           createdAt: startedAt,
         });
@@ -85,11 +99,12 @@ export class AiTurnRuntime {
 
       const state = {
         turnId,
-        provider: identity.provider,
-        providerSessionId: identity.providerSessionId,
-        identity,
+        provider,
+        providerSessionId: providerSessionId || undefined,
+        identity: providerSessionId ? { provider, providerSessionId } : undefined,
         key,
         idempotencyKey,
+        onSessionEstablished,
         status: 'running',
         sequence: 0,
         events: [],
@@ -103,11 +118,13 @@ export class AiTurnRuntime {
       };
 
       this.#turns.set(turnId, state);
-      this.#activeBySession.set(key, turnId);
+      if (!isNewSession) {
+        this.#activeBySession.set(key, turnId);
+      }
       this.#notifyAdapterState(state);
       this.#emit(state, 'turn.started');
       queueMicrotask(() => this.#run(state, inputMessage));
-      return { turnId, idempotent: false };
+      return { turnId, providerSessionId: state.providerSessionId, idempotent: false };
     } finally {
       releaseStartLock();
     }
@@ -128,9 +145,33 @@ export class AiTurnRuntime {
 
   async #run(state, message) {
     try {
+      const setProviderSessionId = (allocatedSessionId) => {
+        if (!state.providerSessionId && allocatedSessionId) {
+          state.providerSessionId = allocatedSessionId;
+          state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
+          state.key = sessionKey(state.provider, allocatedSessionId);
+          this.#activeBySession.set(state.key, state.turnId);
+          if (this.transcriptCache) {
+            this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
+              text: message,
+              createdAt: state.startedAt,
+            });
+            for (const ev of state.events) {
+              this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
+            }
+          }
+          if (state.onSessionEstablished) {
+            try { state.onSessionEstablished(allocatedSessionId); } catch {}
+          }
+        }
+      };
+
+
+
       const turnResult = state.adapter.startTurn({
         turnId: state.turnId,
         providerSessionId: state.providerSessionId,
+        setProviderSessionId,
         identity: state.identity,
         message,
         prompt: message,
@@ -154,6 +195,9 @@ export class AiTurnRuntime {
         }
       } else {
         const result = await turnResult;
+        if (result?.providerSessionId) {
+          setProviderSessionId(result.providerSessionId);
+        }
         if (result?.operation !== undefined) state.privateOperation = result.operation;
       }
 
@@ -162,6 +206,7 @@ export class AiTurnRuntime {
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
     }
   }
+
 
   #emitDelta(state, delta, messageId = `message-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
@@ -333,9 +378,10 @@ export class AiTurnRuntime {
     state.events.push(event);
     if (state.events.length > this.maxEventsPerTurn) state.events.shift();
 
-    if (this.transcriptCache) {
+    if (this.transcriptCache && state.providerSessionId) {
       this.transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
     }
+
 
     for (const subscriber of state.subscribers) subscriber(structuredClone(event));
     return event;

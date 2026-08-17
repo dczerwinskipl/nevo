@@ -23,10 +23,11 @@ function createFixture({ sessionLookupGate, transcriptCache } = {}) {
   let cancels = 0;
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async createSession({ title } = {}) {
-      return { provider: 'fake', providerSessionId: 'sess-fake-1', title };
-    },
-    async startTurn({ providerSessionId, message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
+      if (!providerSessionId && setProviderSessionId) {
+        setProviderSessionId('sess-auto-allocated');
+      }
+
 
       if (sessionLookupGate) await sessionLookupGate;
       starts += 1;

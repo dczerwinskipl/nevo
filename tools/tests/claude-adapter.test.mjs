@@ -39,26 +39,18 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {})
   return child;
 }
 
-test('ClaudeAgentProvider declares capabilities and creates UUID sessions', async () => {
+test('ClaudeAgentProvider declares capabilities', () => {
   const provider = createClaudeAgentProvider();
   assert.equal(provider.descriptor.id, 'claude');
   assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
   assert.equal(provider.descriptor.capabilities.interactivePermissions, true);
   assert.equal(provider.descriptor.capabilities.resumeSession, true);
-
-  const session = await provider.createSession({
-    title: 'Test Session',
-  });
-
-  assert.equal(session.provider, 'claude');
-  assert.ok(session.providerSessionId);
-  assert.equal(session.title, 'Test Session');
 });
 
-test('first turn for newly created session uses --session-id and subsequent turn uses --resume', async () => {
+test('new Claude conversation uses --session-id and returns generated providerSessionId', async () => {
   const capturedCalls = [];
   const lines = [
-    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } }),
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'hello' } }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
   ];
 
@@ -69,47 +61,135 @@ test('first turn for newly created session uses --session-id and subsequent turn
     },
   });
 
-  // 1. Create a new session
-  const created = await provider.createSession({ title: 'New Conversation' });
-  const uuid = created.providerSessionId;
-
-  // 2. First turn for the newly created session
-  await provider.startTurn({
+  const result = await provider.startTurn({
     turnId: 'turn-1',
-    providerSessionId: uuid,
-    message: 'First prompt',
+    message: 'First message in fresh conversation',
   });
 
   assert.equal(capturedCalls.length, 1);
   assert.ok(capturedCalls[0].args.includes('--session-id'), 'First turn must use --session-id');
-  assert.ok(!capturedCalls[0].args.includes('--resume'), 'Fresh UUID must never go directly to --resume');
-  assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--session-id') + 1], uuid);
-
-  // 3. Second turn for the same session
-  await provider.startTurn({
-    turnId: 'turn-2',
-    providerSessionId: uuid,
-    message: 'Follow-up prompt',
-  });
-
-  assert.equal(capturedCalls.length, 2);
-  assert.ok(capturedCalls[1].args.includes('--resume'), 'Subsequent turn must use --resume');
-  assert.ok(!capturedCalls[1].args.includes('--session-id'), 'Subsequent turn must not use --session-id');
-  assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--resume') + 1], uuid);
-
-  // 4. Pre-existing session passed directly to startTurn (not from createSession)
-  await provider.startTurn({
-    turnId: 'turn-3',
-    providerSessionId: 'external-existing-session-uuid',
-    message: 'Resume external prompt',
-  });
-
-  assert.equal(capturedCalls.length, 3);
-  assert.ok(capturedCalls[2].args.includes('--resume'), 'Pre-existing session must use --resume');
-  assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--resume') + 1], 'external-existing-session-uuid');
+  assert.ok(!capturedCalls[0].args.includes('--resume'), 'Fresh conversation must not use --resume');
+  const sessionIdIndex = capturedCalls[0].args.indexOf('--session-id');
+  const allocatedUuid = capturedCalls[0].args[sessionIdIndex + 1];
+  assert.ok(allocatedUuid, 'UUID must be passed after --session-id');
+  assert.equal(result.providerSessionId, allocatedUuid);
 });
 
+test('existing Claude conversation uses --resume', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'resumed' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
 
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-2',
+    providerSessionId: 'existing-uuid-12345',
+    message: 'Follow-up message',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  assert.ok(capturedCalls[0].args.includes('--resume'), 'Existing session must use --resume');
+  assert.ok(!capturedCalls[0].args.includes('--session-id'), 'Existing session must not use --session-id');
+  const resumeIndex = capturedCalls[0].args.indexOf('--resume');
+  assert.equal(capturedCalls[0].args[resumeIndex + 1], 'existing-uuid-12345');
+});
+
+test('backend/provider adapter reconstruction between new chat and first message cannot turn first invocation into --resume', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  // Adapter instance 1 created when draft opened: no state is stored
+  createClaudeAgentProvider();
+
+  // Server reloads / reconstructs adapter instance 2 before user sends first message:
+  const provider2 = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  // First message arrives without providerSessionId
+  await provider2.startTurn({
+    turnId: 'turn-reconstructed-1',
+    message: 'User first prompt after restart',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  assert.ok(capturedCalls[0].args.includes('--session-id'), 'Must still use --session-id after reconstruction');
+  assert.ok(!capturedCalls[0].args.includes('--resume'), 'Must not accidentally use --resume');
+});
+
+test('failure before successful first Claude invocation does not cause retry to use --resume', async () => {
+  const capturedCalls = [];
+  let shouldFail = true;
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'success on retry' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      if (shouldFail) {
+        throw new Error('Process spawn failure simulation');
+      }
+      return createMockProcess(lines);
+    },
+  });
+
+  // Attempt 1 fails
+  await assert.rejects(
+    () => provider.startTurn({ turnId: 'turn-fail', message: 'Initial prompt' }),
+    { name: 'AiError' },
+  );
+  assert.equal(capturedCalls.length, 1);
+  assert.ok(capturedCalls[0].args.includes('--session-id'));
+
+  // Attempt 2 (retry) succeeds
+  shouldFail = false;
+  const retryResult = await provider.startTurn({ turnId: 'turn-retry', message: 'Initial prompt' });
+  assert.equal(capturedCalls.length, 2);
+  assert.ok(capturedCalls[1].args.includes('--session-id'), 'Retry must still use --session-id');
+  assert.ok(!capturedCalls[1].args.includes('--resume'), 'Retry must not use --resume');
+  assert.ok(retryResult.providerSessionId);
+});
+
+test('externally attached existing providerSessionId still uses --resume', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'attached' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-attached',
+    providerSessionId: 'attached-external-uuid',
+    message: 'Hello attached session',
+  });
+
+  assert.equal(capturedCalls.length, 1);
+  assert.ok(capturedCalls[0].args.includes('--resume'));
+  assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--resume') + 1], 'attached-external-uuid');
+});
 
 test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoning', async () => {
   const lines = [
