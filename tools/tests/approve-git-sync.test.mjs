@@ -148,7 +148,7 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('approve with Git (default) approves, rebuilds, commits, and pushes to remote', () => {
+  await t.test('approve with Git (default) commits ONLY operation-owned files and pushes', () => {
     const fixture = setupTempGitRepo();
     try {
       handleApprove('test-change', 'task-1', {
@@ -168,12 +168,27 @@ test('Approve post-action sync and Git integration', async (t) => {
       // Latest commit message should match convention
       const lastCommit = execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim();
       assert.equal(lastCommit, 'chore(specs): approve task-1');
+
+      // Verify exact files in the commit — ONLY change.yaml and generated files, no unrelated paths
+      const committedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' })
+        .trim().split(/\r?\n/).map(p => p.replace(/\\/g, '/'));
+
+      const expectedFiles = [
+        'specs/active.generated.md',
+        'specs/archive.generated.md',
+        'specs/index.generated.json',
+        'specs/active/test-change/change.yaml',
+      ];
+      for (const f of committedFiles) {
+        assert.ok(expectedFiles.includes(f), `Unexpected file in commit: ${f}`);
+      }
+      assert.ok(committedFiles.includes('specs/active/test-change/change.yaml'));
     } finally {
       fixture.cleanup();
     }
   });
 
-  await t.test('approve refuses to commit and fails safely when unrelated dirty files exist', () => {
+  await t.test('approve refuses to commit and fails safely when unrelated dirty file exists outside spec', () => {
     const fixture = setupTempGitRepo();
     try {
       // Create unrelated dirty file outside allowed specs paths
@@ -192,42 +207,106 @@ test('Approve post-action sync and Git integration', async (t) => {
 
       // Unrelated file is still present and not committed
       assert.ok(existsSync(join(fixture.cloneDir, 'unrelated.txt')));
+      const dirty = git.getDirtyPaths(fixture.cloneDir);
+      assert.ok(dirty.includes('unrelated.txt'));
     } finally {
       fixture.cleanup();
     }
   });
 
-  await t.test('retry after push failure succeeds without creating duplicate commits', () => {
+  await t.test('approve refuses to commit and fails safely when unrelated dirty task file exists in same spec', () => {
     const fixture = setupTempGitRepo();
     try {
-      // First run with git disabled to simulate partial execution (approval & metadata done, but not pushed)
-      handleApprove('test-change', 'task-1', {
-        gitRoot: fixture.cloneDir,
-        activeDir: fixture.activeDir,
-        git: false,
-      });
+      // Create an unrelated task file or modify existing task file in same spec
+      writeFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'tasks', '02-other-task.md'), '# Other task draft');
 
-      // Create the commit manually as if push had failed after commit
-      execFileSync('git', ['add', '.'], { cwd: fixture.cloneDir });
-      execFileSync('git', ['commit', '-m', 'chore(specs): approve task-1'], { cwd: fixture.cloneDir });
+      assert.throws(
+        () => {
+          handleApprove('test-change', 'task-1', {
+            gitRoot: fixture.cloneDir,
+            activeDir: fixture.activeDir,
+            git: true,
+          });
+        },
+        err => err.message.includes('unrelated dirty files'),
+      );
+
+      // Unrelated task file is untouched and NOT committed
+      const dirty = git.getDirtyPaths(fixture.cloneDir);
+      assert.ok(dirty.some(p => p.includes('02-other-task.md')));
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('approve fails closed if change.yaml has pre-existing uncommitted modifications', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // Dirty change.yaml before approve
+      const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
+      writeFileSync(changeYamlPath, readFileSync(changeYamlPath, 'utf8') + '# manual dirty edit\n');
+
+      assert.throws(
+        () => {
+          handleApprove('test-change', 'task-1', {
+            gitRoot: fixture.cloneDir,
+            activeDir: fixture.activeDir,
+            git: true,
+          });
+        },
+        err => err.message.includes('contains pre-existing uncommitted modifications'),
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('real push failure during approve: commit created, push fails, retry performs missing push without duplicate commit', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // Break the remote URL to force push to genuinely fail
+      execFileSync('git', ['remote', 'set-url', 'origin', 'http://127.0.0.1:9999/nonexistent.git'], { cwd: fixture.cloneDir });
+
+      // Run approve with git enabled
+      assert.throws(
+        () => {
+          handleApprove('test-change', 'task-1', {
+            gitRoot: fixture.cloneDir,
+            activeDir: fixture.activeDir,
+            git: true,
+          });
+        },
+        err => err.message.includes('Push approval failed'),
+      );
+
+      // Verify: commit was created exactly once
+      const commitCount = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+      const lastCommit = execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim();
+      assert.equal(lastCommit, 'chore(specs): approve task-1');
 
       const commitShaBefore = git.getCurrentRevision(fixture.cloneDir);
 
-      // Now retry approve with git enabled
+      // Now restore valid remote URL
+      execFileSync('git', ['remote', 'set-url', 'origin', fixture.originDir], { cwd: fixture.cloneDir });
+
+      // Retry approve
       handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
       });
 
+      // No duplicate commit was created
       const commitShaAfter = git.getCurrentRevision(fixture.cloneDir);
-      // No duplicate commit was created!
       assert.equal(commitShaBefore, commitShaAfter);
+      const commitCountAfter = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
+      assert.equal(commitCount, commitCountAfter);
 
-      // Branch was successfully pushed
+      // Branch was pushed to origin
       const branch = git.getCurrentBranch(fixture.cloneDir);
       const ab = git.getAheadBehind(fixture.cloneDir, branch);
       assert.equal(ab.ahead, 0);
+      assert.ok(git.isWorkingTreeClean(fixture.cloneDir));
     } finally {
       fixture.cleanup();
     }
@@ -256,7 +335,7 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('verify with Git rebuilds metadata, commits with changeSlug/taskId, and pushes', () => {
+  await t.test('verify with Git rebuilds metadata, commits ONLY operation-owned files, and pushes', () => {
     const fixture = setupTempGitRepo();
     try {
       // First approve task
@@ -266,7 +345,7 @@ test('Approve post-action sync and Git integration', async (t) => {
         git: true,
       });
 
-      // Mark implemented (as agent would after completing implementation)
+      // Mark implemented
       const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
       const content = readFileSync(changeYamlPath, 'utf8').replace('status: approved', 'status: implemented');
       writeFileSync(changeYamlPath, content);
@@ -274,7 +353,7 @@ test('Approve post-action sync and Git integration', async (t) => {
       execFileSync('git', ['commit', '-m', 'feat: complete task-1 implementation'], { cwd: fixture.cloneDir });
       execFileSync('git', ['push'], { cwd: fixture.cloneDir });
 
-      // Owner verifies task on dashboard
+      // Owner verifies task
       handleVerify('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
@@ -296,6 +375,56 @@ test('Approve post-action sync and Git integration', async (t) => {
       // Latest commit message contains changeSlug/taskId
       const lastCommit = execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim();
       assert.equal(lastCommit, 'chore(specs): verify test-change/task-1');
+
+      // Verify exact files in commit
+      const committedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' })
+        .trim().split(/\r?\n/).map(p => p.replace(/\\/g, '/'));
+
+      const expectedFiles = [
+        'specs/active.generated.md',
+        'specs/archive.generated.md',
+        'specs/index.generated.json',
+        'specs/active/test-change/change.yaml',
+      ];
+      for (const f of committedFiles) {
+        assert.ok(expectedFiles.includes(f), `Unexpected file in verification commit: ${f}`);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  await t.test('verify refuses to commit and fails safely when unrelated dirty file exists in same spec', () => {
+    const fixture = setupTempGitRepo();
+    try {
+      // First approve task
+      handleApprove('test-change', 'task-1', {
+        gitRoot: fixture.cloneDir,
+        activeDir: fixture.activeDir,
+        git: true,
+      });
+
+      // Mark implemented
+      const changeYamlPath = join(fixture.cloneDir, 'specs', 'active', 'test-change', 'change.yaml');
+      const content = readFileSync(changeYamlPath, 'utf8').replace('status: approved', 'status: implemented');
+      writeFileSync(changeYamlPath, content);
+      execFileSync('git', ['add', '.'], { cwd: fixture.cloneDir });
+      execFileSync('git', ['commit', '-m', 'feat: complete task-1 implementation'], { cwd: fixture.cloneDir });
+      execFileSync('git', ['push'], { cwd: fixture.cloneDir });
+
+      // Add unrelated dirty task file
+      writeFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'tasks', '02-other.md'), '# Another task');
+
+      assert.throws(
+        () => {
+          handleVerify('test-change', 'task-1', {
+            gitRoot: fixture.cloneDir,
+            activeDir: fixture.activeDir,
+            git: true,
+          });
+        },
+        err => err.message.includes('unrelated dirty files'),
+      );
     } finally {
       fixture.cleanup();
     }

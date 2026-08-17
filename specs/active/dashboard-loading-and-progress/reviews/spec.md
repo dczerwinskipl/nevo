@@ -16,7 +16,7 @@ task_fingerprints:
   operation-progress-contract-and-transport: 0c8a8237bae11e70bd1dd470cf30c564ce61abea64f2f7e1c2c6148199af7baa
   cli-step-instrumentation-gate-and-verification: dd3208d3bd1470ed7e7f1d386fe59743644970b2c741b8e078169a55855691f9
   cli-step-instrumentation-tests-and-audits: 0a11c71d5d514e9292aba915ccd3ca1d553db1abcbbb4819e60fea9f16568770
-  approve-post-action-sync-and-git: 552019d8599c134731ca1237bfc95b48293de7c22b904ecd1842ee0f3e9e0bae
+  approve-post-action-sync-and-git: aa5c8ae62d6e464d3f12de3b2c22d26f12865bde220728277252c7e5f0224ca3
   dashboard-operation-progress-ui: 4d11930e7d50a3a5735c26adf3418d723e6d57f4300a09eb4e9344f269b35cfd
 ---
 

@@ -11,7 +11,6 @@ import {
   ExternalLink,
   FileDiff,
   Files,
-  FolderTree,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
@@ -201,7 +200,6 @@ function FileChange({
 
 const GROUP_MODE_OPTIONS: Array<{ id: GroupByMode; label: string; icon: typeof Layers }> = [
   { id: 'area', label: 'Obszar', icon: Layers },
-  { id: 'directory', label: 'Katalog', icon: FolderTree },
   { id: 'flat', label: 'Płasko', icon: List },
 ];
 

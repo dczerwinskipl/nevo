@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T13:13:04.221Z",
+  "generated": "2026-08-17T13:24:46.956Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -580,20 +580,14 @@
           "id": "cli-step-instrumentation-tests-and-audits",
           "order": 6,
           "file": "tasks/06-cli-step-instrumentation-tests-and-audits.md",
-          "status": "verified",
+          "status": "implemented",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
           ],
-          "implementation": {
-            "baseline_revision": "42c1a0af08293fd4e02ae6be57e75370bd2c7f4d",
-            "review_revision": "42c1a0af08293fd4e02ae6be57e75370bd2c7f4d",
-            "changed_paths": [],
-            "worktree_patch_fingerprint": null
-          },
           "self_check": {
-            "fingerprint": "0a11c71d5d514e9292aba915ccd3ca1d553db1abcbbb4819e60fea9f16568770",
-            "revision": "42c1a0af08293fd4e02ae6be57e75370bd2c7f4d",
+            "fingerprint": "1245d76d7246c99b4d4197db084a4b4d93ed9bff4014fd8421319fd59109dad8",
+            "revision": "cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d",
             "commands": [
               {
                 "command": "node --test tools/tests/*.test.mjs",
@@ -611,20 +605,14 @@
           "id": "approve-post-action-sync-and-git",
           "order": 7,
           "file": "tasks/08-approve-post-action-sync-and-git.md",
-          "status": "verified",
+          "status": "implemented",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
           ],
-          "implementation": {
-            "baseline_revision": "d7197c806e1c5e41df7309bab5e0e91f52ee6336",
-            "review_revision": "b4e79b32b6b84105df1faa810b3504d92f7654ca",
-            "changed_paths": [],
-            "worktree_patch_fingerprint": null
-          },
           "self_check": {
-            "fingerprint": "3f908832fd2429d4090dc6fadedc6aa045664817c6c18862066c54d79c262eea",
-            "revision": "b4e79b32b6b84105df1faa810b3504d92f7654ca",
+            "fingerprint": "aa5c8ae62d6e464d3f12de3b2c22d26f12865bde220728277252c7e5f0224ca3",
+            "revision": "cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d",
             "commands": [
               {
                 "command": "node --test tools/tests/approve-git-sync.test.mjs",
@@ -652,15 +640,9 @@
             "cli-step-instrumentation-gate-and-verification",
             "approve-post-action-sync-and-git"
           ],
-          "implementation": {
-            "baseline_revision": "fdc008add2fa0b8e7da0c804d2e7fbca100652a3",
-            "review_revision": "fdc008add2fa0b8e7da0c804d2e7fbca100652a3",
-            "changed_paths": [],
-            "worktree_patch_fingerprint": null
-          },
           "self_check": {
-            "fingerprint": "4d11930e7d50a3a5735c26adf3418d723e6d57f4300a09eb4e9344f269b35cfd",
-            "revision": "fdc008add2fa0b8e7da0c804d2e7fbca100652a3",
+            "fingerprint": "be1fa1367ab77a0e5160214e215fb5fb6e65aedffcb50c6242c6c6372b6a512c",
+            "revision": "cf1d9769ec7287bf54cb5180b1f6ecd4b7c06c4d",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",

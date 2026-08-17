@@ -5,7 +5,7 @@
 import { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
@@ -301,6 +301,40 @@ export function handleApprove(changeSlug, taskId, options = {}) {
     }
     throw new CliError(gateResult.reason);
   }
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
+
+  const normalizePath = p => p.replace(/\\/g, '/');
+  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
+  const allowedExact = new Set([
+    changeYamlRel,
+    normalizePath(relative(gitRoot, activeIndexMd)),
+    normalizePath(relative(gitRoot, archiveIndexMd)),
+    normalizePath(relative(gitRoot, indexJson)),
+  ]);
+
+  // Baseline dirty check
+  if (useGit) {
+    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    if (baselineDirty.length > 0) {
+      if (baselineDirty.includes(changeYamlRel)) {
+        const err = `Cannot commit approval: '${changeYamlRel}' contains pre-existing uncommitted modifications.`;
+        emitter.stepFailed({ id: 'validate-approval', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
+      if (unrelated.length > 0) {
+        const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+        emitter.stepFailed({ id: 'validate-approval', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+    }
+  }
   emitter.stepCompleted({ id: 'validate-approval' });
 
   // 2. Approve task
@@ -313,12 +347,6 @@ export function handleApprove(changeSlug, taskId, options = {}) {
 
   // 3. Rebuild metadata
   emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
-  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
-  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
-  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
-  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
-  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
-
   const built = buildSpecsIndexes({ activeDir, archiveDir });
   writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
   emitter.stepCompleted({ id: 'rebuild-metadata' });
@@ -326,21 +354,8 @@ export function handleApprove(changeSlug, taskId, options = {}) {
   // 4 & 5. Git commit & push (if enabled)
   if (useGit) {
     emitter.stepStarted({ id: 'commit-approval', label: 'Commit approval' });
-    const dirtyPaths = git.getDirtyPaths(gitRoot);
-    const allowedPrefix = `specs/active/${changeSlug}/`;
-    const allowedExact = new Set([
-      'specs/active.generated.md',
-      'specs/archive.generated.md',
-      'specs/index.generated.json',
-    ]);
-
-    const normalizePath = p => p.replace(/\\/g, '/');
-    const isAllowed = p => {
-      const norm = normalizePath(p);
-      return norm.startsWith(allowedPrefix) || allowedExact.has(norm);
-    };
-
-    const unrelated = dirtyPaths.filter(p => !isAllowed(p));
+    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
     if (unrelated.length > 0) {
       const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
       emitter.stepFailed({ id: 'commit-approval', error: err });
@@ -348,11 +363,11 @@ export function handleApprove(changeSlug, taskId, options = {}) {
       throw new CliError(err);
     }
 
-    const approveDirty = dirtyPaths.filter(isAllowed);
-    if (approveDirty.length > 0) {
+    const toStage = currentDirty.filter(p => allowedExact.has(p));
+    if (toStage.length > 0) {
       try {
-        runGit(['add', '--', ...approveDirty], gitRoot);
-        runGit(['commit', '-m', `chore(specs): approve ${taskId}`], gitRoot);
+        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
+        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): approve ${taskId}`], { encoding: 'utf8' });
       } catch (e) {
         emitter.stepFailed({ id: 'commit-approval', error: e.message });
         emitter.operationFailed({ error: e.message });
@@ -556,6 +571,40 @@ export function handleVerify(changeSlug, taskId, options = {}) {
     emitter.operationFailed({ error: gateResult.reason });
     throw new CliError(gateResult.reason);
   }
+  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
+  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
+  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
+  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
+  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
+
+  const normalizePath = p => p.replace(/\\/g, '/');
+  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
+  const allowedExact = new Set([
+    changeYamlRel,
+    normalizePath(relative(gitRoot, activeIndexMd)),
+    normalizePath(relative(gitRoot, archiveIndexMd)),
+    normalizePath(relative(gitRoot, indexJson)),
+  ]);
+
+  // Baseline dirty check
+  if (useGit) {
+    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    if (baselineDirty.length > 0) {
+      if (baselineDirty.includes(changeYamlRel)) {
+        const err = `Cannot commit verification: '${changeYamlRel}' contains pre-existing uncommitted modifications.`;
+        emitter.stepFailed({ id: 'validate-transition', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
+      if (unrelated.length > 0) {
+        const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
+        emitter.stepFailed({ id: 'validate-transition', error: err });
+        emitter.operationFailed({ error: err });
+        throw new CliError(err);
+      }
+    }
+  }
   emitter.stepCompleted({ id: 'validate-transition' });
 
   // 2. Verify task
@@ -567,12 +616,6 @@ export function handleVerify(changeSlug, taskId, options = {}) {
 
   // 3. Rebuild metadata
   emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
-  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
-  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
-  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
-  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
-  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
-
   const built = buildSpecsIndexes({ activeDir, archiveDir });
   writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
   emitter.stepCompleted({ id: 'rebuild-metadata' });
@@ -580,21 +623,8 @@ export function handleVerify(changeSlug, taskId, options = {}) {
   // 4 & 5. Git commit & push (if enabled)
   if (useGit) {
     emitter.stepStarted({ id: 'commit-verification', label: 'Commit verification' });
-    const dirtyPaths = git.getDirtyPaths(gitRoot);
-    const allowedPrefix = `specs/active/${changeSlug}/`;
-    const allowedExact = new Set([
-      'specs/active.generated.md',
-      'specs/archive.generated.md',
-      'specs/index.generated.json',
-    ]);
-
-    const normalizePath = p => p.replace(/\\/g, '/');
-    const isAllowed = p => {
-      const norm = normalizePath(p);
-      return norm.startsWith(allowedPrefix) || allowedExact.has(norm);
-    };
-
-    const unrelated = dirtyPaths.filter(p => !isAllowed(p));
+    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
+    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
     if (unrelated.length > 0) {
       const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
       emitter.stepFailed({ id: 'commit-verification', error: err });
@@ -602,11 +632,11 @@ export function handleVerify(changeSlug, taskId, options = {}) {
       throw new CliError(err);
     }
 
-    const verifyDirty = dirtyPaths.filter(isAllowed);
-    if (verifyDirty.length > 0) {
+    const toStage = currentDirty.filter(p => allowedExact.has(p));
+    if (toStage.length > 0) {
       try {
-        runGit(['add', '--', ...verifyDirty], gitRoot);
-        runGit(['commit', '-m', `chore(specs): verify ${changeSlug}/${taskId}`], gitRoot);
+        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
+        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): verify ${changeSlug}/${taskId}`], { encoding: 'utf8' });
       } catch (e) {
         emitter.stepFailed({ id: 'commit-verification', error: e.message });
         emitter.operationFailed({ error: e.message });
@@ -729,6 +759,13 @@ export function handleSelfCheck(changeSlug, taskId, { activeDir = ACTIVE_DIR, gi
       console.log(`Note: '${taskId}' and '${overlap.taskId}' both attribute changed_paths: ${overlap.paths.join(', ')} — verify this overlap is expected before trusting either task's evidence in isolation.`);
     }
   }
+
+  const built = buildSpecsIndexes({ activeDir });
+  writeSpecsIndexes(built, {
+    activeIndexMd: join(gitRoot, 'specs', 'active.generated.md'),
+    archiveIndexMd: join(gitRoot, 'specs', 'archive.generated.md'),
+    indexJson: join(gitRoot, 'specs', 'index.generated.json'),
+  });
 
   if (selfCheck.status === 'failed') {
     emitter.operationFailed({ error: { message: `Self-check FAILED: ${selfCheck.failed_criteria.join(', ')}` }, summary: 'Self-check failed' });
