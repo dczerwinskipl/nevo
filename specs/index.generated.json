@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T13:07:41.675Z",
+  "generated": "2026-08-17T13:07:43.576Z",
   "changes": [
     {
       "id": "ai-sessions-live-chat-integration",
@@ -580,7 +580,7 @@
           "id": "cli-step-instrumentation-tests-and-audits",
           "order": 6,
           "file": "tasks/06-cli-step-instrumentation-tests-and-audits.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
@@ -611,11 +611,14 @@
           "id": "approve-post-action-sync-and-git",
           "order": 7,
           "file": "tasks/08-approve-post-action-sync-and-git.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "operation-progress-contract-and-transport",
             "cli-step-instrumentation-gate-and-verification"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d7197c806e1c5e41df7309bab5e0e91f52ee6336"
+          }
         },
         {
           "id": "dashboard-operation-progress-ui",
