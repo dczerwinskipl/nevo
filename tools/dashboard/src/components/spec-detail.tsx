@@ -554,8 +554,20 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     } catch {}
   }, [change.slug]);
 
+  const [visitedTabs, setVisitedTabs] = useState<Set<DetailTab>>(() => new Set(['overview']));
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
   useEffect(() => {
     setActiveTab('overview');
+    setVisitedTabs(new Set(['overview']));
     setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
     try {
@@ -709,13 +721,13 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
         </div>
       </nav>
 
-      <div
-        id={`spec-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`spec-tab-${activeTab}`}
-        className="mt-7"
-      >
-        {activeTab === 'overview' && (
+      <div className="mt-7">
+        <div
+          id="spec-panel-overview"
+          role="tabpanel"
+          aria-labelledby="spec-tab-overview"
+          className={cn(activeTab !== 'overview' && 'hidden')}
+        >
           <OverviewPanel
             change={change}
             onTaskSelect={openTask}
@@ -746,31 +758,52 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
               ) : null
             }
           />
+        </div>
+        {visitedTabs.has('specification') && (
+          <div
+            id="spec-panel-specification"
+            role="tabpanel"
+            aria-labelledby="spec-tab-specification"
+            className={cn(activeTab !== 'specification' && 'hidden')}
+          >
+            <SpecificationPanel
+              change={change}
+              manifest={manifestQuery.data}
+              manifestLoading={manifestQuery.loading}
+              manifestError={manifestQuery.error}
+              onManifestRetry={() => void manifestQuery.refresh()}
+              enabled={visitedTabs.has('specification')}
+            />
+          </div>
         )}
-        {activeTab === 'specification' && (
-          <SpecificationPanel
-            change={change}
-            manifest={manifestQuery.data}
-            manifestLoading={manifestQuery.loading}
-            manifestError={manifestQuery.error}
-            onManifestRetry={() => void manifestQuery.refresh()}
-            enabled={activeTab === 'specification'}
-          />
+        {visitedTabs.has('areas') && (
+          <div
+            id="spec-panel-areas"
+            role="tabpanel"
+            aria-labelledby="spec-tab-areas"
+            className={cn(activeTab !== 'areas' && 'hidden')}
+          >
+            <AreasPanel
+              change={change}
+              manifest={manifestQuery.data}
+              manifestLoading={manifestQuery.loading}
+              manifestError={manifestQuery.error}
+              onManifestRetry={() => void manifestQuery.refresh()}
+              enabled={visitedTabs.has('areas')}
+            />
+          </div>
         )}
-        {activeTab === 'areas' && (
-          <AreasPanel
-            change={change}
-            manifest={manifestQuery.data}
-            manifestLoading={manifestQuery.loading}
-            manifestError={manifestQuery.error}
-            onManifestRetry={() => void manifestQuery.refresh()}
-            enabled={activeTab === 'areas'}
-          />
-        )}
-        {activeTab === 'changes' && (
-          <Suspense fallback={<ContentLoading />}>
-            <ChangesPanel change={change} />
-          </Suspense>
+        {visitedTabs.has('changes') && (
+          <div
+            id="spec-panel-changes"
+            role="tabpanel"
+            aria-labelledby="spec-tab-changes"
+            className={cn(activeTab !== 'changes' && 'hidden')}
+          >
+            <Suspense fallback={<ContentLoading />}>
+              <ChangesPanel change={change} />
+            </Suspense>
+          </div>
         )}
       </div>
 

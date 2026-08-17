@@ -124,6 +124,15 @@ function FileChange({
   const newFileName = file.status === 'removed' ? null : file.path;
   const contentUnchangedRename = isContentUnchangedRename(file, diff);
 
+  const diffViewData = useMemo(() => {
+    if (!diff || !diff.patchAvailable) return null;
+    return {
+      oldFile: { fileName: oldFileName },
+      newFile: { fileName: newFileName },
+      hunks: [renderablePatch(diff, oldFileName, newFileName)],
+    };
+  }, [diff, oldFileName, newFileName]);
+
   return (
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
       <button
@@ -160,16 +169,10 @@ function FileChange({
           <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--muted)]">
             <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie diffu…
           </div>
-        ) : diff && diff.patchAvailable ? (
+        ) : diff && diff.patchAvailable && diffViewData ? (
           <div className="nevo-diff-view max-w-full overflow-x-auto border-t border-[var(--border)]">
             <DiffView
-              data={{
-                oldFile: { fileName: oldFileName },
-                newFile: { fileName: newFileName },
-                // GitHub's per-file `patch` starts at the first @@ hunk. DiffView's
-                // parser also requires the unified-diff file headers to find it.
-                hunks: [renderablePatch(diff, oldFileName, newFileName)],
-              }}
+              data={diffViewData}
               registerHighlighter={highlighter}
               diffViewMode={mode === 'split' ? DiffModeEnum.SplitGitHub : DiffModeEnum.Unified}
               diffViewTheme="dark"
