@@ -10,7 +10,7 @@ unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
 spec_fingerprint: 36c0653f2484609d8f3edaecb4f439a5598c8500ba877ad233e9ec6c00cd41eb
 task_fingerprints:
-  provider-neutral-core-and-capabilities: 902ab4b6eda68ef111ac31269dedec53414cfc0ba2fccfa99e8b4b29fefb9892
+  provider-neutral-core-and-capabilities: 43398bc2fb27fa5a7debe9706cb5fb35a408111e0672e23fb7068506115de773
   session-binding-and-execution-context: c4de81d3f56d5b83433665759d01a2dcdf0b1f5faca49500a3765c401572b304
   claude-interaction-transport-discovery: eaf69325659496418c14a0bf0d730a1ff8bc2d88c63ebad5a900a8a15650b754
   claude-provider-adapter: 86b37fdd9e06c2211f2b2da132384409cc32f2f1fda7829a1df5d41882b231d9
@@ -26,7 +26,7 @@ task_fingerprints:
 
 # Specification Self-Review: multi-provider-agent-sessions
 
-Comprehensive self-review of the refined `multi-provider-agent-sessions` specification following owner feedback on Claude interaction transport, reconnect/history contracts, and real tooling execution paths:
+Comprehensive self-review of the refined `multi-provider-agent-sessions` specification:
 - **`AskUserQuestion` vs Native Permissions:** `AskUserQuestion` is definitively resolved as `PreToolUse/defer` roundtrip. Native Claude permission prompt transport remains unresolved until Task 03 discovery (`--permission-prompt-tool` vs `PreToolUse/defer` vs `canUseTool`).
 - **Normalized UI Read-Model Cache & Reconnect:** Providers own conversation continuity. NEvo maintains a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) exposing a snapshot with `lastEventSeq` cursor via `GET /api/agent-sessions/:provider/:providerSessionId`. Clients populate `@assistant-ui/react` before connecting to SSE, applying only events newer than the cursor to prevent duplicate events.
 - **Real Tooling Execution Boundary:** Agent execution context integrates at the shared practical command execution boundary in `tools/specs.mjs`, avoiding fictitious command names and automatically binding `(provider, providerSessionId)` to `specId`/`taskId`.
@@ -41,8 +41,8 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **Finding:** `AskUserQuestion` is resolved via `PreToolUse/defer`, while native permission prompts remain open for Task 03 discovery.
 - **Verification:** D5, `areas/claude-provider.md`, Task 03, and Task 05 cleanly separate the decided question deferral from the permissions mechanism comparison.
 
-### 3. Thread History & Reconnection Contract
-- **Finding:** Concrete execution path established for thread restoration across page reloads and server restarts without state loss.
+### 3. Thread History, Incremental Persistence & Reconnection Contract
+- **Finding:** Concrete execution path established for thread restoration across page reloads and server restarts with `lastEventSeq` sequence matching the persisted thread state.
 - **Verification:** Local normalized UI read-model cache serves `GET /api/agent-sessions/:provider/:providerSessionId` with `lastEventSeq`, populating `@assistant-ui/react` before live SSE stream connection with event deduplication.
 
 ### 4. Real Tooling Execution Path Integration

@@ -39,7 +39,7 @@ Extend the shared `tools/ai/` layer with canonical `AgentIdentity { provider, pr
 - Define normalized `AgentEvent` schemas (`turn.started`, `text.delta`, `reasoning.delta`, `tool.started`, `tool.updated`, `tool.completed`, `interaction.requested`, `interaction.resolved`, `usage.updated`, `turn.completed`, `turn.failed`).
 - Update `tools/ai/registry.mjs` to support multiple registered providers (`claude`, `antigravity`, `mock`).
 - Update `tools/ai/turn-runtime.mjs` to manage short-lived turn lifecycles, event broadcasting, interaction correlation (`interactionId`), and turn cancellation indexed by `(provider, providerSessionId)`.
-- Implement normalized UI read-model caching in `tools/ai/` storing conversation messages, tool invocations, and pending interaction state under `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json` for reload restoration without owning an AI session lifecycle.
+- Implement normalized UI read-model caching in `tools/ai/` storing conversation messages, tool invocations, pending interaction state, and `lastEventSeq` under `.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`, updated incrementally with batching/flush support to guarantee `lastEventSeq` matches the highest sequence of the persisted thread state without owning an AI session lifecycle.
 
 ## Verification
 

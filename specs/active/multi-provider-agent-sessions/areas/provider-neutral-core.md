@@ -91,11 +91,17 @@ While providers are the source of truth for session continuity, NEvo maintains a
     messages: NormalizedMessage[];
     activeTurn?: { turnId: string; startedAt: string };
     pendingInteraction?: { interactionId: string; kind: string; payload: unknown };
+    lastEventSeq: number;
     updatedAt: string;
   }
   ```
-- **Update Lifecycle:** Updated automatically upon `interaction.requested`, `turn.completed`, or `turn.failed`.
-- **Page Reload:** Dashboard fetches `GET /api/agent-sessions/:provider/:providerSessionId` (snapshot, pending interaction, and normalized thread history with `lastEventSeq`), immediately populating the `@assistant-ui/react` thread.
+- **Update Lifecycle & Invariant:** The read-model is updated incrementally as normalized `AgentEvent`s are applied (accumulating assistant text deltas, tool calls and outputs, reasoning segments, interaction states, turn state, and advancing `lastEventSeq`). To optimize disk I/O, implementations may employ batching, debouncing, or atomic flush strategies, but must preserve the invariant:
+  $$\text{lastEventSeq in persisted snapshot} = \text{highest AgentEvent sequence represented by the persisted normalized thread state}$$
+- **Page Reload & SSE Deduplication Flow:**
+  1. Dashboard loads persisted snapshot from `GET /api/agent-sessions/:provider/:providerSessionId` (including `messages`, `pendingInteraction`, and `lastEventSeq`).
+  2. Initializes `@assistant-ui/react` thread state and displays any pending interaction card.
+  3. Connects to SSE event stream `GET /api/agent-sessions/:provider/:providerSessionId/events`.
+  4. Applies only live events where $\text{event.seq} > \text{lastEventSeq}$, guaranteeing zero duplicate tokens, messages, or tool cards.
 
 ## 5. HTTP & SSE API Surface
 
@@ -106,9 +112,9 @@ While providers are the source of truth for session continuity, NEvo maintains a
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns`: Start a new turn (with prompt, optional attachments).
 - `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`: Cancel an active turn.
 - `POST /api/agent-sessions/:provider/:providerSessionId/interactions/:interactionId/respond`: Submit user response to pending interaction.
-- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting normalized `AgentEvent` objects.
+- `GET /api/agent-sessions/:provider/:providerSessionId/events`: Server-Sent Events stream emitting normalized `AgentEvent` objects (carrying monotonic sequence `seq`).
 
 ## 6. SSE Reconnection & Event Deduplication
 
 - Client connects to SSE stream after populating thread history.
-- Events carry monotonic turn sequence numbers or timestamps. The client runtime ignores events already reflected in the loaded history snapshot, preventing duplicated tokens or tool cards.
+- Events carry monotonic turn sequence numbers (`seq`). The client runtime filters out any events with $\text{seq} \le \text{lastEventSeq}$ already present in the initial snapshot, preventing duplicated tokens or tool cards across reconnects and server restarts.
