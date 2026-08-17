@@ -256,3 +256,91 @@ test('front matter stripping leaves ordinary Markdown untouched', () => {
   assert.equal(stripFrontMatter('---\nid: one\n---\n# Heading\n'), '# Heading\n');
   assert.equal(stripFrontMatter('# Heading\n'), '# Heading\n');
 });
+
+test('manifest and document loading support declarative configurable sections (reviews, solution-options, decisions)', async () => {
+  const sample = fixture();
+  try {
+    const activeChange = join(sample.activeDir, 'sample-change');
+    mkdirSync(join(activeChange, 'reviews'), { recursive: true });
+    writeFileSync(join(activeChange, 'solution-options.md'), '# Solution Options\n\nOption A vs Option B.\n');
+    writeFileSync(join(activeChange, 'owner-decisions.md'), '# Decisions\n\nAccepted Option A.\n');
+    writeFileSync(join(activeChange, 'reviews', 'spec.md'), '# Review: Spec\n\nLGTM.\n');
+
+    const manifest = await loadSpecificationManifest({
+      source: 'active',
+      slug: 'sample-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+
+    assert.ok(Array.isArray(manifest.sections));
+    const sectionIds = manifest.sections.map(s => s.id);
+    assert.deepEqual(sectionIds, ['specification', 'areas', 'solution-options', 'decisions', 'reviews']);
+
+    const solutionSec = manifest.sections.find(s => s.id === 'solution-options');
+    assert.equal(solutionSec.available, true);
+    assert.equal(solutionSec.document.title, 'Solution Options');
+    assert.equal(solutionSec.document.docId, 'solution-options');
+
+    const decisionsSec = manifest.sections.find(s => s.id === 'decisions');
+    assert.equal(decisionsSec.available, true);
+    assert.equal(decisionsSec.document.title, 'Decisions');
+    assert.equal(decisionsSec.document.docId, 'decisions');
+
+    const reviewsSec = manifest.sections.find(s => s.id === 'reviews');
+    assert.equal(reviewsSec.available, true);
+    assert.equal(reviewsSec.documents.length, 1);
+    assert.equal(reviewsSec.documents[0].id, 'spec');
+    assert.equal(reviewsSec.documents[0].docId, 'review:spec');
+    assert.equal(reviewsSec.documents[0].title, 'Review: Spec');
+
+    // Fetch individual documents
+    const solDoc = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'solution-options',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.equal(solDoc.available, true);
+    assert.equal(solDoc.title, 'Solution Options');
+    assert.equal(solDoc.markdown, '# Solution Options\n\nOption A vs Option B.');
+
+    const decDoc = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'decisions',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.equal(decDoc.available, true);
+    assert.equal(decDoc.title, 'Decisions');
+    assert.equal(decDoc.markdown, '# Decisions\n\nAccepted Option A.');
+
+    const revDoc = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'sample-change',
+      docId: 'review:spec',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.equal(revDoc.available, true);
+    assert.equal(revDoc.title, 'Review: Spec');
+    assert.equal(revDoc.markdown, '# Review: Spec\n\nLGTM.');
+
+    // When a spec lacks optional sections, available is false (tab not shown)
+    const oldManifest = await loadSpecificationManifest({
+      source: 'archive',
+      slug: 'old-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    const oldSolSec = oldManifest.sections.find(s => s.id === 'solution-options');
+    assert.equal(oldSolSec.available, false);
+    const oldRevSec = oldManifest.sections.find(s => s.id === 'reviews');
+    assert.equal(oldRevSec.available, false);
+    assert.deepEqual(oldRevSec.documents, []);
+  } finally {
+    sample.cleanup();
+  }
+});

@@ -17,6 +17,7 @@ import {
   isTerminalStatus,
   stageForStatus,
 } from '../shared/status-stages.js';
+import { DEFAULT_SPEC_SECTIONS } from '../shared/spec-sections.js';
 
 export const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -184,12 +185,56 @@ async function listMarkdownFiles(dir) {
     .sort((a, b) => basename(a).localeCompare(basename(b)));
 }
 
+async function resolveSectionDocument(change, section, repoRoot) {
+  const candidates = Array.isArray(section.file) ? section.file : [section.file];
+  let chosenPath = null;
+  for (const candidate of candidates) {
+    const candidatePath = safeChildPath(change._dir, candidate);
+    if (candidatePath && existsSync(candidatePath)) {
+      chosenPath = candidatePath;
+      break;
+    }
+  }
+  if (!chosenPath && candidates.length > 0) {
+    chosenPath = safeChildPath(change._dir, candidates[0]);
+  }
+  const docId = section.docId || section.id;
+  const doc = await manifestDocument({
+    id: section.id,
+    docId,
+    kind: section.id,
+    filePath: chosenPath,
+    fallbackTitle: section.label || change.title || change._slug,
+    repoRoot,
+  });
+  return doc;
+}
+
+async function resolveSectionDirectory(change, section, repoRoot) {
+  const dirPath = safeChildPath(change._dir, section.dir);
+  const files = dirPath ? await listMarkdownFiles(dirPath) : [];
+  const prefix = section.docIdPrefix || section.id;
+  const documents = await Promise.all(files.map(filePath => {
+    const id = basename(filePath, extname(filePath));
+    return manifestDocument({
+      id,
+      docId: `${prefix}:${id}`,
+      kind: section.id,
+      filePath,
+      fallbackTitle: id.replace(/[-_]+/g, ' '),
+      repoRoot,
+    });
+  }));
+  return documents;
+}
+
 export async function loadSpecificationManifest({
   source,
   slug,
   activeDir = ACTIVE_DIR,
   archiveDir = ARCHIVE_DIR,
   repoRoot = REPOSITORY_ROOT,
+  sectionsConfig = DEFAULT_SPEC_SECTIONS,
 } = {}) {
   const baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
@@ -197,29 +242,50 @@ export async function loadSpecificationManifest({
   const change = loadChange(slug, baseDir);
   if (!change) return null;
 
-  const overviewPath = safeChildPath(change._dir, 'overview.md');
-  const areasDir = safeChildPath(change._dir, 'areas');
-  const areaFiles = areasDir ? await listMarkdownFiles(areasDir) : [];
+  const sections = await Promise.all(
+    sectionsConfig.map(async section => {
+      if (section.type === 'document') {
+        const document = await resolveSectionDocument(change, section, repoRoot);
+        return {
+          id: section.id,
+          type: 'document',
+          label: section.label,
+          icon: section.icon,
+          template: section.template || 'document',
+          available: Boolean(document.available),
+          document,
+        };
+      }
+      if (section.type === 'directory') {
+        const documents = await resolveSectionDirectory(change, section, repoRoot);
+        return {
+          id: section.id,
+          type: 'directory',
+          label: section.label,
+          singularLabel: section.singularLabel || section.label,
+          icon: section.icon,
+          template: section.template || 'directory',
+          available: documents.length > 0,
+          documents,
+        };
+      }
+      return null;
+    })
+  ).then(list => list.filter(Boolean));
 
-  const overview = await manifestDocument({
+  const specSection = sections.find(s => s.id === 'specification');
+  const overview = specSection?.document || await manifestDocument({
     id: 'overview',
     docId: 'overview',
     kind: 'overview',
-    filePath: overviewPath,
+    filePath: safeChildPath(change._dir, 'overview.md'),
     fallbackTitle: change.title || change._slug,
     repoRoot,
   });
-  const areas = await Promise.all(areaFiles.map(filePath => {
-    const id = basename(filePath, extname(filePath));
-    return manifestDocument({
-      id,
-      docId: `area:${id}`,
-      kind: 'area',
-      filePath,
-      fallbackTitle: id.replace(/[-_]+/g, ' '),
-      repoRoot,
-    });
-  }));
+
+  const areasSection = sections.find(s => s.id === 'areas');
+  const areas = areasSection?.documents || [];
+
   const tasks = await Promise.all(change.tasks.map(task => {
     const filePath = safeChildPath(change._dir, task.file);
     return manifestDocument({
@@ -248,31 +314,35 @@ export async function loadSpecificationManifest({
     overview,
     areas,
     tasks,
+    sections,
   };
 }
 
 /** Resolve one manifest `docId` to `{ filePath, kind, id, fallbackTitle, metadata }`, or `null` if unknown/unsafe. */
-function resolveDocumentTarget(change, docId) {
+function resolveDocumentTarget(change, docId, sectionsConfig = DEFAULT_SPEC_SECTIONS) {
   if (docId === 'overview') {
+    const specSection = sectionsConfig.find(s => s.id === 'specification');
+    const candidates = specSection ? (Array.isArray(specSection.file) ? specSection.file : [specSection.file]) : ['overview.md', 'spec.md'];
+    let chosenPath = null;
+    for (const candidate of candidates) {
+      const candidatePath = safeChildPath(change._dir, candidate);
+      if (candidatePath && existsSync(candidatePath)) {
+        chosenPath = candidatePath;
+        break;
+      }
+    }
+    if (!chosenPath && candidates.length > 0) {
+      chosenPath = safeChildPath(change._dir, candidates[0]);
+    }
     return {
-      filePath: safeChildPath(change._dir, 'overview.md'),
+      filePath: chosenPath,
       kind: 'overview',
       id: 'overview',
       fallbackTitle: change.title || change._slug,
       metadata: {},
     };
   }
-  if (docId.startsWith('area:')) {
-    const id = docId.slice('area:'.length);
-    if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
-    return {
-      filePath: safeChildPath(change._dir, `areas/${id}.md`),
-      kind: 'area',
-      id,
-      fallbackTitle: id.replace(/[-_]+/g, ' '),
-      metadata: {},
-    };
-  }
+
   if (docId.startsWith('task:')) {
     const id = docId.slice('task:'.length);
     const task = change.tasks.find(t => t.id === id);
@@ -289,6 +359,78 @@ function resolveDocumentTarget(change, docId) {
       },
     };
   }
+
+  // Check configured sections
+  for (const section of sectionsConfig) {
+    if (section.type === 'document') {
+      const isMatch = docId === section.id
+        || docId === (section.docId || section.id)
+        || docId === `doc:${section.id}`;
+      if (isMatch) {
+        const candidates = Array.isArray(section.file) ? section.file : [section.file];
+        let chosenPath = null;
+        for (const candidate of candidates) {
+          const candidatePath = safeChildPath(change._dir, candidate);
+          if (candidatePath && existsSync(candidatePath)) {
+            chosenPath = candidatePath;
+            break;
+          }
+        }
+        if (!chosenPath && candidates.length > 0) {
+          chosenPath = safeChildPath(change._dir, candidates[0]);
+        }
+        return {
+          filePath: chosenPath,
+          kind: section.id,
+          id: section.id,
+          fallbackTitle: section.label || change.title || change._slug,
+          metadata: {},
+        };
+      }
+    }
+
+    if (section.type === 'directory') {
+      const prefixes = [section.docIdPrefix, section.id, section.dir].filter(Boolean);
+      for (const prefix of prefixes) {
+        if (docId.startsWith(`${prefix}:`)) {
+          const id = docId.slice(prefix.length + 1);
+          if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+          return {
+            filePath: safeChildPath(change._dir, `${section.dir}/${id}.md`),
+            kind: section.id,
+            id,
+            fallbackTitle: id.replace(/[-_]+/g, ' '),
+            metadata: {},
+          };
+        }
+      }
+    }
+  }
+
+  // Fallbacks for area: or review: if not covered by custom sectionsConfig
+  if (docId.startsWith('area:')) {
+    const id = docId.slice('area:'.length);
+    if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+    return {
+      filePath: safeChildPath(change._dir, `areas/${id}.md`),
+      kind: 'area',
+      id,
+      fallbackTitle: id.replace(/[-_]+/g, ' '),
+      metadata: {},
+    };
+  }
+  if (docId.startsWith('review:')) {
+    const id = docId.slice('review:'.length);
+    if (!id || !/^[a-z0-9][a-z0-9._-]*$/i.test(id)) return null;
+    return {
+      filePath: safeChildPath(change._dir, `reviews/${id}.md`),
+      kind: 'reviews',
+      id,
+      fallbackTitle: id.replace(/[-_]+/g, ' '),
+      metadata: {},
+    };
+  }
+
   return null;
 }
 
@@ -299,6 +441,7 @@ export async function loadSpecificationDocument({
   activeDir = ACTIVE_DIR,
   archiveDir = ARCHIVE_DIR,
   repoRoot = REPOSITORY_ROOT,
+  sectionsConfig = DEFAULT_SPEC_SECTIONS,
 } = {}) {
   const baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
@@ -307,7 +450,7 @@ export async function loadSpecificationDocument({
   const change = loadChange(slug, baseDir);
   if (!change) return null;
 
-  const target = resolveDocumentTarget(change, docId);
+  const target = resolveDocumentTarget(change, docId, sectionsConfig);
   if (!target || !target.filePath) return null;
 
   const stats = await pathStat(target.filePath);
