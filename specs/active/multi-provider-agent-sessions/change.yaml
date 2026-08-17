@@ -46,7 +46,7 @@ tasks:
   - id: assistant-ui-integration-and-adapter
     order: 7
     file: tasks/07-assistant-ui-integration-and-adapter.md
-    status: draft
+    status: approved
     depends_on: [ agent-session-http-sse-api ]
   - id: custom-renderers-and-interaction-ui
     order: 8
