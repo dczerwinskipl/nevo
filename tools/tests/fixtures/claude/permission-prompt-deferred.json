@@ -1,0 +1,5 @@
+{"type":"message_start","message":{"id":"msg_01AQ1W8QhMhKz2e1a3b4c5d9","type":"message","role":"assistant","model":"claude-3-7-sonnet-20250219","content":[]}}
+{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_perm_01","name":"Bash","input":{"command":"npm --prefix tools/dashboard run build"}}}
+{"type":"content_block_stop","index":0}
+{"type":"message_delta","delta":{"stop_reason":"tool_deferred","stop_sequence":null},"deferred_tool_use":{"id":"toolu_perm_01","name":"Bash","input":{"command":"npm --prefix tools/dashboard run build"},"permission_required":true}}
+{"type":"message_stop"}

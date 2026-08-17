@@ -66,6 +66,16 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
 - A future local registry may store correlation evidence under `/.nevo-ai-local/`.
   That directory is local operator state, ignored by Git, and is not provider history.
 
+## Claude Code interaction transport
+
+Claude Code (version >= 2.1.89) is integrated through non-interactive process invocations (`claude -p --resume <providerSessionId>`). Interactive turns that require user input (interactive questions via `AskUserQuestion` or permission prompts for sensitive operations like `Bash` or `WriteFile`) use the native `PreToolUse` hook deferral mechanism:
+- When a tool is deferred (`permissionDecision: "defer"`), the Claude CLI process exits with `stop_reason: "tool_deferred"` and outputs the `deferred_tool_use` payload.
+- NEvo maps this payload to a normalized `interaction.requested` event (`kind: 'question'` or `kind: 'permission'`).
+- The user responds via the dashboard UI.
+- NEvo resumes the session with the user's answers or allow/deny decision passed back to the hook as `updatedInput` / `permissionDecision`, allowing execution to continue.
+- Known limitation: `PreToolUse/defer` does not support deferrals across multiple parallel tool calls in a single batch.
+
+
 ## Verify Part 1
 
 Run the tooling, server/browser contract, production build, generated-index, and

@@ -42,16 +42,15 @@ PreToolUse Hook re-executes with allow + updatedInput containing user answers
 Claude continues execution
 ```
 
-- **Known Limitation:** `PreToolUse/defer` cannot defer multiple interactive tool calls occurring simultaneously in a single parallel batch. The adapter and test suite explicitly record this known boundary.
+## 3. Native Permissions Transport (Evaluated & Selected)
 
-## 3. Native Permissions Discovery & Mapping (Task 03 Required)
+Task 03 discovery evaluated three potential transports for native permission prompts:
+1. `--permission-prompt-tool`: Requires bespoke IPC pipes per tool execution and is not uniformly supported across CLI versions.
+2. `PreToolUse/defer` (Selected): Extends the standard `PreToolUse` hook to dangerous tools (`Bash`, `WriteFile`, `Edit`). When a tool requires user permission, the hook returns `permissionDecision: "defer"` (`stop_reason: "tool_deferred"`). The adapter maps this to normalized `interaction.requested` (kind: `'permission'`). Upon user approval (`allow`), NEvo resumes with `permissionDecision: "allow"`; on denial (`deny`), NEvo resumes with `permissionDecision: "deny"` and message. This provides a single, uniform transport for both interactive questions and permission prompts.
+3. Agent SDK `canUseTool`: Bypasses the local CLI binary and requires direct API token integration, violating the local CLI subscription model.
 
-Unlike `AskUserQuestion`, the transport mechanism for **native permission prompts** is not pre-decided. Task 03 discovery evaluates and compares:
-1. `--permission-prompt-tool`
-2. `PreToolUse/defer`
-3. Agent SDK `canUseTool`
+- **Decision:** Use `PreToolUse/defer` uniformly for both interactive questions (`AskUserQuestion`) and native permission prompts (`Bash`, `WriteFile`, `Edit`).
 
-against native permission semantics, subscription authentication, and clean allow/deny resolution. The selected transport will be recorded in a decision record and implemented in Task 05 without building a redundant custom permission engine.
 
 ## 4. Cancellation & Process Cleanup
 

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-17T18:12:45.025Z",
+  "generated": "2026-08-17T18:14:14.671Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -87,10 +87,39 @@
           "id": "claude-interaction-transport-discovery",
           "order": 3,
           "file": "tasks/03-claude-interaction-transport-discovery.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "provider-neutral-core-and-capabilities"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ee44e9304062aef70682e987c78b388012af0cf5",
+            "review_revision": "ee44e9304062aef70682e987c78b388012af0cf5",
+            "changed_paths": [
+              "docs/development/ai-sessions.md",
+              "specs/active/multi-provider-agent-sessions/areas/claude-provider.md",
+              "tools/tests/claude-deferral-discovery.test.mjs",
+              "tools/tests/fixtures/claude/ask-user-question-deferred.json",
+              "tools/tests/fixtures/claude/ask-user-question-resumed.json",
+              "tools/tests/fixtures/claude/parallel-tool-batch-deferred.json",
+              "tools/tests/fixtures/claude/permission-prompt-deferred.json"
+            ],
+            "worktree_patch_fingerprint": "bbc6525362d3834d41855a6f8865ce65f007fba249c03172e29100c220970107"
+          },
+          "self_check": {
+            "fingerprint": "eaf69325659496418c14a0bf0d730a1ff8bc2d88c63ebad5a900a8a15650b754",
+            "revision": "ee44e9304062aef70682e987c78b388012af0cf5",
+            "commands": [
+              {
+                "command": "node --test tools/tests/claude-deferral-discovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "claude-provider-adapter",

@@ -1,0 +1,8 @@
+{"type":"message_start","message":{"id":"msg_01AQ1W8QhMhKz2e1a3b4c5d6","type":"message","role":"assistant","model":"claude-3-7-sonnet-20250219","content":[]}}
+{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"The user requested architecture advice. I will ask them about their preferred database backend."}}
+{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" Generating interactive question options."}}
+{"type":"content_block_stop","index":0}
+{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01WJ5yL34Pq67r8s9t0u1v2w","name":"AskUserQuestion","input":{"questions":[{"question":"Which database provider would you like to use for persistence?","header":"Database","options":[{"label":"PostgreSQL","description":"Relational SQL database with robust JSON support."},{"label":"SQLite","description":"Lightweight embedded single-file database."}],"multiSelect":false}]}}}
+{"type":"content_block_stop","index":1}
+{"type":"message_delta","delta":{"stop_reason":"tool_deferred","stop_sequence":null},"usage":{"output_tokens":145},"deferred_tool_use":{"id":"toolu_01WJ5yL34Pq67r8s9t0u1v2w","name":"AskUserQuestion","input":{"questions":[{"question":"Which database provider would you like to use for persistence?","header":"Database","options":[{"label":"PostgreSQL","description":"Relational SQL database with robust JSON support."},{"label":"SQLite","description":"Lightweight embedded single-file database."}],"multiSelect":false}]}}}
+{"type":"message_stop"}
