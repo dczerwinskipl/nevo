@@ -13,7 +13,7 @@ tasks:
   - id: provider-neutral-core-and-capabilities
     order: 1
     file: tasks/01-provider-neutral-core-and-capabilities.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 52e126bf0977adeeb1126d0122300c232092b5b1
       review_revision: 52e126bf0977adeeb1126d0122300c232092b5b1
