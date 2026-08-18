@@ -314,6 +314,11 @@ tasks:
     depends_on: [ final-verification-and-architecture-docs ]
     implementation:
       baseline_revision: 89f1dfdd1e1e7121e9c687d9e534892927c8d666
+  - id: turn-reliability-and-restart-resilience
+    order: 14
+    file: tasks/14-turn-reliability-and-restart-resilience.md
+    status: draft
+    depends_on: [ agent-execution-modes-and-permissions ]
 
 pull_requests:
   - provider: github

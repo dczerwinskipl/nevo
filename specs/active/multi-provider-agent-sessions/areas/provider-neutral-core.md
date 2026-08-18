@@ -139,3 +139,13 @@ While providers are the source of truth for session continuity, NEvo maintains a
 - Client connects to session SSE stream after populating thread history.
 - Events carry monotonic session sequence numbers (`seq`). The client runtime filters out any events with $\text{seq} \le \text{lastEventSeq}$ already present in the initial snapshot, preventing duplicated tokens or tool cards across reconnects and server restarts.
 
+## 7. Turn Timeout Watchdog & Restart Reconciliation
+
+A turn must never remain `running` indefinitely without either progress or a surfaced error, whether the cause is a hung provider process or a server restart that orphaned in-memory turn state (see D8).
+
+- **Idle watchdog:** `AiTurnRuntime` tracks the last-activity timestamp per running turn, reset by any emitted event (`text.delta`, `reasoning.delta`, `tool.started`, `tool.updated`, `tool.completed`, `usage.updated`). If no event arrives within the idle window (default `AI_TURN_IDLE_TIMEOUT_MS` = 5 minutes, configurable at runtime construction), the runtime cancels the turn through the same path as an explicit `cancelTurn` call (adapter `cancelTurn`, e.g. `SIGINT` to the child process) and finishes it with `turn.failed` carrying error code `AI_TURN_TIMEOUT`.
+- **`waitingForUser` exemption:** Turns awaiting a human response to a pending interaction are never subject to the idle watchdog — waiting on the user is expected, not a hang.
+- **Boot reconciliation:** On server startup, before the HTTP/SSE surface accepts traffic, the runtime scans persisted transcripts under `.nevo-ai-local/transcripts/**` for any `activeTurn` that has no corresponding entry in the freshly constructed (empty) in-memory `turnRuntime`. Each orphaned `activeTurn` is finalized as `turn.failed` with error code `AI_TURN_INTERRUPTED`, and a normalized system message ("Interrupted by server restart") is appended to that session's transcript so the next read shows the true state instead of a stale "running" badge.
+- **`pendingInteraction` is not reconciled:** Sessions `waitingForUser` for a pending interaction are left untouched by boot reconciliation — they remain resumable via the existing transcript-cache-backed reconstruction already used by `resolveInteraction` and `cancelTurn`.
+- **Session list/detail status parity:** `GET /api/agent-sessions` (list) and `GET /api/agent-sessions/:provider/:providerSessionId` (detail) compute `status` (`idle` | `running` | `waitingForUser`) identically, both reading live `turnRuntime` state via the transcript's `activeTurn`/`pendingInteraction`. Once boot reconciliation has run, there is no window where the list shows `idle` for a session the detail view reports as `running`, or vice versa.
+

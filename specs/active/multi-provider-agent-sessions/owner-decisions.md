@@ -62,3 +62,14 @@
 - **Consequences:** Page refresh restores the full chat UI and pending interaction cards instantly without restarting or re-invoking provider processes.
 - **Date:** 2026-08-17
 - **Affected artifacts:** `tools/dashboard/server/ai-routes.mjs`, `tools/dashboard/src/lib/nevo-assistant-runtime.ts`, `areas/provider-neutral-core.md`, `areas/assistant-ui-frontend.md`.
+
+## D8: Turn timeout watchdog and restart reconciliation
+
+- **Question:** How does Nevo detect and recover from (a) a stuck/hung turn during normal operation, and (b) stale in-memory/persisted turn state after an ungraceful server restart (crash, kill, service restart)?
+- **Options considered:**
+  - Watchdog: idle-based per-turn timeout (fail the turn if no event has been emitted for N minutes) | fixed wall-clock timeout per turn regardless of activity.
+  - Restart recovery: boot-time reconciliation that finalizes any persisted `activeTurn` without a matching in-memory turn as failed/interrupted | process re-attachment via a persisted PID.
+- **Decision:** Idle-based watchdog — default 5 minutes without any emitted event (`text.delta`, `reasoning.delta`, `tool.*`, `usage.updated`) fails the turn via the existing cancel path (`AI_TURN_TIMEOUT`) and kills the underlying child process; turns in `waitingForUser` are exempt. On server boot, before serving traffic, any persisted `activeTurn` with no corresponding in-memory turn is finalized as failed (`AI_TURN_INTERRUPTED`) with a visible system transcript entry ("Interrupted by server restart"). Process re-attachment is rejected: adapter child processes are not spawned `detached`, so nothing survives a restart to re-attach to.
+- **Consequences:** A turn can no longer spin forever without surfacing an error; `GET /api/agent-sessions` and `GET /api/agent-sessions/:provider/:providerSessionId` never show a permanently "running" ghost session after a restart. `AiService.listSessions` must compute session status the same way the single-session endpoint does, removing the home page vs. chat status discrepancy.
+- **Date:** 2026-08-18
+- **Affected artifacts:** `tools/ai/turn-runtime.mjs`, `tools/ai/claude-adapter.mjs`, `tools/ai/service.mjs`, `tools/dashboard/server/ai-routes.mjs`, `tools/dashboard/server/index.mjs`, `areas/provider-neutral-core.md`, Task 14.
