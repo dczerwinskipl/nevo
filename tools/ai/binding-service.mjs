@@ -1,6 +1,6 @@
-import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { mkdir, readFile, rename, writeFile, readdir, unlink } from 'node:fs/promises';
+import { dirname, resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   AiValidationError,
@@ -20,55 +20,232 @@ export function readAgentExecutionContext(env = process.env) {
 }
 
 export class AgentSessionBindingService {
-  #storageFile;
-  #cache = null;
+  #storageFile = null;
+  #storageDir = null;
+  #cache = new Map(); // specId -> bindings[] or '__all__' for singleFile
 
-  constructor({ storageFile = resolve(process.cwd(), '.nevo-ai-local/sessions.json') } = {}) {
-    this.#storageFile = storageFile;
-  }
-
-  async #load() {
-    if (this.#cache !== null) return this.#cache;
-    try {
-      const content = await readFile(this.#storageFile, 'utf-8');
-      const parsed = JSON.parse(content);
-      this.#cache = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      this.#cache = [];
+  constructor({
+    storageFile,
+    storageDir = resolve(process.cwd(), '.nevo-ai-local/sessions'),
+  } = {}) {
+    if (storageFile) {
+      this.#storageFile = storageFile;
+    } else {
+      this.#storageDir = storageDir;
     }
-    return this.#cache;
   }
 
-  #loadSync() {
-    if (this.#cache !== null) return this.#cache;
+  get storageDir() {
+    return this.#storageDir;
+  }
+
+  async #migrateLegacyIfNeeded() {
+    if (this.#storageFile) return;
+    const legacyFile = resolve(dirname(this.#storageDir), 'sessions.json');
     try {
-      if (existsSync(this.#storageFile)) {
-        const content = readFileSync(this.#storageFile, 'utf-8');
+      if (existsSync(legacyFile)) {
+        const content = await readFile(legacyFile, 'utf-8');
         const parsed = JSON.parse(content);
-        this.#cache = Array.isArray(parsed) ? parsed : [];
-      } else {
-        this.#cache = [];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          await mkdir(this.#storageDir, { recursive: true });
+          const bySpec = new Map();
+          for (const item of parsed) {
+            if (!item.specId) continue;
+            if (!bySpec.has(item.specId)) bySpec.set(item.specId, []);
+            bySpec.get(item.specId).push(item);
+          }
+          for (const [specId, items] of bySpec.entries()) {
+            const specFile = join(this.#storageDir, `${specId}.json`);
+            const tempFile = `${specFile}.${randomUUID()}.tmp`;
+            await writeFile(tempFile, JSON.stringify(items, null, 2), 'utf-8');
+            await rename(tempFile, specFile);
+          }
+        }
+        await unlink(legacyFile).catch(() => {});
       }
     } catch {
-      this.#cache = [];
+      // Ignore migration errors and continue
     }
-    return this.#cache;
   }
 
-  async #persist() {
-    const list = this.#cache || [];
-    await mkdir(dirname(this.#storageFile), { recursive: true });
-    const tempFile = `${this.#storageFile}.${randomUUID()}.tmp`;
+  #migrateLegacyIfNeededSync() {
+    if (this.#storageFile) return;
+    const legacyFile = resolve(dirname(this.#storageDir), 'sessions.json');
+    try {
+      if (existsSync(legacyFile)) {
+        const content = readFileSync(legacyFile, 'utf-8');
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          mkdirSync(this.#storageDir, { recursive: true });
+          const bySpec = new Map();
+          for (const item of parsed) {
+            if (!item.specId) continue;
+            if (!bySpec.has(item.specId)) bySpec.set(item.specId, []);
+            bySpec.get(item.specId).push(item);
+          }
+          for (const [specId, items] of bySpec.entries()) {
+            const specFile = join(this.#storageDir, `${specId}.json`);
+            const tempFile = `${specFile}.${randomUUID()}.tmp`;
+            writeFileSync(tempFile, JSON.stringify(items, null, 2), 'utf-8');
+            renameSync(tempFile, specFile);
+          }
+        }
+        try { unlinkSync(legacyFile); } catch {}
+      }
+    } catch {
+      // Ignore migration errors and continue
+    }
+  }
+
+  async #loadForSpec(specId) {
+    if (this.#storageFile) {
+      if (this.#cache.has('__single__')) {
+        return this.#cache.get('__single__');
+      }
+      try {
+        const content = await readFile(this.#storageFile, 'utf-8');
+        const parsed = JSON.parse(content);
+        const list = Array.isArray(parsed) ? parsed : [];
+        this.#cache.set('__single__', list);
+        return list;
+      } catch {
+        const list = [];
+        this.#cache.set('__single__', list);
+        return list;
+      }
+    }
+
+    await this.#migrateLegacyIfNeeded();
+
+    if (specId) {
+      if (this.#cache.has(specId)) return this.#cache.get(specId);
+      const specFile = join(this.#storageDir, `${specId}.json`);
+      try {
+        const content = await readFile(specFile, 'utf-8');
+        const parsed = JSON.parse(content);
+        const list = Array.isArray(parsed) ? parsed : [];
+        this.#cache.set(specId, list);
+        return list;
+      } catch {
+        const list = [];
+        this.#cache.set(specId, list);
+        return list;
+      }
+    }
+
+    // Load all specs
+    try {
+      if (!existsSync(this.#storageDir)) return [];
+      const files = await readdir(this.#storageDir);
+      const all = [];
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const currentSpecId = file.slice(0, -5);
+        const list = await this.#loadForSpec(currentSpecId);
+        all.push(...list);
+      }
+      return all;
+    } catch {
+      return [];
+    }
+  }
+
+  #loadForSpecSync(specId) {
+    if (this.#storageFile) {
+      if (this.#cache.has('__single__')) {
+        return this.#cache.get('__single__');
+      }
+      try {
+        if (existsSync(this.#storageFile)) {
+          const content = readFileSync(this.#storageFile, 'utf-8');
+          const parsed = JSON.parse(content);
+          const list = Array.isArray(parsed) ? parsed : [];
+          this.#cache.set('__single__', list);
+          return list;
+        }
+        const list = [];
+        this.#cache.set('__single__', list);
+        return list;
+      } catch {
+        const list = [];
+        this.#cache.set('__single__', list);
+        return list;
+      }
+    }
+
+    this.#migrateLegacyIfNeededSync();
+
+    if (specId) {
+      if (this.#cache.has(specId)) return this.#cache.get(specId);
+      const specFile = join(this.#storageDir, `${specId}.json`);
+      try {
+        if (existsSync(specFile)) {
+          const content = readFileSync(specFile, 'utf-8');
+          const parsed = JSON.parse(content);
+          const list = Array.isArray(parsed) ? parsed : [];
+          this.#cache.set(specId, list);
+          return list;
+        }
+        const list = [];
+        this.#cache.set(specId, list);
+        return list;
+      } catch {
+        const list = [];
+        this.#cache.set(specId, list);
+        return list;
+      }
+    }
+
+    try {
+      if (!existsSync(this.#storageDir)) return [];
+      const files = readdirSync(this.#storageDir);
+      const all = [];
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const currentSpecId = file.slice(0, -5);
+        const list = this.#loadForSpecSync(currentSpecId);
+        all.push(...list);
+      }
+      return all;
+    } catch {
+      return [];
+    }
+  }
+
+  async #persistForSpec(specId, list) {
+    if (this.#storageFile) {
+      const all = this.#cache.get('__single__') || list || [];
+      await mkdir(dirname(this.#storageFile), { recursive: true });
+      const tempFile = `${this.#storageFile}.${randomUUID()}.tmp`;
+      await writeFile(tempFile, JSON.stringify(all, null, 2), 'utf-8');
+      await rename(tempFile, this.#storageFile);
+      return;
+    }
+
+    this.#cache.set(specId, list);
+    await mkdir(this.#storageDir, { recursive: true });
+    const specFile = join(this.#storageDir, `${specId}.json`);
+    const tempFile = `${specFile}.${randomUUID()}.tmp`;
     await writeFile(tempFile, JSON.stringify(list, null, 2), 'utf-8');
-    await rename(tempFile, this.#storageFile);
+    await rename(tempFile, specFile);
   }
 
-  #persistSync() {
-    const list = this.#cache || [];
-    mkdirSync(dirname(this.#storageFile), { recursive: true });
-    const tempFile = `${this.#storageFile}.${randomUUID()}.tmp`;
+  #persistForSpecSync(specId, list) {
+    if (this.#storageFile) {
+      const all = this.#cache.get('__single__') || list || [];
+      mkdirSync(dirname(this.#storageFile), { recursive: true });
+      const tempFile = `${this.#storageFile}.${randomUUID()}.tmp`;
+      writeFileSync(tempFile, JSON.stringify(all, null, 2), 'utf-8');
+      renameSync(tempFile, this.#storageFile);
+      return;
+    }
+
+    this.#cache.set(specId, list);
+    mkdirSync(this.#storageDir, { recursive: true });
+    const specFile = join(this.#storageDir, `${specId}.json`);
+    const tempFile = `${specFile}.${randomUUID()}.tmp`;
     writeFileSync(tempFile, JSON.stringify(list, null, 2), 'utf-8');
-    renameSync(tempFile, this.#storageFile);
+    renameSync(tempFile, specFile);
   }
 
   async bindSession({ provider, providerSessionId, specId, taskId, purpose, createdAt, lastSeenAt } = {}) {
@@ -81,7 +258,7 @@ export class AgentSessionBindingService {
     }
 
     const now = new Date().toISOString();
-    const bindings = await this.#load();
+    const bindings = await this.#loadForSpec(specId);
 
     // Check for exact match on (provider, providerSessionId, specId)
     const exactTaskMatch = bindings.find(b =>
@@ -94,7 +271,7 @@ export class AgentSessionBindingService {
     if (exactTaskMatch) {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
-      await this.#persist();
+      await this.#persistForSpec(specId, bindings);
       return structuredClone(exactTaskMatch);
     }
 
@@ -110,7 +287,7 @@ export class AgentSessionBindingService {
         specOnlyMatch.taskId = taskId;
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
-        await this.#persist();
+        await this.#persistForSpec(specId, bindings);
         return structuredClone(specOnlyMatch);
       }
     }
@@ -125,7 +302,7 @@ export class AgentSessionBindingService {
       if (existingSessionMatch) {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
-        await this.#persist();
+        await this.#persistForSpec(specId, bindings);
         return structuredClone(existingSessionMatch);
       }
     }
@@ -141,7 +318,7 @@ export class AgentSessionBindingService {
     };
 
     bindings.push(newBinding);
-    await this.#persist();
+    await this.#persistForSpec(specId, bindings);
     return structuredClone(newBinding);
   }
 
@@ -155,7 +332,7 @@ export class AgentSessionBindingService {
     }
 
     const now = new Date().toISOString();
-    const bindings = this.#loadSync();
+    const bindings = this.#loadForSpecSync(specId);
 
     const exactTaskMatch = bindings.find(b =>
       b.provider === identity.provider &&
@@ -167,7 +344,7 @@ export class AgentSessionBindingService {
     if (exactTaskMatch) {
       exactTaskMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
       if (purpose !== undefined) exactTaskMatch.purpose = purpose;
-      this.#persistSync();
+      this.#persistForSpecSync(specId, bindings);
       return structuredClone(exactTaskMatch);
     }
 
@@ -182,7 +359,7 @@ export class AgentSessionBindingService {
         specOnlyMatch.taskId = taskId;
         specOnlyMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) specOnlyMatch.purpose = purpose;
-        this.#persistSync();
+        this.#persistForSpecSync(specId, bindings);
         return structuredClone(specOnlyMatch);
       }
     }
@@ -196,7 +373,7 @@ export class AgentSessionBindingService {
       if (existingSessionMatch) {
         existingSessionMatch.lastSeenAt = lastSeenAt ? normalizeTimestamp(lastSeenAt, 'lastSeenAt') : now;
         if (purpose !== undefined) existingSessionMatch.purpose = purpose;
-        this.#persistSync();
+        this.#persistForSpecSync(specId, bindings);
         return structuredClone(existingSessionMatch);
       }
     }
@@ -212,12 +389,12 @@ export class AgentSessionBindingService {
     };
 
     bindings.push(newBinding);
-    this.#persistSync();
+    this.#persistForSpecSync(specId, bindings);
     return structuredClone(newBinding);
   }
 
   async listBindings(query = {}) {
-    const bindings = await this.#load();
+    const bindings = await this.#loadForSpec(query.specId);
     return bindings.filter(b => {
       if (query.specId && b.specId !== query.specId) return false;
       if (query.taskId && b.taskId !== query.taskId) return false;
@@ -228,7 +405,7 @@ export class AgentSessionBindingService {
   }
 
   listBindingsSync(query = {}) {
-    const bindings = this.#loadSync();
+    const bindings = this.#loadForSpecSync(query.specId);
     return bindings.filter(b => {
       if (query.specId && b.specId !== query.specId) return false;
       if (query.taskId && b.taskId !== query.taskId) return false;
@@ -240,31 +417,53 @@ export class AgentSessionBindingService {
 
   async getBinding(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
-    const bindings = await this.#load();
+    const bindings = await this.#loadForSpec();
     const match = bindings.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
     return match ? structuredClone(match) : null;
   }
 
   async unbindSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
-    const bindings = await this.#load();
-    const initialLen = bindings.length;
-    const filtered = bindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
-    if (filtered.length !== initialLen) {
-      this.#cache = filtered;
-      await this.#persist();
+    if (this.#storageFile) {
+      const bindings = await this.#loadForSpec();
+      const initialLen = bindings.length;
+      const filtered = bindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      if (filtered.length !== initialLen) {
+        this.#cache.set('__single__', filtered);
+        await this.#persistForSpec(null, filtered);
+      }
+      return;
     }
+
+    const all = await this.#loadForSpec();
+    const target = all.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
+    if (!target) return;
+    const specId = target.specId;
+    const specBindings = await this.#loadForSpec(specId);
+    const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+    await this.#persistForSpec(specId, filtered);
   }
 
   unbindSessionSync(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
-    const bindings = this.#loadSync();
-    const initialLen = bindings.length;
-    const filtered = bindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
-    if (filtered.length !== initialLen) {
-      this.#cache = filtered;
-      this.#persistSync();
+    if (this.#storageFile) {
+      const bindings = this.#loadForSpecSync();
+      const initialLen = bindings.length;
+      const filtered = bindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      if (filtered.length !== initialLen) {
+        this.#cache.set('__single__', filtered);
+        this.#persistForSpecSync(null, filtered);
+      }
+      return;
     }
+
+    const all = this.#loadForSpecSync();
+    const target = all.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
+    if (!target) return;
+    const specId = target.specId;
+    const specBindings = this.#loadForSpecSync(specId);
+    const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+    this.#persistForSpecSync(specId, filtered);
   }
 }
 

@@ -5,8 +5,18 @@ import { Button } from '@/components/ui/button';
 import { useAiProviders } from '@/hooks/use-dashboard-data';
 
 function sessionTitle(session: AiSession) {
+  if (session.title?.trim()) return session.title.trim();
+  if (session.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive') {
+    return session.purpose.trim();
+  }
+  if (session.taskId?.trim()) {
+    return `Zadanie: ${session.taskId.trim()}`;
+  }
+  if (session.purpose?.trim()) {
+    return session.purpose.trim();
+  }
   const id = session.providerSessionId || session.sessionId || '';
-  return session.title?.trim() || `Sesja ${id.slice(0, 12)}`;
+  return `Sesja ${id.slice(0, 12)}`;
 }
 
 function statusLabel(status: AiSession['status']) {

@@ -221,7 +221,15 @@ export function AiChatPage({
           <Button variant="secondary" size="sm" className="hidden shrink-0 sm:inline-flex" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-sm font-semibold text-[var(--foreground)]">{session?.title || (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}</p>
+              <p className="truncate text-sm font-semibold text-[var(--foreground)]">
+                {session?.title?.trim() ||
+                  (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
+                    ? session.purpose.trim()
+                    : '') ||
+                  (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
+                  (session?.purpose?.trim() ? session.purpose.trim() : '') ||
+                  (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}
+              </p>
               {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
             </div>
           </div>

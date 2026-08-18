@@ -238,3 +238,49 @@ test('handleAgentSessionAttach attaches session to resolved spec and task', asyn
   assert.equal(binding.taskId, 'session-binding-and-execution-context');
   assert.equal(binding.purpose, 'testing');
 });
+
+test('AgentSessionBindingService supports per-spec directory storage and migrates legacy sessions.json', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-dir-test-'));
+  try {
+    const legacyFile = join(tmpDir, 'sessions.json');
+    const storageDir = join(tmpDir, 'sessions');
+    const spec1 = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const spec2 = '70609aaf-bb62-40bf-a25e-bec65c583495';
+
+    // Write legacy file with entries across two specs
+    const legacyData = [
+      { provider: 'claude', providerSessionId: 's1', specId: spec1, taskId: 't1' },
+      { provider: 'mock', providerSessionId: 's2', specId: spec2, taskId: 't2' },
+    ];
+    await writeFile(legacyFile, JSON.stringify(legacyData, null, 2), 'utf-8');
+
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // Listing spec1 should migrate and load only spec1's file
+    const spec1Bindings = await service.listBindings({ specId: spec1 });
+    assert.equal(spec1Bindings.length, 1);
+    assert.equal(spec1Bindings[0].providerSessionId, 's1');
+
+    // Legacy file should be cleaned up and per-spec files created
+    assert.equal(existsSync(legacyFile), false);
+    assert.equal(existsSync(join(storageDir, `${spec1}.json`)), true);
+    assert.equal(existsSync(join(storageDir, `${spec2}.json`)), true);
+
+    // Bind a new session for spec1
+    await service.bindSession({
+      provider: 'antigravity',
+      providerSessionId: 's3',
+      specId: spec1,
+      purpose: 'New Task',
+    });
+
+    const updatedSpec1 = await service.listBindings({ specId: spec1 });
+    assert.equal(updatedSpec1.length, 2);
+
+    const spec2Bindings = await service.listBindings({ specId: spec2 });
+    assert.equal(spec2Bindings.length, 1);
+    assert.equal(spec2Bindings[0].providerSessionId, 's2');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
