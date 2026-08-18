@@ -416,6 +416,13 @@ tasks:
         - command: node tools/specs.mjs validate
           exit_code: 0
       status: passed
+  - id: spec-creation-wizard-and-agent-scaffolding
+    order: 15
+    file: tasks/15-spec-creation-wizard-and-agent-scaffolding.md
+    status: draft
+    depends_on:
+      - dashboard-session-ux-and-spec-binding
+      - agent-execution-modes-and-permissions
 
 pull_requests:
   - provider: github

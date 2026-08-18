@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T15:27:10.389Z",
+  "generated": "2026-08-18T15:40:44.840Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -611,6 +611,16 @@
             ],
             "status": "passed"
           }
+        },
+        {
+          "id": "spec-creation-wizard-and-agent-scaffolding",
+          "order": 15,
+          "file": "tasks/15-spec-creation-wizard-and-agent-scaffolding.md",
+          "status": "draft",
+          "depends_on": [
+            "dashboard-session-ux-and-spec-binding",
+            "agent-execution-modes-and-permissions"
+          ]
         }
       ]
     },
