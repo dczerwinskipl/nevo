@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 36c0653f2484609d8f3edaecb4f439a5598c8500ba877ad233e9ec6c00cd41eb
+spec_fingerprint: 665ac9a153403be78ebd8e43fb6cb28c5ada2e2419de18cd76a909e24f9605bd
 task_fingerprints:
   provider-neutral-core-and-capabilities: 43398bc2fb27fa5a7debe9706cb5fb35a408111e0672e23fb7068506115de773
   session-binding-and-execution-context: c4de81d3f56d5b83433665759d01a2dcdf0b1f5faca49500a3765c401572b304
@@ -22,6 +22,7 @@ task_fingerprints:
   antigravity-adapter-and-events: c94fc2329e0128c9be0d862a14f1875061d0fe2f9d0bf3ac93aa2ba7accb11c7
   multi-provider-consistency-audit-and-refinement: 34561999ef32a1c32ca8e43bab1409ed7bd56f9fa278bf124fd2f0a74ccce46a
   final-verification-and-architecture-docs: 0ca5c1fab0bb1b1484a7fbbfe97b8c5b5614e3d26497b9447cfd37680e68e76f
+  agent-execution-modes-and-permissions: d312e52d3f5e0ef3793fb598b4c617d30afc7d8e5e43784fcea4ef89e7a60642
 ---
 
 # Specification Self-Review: multi-provider-agent-sessions
@@ -30,6 +31,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **`AskUserQuestion` vs Native Permissions:** `AskUserQuestion` is definitively resolved as `PreToolUse/defer` roundtrip. Native Claude permission prompt transport remains unresolved until Task 03 discovery (`--permission-prompt-tool` vs `PreToolUse/defer` vs `canUseTool`).
 - **Normalized UI Read-Model Cache & Reconnect:** Providers own conversation continuity. NEvo maintains a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) exposing a snapshot with `lastEventSeq` cursor via `GET /api/agent-sessions/:provider/:providerSessionId`. Clients populate `@assistant-ui/react` before connecting to SSE, applying only events newer than the cursor to prevent duplicate events.
 - **Real Tooling Execution Boundary:** Agent execution context integrates at the shared practical command execution boundary in `tools/specs.mjs`, avoiding fictitious command names and automatically binding `(provider, providerSessionId)` to `specId`/`taskId`.
+- **Execution Modes & Permissions (Task 13):** Neutral execution modes (`ask`, `edit`, `agent`) cleanly map to provider CLI permission flags (`dontAsk`, `acceptEdits`, `bypassPermissions`), dynamic mode switching in UI and persistence in `.nevo-ai-local/bindings.json`, and unified interactive question interception.
 
 ## Evaluation Summary
 
@@ -49,6 +51,10 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **Finding:** Task 02 integrates at the real shared execution boundary of `tools/specs.mjs` for agent-driven workflows.
 - **Verification:** Avoids fictitious command handlers and binds `(provider, providerSessionId)` to `specId`/`taskId` using `AgentExecutionContext`.
 
+### 5. Execution Modes, Permissions & Unified Questions
+- **Finding:** Task 13 defines provider-neutral modes (`ask` / `edit` / `agent`), persisting mode per session in `.nevo-ai-local/bindings.json` and injecting unified question capabilities for CLI providers.
+- **Verification:** Declarations, allowed paths, and dependencies in Task 13 conform to decisions D1–D7 and constraints C1–C10.
+
 ---
 
 # Review Checklist
@@ -56,7 +62,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - [x] No unresolved required fixes
 - [x] No unresolved owner decisions (D1–D7 recorded and referenced)
 - [x] No unresolved clarification requests
-- [x] Semantic references in all 12 tasks resolve cleanly to constraints (C1–C10) and decisions (D1–D7)
+- [x] Semantic references in all 13 tasks resolve cleanly to constraints (C1–C10) and decisions (D1–D7)
 - [x] Gating validations (`specs.mjs check`, `docs.mjs check`, `cli-smoke.test.mjs`) pass cleanly
 - [x] Verdict: ready-for-approval
 
