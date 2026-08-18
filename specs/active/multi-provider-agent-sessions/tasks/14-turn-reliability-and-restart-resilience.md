@@ -106,6 +106,11 @@ existing cancel control must reliably appear and reliably terminate the underlyi
      the only reliable forced-termination path there; POSIX platforms escalate `SIGINT` →
      `SIGKILL`) before finishing the turn. This guarantees cancellation is never a no-op the user
      has to retry, on any OS.
+   - The composer's send button (`tools/dashboard/src/components/ai-chat.tsx`) follows the same
+     convention established clients use: while a turn is running, it becomes an enabled stop
+     control (same icon/behavior as the header's existing cancel button) instead of a disabled
+     spinner, so the primary, expected place to stop generation is the button the user just used
+     to send the message — not only the secondary header control.
 
 ## Verification
 

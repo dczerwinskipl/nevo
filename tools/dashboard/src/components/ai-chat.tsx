@@ -360,11 +360,17 @@ export function AiChatPage({
               <Button
                 size="icon"
                 className="size-11 shrink-0"
-                type="submit"
-                disabled={!composer.trim() || assistant.isRunning || session?.status === 'completed' || !isProviderAvailable}
-                aria-label="Wyślij wiadomość"
+                type={assistant.isRunning ? 'button' : 'submit'}
+                onClick={assistant.isRunning ? () => void assistant.cancelTurn() : undefined}
+                disabled={
+                  assistant.isRunning
+                    ? !assistant.capabilities?.cancelTurn
+                    : !composer.trim() || session?.status === 'completed' || !isProviderAvailable
+                }
+                aria-label={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
+                title={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
               >
-                {assistant.isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+                {assistant.isRunning ? <CircleStop className="size-4" /> : <Send className="size-4" />}
               </Button>
             </form>
           </div>
