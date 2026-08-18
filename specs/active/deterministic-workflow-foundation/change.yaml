@@ -61,3 +61,8 @@ tasks:
       - step-orchestration-and-next-step-service
 
 spec_id: 11c1c495-7548-44ac-a63a-d868dd1b7507
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 31
