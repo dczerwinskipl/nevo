@@ -174,7 +174,7 @@ export class AntigravityAgentProvider {
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: process.platform === 'win32',
+          shell: false,
           env: {
             ...process.env,
             AGY_INTERACTIVE: '0',
