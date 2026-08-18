@@ -1,5 +1,5 @@
 import { AlertTriangle, Menu, Radio, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
@@ -121,19 +121,25 @@ export default function App() {
     setSidebarOpen(false);
   };
 
-  const updateTurnRoute = (turnId: string | null) => {
-    if (!sessionRoute) return;
-    const path = `/ai/sessions/${encodeURIComponent(sessionRoute.provider)}/${encodeURIComponent(sessionRoute.sessionId)}`;
-    const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
-    window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
-    setSessionRoute({ ...sessionRoute, turnId });
-  };
+  const updateTurnRoute = useCallback((turnId: string | null) => {
+    setSessionRoute(prev => {
+      if (!prev || prev.turnId === turnId) return prev;
+      const path = `/ai/sessions/${encodeURIComponent(prev.provider)}/${encodeURIComponent(prev.sessionId)}`;
+      const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
+      window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
+      return { ...prev, turnId };
+    });
+  }, []);
 
-  const leaveChat = () => {
+  const leaveChat = useCallback(() => {
     window.history.pushState({}, '', '/');
     setSessionRoute(null);
     setPendingInitialMessage(null);
-  };
+  }, []);
+
+  const handleInitialMessageConsumed = useCallback(() => {
+    setPendingInitialMessage(null);
+  }, []);
 
   if (sessionRoute) {
     if (loading && !data) return <LoadingScreen />;
@@ -145,7 +151,7 @@ export default function App() {
         sessionId={sessionRoute.sessionId}
         initialTurnId={sessionRoute.turnId}
         initialMessage={pendingInitialMessage}
-        onInitialMessageConsumed={() => setPendingInitialMessage(null)}
+        onInitialMessageConsumed={handleInitialMessageConsumed}
         onTurnChange={updateTurnRoute}
         onBack={leaveChat}
         backLabel={chatOriginTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}

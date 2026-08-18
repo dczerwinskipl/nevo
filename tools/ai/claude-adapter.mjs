@@ -311,7 +311,37 @@ export class ClaudeAgentProvider {
             }
             break;
           }
+          case 'user': {
+            const message = event.message;
+            if (message && Array.isArray(message.content)) {
+              for (const block of message.content) {
+                if (block.type === 'tool_result' && block.tool_use_id) {
+                  if (emitToolCompleted) {
+                    const output = event.tool_use_result?.stdout
+                      || (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))
+                      || 'executed';
+                    emitToolCompleted({
+                      toolId: block.tool_use_id,
+                      output,
+                      status: block.is_error ? 'failed' : 'completed',
+                    });
+                  }
+                  if (activeTool && activeTool.id === block.tool_use_id) {
+                    activeTool = null;
+                  }
+                }
+              }
+            }
+            break;
+          }
+
           case 'result': {
+            if (activeTool) {
+              if (emitToolCompleted) {
+                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'completed' });
+              }
+              activeTool = null;
+            }
             if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
               isDeferred = true;
               deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload || activeTool;

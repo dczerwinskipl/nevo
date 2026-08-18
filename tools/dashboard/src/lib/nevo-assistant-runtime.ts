@@ -179,40 +179,57 @@ export function applyAgentEvent(
     }
 
     case 'tool.updated': {
-      const msgId = `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
-      if (existingIdx >= 0) {
+      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
+      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      if (targetIdx === -1 && event.toolId) {
+        targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
+      }
+      if (targetIdx >= 0) {
         const updated = [...prevMessages];
-        const calls = (updated[existingIdx].toolCalls || []).map((tc) =>
+        const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
           tc.id === event.toolId
             ? { ...tc, input: event.input ?? tc.input, status: (event.status as any) || tc.status }
             : tc
         );
-        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
+        updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
         return updated;
       }
       return prevMessages;
     }
 
     case 'tool.completed': {
-      const msgId = `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
-      if (existingIdx >= 0) {
+      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
+      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      if (targetIdx === -1 && event.toolId) {
+        targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
+      }
+      if (targetIdx >= 0) {
         const updated = [...prevMessages];
-        const calls = (updated[existingIdx].toolCalls || []).map((tc) =>
+        const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
           tc.id === event.toolId
             ? {
                 ...tc,
-                output: event.output,
+                output: event.output ?? tc.output,
                 status: (event.status as any) || 'completed',
-                durationMs: event.durationMs,
+                durationMs: event.durationMs ?? tc.durationMs,
               }
             : tc
         );
-        updated[existingIdx] = { ...updated[existingIdx], toolCalls: calls };
+        updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
         return updated;
       }
       return prevMessages;
+    }
+
+    case 'turn.completed':
+    case 'turn.failed': {
+      return prevMessages.map((m) => {
+        if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
+        return {
+          ...m,
+          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc)),
+        };
+      });
     }
 
     default:
