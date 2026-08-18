@@ -47,7 +47,7 @@ tasks:
   - id: step-orchestration-and-next-step-service
     order: 6
     file: tasks/06-step-orchestration-and-next-step-service.md
-    status: draft
+    status: approved
     depends_on:
       - action-registry-and-aggregated-checks
       - deterministic-gates-and-human-verification
