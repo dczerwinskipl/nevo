@@ -87,3 +87,13 @@
 - **Consequences:** Eliminates AI agent hallucination or missed steps during spec publication and branch/PR synchronization.
 - **Date:** 2026-08-18
 - **Affected artifacts:** `overview.md`, `change.yaml`, `areas/vcs-provider-and-sync-action.md`, task 08
+
+## D10: AI session context propagation and automatic specification/task binding
+
+- **Question:** How should AI agent and dashboard activity be correlated with the specifications and tasks being manipulated, so that every command and action automatically links the active agent session to the corresponding work item?
+- **Options considered:** Manual session attachment commands only | no session tracking at the workflow layer | automatic session context extraction and binding across all workflow CLI commands, action checks, and step executions.
+- **Decision:** Every workflow command and action check accepts and propagates AI session context (via `--session-id`/`--provider` flags, environment variables `NEVO_AGENT_PROVIDER`/`NEVO_AGENT_PROVIDER_SESSION_ID`, or dashboard headers) and automatically binds the active session to the target `spec_id` and optional `task_id` using `AgentSessionBindingService`.
+- **Rationale:** The dashboard and AI adapters already track active sessions. Propagating session context deterministically during every spec/task command bridges the gap between AI agent turns and specification/task lifecycle state, enabling seamless visibility into which agents are working on which tasks.
+- **Consequences:** Session binding is opportunistic and resilient (a missing session context is safely ignored without failing the command), while provided session context is persisted in `.nevo-ai-local/sessions/`.
+- **Date:** 2026-08-18
+- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, tasks 01, 06, 07

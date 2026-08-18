@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the workflow engine that evaluates declarative step definitions, coordinates action execution, enforces entry and exit gates, and exposes the "What next?" query service allowing agents to receive deterministic operational instructions from the CLI rather than encoding process sequences in prompt instructions.
+Define the workflow engine that evaluates declarative step definitions, coordinates action execution, enforces entry and exit gates, propagates AI session context for agent/task tracking, and exposes the "What next?" query service allowing agents to receive deterministic operational instructions from the CLI rather than encoding process sequences in prompt instructions.
 
 ## Step Lifecycle and Orchestration
 
@@ -29,6 +29,18 @@ steps:
       - to: verified
 ```
 
+## AI Session Context Propagation & Automatic Spec/Task Binding
+
+Whenever an AI agent or the dashboard invokes any workflow operation (`cmd spec ...`, `cmd task ...`, `workflow next-step`, `workflow execute-step`, `workflow spec-sync`):
+1. **Context Extraction**:
+   - The CLI/runtime checks CLI flags (`--session-id`, `--provider`), environment variables (`NEVO_AGENT_PROVIDER`, `NEVO_AGENT_PROVIDER_SESSION_ID`), or HTTP request headers.
+2. **Automatic Binding**:
+   - The engine automatically invokes `AgentSessionBindingService.bindSessionSync(...)` with `{ provider, providerSessionId, specId, taskId, purpose }`.
+   - The session relation is idempotently recorded in `.nevo-ai-local/sessions/<spec_id>.json`.
+3. **Traceability in Engine Output**:
+   - `next-step` and action `check` responses include active sessions bound to that specification and task (`boundSessions: [...]`).
+   - This ensures complete end-to-end observability: the dashboard and developer can see which AI agents/sessions are actively working on each task.
+
 ## Deterministic "What Next?" Query Service (`tools/specs/workflow/next-step.mjs`)
 
 The CLI exposes a query command:
@@ -40,6 +52,7 @@ The engine inspects:
 3. Status of entry/exit gates.
 4. Available composable actions and their `--check` outputs.
 5. Whether human verification is required.
+6. Bound AI agent sessions.
 
 It returns a structured JSON payload:
 ```json
@@ -49,6 +62,13 @@ It returns a structured JSON payload:
   "workflowMode": "deterministic",
   "currentStep": "implementation.finalize",
   "stepStatus": "in-progress",
+  "boundSessions": [
+    {
+      "provider": "claude",
+      "sessionId": "ses-98234",
+      "purpose": "implementation"
+    }
+  ],
   "availableActions": [
     {
       "id": "commit-and-push",
