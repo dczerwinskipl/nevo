@@ -317,7 +317,7 @@ tasks:
   - id: turn-reliability-and-restart-resilience
     order: 14
     file: tasks/14-turn-reliability-and-restart-resilience.md
-    status: draft
+    status: approved
     depends_on: [ agent-execution-modes-and-permissions ]
 
 pull_requests:

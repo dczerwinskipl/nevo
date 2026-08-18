@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T10:10:16.963Z",
+  "generated": "2026-08-18T10:13:11.003Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -477,7 +477,7 @@
           "id": "turn-reliability-and-restart-resilience",
           "order": 14,
           "file": "tasks/14-turn-reliability-and-restart-resilience.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "agent-execution-modes-and-permissions"
           ]
