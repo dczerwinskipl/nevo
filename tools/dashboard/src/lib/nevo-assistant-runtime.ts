@@ -238,12 +238,148 @@ export function applyAgentEvent(
   }
 }
 
+export type AgentSessionLoadErrorKind = 'network' | 'not_found' | 'http';
+
+export class AgentSessionLoadError extends Error {
+  readonly kind: AgentSessionLoadErrorKind;
+  readonly status?: number;
+  readonly title: string;
+
+  constructor(message: string, options: { kind: AgentSessionLoadErrorKind; status?: number; title: string }) {
+    super(message);
+    this.name = 'AgentSessionLoadError';
+    this.kind = options.kind;
+    this.status = options.status;
+    this.title = options.title;
+  }
+}
+
+export function classifySessionLoadError(
+  err: unknown,
+  provider?: string,
+  sessionId?: string,
+): AgentSessionLoadError {
+  if (err instanceof AgentSessionLoadError) {
+    return err;
+  }
+
+  if (
+    err instanceof TypeError ||
+    (err instanceof Error &&
+      (err.name === 'FetchError' ||
+        err.message.includes('fetch') ||
+        err.message.includes('ECONNREFUSED') ||
+        err.message.includes('Failed to fetch') ||
+        err.message.includes('NetworkError')))
+  ) {
+    return new AgentSessionLoadError(
+      'Nie udało się nawiązać połączenia z serwerem dashboardu. Upewnij się, że serwer NEvo jest uruchomiony.',
+      {
+        kind: 'network',
+        title: 'Nie można połączyć z dashboardem',
+      },
+    );
+  }
+
+  if (err && typeof err === 'object' && 'status' in err && typeof (err as any).status === 'number') {
+    const status = (err as any).status as number;
+    const msg = (err as any).message || '';
+    if (status === 404) {
+      return new AgentSessionLoadError(
+        msg || `Sesja ${sessionId || ''} dla providera ${provider || ''} nie została znaleziona lub jest niedostępna.`,
+        {
+          kind: 'not_found',
+          status: 404,
+          title: 'Sesja nie znaleziona',
+        },
+      );
+    }
+    return new AgentSessionLoadError(
+      msg || `Serwer dashboardu zwrócił błąd HTTP ${status}.`,
+      {
+        kind: 'http',
+        status,
+        title: `Błąd serwera (${status})`,
+      },
+    );
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('404')) {
+    return new AgentSessionLoadError(
+      `Sesja ${sessionId || ''} dla providera ${provider || ''} nie została znaleziona lub jest niedostępna.`,
+      {
+        kind: 'not_found',
+        status: 404,
+        title: 'Sesja nie znaleziona',
+      },
+    );
+  }
+
+  return new AgentSessionLoadError(
+    message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.',
+    {
+      kind: 'http',
+      title: 'Błąd wczytywania sesji',
+    },
+  );
+}
+
+export async function fetchAgentSessionSnapshot(
+  provider: string,
+  providerSessionId: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<AgentSessionSnapshot> {
+  let res: Response;
+  try {
+    res = await fetchFn(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}`);
+  } catch (err) {
+    throw classifySessionLoadError(err, provider, providerSessionId);
+  }
+
+  if (!res.ok) {
+    let errorMsg = '';
+    try {
+      const errData = await res.json();
+      errorMsg = errData?.error?.message || errData?.message || '';
+    } catch {
+      // ignore non-json response body
+    }
+
+    if (res.status === 404) {
+      throw new AgentSessionLoadError(
+        errorMsg || `Sesja "${providerSessionId}" dla providera "${provider}" nie została znaleziona lub została usunięta.`,
+        {
+          kind: 'not_found',
+          status: 404,
+          title: 'Sesja nie znaleziona',
+        },
+      );
+    }
+
+    throw new AgentSessionLoadError(
+      errorMsg || `Serwer dashboardu zwrócił błąd: ${res.status} ${res.statusText}`,
+      {
+        kind: 'http',
+        status: res.status,
+        title: `Błąd serwera (${res.status})`,
+      },
+    );
+  }
+
+  const data = await res.json();
+  return data.session as AgentSessionSnapshot;
+}
+
 export function useNevoAssistantRuntime({
   provider,
   providerSessionId,
   onTurnCompleted,
   onError,
 }: UseNevoAssistantRuntimeOptions) {
+  const currentIdentity = provider && providerSessionId ? `${provider}:${providerSessionId}` : '';
+  const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
+
   const [messages, setMessages] = useState<NormalizedMessage[]>([]);
   const [pendingInteraction, setPendingInteraction] = useState<AiInteraction | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
@@ -252,8 +388,9 @@ export function useNevoAssistantRuntime({
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
+
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -261,10 +398,15 @@ export function useNevoAssistantRuntime({
   onTurnCompletedRef.current = onTurnCompleted;
 
   const lastSeqRef = useRef<number>(0);
-  lastSeqRef.current = lastEventSeq;
 
   const activeTurnIdRef = useRef<string | null>(null);
   activeTurnIdRef.current = activeTurnId;
+
+  // Identity match check: only expose state if it belongs to the current provider + providerSessionId
+  const isIdentityMatched = Boolean(currentIdentity && loadedIdentity === currentIdentity);
+
+  // Sync cursor ref with state
+  lastSeqRef.current = isIdentityMatched ? lastEventSeq : 0;
 
   const reload = useCallback(async () => {
     setLoadError(null);
@@ -277,20 +419,22 @@ export function useNevoAssistantRuntime({
     let cancelled = false;
     async function loadSnapshot() {
       if (!provider || !providerSessionId) return;
+
+      const identity = `${provider}:${providerSessionId}`;
       setIsLoading(true);
       setLoadError(null);
+
       try {
-        const res = await fetch(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}`);
-        if (!res.ok) throw new Error(`Nie udało się wczytać sesji: ${res.status} ${res.statusText}`);
-        const data = await res.json();
+        const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId);
         if (cancelled) return;
-        const snapshot: AgentSessionSnapshot = data.session;
+
         setSessionDetails(snapshot);
         setMessages(snapshot.messages || []);
         setPendingInteraction(snapshot.pendingInteraction || null);
         setCapabilities(snapshot.capabilities || null);
-        setLastEventSeq(snapshot.lastEventSeq || 0);
-        lastSeqRef.current = snapshot.lastEventSeq || 0;
+        const seq = snapshot.lastEventSeq || 0;
+        setLastEventSeq(seq);
+        lastSeqRef.current = seq;
 
         if (snapshot.activeTurn) {
           setActiveTurnId(snapshot.activeTurn.turnId);
@@ -299,20 +443,35 @@ export function useNevoAssistantRuntime({
           setActiveTurnId(null);
           setIsRunning(false);
         }
+
+        setLoadedIdentity(identity);
         setIsLoading(false);
       } catch (err) {
         if (!cancelled) {
-          const error = err instanceof Error ? err : new Error(String(err));
+          const classified = classifySessionLoadError(err, provider, providerSessionId);
+          // Clear all snapshot-derived state so stale session data is never retained
+          setSessionDetails(null);
+          setMessages([]);
+          setPendingInteraction(null);
+          setCapabilities(null);
+          setActiveTurnId(null);
+          setIsRunning(false);
+          setLastEventSeq(0);
+          lastSeqRef.current = 0;
+
+          setLoadedIdentity(identity);
           setIsLoading(false);
-          setLoadError(error);
-          if (error.name !== 'AbortError') {
-            onErrorRef.current?.(error);
+          setLoadError(classified);
+
+          if (classified.name !== 'AbortError') {
+            onErrorRef.current?.(classified);
           }
         }
       }
     }
 
     loadSnapshot();
+
     return () => {
       cancelled = true;
     };
@@ -321,12 +480,18 @@ export function useNevoAssistantRuntime({
   // 2. Live SSE connection & event deduplication
   useEffect(() => {
     if (!provider || !providerSessionId) return;
+    const identity = `${provider}:${providerSessionId}`;
+    // Only connect SSE if snapshot for current identity is loaded and there is no load error
+    if (loadedIdentity !== identity || loadError) return;
 
     const cursor = lastSeqRef.current;
     const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${cursor}`;
     const eventSource = new EventSource(url);
 
+    let active = true;
+
     const handleAgentEvent = (event: AgentEvent) => {
+      if (!active) return;
       const seq = event.seq ?? event.id ?? 0;
       if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
@@ -372,14 +537,17 @@ export function useNevoAssistantRuntime({
     const unsubscribe = subscribeAgentEventSource(eventSource, handleAgentEvent);
 
     return () => {
+      active = false;
       unsubscribe();
     };
-  }, [provider, providerSessionId]);
+  }, [provider, providerSessionId, loadedIdentity, loadError]);
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
     async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!messageText.trim() || isRunning) return;
+      if (!messageText.trim() || isRunning || !provider || !providerSessionId) return;
+      if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+
       const idempotencyKey = createTurnIdempotencyKey();
       const userMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
@@ -420,13 +588,15 @@ export function useNevoAssistantRuntime({
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, isRunning, onError]
+    [provider, providerSessionId, isRunning, loadedIdentity, onError]
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
     const turnId = activeTurnIdRef.current;
-    if (!turnId) return;
+    if (!turnId || !provider || !providerSessionId) return;
+    if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+
     try {
       await fetch(
         `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns/${encodeURIComponent(turnId)}/cancel`,
@@ -444,11 +614,14 @@ export function useNevoAssistantRuntime({
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [provider, providerSessionId, onError]);
+  }, [provider, providerSessionId, loadedIdentity, onError]);
 
   // 5. Respond Interaction
   const handleRespondInteraction = useCallback(
     async (interactionId: string, responsePayload: unknown) => {
+      if (!provider || !providerSessionId) return;
+      if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+
       try {
         const res = await fetch(
           `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/interactions/${encodeURIComponent(interactionId)}/respond`,
@@ -471,22 +644,31 @@ export function useNevoAssistantRuntime({
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, onError]
+    [provider, providerSessionId, loadedIdentity, onError]
   );
+
+  const exposedMessages = isIdentityMatched ? messages : [];
+  const exposedPendingInteraction = isIdentityMatched ? pendingInteraction : null;
+  const exposedCapabilities = isIdentityMatched ? capabilities : null;
+  const exposedSessionDetails = isIdentityMatched ? sessionDetails : null;
+  const exposedIsRunning = isIdentityMatched ? isRunning : false;
+  const exposedActiveTurnId = isIdentityMatched ? activeTurnId : null;
+  const exposedIsLoading = isIdentityMatched ? isLoading : Boolean(provider && providerSessionId && !loadError);
+  const exposedLoadError = isIdentityMatched ? loadError : null;
 
   // 6. Convert NormalizedMessages to Assistant UI ThreadMessageLike
   const assistantMessages: ThreadMessageLike[] = useMemo(() => {
-    return messages.map((m) => ({
+    return exposedMessages.map((m) => ({
       id: m.id,
       role: m.role,
       content: m.text,
       createdAt: new Date(m.createdAt),
     }));
-  }, [messages]);
+  }, [exposedMessages]);
 
   // 7. Initialize useExternalStoreRuntime
   const runtime = useExternalStoreRuntime({
-    isRunning,
+    isRunning: exposedIsRunning,
     messages: assistantMessages,
     convertMessage: (m: ThreadMessageLike) => m,
     onNew: async (msg) => {
@@ -506,14 +688,14 @@ export function useNevoAssistantRuntime({
 
   return {
     runtime,
-    messages,
-    pendingInteraction,
-    capabilities,
-    sessionDetails,
-    isRunning,
-    activeTurnId,
-    isLoading,
-    loadError,
+    messages: exposedMessages,
+    pendingInteraction: exposedPendingInteraction,
+    capabilities: exposedCapabilities,
+    sessionDetails: exposedSessionDetails,
+    isRunning: exposedIsRunning,
+    activeTurnId: exposedActiveTurnId,
+    isLoading: exposedIsLoading,
+    loadError: exposedLoadError,
     reload,
     sendTurn: handleSendTurn,
     cancelTurn: handleCancelTurn,

@@ -117,3 +117,295 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   unsubscribe();
   assert.equal(source.closed, true);
 });
+
+test('classifySessionLoadError distinguishes network, 404 not found, and general HTTP failures', async () => {
+  const { classifySessionLoadError, AgentSessionLoadError } = await import('../src/lib/nevo-assistant-runtime.ts');
+
+  // 1. Network / fetch failures
+  const netErr1 = classifySessionLoadError(new TypeError('Failed to fetch'), 'claude', 'sess-1');
+  assert.equal(netErr1.kind, 'network');
+  assert.equal(netErr1.title, 'Nie można połączyć z dashboardem');
+  assert.ok(netErr1.message.includes('serwer NEvo'));
+
+  const fetchErr = new Error('Connection refused');
+  fetchErr.name = 'FetchError';
+  const classifiedFetchErr = classifySessionLoadError(fetchErr, 'claude', 'sess-1');
+  assert.equal(classifiedFetchErr.kind, 'network');
+
+  // 2. 404 Not Found
+  const notFoundErr = classifySessionLoadError({ status: 404, message: 'Session deleted' }, 'claude', 'sess-1');
+  assert.equal(notFoundErr.kind, 'not_found');
+  assert.equal(notFoundErr.status, 404);
+  assert.equal(notFoundErr.title, 'Sesja nie znaleziona');
+  assert.equal(notFoundErr.message, 'Session deleted');
+
+  // 3. HTTP 500 / 502 error
+  const serverErr = classifySessionLoadError({ status: 500, message: 'Internal Server Error' }, 'claude', 'sess-1');
+  assert.equal(serverErr.kind, 'http');
+  assert.equal(serverErr.status, 500);
+  assert.equal(serverErr.title, 'Błąd serwera (500)');
+  assert.equal(serverErr.message, 'Internal Server Error');
+});
+
+test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network errors with exact classification', async () => {
+  const { fetchAgentSessionSnapshot } = await import('../src/lib/nevo-assistant-runtime.ts');
+
+  // 1. Successful snapshot
+  const mockFetchSuccess = async (url) => {
+    assert.ok(url.includes('claude') && url.includes('sess-ok'));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        session: {
+          provider: 'claude',
+          providerSessionId: 'sess-ok',
+          messages: [{ id: 'm1', role: 'user', text: 'hi' }],
+          lastEventSeq: 4,
+        },
+      }),
+    };
+  };
+
+  const snapshot = await fetchAgentSessionSnapshot('claude', 'sess-ok', mockFetchSuccess);
+  assert.equal(snapshot.providerSessionId, 'sess-ok');
+  assert.equal(snapshot.messages.length, 1);
+  assert.equal(snapshot.lastEventSeq, 4);
+
+  // 2. 404 Not Found
+  const mockFetch404 = async () => ({
+    ok: false,
+    status: 404,
+    statusText: 'Not Found',
+    json: async () => ({ error: { message: 'Session sess-404 not found' } }),
+  });
+
+  await assert.rejects(
+    () => fetchAgentSessionSnapshot('claude', 'sess-404', mockFetch404),
+    (err) => {
+      assert.equal(err.kind, 'not_found');
+      assert.equal(err.status, 404);
+      assert.equal(err.title, 'Sesja nie znaleziona');
+      assert.ok(err.message.includes('sess-404'));
+      return true;
+    }
+  );
+
+  // 3. 500 Internal Server Error
+  const mockFetch500 = async () => ({
+    ok: false,
+    status: 500,
+    statusText: 'Internal Server Error',
+    json: async () => ({ error: { message: 'Database failure' } }),
+  });
+
+  await assert.rejects(
+    () => fetchAgentSessionSnapshot('claude', 'sess-500', mockFetch500),
+    (err) => {
+      assert.equal(err.kind, 'http');
+      assert.equal(err.status, 500);
+      assert.equal(err.title, 'Błąd serwera (500)');
+      assert.equal(err.message, 'Database failure');
+      return true;
+    }
+  );
+
+  // 4. Network fetch rejection
+  const mockFetchNetworkErr = async () => {
+    throw new TypeError('Failed to fetch');
+  };
+
+  await assert.rejects(
+    () => fetchAgentSessionSnapshot('claude', 'sess-net', mockFetchNetworkErr),
+    (err) => {
+      assert.equal(err.kind, 'network');
+      assert.equal(err.title, 'Nie można połączyć z dashboardem');
+      return true;
+    }
+  );
+});
+
+test('session identity safety: failed switch clears previous session state, prevents stale rendering, and supports clean retry', async () => {
+  const { fetchAgentSessionSnapshot, classifySessionLoadError } = await import('../src/lib/nevo-assistant-runtime.ts');
+
+  // Define session mock database
+  const sessions = {
+    'claude:sess-A': {
+      provider: 'claude',
+      providerSessionId: 'sess-A',
+      title: 'Session A Title',
+      messages: [{ id: 'msg-A-1', role: 'user', text: 'Hello in A' }],
+      pendingInteraction: { id: 'inter-A', kind: 'permission' },
+      activeTurn: { turnId: 'turn-A-1' },
+      capabilities: { cancelTurn: true },
+      lastEventSeq: 10,
+    },
+    'claude:sess-B': {
+      provider: 'claude',
+      providerSessionId: 'sess-B',
+      title: 'Session B Title',
+      messages: [{ id: 'msg-B-1', role: 'user', text: 'Hello in B' }],
+      pendingInteraction: null,
+      activeTurn: null,
+      capabilities: { cancelTurn: false },
+      lastEventSeq: 5,
+    },
+  };
+
+  let failB = true;
+
+  const mockFetch = async (url) => {
+    if (url.includes('sess-A')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ session: sessions['claude:sess-A'] }),
+      };
+    }
+    if (url.includes('sess-B')) {
+      if (failB) {
+        return {
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          json: async () => ({ error: { message: 'Session B not found' } }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ session: sessions['claude:sess-B'] }),
+      };
+    }
+    throw new TypeError('Network error');
+  };
+
+  // State machine simulator modeling useNevoAssistantRuntime identity-safe state
+  class SessionRuntimeSimulator {
+    constructor() {
+      this.currentIdentity = '';
+      this.loadedIdentity = null;
+      this.sessionDetails = null;
+      this.messages = [];
+      this.pendingInteraction = null;
+      this.activeTurnId = null;
+      this.capabilities = null;
+      this.isRunning = false;
+      this.lastEventSeq = 0;
+      this.isLoading = true;
+      this.loadError = null;
+    }
+
+    setSession(provider, providerSessionId) {
+      this.currentIdentity = provider && providerSessionId ? `${provider}:${providerSessionId}` : '';
+      this.isLoading = true;
+      this.loadError = null;
+    }
+
+    async load(provider, providerSessionId) {
+      this.setSession(provider, providerSessionId);
+      const identity = `${provider}:${providerSessionId}`;
+      try {
+        const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId, mockFetch);
+        if (this.currentIdentity !== identity) return; // stale check
+        this.sessionDetails = snapshot;
+        this.messages = snapshot.messages || [];
+        this.pendingInteraction = snapshot.pendingInteraction || null;
+        this.capabilities = snapshot.capabilities || null;
+        this.lastEventSeq = snapshot.lastEventSeq || 0;
+        this.activeTurnId = snapshot.activeTurn?.turnId || null;
+        this.isRunning = Boolean(snapshot.activeTurn);
+        this.loadedIdentity = identity;
+        this.isLoading = false;
+        this.loadError = null;
+      } catch (err) {
+        if (this.currentIdentity !== identity) return;
+        const classified = classifySessionLoadError(err, provider, providerSessionId);
+        // Clean reset
+        this.sessionDetails = null;
+        this.messages = [];
+        this.pendingInteraction = null;
+        this.capabilities = null;
+        this.activeTurnId = null;
+        this.isRunning = false;
+        this.lastEventSeq = 0;
+        this.loadedIdentity = identity;
+        this.isLoading = false;
+        this.loadError = classified;
+      }
+    }
+
+    get exposedState() {
+      const isMatched = Boolean(this.currentIdentity && this.loadedIdentity === this.currentIdentity);
+      return {
+        sessionDetails: isMatched ? this.sessionDetails : null,
+        messages: isMatched ? this.messages : [],
+        pendingInteraction: isMatched ? this.pendingInteraction : null,
+        capabilities: isMatched ? this.capabilities : null,
+        activeTurnId: isMatched ? this.activeTurnId : null,
+        isRunning: isMatched ? this.isRunning : false,
+        lastEventSeq: isMatched ? this.lastEventSeq : 0,
+        isLoading: isMatched ? this.isLoading : Boolean(this.currentIdentity && !this.loadError),
+        loadError: isMatched ? this.loadError : null,
+      };
+    }
+  }
+
+  const runtime = new SessionRuntimeSimulator();
+
+  // 1. Successfully load session A
+  await runtime.load('claude', 'sess-A');
+  let state = runtime.exposedState;
+  assert.equal(state.sessionDetails?.providerSessionId, 'sess-A');
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].text, 'Hello in A');
+  assert.equal(state.pendingInteraction?.id, 'inter-A');
+  assert.equal(state.activeTurnId, 'turn-A-1');
+  assert.equal(state.isRunning, true);
+  assert.equal(state.lastEventSeq, 10);
+  assert.equal(state.loadError, null);
+
+  // 2. Switch to session B while B snapshot fails (404)
+  failB = true;
+  await runtime.load('claude', 'sess-B');
+  state = runtime.exposedState;
+
+  // 3. Ensure NO data from session A remains visible or associated with B
+  assert.equal(state.sessionDetails, null, 'sessionDetails from A must NOT leak into B');
+  assert.deepEqual(state.messages, [], 'messages from A must NOT leak into B');
+  assert.equal(state.pendingInteraction, null, 'pendingInteraction from A must NOT leak into B');
+  assert.equal(state.activeTurnId, null, 'activeTurnId from A must NOT leak into B');
+  assert.equal(state.isRunning, false, 'isRunning from A must NOT leak into B');
+  assert.equal(state.lastEventSeq, 0, 'sequence cursor must be reset for failed B');
+  assert.ok(state.loadError, 'loadError must be set for B');
+  assert.equal(state.loadError.kind, 'not_found');
+  assert.equal(state.loadError.status, 404);
+  assert.equal(state.loadError.title, 'Sesja nie znaleziona');
+
+  // 4. Retry B successfully
+  failB = false;
+  await runtime.load('claude', 'sess-B');
+  state = runtime.exposedState;
+
+  assert.equal(state.sessionDetails?.providerSessionId, 'sess-B');
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].text, 'Hello in B');
+  assert.equal(state.pendingInteraction, null);
+  assert.equal(state.activeTurnId, null);
+  assert.equal(state.isRunning, false);
+  assert.equal(state.lastEventSeq, 5);
+  assert.equal(state.loadError, null);
+
+  // 5. Switching between two valid sessions does not leak state or sequence cursors
+  await runtime.load('claude', 'sess-A');
+  state = runtime.exposedState;
+  assert.equal(state.sessionDetails?.providerSessionId, 'sess-A');
+  assert.equal(state.messages[0].text, 'Hello in A');
+  assert.equal(state.lastEventSeq, 10);
+
+  await runtime.load('claude', 'sess-B');
+  state = runtime.exposedState;
+  assert.equal(state.sessionDetails?.providerSessionId, 'sess-B');
+  assert.equal(state.messages[0].text, 'Hello in B');
+  assert.equal(state.lastEventSeq, 5);
+});

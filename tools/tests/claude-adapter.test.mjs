@@ -553,7 +553,10 @@ for (const mode of ['ask', 'edit', 'agent']) {
   });
 }
 
-test('Claude ask mode behavioral guarantee: offline provider evidence reflects that mutation is blocked in plan mode', async () => {
+test('Claude ask mode contract simulation: adapter correctly processes blocked mutation tool failure in plan mode', async () => {
+  // Synthetic inline stream simulating adapter handling of tool-execution rejection in plan mode.
+  // Note: This is an offline protocol/adapter contract simulation, not captured native CLI provider evidence.
+  // Real native CLI no-write guarantees are verified via manual discovery probes.
   const lines = [
     JSON.stringify({
       type: 'content_block_start',

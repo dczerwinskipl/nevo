@@ -476,6 +476,8 @@ export class AntigravityAgentProvider {
 
       let processingQueue = Promise.resolve();
 
+      let stderrBuffer = '';
+
       child.stdout?.on('data', chunk => {
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
@@ -490,6 +492,7 @@ export class AntigravityAgentProvider {
 
       child.stderr?.on('data', chunk => {
         const text = chunk.toString();
+        stderrBuffer += text;
         console.warn(`[antigravity] [stderr] ${text.trim()}`);
       });
 
@@ -535,7 +538,8 @@ export class AntigravityAgentProvider {
         }
 
         if (exitCode !== 0 && !isDone) {
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}.`));
+          const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
+          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }
 
         resolve({

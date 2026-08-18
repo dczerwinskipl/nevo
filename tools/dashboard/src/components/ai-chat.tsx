@@ -187,7 +187,7 @@ export function AiChatPage({
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
-  }, [assistant.messages, assistant.pendingInteraction]);
+  }, [assistant.messages, assistant.pendingInteraction, submissionError]);
 
   useEffect(() => {
     if (!chatViewport.keyboardOpen) return;
@@ -341,9 +341,13 @@ export function AiChatPage({
                 <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-400">
                   <AlertTriangle className="size-6" />
                 </div>
-                <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">Nie można połączyć z dashboardem</h2>
+                <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">
+                  {'title' in assistant.loadError && typeof (assistant.loadError as any).title === 'string'
+                    ? (assistant.loadError as any).title
+                    : 'Nie można wczytać sesji'}
+                </h2>
                 <p className="mx-auto mt-2 max-w-md text-xs text-[var(--muted)]">
-                  {assistant.loadError.message || 'Nie udało się nawiązać połączenia z serwerem dashboardu. Upewnij się, że serwer NEvo jest uruchomiony.'}
+                  {assistant.loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-3">
                   <Button variant="default" size="sm" onClick={() => void assistant.reload()}>
@@ -392,8 +396,19 @@ export function AiChatPage({
               />
             )}
             {submissionError && (
-              <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">
-                {submissionError}
+              <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-200">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-red-300">Błąd wykonania tury</p>
+                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] text-red-200/90">{submissionError}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionError(null)}
+                  className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/20"
+                >
+                  Zamknij
+                </button>
               </div>
             )}
           </div>
@@ -421,7 +436,19 @@ export function AiChatPage({
                     }
                   }}
                   disabled={session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)}
-                  placeholder={assistant.loadError ? 'Serwer dashboardu jest niedostępny...' : !isProviderAvailable ? 'Provider CLI niedostępny (brak w PATH)' : session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
+                  placeholder={
+                    assistant.loadError
+                      ? ('kind' in assistant.loadError && (assistant.loadError as any).kind === 'not_found'
+                          ? 'Sesja nie została znaleziona...'
+                          : 'Serwer dashboardu jest niedostępny...')
+                      : !isProviderAvailable
+                      ? 'Provider CLI niedostępny (brak w PATH)'
+                      : session?.status === 'completed'
+                      ? 'Ta sesja jest tylko do odczytu'
+                      : assistant.isRunning
+                      ? 'Turn trwa…'
+                      : 'Napisz wiadomość…'
+                  }
                   className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
                 />
               </label>
@@ -436,7 +463,7 @@ export function AiChatPage({
                     : !composer.trim() || session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)
                 }
                 aria-label={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
-                title={assistant.isRunning ? 'Przerwij generowanie' : assistant.loadError ? 'Serwer niedostępny' : 'Wyślij wiadomość'}
+                title={assistant.isRunning ? 'Przerwij generowanie' : assistant.loadError ? assistant.loadError.message : 'Wyślij wiadomość'}
               >
                 {assistant.isRunning ? <CircleStop className="size-4" /> : <Send className="size-4" />}
               </Button>
