@@ -93,10 +93,7 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
             selectedMode={form.mode}
             onModeChange={form.setMode}
             initialPrompt={form.initialPrompt}
-            onPromptChange={(val) => {
-              form.setInitialPrompt(val);
-              form.setPromptManuallyEdited(true);
-            }}
+            onPromptChange={form.setInitialPrompt}
             disabled={Boolean(form.createdSpec)}
           />
         </div>

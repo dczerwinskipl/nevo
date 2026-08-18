@@ -127,16 +127,17 @@ export function SpecAiPlanningSection({
             </div>
           </div>
 
-          {/* Initial Prompt */}
+          {/* Initial Message */}
           <div>
             <label htmlFor="initial-prompt" className="block text-xs font-semibold">
-              Początkowy prompt dla agenta
+              Pierwsza wiadomość <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>
             </label>
             <textarea
               id="initial-prompt"
               value={initialPrompt}
               onChange={(e) => onPromptChange(e.target.value)}
-              rows={4}
+              rows={3}
+              placeholder="Zostaw puste, aby rozpocząć od domyślnego promptu planowania."
               className="mt-1.5 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs outline-none focus:border-[var(--accent)]"
             />
           </div>

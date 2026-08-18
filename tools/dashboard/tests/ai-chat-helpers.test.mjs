@@ -52,6 +52,21 @@ test('selected stable task IDs and specification context are prepended to the in
   );
   assert.ok(emptyMsgSpecPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
   assert.ok(emptyMsgSpecPrompt?.includes('Scope: Full specification'));
+
+  const planningPrompt = initialPromptWithTaskContext(
+    '',
+    [],
+    {
+      slug: 'my-feature',
+      title: 'My Feature',
+      goal: 'Build awesome things',
+      isPlanning: true,
+    }
+  );
+  assert.ok(planningPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
+  assert.ok(planningPrompt?.includes('Status: draft (skeleton created: change.yaml, overview.md)'));
+  assert.ok(planningPrompt?.includes('Goal: Build awesome things'));
+  assert.ok(planningPrompt?.includes('Please review the skeleton files'));
 });
 
 test('persisted assistant messages replace their streamed version by stable message ID', () => {

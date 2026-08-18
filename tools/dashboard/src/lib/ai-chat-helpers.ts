@@ -33,7 +33,9 @@ export function createTurnIdempotencyKey({
 export interface SpecContextInfo {
   slug: string;
   title?: string;
+  goal?: string;
   tasks?: Array<{ id: string; title?: string }>;
+  isPlanning?: boolean;
 }
 
 export function initialPromptWithTaskContext(
@@ -52,7 +54,10 @@ export function initialPromptWithTaskContext(
       headerLines.push(`Title: "${specContext.title}"`);
     }
     headerLines.push(`Location: specs/active/${specContext.slug}/`);
-    if (taskIds.length > 0) {
+    if (specContext.isPlanning) {
+      headerLines.push(`Status: draft (skeleton created: change.yaml, overview.md)`);
+      headerLines.push(`Scope: Specification refinement and task planning`);
+    } else if (taskIds.length > 0) {
       const taskLabels = taskIds.map((id) => {
         const found = specContext.tasks?.find((t) => t.id === id);
         return found?.title ? `${id} ("${found.title}")` : id;
@@ -61,12 +66,18 @@ export function initialPromptWithTaskContext(
     } else {
       headerLines.push(`Scope: Full specification`);
     }
+    if (specContext.goal?.trim()) {
+      headerLines.push(`Goal: ${specContext.goal.trim()}`);
+    }
   } else if (taskIds.length > 0) {
     headerLines.push(`Context: tasks ${taskIds.join(', ')}`);
   }
 
   const contextHeader = headerLines.join('\n');
   if (!request) {
+    if (specContext?.isPlanning) {
+      return `${contextHeader}\n\nPlease review the skeleton files (overview.md, change.yaml) and help me plan and refine this specification according to NEvo guidelines.`;
+    }
     return contextHeader
       ? `${contextHeader}\n\nPlease review the current specification and task state and let me know how you can assist.`
       : null;

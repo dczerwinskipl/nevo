@@ -5,7 +5,8 @@ import {
   useCreateSpecification,
   type CreateSpecificationResult,
 } from '@/hooks/use-dashboard-data';
-import { slugifyTitle, generateInitialPrompt } from '@/lib/spec-create-helpers';
+import { slugifyTitle } from '@/lib/spec-create-helpers';
+import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type { AiSession, AgentExecutionMode } from '@/lib/types';
 
 export interface UseSpecCreateFormOptions {
@@ -44,7 +45,6 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
   const [provider, setProvider] = useState('');
   const [mode, setMode] = useState<AgentExecutionMode>('agent');
   const [initialPrompt, setInitialPrompt] = useState('');
-  const [promptManuallyEdited, setPromptManuallyEdited] = useState(false);
 
   // Two-phase execution state
   const [createdSpec, setCreatedSpec] = useState<CreateSpecificationResult | null>(null);
@@ -59,24 +59,14 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
     if (!slugManuallyEdited || !slug.trim()) {
       setSlug(newSlug);
     }
-    if (!promptManuallyEdited) {
-      setInitialPrompt(generateInitialPrompt(val, goal, newSlug));
-    }
   };
 
   const handleSlugChange = (val: string) => {
     setSlug(val);
     if (!val.trim()) {
       setSlugManuallyEdited(false);
-      const autoSlug = slugifyTitle(title);
-      if (!promptManuallyEdited) {
-        setInitialPrompt(generateInitialPrompt(title, goal, autoSlug));
-      }
     } else {
       setSlugManuallyEdited(true);
-      if (!promptManuallyEdited) {
-        setInitialPrompt(generateInitialPrompt(title, goal, val));
-      }
     }
   };
 
@@ -84,16 +74,10 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
     const autoSlug = slugifyTitle(title);
     setSlug(autoSlug);
     setSlugManuallyEdited(false);
-    if (!promptManuallyEdited) {
-      setInitialPrompt(generateInitialPrompt(title, goal, autoSlug));
-    }
   };
 
   const handleGoalChange = (val: string) => {
     setGoal(val);
-    if (!promptManuallyEdited) {
-      setInitialPrompt(generateInitialPrompt(title, val, slug));
-    }
   };
 
   // Initialize provider and mode when available
@@ -136,7 +120,14 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
       title: 'Planowanie specyfikacji',
     });
 
-    onCreated(spec, session, initialPrompt);
+    const promptToSend = initialPromptWithTaskContext(initialPrompt, [], {
+      slug: spec.slug,
+      title: spec.change.title || title,
+      goal: goal.trim(),
+      isPlanning: true,
+    });
+
+    onCreated(spec, session, promptToSend);
     onClose();
   };
 
@@ -225,7 +216,6 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
     setMode,
     initialPrompt,
     setInitialPrompt,
-    setPromptManuallyEdited,
     handleProviderChange,
     providersLoading: providers.loading,
     enabledProviders,
