@@ -30,7 +30,7 @@ semantic_references:
 
 ## Goal
 
-Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict behavioral guarantees and explicit per-provider CLI mappings, preserve the verified `AskUserQuestion` interaction transport across all modes, support invocation-scoped execution modes and permissions without mutating global settings, persist session mode preferences in local bindings (`.nevo-ai-local/bindings.json`), and provide dynamic mode selection in the dashboard.
+Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict behavioral guarantees and explicit per-provider CLI mappings, preserve the verified `AskUserQuestion` interaction transport across all modes, establish `edit` as the safe default execution mode without implicit escalation to unrestricted autonomous execution, support invocation-scoped execution modes and permissions without mutating global settings, persist session mode preferences in local per-specification bindings, and provide dynamic mode selection in the dashboard.
 
 ## Requirements
 
@@ -40,16 +40,19 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
        - *Guarantee*: Analysis, code exploration, and guidance without source-file modification.
        - *Claude Code mapping*: `--permission-mode plan` (Claude dedicated planning mode).
        - *Antigravity mapping*: `--mode=plan` (invocation-scoped flag).
-     - `edit`:
-       - *Guarantee*: Normal workspace file edits proceed without interactive confirmation; sensitive actions outside file edits remain governed by provider safety policy.
+     - `edit` (Default):
+       - *Guarantee*: Normal coding mode; workspace file edits proceed without repeated confirmation while provider safety policies remain active.
        - *Claude Code mapping*: `--permission-mode acceptEdits`.
        - *Antigravity mapping*: `--mode=accept-edits` (invocation-scoped flag).
      - `agent`:
-       - *Guarantee*: Unattended autonomous execution under Nevo's defined autonomous policy.
-       - *Claude Code mapping*: `--permission-mode bypassPermissions` (deterministic autonomous execution).
-       - *Antigravity mapping*: `--mode=default --dangerously-skip-permissions` (invocation-scoped flags; autonomous execution without interactive prompts).
-       - *Safety note*: `dontAsk` is explicitly rejected as an execution mode mapping because it denies permission-gated tools unconditionally and suppresses interactive questions.
-   - Provider descriptors declare supported modes and default mode within their standard capability surface (`supportedModes: ['ask', 'edit', 'agent']`, `defaultMode: 'agent'`).
+       - *Guarantee*: Explicit unattended autonomous mode with provider permission bypass under Nevo's defined policy.
+       - *Claude Code mapping*: `--permission-mode bypassPermissions`.
+       - *Antigravity mapping*: `--mode=default --dangerously-skip-permissions` (invocation-scoped flags).
+       - *Safety constraints*:
+         - Fresh or default sessions must never silently escalate to `agent`.
+         - `agent` is activated strictly when explicitly requested by user in turn/session parameters or restored from an explicitly persisted user preference.
+         - `dontAsk` is explicitly rejected as an execution mode mapping because it denies permission-gated tools unconditionally and suppresses interactive questions.
+   - Provider descriptors declare supported modes and default mode within their standard capability surface (`supportedModes: ['ask', 'edit', 'agent']`, `defaultMode: 'edit'`).
 
 2. **Preserved verified Claude question transport:**
    - Maintain the established `AskUserQuestion` `PreToolUse/defer` roundtrip transport without introducing undocumented custom-tool definitions or speculative settings injections.
@@ -62,28 +65,34 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
 
 4. **Session mode lifecycle, precedence, and persistence:**
    - Parameter `mode?: 'ask' | 'edit' | 'agent'` supported in `CreateSessionOptions` (`POST /api/agent-sessions`) and `StartTurnOptions` (`POST /api/agent-sessions/:provider/:sessionId/turns`).
-   - Precedence: `turn.mode` > `session.mode` > `provider.defaultMode`.
-   - Persist last-used `mode` per session in `AgentSessionBindingService` (`.nevo-ai-local/bindings.json`).
+   - Resolution precedence: `turn.mode` > `session.mode` > `provider.defaultMode` (resolving to `edit`).
+   - Omitted turn and session mode always resolves to `edit`.
+   - Persist last-used `mode` per session in `AgentSessionBindingService` (`.nevo-ai-local/sessions/<specId>.json`).
    - Session isolation: Changing execution mode in one session does not affect any other session.
 
 5. **Dashboard integration:**
-   - Mode selector in session creation modal (`tools/dashboard/src/components/ai-session-create-modal.tsx`).
+   - Mode selector in session creation modal (`tools/dashboard/src/components/ai-session-create-modal.tsx`), defaulting to `edit`.
    - Mode switcher in live chat header (`tools/dashboard/src/components/ai-chat.tsx`) enabling users to switch between Ask, Edit, and Agent modes.
 
 ## Verification
 
-The test suite must include focused tests proving the semantic guarantees:
+The test suite must verify both exact invocation mappings and provider behavioral guarantees:
 
 1. **Validation**: Unsupported mode strings are rejected with `AiValidationError` at provider-neutral boundary.
-2. **Capabilities**: Provider descriptors advertise exact `supportedModes` and `defaultMode`.
-3. **Ask mode**: Claude spawns with `--permission-mode plan` and Antigravity spawns with `--mode=plan`.
-4. **Edit mode**: Claude spawns with `--permission-mode acceptEdits` and Antigravity spawns with `--mode=accept-edits`.
-5. **Agent mode**: Claude spawns with `--permission-mode bypassPermissions` and Antigravity spawns with `--mode=default --dangerously-skip-permissions`.
-6. **Precedence**: Turn mode overrides session mode; session mode overrides provider default mode.
-7. **Persistence**: Session mode survives `AgentSessionBindingService` reload from disk.
-8. **Session isolation**: Updating mode for session A leaves session B unaffected.
-9. **Question transport**: Claude question normalization continues using verified `AskUserQuestion` PreToolUse deferral across supported modes.
-10. **Neutral contract**: Claude and Antigravity expose the identical provider-neutral mode interface.
+2. **Default mode**: Provider descriptors advertise `defaultMode: 'edit'` and `supportedModes: ['ask', 'edit', 'agent']`.
+3. **Default resolution**: Omitted session and turn mode strictly resolves to `edit` without escalating to `agent`.
+4. **Autonomous escalation guard**: `agent` mode is passed to adapters only when explicitly selected in session/turn options or restored from an explicit binding record.
+5. **Ask mode CLI mapping**: Claude spawns with `--permission-mode plan` and Antigravity spawns with `--mode=plan`.
+6. **Ask mode behavioral guarantee**:
+   - Deterministic adapter tests prove the exact plan mode invocation flags.
+   - Offline provider fixture/transcript tests demonstrate that file-modification operations are prevented/omitted in `ask` mode without altering workspace files, ensuring the semantic guarantee cannot be claimed merely because a CLI flag string was passed.
+7. **Edit mode CLI mapping**: Claude spawns with `--permission-mode acceptEdits` and Antigravity spawns with `--mode=accept-edits`.
+8. **Agent mode CLI mapping**: Claude spawns with `--permission-mode bypassPermissions` and Antigravity spawns with `--mode=default --dangerously-skip-permissions`.
+9. **Precedence**: Turn mode overrides session mode; session mode overrides provider default mode (`edit`).
+10. **Persistence**: Session mode survives `AgentSessionBindingService` reload from disk per-spec file.
+11. **Session isolation**: Updating mode for session A leaves session B unaffected.
+12. **Question transport**: Claude question normalization continues using verified `AskUserQuestion` PreToolUse deferral across all modes.
+13. **Neutral contract**: Claude and Antigravity expose the identical provider-neutral mode interface.
 
 ```bash
 node --test tools/tests/agent-binding.test.mjs

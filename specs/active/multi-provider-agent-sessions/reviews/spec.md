@@ -8,7 +8,7 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 85948f15a6174efbd0f22345f10e866a5f2d3820db68fd64aada65b5144b290d
+spec_fingerprint: ec5703f81e9f1211982ab13a18296b36254817884789d2b66acbd658d9c038fd
 task_fingerprints:
   provider-neutral-core-and-capabilities: b2ff7fba143263a7fec9de88e8f7d06b9f7210977e981aead8941845a25aab96
   session-binding-and-execution-context: 6cdbdeffda563e2fcf43ad2dd86aafbffc7b0e4488c4144d5639dcdd022f73ea
@@ -22,7 +22,7 @@ task_fingerprints:
   antigravity-adapter-and-events: 5268c448bc0d198a0bda08c61f7fdf7f1835adc00f544a3751c8512aae0ddc0e
   multi-provider-consistency-audit-and-refinement: 71ae5bedf4bfe6d0b37e80635dac9a49194088d146d882f20cb03f2c45a136c1
   final-verification-and-architecture-docs: 53fb293be94ee642f4183632beaedfee170350fc2d4f1b860d2b28fe29ffd747
-  agent-execution-modes-and-permissions: 251f04dcd4922509618c9742e0c42781ff2cf4d5a42d6b61f62dccca1e9406a4
+  agent-execution-modes-and-permissions: f36bd1cbd5490df192e2df72d9de0ae63c18d3326ae5863bbfd09d093330644d
 ---
 
 # Specification Self-Review: multi-provider-agent-sessions
@@ -31,7 +31,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **`AskUserQuestion` vs Native Permissions:** `AskUserQuestion` is definitively resolved as `PreToolUse/defer` roundtrip. Native Claude permission prompt transport remains unresolved until Task 03 discovery (`--permission-prompt-tool` vs `PreToolUse/defer` vs `canUseTool`).
 - **Normalized UI Read-Model Cache & Reconnect:** Providers own conversation continuity. NEvo maintains a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) exposing a snapshot with `lastEventSeq` cursor via `GET /api/agent-sessions/:provider/:providerSessionId`. Clients populate `@assistant-ui/react` before connecting to SSE, applying only events newer than the cursor to prevent duplicate events.
 - **Real Tooling Execution Boundary:** Agent execution context integrates at the shared practical command execution boundary in `tools/specs.mjs`, avoiding fictitious command names and automatically binding `(provider, providerSessionId)` to `specId`/`taskId`.
-- **Execution Modes & Permissions (Task 13):** Neutral execution modes (`ask`, `edit`, `agent`) map deterministically to provider CLI flags (`ask` -> `--permission-mode plan` / `--mode=plan`, `edit` -> `--permission-mode acceptEdits` / `--mode=accept-edits`, `agent` -> `--permission-mode bypassPermissions` / `--mode=default --dangerously-skip-permissions`), preserving verified `AskUserQuestion` transport and persisting mode per session in `.nevo-ai-local/bindings.json`.
+- **Execution Modes & Permissions (Task 13):** Neutral execution modes (`ask`, `edit`, `agent`) map deterministically to provider CLI flags (`ask` -> `--permission-mode plan` / `--mode=plan`, `edit` -> `--permission-mode acceptEdits` / `--mode=accept-edits`, `agent` -> `--permission-mode bypassPermissions` / `--mode=default --dangerously-skip-permissions`). Default execution mode is strictly `edit` without implicit escalation to `agent`, `ask` behavioral guarantee is validated via offline fixture evidence, and mode preferences are persisted per-specification in `.nevo-ai-local/sessions/<specId>.json`.
 
 ## Evaluation Summary
 
@@ -52,7 +52,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **Verification:** Avoids fictitious command handlers and binds `(provider, providerSessionId)` to `specId`/`taskId` using `AgentExecutionContext`.
 
 ### 5. Execution Modes, Permissions & Unified Questions
-- **Finding:** Task 13 defines provider-neutral modes (`ask` / `edit` / `agent`), persisting mode per session in `.nevo-ai-local/bindings.json` and preserving verified native question transports.
+- **Finding:** Task 13 defines provider-neutral modes (`ask` / `edit` / `agent`), defaulting to `edit` and validating `ask` behavioral guarantees offline without modifying source files.
 - **Verification:** Declarations, allowed paths, and dependencies in Task 13 conform to decisions D1–D7 and constraints C1–C10.
 
 ---
