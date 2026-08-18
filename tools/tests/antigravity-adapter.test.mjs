@@ -1,0 +1,204 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { EventEmitter } from 'node:events';
+import { Readable, Writable } from 'node:stream';
+import {
+  AntigravityAgentProvider,
+  createAntigravityAgentProvider,
+  ANTIGRAVITY_CAPABILITIES,
+} from '../ai/antigravity-adapter.mjs';
+import { createAiAdapterRegistry } from '../ai/registry.mjs';
+import { CapabilityNotSupportedError } from '../ai/contracts.mjs';
+
+function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
+  const child = new EventEmitter();
+  child.stdin = new Writable({
+    write(chunk, encoding, callback) { callback(); },
+  });
+  child.stdout = new Readable({
+    read() {},
+  });
+  child.stderr = new Readable({
+    read() {},
+  });
+
+  child.kill = (signal) => {
+    child.killed = true;
+    child.killSignal = signal;
+    setImmediate(() => child.emit('close', 0));
+  };
+
+  setImmediate(async () => {
+    for (const line of stdoutLines) {
+      if (child.killed) break;
+      child.stdout.push(`${line}\n`);
+      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+    }
+    child.stdout.push(null);
+    child.emit('close', exitCode);
+  });
+
+  return child;
+}
+
+test('AntigravityAgentProvider declares honest capabilities', () => {
+  const provider = createAntigravityAgentProvider();
+  assert.equal(provider.descriptor.id, 'antigravity');
+  assert.equal(provider.descriptor.capabilities.interactivePermissions, false);
+  assert.equal(provider.descriptor.capabilities.interactiveQuestions, true);
+  assert.equal(provider.descriptor.capabilities.interactiveConfirmations, false);
+  assert.equal(provider.descriptor.capabilities.resumeSession, true);
+  assert.equal(provider.descriptor.capabilities.cancelTurn, true);
+  assert.equal(provider.descriptor.capabilities.toolCalls, true);
+  assert.equal(provider.descriptor.capabilities.reasoning, true);
+  assert.equal(provider.descriptor.capabilities.usage, true);
+});
+
+test('AntigravityAgentProvider throws CapabilityNotSupportedError for permissions', async () => {
+  const provider = createAntigravityAgentProvider();
+  await assert.rejects(
+    () => provider.respondInteraction('sess-1', 'int-1', { kind: 'permission', decision: 'allow' }),
+    err => {
+      assert.ok(err instanceof CapabilityNotSupportedError);
+      assert.equal(err.provider, 'antigravity');
+      assert.equal(err.capability, 'interactivePermissions');
+      return true;
+    }
+  );
+});
+
+test('new conversation spawns with --conversation-id and sets providerSessionId', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'agy-conv-123' }),
+    JSON.stringify({ type: 'text.delta', delta: 'Hello from Antigravity' }),
+    JSON.stringify({ type: 'done', result: 'Hello from Antigravity' }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  let allocatedSessionId = null;
+  const deltas = [];
+
+  const result = await provider.startTurn({
+    turnId: 'turn-1',
+    message: 'Hello',
+    setProviderSessionId: (id) => { allocatedSessionId = id; },
+    emitTextDelta: (d) => deltas.push(d),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(allocatedSessionId, 'agy-conv-123');
+  assert.equal(result.providerSessionId, 'agy-conv-123');
+  assert.ok(capturedCalls.length === 1);
+  assert.equal(capturedCalls[0].executable, 'agy');
+  assert.ok(capturedCalls[0].args.includes('--conversation-id'));
+  assert.ok(deltas.includes('Hello from Antigravity'));
+});
+
+test('existing conversation spawns with --resume', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'text.delta', delta: 'Continuing session' }),
+    JSON.stringify({ type: 'result' }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-2',
+    providerSessionId: 'agy-conv-123',
+    message: 'Next prompt',
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.providerSessionId, 'agy-conv-123');
+  assert.ok(capturedCalls.length === 1);
+  assert.ok(capturedCalls[0].args.includes('--resume'));
+  assert.ok(capturedCalls[0].args.includes('agy-conv-123'));
+});
+
+test('maps reasoning, tool calls, and usage events', async () => {
+  const lines = [
+    JSON.stringify({ type: 'reasoning.delta', reasoning: 'Thinking step 1' }),
+    JSON.stringify({ type: 'tool.started', toolId: 't1', toolName: 'ReadFile', input: { path: 'file.txt' } }),
+    JSON.stringify({ type: 'tool.completed', toolId: 't1', output: 'content' }),
+    JSON.stringify({ type: 'text.delta', delta: 'Here is the file' }),
+    JSON.stringify({ type: 'usage', tokensIn: 100, tokensOut: 50, cost: 0.002 }),
+    JSON.stringify({ type: 'done' }),
+  ];
+
+  const reasonings = [];
+  const toolsStarted = [];
+  const toolsCompleted = [];
+  const texts = [];
+  let usage = null;
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-3',
+    providerSessionId: 'agy-conv-456',
+    message: 'Inspect file',
+    emitReasoningDelta: (r) => reasonings.push(r),
+    emitToolStarted: (t) => toolsStarted.push(t),
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+    emitTextDelta: (t) => texts.push(t),
+    emitUsageUpdated: (u) => { usage = u; },
+  });
+
+  assert.deepEqual(reasonings, ['Thinking step 1']);
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsStarted[0].toolName, 'ReadFile');
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].output, 'content');
+  assert.deepEqual(texts, ['Here is the file']);
+  assert.deepEqual(usage, { tokensIn: 100, tokensOut: 50, cost: 0.002 });
+});
+
+test('supports turn cancellation via cancelTurn', async () => {
+  let killed = false;
+  const child = new EventEmitter();
+  child.stdin = new Writable({ write(c, e, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = () => {
+    killed = true;
+    setImmediate(() => child.emit('close', 0));
+  };
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-cancel',
+    providerSessionId: 'sess-c',
+    message: 'Long query',
+  });
+
+  const cancelResult = await provider.cancelTurn({ turnId: 'turn-cancel', providerSessionId: 'sess-c' });
+  assert.equal(cancelResult.cancelled, true);
+  assert.equal(killed, true);
+
+  await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+});
+
+test('can be registered and retrieved in AiAdapterRegistry', () => {
+  const provider = createAntigravityAgentProvider();
+  const registry = createAiAdapterRegistry([provider]);
+  assert.ok(registry.has('antigravity'));
+  assert.equal(registry.get('antigravity').descriptor.label, 'Antigravity / Gemini');
+});
