@@ -158,6 +158,7 @@ export function AiSessionRow({
           onClick={async (e) => {
             e.stopPropagation();
             if (isDeleting) return;
+            if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
             setIsDeleting(true);
             try {
               await onDelete(session);
