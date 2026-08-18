@@ -280,7 +280,7 @@ tasks:
   - id: final-verification-and-architecture-docs
     order: 12
     file: tasks/12-final-verification-and-architecture-docs.md
-    status: in-implementation
+    status: verified
     depends_on: [ multi-provider-consistency-audit-and-refinement ]
     implementation:
       baseline_revision: cd39e44eff0f69c33d4c858bee050fbce37733e7
