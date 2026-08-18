@@ -74,9 +74,7 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
    - Mode selector in session creation modal (`tools/dashboard/src/components/ai-session-create-modal.tsx`), defaulting to `edit`.
    - Mode switcher in live chat header (`tools/dashboard/src/components/ai-chat.tsx`) enabling users to switch between Ask, Edit, and Agent modes.
 
-## Verification
-
-The test suite must verify both exact invocation mappings and provider behavioral guarantees:
+### Verification criteria
 
 1. **Validation**: Unsupported mode strings are rejected with `AiValidationError` at provider-neutral boundary.
 2. **Default mode**: Provider descriptors advertise `defaultMode: 'edit'` and `supportedModes: ['ask', 'edit', 'agent']`.
@@ -93,6 +91,8 @@ The test suite must verify both exact invocation mappings and provider behaviora
 11. **Session isolation**: Updating mode for session A leaves session B unaffected.
 12. **Question transport**: Claude question normalization continues using verified `AskUserQuestion` PreToolUse deferral across all modes.
 13. **Neutral contract**: Claude and Antigravity expose the identical provider-neutral mode interface.
+
+## Verification
 
 ```bash
 node --test tools/tests/agent-binding.test.mjs

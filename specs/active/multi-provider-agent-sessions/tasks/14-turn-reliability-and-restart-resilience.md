@@ -112,7 +112,7 @@ existing cancel control must reliably appear and reliably terminate the underlyi
      spinner, so the primary, expected place to stop generation is the button the user just used
      to send the message — not only the secondary header control.
 
-## Verification
+### Verification criteria
 
 1. **Watchdog fires on silence:** with a fake/mocked adapter that starts a turn and never emits
    another event, advancing a fake clock past the idle window causes the turn to finish
@@ -138,6 +138,8 @@ existing cancel control must reliably appear and reliably terminate the underlyi
 9. **Cancel control visibility:** a session snapshot with a live `running` turn always yields
    `capabilities.cancelTurn: true` and a populated `activeTurn`, so the chat UI's existing cancel
    control is guaranteed to render — verified via `tools/dashboard/tests/ai-chat.test.mjs`.
+
+## Verification
 
 ```bash
 node --test tools/tests/ai-turn-runtime.test.mjs
