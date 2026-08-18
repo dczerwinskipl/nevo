@@ -251,6 +251,9 @@ export function useNevoAssistantRuntime({
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -263,14 +266,22 @@ export function useNevoAssistantRuntime({
   const activeTurnIdRef = useRef<string | null>(null);
   activeTurnIdRef.current = activeTurnId;
 
+  const reload = useCallback(async () => {
+    setLoadError(null);
+    setIsLoading(true);
+    setReloadTrigger((n) => n + 1);
+  }, []);
+
   // 1. Initial snapshot restoration
   useEffect(() => {
     let cancelled = false;
     async function loadSnapshot() {
       if (!provider || !providerSessionId) return;
+      setIsLoading(true);
+      setLoadError(null);
       try {
         const res = await fetch(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}`);
-        if (!res.ok) throw new Error(`Failed to load session: ${res.statusText}`);
+        if (!res.ok) throw new Error(`Nie udało się wczytać sesji: ${res.status} ${res.statusText}`);
         const data = await res.json();
         if (cancelled) return;
         const snapshot: AgentSessionSnapshot = data.session;
@@ -288,9 +299,12 @@ export function useNevoAssistantRuntime({
           setActiveTurnId(null);
           setIsRunning(false);
         }
+        setIsLoading(false);
       } catch (err) {
         if (!cancelled) {
           const error = err instanceof Error ? err : new Error(String(err));
+          setIsLoading(false);
+          setLoadError(error);
           if (error.name !== 'AbortError') {
             onErrorRef.current?.(error);
           }
@@ -302,7 +316,7 @@ export function useNevoAssistantRuntime({
     return () => {
       cancelled = true;
     };
-  }, [provider, providerSessionId]);
+  }, [provider, providerSessionId, reloadTrigger]);
 
   // 2. Live SSE connection & event deduplication
   useEffect(() => {
@@ -498,6 +512,9 @@ export function useNevoAssistantRuntime({
     sessionDetails,
     isRunning,
     activeTurnId,
+    isLoading,
+    loadError,
+    reload,
     sendTurn: handleSendTurn,
     cancelTurn: handleCancelTurn,
     respondInteraction: handleRespondInteraction,

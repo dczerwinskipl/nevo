@@ -320,7 +320,34 @@ export function AiChatPage({
 
         <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-5">
-            {!assistant.messages.length && !assistant.isRunning && (
+            {assistant.loadError && !assistant.sessionDetails && (
+              <div className="py-16 text-center">
+                <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-400">
+                  <AlertTriangle className="size-6" />
+                </div>
+                <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">Nie można połączyć z dashboardem</h2>
+                <p className="mx-auto mt-2 max-w-md text-xs text-[var(--muted)]">
+                  {assistant.loadError.message || 'Nie udało się nawiązać połączenia z serwerem dashboardu. Upewnij się, że serwer NEvo jest uruchomiony.'}
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-3">
+                  <Button variant="default" size="sm" onClick={() => void assistant.reload()}>
+                    <RefreshCw className="mr-1.5 size-3.5" />
+                    Spróbuj ponownie
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={onBack}>
+                    <ArrowLeft className="mr-1.5 size-3.5" />
+                    Wróć do specyfikacji
+                  </Button>
+                </div>
+              </div>
+            )}
+            {assistant.isLoading && !assistant.sessionDetails && !assistant.loadError && (
+              <div className="py-20 text-center">
+                <LoaderCircle className="mx-auto size-7 animate-spin text-[var(--accent)]" />
+                <p className="mt-3 text-xs text-[var(--muted)]">Wczytywanie sesji czatu...</p>
+              </div>
+            )}
+            {!assistant.isLoading && !assistant.loadError && !assistant.messages.length && !assistant.isRunning && (
               <div className="py-16 text-center">
                 <Bot className="mx-auto size-7 text-[var(--accent)]" />
                 <h2 className="mt-4 text-base font-semibold">Nowa rozmowa ({provider})</h2>
@@ -377,8 +404,8 @@ export function AiChatPage({
                       void submitMessage(composer);
                     }
                   }}
-                  disabled={session?.status === 'completed' || !isProviderAvailable}
-                  placeholder={!isProviderAvailable ? 'Provider CLI niedostępny (brak w PATH)' : session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
+                  disabled={session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)}
+                  placeholder={assistant.loadError ? 'Serwer dashboardu jest niedostępny...' : !isProviderAvailable ? 'Provider CLI niedostępny (brak w PATH)' : session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
                   className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
                 />
               </label>
@@ -390,10 +417,10 @@ export function AiChatPage({
                 disabled={
                   assistant.isRunning
                     ? !assistant.capabilities?.cancelTurn
-                    : !composer.trim() || session?.status === 'completed' || !isProviderAvailable
+                    : !composer.trim() || session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)
                 }
                 aria-label={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
-                title={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
+                title={assistant.isRunning ? 'Przerwij generowanie' : assistant.loadError ? 'Serwer niedostępny' : 'Wyślij wiadomość'}
               >
                 {assistant.isRunning ? <CircleStop className="size-4" /> : <Send className="size-4" />}
               </Button>
