@@ -23,7 +23,7 @@ import {
 } from '../specs/workflow/definitions/schema.mjs';
 
 import { validateWorkflowConfiguration, validateSpecs } from '../specs/validation.mjs';
-import { WorkflowDefinitionError } from '../specs/workflow/errors.mjs';
+import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
 
 describe('Workflow compatibility mode resolution (AC4, AC5)', () => {
   test('manifests omitting workflow metadata cleanly resolve to default legacy mode', () => {
@@ -79,26 +79,75 @@ describe('Workflow compatibility mode resolution (AC4, AC5)', () => {
     assert.equal(resolved.mode, 'deterministic');
     assert.equal(resolved.isExplicit, true);
   });
+
+  test('resolveWorkflowMode throws WorkflowError when both workflow and workflow_mode are declared without override', () => {
+    const dualChange = {
+      id: 'dual-spec',
+      workflow: { mode: 'deterministic' },
+      workflow_mode: 'deterministic',
+    };
+    assert.throws(
+      () => resolveWorkflowMode(dualChange),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.match(err.message, /Ambiguous workflow configuration/);
+        return true;
+      }
+    );
+  });
 });
 
-describe('Manifest workflow schema validation (AC2, AC3)', () => {
+describe('Manifest workflow schema validation (AC2, AC3, Review Finding 3)', () => {
   test('accepts change without workflow metadata', () => {
     const errors = [];
     validateWorkflowConfiguration({ id: 'clean' }, errors, 'test-file.yaml');
     assert.deepEqual(errors, []);
   });
 
-  test('accepts valid workflow object and shorthand workflow_mode', () => {
+  test('accepts canonical workflow object only', () => {
     const errors = [];
     validateWorkflowConfiguration({
       id: 'valid-obj',
       workflow: { mode: 'deterministic', version: 1, definition: 'standard' },
     }, errors, 'test-obj.yaml');
+    assert.deepEqual(errors, []);
+  });
+
+  test('accepts shorthand workflow_mode only', () => {
+    const errors = [];
     validateWorkflowConfiguration({
       id: 'valid-short',
       workflow_mode: 'legacy',
     }, errors, 'test-short.yaml');
     assert.deepEqual(errors, []);
+  });
+
+  test('rejects dual configuration when both workflow and workflow_mode are present with identical values', () => {
+    const errors = [];
+    validateWorkflowConfiguration({
+      id: 'dual-identical',
+      workflow: { mode: 'deterministic', version: 1 },
+      workflow_mode: 'deterministic',
+    }, errors, 'specs/active/dual/change.yaml');
+    assert.equal(errors.length, 1);
+    assert.match(
+      errors[0],
+      /specs\/active\/dual\/change\.yaml: cannot declare both 'workflow' and shorthand 'workflow_mode' — choose one configuration form/
+    );
+  });
+
+  test('rejects dual configuration when both workflow and workflow_mode are present with conflicting values', () => {
+    const errors = [];
+    validateWorkflowConfiguration({
+      id: 'dual-conflicting',
+      workflow: { mode: 'deterministic', version: 1 },
+      workflow_mode: 'legacy',
+    }, errors, 'specs/active/conflict/change.yaml');
+    assert.equal(errors.length, 1);
+    assert.match(
+      errors[0],
+      /specs\/active\/conflict\/change\.yaml: cannot declare both 'workflow' and shorthand 'workflow_mode' — choose one configuration form/
+    );
   });
 
   test('rejects non-object workflow field', () => {
@@ -162,7 +211,7 @@ describe('Manifest workflow schema validation (AC2, AC3)', () => {
   });
 });
 
-describe('Workflow definition parser and loader (AC1)', () => {
+describe('Workflow definition parser, loader, and gate validation (AC1, Review Finding 2)', () => {
   test('built-in definitions exist and parse cleanly', () => {
     const definitions = listBuiltInWorkflowDefinitions();
     assert.ok(definitions.includes('standard'), 'standard workflow definition exists');
@@ -211,6 +260,58 @@ steps:
     assert.equal(def.id, 'custom-v1');
     assert.ok(def.steps.step1);
     assert.deepEqual(def.steps.step1.actions, [{ id: 'custom-action' }]);
+  });
+
+  test('validates known command-gate action when knownActions is supplied', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+`;
+    const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task', 'test']) });
+    assert.equal(def.id, 'custom-v1');
+  });
+
+  test('rejects unknown command-gate action when knownActions is supplied', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: tetss
+`;
+    assert.throws(
+      () => parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task', 'test']) }),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /unknown command gate action 'tetss'/);
+        return true;
+      }
+    );
+  });
+
+  test('preserves raw command in command gate without treating it as an action ID', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        command: "npm run test:unit"
+`;
+    const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task']) });
+    assert.equal(def.id, 'custom-v1');
+    assert.equal(def.steps.step1.exitGates[0].command, 'npm run test:unit');
   });
 
   test('parseWorkflowDefinition rejects unknown actions when knownActions is provided', () => {

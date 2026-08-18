@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T19:23:48.989Z",
+  "generated": "2026-08-18T19:34:54.410Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -16,7 +16,7 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
-            "review_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "review_revision": "420f8d0496bfa2131056e6c38a31e9978abfa806",
             "changed_paths": [
               "specs/active/deterministic-workflow-foundation/change.yaml",
               "tools/specs/validation.mjs",
@@ -30,11 +30,11 @@
               "tools/specs/workflow/index.mjs",
               "tools/tests/workflow-compatibility.test.mjs"
             ],
-            "worktree_patch_fingerprint": "e740e09b3f8b6f71288a93d7d2b18ad37974566e8a6ce4a0d7a0c47230d70b9d"
+            "worktree_patch_fingerprint": "d0022266f33e5c34bb28b69c58f9cbd2594e3fd42fbc62b48e015d6c7cca1edf"
           },
           "self_check": {
             "fingerprint": "79af529344179d6b9f7f49fb530d5e861790300af32e4bab9cfdaee402fc7907",
-            "revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "revision": "420f8d0496bfa2131056e6c38a31e9978abfa806",
             "commands": [
               {
                 "command": "node --test tools/tests/workflow-compatibility.test.mjs",
@@ -58,18 +58,18 @@
           ],
           "implementation": {
             "baseline_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
-            "review_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "review_revision": "420f8d0496bfa2131056e6c38a31e9978abfa806",
             "changed_paths": [
               "tools/specs/workflow/contracts.mjs",
               "tools/specs/workflow/errors.mjs",
               "tools/specs/workflow/index.mjs",
               "tools/tests/workflow-contracts.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "0977211e54ece33b8af31a5c9ce97e0083be1497c622e3a23752a8b7abdc476b"
           },
           "self_check": {
-            "fingerprint": "a07d463ff22fd06df2ccf071fbe88077492fff1b2dce504f38c3965e58af7332",
-            "revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "fingerprint": "ce50841e8b6439e2c2e87e76f01f5efdffcfaac4045567e535a0bb60c480de0b",
+            "revision": "420f8d0496bfa2131056e6c38a31e9978abfa806",
             "commands": [
               {
                 "command": "node --test tools/tests/workflow-contracts.test.mjs",

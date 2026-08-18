@@ -1,11 +1,17 @@
 // ActionContract, GateContract, parameter schema validation, and context result models.
 
-import { PreconditionError } from './errors.mjs';
+import { PreconditionError, WorkflowError } from './errors.mjs';
 
 export const ALLOWED_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Validates caller-supplied inputs against an action's parameter schemas.
+ * Also validates the parameter schemas themselves, failing closed if schemas are malformed.
+ * Rejects unexpected input keys not declared in the schemas.
  *
  * @param {Array<object>} schemas - Parameter schema descriptors
  * @param {Record<string, any>} [inputs={}] - Caller-supplied input object
@@ -16,13 +22,185 @@ export const ALLOWED_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'arra
  */
 export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
   const errors = [];
-  const safeInputs = typeof inputs === 'object' && inputs !== null ? inputs : {};
 
-  for (const schema of schemas) {
-    if (!schema || typeof schema.name !== 'string') continue;
+  // 1. Validate the parameter schemas themselves (fail closed)
+  if (!Array.isArray(schemas)) {
+    errors.push({
+      field: '$schema',
+      message: `Action parameter schemas must be an array, got '${schemas === null ? 'null' : typeof schemas}'`,
+      code: 'INVALID_SCHEMA',
+    });
+    const result = { valid: false, errors };
+    if (options.throwOnError) {
+      const actionLabel = options.actionId ? ` for action '${options.actionId}'` : '';
+      throw new PreconditionError(`Precondition validation failed${actionLabel}: ${errors.map(e => e.message).join('; ')}`, errors, options.actionId);
+    }
+    return result;
+  }
 
+  const declaredParamNames = new Set();
+  const validSchemas = [];
+
+  for (let i = 0; i < schemas.length; i++) {
+    const schema = schemas[i];
+    const schemaLabel = `$schema[${i}]`;
+
+    if (!isPlainObject(schema)) {
+      errors.push({
+        field: schemaLabel,
+        message: `Parameter schema entry at index ${i} must be a plain object, got '${Array.isArray(schema) ? 'array' : typeof schema}'`,
+        code: 'INVALID_SCHEMA_ENTRY',
+      });
+      continue;
+    }
+
+    if (typeof schema.name !== 'string' || !schema.name.trim()) {
+      errors.push({
+        field: `${schemaLabel}.name`,
+        message: `Parameter schema entry at index ${i} missing non-empty 'name'`,
+        code: 'INVALID_SCHEMA_NAME',
+      });
+      continue;
+    }
+
+    const fieldName = schema.name.trim();
+
+    if (declaredParamNames.has(fieldName)) {
+      errors.push({
+        field: fieldName,
+        message: `Duplicate parameter schema definition for '${fieldName}'`,
+        code: 'DUPLICATE_SCHEMA_PARAMETER',
+      });
+      continue;
+    }
+    declaredParamNames.add(fieldName);
+
+    if (typeof schema.type !== 'string' || !ALLOWED_PARAM_TYPES.has(schema.type)) {
+      errors.push({
+        field: fieldName,
+        message: `Parameter '${fieldName}' has invalid type '${schema.type}' (expected one of: ${[...ALLOWED_PARAM_TYPES].join(', ')})`,
+        code: 'INVALID_SCHEMA_TYPE',
+      });
+      continue;
+    }
+
+    if (schema.required !== undefined && typeof schema.required !== 'boolean') {
+      errors.push({
+        field: fieldName,
+        message: `Parameter '${fieldName}' property 'required' must be a boolean, got '${typeof schema.required}'`,
+        code: 'INVALID_SCHEMA_REQUIRED',
+      });
+      continue;
+    }
+
+    if (schema.constraints !== undefined) {
+      if (!isPlainObject(schema.constraints)) {
+        errors.push({
+          field: fieldName,
+          message: `Parameter '${fieldName}' property 'constraints' must be a plain object`,
+          code: 'INVALID_SCHEMA_CONSTRAINTS',
+        });
+        continue;
+      }
+
+      const c = schema.constraints;
+
+      if (c.minLength !== undefined && (!Number.isInteger(c.minLength) || c.minLength < 0)) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'minLength' for '${fieldName}' must be a non-negative integer`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.maxLength !== undefined && (!Number.isInteger(c.maxLength) || c.maxLength < 0)) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'maxLength' for '${fieldName}' must be a non-negative integer`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.minValue !== undefined && (typeof c.minValue !== 'number' || Number.isNaN(c.minValue))) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'minValue' for '${fieldName}' must be a valid number`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.maxValue !== undefined && (typeof c.maxValue !== 'number' || Number.isNaN(c.maxValue))) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'maxValue' for '${fieldName}' must be a valid number`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.allowedValues !== undefined && !Array.isArray(c.allowedValues)) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'allowedValues' for '${fieldName}' must be an array`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.itemType !== undefined && (typeof c.itemType !== 'string' || !ALLOWED_PARAM_TYPES.has(c.itemType))) {
+        errors.push({
+          field: fieldName,
+          message: `Constraint 'itemType' for '${fieldName}' must be one of: ${[...ALLOWED_PARAM_TYPES].join(', ')}`,
+          code: 'INVALID_SCHEMA_CONSTRAINT',
+        });
+      }
+      if (c.pattern !== undefined) {
+        if (typeof c.pattern !== 'string' && !(c.pattern instanceof RegExp)) {
+          errors.push({
+            field: fieldName,
+            message: `Constraint 'pattern' for '${fieldName}' must be a string or RegExp`,
+            code: 'INVALID_SCHEMA_CONSTRAINT',
+          });
+        } else if (typeof c.pattern === 'string') {
+          try {
+            new RegExp(c.pattern);
+          } catch (regexErr) {
+            errors.push({
+              field: fieldName,
+              message: `Invalid regex pattern '${c.pattern}' for parameter '${fieldName}': ${regexErr.message}`,
+              code: 'INVALID_SCHEMA_PATTERN',
+            });
+          }
+        }
+      }
+    }
+
+    validSchemas.push({ ...schema, name: fieldName });
+  }
+
+  // 2. Validate caller inputs object format
+  if (!isPlainObject(inputs)) {
+    errors.push({
+      field: '$inputs',
+      message: `Caller inputs must be a plain object, got '${Array.isArray(inputs) ? 'array' : (inputs === null ? 'null' : typeof inputs)}'`,
+      code: 'INVALID_INPUTS_OBJECT',
+    });
+    const result = { valid: false, errors };
+    if (options.throwOnError) {
+      const actionLabel = options.actionId ? ` for action '${options.actionId}'` : '';
+      throw new PreconditionError(`Precondition validation failed${actionLabel}: ${errors.map(e => e.message).join('; ')}`, errors, options.actionId);
+    }
+    return result;
+  }
+
+  // 3. Reject unexpected caller input keys (deterministic execution)
+  for (const inputKey of Object.keys(inputs)) {
+    if (!declaredParamNames.has(inputKey)) {
+      errors.push({
+        field: inputKey,
+        message: `Unexpected input parameter '${inputKey}' not declared in action schema`,
+        code: 'UNEXPECTED_INPUT_PARAMETER',
+      });
+    }
+  }
+
+  // 4. Validate input values against valid schemas
+  for (const schema of validSchemas) {
     const fieldName = schema.name;
-    const value = safeInputs[fieldName];
+    const value = inputs[fieldName];
     const isPresent = value !== undefined && value !== null;
 
     if (schema.required) {
@@ -66,7 +244,7 @@ export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
         typeValid = Array.isArray(value);
         break;
       case 'object':
-        typeValid = typeof value === 'object' && value !== null && !Array.isArray(value);
+        typeValid = isPlainObject(value);
         break;
       default:
         typeValid = true;
@@ -126,13 +304,17 @@ export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
       }
 
       if (c.pattern && typeof value === 'string') {
-        const regex = typeof c.pattern === 'string' ? new RegExp(c.pattern) : c.pattern;
-        if (!regex.test(value)) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' does not match required pattern '${c.pattern}'`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
+        try {
+          const regex = typeof c.pattern === 'string' ? new RegExp(c.pattern) : c.pattern;
+          if (!regex.test(value)) {
+            errors.push({
+              field: fieldName,
+              message: `Input '${fieldName}' does not match required pattern '${c.pattern}'`,
+              code: 'CONSTRAINT_VIOLATION',
+            });
+          }
+        } catch {
+          // Already checked in schema validation
         }
       }
 
@@ -153,7 +335,8 @@ export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
             case 'string': itemValid = typeof item === 'string'; break;
             case 'number': itemValid = typeof item === 'number' && !Number.isNaN(item); break;
             case 'boolean': itemValid = typeof item === 'boolean'; break;
-            case 'object': itemValid = typeof item === 'object' && item !== null && !Array.isArray(item); break;
+            case 'array': itemValid = Array.isArray(item); break;
+            case 'object': itemValid = isPlainObject(item); break;
           }
           if (!itemValid) {
             errors.push({
@@ -195,8 +378,8 @@ export function assertActionInputs(schemas, inputs, actionId) {
  */
 export class ActionCheckResult {
   /**
-   * @param {object} [params]
-   * @param {string} [params.actionId=''] - Action identifier
+   * @param {object} params
+   * @param {string} params.actionId - Action identifier
    * @param {Array<object>} [params.requiredInputs=[]] - Array of required/optional parameter schemas
    * @param {Record<string, any>} [params.context={}] - Factual environmental runtime facts
    * @param {boolean} [params.ready=true] - Whether prerequisites to execute are satisfied
@@ -211,10 +394,29 @@ export class ActionCheckResult {
     summary = '',
     details = {},
   } = {}) {
-    this.actionId = actionId;
-    this.requiredInputs = Array.isArray(requiredInputs) ? requiredInputs : [];
-    this.context = typeof context === 'object' && context !== null ? context : {};
-    this.ready = Boolean(ready);
+    if (typeof actionId !== 'string' || !actionId.trim()) {
+      throw new WorkflowError(`ActionCheckResult requires a non-empty string 'actionId', got '${actionId}'`);
+    }
+    if (!Array.isArray(requiredInputs)) {
+      throw new WorkflowError(`ActionCheckResult 'requiredInputs' must be an array, got '${typeof requiredInputs}'`);
+    }
+    if (!isPlainObject(context)) {
+      throw new WorkflowError(`ActionCheckResult 'context' must be a plain object, got '${Array.isArray(context) ? 'array' : (context === null ? 'null' : typeof context)}'`);
+    }
+    if (typeof ready !== 'boolean') {
+      throw new WorkflowError(`ActionCheckResult 'ready' must be a strict boolean, got '${typeof ready}'`);
+    }
+    if (typeof summary !== 'string') {
+      throw new WorkflowError(`ActionCheckResult 'summary' must be a string, got '${typeof summary}'`);
+    }
+    if (!isPlainObject(details)) {
+      throw new WorkflowError(`ActionCheckResult 'details' must be a plain object, got '${Array.isArray(details) ? 'array' : (details === null ? 'null' : typeof details)}'`);
+    }
+
+    this.actionId = actionId.trim();
+    this.requiredInputs = requiredInputs;
+    this.context = context;
+    this.ready = ready;
     this.summary = summary;
     this.details = details;
   }
@@ -236,8 +438,8 @@ export class ActionCheckResult {
  */
 export class ActionExecuteResult {
   /**
-   * @param {object} [params]
-   * @param {string} [params.actionId=''] - Action identifier
+   * @param {object} params
+   * @param {string} params.actionId - Action identifier
    * @param {boolean} [params.success=true] - Execution success flag
    * @param {Record<string, any>} [params.outputs={}] - Execution output artifacts/results
    * @param {string} [params.summary=''] - Human-readable summary
@@ -250,9 +452,22 @@ export class ActionExecuteResult {
     summary = '',
     error = null,
   } = {}) {
-    this.actionId = actionId;
-    this.success = Boolean(success);
-    this.outputs = typeof outputs === 'object' && outputs !== null ? outputs : {};
+    if (typeof actionId !== 'string' || !actionId.trim()) {
+      throw new WorkflowError(`ActionExecuteResult requires a non-empty string 'actionId', got '${actionId}'`);
+    }
+    if (typeof success !== 'boolean') {
+      throw new WorkflowError(`ActionExecuteResult 'success' must be a strict boolean, got '${typeof success}'`);
+    }
+    if (!isPlainObject(outputs)) {
+      throw new WorkflowError(`ActionExecuteResult 'outputs' must be a plain object, got '${Array.isArray(outputs) ? 'array' : (outputs === null ? 'null' : typeof outputs)}'`);
+    }
+    if (typeof summary !== 'string') {
+      throw new WorkflowError(`ActionExecuteResult 'summary' must be a string, got '${typeof summary}'`);
+    }
+
+    this.actionId = actionId.trim();
+    this.success = success;
+    this.outputs = outputs;
     this.summary = summary;
     this.error = error;
   }
@@ -270,6 +485,9 @@ export class ActionExecuteResult {
 
 /**
  * Abstract base class defining the composable Action contract.
+ *
+ * Implements the authoritative execution boundary: validates inputs against
+ * the action's declared requiredInputs schema prior to any mutating execution logic.
  */
 export class ActionContract {
   /**
@@ -299,14 +517,42 @@ export class ActionContract {
   }
 
   /**
-   * Execute the action's operations using explicit input values.
+   * Authoritative execution boundary: validates inputs against check() schemas before mutation.
+   * Subclasses implement executeValidated(inputs, context) for their domain logic.
    *
    * @param {Record<string, any>} inputs - Caller-supplied input parameters
    * @param {object} context - Environmental context
    * @returns {Promise<ActionExecuteResult>}
    */
   async execute(inputs, context) {
-    throw new Error(`ActionContract subclass '${this.constructor.name}' must implement execute(inputs, context)`);
+    const checkResult = await this.check(context);
+    if (!(checkResult instanceof ActionCheckResult)) {
+      throw new WorkflowError(
+        `Action '${this.id}' check(context) must return an ActionCheckResult instance, got '${checkResult?.constructor?.name || typeof checkResult}'`
+      );
+    }
+
+    assertActionInputs(checkResult.requiredInputs, inputs, this.id);
+
+    const execResult = await this.executeValidated(inputs, context);
+    if (!(execResult instanceof ActionExecuteResult)) {
+      throw new WorkflowError(
+        `Action '${this.id}' executeValidated(inputs, context) must return an ActionExecuteResult instance, got '${execResult?.constructor?.name || typeof execResult}'`
+      );
+    }
+
+    return execResult;
+  }
+
+  /**
+   * Subclass hook to perform domain execution operations after inputs have been strictly validated.
+   *
+   * @param {Record<string, any>} inputs - Validated inputs
+   * @param {object} context - Environmental context
+   * @returns {Promise<ActionExecuteResult>}
+   */
+  async executeValidated(inputs, context) {
+    throw new Error(`ActionContract subclass '${this.constructor.name}' must implement executeValidated(inputs, context)`);
   }
 }
 

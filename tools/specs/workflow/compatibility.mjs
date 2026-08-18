@@ -1,5 +1,7 @@
 // Pure workflow mode resolution and legacy fallback logic.
 
+import { WorkflowError } from './errors.mjs';
+
 export const WORKFLOW_MODES = new Set(['legacy', 'deterministic']);
 export const DEFAULT_WORKFLOW_MODE = 'legacy';
 export const DEFAULT_WORKFLOW_VERSION = 1;
@@ -26,6 +28,12 @@ export function resolveWorkflowMode(change = {}, options = {}) {
       definition: change?.workflow?.definition || change?.type || DEFAULT_WORKFLOW_DEFINITION,
       isExplicit: true,
     };
+  }
+
+  if (change?.workflow !== undefined && change?.workflow_mode !== undefined) {
+    throw new WorkflowError(
+      `Ambiguous workflow configuration in '${change._file || change.id || 'change'}': cannot declare both 'workflow' object and shorthand 'workflow_mode'`
+    );
   }
 
   if (change?.workflow && typeof change.workflow === 'object' && !Array.isArray(change.workflow)) {

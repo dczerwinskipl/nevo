@@ -63,6 +63,12 @@ const ALLOWED_WORKFLOW_MODES = new Set(['legacy', 'deterministic']);
  * and definition must be a non-empty string.
  */
 export function validateWorkflowConfiguration(change, errors, label = change._file || 'change') {
+  if (change.workflow !== undefined && change.workflow_mode !== undefined) {
+    errors.push(
+      `${label}: cannot declare both 'workflow' and shorthand 'workflow_mode' — choose one configuration form`
+    );
+  }
+
   if (change.workflow !== undefined) {
     if (!isPlainObject(change.workflow)) {
       errors.push(`${label}: workflow must be an object`);

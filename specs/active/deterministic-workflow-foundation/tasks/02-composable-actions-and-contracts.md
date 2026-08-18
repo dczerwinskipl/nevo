@@ -37,7 +37,7 @@ Define the core `ActionContract` interface, error classes (`PreconditionError`, 
 
 ## Acceptance criteria
 
-1. `ActionContract` base class defines `id`, `description`, `check(context)`, and `execute(inputs, context)`. `automated: node --test tools/tests/workflow-contracts.test.mjs`
+1. `ActionContract` base class defines `id`, `description`, `check(context)`, and `execute(inputs, context)` enforcing fail-closed validation before delegating to `executeValidated(inputs, context)`. `automated: node --test tools/tests/workflow-contracts.test.mjs`
 2. `validateActionInputs` validates caller inputs against a parameter schema array and returns clean validation errors when required fields are missing or type constraints are violated. `automated: node --test tools/tests/workflow-contracts.test.mjs`
 3. `PreconditionError` is thrown when required inputs are omitted, providing structured field-level error details. `automated: node --test tools/tests/workflow-contracts.test.mjs`
 4. `ActionCheckResult` and `ActionExecuteResult` models maintain distinct separation between `requiredInputs` (schema) and `context` (facts). `automated: node --test tools/tests/workflow-contracts.test.mjs`

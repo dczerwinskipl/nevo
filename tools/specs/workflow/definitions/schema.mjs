@@ -14,8 +14,9 @@ function isPlainObject(value) {
  * @param {string[]} errors - Output error collector
  * @param {object} [options]
  * @param {Set<string>|Array<string>} [options.knownGates] - Optional set of allowed gate types
+ * @param {Set<string>|Array<string>} [options.knownActions] - Optional set of registered action IDs
  */
-export function validateGateDefinition(gate, label, errors, { knownGates } = {}) {
+export function validateGateDefinition(gate, label, errors, { knownGates, knownActions } = {}) {
   if (!isPlainObject(gate)) {
     errors.push(`${label}: gate must be an object`);
     return;
@@ -33,8 +34,30 @@ export function validateGateDefinition(gate, label, errors, { knownGates } = {})
   }
 
   if (gate.type === 'command') {
-    if ((!gate.action || typeof gate.action !== 'string') && (!gate.command || typeof gate.command !== 'string')) {
+    const hasAction = gate.action !== undefined;
+    const hasCommand = gate.command !== undefined;
+
+    if (!hasAction && !hasCommand) {
       errors.push(`${label}: command gate must declare an 'action' or 'command'`);
+    }
+
+    if (hasAction) {
+      if (typeof gate.action !== 'string' || !gate.action.trim()) {
+        errors.push(`${label}: command gate 'action' must be a non-empty string`);
+      } else if (knownActions) {
+        const allowedActions = knownActions instanceof Set ? knownActions : new Set(knownActions);
+        if (!allowedActions.has(gate.action.trim())) {
+          errors.push(
+            `${label}: unknown command gate action '${gate.action}' (expected one of: ${[...allowedActions].join(', ')})`
+          );
+        }
+      }
+    }
+
+    if (hasCommand) {
+      if (typeof gate.command !== 'string' || !gate.command.trim()) {
+        errors.push(`${label}: command gate 'command' must be a non-empty string`);
+      }
     }
   } else if (gate.type === 'markdown') {
     if (gate.file !== undefined && (typeof gate.file !== 'string' || !gate.file.trim())) {

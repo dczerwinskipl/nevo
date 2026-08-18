@@ -23,12 +23,23 @@ export class ActionContract {
   async check(context) { throw new Error('Not implemented'); }
 
   /**
-   * Execute the action's operations using explicit input values.
+   * Authoritative execution boundary: validates inputs against requiredInputs prior to mutation.
    * @param {Record<string, any>} inputs - Caller-supplied input parameters
    * @param {ActionContext} context - Environmental context
    * @returns {Promise<ActionExecuteResult>}
    */
-  async execute(inputs, context) { throw new Error('Not implemented'); }
+  async execute(inputs, context) {
+    // Validates inputs against check(context).requiredInputs, throws PreconditionError on failure,
+    // and delegates only validated inputs to executeValidated(inputs, context).
+  }
+
+  /**
+   * Subclass hook for domain operations executed only after strict input validation.
+   * @param {Record<string, any>} inputs - Validated inputs
+   * @param {ActionContext} context - Environmental context
+   * @returns {Promise<ActionExecuteResult>}
+   */
+  async executeValidated(inputs, context) { throw new Error('Not implemented'); }
 }
 ```
 
