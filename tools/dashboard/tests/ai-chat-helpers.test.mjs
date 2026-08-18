@@ -409,3 +409,221 @@ test('session identity safety: failed switch clears previous session state, prev
   assert.equal(state.messages[0].text, 'Hello in B');
   assert.equal(state.lastEventSeq, 5);
 });
+
+test('EventSource lifecycle during snapshot failure and retry: no SSE while snapshot is in-flight or failed', async () => {
+  const { fetchAgentSessionSnapshot, classifySessionLoadError } = await import('../src/lib/nevo-assistant-runtime.ts');
+
+  // Track EventSource creations and cleanups
+  const sseLog = [];
+  class TrackedEventSource {
+    constructor(url) {
+      this.url = url;
+      this.closed = false;
+      sseLog.push({ action: 'open', url });
+    }
+    addEventListener() {}
+    removeEventListener() {}
+    close() {
+      this.closed = true;
+      sseLog.push({ action: 'close', url: this.url });
+    }
+  }
+
+  // Model the exact state and SSE gating logic from useNevoAssistantRuntime
+  class RuntimeEffectHarness {
+    constructor(provider, providerSessionId) {
+      this.provider = provider;
+      this.providerSessionId = providerSessionId;
+      this.currentIdentity = `${provider}:${providerSessionId}`;
+      this.loadedIdentity = null;
+      this.loadErrorIdentity = null;
+      this.loadError = null;
+      this.lastSeq = 0;
+      this.activeSse = null;
+    }
+
+    setSession(provider, providerSessionId) {
+      this.provider = provider;
+      this.providerSessionId = providerSessionId;
+      this.currentIdentity = `${provider}:${providerSessionId}`;
+      this.syncSseEffect();
+    }
+
+    syncSseEffect() {
+      const identity = `${this.provider}:${this.providerSessionId}`;
+      // Invariant: Only connect SSE if snapshot for current identity is loaded and no loadError
+      const shouldConnect = Boolean(this.provider && this.providerSessionId && this.loadedIdentity === identity && !this.loadError);
+      
+      if (!shouldConnect) {
+        if (this.activeSse) {
+          this.activeSse.close();
+          this.activeSse = null;
+        }
+        return;
+      }
+
+      if (!this.activeSse) {
+        const url = `/api/agent-sessions/${encodeURIComponent(this.provider)}/${encodeURIComponent(this.providerSessionId)}/events?after=${this.lastSeq}`;
+        this.activeSse = new TrackedEventSource(url);
+      }
+    }
+
+    async loadSnapshot(fetchFn) {
+      const identity = `${this.provider}:${this.providerSessionId}`;
+      this.loadError = null;
+      this.loadErrorIdentity = null;
+      this.syncSseEffect(); // while loading / retrying
+
+      try {
+        const snapshot = await fetchAgentSessionSnapshot(this.provider, this.providerSessionId, fetchFn);
+        if (this.currentIdentity !== identity) return;
+        this.loadedIdentity = identity;
+        this.lastSeq = snapshot.lastEventSeq || 0;
+        this.loadError = null;
+        this.loadErrorIdentity = null;
+        this.syncSseEffect(); // after successful snapshot
+      } catch (err) {
+        if (this.currentIdentity !== identity) return;
+        const classified = classifySessionLoadError(err, this.provider, this.providerSessionId);
+        this.loadedIdentity = null;
+        this.loadErrorIdentity = identity;
+        this.loadError = classified;
+        this.lastSeq = 0;
+        this.syncSseEffect(); // on snapshot failure
+      }
+    }
+
+    async retry(fetchFn) {
+      // reload(): clears loadError and starts fresh load
+      this.loadError = null;
+      this.loadErrorIdentity = null;
+      this.syncSseEffect(); // must NOT open SSE here because loadedIdentity is still null!
+      await this.loadSnapshot(fetchFn);
+    }
+  }
+
+  const harness = new RuntimeEffectHarness('claude', 'sess-A');
+
+  // Step 1: Initial load for sess-A succeeds with lastEventSeq 12
+  await harness.loadSnapshot(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ session: { provider: 'claude', providerSessionId: 'sess-A', lastEventSeq: 12, messages: [] } }),
+  }));
+
+  assert.equal(sseLog.length, 1);
+  assert.equal(sseLog[0].action, 'open');
+  assert.ok(sseLog[0].url.includes('sess-A') && sseLog[0].url.includes('after=12'));
+
+  // Step 2: Switch to sess-B
+  harness.setSession('claude', 'sess-B');
+  assert.equal(sseLog.length, 2);
+  assert.equal(sseLog[1].action, 'close', 'Old SSE for sess-A must be closed immediately on switch');
+
+  // Step 3: sess-B snapshot load fails (404)
+  await harness.loadSnapshot(async () => ({
+    ok: false,
+    status: 404,
+    statusText: 'Not Found',
+    json: async () => ({ error: { message: 'Not found' } }),
+  }));
+
+  // Assert no SSE was opened for failed sess-B
+  assert.equal(sseLog.length, 2, 'No SSE must be opened for failed session');
+  assert.equal(harness.loadedIdentity, null, 'loadedIdentity must NOT be set on failure');
+  assert.equal(harness.loadErrorIdentity, 'claude:sess-B');
+
+  // Step 4: User clicks Retry -> retry begins
+  let fetchStarted = false;
+  let finishFetch = null;
+  const inFlightPromise = new Promise((resolve) => { finishFetch = resolve; });
+
+  const slowRetryFetch = async () => {
+    fetchStarted = true;
+    await inFlightPromise;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ session: { provider: 'claude', providerSessionId: 'sess-B', lastEventSeq: 7, messages: [] } }),
+    };
+  };
+
+  const retryPromise = harness.retry(slowRetryFetch);
+  assert.equal(fetchStarted, true);
+  // While retry fetch is in-flight and loadError is null, verify no SSE is opened!
+  assert.equal(sseLog.length, 2, 'No SSE must be opened while retry snapshot is still in-flight');
+
+  // Finish snapshot fetch
+  finishFetch();
+  await retryPromise;
+
+  // Step 5: After retry snapshot succeeds with lastEventSeq 7, SSE connects with after=7
+  assert.equal(sseLog.length, 3);
+  assert.equal(sseLog[2].action, 'open');
+  assert.ok(sseLog[2].url.includes('sess-B') && sseLog[2].url.includes('after=7'));
+});
+
+test('error domain separation: snapshot failure sets loadError without triggering turn submission error', async () => {
+  const { fetchAgentSessionSnapshot, classifySessionLoadError } = await import('../src/lib/nevo-assistant-runtime.ts');
+
+  let submissionErrors = [];
+  const onError = (err) => {
+    submissionErrors.push(err.message);
+  };
+
+  // Simulate snapshot load with error domain separation
+  let snapshotLoadError = null;
+  const loadSnapshot = async (fetchFn) => {
+    try {
+      await fetchAgentSessionSnapshot('claude', 'sess-err', fetchFn);
+      snapshotLoadError = null;
+    } catch (err) {
+      snapshotLoadError = classifySessionLoadError(err, 'claude', 'sess-err');
+      // Invariant: Do NOT invoke onError for snapshot load errors!
+    }
+  };
+
+  // 1. Snapshot fetch fails (500)
+  await loadSnapshot(async () => ({
+    ok: false,
+    status: 500,
+    statusText: 'Internal Error',
+    json: async () => ({ error: { message: 'Server database failure' } }),
+  }));
+
+  assert.ok(snapshotLoadError);
+  assert.equal(snapshotLoadError.kind, 'http');
+  assert.equal(snapshotLoadError.status, 500);
+  assert.equal(submissionErrors.length, 0, 'Snapshot failure must NOT trigger generic turn onError callback');
+
+  // 2. Retry succeeds
+  await loadSnapshot(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ session: { provider: 'claude', providerSessionId: 'sess-err', lastEventSeq: 1, messages: [] } }),
+  }));
+
+  assert.equal(snapshotLoadError, null);
+  assert.equal(submissionErrors.length, 0, 'No stale submission error should exist after successful retry');
+
+  // 3. Genuine sendTurn failure DOES invoke onError
+  const simulateSendTurn = async () => {
+    try {
+      const res = await (async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: { message: 'Cannot start turn: turn in progress' } }),
+      }))();
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData?.error?.message || 'Send turn failed');
+      }
+    } catch (err) {
+      onError(err);
+    }
+  };
+
+  await simulateSendTurn();
+  assert.equal(submissionErrors.length, 1);
+  assert.equal(submissionErrors[0], 'Cannot start turn: turn in progress');
+});

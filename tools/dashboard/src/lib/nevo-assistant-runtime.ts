@@ -379,6 +379,7 @@ export function useNevoAssistantRuntime({
 }: UseNevoAssistantRuntimeOptions) {
   const currentIdentity = provider && providerSessionId ? `${provider}:${providerSessionId}` : '';
   const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
+  const [loadErrorIdentity, setLoadErrorIdentity] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<NormalizedMessage[]>([]);
   const [pendingInteraction, setPendingInteraction] = useState<AiInteraction | null>(null);
@@ -403,13 +404,15 @@ export function useNevoAssistantRuntime({
   activeTurnIdRef.current = activeTurnId;
 
   // Identity match check: only expose state if it belongs to the current provider + providerSessionId
-  const isIdentityMatched = Boolean(currentIdentity && loadedIdentity === currentIdentity);
+  const isSnapshotLoaded = Boolean(currentIdentity && loadedIdentity === currentIdentity);
+  const isErrorForCurrentIdentity = Boolean(currentIdentity && loadErrorIdentity === currentIdentity);
 
   // Sync cursor ref with state
-  lastSeqRef.current = isIdentityMatched ? lastEventSeq : 0;
+  lastSeqRef.current = isSnapshotLoaded ? lastEventSeq : 0;
 
   const reload = useCallback(async () => {
     setLoadError(null);
+    setLoadErrorIdentity(null);
     setIsLoading(true);
     setReloadTrigger((n) => n + 1);
   }, []);
@@ -423,6 +426,7 @@ export function useNevoAssistantRuntime({
       const identity = `${provider}:${providerSessionId}`;
       setIsLoading(true);
       setLoadError(null);
+      setLoadErrorIdentity(null);
 
       try {
         const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId);
@@ -445,6 +449,8 @@ export function useNevoAssistantRuntime({
         }
 
         setLoadedIdentity(identity);
+        setLoadErrorIdentity(null);
+        setLoadError(null);
         setIsLoading(false);
       } catch (err) {
         if (!cancelled) {
@@ -459,13 +465,12 @@ export function useNevoAssistantRuntime({
           setLastEventSeq(0);
           lastSeqRef.current = 0;
 
-          setLoadedIdentity(identity);
+          // Do NOT set loadedIdentity on failure; record loadErrorIdentity instead
+          setLoadedIdentity(null);
+          setLoadErrorIdentity(identity);
           setIsLoading(false);
           setLoadError(classified);
-
-          if (classified.name !== 'AbortError') {
-            onErrorRef.current?.(classified);
-          }
+          // Note: Handled snapshot load failures do not invoke onError (separated error domain)
         }
       }
     }
@@ -647,14 +652,14 @@ export function useNevoAssistantRuntime({
     [provider, providerSessionId, loadedIdentity, onError]
   );
 
-  const exposedMessages = isIdentityMatched ? messages : [];
-  const exposedPendingInteraction = isIdentityMatched ? pendingInteraction : null;
-  const exposedCapabilities = isIdentityMatched ? capabilities : null;
-  const exposedSessionDetails = isIdentityMatched ? sessionDetails : null;
-  const exposedIsRunning = isIdentityMatched ? isRunning : false;
-  const exposedActiveTurnId = isIdentityMatched ? activeTurnId : null;
-  const exposedIsLoading = isIdentityMatched ? isLoading : Boolean(provider && providerSessionId && !loadError);
-  const exposedLoadError = isIdentityMatched ? loadError : null;
+  const exposedMessages = isSnapshotLoaded ? messages : [];
+  const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
+  const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
+  const exposedSessionDetails = isSnapshotLoaded ? sessionDetails : null;
+  const exposedIsRunning = isSnapshotLoaded ? isRunning : false;
+  const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
+  const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
+  const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
 
   // 6. Convert NormalizedMessages to Assistant UI ThreadMessageLike
   const assistantMessages: ThreadMessageLike[] = useMemo(() => {

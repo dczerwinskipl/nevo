@@ -186,6 +186,10 @@ export function AiChatPage({
   }, [assistant.activeTurnId, onTurnChange]);
 
   useEffect(() => {
+    setSubmissionError(null);
+  }, [provider, sessionId]);
+
+  useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
   }, [assistant.messages, assistant.pendingInteraction, submissionError]);
 
