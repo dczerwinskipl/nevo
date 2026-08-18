@@ -307,6 +307,11 @@ tasks:
         - command: node tools/docs.mjs check
           exit_code: 0
       status: passed
+  - id: agent-execution-modes-and-permissions
+    order: 13
+    file: tasks/13-agent-execution-modes-and-permissions.md
+    status: approved
+    depends_on: [ final-verification-and-architecture-docs ]
 
 pull_requests:
   - provider: github

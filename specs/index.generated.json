@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T06:20:02.003Z",
+  "generated": "2026-08-18T08:26:24.097Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -460,6 +460,15 @@
             ],
             "status": "passed"
           }
+        },
+        {
+          "id": "agent-execution-modes-and-permissions",
+          "order": 13,
+          "file": "tasks/13-agent-execution-modes-and-permissions.md",
+          "status": "approved",
+          "depends_on": [
+            "final-verification-and-architecture-docs"
+          ]
         }
       ]
     },
