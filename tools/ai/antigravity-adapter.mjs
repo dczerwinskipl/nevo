@@ -1,4 +1,6 @@
 import { spawn, execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   AiError,
@@ -27,6 +29,17 @@ export const ANTIGRAVITY_DESCRIPTOR = Object.freeze({
   defaultMode: 'edit',
 });
 
+function resolveAgyExecutable(name = 'agy') {
+  if (process.platform === 'win32' && name === 'agy') {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) {
+      const defaultAgyExe = join(localAppData, 'agy', 'bin', 'agy.exe');
+      if (existsSync(defaultAgyExe)) return defaultAgyExe;
+    }
+  }
+  return name;
+}
+
 export class AntigravityAgentProvider {
   #executable;
   #cwd;
@@ -41,7 +54,7 @@ export class AntigravityAgentProvider {
     spawnProcess = spawn,
     cancelGraceMs = 5_000,
   } = {}) {
-    this.#executable = executable;
+    this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
@@ -58,9 +71,13 @@ export class AntigravityAgentProvider {
     }
     let available = false;
     try {
-      const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
-      execSync(probe, { stdio: 'ignore', timeout: 1500 });
-      available = true;
+      if (existsSync(this.#executable)) {
+        available = true;
+      } else {
+        const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
+        execSync(probe, { stdio: 'ignore', timeout: 1500 });
+        available = true;
+      }
     } catch {
       available = false;
     }
@@ -112,22 +129,20 @@ export class AntigravityAgentProvider {
       let pendingInteractionPromise = null;
 
       const args = [
-        '--stream', 'json',
+        '--print', inputMessage,
         '--output-format', 'stream-json',
       ];
 
       if (mode === 'ask') {
         args.push('--mode=plan');
       } else if (mode === 'agent') {
-        args.push('--mode=default', '--dangerously-skip-permissions');
+        args.push('--mode=accept-edits', '--dangerously-skip-permissions');
       } else {
         args.push('--mode=accept-edits');
       }
 
       if (providerSessionId) {
-        args.push('--resume', providerSessionId);
-      } else {
-        args.push('--conversation-id', effectiveSessionId);
+        args.push('--conversation', providerSessionId);
       }
 
       const operation = {
@@ -191,31 +206,49 @@ export class AntigravityAgentProvider {
         const trimmed = line.trim();
         if (!trimmed) return;
 
-        let event;
+        let raw;
         try {
-          event = JSON.parse(trimmed);
+          raw = JSON.parse(trimmed);
         } catch {
           // Fallback to plain streaming text if not JSON
           sendTextDelta(trimmed + '\n');
           return;
         }
 
-        const sessId = event.conversation_id || event.conversationId || event.session_id || event.sessionId;
+        const eventType = raw.event || raw.type;
+        const payload = raw.step_update || raw.result || raw.init || raw;
+        const sessId = raw.conversation_id || raw.conversationId || payload.conversation_id || payload.conversationId || raw.session_id || raw.sessionId;
         if (sessId) {
           await confirmSession(sessId);
         }
 
-        switch (event.type) {
-          case 'init':
-          case 'conversation_started': {
-            if (sessId) await confirmSession(sessId);
-            break;
-          }
+        if (eventType === 'init' || eventType === 'conversation_started') {
+          if (sessId) await confirmSession(sessId);
+          return;
+        }
 
+        if (eventType === 'step_update') {
+          if (payload.text_delta) {
+            sendTextDelta(payload.text_delta);
+          }
+          if (payload.thought || payload.thinking) {
+            if (emitReasoningDelta) emitReasoningDelta(payload.thought || payload.thinking);
+          }
+          if (payload.usage && emitUsageUpdated) {
+            emitUsageUpdated({
+              tokensIn: payload.usage.input_tokens || payload.usage.tokensIn,
+              tokensOut: payload.usage.output_tokens || payload.usage.tokensOut,
+              cost: payload.usage.cost,
+            });
+          }
+          return;
+        }
+
+        switch (eventType) {
           case 'text':
           case 'text.delta':
           case 'content': {
-            const delta = event.text ?? event.delta ?? event.content ?? '';
+            const delta = raw.text ?? raw.delta ?? raw.content ?? '';
             if (delta) sendTextDelta(delta);
             break;
           }
@@ -223,7 +256,7 @@ export class AntigravityAgentProvider {
           case 'reasoning':
           case 'reasoning.delta':
           case 'thought': {
-            const reasoning = event.reasoning ?? event.delta ?? event.thought ?? '';
+            const reasoning = raw.reasoning ?? raw.delta ?? raw.thought ?? '';
             if (reasoning && emitReasoningDelta) emitReasoningDelta(reasoning);
             break;
           }
@@ -232,9 +265,9 @@ export class AntigravityAgentProvider {
           case 'tool.started':
           case 'call': {
             activeTool = {
-              id: event.toolId || event.id || `tool-${randomUUID()}`,
-              name: event.toolName || event.name || 'tool',
-              input: event.input || event.args || {},
+              id: raw.toolId || raw.id || `tool-${randomUUID()}`,
+              name: raw.toolName || raw.name || 'tool',
+              input: raw.input || raw.args || {},
             };
             if (emitToolStarted) {
               emitToolStarted({
@@ -247,11 +280,11 @@ export class AntigravityAgentProvider {
           }
 
           case 'tool.updated': {
-            if (emitToolUpdated && (event.toolId || activeTool)) {
+            if (emitToolUpdated && (raw.toolId || activeTool)) {
               emitToolUpdated({
-                toolId: event.toolId || activeTool?.id,
-                status: event.status || 'running',
-                input: event.input,
+                toolId: raw.toolId || activeTool?.id,
+                status: raw.status || 'running',
+                input: raw.input,
               });
             }
             break;
@@ -260,14 +293,14 @@ export class AntigravityAgentProvider {
           case 'tool_result':
           case 'tool.completed':
           case 'tool_use_result': {
-            const toolId = event.toolId || event.tool_use_id || activeTool?.id;
-            const output = event.output ?? event.content ?? event.result ?? 'executed';
+            const toolId = raw.toolId || raw.tool_use_id || activeTool?.id;
+            const output = raw.output ?? raw.content ?? raw.result ?? 'executed';
             if (toolId && emitToolCompleted) {
               emitToolCompleted({
                 toolId,
                 output,
-                status: event.is_error || event.status === 'failed' ? 'failed' : 'completed',
-                durationMs: event.durationMs,
+                status: raw.is_error || raw.status === 'failed' ? 'failed' : 'completed',
+                durationMs: raw.durationMs,
               });
             }
             if (activeTool && activeTool.id === toolId) {
@@ -280,15 +313,15 @@ export class AntigravityAgentProvider {
           case 'interaction_request': {
             if (requestInteraction) {
               const interaction = {
-                id: event.interactionId || `int-${randomUUID()}`,
+                id: raw.interactionId || `int-${randomUUID()}`,
                 kind: 'question',
-                prompt: event.question || event.prompt || 'Antigravity requested input',
-                questions: event.questions || [{
-                  id: event.questionId || 'q1',
-                  question: event.question || event.prompt || 'Antigravity requested input',
-                  header: event.header || 'Pytanie',
-                  options: event.options || [],
-                  isMultiSelect: Boolean(event.isMultiSelect),
+                prompt: raw.question || raw.prompt || 'Antigravity requested input',
+                questions: raw.questions || [{
+                  id: raw.questionId || 'q1',
+                  question: raw.question || raw.prompt || 'Antigravity requested input',
+                  header: raw.header || 'Pytanie',
+                  options: raw.options || [],
+                  isMultiSelect: Boolean(raw.isMultiSelect),
                 }],
               };
               pendingInteractionPromise = requestInteraction(interaction);
@@ -299,9 +332,9 @@ export class AntigravityAgentProvider {
           case 'usage': {
             if (emitUsageUpdated) {
               emitUsageUpdated({
-                tokensIn: event.tokensIn || event.input_tokens,
-                tokensOut: event.tokensOut || event.output_tokens,
-                cost: event.cost,
+                tokensIn: raw.tokensIn || raw.input_tokens,
+                tokensOut: raw.tokensOut || raw.output_tokens,
+                cost: raw.cost,
               });
             }
             break;
@@ -316,14 +349,15 @@ export class AntigravityAgentProvider {
               }
               activeTool = null;
             }
-            if (event.result && typeof event.result === 'string') {
-              sendTextDelta(event.result);
+            if (raw.result && typeof raw.result === 'string') {
+              sendTextDelta(raw.result);
             }
-            if (event.usage && emitUsageUpdated) {
+            const usageObj = payload?.usage || raw.usage;
+            if (usageObj && emitUsageUpdated) {
               emitUsageUpdated({
-                tokensIn: event.usage.tokensIn || event.usage.input_tokens,
-                tokensOut: event.usage.tokensOut || event.usage.output_tokens,
-                cost: event.usage.cost,
+                tokensIn: usageObj.tokensIn || usageObj.input_tokens,
+                tokensOut: usageObj.tokensOut || usageObj.output_tokens,
+                cost: usageObj.cost,
               });
             }
             isDone = true;
@@ -332,7 +366,7 @@ export class AntigravityAgentProvider {
 
           case 'error': {
             cleanup();
-            reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || event.message || 'Antigravity turn failed.'));
+            reject(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
             break;
           }
 

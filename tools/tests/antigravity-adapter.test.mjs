@@ -103,7 +103,7 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
   );
 });
 
-test('new conversation spawns with --conversation-id and sets providerSessionId', async () => {
+test('new conversation spawns with --print and sets providerSessionId upon init', async () => {
   const capturedCalls = [];
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'agy-conv-123' }),
@@ -132,12 +132,12 @@ test('new conversation spawns with --conversation-id and sets providerSessionId'
   assert.equal(allocatedSessionId, 'agy-conv-123');
   assert.equal(result.providerSessionId, 'agy-conv-123');
   assert.ok(capturedCalls.length === 1);
-  assert.equal(capturedCalls[0].executable, 'agy');
-  assert.ok(capturedCalls[0].args.includes('--conversation-id'));
+  assert.ok(capturedCalls[0].executable.includes('agy'));
+  assert.ok(capturedCalls[0].args.includes('--print'));
   assert.ok(deltas.includes('Hello from Antigravity'));
 });
 
-test('existing conversation spawns with --resume', async () => {
+test('existing conversation spawns with --conversation', async () => {
   const capturedCalls = [];
   const lines = [
     JSON.stringify({ type: 'text.delta', delta: 'Continuing session' }),
@@ -160,7 +160,7 @@ test('existing conversation spawns with --resume', async () => {
   assert.equal(result.status, 'completed');
   assert.equal(result.providerSessionId, 'agy-conv-123');
   assert.ok(capturedCalls.length === 1);
-  assert.ok(capturedCalls[0].args.includes('--resume'));
+  assert.ok(capturedCalls[0].args.includes('--conversation'));
   assert.ok(capturedCalls[0].args.includes('agy-conv-123'));
 });
 
@@ -316,14 +316,14 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
   assert.ok(capturedCalls[2].args.includes('--mode=accept-edits'));
   assert.ok(!capturedCalls[2].args.includes('--dangerously-skip-permissions'));
 
-  // 4. Explicit 'agent' resolves to --mode=default --dangerously-skip-permissions
+  // 4. Explicit 'agent' resolves to --mode=accept-edits --dangerously-skip-permissions
   await provider.startTurn({
     turnId: 'turn-mode-agent',
     providerSessionId: 'conv-1',
     message: 'run all',
     mode: 'agent',
   });
-  assert.ok(capturedCalls[3].args.includes('--mode=default'));
+  assert.ok(capturedCalls[3].args.includes('--mode=accept-edits'));
   assert.ok(capturedCalls[3].args.includes('--dangerously-skip-permissions'));
 });
 
