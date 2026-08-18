@@ -216,31 +216,10 @@ export async function handleAiRequest({
       const interactionId = decodedSegment(sessionInteractionRoute[3], TURN_PATTERN, 'interaction ID');
       const body = assertBodyObject(await readJsonBody(request, 16_384));
 
-      let turnId = body.turnId;
-      if (turnId) {
-        const turn = await service.getTurn(turnId);
-        if (!turn || turn.provider !== provider || (turn.providerSessionId || turn.sessionId) !== providerSessionId) {
-          throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, { provider, providerSessionId, turnId });
-        }
-      } else {
-        const transcript = await service.getTranscript(provider, providerSessionId);
-        turnId = transcript?.activeTurn?.turnId;
-      }
-      if (!turnId) {
-        throw new AiNotFoundError('No active turn found for this session.', { provider, providerSessionId });
-      }
+      const turnId = body.turnId ? decodedSegment(body.turnId, TURN_PATTERN, 'turn ID') : undefined;
 
-      const turn = await service.getTurn(turnId);
-      if (!turn || turn.provider !== provider || (turn.providerSessionId || turn.sessionId) !== providerSessionId) {
-        throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, { provider, providerSessionId, turnId });
-      }
-
-      if (!turn.pendingInteraction || turn.pendingInteraction.id !== interactionId) {
-        throw new AiNotFoundError(`Interaction '${interactionId}' is not pending on session '${providerSessionId}'.`, { provider, providerSessionId, interactionId });
-      }
-
-      const resolved = await service.resolveInteraction(turnId, interactionId, body);
-      sendJson(response, 200, { turn: resolved });
+      const turn = await service.resolveInteraction(turnId, interactionId, body, { provider, providerSessionId });
+      sendJson(response, 200, { turn });
       return true;
     }
 
@@ -254,12 +233,8 @@ export async function handleAiRequest({
       const turnId = decodedSegment(sessionTurnCancelRoute[3], TURN_PATTERN, 'turn ID');
       await readJsonBody(request, 512);
 
-      const turn = await service.getTurn(turnId);
-      if (!turn || turn.provider !== provider || (turn.providerSessionId || turn.sessionId) !== providerSessionId) {
-        throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, { provider, providerSessionId, turnId });
-      }
-
-      sendJson(response, 200, { turn: await service.cancelTurn(turnId) });
+      const turn = await service.cancelTurn(turnId, { provider, providerSessionId });
+      sendJson(response, 200, { turn });
       return true;
     }
 

@@ -250,6 +250,7 @@ export class AiTurnRuntime {
         state.pendingInteraction = result.interaction;
         state.privateOperation = null;
         this.#notifyAdapterState(state);
+        this.#emit(state, 'interaction.requested', { interaction: result.interaction });
         return;
       }
 
@@ -291,6 +292,7 @@ export class AiTurnRuntime {
         state.pendingInteraction = result.interaction;
         state.privateOperation = null;
         this.#notifyAdapterState(state);
+        this.#emit(state, 'interaction.requested', { interaction: result.interaction });
         return;
       }
 
@@ -365,40 +367,101 @@ export class AiTurnRuntime {
     return interaction;
   }
 
-  async resolveInteraction(turnId, interactionId, response) {
-    let state = this.#turns.get(turnId);
+  async resolveInteraction(turnId, interactionId, response, options = {}) {
+    const { provider, providerSessionId } = options;
+    let state = turnId ? this.#turns.get(turnId) : null;
+
+    if (!state && !turnId && provider && providerSessionId) {
+      const activeId = this.#activeBySession.get(sessionKey(provider, providerSessionId));
+      if (activeId) {
+        state = this.#turns.get(activeId);
+        turnId = activeId;
+      }
+    }
+
+    if (state && provider && providerSessionId) {
+      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+        throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${providerSessionId}'.`, {
+          turnId: state.turnId,
+          provider,
+          providerSessionId,
+        });
+      }
+    }
+
     if (!state && this.transcriptCache) {
-      // Check if we can reconstitute from persisted active turn in transcript cache (e.g. after server restart)
-      for (const [key, cached] of this.transcriptCache.entries?.() || []) {
-        if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
-          state = {
-            turnId,
-            provider: cached.provider,
-            providerSessionId: cached.providerSessionId,
-            identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
-            key: sessionKey(cached.provider, cached.providerSessionId),
-            status: 'waitingForUser',
-            pendingInteraction: structuredClone(cached.pendingInteraction),
-            sequence: cached.lastEventSeq || 0,
-            events: [],
-            subscribers: new Set(),
-            abortController: new AbortController(),
-            adapter: this.registry.get(cached.provider).adapter,
-            startedAt: cached.activeTurn.startedAt,
-          };
-          this.#turns.set(turnId, state);
-          this.#activeBySession.set(state.key, turnId);
-          this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
-          break;
+      if (provider && providerSessionId) {
+        const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
+        if (cached?.activeTurn && cached?.pendingInteraction?.id === interactionId) {
+          if (!turnId || cached.activeTurn.turnId === turnId) {
+            turnId = cached.activeTurn.turnId;
+            state = {
+              turnId,
+              provider: cached.provider,
+              providerSessionId: cached.providerSessionId,
+              identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
+              key: sessionKey(cached.provider, cached.providerSessionId),
+              status: 'waitingForUser',
+              pendingInteraction: structuredClone(cached.pendingInteraction),
+              sequence: cached.lastEventSeq || 0,
+              events: [],
+              subscribers: new Set(),
+              abortController: new AbortController(),
+              adapter: this.registry.get(cached.provider).adapter,
+              startedAt: cached.activeTurn.startedAt,
+            };
+            this.#turns.set(turnId, state);
+            this.#activeBySession.set(state.key, turnId);
+            this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
+          }
+        }
+      } else if (turnId) {
+        for (const [key, cached] of this.transcriptCache.entries?.() || []) {
+          if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
+            state = {
+              turnId,
+              provider: cached.provider,
+              providerSessionId: cached.providerSessionId,
+              identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
+              key: sessionKey(cached.provider, cached.providerSessionId),
+              status: 'waitingForUser',
+              pendingInteraction: structuredClone(cached.pendingInteraction),
+              sequence: cached.lastEventSeq || 0,
+              events: [],
+              subscribers: new Set(),
+              abortController: new AbortController(),
+              adapter: this.registry.get(cached.provider).adapter,
+              startedAt: cached.activeTurn.startedAt,
+            };
+            this.#turns.set(turnId, state);
+            this.#activeBySession.set(state.key, turnId);
+            this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
+            break;
+          }
         }
       }
     }
+
     if (!state) {
+      if (!turnId) {
+        throw new AiNotFoundError('No active turn found for this session.', { provider, providerSessionId, interactionId });
+      }
       state = this.#get(turnId);
     }
+
+    if (provider && providerSessionId) {
+      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+        throw new AiNotFoundError(`Turn '${state.turnId}' does not belong to session '${providerSessionId}'.`, {
+          turnId: state.turnId,
+          provider,
+          providerSessionId,
+        });
+      }
+    }
+
     const pending = state.pendingInteraction;
     if (!pending || pending.id !== interactionId) {
-      throw new AiNotFoundError('The pending interaction was not found for this turn.', { turnId, interactionId });
+      throw new AiNotFoundError('The pending interaction was not found for this turn.', { turnId: state.turnId, interactionId });
     }
     const normalized = validateInteractionResponse(pending, response);
     const interaction = state.pendingInteraction;
@@ -407,11 +470,47 @@ export class AiTurnRuntime {
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
     queueMicrotask(() => this.#runContinuation(state, interactionId, interaction, normalized));
-    return this.getSnapshot(turnId);
+    return this.getSnapshot(state.turnId);
   }
 
-  async cancelTurn(turnId) {
-    const state = this.#get(turnId);
+  async cancelTurn(turnId, options = {}) {
+    const { provider, providerSessionId } = options;
+    let state = this.#turns.get(turnId);
+    if (!state && this.transcriptCache && provider && providerSessionId) {
+      const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
+      if (cached?.activeTurn?.turnId === turnId) {
+        state = {
+          turnId,
+          provider: cached.provider,
+          providerSessionId: cached.providerSessionId,
+          identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
+          key: sessionKey(cached.provider, cached.providerSessionId),
+          status: 'waitingForUser',
+          pendingInteraction: structuredClone(cached.pendingInteraction),
+          sequence: cached.lastEventSeq || 0,
+          events: [],
+          subscribers: new Set(),
+          abortController: new AbortController(),
+          adapter: this.registry.get(cached.provider).adapter,
+          startedAt: cached.activeTurn.startedAt,
+        };
+        this.#turns.set(turnId, state);
+        this.#activeBySession.set(state.key, turnId);
+        this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
+      }
+    }
+    if (!state) {
+      state = this.#get(turnId);
+    }
+    if (provider && providerSessionId) {
+      if (state.provider !== provider || (state.providerSessionId || state.sessionId) !== providerSessionId) {
+        throw new AiNotFoundError(`Turn '${turnId}' does not belong to session '${providerSessionId}'.`, {
+          turnId,
+          provider,
+          providerSessionId,
+        });
+      }
+    }
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
     if (state.status === 'waitingForUser') {
       this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
@@ -432,7 +531,26 @@ export class AiTurnRuntime {
   }
 
   getSnapshot(turnId) {
-    const state = this.#get(turnId);
+    let state = this.#turns.get(turnId);
+    if (!state && this.transcriptCache) {
+      for (const [key, cached] of this.transcriptCache.entries?.() || []) {
+        if (cached?.activeTurn?.turnId === turnId) {
+          return {
+            turnId,
+            provider: cached.provider,
+            providerSessionId: cached.providerSessionId,
+            status: 'waitingForUser',
+            startedAt: cached.activeTurn.startedAt,
+            lastEventId: cached.lastEventSeq || 0,
+            pendingInteraction: cached.pendingInteraction ? structuredClone(cached.pendingInteraction) : null,
+            events: [],
+          };
+        }
+      }
+    }
+    if (!state) {
+      state = this.#get(turnId);
+    }
     return {
       turnId: state.turnId,
       provider: state.provider,
@@ -488,6 +606,7 @@ export class AiTurnRuntime {
     this.#closed = true;
     for (const state of this.#turns.values()) {
       if (this.#isTerminal(state)) continue;
+      if (state.status === 'waitingForUser') continue;
       state.abortController.abort();
       this.#finish(state, 'turn.failed', new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 }));
     }

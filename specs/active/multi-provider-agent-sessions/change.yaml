@@ -139,17 +139,17 @@ tasks:
       - claude-interaction-and-deferral
     implementation:
       baseline_revision: 55b58f00b6d5f3338ac58f1dca0b6e000540d85f
-      review_revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      review_revision: 1bf75e70545fad0920c127823effa3f456041dc4
       changed_paths:
         - tools/dashboard/server/ai-routes.mjs
         - tools/dashboard/server/ai-services.mjs
         - tools/dashboard/server/index.mjs
         - tools/dashboard/tests/ai-contract-drift.test.mjs
         - tools/dashboard/tests/ai-server.test.mjs
-      worktree_patch_fingerprint: null
+      worktree_patch_fingerprint: 3d2e60c5615d000eee394c1eb856f8bd6f4097525ab89581e32deb6df9de179a
     self_check:
       fingerprint: 538874743b20a3d14aa4def220facd2990fb906fdb7c6dabc1f4939e772c74fe
-      revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      revision: 1bf75e70545fad0920c127823effa3f456041dc4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -163,7 +163,7 @@ tasks:
     depends_on: [ agent-session-http-sse-api ]
     implementation:
       baseline_revision: 82bf98b31bde74e1725083acbcfd7549947f76e2
-      review_revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      review_revision: 1bf75e70545fad0920c127823effa3f456041dc4
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
@@ -172,7 +172,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 4435b9d25dec1d13521efcfe6d4a5dcb80d097b789f63d131f14c873ed3c5f08
-      revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      revision: 1bf75e70545fad0920c127823effa3f456041dc4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -188,7 +188,7 @@ tasks:
     depends_on: [ assistant-ui-integration-and-adapter ]
     implementation:
       baseline_revision: 0f273e677c99db8c16bbb07037781654c89bf008
-      review_revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      review_revision: 1bf75e70545fad0920c127823effa3f456041dc4
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-interaction-prompt.tsx
@@ -197,7 +197,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: ba8791ef1727371c1d9c67de2882b31ac84e75717831c953190c7bcdf3af42ad
-      revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      revision: 1bf75e70545fad0920c127823effa3f456041dc4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -213,7 +213,7 @@ tasks:
     depends_on: [ custom-renderers-and-interaction-ui ]
     implementation:
       baseline_revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
-      review_revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      review_revision: 1bf75e70545fad0920c127823effa3f456041dc4
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-session-create-modal.tsx
@@ -222,7 +222,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4
-      revision: e232f4be70bf37b89b9cf23f82757cba303c13c3
+      revision: 1bf75e70545fad0920c127823effa3f456041dc4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

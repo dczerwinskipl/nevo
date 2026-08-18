@@ -34,6 +34,12 @@ export class SessionTranscriptCacheService {
     return join(this.#baseDir, safeProvider, `${safeSessionId}.json`);
   }
 
+  *entries() {
+    for (const [key, state] of this.#inMemory.entries()) {
+      yield [key, structuredClone(state)];
+    }
+  }
+
   async getTranscript(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     const key = this.#key(provider, providerSessionId);

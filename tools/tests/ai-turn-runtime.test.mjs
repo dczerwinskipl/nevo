@@ -68,13 +68,21 @@ function createFixture({ sessionLookupGate, transcriptCache } = {}) {
     async cancelTurn() { cancels += 1; },
   };
   let id = 0;
+  const registry = createAiAdapterRegistry([adapter]);
   const runtime = createAiTurnRuntime({
-    registry: createAiAdapterRegistry([adapter]),
+    registry,
     transcriptCache: cache,
     idFactory: () => String(++id),
     clock: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++)); })(),
   });
-  return { runtime, get starts() { return starts; }, get cancels() { return cancels; }, get continuations() { return continuations; } };
+  return {
+    runtime,
+    transcriptCache: cache,
+    registry,
+    get starts() { return starts; },
+    get cancels() { return cancels; },
+    get continuations() { return continuations; },
+  };
 }
 
 
@@ -139,6 +147,38 @@ test('duplicate, unknown, and cross-turn responses cannot resolve another reques
   await fixture.runtime.resolveInteraction(first.turnId, one.pendingInteraction.id, { decision: 'deny' });
   await assert.rejects(() => fixture.runtime.resolveInteraction(first.turnId, one.pendingInteraction.id, { decision: 'deny' }), { name: 'AiNotFoundError' });
   fixture.runtime.shutdown();
+});
+
+test('reconstitutes pending interaction from transcript cache across runtime restart with session correlation', async () => {
+  const fixture = createFixture();
+  const turn = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'restart-session', message: 'permission' });
+  const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), v => v.pendingInteraction, 'pending before restart');
+  assert.equal(pending.status, 'waitingForUser');
+
+  // Shutdown first runtime without destroying transcriptCache
+  fixture.runtime.shutdown();
+
+  // Create fresh runtime with same transcriptCache
+  const { createAiTurnRuntime } = await import('../ai/turn-runtime.mjs');
+  const runtime2 = createAiTurnRuntime({ registry: fixture.registry, transcriptCache: fixture.transcriptCache });
+
+  // 1. Cross-session resolution attempt is rejected
+  await assert.rejects(
+    () => runtime2.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' }, { provider: 'fake', providerSessionId: 'other-session' }),
+    { name: 'AiNotFoundError' },
+  );
+
+  // 2. Wrong interaction ID is rejected
+  await assert.rejects(
+    () => runtime2.resolveInteraction(turn.turnId, 'wrong-interaction-id', { decision: 'allow' }, { provider: 'fake', providerSessionId: 'restart-session' }),
+    { name: 'AiNotFoundError' },
+  );
+
+  // 3. Valid resolution reconstitutes turn and completes
+  await runtime2.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' }, { provider: 'fake', providerSessionId: 'restart-session' });
+  const completed = await waitFor(() => runtime2.getSnapshot(turn.turnId), v => v.status === 'completed', 'completion after restart');
+  assert.equal(completed.status, 'completed');
+  runtime2.shutdown();
 });
 
 test('session-wide monotonic sequence numbering across multiple turns', async () => {

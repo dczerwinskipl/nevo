@@ -88,12 +88,12 @@ export class AiSessionService {
   }
 
 
-  async resolveInteraction(turnId, interactionId, response) {
-    return this.turnRuntime.resolveInteraction(turnId, interactionId, response);
+  async resolveInteraction(turnId, interactionId, response, options = {}) {
+    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
   }
 
-  async cancelTurn(turnId) {
-    return this.turnRuntime.cancelTurn(turnId);
+  async cancelTurn(turnId, options = {}) {
+    return this.turnRuntime.cancelTurn(turnId, options);
   }
 }
 

@@ -361,3 +361,97 @@ test('session control endpoints enforce strict correlation between provider, ses
   }
 });
 
+test('pending interaction can be resolved after server restart retaining persisted transcript state with strict correlation', async () => {
+  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
+  const registry = createAiAdapterRegistry([adapter]);
+  const transcriptCache = createTranscriptCacheService();
+  const bindingService = createAgentSessionBindingService();
+
+  // Phase 1: Server 1 runs, turn reaches waitingForUser
+  const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
+  const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
+  const server1 = createDashboardServer({ aiService: service1, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl1 = await listen(server1, { port: 0 });
+
+  let turnIdAlpha;
+  let interactionIdAlpha;
+  let turnIdBeta;
+
+  try {
+    const startA = await fetch(`${baseUrl1}/api/agent-sessions/mock/restart-alpha/turns`, control({
+      message: 'permission on alpha',
+      idempotencyKey: 'restart-key-alpha',
+    }));
+    const resA = await startA.json();
+    turnIdAlpha = resA.turnId;
+    const turnA = await waitFor(baseUrl1, turnIdAlpha, t => t.pendingInteraction);
+    interactionIdAlpha = turnA.pendingInteraction.id;
+
+    const startB = await fetch(`${baseUrl1}/api/agent-sessions/mock/restart-beta/turns`, control({
+      message: 'permission on beta',
+      idempotencyKey: 'restart-key-beta',
+    }));
+    const resB = await startB.json();
+    turnIdBeta = resB.turnId;
+    await waitFor(baseUrl1, turnIdBeta, t => t.pendingInteraction);
+  } finally {
+    await closeServer(server1);
+  }
+
+  // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
+  const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
+  const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
+  const server2 = createDashboardServer({ aiService: service2, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl2 = await listen(server2, { port: 0 });
+
+  try {
+    // 1. Session snapshot restores pending interaction on GET
+    const sessionRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/restart-alpha`);
+    assert.equal(sessionRes.status, 200);
+    const sessionData = await sessionRes.json();
+    assert.equal(sessionData.session.pendingInteraction?.id, interactionIdAlpha);
+    assert.equal(sessionData.session.activeTurn?.turnId, turnIdAlpha);
+
+    // 2. Cross-session turnId after restart is rejected (turnIdBeta sent to restart-alpha endpoint)
+    const crossTurnRes = await fetch(
+      `${baseUrl2}/api/agent-sessions/mock/restart-alpha/interactions/${interactionIdAlpha}/respond`,
+      control({ decision: 'allow', turnId: turnIdBeta }),
+    );
+    assert.equal(crossTurnRes.status, 404);
+    assert.equal((await crossTurnRes.json()).error.code, 'AI_NOT_FOUND');
+
+    // 3. Wrong interactionId after restart is rejected
+    const wrongInteractionRes = await fetch(
+      `${baseUrl2}/api/agent-sessions/mock/restart-alpha/interactions/wrong-interaction-id/respond`,
+      control({ decision: 'allow' }),
+    );
+    assert.equal(wrongInteractionRes.status, 404);
+    assert.equal((await wrongInteractionRes.json()).error.code, 'AI_NOT_FOUND');
+
+    // 4. Verify restart-beta was not mutated by either mismatch
+    const betaSession = await (await fetch(`${baseUrl2}/api/agent-sessions/mock/restart-beta`)).json();
+    assert.equal(betaSession.session.activeTurn?.turnId, turnIdBeta);
+    assert.ok(betaSession.session.pendingInteraction);
+
+    // 5. Resolving interaction on restart-alpha without turnId (or with matching turnId) works cleanly
+    const validRespond = await fetch(
+      `${baseUrl2}/api/agent-sessions/mock/restart-alpha/interactions/${interactionIdAlpha}/respond`,
+      control({ decision: 'allow' }),
+    );
+    assert.equal(validRespond.status, 200);
+    const completedA = await waitFor(baseUrl2, turnIdAlpha, t => t.status === 'completed');
+    assert.equal(completedA.status, 'completed');
+
+    // 6. Cancel on restart-beta also works after restart
+    const cancelRes = await fetch(
+      `${baseUrl2}/api/agent-sessions/mock/restart-beta/turns/${turnIdBeta}/cancel`,
+      control({}),
+    );
+    assert.equal(cancelRes.status, 200);
+    const cancelledB = await waitFor(baseUrl2, turnIdBeta, t => t.status === 'failed');
+    assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
+  } finally {
+    await closeServer(server2);
+  }
+});
+
