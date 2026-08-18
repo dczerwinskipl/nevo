@@ -502,7 +502,8 @@ export class ClaudeAgentProvider {
         }
 
         if (exitCode !== 0 && !isDeferred) {
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${stderrOutput || 'Unknown error'}`));
+          const detail = stderrOutput.trim() || 'Process ended unexpectedly (check server logs for details)';
+          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${detail}`));
         }
 
         this.#materializedSessions.add(effectiveSessionId);

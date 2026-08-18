@@ -171,6 +171,7 @@ export function AiChatPage({
     providerSessionId: sessionId,
     onTurnCompleted: () => {
       onTurnChange(null);
+      setSubmissionError(null);
     },
     onError: (err) => {
       setSubmissionError(err.message);
@@ -227,9 +228,10 @@ export function AiChatPage({
 
   useEffect(() => {
     if (!initialMessage || initialSent.current) return;
+    if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) return;
     initialSent.current = true;
     void submitMessage(initialMessage).finally(onInitialMessageConsumed);
-  }, [initialMessage, onInitialMessageConsumed, submitMessage]);
+  }, [initialMessage, onInitialMessageConsumed, submitMessage, assistant.isLoading, assistant.sessionDetails, assistant.loadError]);
 
   const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
@@ -400,16 +402,29 @@ export function AiChatPage({
               />
             )}
             {submissionError && (
-              <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-200">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-400" />
+              <div className={cn(
+                'flex items-start gap-3 rounded-xl p-3.5 text-xs',
+                submissionError.toLowerCase().includes('cancelled')
+                  ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
+                  : 'border border-red-500/30 bg-red-500/10 text-red-200'
+              )}>
+                <AlertTriangle className={cn(
+                  'mt-0.5 size-4 shrink-0',
+                  submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
+                )} />
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-red-300">Błąd wykonania tury</p>
-                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] text-red-200/90">{submissionError}</p>
+                  <p className={cn(
+                    'font-semibold',
+                    submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
+                  )}>
+                    {submissionError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{submissionError}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSubmissionError(null)}
-                  className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/20"
+                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
                 >
                   Zamknij
                 </button>
