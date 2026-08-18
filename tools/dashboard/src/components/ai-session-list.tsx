@@ -166,7 +166,7 @@ export function AiSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-2.5 top-2.5 flex size-6 items-center justify-center rounded-lg text-[var(--muted)] opacity-0 transition-all hover:bg-red-500/15 hover:text-red-400 focus:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+          className="absolute right-2.5 top-2.5 flex size-6 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-red-500/15 hover:text-red-400 hover:opacity-100 focus:opacity-100 disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>

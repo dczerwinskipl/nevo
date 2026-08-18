@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Send,
   ShieldAlert,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-pr
 import {
   useAiProviders,
   useCreateAiSession,
+  useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type {
@@ -194,6 +196,19 @@ export function AiChatPage({
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
   const [currentMode, setCurrentMode] = useState<AgentExecutionMode>(session?.mode || 'edit');
+  const deleteMutation = useDeleteAiSession();
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
+
+  const handleDeleteSession = async () => {
+    if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
+    setIsDeletingSession(true);
+    try {
+      await deleteMutation.deleteSession({ provider, sessionId });
+      onBack();
+    } finally {
+      setIsDeletingSession(false);
+    }
+  };
 
   useEffect(() => {
     if (session?.mode) {
@@ -265,9 +280,21 @@ export function AiChatPage({
               </div>
             </div>
           </div>
-          {assistant.isRunning && assistant.capabilities?.cancelTurn && (
-            <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {assistant.isRunning && assistant.capabilities?.cancelTurn && (
+              <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-[var(--muted)] hover:bg-red-500/15 hover:text-red-400"
+              onClick={() => void handleDeleteSession()}
+              disabled={isDeletingSession || assistant.isRunning}
+              title="Usuń sesję z dysku"
+            >
+              {isDeletingSession ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            </Button>
+          </div>
         </div>
         <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'sesja'} · {provider}</p>
       </div>
