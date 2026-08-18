@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T16:10:16.995Z",
+  "generated": "2026-08-18T16:26:47.656Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -465,7 +465,7 @@
           "id": "agent-execution-modes-and-permissions",
           "order": 13,
           "file": "tasks/13-agent-execution-modes-and-permissions.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "final-verification-and-architecture-docs"
           ],
@@ -554,7 +554,7 @@
           "id": "turn-reliability-and-restart-resilience",
           "order": 14,
           "file": "tasks/14-turn-reliability-and-restart-resilience.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "final-verification-and-architecture-docs"
           ],
@@ -620,7 +620,7 @@
           "id": "spec-creation-wizard-and-agent-scaffolding",
           "order": 15,
           "file": "tasks/15-spec-creation-wizard-and-agent-scaffolding.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-session-ux-and-spec-binding",
             "agent-execution-modes-and-permissions"

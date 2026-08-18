@@ -310,7 +310,7 @@ tasks:
   - id: agent-execution-modes-and-permissions
     order: 13
     file: tasks/13-agent-execution-modes-and-permissions.md
-    status: implemented
+    status: verified
     depends_on: [ final-verification-and-architecture-docs ]
     implementation:
       baseline_revision: 89f1dfdd1e1e7121e9c687d9e534892927c8d666
@@ -377,7 +377,7 @@ tasks:
   - id: turn-reliability-and-restart-resilience
     order: 14
     file: tasks/14-turn-reliability-and-restart-resilience.md
-    status: implemented
+    status: verified
     depends_on: [ final-verification-and-architecture-docs ]
     implementation:
       baseline_revision: b8609808bb02d6b42d298348a6a66f748bd3b873
@@ -423,7 +423,7 @@ tasks:
   - id: spec-creation-wizard-and-agent-scaffolding
     order: 15
     file: tasks/15-spec-creation-wizard-and-agent-scaffolding.md
-    status: draft
+    status: approved
     depends_on:
       - dashboard-session-ux-and-spec-binding
       - agent-execution-modes-and-permissions
