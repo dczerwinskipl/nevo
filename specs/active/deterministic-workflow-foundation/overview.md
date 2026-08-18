@@ -23,30 +23,21 @@ AI must transition from being the workflow orchestrator to being a bounded execu
 5. What runtime context the agent should inspect (factual repo state),
 6. Whether human verification is required,
 7. What command can be executed,
-8. What the next valid transition is,
-9. What AI agent session is actively working on each task.
+8. What the next valid transition is.
 
-This migration spans multiple stages:
-- **Stage 1 (This Specification):** Build deterministic command, action, gate, VCS synchronization, and session-binding foundations, contracts, check aggregation, fail-closed execution, and the vertical proofs (`commit-and-push`, `spec-publish-and-sync-pr`).
-- **Stage 2:** Extend schemas and CLI commands while keeping existing semi-deterministic flows fully functional.
-- **Stage 3:** Introduce declarative workflow definitions for the four specification classes (Standard, Architectural, Small, Exploratory).
-- **Stage 4:** Update agent skills and behaviors to produce structured data required by deterministic workflows.
-- **Stage 5:** Enable the deterministic workflow end-to-end.
-- **Stage 6:** Direct agents to follow CLI-provided next steps rather than encoding process knowledge.
-- **Stage 7:** Decommission obsolete semi-deterministic orchestration and legacy compatibility layers.
-
-This specification delivers Stage 1 and the minimum necessary elements of Stage 2 to establish and prove the foundational abstractions without disrupting active workflows.
+This specification builds the foundation for configurable deterministic workflows. Rather than postponing workflow definitions to a future stage, this specification establishes a real, executable declarative workflow definition model, composable action contracts, non-mutating checks with parameter schemas, factual context extraction, deterministic gate contracts with separate inspection and execution, machine-readable human verification, and a complete vertical proof-of-concept, while preserving the existing legacy workflow during migration.
 
 ## Goal
 
-Provide a robust, modular foundation for migrating Nevo from agent-orchestrated semi-deterministic workflows to CLI-driven deterministic workflows using composable actions, non-mutating checks, structured parameter schemas, factual runtime context, deterministic gates, explicit machine-readable human verification, provider-neutral VCS synchronization, and automatic AI agent session binding, while preserving legacy flow compatibility.
+Provide a robust, modular foundation for migrating Nevo from agent-orchestrated semi-deterministic workflows to CLI-driven deterministic workflows using configurable declarative workflow definitions, composable actions, non-mutating checks, structured parameter schemas, factual runtime context, deterministic gates with separate inspection and execution, explicit machine-readable human verification, and fail-closed file selection, while preserving legacy flow compatibility.
 
 ## Non-goals
 
-- Full migration of all four specification workflows in this specification.
+- Full migration of all four specification workflows in this specification (the engine supports all four classes, but only one vertical path is proven end-to-end here).
 - Removing existing semi-deterministic CLI commands or task lifecycle commands.
 - Rewriting all agent skills or Claude/Cursor command adapters in this change.
 - Automatic migration or rewriting of existing active/archived specification files.
+- Implementing broad provider-neutral VCS abstractions (GitHub/GitLab PR automation) or live chat session tracking (deferred to dedicated follow-up specifications).
 - Replacing Git wrappers with a complex third-party Git framework.
 - Redesigning unrelated dashboard UI/UX or adding speculative plugin systems.
 
@@ -54,40 +45,36 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 
 | Signal | Rating | Reason |
 |---|---|---|
-| Behavioral clarity | GREEN | Core contracts (`check`, `execute`, input schemas, gates, human verification state, VCS sync, session binding) are well-defined and grounded in repo patterns. |
-| Public surface impact | RED | Introduces new workflow CLI subcommands, manifest workflow schemas, action/gate contracts, and step inspection outputs. |
-| Package boundary impact | YELLOW | Introduces a dedicated `tools/specs/workflow/` domain layer without altering external package dependencies. |
-| Blast radius | RED | Establishes the core execution foundation for all future Nevo workflows. |
-| Reversibility | YELLOW | Additive design with explicit `workflow.mode` ensures legacy specs run untouched; new abstractions can be refined safely. |
+| Behavioral clarity | GREEN | Core contracts (`check`, `execute`, input schemas, gates, human verification state, workflow definition parser) are explicit and bounded. |
+| Public surface impact | YELLOW | Introduces new internal workflow abstractions and CLI subcommands under `workflow` without breaking existing public CLI interfaces. |
+| Package boundary impact | GREEN | All additions are contained within repository-local Node tooling under `tools/specs/workflow/`. |
+| Blast radius | GREEN | Additive architecture; legacy specifications and existing lifecycle handlers run completely untouched. |
+| Reversibility | GREEN | Additive design with explicit `workflow.mode` in manifest ensures zero impact on existing specifications. |
 
-**Classification: A — Architectural.**
+**Classification: T — Standard.** (This change establishes an incremental foundation and vertical proof-of-concept without forcing architectural migration across active workflows).
 
 ## Constraints
 
 - **C1.** Legacy workflow commands (`start`, `complete`, `verify`, `approve`, `finalize`, `self-check`, `batch-*`) and specifications without explicit `workflow` configuration must continue to work unchanged with zero regressions.
 - **C2.** The `--check` operation must be strictly non-mutating; it must never modify filesystem files, repository refs, Git index/worktree state, or manifest metadata.
 - **C3.** Action parameter schemas (`requiredInputs`) must explicitly define name, type, required/optional flag, human-readable description, and allowed constraints; agents must not be forced to infer semantics from parameter names alone.
-- **C4.** Action runtime context (`context`) must provide read-only facts (e.g. changed files, staged files, branch, existing commits) and remain strictly separated from required input definitions.
+- **C4.** Action runtime context (`context`) must provide read-only facts (e.g. changed files, staged files, branch, existing commits) and remain strictly separated from required input definitions; action boundaries must be preserved in aggregated output.
 - **C5.** Aggregated check outputs across multi-action steps must preserve distinct action boundaries and payloads; multiple actions must never be collapsed into an ambiguous flat bag of properties.
-- **C6.** Action execution (`execute`) must fail closed: if required inputs are omitted or invalid, execution must immediately fail with an explicit precondition error rather than guessing or heuristic defaulting.
-- **C7.** Human verification must be a first-class, machine-readable workflow state (`status: blocked`, `reason: human-verification-required`); an agent cannot self-satisfy or bypass a human verification gate.
-- **C8.** Workflow engine abstractions must be agnostic to specific specification classes and support composing different steps, actions, and gates for Standard, Architectural, Small, and Exploratory workflows.
-- **C9.** Implementation must follow horizontal slices: all new workflow infrastructure lives in cohesive modules under `tools/specs/workflow/` with dedicated unit and integration tests; existing large command files must not grow into larger god objects.
-- **C10.** Tooling must use Node.js standard libraries and existing dependencies (`commander`, `yaml`); no new external dependencies may be introduced.
-- **C11.** Version control and remote provider interactions must be provider-neutral (supporting GitHub, GitLab, git-local, or disabled/none) based on repository/manifest configuration; when PR creation is disabled or unsupported, the action performs local Git operations without failing.
-- **C12.** Every workflow command, action check, and step execution must support propagating AI session context (via CLI flags or environment variables) and automatically bind the session to the target specification (`spec_id`) and task (`task_id`) without failing if session context is absent.
+- **C6.** Action execution (`execute`) must fail closed: if required inputs are omitted or invalid, execution must immediately fail with an explicit precondition error rather than guessing or heuristic defaulting. Specifically, `commit-and-push` must require an explicit file selection (e.g. explicit `include` list or `include: "*"` with `exclude: [...]`) and must never fall back to committing all dirty files implicitly.
+- **C7.** Gate inspection (`inspect`) must be non-mutating and must never automatically run expensive test suites or commands; gate execution (`verify`) must be an explicit, separate operation.
+- **C8.** Human verification must be a first-class, machine-readable workflow state (`status: blocked`, `reason: human-verification-required`); an agent cannot self-satisfy or bypass a human verification gate.
+- **C9.** Workflow definitions must be configurable and declarative (expressing steps, actions, entry/exit gates, and finalize actions), with support for the four specification classes (Standard, Architectural, Small, Exploratory).
+- **C10.** Implementation must follow horizontal slices: all new workflow infrastructure lives in cohesive modules under `tools/specs/workflow/` with dedicated unit and integration tests; existing large command files must not grow into larger god objects.
 
 ## Affected Areas
 
-- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode and version.
-- **Workflow Domain Architecture:** New `tools/specs/workflow/` module hierarchy containing contracts, registry, engine, runner, VCS adapters, and compatibility layers.
-- **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, `tools/specs/workflow/actions/commit-and-push.mjs`, `tools/specs/workflow/actions/spec-sync-pr.mjs`.
-- **Deterministic Gates:** `tools/specs/workflow/gates/` implementing Command/Test gates, Markdown verification gates, and Human verification gates.
-- **VCS & Remote Provider Integration:** `tools/specs/workflow/vcs/` implementing `GitHubVcsAdapter`, `GitLabVcsAdapter`, `GitLocalVcsAdapter`, and `NullVcsAdapter`.
-- **AI Session Binding & Traceability:** Integration with `AgentSessionBindingService` across workflow CLI commands, action checks, and step runners.
-- **Next-Step Service:** `tools/specs/workflow/next-step.mjs` resolving current step, available actions, gates, active agent sessions, and valid transitions.
-- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `--check`, `workflow next-step`, and `workflow spec-sync`.
-- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, VCS sync, session binding, next-step queries, and compatibility.
+- **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode, version, and definition reference.
+- **Workflow Definitions & Loader:** New `tools/specs/workflow/definitions/` containing declarative workflow schema, YAML loader, validator, and built-in definition configurations.
+- **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, `tools/specs/workflow/actions/commit-and-push.mjs`, `tools/specs/workflow/actions/verify-output.mjs`.
+- **Deterministic Gates:** `tools/specs/workflow/gates/` implementing `GateContract` with `inspect` vs `verify` separation, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate`.
+- **Step Orchestration & Next-Step Service:** `tools/specs/workflow/step-runner.mjs` and `next-step.mjs` evaluating steps, actions, gates, and valid transitions.
+- **CLI Dispatch:** `tools/specs.mjs` integration delegating to the new workflow engine and exposing `--check` and `workflow next-step` commands.
+- **Test Infrastructure:** `tools/tests/` comprehensive test suites for contracts, engine, gates, actions, next-step queries, and compatibility.
 
 ## Proposed Architecture
 
@@ -99,21 +86,47 @@ To ensure backward compatibility and prevent cross-contamination between legacy 
   workflow:
     mode: deterministic  # 'legacy' | 'deterministic' (defaults to 'legacy' when omitted)
     version: 1
+    definition: standard # optional definition reference (defaults to change type)
   ```
 - The validator (`tools/specs/validation.mjs`) validates `workflow.mode` and `workflow.version` if present.
 - `tools/specs/workflow/compatibility.mjs` resolves the effective workflow mode for any given change manifest.
 - Existing specifications lacking `workflow` metadata run via legacy handlers, maintaining 100% backward compatibility.
 - Temporary CLI flag `--deterministic-flow=true` is supported for CLI testing/development, but the manifest remains the authoritative source of truth.
 
-### 2. Composable Action Model (`check` and `execute`)
+### 2. Configurable Declarative Workflow Definitions
 
-Actions represent distinct units of work composed inside workflow steps. Each action implements the `ActionContract`:
+Workflow definitions declare the structure and lifecycle rules for a specification class in YAML:
+```yaml
+id: standard-v1
+title: "Standard Specification Workflow"
+steps:
+  implementation:
+    entryGates: []
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+      - type: human
+        required: true
+    finalize:
+      - id: verify-task-output
+      - id: commit-and-push
+    transitions:
+      - to: verified
+```
+- **Loader & Validator (`tools/specs/workflow/definitions/loader.mjs`):** Parses workflow definition files, validates steps, action IDs, and gate configurations. Unknown actions or gates trigger fail-closed validation errors.
+- **Class Support:** Supports distinct definitions for `standard`, `architectural`, `small`, and `exploratory` classes without code modifications.
+
+### 3. Composable Action Model (`check` and `execute`)
+
+Actions represent discrete units of work composed inside workflow steps. Each action implements `ActionContract`:
 ```javascript
 export class ActionContract {
   get id() { /* string identifier */ }
   get description() { /* string */ }
-  async check(context) { /* returns ActionCheckResult */ }
-  async execute(inputs, context) { /* returns ActionExecuteResult */ }
+  async check(context) { /* returns ActionCheckResult (non-mutating) */ }
+  async execute(inputs, context) { /* returns ActionExecuteResult (fail-closed) */ }
 }
 ```
 
@@ -131,8 +144,8 @@ Introspects current state without mutating anything and returns:
     {
       "name": "include",
       "type": "array",
-      "required": false,
-      "description": "Explicit file paths or globs to stage and commit"
+      "required": true,
+      "description": "Explicit file paths or globs to stage and commit (e.g. ['*'] or ['src/**'])"
     }
   ]
   ```
@@ -150,58 +163,61 @@ Introspects current state without mutating anything and returns:
 #### Fail-closed `execute(inputs, context)`
 - Validates all supplied `inputs` against the action's input schema.
 - Throws an explicit `PreconditionError` if required fields are missing or constraints are violated.
-- Executes the action's side effects (e.g. Git add/commit/push) deterministically.
+- **Fail-Closed File Selection for `commit-and-push`:** The caller must provide an explicit file selection (e.g. `include: ["src/index.js"]` or `include: ["*"]` with `exclude: [...]`). Execution will never guess or fall back to staging all dirty files implicitly.
 
-### 3. Action Aggregation & Boundary Preservation
+### 4. Action Aggregation & Boundary Preservation
 
-Workflow steps can declare multiple actions (e.g. `finalize: [verify-task-output, commit-and-push]`).
-When an aggregated check is requested on a step, the engine invokes `check` on every action and constructs an aggregated result that preserves action boundaries:
+Workflow operations may compose multiple actions (e.g. `finalize: [verify-task-output, commit-and-push]`).
+When an aggregated check is requested on a step, the engine invokes `check` on every action and constructs an aggregated result that strictly preserves action boundaries:
 ```json
 {
   "step": "finalize",
   "ready": true,
-  "actions": [
-    {
-      "id": "verify-task-output",
+  "actions": {
+    "verify-task-output": {
+      "actionId": "verify-task-output",
       "requiredInputs": [],
       "context": { "verifiedArtifacts": ["dist/bundle.js"] }
     },
-    {
-      "id": "commit-and-push",
+    "commit-and-push": {
+      "actionId": "commit-and-push",
       "requiredInputs": [
-        { "name": "commitMessage", "type": "string", "required": true, "description": "Commit message" }
+        { "name": "commitMessage", "type": "string", "required": true, "description": "Commit message" },
+        { "name": "include", "type": "array", "required": true, "description": "Explicit file selection" }
       ],
       "context": {
         "changedFiles": ["src/index.js"],
         "branch": "feature/workflow-foundation"
       }
     }
-  ]
+  }
 }
 ```
 
-### 4. Deterministic Gates & Explicit Human Verification
+### 5. Deterministic Gates with `inspect` vs `verify` Separation
 
-Gates evaluate whether a workflow step can be exited:
-- **`CommandGate`**: Runs a logical verification command (e.g. `test`, `build`) via registered runner adapters rather than embedding raw shell strings across specifications.
-- **`MarkdownGate`**: Validates the presence, structure, and approval status of a markdown verification artifact (e.g. `verification.md`).
+Gates evaluate whether a workflow step can be exited without conflating read-only inspection with expensive execution:
+```javascript
+export class GateContract {
+  get type() { /* 'command' | 'markdown' | 'human' */ }
+  async inspect(config, context) { /* non-mutating inspection: returns status, scope, target, staleness WITHOUT running tests */ }
+  async verify(config, context) { /* explicit execution: runs tests or validates artifacts and records result */ }
+}
+```
+
+- **`CommandGate`**: Inspect returns target verification command (e.g. `action: "test"`), scope, and last known result without running tests. Verify executes the test runner and records the result.
+- **`MarkdownGate`**: Validates the presence, structure, and completed checklist items of a markdown verification artifact (e.g. `verification.md`).
 - **`HumanVerificationGate`**: Models explicit machine-readable human review. When human sign-off is required, the gate returns:
   ```json
   {
     "status": "blocked",
     "reason": "human-verification-required",
-    "message": "Step 'implementation.complete' requires explicit human verification",
-    "signoff": { "type": "owner", "taskId": "04-concrete-action-commit-and-push" }
+    "gateType": "human",
+    "message": "Step 'implementation' requires explicit human verification",
+    "signoff": { "requiredRole": "owner", "taskId": "04-concrete-action-commit-and-push" }
   }
   ```
-The workflow engine halts progression until explicit human confirmation is provided through a dedicated CLI command.
-
-### 5. AI Session Context Propagation & Specification/Task Binding
-
-Whenever an AI agent or the dashboard interacts with a specification or task:
-- Session identifiers (`provider`, `sessionId`, `purpose`) are passed via CLI flags, environment variables, or HTTP headers.
-- The workflow engine automatically binds the session to `spec_id` and `task_id` using `AgentSessionBindingService`.
-- Active session bindings are reflected in `next-step` outputs and dashboard projections, maintaining full traceability across all agent actions.
+  The workflow engine halts progression until explicit human confirmation is provided through an operator command (`node tools/specs.mjs workflow verify-human <change> <task> --confirm`).
 
 ### 6. Deterministic Next Step Query Service
 
@@ -212,39 +228,48 @@ Response:
 {
   "change": "deterministic-workflow-foundation",
   "task": "01-workflow-schema-and-compatibility",
+  "workflowMode": "deterministic",
   "currentStep": "implementation",
-  "boundSessions": [
-    { "provider": "claude", "sessionId": "ses-98234", "purpose": "implementation" }
-  ],
-  "availableActions": ["check-status", "run-tests", "finalize-task"],
-  "activeGates": [
-    { "id": "tests-passing", "type": "command", "status": "passed" },
+  "availableActions": ["implement-task", "finalize-task"],
+  "gates": [
+    { "id": "test-suite", "type": "command", "status": "passed" },
     { "id": "human-review", "type": "human", "status": "blocked", "reason": "human-verification-required" }
   ],
-  "nextAllowedTransitions": ["complete"],
-  "blockedReason": "human-verification-required"
+  "blockedReason": "human-verification-required",
+  "nextAllowedTransitions": ["verify"],
+  "recommendedCommand": "node tools/specs.mjs workflow execute-step deterministic-workflow-foundation 01-workflow-schema-and-compatibility finalize --inputs-file=inputs.json"
 }
 ```
 
-### 7. Provider-Neutral VCS Settings & `spec-publish-and-sync-pr` Action
-
-Automates the multi-step version control lifecycle (branch checkout -> stage -> commit -> push -> PR create -> PR attach to manifest -> push attachment) into a single deterministic command:
-`node tools/specs.mjs workflow spec-sync <change>`
-- Supports configurable VCS providers: `github`, `gitlab`, `git-local`, and `none`.
-- Generates conventional commit messages and PR metadata directly from specification artifacts.
-- When `vcs.provider` is `git-local` or `none`, performs local branching/commits without remote PR failures.
-
-### 8. Vertical Proof-of-Concept: Multi-Step Finalize with `commit-and-push`
+### 7. Vertical Proof-of-Concept: Implementation/Finalize Fragment
 
 To prove the complete architecture in Stage 1:
-- Implement `commit-and-push` action with full input schema and Git context generation.
-- Combine with `CommandGate` (automated test suite) in a multi-step `finalize` workflow step.
-- Verify `--check` produces non-mutating aggregated contracts.
-- Verify fail-closed behavior on missing commit messages.
-- Verify successful execution on valid inputs.
-- Verify legacy `finalize` continues working without alteration.
+```yaml
+implementation:
+  exitGates:
+    - type: command
+      action: test
+    - type: human
+      required: true
+  finalize:
+    - id: verify-task-output
+    - id: commit-and-push
+```
+The PoC validates:
+1. Workflow definition loading & validation,
+2. Action discovery & composition,
+3. Non-mutating action check,
+4. Required input schemas & factual context,
+5. Aggregated multi-action check,
+6. Explicit execute inputs with fail-closed missing input rejection,
+7. Gate inspection without automatically running verification tests,
+8. Explicit test verification execution,
+9. Explicit human verification blocker,
+10. Markdown verification gate support,
+11. Deterministic transition only after gates pass,
+12. Coexistence with legacy flow.
 
-### 9. Horizontal Slice Directory Structure
+### 8. Horizontal Slice Directory Structure
 
 All new components reside in small, single-responsibility modules under `tools/specs/workflow/`:
 ```text
@@ -256,57 +281,52 @@ tools/specs/workflow/
   engine.mjs             # Aggregated check runner and execution engine
   step-runner.mjs        # Step lifecycle evaluation and gate checking
   next-step.mjs          # "What next?" query service
-  vcs/
-    provider-adapter.mjs # Base VCS provider adapter interface
-    github.mjs           # GitHub provider adapter (gh CLI / API)
-    gitlab.mjs           # GitLab provider adapter
-    git-local.mjs        # Git local-only adapter
-    null-provider.mjs    # No-op provider adapter
-    index.mjs            # VCS provider registry
+  definitions/
+    schema.mjs           # Workflow definition JSON/YAML schema
+    loader.mjs           # Definition loader, parser, and validator
+    standard.yaml        # Standard workflow definition
   actions/
     index.mjs            # Built-in actions exporter
-    commit-and-push.mjs  # Concrete commit-and-push action
-    spec-sync-pr.mjs     # Deterministic spec publish and PR sync action
+    commit-and-push.mjs  # Fail-closed commit-and-push action
+    verify-output.mjs    # Verification artifact check action
   gates/
     index.mjs            # Built-in gates exporter
-    command-gate.mjs     # Command/test verification gate
+    command-gate.mjs     # Command/test verification gate (inspect vs verify)
     markdown-gate.mjs    # Markdown artifact verification gate
     human-gate.mjs       # Machine-readable human verification gate
 ```
 
 ## Implementation Decomposition
 
-- **Task 01 — Workflow Schema, Mode Resolution & Legacy Compatibility Model (`tasks/01-workflow-schema-and-compatibility.md`):**
-  Add `workflow` manifest schema in `change.yaml`, validation in `tools/specs/validation.mjs`, compatibility mode resolver in `tools/specs/workflow/compatibility.mjs`, session context extraction, and tests proving legacy specifications default cleanly to legacy mode.
+- **Task 01 — Declarative Workflow Definition Schema, Parser & Compatibility Model (`tasks/01-workflow-schema-and-compatibility.md`):**
+  Add `workflow` manifest schema in `change.yaml`, definition loader and validator in `tools/specs/workflow/definitions/`, compatibility mode resolver in `tools/specs/workflow/compatibility.mjs`, and tests proving legacy specifications default cleanly to legacy mode.
 - **Task 02 — Composable Action Contracts, Input Schema & Context Interfaces (`tasks/02-composable-actions-and-contracts.md`):**
-  Implement `ActionContract`, `ActionCheckResult`, `ActionExecuteResult`, and input schema validator in `tools/specs/workflow/contracts.mjs` and `errors.mjs`.
+  Implement `ActionContract`, `ActionCheckResult`, `ActionExecuteResult`, and parameter schema validator in `tools/specs/workflow/contracts.mjs` and `errors.mjs`.
 - **Task 03 — Action Registry, Composition & Aggregated Check Engine (`tasks/03-action-registry-and-aggregated-checks.md`):**
   Implement `ActionRegistry` and the aggregated check engine in `tools/specs/workflow/registry.mjs` and `engine.mjs` ensuring strict action boundary preservation during multi-action step checks.
-- **Task 04 — Concrete Action Implementation: `commit-and-push` Action (`tasks/04-concrete-action-commit-and-push.md`):**
-  Implement `commit-and-push` action in `tools/specs/workflow/actions/commit-and-push.mjs` with non-mutating check returning parameter schemas (`commitMessage`, `include`, `exclude`) and runtime Git facts, plus fail-closed execution.
-- **Task 05 — Deterministic Gate Abstraction & Gate Types (`tasks/05-deterministic-gates-and-human-verification.md`):**
-  Implement `GateContract`, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate` under `tools/specs/workflow/gates/`, providing explicit machine-readable `blocked` / `human-verification-required` state.
+- **Task 04 — Concrete Action Implementation: Fail-Closed `commit-and-push` Action (`tasks/04-concrete-action-commit-and-push.md`):**
+  Implement fail-closed `commit-and-push` in `tools/specs/workflow/actions/commit-and-push.mjs` requiring explicit file selection (`include`/`exclude`), non-mutating check with Git context, and fail-closed execution.
+- **Task 05 — Deterministic Gate Abstraction with Inspection/Verification Separation (`tasks/05-deterministic-gates-and-human-verification.md`):**
+  Implement `GateContract` with separate `inspect(context)` and `verify(context)` methods, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate` under `tools/specs/workflow/gates/`.
 - **Task 06 — Deterministic Step Orchestration & "What Next" Inspection Service (`tasks/06-step-orchestration-and-next-step-service.md`):**
-  Implement step orchestration in `tools/specs/workflow/step-runner.mjs` and next-step query service in `tools/specs/workflow/next-step.mjs` determining current step, available actions, gates, active agent sessions, and valid transitions.
+  Implement step orchestration in `tools/specs/workflow/step-runner.mjs` and next-step query service in `tools/specs/workflow/next-step.mjs` determining current step, available actions, gates, and valid transitions.
 - **Task 07 — CLI Integration, Vertical Finalize PoC & Coexistence Verification (`tasks/07-cli-integration-and-vertical-poc.md`):**
   Integrate workflow commands and `--check` into `tools/specs.mjs`, prove the multi-step finalize flow with `commit-and-push` end-to-end, and verify zero regressions across all legacy test suites.
-- **Task 08 — VCS Provider Settings & Spec Synchronization Action (`tasks/08-vcs-provider-settings-and-spec-sync.md`):**
-  Implement provider-neutral VCS adapters (`tools/specs/workflow/vcs/`) and the `spec-publish-and-sync-pr` action automating branch creation, staging, committing, pushing, PR creation, and manifest attachment via `node tools/specs.mjs workflow spec-sync <change>`.
 
 ## Acceptance Criteria & Verification
 
 - `node tools/specs.mjs validate` and `node tools/specs.mjs check` pass with zero errors across all active and archived specifications.
 - `tools/specs/workflow/` contains clean, modular horizontal slices with zero god-object expansion in `tools/specs.mjs`.
+- Workflow definitions are declarative and validated against a schema; invalid/unknown actions or gates fail closed with explicit errors.
 - Manifest validation allows optional `workflow: { mode: 'deterministic', version: 1 }` and rejects malformed workflow configurations.
 - Unspecified manifests cleanly default to `mode: 'legacy'`.
 - Action `--check` is verified to be 100% non-mutating across all filesystem, Git, and metadata state.
 - Action `--check` returns explicit `requiredInputs` schemas and separate `context` facts.
 - Aggregated checks on multi-action steps preserve action boundaries and data structures.
-- Action execution strictly fails closed when required inputs are omitted or invalid.
+- Action execution strictly fails closed when required inputs are omitted or invalid; `commit-and-push` strictly fails closed if explicit file selection is missing.
+- Gate inspection (`inspect`) never executes verification commands; gate verification (`verify`) executes tests/checks explicitly.
 - Human verification gate reliably blocks workflow progression with machine-readable `blocked` / `human-verification-required` status and cannot be bypassed.
 - Command and Markdown gates correctly validate exit conditions.
-- VCS settings and `spec-publish-and-sync-pr` action execute the complete branch-commit-push-PR-attach sequence in a single deterministic command.
-- AI session context is extracted from CLI invocations/environment and automatically bound to `spec_id` / `task_id` during workflow operations.
-- `next-step` query provides complete deterministic guidance (current step, actions, gates, inputs, bound sessions, transitions) without agent heuristics.
+- `next-step` query provides complete deterministic guidance (current step, actions, gates, inputs, transitions) without agent heuristics.
 - Vertical PoC (`finalize` step with `commit-and-push` and test gate) executes successfully under deterministic mode.
 - Full test suite `node --test tools/tests/*.test.mjs` passes with zero failures.

@@ -28,23 +28,23 @@
 - **Date:** 2026-08-18
 - **Affected artifacts:** `areas/composable-actions-and-contracts.md`, tasks 02, 03, 04
 
-## D4: Fail-closed action execution invariant
+## D4: Fail-closed action execution invariant and explicit file selection for `commit-and-push`
 
-- **Question:** What should happen when an action is executed without required parameters or with invalid parameter values?
-- **Options considered:** Heuristic guessing/defaulting of missing values by the CLI | interactive prompt prompting stdin | strict fail-closed rejection with structured precondition errors.
-- **Decision:** Execution fails closed immediately. If an action is missing required inputs or receives invalid parameters, `execute` throws an explicit `PreconditionError` / `CliError` detailing the missing fields. Neither the CLI nor the agent is permitted to guess missing values during execution.
-- **Rationale:** Enforces deterministic preconditions: `check` -> inspect context -> collect explicit inputs -> `execute`.
+- **Question:** What should happen when an action is executed without required parameters or with invalid parameter values, and how should `commit-and-push` handle uncommitted files?
+- **Options considered:** Heuristic guessing/defaulting of missing values and implicit staging of all dirty files | interactive prompt prompting stdin | strict fail-closed rejection with structured precondition errors requiring explicit file selection.
+- **Decision:** Execution fails closed immediately. Missing or invalid parameters throw an explicit `PreconditionError` / `CliError`. Specifically, `commit-and-push` requires an explicit file selection (an explicit `include` array, or explicit `include: "*"` with `exclude: [...]`) and must never fall back to committing all dirty files implicitly.
+- **Rationale:** Enforces deterministic preconditions: `check` -> inspect context -> collect explicit inputs -> `execute`. Prevents unintended side-effects and accidental dirty-file commits.
 - **Consequences:** Reduces silent failures, accidental partial commits, and unintended side effects.
 - **Date:** 2026-08-18
-- **Affected artifacts:** `areas/composable-actions-and-contracts.md`, tasks 02, 04
+- **Affected artifacts:** `areas/composable-actions-and-contracts.md`, `areas/concrete-actions-and-vertical-poc.md`, tasks 02, 04
 
-## D5: First-class deterministic gates and machine-readable human verification
+## D5: First-class deterministic gates with inspection vs verification separation and machine-readable human verification
 
-- **Question:** How should step exit criteria and human verification requirements be modeled in the workflow?
-- **Options considered:** Prose instructions telling the agent to "ask user to verify" | treating gates as finalize side-effects | explicit declarative gate contracts with first-class `CommandGate`, `MarkdownGate`, and machine-readable `HumanVerificationGate` (`status: blocked`, `reason: human-verification-required`).
-- **Decision:** Gates answer whether the workflow may transition out of a step, distinct from execution side-effects. Human verification is a first-class machine-readable state (`status: blocked`, `reason: human-verification-required`). Command/test gates execute logical verification commands, and markdown verification gates validate specified verification artifacts.
-- **Rationale:** Prevents AI agents from assuming verification criteria or silently bypassing human verification checkpoints.
-- **Consequences:** Workflow progression is blocked until gates are satisfied and human approval is explicitly recorded.
+- **Question:** How should step exit criteria, automated test verification, and human review be modeled without running expensive test suites during read-only inspection?
+- **Options considered:** Single `evaluate()` method that runs tests whenever queried | prose instructions telling the agent to "ask user to verify" | dual gate contract separating non-mutating `inspect(context)` from explicit `verify(context)`, plus first-class machine-readable `HumanVerificationGate` (`status: blocked`, `reason: human-verification-required`).
+- **Decision:** Gates define two distinct operations: (1) non-mutating `inspect(context)` returning verification target, scope, staleness, and known result without executing commands, and (2) `verify(context)` executing the actual verification action. Human verification is modeled as an explicit machine-readable state (`status: blocked`, `reason: human-verification-required`) that an AI agent cannot self-satisfy.
+- **Rationale:** Prevents read-only operations (`status`, `next-step`, `--check`) from triggering slow/expensive test suites, and guarantees that human review cannot be bypassed.
+- **Consequences:** Step transitions are gated until exit criteria are verified and human approval is explicitly recorded.
 - **Date:** 2026-08-18
 - **Affected artifacts:** `areas/deterministic-gates-and-human-verification.md`, task 05
 
@@ -52,48 +52,28 @@
 
 - **Question:** How should the new workflow engine and its components be organized in the repository?
 - **Options considered:** Append another 500-1000 lines to `tools/specs.mjs` and `tools/specs/lifecycle.mjs` | create a monolithic `workflow.mjs` | create dedicated horizontal slice modules under `tools/specs/workflow/` with isolated unit and integration tests.
-- **Decision:** Implement the workflow subsystem as modular horizontal slices under `tools/specs/workflow/` (`contracts.mjs`, `registry.mjs`, `engine.mjs`, `step-runner.mjs`, `actions/**`, `gates/**`, `compatibility.mjs`). Large existing files delegate cleanly to these modules without accumulating further god-object bloat.
+- **Decision:** Implement the workflow subsystem as modular horizontal slices under `tools/specs/workflow/` (`contracts.mjs`, `registry.mjs`, `engine.mjs`, `step-runner.mjs`, `actions/**`, `gates/**`, `definitions/**`, `compatibility.mjs`). Large existing files delegate cleanly to these modules without accumulating further god-object bloat.
 - **Rationale:** Promotes maintainability, testability, and clear architectural boundaries.
 - **Consequences:** Each slice is accompanied by focused tests under `tools/tests/`.
 - **Date:** 2026-08-18
 - **Affected artifacts:** all tasks and code structure
 
-## D7: Multi-workflow support across specification classes
+## D7: Configurable declarative workflow definitions across specification classes
 
 - **Question:** How should the deterministic engine accommodate Nevo's multiple specification classes (Standard, Architectural, Small, Exploratory)?
-- **Options considered:** Hardcode a single Standard workflow into the engine | create 4 separate execution engines | design a declarative workflow definition model where steps, actions, and gates are composed per specification class or manifest definition.
-- **Decision:** The workflow engine evaluates declarative step/gate pipelines. The core engine is agnostic to specific classes, while workflow definitions specify the sequence of steps, entry/exit gates, and actions for each class.
-- **Rationale:** Avoids baking Standard-specific assumptions into the engine while allowing future changes (Architectural, Small, Exploratory) to define tailored workflows.
-- **Consequences:** Stage 1 implements the engine abstractions and default definitions, enabling full workflow definitions in Stage 3.
+- **Options considered:** Hardcode a single Standard workflow into the engine and defer definitions to Stage 3 | create 4 separate execution engines | introduce a declarative workflow definition schema and loader in this foundation that composes steps, actions, entry/exit gates, and finalize actions per specification class.
+- **Decision:** Include a real configurable declarative workflow definition model in this specification. Workflow definitions declare steps, actions, exit gates, and finalize actions in YAML. The loader parses and validates workflow definitions, while the engine executes whichever definition is configured without hardcoded orchestration logic.
+- **Rationale:** Establishes the core invariant: the workflow definition decides what happens next, not the agent. Enables distinct definitions for Standard, Architectural, Small, and Exploratory workflows without code changes.
+- **Consequences:** Proves one complete vertical path end-to-end in this specification, providing the foundation for remaining workflow classes.
 - **Date:** 2026-08-18
-- **Affected artifacts:** `areas/workflow-engine-and-next-step.md`, tasks 03, 06
+- **Affected artifacts:** `areas/workflow-schema-and-compatibility.md`, `areas/workflow-engine-and-next-step.md`, tasks 01, 03, 06
 
-## D8: Vertical proof-of-concept with `commit-and-push` in a multi-step finalize flow
+## D8: Vertical proof-of-concept with multi-step finalize fragment
 
-- **Question:** What is the minimal vertical slice to prove the composable action, check, input schema, context, and gate abstractions end-to-end?
-- **Options considered:** Synthetic mock action only | full rewrite of all Git and lifecycle commands | a concrete `commit-and-push` action composed with a verification gate in a multi-step finalize step.
-- **Decision:** Implement `commit-and-push` as the first concrete action. Validate non-mutating `--check`, input schema generation (`commitMessage`, `include`, `exclude`), runtime context generation (dirty files, branch, commits), aggregated checking, fail-closed execution, and co-existence alongside legacy `finalize`.
+- **Question:** What is the minimal vertical slice to prove the composable action, check, input schema, context, gate inspection/verification, and transition abstractions end-to-end?
+- **Options considered:** Synthetic mock action only | full rewrite of all Git and lifecycle commands | a multi-step implementation/finalize fragment combining `CommandGate` (test), `HumanVerificationGate`, and `finalize: [verify-task-output, commit-and-push]`.
+- **Decision:** Implement `commit-and-push` and `verify-task-output` actions, composed with test and human verification gates in a multi-step finalize step. Validate non-mutating `--check`, input schema generation, factual Git context, fail-closed file selection, gate inspection without test execution, explicit verification, and co-existence alongside legacy `finalize`.
 - **Rationale:** Proves all core abstractions on a real, high-value workflow step without rewriting the entire Git lifecycle.
 - **Consequences:** Establishes the reference pattern for all future actions.
 - **Date:** 2026-08-18
 - **Affected artifacts:** `areas/concrete-actions-and-vertical-poc.md`, tasks 04, 07
-
-## D9: Provider-neutral VCS settings and deterministic spec synchronization action
-
-- **Question:** How should multi-step Git and remote provider operations (branch creation, staging, committing, pushing, PR creation, PR attachment to manifest, and pushing attachment) be automated so they execute deterministically via a single command without prompt-level improvisation by the agent?
-- **Options considered:** Prompt-based manual sequence of 6 commands | hardcoded GitHub-only shell script | provider-neutral VCS settings (`github`, `gitlab`, `git-local`, `none`) with a composable `spec-publish-and-sync-pr` workflow action.
-- **Decision:** Introduce a provider-neutral VCS settings abstraction and a composable `spec-publish-and-sync-pr` action. The action introspects VCS configuration, computes branch names, generates conventional commit messages/PR titles from specification metadata, and executes the complete branch -> commit -> push -> PR create -> PR attach -> commit/push cycle deterministically in one command.
-- **Rationale:** Replaces an error-prone, 6-step prompt-driven manual sequence with a single, deterministic, testable CLI command that respects repository VCS configuration.
-- **Consequences:** Eliminates AI agent hallucination or missed steps during spec publication and branch/PR synchronization.
-- **Date:** 2026-08-18
-- **Affected artifacts:** `overview.md`, `change.yaml`, `areas/vcs-provider-and-sync-action.md`, task 08
-
-## D10: AI session context propagation and automatic specification/task binding
-
-- **Question:** How should AI agent and dashboard activity be correlated with the specifications and tasks being manipulated, so that every command and action automatically links the active agent session to the corresponding work item?
-- **Options considered:** Manual session attachment commands only | no session tracking at the workflow layer | automatic session context extraction and binding across all workflow CLI commands, action checks, and step executions.
-- **Decision:** Every workflow command and action check accepts and propagates AI session context (via `--session-id`/`--provider` flags, environment variables `NEVO_AGENT_PROVIDER`/`NEVO_AGENT_PROVIDER_SESSION_ID`, or dashboard headers) and automatically binds the active session to the target `spec_id` and optional `task_id` using `AgentSessionBindingService`.
-- **Rationale:** The dashboard and AI adapters already track active sessions. Propagating session context deterministically during every spec/task command bridges the gap between AI agent turns and specification/task lifecycle state, enabling seamless visibility into which agents are working on which tasks.
-- **Consequences:** Session binding is opportunistic and resilient (a missing session context is safely ignored without failing the command), while provided session context is persisted in `.nevo-ai-local/sessions/`.
-- **Date:** 2026-08-18
-- **Affected artifacts:** `overview.md`, `areas/workflow-engine-and-next-step.md`, tasks 01, 06, 07

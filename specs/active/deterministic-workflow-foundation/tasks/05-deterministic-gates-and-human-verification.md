@@ -27,27 +27,29 @@ semantic_references:
   constraints: [C7, C8, C9, C10]
 ---
 
-# Task: Deterministic gate abstraction and gate types
+# Task: Deterministic gate abstraction with inspection/verification separation
 
 ## Goal
 
-Implement the `GateContract` interface, gate registry, and concrete gates (`CommandGate`, `MarkdownGate`, `HumanVerificationGate`) under `tools/specs/workflow/gates/`, establishing first-class machine-readable human verification state.
+Implement the `GateContract` interface with distinct non-mutating `inspect` and explicit `verify` operations, gate registry, and concrete gates (`CommandGate`, `MarkdownGate`, `HumanVerificationGate`) under `tools/specs/workflow/gates/`, establishing first-class machine-readable human verification state.
 
 ## Implementation constraints
 
-- Gates answer whether a workflow step can be transitioned, separating evaluation from action side effects.
-- `HumanVerificationGate` must return a structured machine-readable result `{ status: 'blocked', reason: 'human-verification-required' }` when human sign-off is needed.
-- `CommandGate` maps logical verification actions (`test`, `build`, `lint`) to configured command runners.
-- `MarkdownGate` verifies the existence and completeness of specified markdown verification artifacts.
+- Gates determine whether a workflow step can be exited, strictly separated from action side effects.
+- **Inspection vs Execution Separation:** `GateContract` defines `inspect(config, context)` (returns target, scope, known result, and staleness without executing tests) and `verify(config, context)` (explicitly runs verification checks).
+- `CommandGate` maps logical verification actions (`test`, `build`) to configured command runners. `inspect` reports the target command without running it.
+- `MarkdownGate` verifies the existence, sections, and checklist completeness of specified markdown verification artifacts.
+- `HumanVerificationGate` returns machine-readable `{ status: 'blocked', reason: 'human-verification-required' }` when human sign-off is needed.
 - An AI agent must never be able to programmatically self-satisfy or bypass a human verification gate.
 
 ## Acceptance criteria
 
-1. `GateContract` base interface and `GateRegistry` support registering and evaluating gates by type. `automated: node --test tools/tests/workflow-gates.test.mjs`
-2. `CommandGate` executes logical test/build verification commands and returns passing or failing status with process output details. `automated: node --test tools/tests/workflow-gates.test.mjs`
-3. `MarkdownGate` inspects markdown verification artifacts and detects missing files or incomplete checklist items. `automated: node --test tools/tests/workflow-gates.test.mjs`
-4. `HumanVerificationGate` returns `{ status: 'blocked', reason: 'human-verification-required' }` when required human verification is not recorded. `automated: node --test tools/tests/workflow-gates.test.mjs`
-5. Unit tests verify that a failing gate blocks step exit while a passing gate allows progression. `automated: node --test tools/tests/workflow-gates.test.mjs`
+1. `GateContract` base interface defines `type`, `inspect(config, context)`, and `verify(config, context)`. `automated: node --test tools/tests/workflow-gates.test.mjs`
+2. `CommandGate.inspect` returns target verification command and staleness without executing commands or child processes. `automated: node --test tools/tests/workflow-gates.test.mjs`
+3. `CommandGate.verify` executes logical test/build verification commands and records passing or failing status. `automated: node --test tools/tests/workflow-gates.test.mjs`
+4. `MarkdownGate` inspects markdown verification artifacts and detects missing files or incomplete checklist items. `automated: node --test tools/tests/workflow-gates.test.mjs`
+5. `HumanVerificationGate` returns `{ status: 'blocked', reason: 'human-verification-required' }` when required human verification is not recorded. `automated: node --test tools/tests/workflow-gates.test.mjs`
+6. Unit tests verify that `inspect` is 100% read-only and that blocked gates prevent transition while satisfied gates allow progression. `automated: node --test tools/tests/workflow-gates.test.mjs`
 
 ## Verification
 

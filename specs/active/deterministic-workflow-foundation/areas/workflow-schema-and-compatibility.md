@@ -1,38 +1,60 @@
-# Area: Workflow Schema and Compatibility Model
+# Area: Workflow Schema, Definitions, and Compatibility Model
 
 ## Purpose
 
-Define the additive manifest metadata schema in `change.yaml` that establishes whether a specification executes under the legacy semi-deterministic workflow or the new deterministic workflow engine. Provide backward compatibility, validation rules, mode resolution, and isolation between legacy and deterministic execution paths.
+Define the configurable declarative workflow definition architecture and the additive manifest metadata schema in `change.yaml`. Establish how workflow definitions declare steps, actions, entry/exit gates, and transitions for the four specification classes (Standard, Architectural, Small, Exploratory), while ensuring 100% backward compatibility with existing legacy specifications.
 
-## Requirements
+## Declarative Workflow Definition Schema
 
-1. **Manifest Schema Extension:**
-   - `change.yaml` supports an optional top-level `workflow` section:
-     ```yaml
-     workflow:
-       mode: deterministic    # 'legacy' | 'deterministic'
-       version: 1             # integer version number (defaults to 1 when mode is deterministic)
-       definition: standard   # optional workflow definition reference (e.g. 'standard', 'architectural', 'small', 'exploratory')
-     ```
-   - If `workflow` is omitted or `workflow.mode` is omitted, the specification defaults to `mode: legacy`.
-   - String shorthand `workflow_mode: deterministic` is also normalized cleanly to `{ mode: 'deterministic', version: 1 }`.
+Workflow definitions are declarative YAML documents defining the steps, actions, gates, and transitions for a specification class:
+```yaml
+id: standard-v1
+title: "Standard Specification Workflow"
+type: standard
+steps:
+  implementation:
+    entryGates: []
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+      - type: human
+        required: true
+    finalize:
+      - id: verify-task-output
+      - id: commit-and-push
+    transitions:
+      - to: verified
+```
 
-2. **Validation Rules (`tools/specs/validation.mjs`):**
-   - If `workflow` is specified:
-     - `workflow.mode` must be one of `'legacy'` or `'deterministic'`.
-     - `workflow.version` (if present) must be a positive integer.
-     - `workflow.definition` (if present) must be a non-empty string.
-   - Any unrecognised `workflow.mode` value triggers a validation error naming the manifest path.
-   - Missing `workflow` configuration is valid and causes no validation errors or warnings (preserving all existing active and archived specifications).
+### Key Requirements:
+1. **Definition Loader and Validator (`tools/specs/workflow/definitions/`):**
+   - Parses workflow YAML definitions.
+   - Validates that every declared action is registered in `ActionRegistry`.
+   - Validates that every declared gate is registered in `GateRegistry`.
+   - Invalid definitions or references to unknown actions/gates fail closed with descriptive validation errors.
+2. **Support for Multiple Specification Classes:**
+   - The engine is decoupled from any specific workflow sequence.
+   - Standard, Architectural, Small, and Exploratory workflows are declared as distinct definition templates without changing orchestration code.
+   - Reordering or composing new steps in a definition does not require modifying core engine logic.
 
-3. **Compatibility and Mode Resolution (`tools/specs/workflow/compatibility.mjs`):**
-   - Provide `resolveWorkflowMode(change, options)`:
-     - Checks `options.forceDeterministic` / `options.deterministicFlow` (CLI flag override for local testing).
-     - Checks `change.workflow?.mode` or `change.workflow_mode`.
-     - Returns `{ mode: 'deterministic' | 'legacy', version: number, isExplicit: boolean }`.
-   - Invariant: A change manifest is the long-term source of truth. CLI commands must not accidentally evaluate half of a change in legacy mode and half in deterministic mode.
+## Manifest Schema Extension (`change.yaml`)
 
-4. **Command Routing and Backward Compatibility:**
-   - Existing commands (`start`, `complete`, `verify`, `approve`, `finalize`, `self-check`, `batch-*`) inspect the resolved workflow mode.
-   - When in `legacy` mode, existing handlers execute completely unchanged without executing new deterministic gate pipelines.
-   - When in `deterministic` mode, commands delegate to the new deterministic workflow engine and step runner.
+- `change.yaml` supports an optional top-level `workflow` section:
+  ```yaml
+  workflow:
+    mode: deterministic    # 'legacy' | 'deterministic' (default: 'legacy')
+    version: 1             # integer version number
+    definition: standard   # optional definition reference (e.g. 'standard', 'architectural')
+  ```
+- Shorthand `workflow_mode: deterministic` is normalized cleanly to `{ mode: 'deterministic', version: 1 }`.
+- If `workflow` is omitted, the specification defaults to `mode: legacy`.
+
+## Compatibility and Mode Resolution (`tools/specs/workflow/compatibility.mjs`)
+
+- Provide `resolveWorkflowMode(change, options)`:
+  - Checks `options.forceDeterministic` / `options.deterministicFlow` (for local test overrides).
+  - Checks `change.workflow?.mode` or `change.workflow_mode`.
+  - Returns `{ mode: 'deterministic' | 'legacy', version: number, definition: string, isExplicit: boolean }`.
+- Invariant: Existing commands (`start`, `complete`, `verify`, `approve`, `finalize`, `self-check`, `batch-*`) execute their legacy handlers when in `legacy` mode, guaranteeing zero regressions across existing active and archived specifications.
