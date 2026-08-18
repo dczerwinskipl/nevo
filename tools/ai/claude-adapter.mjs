@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -32,6 +32,7 @@ export class ClaudeAgentProvider {
   #continuationStore;
   #hookScriptPath;
   #materializedSessions = new Set();
+  #availabilityCache = { checkedAt: 0, result: null };
 
   constructor({
     executable = 'claude',
@@ -51,6 +52,29 @@ export class ClaudeAgentProvider {
       enabled: true,
       capabilities: CLAUDE_CAPABILITIES,
     });
+  }
+
+  isAvailable({ ttlMs = 30_000 } = {}) {
+    if (this.#spawnProcess !== spawn) {
+      return { available: true };
+    }
+    const now = Date.now();
+    if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
+      return this.#availabilityCache.result;
+    }
+    let available = false;
+    try {
+      const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
+      execSync(probe, { stdio: 'ignore', timeout: 1500 });
+      available = true;
+    } catch {
+      available = false;
+    }
+    const result = available
+      ? { available: true }
+      : { available: false, unavailableReason: `Claude Code CLI ('${this.#executable}') is not found in PATH. Install Claude Code CLI to enable this provider.` };
+    this.#availabilityCache = { checkedAt: now, result };
+    return result;
   }
 
   get continuationStore() {

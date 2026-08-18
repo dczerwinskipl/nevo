@@ -202,3 +202,17 @@ test('can be registered and retrieved in AiAdapterRegistry', () => {
   assert.ok(registry.has('antigravity'));
   assert.equal(registry.get('antigravity').descriptor.label, 'Antigravity / Gemini');
 });
+
+test('AntigravityAgentProvider reports availability correctly based on CLI probe', () => {
+  const customProvider = createAntigravityAgentProvider({
+    spawnProcess: () => ({}),
+  });
+  assert.equal(customProvider.isAvailable().available, true);
+
+  const missingProvider = new AntigravityAgentProvider({
+    executable: 'non-existent-binary-xyz-12345',
+  });
+  const avail = missingProvider.isAvailable();
+  assert.equal(avail.available, false);
+  assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-12345'));
+});

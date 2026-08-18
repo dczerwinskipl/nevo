@@ -32,6 +32,10 @@ export class MockAiAdapter {
     });
   }
 
+  isAvailable() {
+    return { available: true };
+  }
+
   async startTurn({
     turnId,
     providerSessionId,

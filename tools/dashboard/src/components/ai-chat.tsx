@@ -181,13 +181,17 @@ export function AiChatPage({
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
+  const providersQuery = useAiProviders();
+  const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
+  const isProviderAvailable = providerInfo?.available !== false;
+
   const submitMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || assistant.isRunning) return;
+    if (!trimmed || assistant.isRunning || !isProviderAvailable) return;
     setSubmissionError(null);
     setComposer('');
     await assistant.sendTurn(trimmed);
-  }, [assistant]);
+  }, [assistant, isProviderAvailable]);
 
   useEffect(() => {
     if (!initialMessage || initialSent.current) return;
@@ -263,34 +267,47 @@ export function AiChatPage({
         </div>
 
         <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
-          <form className="mx-auto flex max-w-4xl items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
-            <label className="min-w-0 flex-1">
-              <span className="sr-only">Wiadomość</span>
-              <textarea
-                rows={1}
-                value={composer}
-                onChange={event => setComposer(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    void submitMessage(composer);
-                  }
-                }}
-                disabled={session?.status === 'completed'}
-                placeholder={session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
-                className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-              />
-            </label>
-            <Button
-              size="icon"
-              className="size-11 shrink-0"
-              type="submit"
-              disabled={!composer.trim() || assistant.isRunning || session?.status === 'completed'}
-              aria-label="Wyślij wiadomość"
-            >
-              {assistant.isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
-            </Button>
-          </form>
+          <div className="mx-auto max-w-4xl">
+            {!isProviderAvailable && providerInfo && (
+              <div className="mb-2.5 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <AlertTriangle className="size-4 shrink-0 text-amber-400 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Provider {providerInfo.label} nie jest dostępny</p>
+                  <p className="mt-0.5 text-[11px] text-amber-200/80">
+                    {providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
+                  </p>
+                </div>
+              </div>
+            )}
+            <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
+              <label className="min-w-0 flex-1">
+                <span className="sr-only">Wiadomość</span>
+                <textarea
+                  rows={1}
+                  value={composer}
+                  onChange={event => setComposer(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      void submitMessage(composer);
+                    }
+                  }}
+                  disabled={session?.status === 'completed' || !isProviderAvailable}
+                  placeholder={!isProviderAvailable ? 'Provider CLI niedostępny (brak w PATH)' : session?.status === 'completed' ? 'Ta sesja jest tylko do odczytu' : assistant.isRunning ? 'Turn trwa…' : 'Napisz wiadomość…'}
+                  className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+                />
+              </label>
+              <Button
+                size="icon"
+                className="size-11 shrink-0"
+                type="submit"
+                disabled={!composer.trim() || assistant.isRunning || session?.status === 'completed' || !isProviderAvailable}
+                aria-label="Wyślij wiadomość"
+              >
+                {assistant.isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+              </Button>
+            </form>
+          </div>
         </footer>
       </div>
     </AssistantRuntimeProvider>

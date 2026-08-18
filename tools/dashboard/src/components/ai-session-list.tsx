@@ -2,6 +2,7 @@ import { Bot, CheckCircle2, Clock3, Cpu, LoaderCircle, MessagesSquare, RefreshCw
 import type { AiSession, DashboardTask } from '@/lib/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { useAiProviders } from '@/hooks/use-dashboard-data';
 
 function sessionTitle(session: AiSession) {
   const id = session.providerSessionId || session.sessionId || '';
@@ -49,6 +50,10 @@ export function AiSessionRow({
   onOpen: (session: AiSession) => void;
   compact?: boolean;
 }) {
+  const providersQuery = useAiProviders();
+  const providerInfo = providersQuery.data?.providers.find((p) => p.id === session.provider);
+  const isAvailable = providerInfo?.available !== false;
+
   const taskList = session.taskIds?.length
     ? session.taskIds
     : session.taskId
@@ -89,6 +94,11 @@ export function AiSessionRow({
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
+          {!isAvailable && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">
+              CLI niedostępne
+            </span>
+          )}
           {timeStr && (
             <span className="inline-flex items-center gap-1">
               <Clock3 className="size-3" />

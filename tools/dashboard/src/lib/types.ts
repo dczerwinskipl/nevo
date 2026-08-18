@@ -362,6 +362,8 @@ export interface AiProviderDescriptor {
   id: string;
   label: string;
   enabled: boolean;
+  available?: boolean;
+  unavailableReason?: string;
   capabilities: AgentCapabilities;
 }
 

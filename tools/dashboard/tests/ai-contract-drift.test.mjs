@@ -55,7 +55,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
   try {
     const providerPayload = await (await fetch(`${baseUrl}/api/agent-providers`)).json();
     exactKeys(providerPayload, ['providers', 'access']);
-    exactKeys(providerPayload.providers[0], ['id', 'label', 'enabled', 'capabilities']);
+    exactKeys(providerPayload.providers[0], ['id', 'label', 'enabled', 'available', 'capabilities']);
     exactKeys(providerPayload.providers[0].capabilities, [
       'cancelTurn', 'interactiveConfirmations', 'interactivePermissions', 'interactiveQuestions',
       'reasoning', 'resumeSession', 'toolCalls', 'usage',

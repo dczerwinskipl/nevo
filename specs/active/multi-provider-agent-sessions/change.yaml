@@ -310,8 +310,10 @@ tasks:
   - id: agent-execution-modes-and-permissions
     order: 13
     file: tasks/13-agent-execution-modes-and-permissions.md
-    status: approved
+    status: in-implementation
     depends_on: [ final-verification-and-architecture-docs ]
+    implementation:
+      baseline_revision: 89f1dfdd1e1e7121e9c687d9e534892927c8d666
 
 pull_requests:
   - provider: github

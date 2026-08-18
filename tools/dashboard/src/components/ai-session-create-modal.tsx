@@ -22,20 +22,27 @@ export function AiSessionCreateModal({
   const enabledProviders =
     providers.data?.providers.filter((p) => p.enabled) ?? [];
 
+  const availableProviders = enabledProviders.filter((p) => p.available !== false);
+
   const [provider, setProvider] = useState('');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
 
   useEffect(() => {
-    if (!provider && enabledProviders[0]) {
+    if (!provider && availableProviders[0]) {
+      setProvider(availableProviders[0].id);
+    } else if (!provider && enabledProviders[0]) {
       setProvider(enabledProviders[0].id);
     }
-  }, [enabledProviders, provider]);
+  }, [availableProviders, enabledProviders, provider]);
+
+  const selectedProviderObj = enabledProviders.find((p) => p.id === provider);
+  const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!change.specId || !provider) return;
+    if (!change.specId || !provider || !isSelectedProviderAvailable) return;
     const session = await createSession.create({
       provider,
       specId: change.specId,
@@ -95,18 +102,29 @@ export function AiSessionCreateModal({
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {enabledProviders.map((p) => {
                   const selected = provider === p.id;
+                  const isAvail = p.available !== false;
                   return (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => setProvider(p.id)}
+                      title={!isAvail ? (p.unavailableReason || 'Brak CLI w systemie') : undefined}
                       className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
                         selected
                           ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
+                          : !isAvail
+                          ? 'border-dashed border-[var(--border)] bg-black/10 opacity-60 hover:opacity-100 hover:border-amber-400/40'
                           : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
                       }`}
                     >
-                      <ProviderBadge provider={p.id} />
+                      <div className="flex w-full items-center justify-between gap-1">
+                        <ProviderBadge provider={p.id} />
+                        {!isAvail && (
+                          <span className="rounded bg-amber-500/10 px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider text-amber-400">
+                            Brak CLI
+                          </span>
+                        )}
+                      </div>
                       <span className="mt-1 text-xs font-semibold text-[var(--foreground)]">
                         {p.label}
                       </span>
@@ -131,33 +149,29 @@ export function AiSessionCreateModal({
               <legend className="text-xs font-semibold">
                 Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span>
               </legend>
-              <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
-                Wybrane taski zostaną powiązane z sesją i dołączone do pierwszego turnu.
-              </p>
-              <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-[var(--border)] p-2">
-                {change.tasks.map((task) => (
-                  <label
-                    key={task.id}
-                    className="flex cursor-pointer items-start gap-2 rounded-lg p-2 text-xs hover:bg-white/4"
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={taskIds.includes(task.id)}
-                      onChange={(event) =>
-                        setTaskIds((prev) =>
-                          event.target.checked
-                            ? [...prev, task.id]
-                            : prev.filter((id) => id !== task.id)
-                        )
-                      }
-                    />
-                    <span>
-                      <span className="font-semibold text-[var(--foreground)]">{task.title}</span>
-                      <span className="mt-0.5 block text-[10px] text-[var(--muted)]">{task.id}</span>
-                    </span>
-                  </label>
-                ))}
+              <div className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
+                {change.tasks.map((task) => {
+                  const checked = taskIds.includes(task.id);
+                  return (
+                    <label
+                      key={task.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs hover:bg-white/5"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setTaskIds((prev) =>
+                            checked ? prev.filter((id) => id !== task.id) : [...prev, task.id]
+                          )
+                        }
+                        className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
+                      />
+                      <span className="font-mono text-[11px] text-[var(--muted-strong)]">{task.id}</span>
+                      <span className="truncate text-[var(--foreground)]">{task.title}</span>
+                    </label>
+                  );
+                })}
               </div>
               {taskIds.length > 0 && (
                 <code className="mt-2 block break-words rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] text-[var(--muted-strong)]">
@@ -177,6 +191,15 @@ export function AiSessionCreateModal({
               />
             </label>
 
+            {!isSelectedProviderAvailable && selectedProviderObj && (
+              <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <p className="font-semibold">Provider niedostępny w systemie</p>
+                <p className="mt-0.5 text-[11px] text-amber-200/80">
+                  {selectedProviderObj.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
+                </p>
+              </div>
+            )}
+
             {createSession.error && (
               <p className="mt-3 text-xs text-red-200">{createSession.error}</p>
             )}
@@ -184,7 +207,7 @@ export function AiSessionCreateModal({
             <Button
               className="mt-6 w-full"
               type="submit"
-              disabled={!provider || createSession.creating}
+              disabled={!provider || !isSelectedProviderAvailable || createSession.creating}
             >
               {createSession.creating ? (
                 <LoaderCircle className="mr-2 size-4 animate-spin" />

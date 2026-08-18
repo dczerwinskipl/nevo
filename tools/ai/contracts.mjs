@@ -426,6 +426,8 @@ export function validateProviderDescriptor(value) {
     id: requiredString(value.id, 'provider.id'),
     label: requiredString(value.label, 'provider.label', { opaque: true, max: 100 }),
     enabled: value.enabled !== false,
+    available: value.available !== false,
+    ...(value.unavailableReason ? { unavailableReason: String(value.unavailableReason) } : {}),
     capabilities: normalizeCapabilities(value.capabilities),
   };
 }

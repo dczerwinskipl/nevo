@@ -371,3 +371,17 @@ test('ClaudeAgentProvider supports turn cancellation', async () => {
   setTimeout(() => abortController.abort(), 10);
   await assert.rejects(() => turnPromise, { name: 'AiError' });
 });
+
+test('ClaudeAgentProvider reports availability correctly based on CLI probe', () => {
+  const customProvider = createClaudeAgentProvider({
+    spawnProcess: () => ({}),
+  });
+  assert.equal(customProvider.isAvailable().available, true);
+
+  const missingProvider = new ClaudeAgentProvider({
+    executable: 'non-existent-binary-xyz-99999',
+  });
+  const avail = missingProvider.isAvailable();
+  assert.equal(avail.available, false);
+  assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-99999'));
+});

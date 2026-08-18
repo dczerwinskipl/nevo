@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   AiError,
@@ -29,6 +29,7 @@ export class AntigravityAgentProvider {
   #cwd;
   #spawnProcess;
   #activeOperations = new Map();
+  #availabilityCache = { checkedAt: 0, result: null };
 
   constructor({
     executable = 'agy',
@@ -39,6 +40,29 @@ export class AntigravityAgentProvider {
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
+  }
+
+  isAvailable({ ttlMs = 30_000 } = {}) {
+    if (this.#spawnProcess !== spawn) {
+      return { available: true };
+    }
+    const now = Date.now();
+    if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
+      return this.#availabilityCache.result;
+    }
+    let available = false;
+    try {
+      const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
+      execSync(probe, { stdio: 'ignore', timeout: 1500 });
+      available = true;
+    } catch {
+      available = false;
+    }
+    const result = available
+      ? { available: true }
+      : { available: false, unavailableReason: `Antigravity CLI ('${this.#executable}') is not found in PATH. Install Antigravity CLI ('agy') to enable this provider.` };
+    this.#availabilityCache = { checkedAt: now, result };
+    return result;
   }
 
   async startTurn({
