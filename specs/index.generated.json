@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T19:18:02.106Z",
+  "generated": "2026-08-18T19:18:08.680Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -65,7 +65,7 @@
           "id": "cli-integration-and-vertical-poc",
           "order": 7,
           "file": "tasks/07-cli-integration-and-vertical-poc.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "concrete-action-commit-and-push",
             "step-orchestration-and-next-step-service"
