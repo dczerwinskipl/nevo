@@ -131,6 +131,7 @@ export class AntigravityAgentProvider {
       const args = [
         '--dangerously-skip-permissions',
         '--add-dir', this.#cwd,
+        '--input-format', 'stream-json',
         '--output-format', 'stream-json',
       ];
 
@@ -234,6 +235,36 @@ export class AntigravityAgentProvider {
           }
           if (payload.thought || payload.thinking) {
             if (emitReasoningDelta) emitReasoningDelta(payload.thought || payload.thinking);
+          }
+          if (payload.step_type === 'tool' || payload.tool_name) {
+            const toolId = payload.toolId || `tool-${payload.step_index ?? randomUUID()}`;
+            const toolName = payload.tool_name || payload.toolName || payload.tool_info?.name || 'tool';
+            const input = payload.tool_info?.parameters || payload.input || payload.args || {};
+
+            if (payload.state === 'ACTIVE') {
+              activeTool = { id: toolId, name: toolName, input };
+              if (emitToolStarted) {
+                emitToolStarted({
+                  toolId,
+                  toolName,
+                  input,
+                });
+              }
+            } else if (payload.state === 'DONE' || payload.state === 'ERROR' || payload.state === 'COMPLETED') {
+              const output = payload.tool_info?.output || (payload.tool_info?.error ? payload.tool_info.error.message : payload.output || 'executed');
+              const status = payload.state === 'ERROR' || payload.is_error ? 'failed' : 'completed';
+              if (emitToolCompleted) {
+                emitToolCompleted({
+                  toolId,
+                  output,
+                  status,
+                  durationMs: payload.duration_seconds ? Math.round(payload.duration_seconds * 1000) : undefined,
+                });
+              }
+              if (activeTool && activeTool.id === toolId) {
+                activeTool = null;
+              }
+            }
           }
           if (payload.usage && emitUsageUpdated) {
             emitUsageUpdated({

@@ -103,7 +103,7 @@ test('AntigravityAgentProvider throws CapabilityNotSupportedError for permission
   );
 });
 
-test('new conversation spawns with --print and sets providerSessionId upon init', async () => {
+test('new conversation spawns with stream-json input format and sets providerSessionId upon init', async () => {
   const capturedCalls = [];
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'agy-conv-123' }),
@@ -133,7 +133,8 @@ test('new conversation spawns with --print and sets providerSessionId upon init'
   assert.equal(result.providerSessionId, 'agy-conv-123');
   assert.ok(capturedCalls.length === 1);
   assert.ok(capturedCalls[0].executable.includes('agy'));
-  assert.ok(capturedCalls[0].args.includes('--print'));
+  assert.ok(capturedCalls[0].args.includes('--input-format'));
+  assert.ok(capturedCalls[0].args.includes('stream-json'));
   assert.ok(deltas.includes('Hello from Antigravity'));
 });
 
