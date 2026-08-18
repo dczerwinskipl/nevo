@@ -344,12 +344,15 @@ export async function handleAiRequest({
           ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
           : 'idle';
 
+        const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
+
         const session = {
           provider,
           providerSessionId,
           sessionId: providerSessionId,
           status,
           capabilities,
+          mode: resolvedMode,
           specId: binding?.specId,
           taskId: binding?.taskId,
           purpose: binding?.purpose,

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
 import { createAiAdapterRegistry } from '../../ai/registry.mjs';
@@ -465,6 +468,125 @@ test('pending interaction can be resolved after server restart retaining persist
     assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
   } finally {
     await closeServer(server2);
+  }
+});
+
+test('Session mode preference persistence across server restarts and snapshot exposure', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-mode-restart-test-'));
+  const storageDir = join(tmpDir, 'sessions');
+  const transcriptDir = join(tmpDir, 'transcripts');
+
+  let lastExecutedMode = null;
+  const customAdapter = createMockAiAdapter({
+    specId,
+    taskIds: ['task-mode'],
+    streamDelayMs: 1,
+  });
+  const originalStartTurn = customAdapter.startTurn.bind(customAdapter);
+  customAdapter.startTurn = (params) => {
+    lastExecutedMode = params.mode;
+    return originalStartTurn(params);
+  };
+
+  const createTestServer = () => {
+    const registry = createAiAdapterRegistry([customAdapter]);
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
+    const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
+    const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const server = createDashboardServer({
+      aiService: service,
+      eventHub: fakeHub(),
+      distDir: 'Z:/does-not-exist',
+    });
+    return { server, service, bindingService };
+  };
+
+  // 1. Start Server 1: Create session with mode 'agent' and another with 'ask'
+  const stack1 = createTestServer();
+  const baseUrl1 = await listen(stack1.server, { port: 0 });
+
+  try {
+    const createAgentRes = await fetch(`${baseUrl1}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskId: 'task-mode',
+      mode: 'agent',
+    }));
+    assert.equal(createAgentRes.status, 201);
+    const agentSessionData = await createAgentRes.json();
+    const agentSessionId = agentSessionData.session.providerSessionId;
+
+    const createAskRes = await fetch(`${baseUrl1}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskId: 'task-mode',
+      mode: 'ask',
+    }));
+    assert.equal(createAskRes.status, 201);
+    const askSessionData = await createAskRes.json();
+    const askSessionId = askSessionData.session.providerSessionId;
+
+    // 2. Restart server (simulating reload of binding/service state)
+    await closeServer(stack1.server);
+
+    const stack2 = createTestServer();
+    const baseUrl2 = await listen(stack2.server, { port: 0 });
+
+    try {
+      // 3. GET session details for agent session
+      const getAgentRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}`);
+      assert.equal(getAgentRes.status, 200);
+      const getAgentData = await getAgentRes.json();
+      // 4. Returned session mode is 'agent'
+      assert.equal(getAgentData.session.mode, 'agent');
+
+      // 5. Starting a subsequent turn without explicit override invokes adapter with 'agent'
+      lastExecutedMode = null;
+      const turn1Res = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}/turns`, control({
+        message: 'continue in restored mode',
+      }));
+      assert.equal(turn1Res.status, 202);
+      assert.equal(lastExecutedMode, 'agent');
+
+      // 6. Check ask session
+      const getAskRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${askSessionId}`);
+      assert.equal(getAskRes.status, 200);
+      const getAskData = await getAskRes.json();
+      assert.equal(getAskData.session.mode, 'ask');
+
+      lastExecutedMode = null;
+      const turn2Res = await fetch(`${baseUrl2}/api/agent-sessions/mock/${askSessionId}/turns`, control({
+        message: 'continue in ask mode',
+      }));
+      assert.equal(turn2Res.status, 202);
+      assert.equal(lastExecutedMode, 'ask');
+
+      // 7. Genuinely fresh session created without mode defaults to 'edit'
+      const freshCreateRes = await fetch(`${baseUrl2}/api/agent-sessions`, control({
+        provider: 'mock',
+        specId,
+        taskId: 'task-mode',
+      }));
+      assert.equal(freshCreateRes.status, 201);
+      const freshData = await freshCreateRes.json();
+      const freshSessionId = freshData.session.providerSessionId;
+
+      const getFreshRes = await fetch(`${baseUrl2}/api/agent-sessions/mock/${freshSessionId}`);
+      assert.equal(getFreshRes.status, 200);
+      assert.equal((await getFreshRes.json()).session.mode, 'edit');
+
+      lastExecutedMode = null;
+      const turn3Res = await fetch(`${baseUrl2}/api/agent-sessions/mock/${freshSessionId}/turns`, control({
+        message: 'fresh turn',
+      }));
+      assert.equal(turn3Res.status, 202);
+      assert.equal(lastExecutedMode, 'edit');
+    } finally {
+      await closeServer(stack2.server);
+    }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 

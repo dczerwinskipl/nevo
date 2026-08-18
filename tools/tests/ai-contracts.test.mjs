@@ -144,7 +144,7 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   };
   const transcriptCache = {
     async getTranscript(provider, providerSessionId) {
-      return { provider, providerSessionId, messages: [{ role: 'user', text: 'hi' }] };
+      return { provider, providerSessionId, messages: [{ role: 'user', text: 'hi' }], updatedAt: '2026-08-18T10:00:00.000Z' };
     },
   };
   const adapter = {
@@ -156,7 +156,12 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   const service = createAiSessionService({ registry, bindingService, transcriptCache });
 
   const sessions = await service.listSessions({ specId: 'spec-123' });
-  assert.deepEqual(sessions, [{ provider: 'claude', providerSessionId: 'sess-1', specId: 'spec-123' }]);
+  assert.deepEqual(sessions, [{
+    provider: 'claude',
+    providerSessionId: 'sess-1',
+    specId: 'spec-123',
+    lastActivityAt: '2026-08-18T10:00:00.000Z',
+  }]);
 
   const session = await service.getSession('claude', 'sess-1');
   assert.deepEqual(session, { provider: 'claude', providerSessionId: 'sess-1', specId: 'my-spec' });

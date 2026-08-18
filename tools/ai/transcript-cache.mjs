@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, rm, unlink, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -10,6 +10,15 @@ import {
 
 function sanitizeFilename(value) {
   return encodeURIComponent(value).replace(/[*~]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function completeRunningToolCalls(state) {
+  for (const msg of state.messages) {
+    if (!msg.toolCalls) continue;
+    for (const tool of msg.toolCalls) {
+      if (tool.status === 'running') tool.status = 'completed';
+    }
+  }
 }
 
 export class SessionTranscriptCacheService {
@@ -232,11 +241,13 @@ export class SessionTranscriptCacheService {
       }
       case 'turn.completed': {
         delete state.activeTurn;
+        completeRunningToolCalls(state);
         break;
       }
       case 'turn.failed': {
         delete state.activeTurn;
         delete state.pendingInteraction;
+        completeRunningToolCalls(state);
         break;
       }
       default:

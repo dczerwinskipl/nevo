@@ -55,10 +55,17 @@ export class AiSessionService {
   }
 
   async listSessions(filters = {}) {
-    if (this.bindingService) {
-      return this.bindingService.listBindings(filters);
-    }
-    return [];
+    if (!this.bindingService) return [];
+    const bindings = await this.bindingService.listBindings(filters);
+    if (!this.transcriptCache) return bindings;
+    return Promise.all(bindings.map(async (binding) => {
+      try {
+        const transcript = await this.transcriptCache.getTranscript(binding.provider, binding.providerSessionId);
+        return { ...binding, lastActivityAt: transcript?.updatedAt || binding.lastSeenAt };
+      } catch {
+        return binding;
+      }
+    }));
   }
 
   async getSession(provider, providerSessionId) {

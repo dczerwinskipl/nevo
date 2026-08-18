@@ -166,7 +166,12 @@ export function AiSessionList({
         {emptyLabel}
       </div>
     );
-  const visible = limit ? sessions.slice(0, limit) : sessions;
+  const sorted = [...sessions].sort((a, b) => {
+    const aTime = new Date(a.lastActivityAt || a.lastSeenAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.lastActivityAt || b.lastSeenAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+  const visible = limit ? sorted.slice(0, limit) : sorted;
   const current = visible.filter((session) => session.status !== 'completed');
   const completed = visible.filter((session) => session.status === 'completed');
   return (

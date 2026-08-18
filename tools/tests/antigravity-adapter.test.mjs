@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   AntigravityAgentProvider,
   createAntigravityAgentProvider,
@@ -277,31 +280,45 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
   assert.ok(capturedCalls[3].args.includes('--dangerously-skip-permissions'));
 });
 
-test('Antigravity ask mode behavioral guarantee: operates read-only in plan mode without writing files', async () => {
-  const lines = [
-    JSON.stringify({ type: 'init', conversation_id: 'conv-ask' }),
-    JSON.stringify({ type: 'text.delta', delta: 'Plan mode analysis complete.' }),
-    JSON.stringify({ type: 'done' }),
-  ];
+test('Antigravity ask mode behavioral guarantee: operates read-only in plan mode without modifying workspace files', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-ask-workspace-'));
+  const testFile = join(tmpDir, 'source.ts');
+  const initialContent = 'export const pristine = true;';
+  await writeFile(testFile, initialContent, 'utf-8');
 
-  let spawnedArgs = null;
-  const provider = createAntigravityAgentProvider({
-    spawnProcess: (executable, args) => {
-      spawnedArgs = args;
-      return createMockProcess(lines);
-    },
-  });
+  try {
+    const lines = [
+      JSON.stringify({ type: 'init', conversation_id: 'conv-ask' }),
+      JSON.stringify({ type: 'tool.start', tool_name: 'view_file', input: { path: testFile } }),
+      JSON.stringify({ type: 'text.delta', delta: 'Plan mode analysis complete. No file write performed.' }),
+      JSON.stringify({ type: 'done' }),
+    ];
 
-  const textDeltas = [];
-  await provider.startTurn({
-    turnId: 'turn-ask-behavior',
-    providerSessionId: 'conv-ask',
-    message: 'Review codebase',
-    mode: 'ask',
-    emitTextDelta: (d) => textDeltas.push(d),
-  });
+    let spawnedArgs = null;
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: (executable, args) => {
+        spawnedArgs = args;
+        return createMockProcess(lines);
+      },
+    });
 
-  assert.ok(spawnedArgs.includes('--mode=plan'));
-  assert.ok(!spawnedArgs.includes('--dangerously-skip-permissions'));
-  assert.equal(textDeltas.join(''), 'Plan mode analysis complete.');
+    const textDeltas = [];
+    await provider.startTurn({
+      turnId: 'turn-ask-behavior',
+      providerSessionId: 'conv-ask',
+      message: 'Review codebase',
+      mode: 'ask',
+      emitTextDelta: (d) => textDeltas.push(d),
+    });
+
+    assert.ok(spawnedArgs.includes('--mode=plan'));
+    assert.ok(!spawnedArgs.includes('--dangerously-skip-permissions'));
+    assert.equal(textDeltas.join(''), 'Plan mode analysis complete. No file write performed.');
+
+    // Observable workspace invariant: target file is strictly untouched
+    const currentContent = await readFile(testFile, 'utf-8');
+    assert.equal(currentContent, initialContent);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
