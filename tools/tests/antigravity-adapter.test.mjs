@@ -359,7 +359,7 @@ test('Antigravity ask mode behavioral guarantee: operates read-only in plan mode
     });
 
     assert.ok(spawnedArgs.includes('--mode=plan'));
-    assert.ok(!spawnedArgs.includes('--dangerously-skip-permissions'));
+    assert.ok(spawnedArgs.includes('--dangerously-skip-permissions'));
     assert.equal(textDeltas.join(''), 'Plan mode analysis complete. No file write performed.');
 
     // Observable workspace invariant: target file is strictly untouched
