@@ -133,8 +133,7 @@ test('new conversation spawns with stream-json input format and sets providerSes
   assert.equal(result.providerSessionId, 'agy-conv-123');
   assert.ok(capturedCalls.length === 1);
   assert.ok(capturedCalls[0].executable.includes('agy'));
-  assert.ok(capturedCalls[0].args.includes('--input-format'));
-  assert.ok(capturedCalls[0].args.includes('stream-json'));
+  assert.ok(capturedCalls[0].args.includes('--print'));
   assert.ok(deltas.includes('Hello from Antigravity'));
 });
 

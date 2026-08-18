@@ -131,7 +131,6 @@ export class AntigravityAgentProvider {
       const args = [
         '--dangerously-skip-permissions',
         '--add-dir', this.#cwd,
-        '--input-format', 'stream-json',
         '--output-format', 'stream-json',
       ];
 
