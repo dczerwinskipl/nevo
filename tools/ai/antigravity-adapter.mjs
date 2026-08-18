@@ -118,6 +118,7 @@ export class AntigravityAgentProvider {
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
           stdio: ['pipe', 'pipe', 'pipe'],
+          shell: process.platform === 'win32',
           env: {
             ...process.env,
             AGY_INTERACTIVE: '0',
@@ -127,7 +128,10 @@ export class AntigravityAgentProvider {
         operation.child = child;
       } catch (err) {
         this.#activeOperations.delete(turnId);
-        return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn Antigravity CLI: ${err.message}`, { cause: err }));
+        const msg = err.code === 'ENOENT'
+          ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
+          : `Failed to spawn Antigravity CLI: ${err.message}`;
+        return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
       }
 
       const cleanup = () => {
@@ -318,7 +322,10 @@ export class AntigravityAgentProvider {
 
       child.on('error', err => {
         cleanup();
-        reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Antigravity process error: ${err.message}`, { cause: err }));
+        const msg = err.code === 'ENOENT'
+          ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
+          : `Antigravity process error: ${err.message}`;
+        reject(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
       });
 
       child.on('close', async exitCode => {
