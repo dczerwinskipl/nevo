@@ -129,22 +129,22 @@ export class AntigravityAgentProvider {
       let pendingInteractionPromise = null;
 
       const args = [
+        '--dangerously-skip-permissions',
         '--add-dir', this.#cwd,
-        '--print', inputMessage,
         '--output-format', 'stream-json',
       ];
 
       if (mode === 'ask') {
-        args.push('--mode=plan', '--dangerously-skip-permissions');
-      } else if (mode === 'agent') {
-        args.push('--mode=accept-edits', '--dangerously-skip-permissions');
+        args.push('--mode=plan');
       } else {
-        args.push('--mode=accept-edits', '--dangerously-skip-permissions');
+        args.push('--mode=accept-edits');
       }
 
       if (providerSessionId) {
         args.push('--conversation', providerSessionId);
       }
+
+      args.push('--print', inputMessage);
 
       const operation = {
         turnId,
