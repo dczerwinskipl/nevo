@@ -14,7 +14,7 @@ tasks:
   - id: workflow-schema-and-compatibility
     order: 1
     file: tasks/01-workflow-schema-and-compatibility.md
-    status: draft
+    status: approved
 
   - id: composable-actions-and-contracts
     order: 2
