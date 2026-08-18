@@ -19,22 +19,39 @@ export function AiSessionCreateModal({
 }: AiSessionCreateModalProps) {
   const providers = useAiProviders();
   const createSession = useCreateAiSession();
-  const enabledProviders =
-    providers.data?.providers.filter((p) => p.enabled) ?? [];
+  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort((a, b) => {
+    if (a.id === 'mock') return 1;
+    if (b.id === 'mock') return -1;
+    return 0;
+  });
 
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
   const [provider, setProvider] = useState('');
-  const [mode, setMode] = useState<AgentExecutionMode>('edit');
+  const [mode, setMode] = useState<AgentExecutionMode>('agent');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
 
   useEffect(() => {
     if (!provider && availableProviders[0]) {
-      setProvider(availableProviders[0].id);
+      const initP = availableProviders[0];
+      setProvider(initP.id);
+      const supported = initP.supportedModes || ['ask', 'edit', 'agent'];
+      if (supported.includes('agent')) {
+        setMode('agent');
+      } else {
+        setMode(initP.defaultMode || 'edit');
+      }
     } else if (!provider && enabledProviders[0]) {
-      setProvider(enabledProviders[0].id);
+      const initP = enabledProviders[0];
+      setProvider(initP.id);
+      const supported = initP.supportedModes || ['ask', 'edit', 'agent'];
+      if (supported.includes('agent')) {
+        setMode('agent');
+      } else {
+        setMode(initP.defaultMode || 'edit');
+      }
     }
   }, [availableProviders, enabledProviders, provider]);
 

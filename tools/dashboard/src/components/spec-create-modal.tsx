@@ -16,7 +16,11 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
   const specMutation = useCreateSpecification();
   const createAiSession = useCreateAiSession();
 
-  const enabledProviders = providers.data?.providers.filter((p) => p.enabled) ?? [];
+  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort((a, b) => {
+    if (a.id === 'mock') return 1;
+    if (b.id === 'mock') return -1;
+    return 0;
+  });
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
   const [title, setTitle] = useState('');
@@ -28,7 +32,7 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
   // AI planning state
   const [startAiSession, setStartAiSession] = useState(false);
   const [provider, setProvider] = useState('');
-  const [mode, setMode] = useState<AgentExecutionMode>('ask');
+  const [mode, setMode] = useState<AgentExecutionMode>('agent');
   const [initialPrompt, setInitialPrompt] = useState('');
   const [promptManuallyEdited, setPromptManuallyEdited] = useState(false);
 
@@ -62,8 +66,8 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
       const initP = availableProviders[0];
       setProvider(initP.id);
       const supported = initP.supportedModes || ['ask', 'edit', 'agent'];
-      if (supported.includes('ask')) {
-        setMode('ask');
+      if (supported.includes('agent')) {
+        setMode('agent');
       } else {
         setMode(initP.defaultMode || 'edit');
       }
@@ -76,8 +80,8 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
     const pObj = enabledProviders.find((p) => p.id === newProviderId);
     if (pObj) {
       const supported = pObj.supportedModes || ['ask', 'edit', 'agent'];
-      if (supported.includes('ask')) {
-        setMode('ask');
+      if (supported.includes('agent')) {
+        setMode('agent');
       } else {
         setMode(pObj.defaultMode || 'edit');
       }

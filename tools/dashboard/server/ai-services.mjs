@@ -25,7 +25,7 @@ export function createDefaultDashboardAiService({ dataLoader } = {}) {
     cwd: REPO_ROOT,
     mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
   });
-  const registry = createAiAdapterRegistry([mockAdapter, claudeAdapter, antigravityAdapter]);
+  const registry = createAiAdapterRegistry([claudeAdapter, antigravityAdapter, mockAdapter]);
   const transcriptCache = createTranscriptCacheService();
   const bindingService = createAgentSessionBindingService();
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
