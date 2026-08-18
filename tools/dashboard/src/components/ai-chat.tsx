@@ -29,6 +29,7 @@ import {
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type {
+  AgentExecutionMode,
   AiInteraction,
   AiMessage,
   AiQuestionInteraction,
@@ -192,6 +193,14 @@ export function AiChatPage({
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
+  const [currentMode, setCurrentMode] = useState<AgentExecutionMode>(session?.mode || 'edit');
+
+  useEffect(() => {
+    if (session?.mode) {
+      setCurrentMode(session.mode);
+    }
+  }, [session?.mode]);
+
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
   const isProviderAvailable = providerInfo?.available !== false;
@@ -201,8 +210,8 @@ export function AiChatPage({
     if (!trimmed || assistant.isRunning || !isProviderAvailable) return;
     setSubmissionError(null);
     setComposer('');
-    await assistant.sendTurn(trimmed);
-  }, [assistant, isProviderAvailable]);
+    await assistant.sendTurn(trimmed, { mode: currentMode });
+  }, [assistant, isProviderAvailable, currentMode]);
 
   useEffect(() => {
     if (!initialMessage || initialSent.current) return;
@@ -220,7 +229,7 @@ export function AiChatPage({
           <Button variant="ghost" size="icon" className="size-8 shrink-0 sm:hidden" onClick={onBack} aria-label={backLabel} title={backLabel}><ArrowLeft className="size-4" /></Button>
           <Button variant="secondary" size="sm" className="hidden shrink-0 sm:inline-flex" onClick={onBack}><ArrowLeft className="mr-1.5 size-3.5" />{backLabel}</Button>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-[var(--foreground)]">
                 {session?.title?.trim() ||
                   (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
@@ -231,6 +240,30 @@ export function AiChatPage({
                   (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}
               </p>
               {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
+              <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[10px]">
+                {(['ask', 'edit', 'agent'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setCurrentMode(m)}
+                    className={cn(
+                      'rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-[9px] transition-colors',
+                      currentMode === m
+                        ? 'bg-[var(--accent)] text-[#111604]'
+                        : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                    )}
+                    title={
+                      m === 'ask'
+                        ? 'Tryb Ask (Plan) - tylko odczyt i analiza bez modyfikacji plików'
+                        : m === 'edit'
+                        ? 'Tryb Edit (Domyślny) - bezpieczna edycja kodu w workspace'
+                        : 'Tryb Agent (Auto) - pełna autonomia z pominięciem pytań o uprawnienia'
+                    }
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           {assistant.isRunning && assistant.capabilities?.cancelTurn && (

@@ -4,6 +4,7 @@ import {
   AiError,
   AiValidationError,
   CapabilityNotSupportedError,
+  validateAgentExecutionMode,
 } from './contracts.mjs';
 
 export const ANTIGRAVITY_CAPABILITIES = Object.freeze({
@@ -22,6 +23,8 @@ export const ANTIGRAVITY_DESCRIPTOR = Object.freeze({
   label: 'Antigravity / Gemini',
   enabled: true,
   capabilities: ANTIGRAVITY_CAPABILITIES,
+  supportedModes: ['ask', 'edit', 'agent'],
+  defaultMode: 'edit',
 });
 
 export class AntigravityAgentProvider {
@@ -72,6 +75,7 @@ export class AntigravityAgentProvider {
     identity,
     message,
     prompt,
+    mode: rawMode,
     emitDelta,
     emitTextDelta,
     emitReasoningDelta,
@@ -87,6 +91,7 @@ export class AntigravityAgentProvider {
     if (!inputMessage || typeof inputMessage !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
+    const mode = rawMode ? validateAgentExecutionMode(rawMode) : 'edit';
 
     const effectiveSessionId = providerSessionId || randomUUID();
     let isSessionEstablished = Boolean(providerSessionId);
@@ -107,6 +112,14 @@ export class AntigravityAgentProvider {
         '--stream', 'json',
         '--output-format', 'stream-json',
       ];
+
+      if (mode === 'ask') {
+        args.push('--mode=plan');
+      } else if (mode === 'agent') {
+        args.push('--mode=default', '--dangerously-skip-permissions');
+      } else {
+        args.push('--mode=accept-edits');
+      }
 
       if (providerSessionId) {
         args.push('--resume', providerSessionId);

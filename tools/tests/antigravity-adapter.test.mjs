@@ -216,3 +216,92 @@ test('AntigravityAgentProvider reports availability correctly based on CLI probe
   assert.equal(avail.available, false);
   assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-12345'));
 });
+
+test('AntigravityAgentProvider advertises supportedModes and defaultMode', () => {
+  const provider = createAntigravityAgentProvider();
+  assert.deepEqual(provider.descriptor.supportedModes, ['ask', 'edit', 'agent']);
+  assert.equal(provider.descriptor.defaultMode, 'edit');
+});
+
+test('AntigravityAgentProvider maps execution modes to exact CLI flags', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-1' }),
+    JSON.stringify({ type: 'done', result: 'ok' }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines);
+    },
+  });
+
+  // 1. Default (omitted) resolves to edit -> --mode=accept-edits
+  await provider.startTurn({
+    turnId: 'turn-mode-default',
+    providerSessionId: 'conv-1',
+    message: 'hello',
+  });
+  assert.ok(capturedCalls[0].args.includes('--mode=accept-edits'));
+  assert.ok(!capturedCalls[0].args.includes('--dangerously-skip-permissions'));
+
+  // 2. Explicit 'ask' resolves to --mode=plan
+  await provider.startTurn({
+    turnId: 'turn-mode-ask',
+    providerSessionId: 'conv-1',
+    message: 'analyze this',
+    mode: 'ask',
+  });
+  assert.ok(capturedCalls[1].args.includes('--mode=plan'));
+  assert.ok(!capturedCalls[1].args.includes('--dangerously-skip-permissions'));
+
+  // 3. Explicit 'edit' resolves to --mode=accept-edits
+  await provider.startTurn({
+    turnId: 'turn-mode-edit',
+    providerSessionId: 'conv-1',
+    message: 'edit this',
+    mode: 'edit',
+  });
+  assert.ok(capturedCalls[2].args.includes('--mode=accept-edits'));
+  assert.ok(!capturedCalls[2].args.includes('--dangerously-skip-permissions'));
+
+  // 4. Explicit 'agent' resolves to --mode=default --dangerously-skip-permissions
+  await provider.startTurn({
+    turnId: 'turn-mode-agent',
+    providerSessionId: 'conv-1',
+    message: 'run all',
+    mode: 'agent',
+  });
+  assert.ok(capturedCalls[3].args.includes('--mode=default'));
+  assert.ok(capturedCalls[3].args.includes('--dangerously-skip-permissions'));
+});
+
+test('Antigravity ask mode behavioral guarantee: operates read-only in plan mode without writing files', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-ask' }),
+    JSON.stringify({ type: 'text.delta', delta: 'Plan mode analysis complete.' }),
+    JSON.stringify({ type: 'done' }),
+  ];
+
+  let spawnedArgs = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      spawnedArgs = args;
+      return createMockProcess(lines);
+    },
+  });
+
+  const textDeltas = [];
+  await provider.startTurn({
+    turnId: 'turn-ask-behavior',
+    providerSessionId: 'conv-ask',
+    message: 'Review codebase',
+    mode: 'ask',
+    emitTextDelta: (d) => textDeltas.push(d),
+  });
+
+  assert.ok(spawnedArgs.includes('--mode=plan'));
+  assert.ok(!spawnedArgs.includes('--dangerously-skip-permissions'));
+  assert.equal(textDeltas.join(''), 'Plan mode analysis complete.');
+});

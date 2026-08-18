@@ -284,3 +284,55 @@ test('AgentSessionBindingService supports per-spec directory storage and migrate
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('AgentSessionBindingService persists session mode preference and maintains session isolation', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-mode-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // 1. Bind session A with explicit 'ask' mode
+    const bindingA = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-A',
+      specId,
+      taskId: '01-task',
+      mode: 'ask',
+    });
+    assert.equal(bindingA.mode, 'ask');
+
+    // 2. Bind session B with default 'edit' mode
+    const bindingB = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-B',
+      specId,
+      taskId: '02-task',
+      mode: 'edit',
+    });
+    assert.equal(bindingB.mode, 'edit');
+
+    // 3. Update session A mode to 'agent'
+    const updatedA = await service.updateSessionMode('claude', 'sess-A', 'agent');
+    assert.equal(updatedA.mode, 'agent');
+
+    // 4. Verify session B was isolated and remains 'edit'
+    const loadedB = await service.getBinding('claude', 'sess-B');
+    assert.equal(loadedB.mode, 'edit');
+
+    // 5. Reload from fresh service instance to verify disk persistence
+    const reloadedService = createAgentSessionBindingService({ storageDir });
+    const reloadedA = await reloadedService.getBinding('claude', 'sess-A');
+    const reloadedB = await reloadedService.getBinding('claude', 'sess-B');
+    assert.equal(reloadedA.mode, 'agent');
+    assert.equal(reloadedB.mode, 'edit');
+
+    // 6. Invalid mode throws AiValidationError
+    await assert.rejects(
+      () => service.updateSessionMode('claude', 'sess-A', 'invalid-mode'),
+      { name: 'AiValidationError' }
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

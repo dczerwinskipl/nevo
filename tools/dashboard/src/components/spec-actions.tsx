@@ -51,7 +51,7 @@ export function RepositoryActionsCard({
     return (
       <StatusCard
         variant="warning"
-        title="Nie udało się sprawdzić workflow"
+        title="Nie udało się wczytać workflow"
         description={error || 'Brak danych bramek aktywnej specyfikacji.'}
         onRetry={onRefresh}
         retryLoading={refreshing}

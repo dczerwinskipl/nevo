@@ -6,6 +6,8 @@ import {
   CapabilityNotSupportedError,
   validateAgentEvent,
   validateAgentIdentity,
+  validateAgentExecutionMode,
+  validateProviderDescriptor,
   validateAiEvent,
   validateInteractionResponse,
   normalizeCapabilities,
@@ -260,30 +262,80 @@ test('first-turn binding failure causes startTurn rejection and turn failure', a
   );
 });
 
-test('first-turn request without specId does not require binding and resolves cleanly', async () => {
-  let bound = false;
-  const bindingService = {
-    async bindSession() { bound = true; },
+test('validateAgentExecutionMode accepts canonical modes and rejects invalid strings', () => {
+  assert.equal(validateAgentExecutionMode('ask'), 'ask');
+  assert.equal(validateAgentExecutionMode('edit'), 'edit');
+  assert.equal(validateAgentExecutionMode('agent'), 'agent');
+
+  assert.throws(() => validateAgentExecutionMode('dontAsk'), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentExecutionMode('bypassPermissions'), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentExecutionMode('auto'), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentExecutionMode(''), { name: 'AiValidationError' });
+  assert.throws(() => validateAgentExecutionMode(123), { name: 'AiValidationError' });
+});
+
+test('validateProviderDescriptor validates supportedModes and defaultMode', () => {
+  const descriptor = validateProviderDescriptor({
+    id: 'custom',
+    label: 'Custom AI',
+    capabilities: {},
+    supportedModes: ['ask', 'edit'],
+    defaultMode: 'ask',
+  });
+  assert.deepEqual(descriptor.supportedModes, ['ask', 'edit']);
+  assert.equal(descriptor.defaultMode, 'ask');
+
+  const defaultDescriptor = validateProviderDescriptor({
+    id: 'default-desc',
+    label: 'Default Desc',
+    capabilities: {},
+  });
+  assert.deepEqual(defaultDescriptor.supportedModes, ['ask', 'edit', 'agent']);
+  assert.equal(defaultDescriptor.defaultMode, 'edit');
+});
+
+test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode', async () => {
+  let executedMode = null;
+  const adapter = {
+    descriptor: { id: 'prec', label: 'Precedence', capabilities, defaultMode: 'edit', supportedModes: ['ask', 'edit', 'agent'] },
+    async startTurn({ mode }) { executedMode = mode; },
+    async cancelTurn() {},
   };
 
-  const adapter = {
-    descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, emitTextDelta }) {
-      if (!providerSessionId) {
-        await setProviderSessionId('new-unbound-uuid');
-        emitTextDelta('done');
-      }
+  const fakeBindings = new Map();
+  const bindingService = {
+    async getBinding(p, sid) { return fakeBindings.get(sid) || null; },
+    async bindSession({ provider, providerSessionId, specId, mode }) {
+      const rec = { provider, providerSessionId, specId, mode };
+      fakeBindings.set(providerSessionId, rec);
+      return rec;
     },
-    async cancelTurn() {},
+    async updateSessionMode(p, sid, mode) {
+      const rec = fakeBindings.get(sid) || { provider: p, providerSessionId: sid };
+      rec.mode = mode;
+      fakeBindings.set(sid, rec);
+      return rec;
+    },
   };
 
   const registry = createAiAdapterRegistry([adapter]);
   const turnRuntime = createAiTurnRuntime({ registry });
   const service = createAiSessionService({ registry, turnRuntime, bindingService });
 
-  const result = await service.startTurn('fake', null, { message: 'free chat' });
-  assert.equal(result.providerSessionId, 'new-unbound-uuid');
-  assert.equal(bound, false);
+  // 1. Omitted turn mode on fresh session resolves to provider defaultMode ('edit') without escalation
+  await service.startTurn('prec', 'sess-1', { message: 'test 1' });
+  assert.equal(executedMode, 'edit');
+
+  // 2. Session created with explicit mode 'ask' uses session mode when turn mode is omitted
+  fakeBindings.set('sess-ask', { provider: 'prec', providerSessionId: 'sess-ask', mode: 'ask' });
+  await service.startTurn('prec', 'sess-ask', { message: 'test 2' });
+  assert.equal(executedMode, 'ask');
+
+  // 3. Turn mode 'agent' overrides session mode 'ask'
+  await service.startTurn('prec', 'sess-ask', { message: 'test 3', mode: 'agent' });
+  assert.equal(executedMode, 'agent');
+  // And persisted session mode was updated to 'agent'
+  assert.equal(fakeBindings.get('sess-ask').mode, 'agent');
 });
 
 

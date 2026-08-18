@@ -8,6 +8,7 @@ import {
   normalizeInteraction,
   publicAiError,
   validateAgentIdentity,
+  validateAgentExecutionMode,
   validateInteractionResponse,
 } from './contracts.mjs';
 import { createTranscriptCacheService } from './transcript-cache.mjs';
@@ -47,7 +48,7 @@ export class AiTurnRuntime {
     this.clock = clock;
   }
 
-  async startTurn({ provider, providerSessionId, sessionId, message, prompt, idempotencyKey, onSessionEstablished } = {}) {
+  async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished } = {}) {
     if (this.#closed) throw new AiError('AI_RUNTIME_CLOSED', 'The AI turn runtime is shut down.', { status: 503 });
     if (sessionId !== undefined) {
       throw new AiValidationError("Property 'sessionId' is obsolete. Use 'providerSessionId' instead.");
@@ -58,6 +59,7 @@ export class AiTurnRuntime {
     if (providerSessionId !== undefined && providerSessionId !== null) {
       validateAgentIdentity({ provider, providerSessionId });
     }
+    const validatedMode = mode ? validateAgentExecutionMode(mode, 'mode') : 'edit';
     const inputMessage = message ?? prompt;
     const entry = this.registry.get(provider);
     const adapter = entry.adapter;
@@ -101,7 +103,9 @@ export class AiTurnRuntime {
             const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
             initialSeq = transcript.lastEventSeq || 0;
             this.#sessionSequences.set(key, initialSeq);
-          } catch {}
+          } catch {
+            initialSeq = 0;
+          }
         }
       }
 
@@ -118,6 +122,7 @@ export class AiTurnRuntime {
         providerSessionId: providerSessionId || undefined,
         identity: providerSessionId ? { provider, providerSessionId } : undefined,
         key,
+        mode: validatedMode,
         idempotencyKey,
         onSessionEstablished,
         status: 'running',
@@ -226,6 +231,7 @@ export class AiTurnRuntime {
         identity: state.identity,
         message,
         prompt: message,
+        mode: state.mode,
         signal: state.abortController.signal,
         setOperation: operation => { state.privateOperation = operation; },
         emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),

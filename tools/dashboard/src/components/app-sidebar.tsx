@@ -208,7 +208,8 @@ export function AppSidebar({
                     <StatusCard
                       variant="warning"
                       size="sm"
-                      title="Sesje niedostępne"
+                      title="Nie udało się wczytać sesji"
+                      description={sessionsError}
                       onRetry={onSessionsRetry}
                     />
                   </div>

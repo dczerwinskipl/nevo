@@ -44,7 +44,7 @@ function ContentError({ message, onRetry }: { message: string; onRetry: () => vo
   return (
     <StatusCard
       variant="error"
-      title="Nie udało się wczytać treści"
+      title="Nie udało się wczytać treści dokumentu"
       description={message}
       onRetry={onRetry}
     />

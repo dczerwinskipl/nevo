@@ -284,7 +284,21 @@ export class SessionTranscriptCacheService {
     const content = JSON.stringify(state, null, 2);
     const tempPath = `${filePath}.${randomUUID()}.tmp`;
     await writeFile(tempPath, content, 'utf-8');
-    await rename(tempPath, filePath);
+    try {
+      await rename(tempPath, filePath);
+    } catch (renameErr) {
+      if (process.platform === 'win32') {
+        await new Promise(r => setTimeout(r, 10));
+        try {
+          await rename(tempPath, filePath);
+        } catch {
+          await writeFile(filePath, content, 'utf-8');
+          await unlink(tempPath).catch(() => {});
+        }
+      } else {
+        throw renameErr;
+      }
+    }
   }
 
   async flushAll() {

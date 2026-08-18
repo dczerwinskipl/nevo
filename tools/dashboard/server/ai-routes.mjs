@@ -110,12 +110,13 @@ export async function handleAiRequest({
       const provider = decodedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
       if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
       if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-      console.log(`[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}`);
+      console.log(`[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
       const result = await service.startTurn(provider, undefined, {
         message: body.message ?? body.prompt,
         specId: body.specId,
         taskId: body.taskId,
         purpose: body.purpose,
+        mode: body.mode,
         idempotencyKey: body.idempotencyKey,
       });
       console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
@@ -152,8 +153,9 @@ export async function handleAiRequest({
                 specId: body.specId,
                 taskId: body.taskId,
                 purpose: body.purpose,
+                mode: body.mode,
               })
-            : { provider, providerSessionId, specId: body.specId, taskId: body.taskId };
+            : { provider, providerSessionId, specId: body.specId, taskId: body.taskId, mode: body.mode };
           sendJson(response, 201, { session: binding });
           return true;
         }
@@ -165,11 +167,12 @@ export async function handleAiRequest({
           throw new AiValidationError('Invalid task ID.');
         }
 
-        console.log(`[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}`);
+        console.log(`[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}${body.mode ? ` mode=${body.mode}` : ''}`);
         const session = await service.createSession(provider, {
           specId: body.specId,
           taskId: body.taskId,
           taskIds: body.taskIds,
+          mode: body.mode,
           ...(body.title === undefined ? {} : { title: body.title }),
           ...(body.purpose === undefined ? {} : { purpose: body.purpose }),
         });
@@ -269,9 +272,10 @@ export async function handleAiRequest({
       const body = assertBodyObject(await readJsonBody(request, 128 * 1024));
       const provider = decodedSegment(turnsRoute[1], PROVIDER_PATTERN, 'provider ID');
       const sessionId = decodedSessionId(turnsRoute[2]);
-      console.log(`[ai] [turn:start] provider=${provider} session=${sessionId} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`);
+      console.log(`[ai] [turn:start] provider=${provider} session=${sessionId}${body.mode ? ` mode=${body.mode}` : ''} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`);
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
+        mode: body.mode,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
       console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
@@ -279,11 +283,23 @@ export async function handleAiRequest({
       return true;
     }
 
-    // 9. Session Details & Snapshot: GET/DELETE /api/agent-sessions/:provider/:providerSessionId or GET /api/ai/sessions/:provider/:providerSessionId
+    // 9. Session Details & Snapshot: GET/PATCH/DELETE /api/agent-sessions/:provider/:providerSessionId or GET /api/ai/sessions/:provider/:providerSessionId
     const sessionRoute = url.pathname.match(/^\/api\/(?:agent-sessions|ai\/sessions)\/([^/]+)\/([^/]+)$/);
     if (sessionRoute) {
       const provider = decodedSegment(sessionRoute[1], PROVIDER_PATTERN, 'provider ID');
       const providerSessionId = decodedSessionId(sessionRoute[2]);
+
+      if (method === 'PATCH') {
+        authorize(accessPolicy, 'control', request);
+        const body = assertBodyObject(await readJsonBody(request, 4096));
+        if (body.mode) {
+          const session = await service.updateSessionMode(provider, providerSessionId, body.mode);
+          sendJson(response, 200, { session });
+          return true;
+        }
+        sendJson(response, 200, { ok: true });
+        return true;
+      }
 
       if (method === 'DELETE') {
         authorize(accessPolicy, 'control', request);

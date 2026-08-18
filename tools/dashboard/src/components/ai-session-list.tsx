@@ -155,9 +155,8 @@ export function AiSessionList({
     return (
       <StatusCard
         variant="warning"
-        size="sm"
-        title="Sesje są chwilowo niedostępne"
-        description={error !== 'Failed to fetch' ? error : undefined}
+        title="Nie udało się wczytać sesji AI"
+        description={error}
         onRetry={onRetry}
       />
     );

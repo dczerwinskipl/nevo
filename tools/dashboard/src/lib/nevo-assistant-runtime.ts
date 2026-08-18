@@ -3,6 +3,7 @@ import { useExternalStoreRuntime, type ThreadMessageLike } from '@assistant-ui/r
 import type {
   AgentCapabilities,
   AgentEvent,
+  AgentExecutionMode,
   AgentSessionSnapshot,
   AiInteraction,
   NormalizedMessage,
@@ -363,7 +364,7 @@ export function useNevoAssistantRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string) => {
+    async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
       if (!messageText.trim() || isRunning) return;
       const idempotencyKey = createTurnIdempotencyKey();
       const userMessage: NormalizedMessage = {
@@ -385,7 +386,11 @@ export function useNevoAssistantRuntime({
               'content-type': 'application/json',
               'x-nevo-dashboard-action': '1',
             },
-            body: JSON.stringify({ message: messageText, idempotencyKey }),
+            body: JSON.stringify({
+              message: messageText,
+              idempotencyKey,
+              ...(options?.mode ? { mode: options.mode } : {}),
+            }),
           }
         );
 

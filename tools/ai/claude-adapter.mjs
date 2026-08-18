@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import {
   AiError,
   AiValidationError,
+  validateAgentExecutionMode,
 } from './contracts.mjs';
 import { createClaudeContinuationStore } from './claude-continuation-store.mjs';
 
@@ -51,6 +52,8 @@ export class ClaudeAgentProvider {
       label: 'Claude Code',
       enabled: true,
       capabilities: CLAUDE_CAPABILITIES,
+      supportedModes: ['ask', 'edit', 'agent'],
+      defaultMode: 'edit',
     });
   }
 
@@ -109,6 +112,7 @@ export class ClaudeAgentProvider {
     if (!userPrompt || typeof userPrompt !== 'string') {
       throw new AiValidationError('A valid message/prompt is required.');
     }
+    const mode = params.mode ? validateAgentExecutionMode(params.mode) : 'edit';
 
     const isNew = !params.providerSessionId;
     const effectiveSessionId = params.providerSessionId || randomUUID();
@@ -116,7 +120,7 @@ export class ClaudeAgentProvider {
     const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';
 
     try {
-      return await this.#runClaudeProcess(params, { effectiveSessionId, sessionFlag: initialFlag });
+      return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: initialFlag });
     } catch (err) {
       const isSessionNotFound =
         err instanceof AiError &&
@@ -126,7 +130,7 @@ export class ClaudeAgentProvider {
       if (initialFlag === '--resume' && isSessionNotFound) {
         console.warn(`[claude] session ${effectiveSessionId} not found in Claude CLI DB, retrying with --session-id`);
         this.#materializedSessions.delete(effectiveSessionId);
-        return await this.#runClaudeProcess(params, { effectiveSessionId, sessionFlag: '--session-id' });
+        return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: '--session-id' });
       }
       throw err;
     }
@@ -139,6 +143,7 @@ export class ClaudeAgentProvider {
     identity,
     message,
     prompt,
+    mode = 'edit',
     signal,
     setOperation,
     emitDelta,
@@ -153,6 +158,13 @@ export class ClaudeAgentProvider {
   } = {}, { effectiveSessionId, sessionFlag }) {
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
+    const permissionMode =
+      mode === 'ask'
+        ? 'plan'
+        : mode === 'agent'
+          ? 'bypassPermissions'
+          : 'acceptEdits';
+
     const args = [
       '-p',
       '--verbose',
@@ -160,7 +172,7 @@ export class ClaudeAgentProvider {
       '--input-format', 'stream-json',
       '--settings', settingsPath,
       sessionFlag, effectiveSessionId,
-      '--permission-mode', 'dontAsk',
+      '--permission-mode', permissionMode,
     ];
 
     console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);

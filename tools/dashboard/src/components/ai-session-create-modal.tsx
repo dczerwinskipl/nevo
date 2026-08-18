@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
-import type { AiSession, DashboardChange } from '@/lib/types';
+import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
 
 export interface AiSessionCreateModalProps {
   change: DashboardChange;
@@ -25,6 +25,7 @@ export function AiSessionCreateModal({
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
   const [provider, setProvider] = useState('');
+  const [mode, setMode] = useState<AgentExecutionMode>('edit');
   const [taskIds, setTaskIds] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [initialMessage, setInitialMessage] = useState('');
@@ -47,6 +48,7 @@ export function AiSessionCreateModal({
       provider,
       specId: change.specId,
       taskIds,
+      mode,
       ...(title.trim() ? { title: title.trim() } : {}),
     });
     onCreated(session, initialPromptWithTaskContext(initialMessage, taskIds));
@@ -133,6 +135,31 @@ export function AiSessionCreateModal({
                 })}
               </div>
             </label>
+
+            <div className="mt-4">
+              <label className="block text-xs font-semibold">Tryb wykonania</label>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {[
+                  { id: 'ask', label: 'Ask (Plan)', desc: 'Tylko analiza i planowanie' },
+                  { id: 'edit', label: 'Edit (Domyślny)', desc: 'Bezpieczna edycja kodu' },
+                  { id: 'agent', label: 'Agent (Auto)', desc: 'Pełna autonomia' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setMode(item.id as AgentExecutionMode)}
+                    className={`flex flex-col items-start rounded-xl border p-2.5 text-left transition-all ${
+                      mode === item.id
+                        ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
+                        : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
+                    }`}
+                  >
+                    <span className="text-xs font-semibold text-[var(--foreground)]">{item.label}</span>
+                    <span className="mt-0.5 text-[10px] text-[var(--muted)]">{item.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <label className="mt-4 block text-xs font-semibold">
               Tytuł <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>

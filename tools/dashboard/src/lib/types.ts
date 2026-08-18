@@ -345,6 +345,8 @@ export interface OperationSnapshot {
 
 export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed';
 
+export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
+
 export interface AgentCapabilities {
   interactivePermissions: boolean;
   interactiveQuestions: boolean;
@@ -365,6 +367,8 @@ export interface AiProviderDescriptor {
   available?: boolean;
   unavailableReason?: string;
   capabilities: AgentCapabilities;
+  supportedModes?: AgentExecutionMode[];
+  defaultMode?: AgentExecutionMode;
 }
 
 export interface AgentToolCall {
@@ -403,6 +407,7 @@ export interface AiSession {
   taskId?: string;
   taskIds: string[];
   purpose?: string;
+  mode?: AgentExecutionMode;
   title?: string;
   status: AiSessionStatus;
   createdAt: string;

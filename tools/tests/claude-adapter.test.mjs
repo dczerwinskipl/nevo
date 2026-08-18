@@ -385,3 +385,92 @@ test('ClaudeAgentProvider reports availability correctly based on CLI probe', ()
   assert.equal(avail.available, false);
   assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-99999'));
 });
+
+test('ClaudeAgentProvider advertises supportedModes and defaultMode', () => {
+  const provider = createClaudeAgentProvider();
+  assert.deepEqual(provider.descriptor.supportedModes, ['ask', 'edit', 'agent']);
+  assert.equal(provider.descriptor.defaultMode, 'edit');
+});
+
+test('ClaudeAgentProvider maps execution modes to exact CLI flags', async () => {
+  const capturedCalls = [];
+  const lines = [
+    JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
+    },
+  });
+
+  // 1. Default (omitted) resolves to edit -> --permission-mode acceptEdits
+  await provider.startTurn({
+    turnId: 'turn-mode-default',
+    providerSessionId: 'sess-1',
+    message: 'hello',
+  });
+  assert.ok(capturedCalls[0].args.includes('--permission-mode'));
+  assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1], 'acceptEdits');
+
+  // 2. Explicit 'ask' resolves to plan -> --permission-mode plan
+  await provider.startTurn({
+    turnId: 'turn-mode-ask',
+    providerSessionId: 'sess-1',
+    message: 'analyze this',
+    mode: 'ask',
+  });
+  assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--permission-mode') + 1], 'plan');
+
+  // 3. Explicit 'edit' resolves to acceptEdits -> --permission-mode acceptEdits
+  await provider.startTurn({
+    turnId: 'turn-mode-edit',
+    providerSessionId: 'sess-1',
+    message: 'edit this',
+    mode: 'edit',
+  });
+  assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--permission-mode') + 1], 'acceptEdits');
+
+  // 4. Explicit 'agent' resolves to bypassPermissions -> --permission-mode bypassPermissions
+  await provider.startTurn({
+    turnId: 'turn-mode-agent',
+    providerSessionId: 'sess-1',
+    message: 'run all',
+    mode: 'agent',
+  });
+  assert.equal(capturedCalls[3].args[capturedCalls[3].args.indexOf('--permission-mode') + 1], 'bypassPermissions');
+});
+
+test('Claude ask mode behavioral guarantee: analyzes without modifying workspace files', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: 'I am in plan mode. I will inspect the code without writing files.' },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  let spawnedArgs = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      spawnedArgs = args;
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
+    },
+  });
+
+  const textDeltas = [];
+  await provider.startTurn({
+    turnId: 'turn-ask-behavior',
+    providerSessionId: 'sess-ask-1',
+    message: 'Please review architecture',
+    mode: 'ask',
+    emitTextDelta: (delta) => textDeltas.push(delta),
+  });
+
+  assert.ok(spawnedArgs.includes('--permission-mode'));
+  assert.equal(spawnedArgs[spawnedArgs.indexOf('--permission-mode') + 1], 'plan');
+  assert.ok(textDeltas.join('').includes('plan mode'));
+});

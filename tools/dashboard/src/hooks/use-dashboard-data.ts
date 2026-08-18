@@ -5,6 +5,7 @@ import { useBatchQueries } from './use-batch-queries';
 import type { BatchQueriesHandle } from './use-batch-queries';
 
 import {
+  AgentExecutionMode,
   ApiError,
   AvailablePullRequest,
   DashboardChange,
@@ -624,7 +625,15 @@ export function useAiMessages(provider: string, sessionId: string, enabled = tru
 export function useCreateAiSession() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (input: { provider: string; specId: string; taskIds?: string[]; taskId?: string; title?: string; purpose?: string }) => {
+    mutationFn: async (input: {
+      provider: string;
+      specId: string;
+      taskIds?: string[];
+      taskId?: string;
+      title?: string;
+      purpose?: string;
+      mode?: AgentExecutionMode;
+    }) => {
       const response = await fetch('/api/agent-sessions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
@@ -640,7 +649,7 @@ export function useCreateAiSession() {
 export function useStartAiTurn(provider: string, sessionId: string) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (input: { message: string; idempotencyKey?: string }) => {
+    mutationFn: async (input: { message: string; mode?: AgentExecutionMode; idempotencyKey?: string }) => {
       const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },

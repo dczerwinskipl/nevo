@@ -29,6 +29,8 @@ export class MockAiAdapter {
       label: 'Mock AI',
       enabled: true,
       capabilities: MOCK_CAPABILITIES,
+      supportedModes: ['ask', 'edit', 'agent'],
+      defaultMode: 'edit',
     });
   }
 
