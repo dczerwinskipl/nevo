@@ -4,3 +4,4 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
+| `deterministic-workflow-foundation` | Deterministic workflow foundation | draft | 10 | 2026-08-18 |

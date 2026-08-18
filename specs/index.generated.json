@@ -1,6 +1,78 @@
 {
-  "generated": "2026-08-18T17:33:24.986Z",
+  "generated": "2026-08-18T18:07:58.867Z",
   "changes": [
+    {
+      "id": "deterministic-workflow-foundation",
+      "specId": "11c1c495-7548-44ac-a63a-d868dd1b7507",
+      "title": "Deterministic workflow foundation",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-18",
+      "tasks": [
+        {
+          "id": "workflow-schema-and-compatibility",
+          "order": 1,
+          "file": "tasks/01-workflow-schema-and-compatibility.md",
+          "status": "draft"
+        },
+        {
+          "id": "composable-actions-and-contracts",
+          "order": 2,
+          "file": "tasks/02-composable-actions-and-contracts.md",
+          "status": "draft",
+          "depends_on": [
+            "workflow-schema-and-compatibility"
+          ]
+        },
+        {
+          "id": "action-registry-and-aggregated-checks",
+          "order": 3,
+          "file": "tasks/03-action-registry-and-aggregated-checks.md",
+          "status": "draft",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ]
+        },
+        {
+          "id": "concrete-action-commit-and-push",
+          "order": 4,
+          "file": "tasks/04-concrete-action-commit-and-push.md",
+          "status": "draft",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ]
+        },
+        {
+          "id": "deterministic-gates-and-human-verification",
+          "order": 5,
+          "file": "tasks/05-deterministic-gates-and-human-verification.md",
+          "status": "draft",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ]
+        },
+        {
+          "id": "step-orchestration-and-next-step-service",
+          "order": 6,
+          "file": "tasks/06-step-orchestration-and-next-step-service.md",
+          "status": "draft",
+          "depends_on": [
+            "action-registry-and-aggregated-checks",
+            "deterministic-gates-and-human-verification"
+          ]
+        },
+        {
+          "id": "cli-integration-and-vertical-poc",
+          "order": 7,
+          "file": "tasks/07-cli-integration-and-vertical-poc.md",
+          "status": "draft",
+          "depends_on": [
+            "concrete-action-commit-and-push",
+            "step-orchestration-and-next-step-service"
+          ]
+        }
+      ]
+    },
     {
       "id": "ai-sessions-live-chat-integration",
       "specId": "70609aaf-bb62-40bf-a25e-bec65c583495",
