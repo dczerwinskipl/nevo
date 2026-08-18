@@ -134,11 +134,11 @@ export class AntigravityAgentProvider {
       ];
 
       if (mode === 'ask') {
-        args.push('--mode=plan');
+        args.push('--mode=plan', '--dangerously-skip-permissions');
       } else if (mode === 'agent') {
         args.push('--mode=accept-edits', '--dangerously-skip-permissions');
       } else {
-        args.push('--mode=accept-edits');
+        args.push('--mode=accept-edits', '--dangerously-skip-permissions');
       }
 
       if (providerSessionId) {

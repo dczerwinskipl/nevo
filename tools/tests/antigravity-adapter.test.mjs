@@ -294,7 +294,7 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     message: 'hello',
   });
   assert.ok(capturedCalls[0].args.includes('--mode=accept-edits'));
-  assert.ok(!capturedCalls[0].args.includes('--dangerously-skip-permissions'));
+  assert.ok(capturedCalls[0].args.includes('--dangerously-skip-permissions'));
 
   // 2. Explicit 'ask' resolves to --mode=plan
   await provider.startTurn({
@@ -304,7 +304,7 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     mode: 'ask',
   });
   assert.ok(capturedCalls[1].args.includes('--mode=plan'));
-  assert.ok(!capturedCalls[1].args.includes('--dangerously-skip-permissions'));
+  assert.ok(capturedCalls[1].args.includes('--dangerously-skip-permissions'));
 
   // 3. Explicit 'edit' resolves to --mode=accept-edits
   await provider.startTurn({
@@ -314,7 +314,7 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     mode: 'edit',
   });
   assert.ok(capturedCalls[2].args.includes('--mode=accept-edits'));
-  assert.ok(!capturedCalls[2].args.includes('--dangerously-skip-permissions'));
+  assert.ok(capturedCalls[2].args.includes('--dangerously-skip-permissions'));
 
   // 4. Explicit 'agent' resolves to --mode=accept-edits --dangerously-skip-permissions
   await provider.startTurn({
