@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T19:17:46.512Z",
+  "generated": "2026-08-18T19:17:54.119Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -46,7 +46,7 @@
           "id": "deterministic-gates-and-human-verification",
           "order": 5,
           "file": "tasks/05-deterministic-gates-and-human-verification.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "composable-actions-and-contracts"
           ]
