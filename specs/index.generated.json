@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T06:16:32.399Z",
+  "generated": "2026-08-18T06:19:48.778Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -380,7 +380,7 @@
           "id": "multi-provider-consistency-audit-and-refinement",
           "order": 11,
           "file": "tasks/11-multi-provider-consistency-audit-and-refinement.md",
-          "status": "in-implementation",
+          "status": "verified",
           "depends_on": [
             "dashboard-session-ux-and-spec-binding",
             "antigravity-adapter-and-events"
@@ -417,10 +417,49 @@
           "id": "final-verification-and-architecture-docs",
           "order": 12,
           "file": "tasks/12-final-verification-and-architecture-docs.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "multi-provider-consistency-audit-and-refinement"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "cd39e44eff0f69c33d4c858bee050fbce37733e7",
+            "review_revision": "cd39e44eff0f69c33d4c858bee050fbce37733e7",
+            "changed_paths": [
+              "docs/decisions/ADR-0007-provider-neutral-ai-sessions.md",
+              "docs/development/ai-sessions.md",
+              "docs/index.generated.json",
+              "docs/index.generated.md",
+              "docs/routing.generated.json"
+            ],
+            "worktree_patch_fingerprint": "dc94f2528fab18904addb1ea03ad00073a593490b8ccae01ee3515657eab9f8f"
+          },
+          "self_check": {
+            "fingerprint": "53fb293be94ee642f4183632beaedfee170350fc2d4f1b860d2b28fe29ffd747",
+            "revision": "cd39e44eff0f69c33d4c858bee050fbce37733e7",
+            "commands": [
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },

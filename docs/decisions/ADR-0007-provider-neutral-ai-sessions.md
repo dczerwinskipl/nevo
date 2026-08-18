@@ -26,27 +26,32 @@ an explicit access boundary and restart semantics.
 ## Decision
 
 - Every specification has an immutable `spec_id`; sessions correlate to that ID and
-  stable task IDs rather than paths, titles, or task order.
+  stable task IDs rather than paths, titles, or task order via `AgentSessionBindingService`.
 - Providers own authoritative message history and provider session identity. Neutral
   adapters expose normalized sessions, messages, capabilities, turns, events, and
   permission/question interactions.
+- Canonical session identity across all internal contracts, registry maps, and HTTP/SSE routes
+  is strictly the composite `(provider, providerSessionId)` pair.
 - Provider-private request/event identifiers and raw payloads stay behind the adapter.
   The neutral runtime assigns stable interaction and question IDs used for all browser
   responses.
 - The browser uses HTTP for reads and controls and Server-Sent Events for ordered,
   replayable live-turn events. A snapshot makes pending interactions recoverable after
-  a browser disconnect.
+  a browser disconnect or server restart.
 - The runtime enforces one active non-terminal turn per provider/session pair, with
   idempotent retry correlation, bounded replay/turn retention, explicit cancellation,
   and provider-safe public failures.
-- Part 1 runtime state is in process. A server restart interrupts live turns and clears
-  created mock sessions; no repository file is conversation storage.
-- Local correlation/discovery evidence introduced after Part 1 belongs under
-  `/.nevo-ai-local/`. It is operator-local registry state, ignored by Git, and remains
-  distinct from provider-owned history.
-- Local dashboard access currently uses trusted-network mode. Loopback or the
-  operator's VPN is the trust boundary, not identity authentication. The policy is a
-  replaceable server seam and is reported to clients.
+- Part 2 integrates real CLI agents (Claude Code via `PreToolUse/defer` and Antigravity/Gemini
+  via `stream-json`) alongside the mock provider, declaring honest capabilities with
+  `CapabilityNotSupportedError` on unsupported operations.
+- The dashboard frontend leverages `@assistant-ui/react` runtime with custom rich renderers
+  for streaming Markdown (`MarkdownContent`), reasoning (`AiReasoningView`), live tools
+  (`AiToolView`), and interactive prompts (`PermissionPrompt`, `QuestionPrompt`).
+- Local correlation and transcript caches reside in `/.nevo-ai-local/transcripts/`.
+  This is operator-local state, ignored by Git, and remains distinct from provider-owned history.
+- Local dashboard access uses trusted-network mode. Loopback or the operator's VPN is the
+  trust boundary, not identity authentication. The policy is a replaceable server seam and is
+  reported to clients.
 
 ## Rejected options
 
@@ -71,14 +76,14 @@ provider-private data, and confuse correlation metadata with authoritative histo
 
 ## Consequences
 
-- The mock provider can verify the complete Part 1 experience without any real
-  provider installation or credentials.
-- Browser/server tests can lock neutral field and event names while adapters evolve
-  independently.
+- Real Claude Code and Antigravity CLI providers work out-of-the-box in the dashboard alongside
+  the mock demonstration adapter.
+- The mock provider verifies the complete workflow in automated tests without requiring real
+  credentials or external network access.
+- Browser/server tests lock neutral field and event names while adapters evolve independently.
 - Stable spec/task correlation survives file moves and display-name changes.
-- A dashboard restart loses live in-memory state by design; the UI must reconnect only
-  to state still retained by the running process.
+- A dashboard restart safely recovers transcript snapshots and pending interactions from
+  the local transcript cache.
+- The UI adapts seamlessly to provider capabilities (disabling unsupported permissions or features).
 - Trusted-network deployments must treat every VPN member as authorized until an
   identity-aware policy replaces the current seam.
-- Real-provider discovery and setup remain separate work and cannot revise these
-  neutral contracts without a new architectural decision.
