@@ -47,7 +47,12 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
           <Bot className="size-4" />
         </div>
       )}
-      <div className={cn('max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6', user ? 'bg-[var(--accent)] text-[#111604]' : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]')}>
+      <div className={cn(
+        'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
+        user
+          ? 'bg-[var(--accent)] text-[#111604] selection-inverted'
+          : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
+      )}>
         {message.reasoning && (
           <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
         )}
@@ -56,7 +61,7 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
         ))}
         {message.text && (
           user ? (
-            <div className="whitespace-pre-wrap font-medium">{message.text}</div>
+            <div className="whitespace-pre-wrap font-medium selection-inverted">{message.text}</div>
           ) : (
             <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
           )
@@ -87,12 +92,17 @@ function useChatVisualViewport() {
     const measure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const height = Math.round(visualViewport?.height ?? window.innerHeight);
-        const offsetTop = Math.max(0, Math.round(visualViewport?.offsetTop ?? 0));
+        const height = visualViewport ? Math.round(visualViewport.height) : window.innerHeight;
+        const offsetTop = visualViewport ? Math.max(0, Math.round(visualViewport.offsetTop)) : 0;
         baselineHeight.current = Math.max(baselineHeight.current, height);
         const active = document.activeElement;
         const textEntryFocused = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement;
         const keyboardOpen = textEntryFocused && height < baselineHeight.current - 80;
+
+        if (textEntryFocused && window.scrollY !== 0) {
+          window.scrollTo(0, 0);
+        }
+
         setViewport(previous => previous.height === height && previous.offsetTop === offsetTop && previous.keyboardOpen === keyboardOpen
           ? previous
           : { height, offsetTop, keyboardOpen });
@@ -178,6 +188,7 @@ export function AiChatPage({
 
   useEffect(() => {
     if (!chatViewport.keyboardOpen) return;
+    window.scrollTo(0, 0);
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
@@ -228,6 +239,20 @@ export function AiChatPage({
       <div className={shellClassName} style={shellStyle}>
         {header}
 
+        {!isProviderAvailable && providerInfo && (
+          <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
+            <div className="mx-auto flex max-w-4xl items-start gap-2.5 text-xs text-amber-200">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Provider {providerInfo.label} nie jest dostępny</p>
+                <p className="mt-0.5 text-[11px] text-amber-200/80">
+                  {providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-5">
             {!assistant.messages.length && !assistant.isRunning && (
@@ -268,17 +293,6 @@ export function AiChatPage({
 
         <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
           <div className="mx-auto max-w-4xl">
-            {!isProviderAvailable && providerInfo && (
-              <div className="mb-2.5 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
-                <AlertTriangle className="size-4 shrink-0 text-amber-400 mt-0.5" />
-                <div>
-                  <p className="font-semibold">Provider {providerInfo.label} nie jest dostępny</p>
-                  <p className="mt-0.5 text-[11px] text-amber-200/80">
-                    {providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
-                  </p>
-                </div>
-              </div>
-            )}
             <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Wiadomość</span>
@@ -286,6 +300,12 @@ export function AiChatPage({
                   rows={1}
                   value={composer}
                   onChange={event => setComposer(event.target.value)}
+                  onFocus={() => {
+                    window.scrollTo(0, 0);
+                    setTimeout(() => {
+                      transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
+                    }, 100);
+                  }}
                   onKeyDown={event => {
                     if (event.key === 'Enter' && !event.shiftKey) {
                       event.preventDefault();
