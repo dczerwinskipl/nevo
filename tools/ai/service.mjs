@@ -62,9 +62,13 @@ export class AiSessionService {
       try {
         const transcript = await this.transcriptCache.getTranscript(binding.provider, binding.providerSessionId);
         const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+        // `getTranscript` synthesizes an empty, timestamped-`now` object for a session that
+        // never had a turn — never treat that synthetic timestamp as real activity, or every
+        // untouched session would show "just now" the moment it's first listed after a restart.
+        const hasRecordedActivity = Boolean(transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
         return {
           ...binding,
-          lastActivityAt: transcript?.updatedAt || binding.lastSeenAt,
+          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || binding.lastSeenAt,
           status,
           activeTurn,
           pendingInteraction,

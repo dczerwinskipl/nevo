@@ -169,6 +169,22 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   const session = await service.getSession('claude', 'sess-1');
   assert.deepEqual(session, { provider: 'claude', providerSessionId: 'sess-1', specId: 'my-spec' });
 
+  const untouchedBindingService = {
+    async listBindings() {
+      return [{ provider: 'claude', providerSessionId: 'sess-untouched', specId: 'spec-123', lastSeenAt: '2026-08-01T00:00:00.000Z' }];
+    },
+  };
+  const untouchedTranscriptCache = {
+    // Mirrors SessionTranscriptCacheService.getTranscript's real fallback: a synthetic,
+    // empty transcript timestamped "now" for a session that never had a turn.
+    async getTranscript() {
+      return { provider: 'claude', providerSessionId: 'sess-untouched', messages: [], lastEventSeq: 0, updatedAt: new Date().toISOString() };
+    },
+  };
+  const untouchedService = createAiSessionService({ registry, bindingService: untouchedBindingService, transcriptCache: untouchedTranscriptCache });
+  const untouchedSessions = await untouchedService.listSessions();
+  assert.equal(untouchedSessions[0].lastActivityAt, '2026-08-01T00:00:00.000Z');
+
   const messages = await service.listMessages('claude', 'sess-1');
   assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
 });

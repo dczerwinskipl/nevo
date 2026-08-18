@@ -12,7 +12,7 @@ import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
-import { AiSessionRow } from '@/components/ai-session-list';
+import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 
 export type DashboardMode = 'active' | 'archive';
@@ -118,7 +118,7 @@ export function AppSidebar({
     !query || change.title.toLocaleLowerCase('pl').includes(query) || change.slug.includes(query),
   );
   const activeSpecIds = new Set(active.map(change => change.specId).filter(Boolean));
-  const recentSessions = sessions.filter(session => activeSpecIds.has(session.specId)).slice(0, 5);
+  const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
   const activeTasks = active.flatMap(change => change.tasks);
 
   return (

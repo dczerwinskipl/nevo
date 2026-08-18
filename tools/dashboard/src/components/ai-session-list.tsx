@@ -20,6 +20,14 @@ function sessionTitle(session: AiSession) {
   return `Sesja ${id.slice(0, 12)}`;
 }
 
+export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
+  return [...sessions].sort((a, b) => {
+    const aTime = new Date(a.lastActivityAt || a.lastSeenAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.lastActivityAt || b.lastSeenAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 function statusLabel(status: AiSession['status']) {
   if (status === 'running') return 'W toku';
   if (status === 'waitingForUser') return 'Czeka na Ciebie';
@@ -166,11 +174,7 @@ export function AiSessionList({
         {emptyLabel}
       </div>
     );
-  const sorted = [...sessions].sort((a, b) => {
-    const aTime = new Date(a.lastActivityAt || a.lastSeenAt || a.createdAt || 0).getTime();
-    const bTime = new Date(b.lastActivityAt || b.lastSeenAt || b.createdAt || 0).getTime();
-    return bTime - aTime;
-  });
+  const sorted = sortSessionsByRecency(sessions);
   const visible = limit ? sorted.slice(0, limit) : sorted;
   const current = visible.filter((session) => session.status !== 'completed');
   const completed = visible.filter((session) => session.status === 'completed');
