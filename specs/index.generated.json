@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T06:11:29.516Z",
+  "generated": "2026-08-18T06:11:41.587Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -353,7 +353,7 @@
           ],
           "implementation": {
             "baseline_revision": "14754b761817f3b26412bb2d7e02066bb5240010",
-            "review_revision": "14754b761817f3b26412bb2d7e02066bb5240010",
+            "review_revision": "fff39b8b352bca8ae5897ce4d5da896dcdc4e586",
             "changed_paths": [
               "tools/ai/antigravity-adapter.mjs",
               "tools/tests/antigravity-adapter.test.mjs"
@@ -362,7 +362,7 @@
           },
           "self_check": {
             "fingerprint": "5268c448bc0d198a0bda08c61f7fdf7f1835adc00f544a3751c8512aae0ddc0e",
-            "revision": "14754b761817f3b26412bb2d7e02066bb5240010",
+            "revision": "fff39b8b352bca8ae5897ce4d5da896dcdc4e586",
             "commands": [
               {
                 "command": "node --test tools/tests/antigravity-adapter.test.mjs",
