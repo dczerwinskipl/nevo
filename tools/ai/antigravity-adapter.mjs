@@ -129,6 +129,7 @@ export class AntigravityAgentProvider {
       let pendingInteractionPromise = null;
 
       const args = [
+        '--add-dir', this.#cwd,
         '--print', inputMessage,
         '--output-format', 'stream-json',
       ];
