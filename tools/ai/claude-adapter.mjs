@@ -26,6 +26,16 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   usage: true,
 });
 
+export function defaultProbeClaudeExecutable(executable) {
+  try {
+    const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
+    execSync(probe, { stdio: 'ignore', timeout: 1500 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class ClaudeAgentProvider {
   #executable;
   #cwd;
@@ -35,6 +45,7 @@ export class ClaudeAgentProvider {
   #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
+  #probeExecutable;
 
   constructor({
     executable = 'claude',
@@ -43,6 +54,7 @@ export class ClaudeAgentProvider {
     continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
     hookScriptPath = HOOK_SCRIPT_PATH,
     cancelGraceMs = 5_000,
+    probeExecutable,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -50,6 +62,7 @@ export class ClaudeAgentProvider {
     this.#continuationStore = continuationStore;
     this.#hookScriptPath = hookScriptPath;
     this.#cancelGraceMs = cancelGraceMs;
+    this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
     this.descriptor = Object.freeze({
       id: 'claude',
       label: 'Claude Code',
@@ -61,18 +74,13 @@ export class ClaudeAgentProvider {
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
-    if (this.#spawnProcess !== spawn) {
-      return { available: true };
-    }
     const now = Date.now();
     if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
       return this.#availabilityCache.result;
     }
     let available = false;
     try {
-      const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
-      execSync(probe, { stdio: 'ignore', timeout: 1500 });
-      available = true;
+      available = Boolean(this.#probeExecutable(this.#executable));
     } catch {
       available = false;
     }
@@ -524,6 +532,7 @@ export class ClaudeAgentProvider {
     interactionId,
     interaction,
     response,
+    mode,
     signal,
     setOperation,
     emitDelta,
@@ -551,6 +560,7 @@ export class ClaudeAgentProvider {
         turnId,
         providerSessionId,
         message: 'Continue',
+        mode,
         signal,
         setOperation,
         emitDelta,

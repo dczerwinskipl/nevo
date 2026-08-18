@@ -429,16 +429,17 @@ test('ClaudeAgentProvider supports turn cancellation', async () => {
 
 test('ClaudeAgentProvider reports availability correctly based on CLI probe', () => {
   const customProvider = createClaudeAgentProvider({
-    spawnProcess: () => ({}),
+    probeExecutable: () => true,
   });
   assert.equal(customProvider.isAvailable().available, true);
 
   const missingProvider = new ClaudeAgentProvider({
-    executable: 'non-existent-binary-xyz-99999',
+    executable: 'claude',
+    probeExecutable: () => false,
   });
   const avail = missingProvider.isAvailable();
   assert.equal(avail.available, false);
-  assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-99999'));
+  assert.ok(avail.unavailableReason.includes('claude'));
 });
 
 test('ClaudeAgentProvider advertises supportedModes and defaultMode', () => {
@@ -498,55 +499,113 @@ test('ClaudeAgentProvider maps execution modes to exact CLI flags', async () => 
   assert.equal(capturedCalls[3].args[capturedCalls[3].args.indexOf('--permission-mode') + 1], 'bypassPermissions');
 });
 
-test('Claude ask mode behavioral guarantee: analyzes without modifying workspace files', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-ask-workspace-'));
-  const testFile = join(tmpDir, 'source.ts');
-  const initialContent = 'export const initial = "unmodified";';
-  await writeFile(testFile, initialContent, 'utf-8');
-
-  try {
-    const lines = [
+for (const mode of ['ask', 'edit', 'agent']) {
+  test(`Claude respondInteraction preserves original mode '${mode}' on resumed invocation`, async () => {
+    const expectedFlag = mode === 'ask' ? 'plan' : mode === 'edit' ? 'acceptEdits' : 'bypassPermissions';
+    const capturedArgs = [];
+    const deferredLines = [
       JSON.stringify({
-        type: 'content_block_start',
-        index: 0,
-        content_block: { type: 'text', text: 'Plan mode active: inspecting codebase. File writes are not permitted.' },
+        type: 'message_delta',
+        delta: { stop_reason: 'tool_deferred' },
+        deferred_tool_use: {
+          id: `toolu_q_${mode}`,
+          name: 'AskUserQuestion',
+          input: { questions: [{ question: 'Choose?', header: 'Style', multiSelect: false }] },
+        },
       }),
-      JSON.stringify({
-        type: 'tool_use',
-        id: 'tool_view_01',
-        name: 'View',
-        input: { path: testFile },
-      }),
+    ];
+    const resumedLines = [
+      JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'Resumed done' } }),
       JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
     ];
 
-    let spawnedArgs = null;
+    let spawnCount = 0;
     const provider = createClaudeAgentProvider({
       spawnProcess: (executable, args) => {
-        spawnedArgs = args;
-        return createMockProcess(lines, { sessionId: extractSessionId(args) });
+        spawnCount += 1;
+        capturedArgs.push(args);
+        if (spawnCount === 1) return createMockProcess(deferredLines, { sessionId: extractSessionId(args) });
+        return createMockProcess(resumedLines, { sessionId: extractSessionId(args) });
       },
     });
 
-    const textDeltas = [];
-    await provider.startTurn({
-      turnId: 'turn-ask-behavior',
-      providerSessionId: 'sess-ask-1',
-      message: 'Please review architecture',
-      mode: 'ask',
-      emitTextDelta: (delta) => textDeltas.push(delta),
+    const firstTurn = await provider.startTurn({
+      turnId: `turn-resp-${mode}`,
+      providerSessionId: `sess-resp-${mode}`,
+      message: `Prompt in ${mode}`,
+      mode,
     });
 
-    assert.ok(spawnedArgs.includes('--permission-mode'));
-    assert.equal(spawnedArgs[spawnedArgs.indexOf('--permission-mode') + 1], 'plan');
-    assert.ok(textDeltas.join('').includes('Plan mode active'));
+    assert.equal(firstTurn.isDeferred, true);
+    assert.equal(capturedArgs[0][capturedArgs[0].indexOf('--permission-mode') + 1], expectedFlag);
 
-    // Observable workspace invariant: file was strictly untouched
-    const currentContent = await readFile(testFile, 'utf-8');
-    assert.equal(currentContent, initialContent);
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+    await provider.respondInteraction({
+      turnId: `turn-resp-${mode}`,
+      providerSessionId: `sess-resp-${mode}`,
+      interactionId: firstTurn.interaction.id,
+      interaction: firstTurn.interaction,
+      response: { answers: [{ questionId: firstTurn.interaction.questions[0].id, value: 'Selected' }] },
+      mode,
+    });
+
+    assert.equal(capturedArgs.length, 2);
+    assert.equal(capturedArgs[1][capturedArgs[1].indexOf('--permission-mode') + 1], expectedFlag);
+  });
+}
+
+test('Claude ask mode behavioral guarantee: offline provider evidence reflects that mutation is blocked in plan mode', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.' },
+    }),
+    JSON.stringify({
+      type: 'tool_use',
+      id: 'tool_edit_01',
+      name: 'Edit',
+      input: { path: 'source.ts', new_string: 'mutated' },
+    }),
+    JSON.stringify({
+      type: 'tool_result',
+      tool_use_id: 'tool_edit_01',
+      is_error: true,
+      content: 'Permission denied: file modification is disabled in plan mode.',
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  let spawnedArgs = null;
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => {
+      spawnedArgs = args;
+      return createMockProcess(lines, { sessionId: extractSessionId(args) });
+    },
+  });
+
+  const textDeltas = [];
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const result = await provider.startTurn({
+    turnId: 'turn-ask-behavior',
+    providerSessionId: 'sess-ask-1',
+    message: 'Please review architecture',
+    mode: 'ask',
+    emitTextDelta: (delta) => textDeltas.push(delta),
+    emitToolStarted: (tool) => toolsStarted.push(tool),
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
+  });
+
+  assert.ok(spawnedArgs.includes('--permission-mode'));
+  assert.equal(spawnedArgs[spawnedArgs.indexOf('--permission-mode') + 1], 'plan');
+  assert.ok(textDeltas.join('').includes('Plan mode active'));
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsStarted[0].toolName, 'Edit');
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'tool_edit_01');
+  assert.ok(toolsCompleted[0].output?.includes('Permission denied'));
+  assert.equal(result.status, 'completed');
 });
 
 test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {

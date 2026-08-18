@@ -407,6 +407,12 @@ export function validateAgentEvent(value) {
       };
 
     case 'turn.started':
+      return {
+        ...base,
+        ...(value.mode ? { mode: validateAgentExecutionMode(value.mode, 'mode') } : {}),
+        ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+      };
+
     default:
       return {
         ...base,

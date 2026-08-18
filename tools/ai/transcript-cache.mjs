@@ -221,6 +221,7 @@ export class SessionTranscriptCacheService {
         state.activeTurn = {
           turnId: event.turnId,
           startedAt: event.timestamp,
+          ...(event.mode ? { mode: event.mode } : {}),
         };
         break;
       }

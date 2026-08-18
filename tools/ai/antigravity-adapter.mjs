@@ -40,44 +40,56 @@ function resolveAgyExecutable(name = 'agy') {
   return name;
 }
 
+export function defaultProbeAntigravityExecutable(executable) {
+  try {
+    if (existsSync(executable)) {
+      return true;
+    }
+    const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
+    execSync(probe, { stdio: 'ignore', timeout: 1500 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class AntigravityAgentProvider {
   #executable;
   #cwd;
   #spawnProcess;
   #activeOperations = new Map();
+  #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
+  #probeExecutable;
 
   constructor({
     executable = 'agy',
     cwd = process.cwd(),
     spawnProcess = spawn,
     cancelGraceMs = 5_000,
+    probeExecutable,
+    materializedSessions,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
+    this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
+    if (Array.isArray(materializedSessions)) {
+      this.#materializedSessions = new Set(materializedSessions);
+    }
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
-    if (this.#spawnProcess !== spawn) {
-      return { available: true };
-    }
     const now = Date.now();
     if (this.#availabilityCache.result && (now - this.#availabilityCache.checkedAt < ttlMs)) {
       return this.#availabilityCache.result;
     }
     let available = false;
     try {
-      if (existsSync(this.#executable)) {
-        available = true;
-      } else {
-        const probe = process.platform === 'win32' ? `where.exe "${this.#executable}"` : `which "${this.#executable}"`;
-        execSync(probe, { stdio: 'ignore', timeout: 1500 });
-        available = true;
-      }
+      available = Boolean(this.#probeExecutable(this.#executable));
     } catch {
       available = false;
     }
@@ -129,18 +141,19 @@ export class AntigravityAgentProvider {
       let pendingInteractionPromise = null;
 
       const args = [
-        '--dangerously-skip-permissions',
         '--add-dir', this.#cwd,
         '--output-format', 'stream-json',
       ];
 
       if (mode === 'ask') {
         args.push('--mode=plan');
+      } else if (mode === 'agent') {
+        args.push('--mode=default', '--dangerously-skip-permissions');
       } else {
         args.push('--mode=accept-edits');
       }
 
-      if (providerSessionId) {
+      if (providerSessionId && this.#materializedSessions.has(providerSessionId)) {
         args.push('--conversation', providerSessionId);
       }
 
@@ -159,6 +172,9 @@ export class AntigravityAgentProvider {
       let currentSessionId = providerSessionId || null;
 
       const confirmSession = async (allocatedId) => {
+        if (allocatedId) {
+          this.#materializedSessions.add(allocatedId);
+        }
         if (!isSessionEstablished && allocatedId) {
           isSessionEstablished = true;
           currentSessionId = allocatedId;

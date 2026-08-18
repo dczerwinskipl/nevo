@@ -145,6 +145,7 @@ test('existing conversation spawns with --conversation', async () => {
   ];
 
   const provider = createAntigravityAgentProvider({
+    materializedSessions: ['agy-conv-123'],
     spawnProcess: (executable, args) => {
       capturedCalls.push({ executable, args });
       return createMockProcess(lines);
@@ -255,16 +256,17 @@ test('can be registered and retrieved in AiAdapterRegistry', () => {
 
 test('AntigravityAgentProvider reports availability correctly based on CLI probe', () => {
   const customProvider = createAntigravityAgentProvider({
-    spawnProcess: () => ({}),
+    probeExecutable: () => true,
   });
   assert.equal(customProvider.isAvailable().available, true);
 
   const missingProvider = new AntigravityAgentProvider({
-    executable: 'non-existent-binary-xyz-12345',
+    executable: 'agy',
+    probeExecutable: () => false,
   });
   const avail = missingProvider.isAvailable();
   assert.equal(avail.available, false);
-  assert.ok(avail.unavailableReason.includes('non-existent-binary-xyz-12345'));
+  assert.ok(avail.unavailableReason.includes('agy'));
 });
 
 test('AntigravityAgentProvider advertises supportedModes and defaultMode', () => {
@@ -294,7 +296,7 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     message: 'hello',
   });
   assert.ok(capturedCalls[0].args.includes('--mode=accept-edits'));
-  assert.ok(capturedCalls[0].args.includes('--dangerously-skip-permissions'));
+  assert.ok(!capturedCalls[0].args.includes('--dangerously-skip-permissions'));
 
   // 2. Explicit 'ask' resolves to --mode=plan
   await provider.startTurn({
@@ -304,7 +306,7 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     mode: 'ask',
   });
   assert.ok(capturedCalls[1].args.includes('--mode=plan'));
-  assert.ok(capturedCalls[1].args.includes('--dangerously-skip-permissions'));
+  assert.ok(!capturedCalls[1].args.includes('--dangerously-skip-permissions'));
 
   // 3. Explicit 'edit' resolves to --mode=accept-edits
   await provider.startTurn({
@@ -314,58 +316,66 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
     mode: 'edit',
   });
   assert.ok(capturedCalls[2].args.includes('--mode=accept-edits'));
-  assert.ok(capturedCalls[2].args.includes('--dangerously-skip-permissions'));
+  assert.ok(!capturedCalls[2].args.includes('--dangerously-skip-permissions'));
 
-  // 4. Explicit 'agent' resolves to --mode=accept-edits --dangerously-skip-permissions
+  // 4. Explicit 'agent' resolves to --mode=default --dangerously-skip-permissions
   await provider.startTurn({
     turnId: 'turn-mode-agent',
     providerSessionId: 'conv-1',
     message: 'run all',
     mode: 'agent',
   });
-  assert.ok(capturedCalls[3].args.includes('--mode=accept-edits'));
+  assert.ok(capturedCalls[3].args.includes('--mode=default'));
   assert.ok(capturedCalls[3].args.includes('--dangerously-skip-permissions'));
 });
 
-test('Antigravity ask mode behavioral guarantee: operates read-only in plan mode without modifying workspace files', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-ask-workspace-'));
-  const testFile = join(tmpDir, 'source.ts');
-  const initialContent = 'export const pristine = true;';
-  await writeFile(testFile, initialContent, 'utf-8');
+test('Antigravity ask mode behavioral guarantee: offline provider evidence reflects that mutation is blocked in plan mode', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-ask' }),
+    JSON.stringify({
+      type: 'tool.started',
+      toolId: 'tool_write_01',
+      toolName: 'write_file',
+      input: { path: 'source.ts', content: 'mutated' },
+    }),
+    JSON.stringify({
+      type: 'tool.completed',
+      toolId: 'tool_write_01',
+      status: 'failed',
+      output: 'Modification blocked: Antigravity plan mode is read-only.',
+    }),
+    JSON.stringify({ type: 'text.delta', delta: 'Plan mode analysis complete. File modification was blocked.' }),
+    JSON.stringify({ type: 'done' }),
+  ];
 
-  try {
-    const lines = [
-      JSON.stringify({ type: 'init', conversation_id: 'conv-ask' }),
-      JSON.stringify({ type: 'tool.start', tool_name: 'view_file', input: { path: testFile } }),
-      JSON.stringify({ type: 'text.delta', delta: 'Plan mode analysis complete. No file write performed.' }),
-      JSON.stringify({ type: 'done' }),
-    ];
+  let spawnedArgs = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      spawnedArgs = args;
+      return createMockProcess(lines);
+    },
+  });
 
-    let spawnedArgs = null;
-    const provider = createAntigravityAgentProvider({
-      spawnProcess: (executable, args) => {
-        spawnedArgs = args;
-        return createMockProcess(lines);
-      },
-    });
+  const textDeltas = [];
+  const toolsStarted = [];
+  const toolsCompleted = [];
 
-    const textDeltas = [];
-    await provider.startTurn({
-      turnId: 'turn-ask-behavior',
-      providerSessionId: 'conv-ask',
-      message: 'Review codebase',
-      mode: 'ask',
-      emitTextDelta: (d) => textDeltas.push(d),
-    });
+  const result = await provider.startTurn({
+    turnId: 'turn-ask-behavior',
+    providerSessionId: 'conv-ask',
+    message: 'Review codebase and try edit',
+    mode: 'ask',
+    emitTextDelta: (d) => textDeltas.push(d),
+    emitToolStarted: (t) => toolsStarted.push(t),
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+  });
 
-    assert.ok(spawnedArgs.includes('--mode=plan'));
-    assert.ok(spawnedArgs.includes('--dangerously-skip-permissions'));
-    assert.equal(textDeltas.join(''), 'Plan mode analysis complete. No file write performed.');
-
-    // Observable workspace invariant: target file is strictly untouched
-    const currentContent = await readFile(testFile, 'utf-8');
-    assert.equal(currentContent, initialContent);
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+  assert.ok(spawnedArgs.includes('--mode=plan'));
+  assert.ok(!spawnedArgs.includes('--dangerously-skip-permissions'));
+  assert.equal(textDeltas.join(''), 'Plan mode analysis complete. File modification was blocked.');
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.ok(toolsCompleted[0].output.includes('Modification blocked'));
+  assert.equal(result.status, 'completed');
 });

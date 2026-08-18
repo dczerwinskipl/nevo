@@ -206,6 +206,7 @@ export class AiTurnRuntime {
       }
       this.#notifyAdapterState(state);
       this.#emit(state, 'turn.started', {
+        mode: state.mode,
         userPrompt: inputMessage,
         userMessage: {
           id: `user-${turnId}`,
@@ -308,6 +309,7 @@ export class AiTurnRuntime {
           interactionId,
           interaction,
           response,
+          mode: state.mode,
           signal: state.abortController.signal,
           setOperation: op => { state.privateOperation = op; },
           emitDelta: (delta, msgId) => this.#emitDelta(state, delta, msgId),
@@ -429,12 +431,16 @@ export class AiTurnRuntime {
         if (cached?.activeTurn && cached?.pendingInteraction?.id === interactionId) {
           if (!turnId || cached.activeTurn.turnId === turnId) {
             turnId = cached.activeTurn.turnId;
+            const restoredMode = cached.activeTurn.mode
+              ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
+              : 'edit';
             state = {
               turnId,
               provider: cached.provider,
               providerSessionId: cached.providerSessionId,
               identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
               key: sessionKey(cached.provider, cached.providerSessionId),
+              mode: restoredMode,
               status: 'waitingForUser',
               pendingInteraction: structuredClone(cached.pendingInteraction),
               sequence: cached.lastEventSeq || 0,
@@ -452,12 +458,16 @@ export class AiTurnRuntime {
       } else if (turnId) {
         for (const [key, cached] of this.transcriptCache.entries?.() || []) {
           if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
+            const restoredMode = cached.activeTurn.mode
+              ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
+              : 'edit';
             state = {
               turnId,
               provider: cached.provider,
               providerSessionId: cached.providerSessionId,
               identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
               key: sessionKey(cached.provider, cached.providerSessionId),
+              mode: restoredMode,
               status: 'waitingForUser',
               pendingInteraction: structuredClone(cached.pendingInteraction),
               sequence: cached.lastEventSeq || 0,
@@ -514,12 +524,16 @@ export class AiTurnRuntime {
     if (!state && this.transcriptCache && provider && providerSessionId) {
       const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
       if (cached?.activeTurn?.turnId === turnId) {
+        const restoredMode = cached.activeTurn.mode
+          ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
+          : 'edit';
         state = {
           turnId,
           provider: cached.provider,
           providerSessionId: cached.providerSessionId,
           identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
           key: sessionKey(cached.provider, cached.providerSessionId),
+          mode: restoredMode,
           status: 'waitingForUser',
           pendingInteraction: structuredClone(cached.pendingInteraction),
           sequence: cached.lastEventSeq || 0,
