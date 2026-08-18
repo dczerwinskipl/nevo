@@ -21,7 +21,10 @@ export function createDefaultDashboardAiService({ dataLoader } = {}) {
     taskIds: demonstration.tasks?.map(task => task.id) || [],
   } : {});
   const claudeAdapter = new ClaudeAgentProvider({ cwd: REPO_ROOT });
-  const antigravityAdapter = new AntigravityAgentProvider({ cwd: REPO_ROOT });
+  const antigravityAdapter = new AntigravityAgentProvider({
+    cwd: REPO_ROOT,
+    mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
+  });
   const registry = createAiAdapterRegistry([mockAdapter, claudeAdapter, antigravityAdapter]);
   const transcriptCache = createTranscriptCacheService();
   const bindingService = createAgentSessionBindingService();

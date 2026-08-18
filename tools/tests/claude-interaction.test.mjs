@@ -3,6 +3,7 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 
@@ -609,8 +610,9 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       const runtime1 = createAiTurnRuntime({ registry: registry1, transcriptCache, idleTimeoutMs: 0 });
       const service1 = createAiSessionService({ registry: registry1, turnRuntime: runtime1, transcriptCache, bindingService });
 
-      const sessionId = `sess-recov-${turnMode}`;
-      await service1.createSession('claude', { title: 'Test', mode: turnMode });
+      const specId = randomUUID();
+      const session = await service1.createSession('claude', { title: 'Test', mode: turnMode, specId });
+      const sessionId = session.providerSessionId;
 
       // Start turn in turnMode
       const { turnId } = await service1.startTurn('claude', sessionId, {

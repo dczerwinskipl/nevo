@@ -1,6 +1,6 @@
 import { spawn, execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   AiError,
@@ -29,12 +29,16 @@ export const ANTIGRAVITY_DESCRIPTOR = Object.freeze({
   defaultMode: 'edit',
 });
 
-function resolveAgyExecutable(name = 'agy') {
-  if (process.platform === 'win32' && name === 'agy') {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) {
-      const defaultAgyExe = join(localAppData, 'agy', 'bin', 'agy.exe');
-      if (existsSync(defaultAgyExe)) return defaultAgyExe;
+function resolveAgyExecutable(name) {
+  if (!name || name === 'agy') {
+    if (process.platform === 'win32') {
+      const localAppData = process.env.LOCALAPPDATA || (process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Local` : null);
+      if (localAppData) {
+        const standardPath = `${localAppData}\\agy\\bin\\agy.exe`;
+        if (existsSync(standardPath)) {
+          return standardPath;
+        }
+      }
     }
   }
   return name;
@@ -59,6 +63,8 @@ export class AntigravityAgentProvider {
   #spawnProcess;
   #activeOperations = new Map();
   #materializedSessions = new Set();
+  #sessionAliases = new Map();
+  #mappingFilePath;
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
   #probeExecutable;
@@ -70,16 +76,51 @@ export class AntigravityAgentProvider {
     cancelGraceMs = 5_000,
     probeExecutable,
     materializedSessions,
+    mappingFilePath = null,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
+    this.#mappingFilePath = mappingFilePath;
     if (Array.isArray(materializedSessions)) {
       this.#materializedSessions = new Set(materializedSessions);
     }
+    this.#loadSessionAliases();
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
+  }
+
+  #loadSessionAliases() {
+    try {
+      if (this.#mappingFilePath && existsSync(this.#mappingFilePath)) {
+        const raw = JSON.parse(readFileSync(this.#mappingFilePath, 'utf8'));
+        if (raw && typeof raw === 'object') {
+          for (const [k, v] of Object.entries(raw)) {
+            if (typeof v === 'string') {
+              this.#sessionAliases.set(k, v);
+              this.#materializedSessions.add(v);
+              this.#materializedSessions.add(k);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  #saveSessionAlias(fromId, toId) {
+    if (!fromId || !toId) return;
+    this.#sessionAliases.set(fromId, toId);
+    this.#sessionAliases.set(toId, toId);
+    this.#materializedSessions.add(fromId);
+    this.#materializedSessions.add(toId);
+    if (!this.#mappingFilePath) return;
+    try {
+      const dir = dirname(this.#mappingFilePath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const obj = Object.fromEntries(this.#sessionAliases.entries());
+      writeFileSync(this.#mappingFilePath, JSON.stringify(obj, null, 2), 'utf8');
+    } catch {}
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
@@ -126,7 +167,7 @@ export class AntigravityAgentProvider {
     const mode = rawMode ? validateAgentExecutionMode(rawMode) : 'edit';
 
     const effectiveSessionId = providerSessionId || randomUUID();
-    let isSessionEstablished = Boolean(providerSessionId);
+    let isSessionEstablished = false;
 
     const sendTextDelta = (chunk) => {
       if (!chunk) return;
@@ -153,8 +194,12 @@ export class AntigravityAgentProvider {
         args.push('--mode=accept-edits');
       }
 
-      if (providerSessionId && this.#materializedSessions.has(providerSessionId)) {
-        args.push('--conversation', providerSessionId);
+      const targetConversationId = providerSessionId
+        ? (this.#sessionAliases.get(providerSessionId) || (this.#materializedSessions.has(providerSessionId) ? providerSessionId : null))
+        : null;
+
+      if (targetConversationId) {
+        args.push('--conversation', targetConversationId);
       }
 
       args.push('--print', inputMessage);
@@ -173,7 +218,10 @@ export class AntigravityAgentProvider {
 
       const confirmSession = async (allocatedId) => {
         if (allocatedId) {
-          this.#materializedSessions.add(allocatedId);
+          this.#saveSessionAlias(effectiveSessionId, allocatedId);
+          if (providerSessionId) {
+            this.#saveSessionAlias(providerSessionId, allocatedId);
+          }
         }
         if (!isSessionEstablished && allocatedId) {
           isSessionEstablished = true;
@@ -236,6 +284,10 @@ export class AntigravityAgentProvider {
         const payload = raw.step_update || raw.result || raw.init || raw;
         const sessId = raw.conversation_id || raw.conversationId || payload.conversation_id || payload.conversationId || raw.session_id || raw.sessionId;
         if (sessId) {
+          this.#saveSessionAlias(effectiveSessionId, sessId);
+          if (providerSessionId) {
+            this.#saveSessionAlias(providerSessionId, sessId);
+          }
           await confirmSession(sessId);
         }
 
@@ -554,6 +606,9 @@ function waitForChildExit(child, timeoutMs) {
   });
 }
 
-export function createAntigravityAgentProvider(options) {
-  return new AntigravityAgentProvider(options);
+export function createAntigravityAgentProvider(options = {}) {
+  return new AntigravityAgentProvider({
+    mappingFilePath: null,
+    ...options,
+  });
 }

@@ -7,11 +7,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AntigravityAgentProvider,
-  createAntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
 } from '../ai/antigravity-adapter.mjs';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { CapabilityNotSupportedError } from '../ai/contracts.mjs';
+
+function createAntigravityAgentProvider(options = {}) {
+  return new AntigravityAgentProvider({
+    mappingFilePath: null,
+    ...options,
+  });
+}
 
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
   const child = new EventEmitter();
@@ -163,6 +169,49 @@ test('existing conversation spawns with --conversation', async () => {
   assert.ok(capturedCalls.length === 1);
   assert.ok(capturedCalls[0].args.includes('--conversation'));
   assert.ok(capturedCalls[0].args.includes('agy-conv-123'));
+});
+
+test('multi-turn continuation maps dashboard session ID to agy conversation ID across turns', async () => {
+  const capturedCalls = [];
+  const turn1Lines = [
+    JSON.stringify({ event: 'init', conversation_id: 'agy-allocated-999' }),
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Turn 1 done' } }),
+    JSON.stringify({ event: 'result', result: { response: 'Turn 1 done' } }),
+  ];
+  const turn2Lines = [
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Turn 2 done' } }),
+    JSON.stringify({ event: 'result', result: { response: 'Turn 2 done' } }),
+  ];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: (executable, args) => {
+      capturedCalls.push({ executable, args });
+      const lines = capturedCalls.length === 1 ? turn1Lines : turn2Lines;
+      return createMockProcess(lines);
+    },
+  });
+
+  // Turn 1 with dashboard-generated session ID
+  let allocatedId = null;
+  await provider.startTurn({
+    turnId: 'turn-1',
+    providerSessionId: 'dashboard-uuid-111',
+    message: 'First turn',
+    setProviderSessionId: (id) => { allocatedId = id; },
+  });
+
+  assert.equal(allocatedId, 'agy-allocated-999');
+  assert.ok(!capturedCalls[0].args.includes('--conversation'), 'Turn 1 must not pass --conversation');
+
+  // Turn 2 with same dashboard-generated session ID
+  await provider.startTurn({
+    turnId: 'turn-2',
+    providerSessionId: 'dashboard-uuid-111',
+    message: 'Second turn',
+  });
+
+  assert.ok(capturedCalls[1].args.includes('--conversation'), 'Turn 2 must pass --conversation');
+  assert.ok(capturedCalls[1].args.includes('agy-allocated-999'), 'Turn 2 must resume agy-allocated-999');
 });
 
 test('maps reasoning, tool calls, and usage events', async () => {

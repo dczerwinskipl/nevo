@@ -561,16 +561,26 @@ test('Claude ask mode behavioral guarantee: offline provider evidence reflects t
       content_block: { type: 'text', text: 'Plan mode active: inspecting codebase. File writes are not permitted in plan mode.' },
     }),
     JSON.stringify({
-      type: 'tool_use',
-      id: 'tool_edit_01',
-      name: 'Edit',
-      input: { path: 'source.ts', new_string: 'mutated' },
+      type: 'content_block_start',
+      index: 1,
+      content_block: {
+        type: 'tool_use',
+        id: 'tool_edit_01',
+        name: 'Edit',
+        input: { path: 'source.ts', new_string: 'mutated' },
+      },
     }),
     JSON.stringify({
-      type: 'tool_result',
-      tool_use_id: 'tool_edit_01',
-      is_error: true,
-      content: 'Permission denied: file modification is disabled in plan mode.',
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'tool_edit_01',
+          is_error: true,
+          content: 'Permission denied: file modification is disabled in plan mode.',
+        }],
+      },
     }),
     JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
   ];
@@ -604,8 +614,9 @@ test('Claude ask mode behavioral guarantee: offline provider evidence reflects t
   assert.equal(toolsStarted[0].toolName, 'Edit');
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].toolId, 'tool_edit_01');
+  assert.equal(toolsCompleted[0].status, 'failed');
   assert.ok(toolsCompleted[0].output?.includes('Permission denied'));
-  assert.equal(result.status, 'completed');
+  assert.equal(result.providerSessionId, 'sess-ask-1');
 });
 
 test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {
