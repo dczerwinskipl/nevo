@@ -104,9 +104,9 @@ export function SpecAiPlanningSection({
             <label className="block text-xs font-semibold">Tryb wykonania</label>
             <div className="mt-2 grid grid-cols-3 gap-2">
               {[
-                { id: 'agent', label: 'Agent (Auto)', desc: 'Pełna autonomia (Domyślny)' },
+                { id: 'ask', label: 'Ask (Plan)', desc: 'Analiza i planowanie (Domyślny)' },
                 { id: 'edit', label: 'Edit', desc: 'Standardowa edycja' },
-                { id: 'ask', label: 'Ask (Plan)', desc: 'Tylko analiza i planowanie' },
+                { id: 'agent', label: 'Agent (Auto)', desc: 'Pełna autonomia' },
               ]
                 .filter((m) => supportedModes.includes(m.id as AgentExecutionMode))
                 .map((item) => (

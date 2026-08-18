@@ -5,7 +5,7 @@ import {
   useCreateSpecification,
   type CreateSpecificationResult,
 } from '@/hooks/use-dashboard-data';
-import { slugifyTitle } from '@/lib/spec-create-helpers';
+import { slugifyTitle, resolveDefaultPlanningMode } from '@/lib/spec-create-helpers';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import type { AiSession, AgentExecutionMode } from '@/lib/types';
 
@@ -43,7 +43,7 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
   // AI planning state
   const [startAiSession, setStartAiSession] = useState(false);
   const [provider, setProvider] = useState('');
-  const [mode, setMode] = useState<AgentExecutionMode>('agent');
+  const [mode, setMode] = useState<AgentExecutionMode>('ask');
   const [initialPrompt, setInitialPrompt] = useState('');
 
   // Two-phase execution state
@@ -85,12 +85,7 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
     if (!provider && availableProviders[0]) {
       const initP = availableProviders[0];
       setProvider(initP.id);
-      const supported = initP.supportedModes || ['ask', 'edit', 'agent'];
-      if (supported.includes('agent')) {
-        setMode('agent');
-      } else {
-        setMode(initP.defaultMode || 'edit');
-      }
+      setMode(resolveDefaultPlanningMode(initP));
     }
   }, [availableProviders, provider]);
 
@@ -98,14 +93,7 @@ export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptio
   const handleProviderChange = (newProviderId: string) => {
     setProvider(newProviderId);
     const pObj = enabledProviders.find((p) => p.id === newProviderId);
-    if (pObj) {
-      const supported = pObj.supportedModes || ['ask', 'edit', 'agent'];
-      if (supported.includes('agent')) {
-        setMode('agent');
-      } else {
-        setMode(pObj.defaultMode || 'edit');
-      }
-    }
+    setMode(resolveDefaultPlanningMode(pObj));
   };
 
   const selectedProviderObj = enabledProviders.find((p) => p.id === provider);

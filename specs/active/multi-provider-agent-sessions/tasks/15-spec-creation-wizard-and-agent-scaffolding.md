@@ -95,13 +95,18 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
 5. **Deterministic, capability-driven planning provider and mode selection:**
    - Uses the existing provider capability API (`useAiProviders()` / `GET /api/ai/providers`).
    - **Provider availability & ordering:** Unavailable providers (`enabled === false` or probe failure) are disabled and cannot be selected; the `mock` demonstration provider is placed at the end of the provider list.
-   - **Mode selection:**
+   - **Mode selection & safety invariant:**
      - Mode options are populated dynamically from the selected provider's `supportedModes`.
-     - Initial mode selection defaults to `'agent'` (autonomous mode) if supported by the provider; otherwise falls back to the provider's declared `defaultMode` or `'edit'`.
-     - Changing the selected provider dynamically re-evaluates and resets the selected mode according to the newly chosen provider's capabilities.
+     - In accordance with Task 13 safety invariants, fresh/untouched planning sessions must never silently escalate to `'agent'`.
+     - Initial mode selection resolves deterministically:
+       1. Prefer `'ask'` (read-only planning & analysis) if supported by the provider.
+       2. Otherwise use the provider's declared `defaultMode` (if valid and not `'agent'`).
+       3. Otherwise fall back to `'edit'`.
+     - `'agent'` mode remains available in the selector when supported by the provider, but becomes active only after explicit user selection.
+     - Changing the selected provider dynamically re-evaluates and resets the mode according to the newly chosen provider's capabilities using the same deterministic resolution rules.
    - **Prompt input:**
      - Rendered as a multi-line, resizable `<textarea>`.
-     - Pre-populated with an editable contextual template: `Pomóż mi zaplanować i przygotować pełną specyfikację dla zadania: <title>.\n\nCel:\n<goal>`.
+     - Optional custom user instructions; untouched input automatically attaches structured specification planning context (`[NEvo Context: Specification '<slug>']`) at submission time.
      - User can freely modify, expand, or clear the prompt.
    - **Generic session API:** Uses the standard, provider-neutral agent-session API without wizard-specific provider branching or proprietary hooks.
 
@@ -116,7 +121,7 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
      - **Step 2 / Optional AI Planning Session:**
        - Toggle: "Rozpocznij sesję AI do zaplanowania specyfikacji".
        - Provider selector with availability badges (mock provider at the end).
-       - Execution mode selector (`agent` [Auto - Domyślny], `edit` [Domyślny/Standard], `ask` [Plan]) populated from `supportedModes`.
+       - Execution mode selector (`ask` [Plan - Domyślny], `edit` [Standard], `agent` [Auto - Pełna autonomia]) populated from `supportedModes`.
        - Initial prompt textarea.
    - Wire `SpecCreateModal` into `App.tsx` and add `useCreateSpecification` hook in `tools/dashboard/src/hooks/use-dashboard-data.ts`.
 
@@ -134,7 +139,7 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
 10. **Wizard without AI:** Creates specification skeleton, does not call AI session APIs, and navigates to the new specification.
 11. **Two-phase wizard with AI:** Creates specification skeleton first, then creates AI session bound to `specId` with chosen mode and sends the initial prompt.
 12. **AI failure resilience:** If AI session creation fails after spec creation, the spec is preserved, UI displays error banner, and user can either view spec or retry AI session without re-calling `POST /api/specs`.
-13. **Capability-driven mode selection:** Unavailable providers cannot be chosen, modes are filtered by `supportedModes`, defaults to `agent` if available, mock provider is listed last, and changing provider revalidates mode.
+13. **Capability-driven mode selection:** Unavailable providers cannot be chosen, modes are filtered by `supportedModes`, defaults to `'ask'` when supported (or `defaultMode` / `'edit'`), never silently escalates to `'agent'`, mock provider is listed last, and changing provider revalidates mode.
 14. **Offline-only tests:** All tests run offline with zero external network or process dependencies.
 
 ## Verification
