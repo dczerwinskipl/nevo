@@ -8,21 +8,21 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 665ac9a153403be78ebd8e43fb6cb28c5ada2e2419de18cd76a909e24f9605bd
+spec_fingerprint: 85948f15a6174efbd0f22345f10e866a5f2d3820db68fd64aada65b5144b290d
 task_fingerprints:
-  provider-neutral-core-and-capabilities: 43398bc2fb27fa5a7debe9706cb5fb35a408111e0672e23fb7068506115de773
-  session-binding-and-execution-context: c4de81d3f56d5b83433665759d01a2dcdf0b1f5faca49500a3765c401572b304
-  claude-interaction-transport-discovery: eaf69325659496418c14a0bf0d730a1ff8bc2d88c63ebad5a900a8a15650b754
-  claude-provider-adapter: 86b37fdd9e06c2211f2b2da132384409cc32f2f1fda7829a1df5d41882b231d9
-  claude-interaction-and-deferral: 1809b913b9675aead2b0e3d4bb4f29f171e10302f53a669ab156cf6606e8fb7e
-  agent-session-http-sse-api: af56e586af9fafbc2fba074dbd07e8a8da870e55431e740aeed5f312ee4c8108
-  assistant-ui-integration-and-adapter: 799d8fce6ae11b9953d5eeb43290f496af84de16993cf7b21b9211b80c4c02be
-  custom-renderers-and-interaction-ui: 8960f28a8864503d94f785d1c817ae1eb173f158f0a098f361e43b60c3424322
-  dashboard-session-ux-and-spec-binding: 4f657080a956f5316d3c71c4fdec3f2e4776e2987e4b1a4f6c6348c867f79485
-  antigravity-adapter-and-events: c94fc2329e0128c9be0d862a14f1875061d0fe2f9d0bf3ac93aa2ba7accb11c7
-  multi-provider-consistency-audit-and-refinement: 34561999ef32a1c32ca8e43bab1409ed7bd56f9fa278bf124fd2f0a74ccce46a
-  final-verification-and-architecture-docs: 0ca5c1fab0bb1b1484a7fbbfe97b8c5b5614e3d26497b9447cfd37680e68e76f
-  agent-execution-modes-and-permissions: d312e52d3f5e0ef3793fb598b4c617d30afc7d8e5e43784fcea4ef89e7a60642
+  provider-neutral-core-and-capabilities: b2ff7fba143263a7fec9de88e8f7d06b9f7210977e981aead8941845a25aab96
+  session-binding-and-execution-context: 6cdbdeffda563e2fcf43ad2dd86aafbffc7b0e4488c4144d5639dcdd022f73ea
+  claude-interaction-transport-discovery: 9f8f7f2e0ca06054b40221b3f6059587f50a7e67cfab2fc5015296536304a8e2
+  claude-provider-adapter: f63ce4b11a0ef04a1d6aaebee6ebe566f6e25bf40b70a5e09021f6dc5433e7ff
+  claude-interaction-and-deferral: 289d066bf82248d934edf153bd25ae98dd0b61cfafb860d2561cd52ac6334a17
+  agent-session-http-sse-api: 538874743b20a3d14aa4def220facd2990fb906fdb7c6dabc1f4939e772c74fe
+  assistant-ui-integration-and-adapter: 4435b9d25dec1d13521efcfe6d4a5dcb80d097b789f63d131f14c873ed3c5f08
+  custom-renderers-and-interaction-ui: ba8791ef1727371c1d9c67de2882b31ac84e75717831c953190c7bcdf3af42ad
+  dashboard-session-ux-and-spec-binding: b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4
+  antigravity-adapter-and-events: 5268c448bc0d198a0bda08c61f7fdf7f1835adc00f544a3751c8512aae0ddc0e
+  multi-provider-consistency-audit-and-refinement: 71ae5bedf4bfe6d0b37e80635dac9a49194088d146d882f20cb03f2c45a136c1
+  final-verification-and-architecture-docs: 53fb293be94ee642f4183632beaedfee170350fc2d4f1b860d2b28fe29ffd747
+  agent-execution-modes-and-permissions: 251f04dcd4922509618c9742e0c42781ff2cf4d5a42d6b61f62dccca1e9406a4
 ---
 
 # Specification Self-Review: multi-provider-agent-sessions
@@ -31,7 +31,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **`AskUserQuestion` vs Native Permissions:** `AskUserQuestion` is definitively resolved as `PreToolUse/defer` roundtrip. Native Claude permission prompt transport remains unresolved until Task 03 discovery (`--permission-prompt-tool` vs `PreToolUse/defer` vs `canUseTool`).
 - **Normalized UI Read-Model Cache & Reconnect:** Providers own conversation continuity. NEvo maintains a local normalized UI read-model cache (`.nevo-ai-local/transcripts/<provider>/<providerSessionId>.json`) exposing a snapshot with `lastEventSeq` cursor via `GET /api/agent-sessions/:provider/:providerSessionId`. Clients populate `@assistant-ui/react` before connecting to SSE, applying only events newer than the cursor to prevent duplicate events.
 - **Real Tooling Execution Boundary:** Agent execution context integrates at the shared practical command execution boundary in `tools/specs.mjs`, avoiding fictitious command names and automatically binding `(provider, providerSessionId)` to `specId`/`taskId`.
-- **Execution Modes & Permissions (Task 13):** Neutral execution modes (`ask`, `edit`, `agent`) cleanly map to provider CLI permission flags (`dontAsk`, `acceptEdits`, `bypassPermissions`), dynamic mode switching in UI and persistence in `.nevo-ai-local/bindings.json`, and unified interactive question interception.
+- **Execution Modes & Permissions (Task 13):** Neutral execution modes (`ask`, `edit`, `agent`) map deterministically to provider CLI flags (`ask` -> `--permission-mode plan` / `--mode=plan`, `edit` -> `--permission-mode acceptEdits` / `--mode=accept-edits`, `agent` -> `--permission-mode bypassPermissions` / `--mode=default --dangerously-skip-permissions`), preserving verified `AskUserQuestion` transport and persisting mode per session in `.nevo-ai-local/bindings.json`.
 
 ## Evaluation Summary
 
@@ -52,7 +52,7 @@ Comprehensive self-review of the refined `multi-provider-agent-sessions` specifi
 - **Verification:** Avoids fictitious command handlers and binds `(provider, providerSessionId)` to `specId`/`taskId` using `AgentExecutionContext`.
 
 ### 5. Execution Modes, Permissions & Unified Questions
-- **Finding:** Task 13 defines provider-neutral modes (`ask` / `edit` / `agent`), persisting mode per session in `.nevo-ai-local/bindings.json` and injecting unified question capabilities for CLI providers.
+- **Finding:** Task 13 defines provider-neutral modes (`ask` / `edit` / `agent`), persisting mode per session in `.nevo-ai-local/bindings.json` and preserving verified native question transports.
 - **Verification:** Declarations, allowed paths, and dependencies in Task 13 conform to decisions D1–D7 and constraints C1–C10.
 
 ---
