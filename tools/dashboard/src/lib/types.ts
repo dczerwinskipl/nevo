@@ -485,6 +485,8 @@ export interface AgentEvent {
   interactionId?: string;
   response?: unknown;
   finishReason?: string;
+  userPrompt?: string;
+  userMessage?: { id?: string; role?: string; text?: string; createdAt?: string };
   error?: { code: string; message: string };
 }
 

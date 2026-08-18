@@ -139,7 +139,7 @@ tasks:
       - claude-interaction-and-deferral
     implementation:
       baseline_revision: 55b58f00b6d5f3338ac58f1dca0b6e000540d85f
-      review_revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      review_revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       changed_paths:
         - tools/dashboard/server/ai-routes.mjs
         - tools/dashboard/server/ai-services.mjs
@@ -149,7 +149,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 538874743b20a3d14aa4def220facd2990fb906fdb7c6dabc1f4939e772c74fe
-      revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -163,16 +163,16 @@ tasks:
     depends_on: [ agent-session-http-sse-api ]
     implementation:
       baseline_revision: 82bf98b31bde74e1725083acbcfd7549947f76e2
-      review_revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      review_revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
         - tools/dashboard/src/lib/nevo-assistant-runtime.ts
         - tools/dashboard/tests/ai-chat-helpers.test.mjs
-      worktree_patch_fingerprint: null
+      worktree_patch_fingerprint: a871623d970f0d9729c898420c2c382c7b694d8da974f62dbc850b65c8055a3a
     self_check:
       fingerprint: 4435b9d25dec1d13521efcfe6d4a5dcb80d097b789f63d131f14c873ed3c5f08
-      revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -188,16 +188,16 @@ tasks:
     depends_on: [ assistant-ui-integration-and-adapter ]
     implementation:
       baseline_revision: 0f273e677c99db8c16bbb07037781654c89bf008
-      review_revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      review_revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-interaction-prompt.tsx
         - tools/dashboard/src/components/ai-reasoning-view.tsx
         - tools/dashboard/src/components/ai-tool-view.tsx
-      worktree_patch_fingerprint: null
+      worktree_patch_fingerprint: c036654d264397aedfef9c489078537363478c18c91a5677c03459adcfe3f7e9
     self_check:
       fingerprint: ba8791ef1727371c1d9c67de2882b31ac84e75717831c953190c7bcdf3af42ad
-      revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -213,7 +213,7 @@ tasks:
     depends_on: [ custom-renderers-and-interaction-ui ]
     implementation:
       baseline_revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
-      review_revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      review_revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-session-create-modal.tsx
@@ -223,7 +223,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4
-      revision: 38c07574ce1cd6ce723ae87a2eb61bdc7c952694
+      revision: 195cef001cb0d8c3fb0edc9469c0a8e0085f6d23
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

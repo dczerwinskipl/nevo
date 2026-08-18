@@ -85,6 +85,25 @@ export function applyAgentEvent(
   event: AgentEvent,
 ): NormalizedMessage[] {
   switch (event.type) {
+    case 'turn.started': {
+      const userText = event.userMessage?.text || event.userPrompt;
+      if (userText && typeof userText === 'string') {
+        const alreadyHasUserMsg = prevMessages.some((m) => m.role === 'user' && m.text === userText);
+        if (!alreadyHasUserMsg) {
+          return [
+            ...prevMessages,
+            {
+              id: event.userMessage?.id || `user-${event.turnId || Date.now()}`,
+              role: 'user',
+              text: userText,
+              createdAt: event.userMessage?.createdAt || event.timestamp || new Date().toISOString(),
+            },
+          ];
+        }
+      }
+      return prevMessages;
+    }
+
     case 'text.delta': {
       const text = event.text ?? event.delta ?? '';
       const msgId = event.messageId || `msg-${event.turnId || 'current'}`;

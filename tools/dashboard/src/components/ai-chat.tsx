@@ -21,6 +21,7 @@ import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import { AiReasoningView } from '@/components/ai-reasoning-view';
 import { AiToolView } from '@/components/ai-tool-view';
+import { MarkdownContent } from '@/components/markdown-content';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
 import {
   useAiProviders,
@@ -54,7 +55,11 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
           <AiToolView key={tc.id} toolCall={tc} />
         ))}
         {message.text && (
-          <div className="whitespace-pre-wrap">{message.text}</div>
+          user ? (
+            <div className="whitespace-pre-wrap font-medium">{message.text}</div>
+          ) : (
+            <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
+          )
         )}
       </div>
       {user && (

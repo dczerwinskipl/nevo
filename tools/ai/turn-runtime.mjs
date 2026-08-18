@@ -180,7 +180,15 @@ export class AiTurnRuntime {
         this.#activeBySession.set(key, turnId);
       }
       this.#notifyAdapterState(state);
-      this.#emit(state, 'turn.started');
+      this.#emit(state, 'turn.started', {
+        userPrompt: inputMessage,
+        userMessage: {
+          id: `user-${turnId}`,
+          role: 'user',
+          text: inputMessage,
+          createdAt: state.startedAt,
+        },
+      });
       queueMicrotask(() => this.#run(state, inputMessage, setProviderSessionId, rejectEstablished));
 
       try {
