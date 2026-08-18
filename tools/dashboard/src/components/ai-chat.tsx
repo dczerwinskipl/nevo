@@ -196,17 +196,15 @@ export function AiChatPage({
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
   const [currentMode, setCurrentMode] = useState<AgentExecutionMode>(session?.mode || 'edit');
-  const deleteMutation = useDeleteAiSession();
-  const [isDeletingSession, setIsDeletingSession] = useState(false);
+  const { deleteSession, deleting } = useDeleteAiSession();
 
   const handleDeleteSession = async () => {
     if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
-    setIsDeletingSession(true);
     try {
-      await deleteMutation.deleteSession({ provider, sessionId });
+      await deleteSession({ provider, sessionId });
       onBack();
-    } finally {
-      setIsDeletingSession(false);
+    } catch (err) {
+      setSubmissionError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -289,10 +287,10 @@ export function AiChatPage({
               size="icon"
               className="size-8 shrink-0 text-[var(--muted)] hover:bg-red-500/15 hover:text-red-400"
               onClick={() => void handleDeleteSession()}
-              disabled={isDeletingSession || assistant.isRunning}
+              disabled={deleting || assistant.isRunning}
               title="Usuń sesję z dysku"
             >
-              {isDeletingSession ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             </Button>
           </div>
         </div>
