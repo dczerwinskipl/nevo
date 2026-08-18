@@ -134,12 +134,20 @@ export function validateSuspension(task, errors, label) {
  * `commands` silently read as empty, `fingerprint`/`revision` were never
  * required, and `failed_criteria` was never required when `status: failed`).
  */
-export function validateSelfCheck(task, errors, label) {
+export function validateSelfCheck(task, errors, label, { isArchive = false } = {}) {
   const selfCheck = task.self_check;
   if (selfCheck === undefined) return;
   if (!isPlainObject(selfCheck)) {
     errors.push(`${label}: self_check must be an object`);
     return;
+  }
+
+  if (!isArchive && task.implementation?.baseline_revision && task.implementation?.review_revision && task.implementation.baseline_revision !== task.implementation.review_revision) {
+    if ((task.implementation.changed_paths || []).length > 0 && selfCheck.revision === task.implementation.baseline_revision) {
+      errors.push(
+        `${label}: self_check.revision ('${selfCheck.revision}') matches baseline_revision predating task implementation`
+      );
+    }
   }
 
   if (selfCheck.status !== 'failed' && selfCheck.status !== 'passed') {
@@ -526,7 +534,7 @@ export function validateSpecs() {
       const label = `${change._file}: task '${task.id}'`;
       validateStatusValue(task.status, TASK_STATUSES, errors, `${label}.status`);
       validateSuspension(task, errors, label);
-      validateSelfCheck(task, errors, label);
+      validateSelfCheck(task, errors, label, { isArchive: change.status === 'archived' });
 
       for (const dep of task.depends_on || []) {
         if (!ids.has(dep) && !change.tasks.find(t => t.id === dep)) {

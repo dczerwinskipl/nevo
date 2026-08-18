@@ -254,6 +254,56 @@ test('Task Verify Gate (task.verify)', async (t) => {
     assert.equal(implRes.ok, false);
     assert.ok(implRes.reason.includes("Task has status 'in-implementation' — 'verify' requires status 'implemented'"));
   });
+
+  await t.test('blocks verify when self_check is failing or revision predates implementation', () => {
+    const failedSelfCheckContext = {
+      task: {
+        id: 'task-1',
+        status: 'implemented',
+        self_check: { status: 'failed', revision: 'rev-2', fingerprint: 'fp-1' },
+      },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const failedRes = evaluateGate('task.verify', failedSelfCheckContext, { mode: 'full' });
+    assert.equal(failedRes.status, 'blocked');
+    assert.equal(failedRes.ok, false);
+    assert.ok(failedRes.reason.includes("self-check status is 'failed'"));
+
+    const staleRevisionContext = {
+      task: {
+        id: 'task-1',
+        status: 'implemented',
+        implementation: {
+          baseline_revision: 'sha-base',
+          review_revision: 'sha-review',
+          changed_paths: ['file-a.mjs'],
+        },
+        self_check: { status: 'passed', revision: 'sha-base', fingerprint: 'fp-1' },
+      },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const staleRes = evaluateGate('task.verify', staleRevisionContext, { mode: 'full' });
+    assert.equal(staleRes.status, 'blocked');
+    assert.equal(staleRes.ok, false);
+    assert.ok(staleRes.reason.includes("matches baseline_revision and predates task implementation"));
+
+    const validFreshContext = {
+      task: {
+        id: 'task-1',
+        status: 'implemented',
+        implementation: {
+          baseline_revision: 'sha-base',
+          review_revision: 'sha-review',
+          changed_paths: ['file-a.mjs'],
+        },
+        self_check: { status: 'passed', revision: 'sha-review', fingerprint: 'fp-1' },
+      },
+      change: { id: 'test-change', tasks: [] },
+    };
+    const validRes = evaluateGate('task.verify', validFreshContext, { mode: 'full' });
+    assert.equal(validRes.status, 'allowed');
+    assert.equal(validRes.ok, true);
+  });
 });
 
 test('Architecture: Unidirectional Lifecycle & Gate Dependencies', async (t) => {
