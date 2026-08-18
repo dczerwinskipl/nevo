@@ -189,7 +189,7 @@ export class AntigravityAgentProvider {
       if (mode === 'ask') {
         args.push('--mode=plan');
       } else if (mode === 'agent') {
-        args.push('--mode=default', '--dangerously-skip-permissions');
+        args.push('--mode=accept-edits', '--dangerously-skip-permissions');
       } else {
         args.push('--mode=accept-edits');
       }

@@ -367,14 +367,14 @@ test('AntigravityAgentProvider maps execution modes to exact CLI flags', async (
   assert.ok(capturedCalls[2].args.includes('--mode=accept-edits'));
   assert.ok(!capturedCalls[2].args.includes('--dangerously-skip-permissions'));
 
-  // 4. Explicit 'agent' resolves to --mode=default --dangerously-skip-permissions
+  // 4. Explicit 'agent' resolves to --mode=accept-edits --dangerously-skip-permissions
   await provider.startTurn({
     turnId: 'turn-mode-agent',
     providerSessionId: 'conv-1',
     message: 'run all',
     mode: 'agent',
   });
-  assert.ok(capturedCalls[3].args.includes('--mode=default'));
+  assert.ok(capturedCalls[3].args.includes('--mode=accept-edits'));
   assert.ok(capturedCalls[3].args.includes('--dangerously-skip-permissions'));
 });
 
