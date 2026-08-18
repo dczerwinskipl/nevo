@@ -77,3 +77,13 @@
 - **Consequences:** Establishes the reference pattern for all future actions.
 - **Date:** 2026-08-18
 - **Affected artifacts:** `areas/concrete-actions-and-vertical-poc.md`, tasks 04, 07
+
+## D9: Provider-neutral VCS settings and deterministic spec synchronization action
+
+- **Question:** How should multi-step Git and remote provider operations (branch creation, staging, committing, pushing, PR creation, PR attachment to manifest, and pushing attachment) be automated so they execute deterministically via a single command without prompt-level improvisation by the agent?
+- **Options considered:** Prompt-based manual sequence of 6 commands | hardcoded GitHub-only shell script | provider-neutral VCS settings (`github`, `gitlab`, `git-local`, `none`) with a composable `spec-publish-and-sync-pr` workflow action.
+- **Decision:** Introduce a provider-neutral VCS settings abstraction and a composable `spec-publish-and-sync-pr` action. The action introspects VCS configuration, computes branch names, generates conventional commit messages/PR titles from specification metadata, and executes the complete branch -> commit -> push -> PR create -> PR attach -> commit/push cycle deterministically in one command.
+- **Rationale:** Replaces an error-prone, 6-step prompt-driven manual sequence with a single, deterministic, testable CLI command that respects repository VCS configuration.
+- **Consequences:** Eliminates AI agent hallucination or missed steps during spec publication and branch/PR synchronization.
+- **Date:** 2026-08-18
+- **Affected artifacts:** `overview.md`, `change.yaml`, `areas/vcs-provider-and-sync-action.md`, task 08

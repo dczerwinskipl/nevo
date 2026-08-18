@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T18:07:58.867Z",
+  "generated": "2026-08-18T18:21:00.801Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -62,13 +62,23 @@
           ]
         },
         {
-          "id": "cli-integration-and-vertical-poc",
+          "id": "vcs-provider-settings-and-spec-sync",
           "order": 7,
+          "file": "tasks/08-vcs-provider-settings-and-spec-sync.md",
+          "status": "draft",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ]
+        },
+        {
+          "id": "cli-integration-and-vertical-poc",
+          "order": 8,
           "file": "tasks/07-cli-integration-and-vertical-poc.md",
           "status": "draft",
           "depends_on": [
             "concrete-action-commit-and-push",
-            "step-orchestration-and-next-step-service"
+            "step-orchestration-and-next-step-service",
+            "vcs-provider-settings-and-spec-sync"
           ]
         }
       ]
