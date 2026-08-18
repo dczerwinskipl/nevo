@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
 import { ClaudeAgentProvider } from '../../ai/claude-adapter.mjs';
 import { AntigravityAgentProvider } from '../../ai/antigravity-adapter.mjs';
@@ -6,6 +8,8 @@ import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 export function createDefaultDashboardAiService({ dataLoader } = {}) {
   const data = dataLoader ? dataLoader() : {};
@@ -16,8 +20,8 @@ export function createDefaultDashboardAiService({ dataLoader } = {}) {
     specId: demonstration.specId,
     taskIds: demonstration.tasks?.map(task => task.id) || [],
   } : {});
-  const claudeAdapter = new ClaudeAgentProvider();
-  const antigravityAdapter = new AntigravityAgentProvider();
+  const claudeAdapter = new ClaudeAgentProvider({ cwd: REPO_ROOT });
+  const antigravityAdapter = new AntigravityAgentProvider({ cwd: REPO_ROOT });
   const registry = createAiAdapterRegistry([mockAdapter, claudeAdapter, antigravityAdapter]);
   const transcriptCache = createTranscriptCacheService();
   const bindingService = createAgentSessionBindingService();
