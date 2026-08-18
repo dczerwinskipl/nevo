@@ -1,11 +1,14 @@
 import { AlertTriangle, Menu, Radio, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
-import { AiChatPage, CreateAiSessionDialog } from '@/components/ai-chat';
+import { AiChatPage } from '@/components/ai-chat';
+import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
+import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -47,9 +50,10 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
-  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
-  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
+  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => (typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null));
+  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
+  const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
@@ -57,6 +61,9 @@ export default function App() {
     () => source.find(change => change.slug === selectedSlug) ?? null,
     [source, selectedSlug],
   );
+
+  const activeSlugs = useMemo(() => new Set((data?.active ?? []).map(item => item.slug)), [data?.active]);
+  const archiveSlugs = useMemo(() => new Set((data?.archive ?? []).map(item => item.slug)), [data?.archive]);
 
   useEffect(() => {
     if (!data) return;
@@ -66,6 +73,17 @@ export default function App() {
     }
     if (selectedSlug && !source.some(change => change.slug === selectedSlug)) setSelectedSlug(null);
   }, [data, mode, selectedSlug, source]);
+
+  useEffect(() => {
+    if (!selectedSlug) return;
+    if (mode === 'active' && !activeSlugs.has(selectedSlug)) {
+      if (archiveSlugs.has(selectedSlug)) setMode('archive');
+      else setSelectedSlug(null);
+    } else if (mode === 'archive' && !archiveSlugs.has(selectedSlug)) {
+      if (activeSlugs.has(selectedSlug)) setMode('active');
+      else setSelectedSlug(null);
+    }
+  }, [activeSlugs, archiveSlugs, mode, selectedSlug]);
 
   useEffect(() => {
     const restoreRoute = () => {
@@ -94,32 +112,37 @@ export default function App() {
       setMode(change.source);
       setSelectedSlug(change.slug);
     }
-    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.sessionId)}`;
+    const effectiveSessionId = session.providerSessionId || session.sessionId;
+    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(effectiveSessionId)}`;
     const nextOriginTaskId = originTaskId === undefined ? (sessionRoute ? chatOriginTaskId : null) : originTaskId;
-    const historyState = { nevoSession: true, provider: session.provider, sessionId: session.sessionId, originTaskId: nextOriginTaskId };
+    const historyState = { nevoSession: true, provider: session.provider, sessionId: effectiveSessionId, originTaskId: nextOriginTaskId };
     if (replaceHistory) window.history.replaceState(historyState, '', path);
     else window.history.pushState(historyState, '', path);
-    setSessionRoute({ provider: session.provider, sessionId: session.sessionId, turnId: null });
+    setSessionRoute({ provider: session.provider, sessionId: effectiveSessionId, turnId: null });
     setPendingInitialMessage(initialMessage);
     setChatOriginTaskId(nextOriginTaskId);
     setSidebarOpen(false);
   };
 
-  const updateTurnRoute = (turnId: string | null) => {
-    if (!sessionRoute) return;
-    const path = `/ai/sessions/${encodeURIComponent(sessionRoute.provider)}/${encodeURIComponent(sessionRoute.sessionId)}`;
-    const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
-    window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
-    setSessionRoute({ ...sessionRoute, turnId });
-  };
+  const updateTurnRoute = useCallback((turnId: string | null) => {
+    setSessionRoute(prev => {
+      if (!prev || prev.turnId === turnId) return prev;
+      const path = `/ai/sessions/${encodeURIComponent(prev.provider)}/${encodeURIComponent(prev.sessionId)}`;
+      const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
+      window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
+      return { ...prev, turnId };
+    });
+  }, []);
 
-  const leaveChat = () => {
-    if (window.history.state?.nevoSession) window.history.back();
-    else {
-      window.history.replaceState({}, '', '/');
-      setSessionRoute(null);
-    }
-  };
+  const leaveChat = useCallback(() => {
+    window.history.pushState({}, '', '/');
+    setSessionRoute(null);
+    setPendingInitialMessage(null);
+  }, []);
+
+  const handleInitialMessageConsumed = useCallback(() => {
+    setPendingInitialMessage(null);
+  }, []);
 
   if (sessionRoute) {
     if (loading && !data) return <LoadingScreen />;
@@ -131,7 +154,7 @@ export default function App() {
         sessionId={sessionRoute.sessionId}
         initialTurnId={sessionRoute.turnId}
         initialMessage={pendingInitialMessage}
-        onInitialMessageConsumed={() => setPendingInitialMessage(null)}
+        onInitialMessageConsumed={handleInitialMessageConsumed}
         onTurnChange={updateTurnRoute}
         onBack={leaveChat}
         backLabel={chatOriginTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}
@@ -159,9 +182,7 @@ export default function App() {
             <Radio className={cn('size-3', live ? 'text-[var(--accent)]' : 'text-amber-300')} />
             {live ? 'Pliki połączone' : 'Ponowne łączenie'}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={refreshing} aria-label="Odśwież dashboard">
-            <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
-          </Button>
+          <RetryButton size="icon" onClick={() => void refresh()} loading={refreshing} label="Odśwież dashboard" />
         </div>
       </header>
 
@@ -169,13 +190,15 @@ export default function App() {
         {loading && !data ? (
           <LoadingScreen />
         ) : error && !data ? (
-          <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6 text-center">
-            <div className="flex size-12 items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/8 text-red-300">
-              <AlertTriangle className="size-5" />
-            </div>
-            <h1 className="mt-5 text-xl font-semibold text-[var(--foreground)]">Nie udało się wczytać specyfikacji</h1>
-            <p className="mt-2 text-sm text-[var(--muted)]">{error}</p>
-            <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
+          <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+            <StatusCard
+              variant="error"
+              title="Nie udało się wczytać specyfikacji"
+              description={error}
+              onRetry={() => void refresh()}
+              retryLabel="Spróbuj ponownie"
+              className="w-full text-left"
+            />
           </div>
         ) : selected ? (
           <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
@@ -197,14 +220,28 @@ export default function App() {
           sessionsError={globalSessions.error}
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={session => openSession(session, null, null)}
+          onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
       )}
+      {createSpecOpen && (
+        <SpecCreateModal
+          onClose={() => setCreateSpecOpen(false)}
+          onCreated={(spec, session, initialPrompt) => {
+            setCreateSpecOpen(false);
+            setMode('active');
+            setSelectedSlug(spec.slug);
+            if (session) {
+              openSession(session, initialPrompt, null);
+            }
+          }}
+        />
+      )}
       {createChange && (
-        <CreateAiSessionDialog
+        <AiSessionCreateModal
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {

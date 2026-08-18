@@ -343,38 +343,86 @@ export interface OperationSnapshot {
   events: OperationEvent[];
 }
 
-export type AiSessionStatus = 'running' | 'waitingForUser' | 'idle' | 'completed';
+export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed';
 
-export interface AiProviderCapabilities {
-  listSessions: boolean;
-  sessionMetadata: boolean;
-  messages: boolean;
-  createSession: boolean;
-  startTurn: boolean;
-  streamEvents: boolean;
-  resumeTurn: boolean;
-  resolveInteractions: boolean;
+export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
+
+export interface AgentCapabilities {
+  interactivePermissions: boolean;
+  interactiveQuestions: boolean;
+  interactiveConfirmations: boolean;
+  resumeSession: boolean;
   cancelTurn: boolean;
+  toolCalls: boolean;
+  reasoning: boolean;
+  usage: boolean;
 }
+
+export type AiProviderCapabilities = AgentCapabilities;
 
 export interface AiProviderDescriptor {
   id: string;
   label: string;
   enabled: boolean;
-  capabilities: AiProviderCapabilities;
+  available?: boolean;
+  unavailableReason?: string;
+  capabilities: AgentCapabilities;
+  supportedModes?: AgentExecutionMode[];
+  defaultMode?: AgentExecutionMode;
+}
+
+export interface AgentToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+  output?: unknown;
+  status: 'running' | 'completed' | 'failed';
+  durationMs?: number;
+}
+
+export interface NormalizedMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  reasoning?: string;
+  toolCalls?: AgentToolCall[];
+  interaction?: {
+    id: string;
+    kind: string;
+    payload?: unknown;
+    toolName?: string;
+    input?: unknown;
+    details?: string;
+    questions?: AiQuestion[];
+    response?: unknown;
+  };
+  createdAt: string;
 }
 
 export interface AiSession {
-  specId: string;
   provider: string;
+  providerSessionId: string;
   sessionId: string;
+  specId: string | null;
+  taskId?: string;
   taskIds: string[];
+  purpose?: string;
+  mode?: AgentExecutionMode;
   title?: string;
   status: AiSessionStatus;
   createdAt: string;
-  lastActivityAt: string;
+  lastActivityAt?: string;
+  lastSeenAt?: string;
   completedAt?: string;
-  capabilities: AiProviderCapabilities;
+  capabilities: AgentCapabilities;
+}
+
+export interface AgentSessionSnapshot extends AiSession {
+  activeTurn?: { turnId: string; startedAt: string; status?: string } | null;
+  pendingInteraction?: AiInteraction | null;
+  messages: NormalizedMessage[];
+  lastEventSeq: number;
+  updatedAt: string;
 }
 
 export interface AiProvidersPayload {
@@ -415,31 +463,53 @@ export interface AiQuestionInteraction {
   questions: AiQuestion[];
 }
 
-export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction;
+export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction | {
+  id: string;
+  kind: string;
+  payload?: unknown;
+  [key: string]: unknown;
+};
 
-export interface AiTurnEvent {
+export interface AgentEvent {
   id: number;
-  type: 'turn.started' | 'message.delta' | 'interaction.requested' | 'interaction.resolved' | 'turn.completed' | 'turn.failed' | 'activity';
-  turnId: string;
+  seq: number;
+  type: string;
+  turnId?: string;
   timestamp: string;
   messageId?: string;
+  text?: string;
   delta?: string;
+  toolId?: string;
+  toolName?: string;
+  input?: unknown;
+  output?: unknown;
+  status?: string;
+  durationMs?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  cost?: number;
   interaction?: AiInteraction;
   interactionId?: string;
+  response?: unknown;
+  finishReason?: string;
+  userPrompt?: string;
+  userMessage?: { id?: string; role?: string; text?: string; createdAt?: string };
   error?: { code: string; message: string };
 }
+
+export type AiTurnEvent = AgentEvent;
 
 export interface AiTurnSnapshot {
   turnId: string;
   provider: string;
-  sessionId: string;
+  providerSessionId?: string;
+  sessionId?: string;
   status: 'running' | 'waitingForUser' | 'completed' | 'failed';
-  sessionStatus: AiSessionStatus;
   startedAt: string;
   completedAt?: string;
   lastEventId: number;
   pendingInteraction: AiInteraction | null;
-  events: AiTurnEvent[];
+  events: AgentEvent[];
 }
 
 export class ApiError extends Error {

@@ -45,7 +45,18 @@ export class AiAdapterRegistry {
   }
 
   descriptors() {
-    return [...this.#adapters.values()].map(entry => entry.descriptor);
+    return [...this.#adapters.values()].map(entry => {
+      let desc = entry.descriptor;
+      if (typeof entry.adapter.isAvailable === 'function') {
+        const avail = entry.adapter.isAvailable();
+        desc = {
+          ...desc,
+          available: avail?.available !== false,
+          ...(avail?.unavailableReason ? { unavailableReason: String(avail.unavailableReason) } : {}),
+        };
+      }
+      return desc;
+    });
   }
 
   get(provider) {

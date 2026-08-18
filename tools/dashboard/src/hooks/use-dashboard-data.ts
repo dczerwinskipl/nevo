@@ -5,6 +5,7 @@ import { useBatchQueries } from './use-batch-queries';
 import type { BatchQueriesHandle } from './use-batch-queries';
 
 import {
+  AgentExecutionMode,
   ApiError,
   AvailablePullRequest,
   DashboardChange,
@@ -624,8 +625,16 @@ export function useAiMessages(provider: string, sessionId: string, enabled = tru
 export function useCreateAiSession() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (input: { provider: string; specId: string; taskIds: string[]; title?: string }) => {
-      const response = await fetch('/api/ai/sessions', {
+    mutationFn: async (input: {
+      provider: string;
+      specId: string;
+      taskIds?: string[];
+      taskId?: string;
+      title?: string;
+      purpose?: string;
+      mode?: AgentExecutionMode;
+    }) => {
+      const response = await fetch('/api/agent-sessions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
         body: JSON.stringify(input),
@@ -637,10 +646,28 @@ export function useCreateAiSession() {
   return { create: mutation.mutateAsync, creating: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null, reset: mutation.reset };
 }
 
+export function useDeleteAiSession() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ provider, sessionId }: { provider: string; sessionId: string }) => {
+      const response = await fetch(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        headers: { 'x-nevo-dashboard-action': '1' },
+      });
+      return await aiPayload<{ unbind: boolean; deleted?: boolean }>(response, 'Delete AI session API');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AI_SESSIONS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: AI_SESSION_QUERY_KEY });
+    },
+  });
+  return { deleteSession: mutation.mutateAsync, deleting: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+}
+
 export function useStartAiTurn(provider: string, sessionId: string) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (input: { message: string; idempotencyKey?: string }) => {
+    mutationFn: async (input: { message: string; mode?: AgentExecutionMode; idempotencyKey?: string }) => {
       const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/turns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
@@ -695,3 +722,47 @@ export function useCancelAiTurn(turnId: string | null) {
   });
   return { cancel: mutation.mutateAsync, cancelling: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 }
+
+export type CreateSpecificationInput = {
+  slug: string;
+  title: string;
+  type?: 'standard' | 'architectural' | 'small' | 'exploratory';
+  goal?: string;
+};
+
+export type CreateSpecificationResult = {
+  ok: boolean;
+  slug: string;
+  specId: string;
+  change: DashboardChange;
+};
+
+export function useCreateSpecification() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (input: CreateSpecificationInput) => {
+      const response = await fetch('/api/specs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!response.ok) {
+        let errPayload: { error?: string; code?: string } = {};
+        try { errPayload = await response.json(); } catch {}
+        throw new Error(errPayload.error || `Specification creation failed (${response.status})`);
+      }
+      return (await response.json()) as CreateSpecificationResult;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY });
+    },
+  });
+
+  return {
+    createSpecification: mutation.mutateAsync,
+    creating: mutation.isPending,
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+    reset: mutation.reset,
+  };
+}
+

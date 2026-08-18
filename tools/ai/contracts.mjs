@@ -407,6 +407,12 @@ export function validateAgentEvent(value) {
       };
 
     case 'turn.started':
+      return {
+        ...base,
+        ...(value.mode ? { mode: validateAgentExecutionMode(value.mode, 'mode') } : {}),
+        ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
+      };
+
     default:
       return {
         ...base,
@@ -418,15 +424,39 @@ export function validateAgentEvent(value) {
 
 export const validateAiEvent = validateAgentEvent;
 
+export const AGENT_EXECUTION_MODES = Object.freeze(['ask', 'edit', 'agent']);
+export const DEFAULT_AGENT_EXECUTION_MODE = 'edit';
+
+export function validateAgentExecutionMode(mode, field = 'mode') {
+  if (typeof mode !== 'string' || !AGENT_EXECUTION_MODES.includes(mode)) {
+    throw new AiValidationError(
+      `'${field}' must be one of ${AGENT_EXECUTION_MODES.join(', ')}.`,
+      { field, value: mode }
+    );
+  }
+  return mode;
+}
+
 export function validateProviderDescriptor(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AiValidationError('Provider descriptor must be an object.');
   }
+  const supportedModes = Array.isArray(value.supportedModes)
+    ? value.supportedModes.map((m, i) => validateAgentExecutionMode(m, `provider.supportedModes[${i}]`))
+    : [...AGENT_EXECUTION_MODES];
+  const defaultMode = value.defaultMode
+    ? validateAgentExecutionMode(value.defaultMode, 'provider.defaultMode')
+    : DEFAULT_AGENT_EXECUTION_MODE;
+
   return {
     id: requiredString(value.id, 'provider.id'),
     label: requiredString(value.label, 'provider.label', { opaque: true, max: 100 }),
     enabled: value.enabled !== false,
+    available: value.available !== false,
+    ...(value.unavailableReason ? { unavailableReason: String(value.unavailableReason) } : {}),
     capabilities: normalizeCapabilities(value.capabilities),
+    supportedModes,
+    defaultMode,
   };
 }
 

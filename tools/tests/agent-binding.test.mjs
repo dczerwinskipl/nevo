@@ -238,3 +238,101 @@ test('handleAgentSessionAttach attaches session to resolved spec and task', asyn
   assert.equal(binding.taskId, 'session-binding-and-execution-context');
   assert.equal(binding.purpose, 'testing');
 });
+
+test('AgentSessionBindingService supports per-spec directory storage and migrates legacy sessions.json', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-dir-test-'));
+  try {
+    const legacyFile = join(tmpDir, 'sessions.json');
+    const storageDir = join(tmpDir, 'sessions');
+    const spec1 = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const spec2 = '70609aaf-bb62-40bf-a25e-bec65c583495';
+
+    // Write legacy file with entries across two specs
+    const legacyData = [
+      { provider: 'claude', providerSessionId: 's1', specId: spec1, taskId: 't1' },
+      { provider: 'mock', providerSessionId: 's2', specId: spec2, taskId: 't2' },
+    ];
+    await writeFile(legacyFile, JSON.stringify(legacyData, null, 2), 'utf-8');
+
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // Listing spec1 should migrate and load only spec1's file
+    const spec1Bindings = await service.listBindings({ specId: spec1 });
+    assert.equal(spec1Bindings.length, 1);
+    assert.equal(spec1Bindings[0].providerSessionId, 's1');
+
+    // Legacy file should be cleaned up and per-spec files created
+    assert.equal(existsSync(legacyFile), false);
+    assert.equal(existsSync(join(storageDir, `${spec1}.json`)), true);
+    assert.equal(existsSync(join(storageDir, `${spec2}.json`)), true);
+
+    // Bind a new session for spec1
+    await service.bindSession({
+      provider: 'antigravity',
+      providerSessionId: 's3',
+      specId: spec1,
+      purpose: 'New Task',
+    });
+
+    const updatedSpec1 = await service.listBindings({ specId: spec1 });
+    assert.equal(updatedSpec1.length, 2);
+
+    const spec2Bindings = await service.listBindings({ specId: spec2 });
+    assert.equal(spec2Bindings.length, 1);
+    assert.equal(spec2Bindings[0].providerSessionId, 's2');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('AgentSessionBindingService persists session mode preference and maintains session isolation', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-mode-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specId = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // 1. Bind session A with explicit 'ask' mode
+    const bindingA = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-A',
+      specId,
+      taskId: '01-task',
+      mode: 'ask',
+    });
+    assert.equal(bindingA.mode, 'ask');
+
+    // 2. Bind session B with default 'edit' mode
+    const bindingB = await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-B',
+      specId,
+      taskId: '02-task',
+      mode: 'edit',
+    });
+    assert.equal(bindingB.mode, 'edit');
+
+    // 3. Update session A mode to 'agent'
+    const updatedA = await service.updateSessionMode('claude', 'sess-A', 'agent');
+    assert.equal(updatedA.mode, 'agent');
+
+    // 4. Verify session B was isolated and remains 'edit'
+    const loadedB = await service.getBinding('claude', 'sess-B');
+    assert.equal(loadedB.mode, 'edit');
+
+    // 5. Reload from fresh service instance to verify disk persistence
+    const reloadedService = createAgentSessionBindingService({ storageDir });
+    const reloadedA = await reloadedService.getBinding('claude', 'sess-A');
+    const reloadedB = await reloadedService.getBinding('claude', 'sess-B');
+    assert.equal(reloadedA.mode, 'agent');
+    assert.equal(reloadedB.mode, 'edit');
+
+    // 6. Invalid mode throws AiValidationError
+    await assert.rejects(
+      () => service.updateSessionMode('claude', 'sess-A', 'invalid-mode'),
+      { name: 'AiValidationError' }
+    );
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

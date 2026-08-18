@@ -14,9 +14,7 @@ context:
 allowed_paths:
   - tools/dashboard/package.json
   - tools/dashboard/package-lock.json
-  - tools/dashboard/src/components/ai-chat.tsx
   - tools/dashboard/src/lib/nevo-assistant-runtime.ts
-  - tools/dashboard/src/lib/types.ts
   - tools/dashboard/tests/ai-chat-helpers.test.mjs
 forbidden_paths:
   - src/**

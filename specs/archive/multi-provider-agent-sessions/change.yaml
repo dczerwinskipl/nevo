@@ -1,0 +1,472 @@
+id: multi-provider-agent-sessions
+title: Multi-provider local agent chat and session integration
+type: architectural
+status: archived
+priority: 10
+created: 2026-08-17
+
+branch:
+  mode: per-change
+  name: feature/multi-provider-agent-sessions-pt2
+
+tasks:
+  - id: provider-neutral-core-and-capabilities
+    order: 1
+    file: tasks/01-provider-neutral-core-and-capabilities.md
+    status: verified
+    implementation:
+      baseline_revision: 52e126bf0977adeeb1126d0122300c232092b5b1
+      review_revision: 52e126bf0977adeeb1126d0122300c232092b5b1
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/ai/transcript-cache.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/tests/ai-contracts.test.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+      worktree_patch_fingerprint: e05aeaba2299fd046c210252a97476c41be33ed28f8253e893c609357a49f04d
+    self_check:
+      fingerprint: 43398bc2fb27fa5a7debe9706cb5fb35a408111e0672e23fb7068506115de773
+      revision: 52e126bf0977adeeb1126d0122300c232092b5b1
+      commands:
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: session-binding-and-execution-context
+    order: 2
+    file: tasks/02-session-binding-and-execution-context.md
+    status: verified
+    depends_on: [ provider-neutral-core-and-capabilities ]
+    implementation:
+      baseline_revision: 62fc03b212b30cdb7a113d6e458736169e34a4f6
+      review_revision: 62fc03b212b30cdb7a113d6e458736169e34a4f6
+      changed_paths:
+        - tools/ai/binding-service.mjs
+        - tools/specs.mjs
+        - tools/specs/service.mjs
+        - tools/tests/agent-binding.test.mjs
+      worktree_patch_fingerprint: 2efcedc6e3085901c4ce0453bd244ac7fbb9bb614d47286252f83ad8ad9dba1e
+    self_check:
+      fingerprint: c4de81d3f56d5b83433665759d01a2dcdf0b1f5faca49500a3765c401572b304
+      revision: 62fc03b212b30cdb7a113d6e458736169e34a4f6
+      commands:
+        - command: node --test tools/tests/agent-binding.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: claude-interaction-transport-discovery
+    order: 3
+    file: tasks/03-claude-interaction-transport-discovery.md
+    status: verified
+    depends_on: [ provider-neutral-core-and-capabilities ]
+    implementation:
+      baseline_revision: ee44e9304062aef70682e987c78b388012af0cf5
+      review_revision: ee44e9304062aef70682e987c78b388012af0cf5
+      changed_paths:
+        - docs/development/ai-sessions.md
+        - specs/active/multi-provider-agent-sessions/areas/claude-provider.md
+        - tools/tests/claude-deferral-discovery.test.mjs
+        - tools/tests/fixtures/claude/ask-user-question-deferred.json
+        - tools/tests/fixtures/claude/ask-user-question-resumed.json
+        - tools/tests/fixtures/claude/parallel-tool-batch-deferred.json
+        - tools/tests/fixtures/claude/permission-prompt-deferred.json
+      worktree_patch_fingerprint: bbc6525362d3834d41855a6f8865ce65f007fba249c03172e29100c220970107
+    self_check:
+      fingerprint: eaf69325659496418c14a0bf0d730a1ff8bc2d88c63ebad5a900a8a15650b754
+      revision: ee44e9304062aef70682e987c78b388012af0cf5
+      commands:
+        - command: node --test tools/tests/claude-deferral-discovery.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: claude-provider-adapter
+    order: 4
+    file: tasks/04-claude-provider-adapter.md
+    status: verified
+    depends_on: [ provider-neutral-core-and-capabilities ]
+    implementation:
+      baseline_revision: 49c507542fdff98e395b08d2c974cbad8963333b
+      review_revision: 49c507542fdff98e395b08d2c974cbad8963333b
+      changed_paths:
+        - tools/ai/claude-adapter.mjs
+        - tools/tests/claude-adapter.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 86b37fdd9e06c2211f2b2da132384409cc32f2f1fda7829a1df5d41882b231d9
+      revision: 49c507542fdff98e395b08d2c974cbad8963333b
+      commands:
+        - command: node --test tools/tests/claude-adapter.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: claude-interaction-and-deferral
+    order: 5
+    file: tasks/05-claude-interaction-and-deferral.md
+    status: verified
+    depends_on:
+      - claude-interaction-transport-discovery
+      - claude-provider-adapter
+    implementation:
+      baseline_revision: 8ddb12ac87d9b7c492bd6f7b08c01edde1b442fb
+      review_revision: 8ddb12ac87d9b7c492bd6f7b08c01edde1b442fb
+      changed_paths:
+        - tools/ai/claude-adapter.mjs
+        - tools/tests/claude-interaction.test.mjs
+      worktree_patch_fingerprint: 06187cc79f8e8c7862af0ac450584a713afdda3b8726d8cd65bc8d38e9f6058f
+    self_check:
+      fingerprint: 1809b913b9675aead2b0e3d4bb4f29f171e10302f53a669ab156cf6606e8fb7e
+      revision: 8ddb12ac87d9b7c492bd6f7b08c01edde1b442fb
+      commands:
+        - command: node --test tools/tests/claude-interaction.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: agent-session-http-sse-api
+    order: 6
+    file: tasks/06-agent-session-http-sse-api.md
+    status: verified
+    depends_on:
+      - session-binding-and-execution-context
+      - claude-interaction-and-deferral
+    implementation:
+      baseline_revision: 55b58f00b6d5f3338ac58f1dca0b6e000540d85f
+      review_revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      changed_paths:
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 538874743b20a3d14aa4def220facd2990fb906fdb7c6dabc1f4939e772c74fe
+      revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: assistant-ui-integration-and-adapter
+    order: 7
+    file: tasks/07-assistant-ui-integration-and-adapter.md
+    status: verified
+    depends_on: [ agent-session-http-sse-api ]
+    implementation:
+      baseline_revision: 82bf98b31bde74e1725083acbcfd7549947f76e2
+      review_revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      changed_paths:
+        - tools/dashboard/package-lock.json
+        - tools/dashboard/package.json
+        - tools/dashboard/src/lib/nevo-assistant-runtime.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 4435b9d25dec1d13521efcfe6d4a5dcb80d097b789f63d131f14c873ed3c5f08
+      revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: custom-renderers-and-interaction-ui
+    order: 8
+    file: tasks/08-custom-renderers-and-interaction-ui.md
+    status: verified
+    depends_on: [ assistant-ui-integration-and-adapter ]
+    implementation:
+      baseline_revision: 0f273e677c99db8c16bbb07037781654c89bf008
+      review_revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/ai-interaction-prompt.tsx
+        - tools/dashboard/src/components/ai-reasoning-view.tsx
+        - tools/dashboard/src/components/ai-tool-view.tsx
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: ba8791ef1727371c1d9c67de2882b31ac84e75717831c953190c7bcdf3af42ad
+      revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: dashboard-session-ux-and-spec-binding
+    order: 9
+    file: tasks/09-dashboard-session-ux-and-spec-binding.md
+    status: verified
+    depends_on: [ custom-renderers-and-interaction-ui ]
+    implementation:
+      baseline_revision: ba3a52c712a0407e36bb8b64fef499de85cfa7d9
+      review_revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      changed_paths:
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: b19dbc5842b30467f3ec4e8390689cf35f449cff5973a6bd172fb3f647afd2d4
+      revision: 3d8d1647228ab7c642a2371ceca16441fc51ece9
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: antigravity-adapter-and-events
+    order: 10
+    file: tasks/10-antigravity-adapter-and-events.md
+    status: verified
+    depends_on: [ agent-session-http-sse-api ]
+    implementation:
+      baseline_revision: 14754b761817f3b26412bb2d7e02066bb5240010
+      review_revision: 2f73ae5fd947b0dac65d9dea0b1a04e2c4efed0d
+      changed_paths:
+        - tools/ai/antigravity-adapter.mjs
+        - tools/tests/antigravity-adapter.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 5268c448bc0d198a0bda08c61f7fdf7f1835adc00f544a3751c8512aae0ddc0e
+      revision: 2f73ae5fd947b0dac65d9dea0b1a04e2c4efed0d
+      commands:
+        - command: node --test tools/tests/antigravity-adapter.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: multi-provider-consistency-audit-and-refinement
+    order: 11
+    file: tasks/11-multi-provider-consistency-audit-and-refinement.md
+    status: verified
+    depends_on:
+      - dashboard-session-ux-and-spec-binding
+      - antigravity-adapter-and-events
+    implementation:
+      baseline_revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      review_revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      changed_paths:
+        - tools/ai/claude-adapter.mjs
+      worktree_patch_fingerprint: 6ecc9405faba25ad665eb4fea501649d0b9e9de567a97c70f2feacbd46a4495f
+    self_check:
+      fingerprint: 71ae5bedf4bfe6d0b37e80635dac9a49194088d146d882f20cb03f2c45a136c1
+      revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: final-verification-and-architecture-docs
+    order: 12
+    file: tasks/12-final-verification-and-architecture-docs.md
+    status: verified
+    depends_on: [ multi-provider-consistency-audit-and-refinement ]
+    implementation:
+      baseline_revision: cd39e44eff0f69c33d4c858bee050fbce37733e7
+      review_revision: cd39e44eff0f69c33d4c858bee050fbce37733e7
+      changed_paths:
+        - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
+        - docs/development/ai-sessions.md
+        - docs/index.generated.json
+        - docs/index.generated.md
+        - docs/routing.generated.json
+      worktree_patch_fingerprint: dc94f2528fab18904addb1ea03ad00073a593490b8ccae01ee3515657eab9f8f
+    self_check:
+      fingerprint: 53fb293be94ee642f4183632beaedfee170350fc2d4f1b860d2b28fe29ffd747
+      revision: cd39e44eff0f69c33d4c858bee050fbce37733e7
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
+  - id: agent-execution-modes-and-permissions
+    order: 13
+    file: tasks/13-agent-execution-modes-and-permissions.md
+    status: verified
+    depends_on: [ final-verification-and-architecture-docs ]
+    implementation:
+      baseline_revision: 89f1dfdd1e1e7121e9c687d9e534892927c8d666
+      review_revision: b1d8575fbd984cd396408a591770cddf2fa900cc
+      changed_paths:
+        - tools/ai/antigravity-adapter.mjs
+        - tools/ai/binding-service.mjs
+        - tools/ai/claude-adapter.mjs
+        - tools/ai/contracts.mjs
+        - tools/ai/mock-adapter.mjs
+        - tools/ai/process-termination.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/ai/transcript-cache.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/app-sidebar.tsx
+        - tools/dashboard/src/components/changes-panel.tsx
+        - tools/dashboard/src/components/directory-section-panel.tsx
+        - tools/dashboard/src/components/document-section-panel.tsx
+        - tools/dashboard/src/components/spec-actions.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/components/ui/status-card.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/index.css
+        - tools/dashboard/src/lib/nevo-assistant-runtime.ts
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/tests/agent-binding.test.mjs
+        - tools/tests/ai-contracts.test.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+        - tools/tests/antigravity-adapter.test.mjs
+        - tools/tests/claude-adapter.test.mjs
+        - tools/tests/claude-interaction.test.mjs
+        - tools/tests/process-termination.test.mjs
+      worktree_patch_fingerprint: cfb9710c5168c7379a3bf4202a9d05399afae8d574c8791311f06512f554037c
+    self_check:
+      fingerprint: d0ae8ec4d37989e7f5501014adf7616d999fb5ebcf63dbf63fee30ce573f098f
+      revision: b1d8575fbd984cd396408a591770cddf2fa900cc
+      commands:
+        - command: node --test tools/tests/agent-binding.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/claude-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/antigravity-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: turn-reliability-and-restart-resilience
+    order: 14
+    file: tasks/14-turn-reliability-and-restart-resilience.md
+    status: verified
+    depends_on: [ final-verification-and-architecture-docs ]
+    implementation:
+      baseline_revision: b8609808bb02d6b42d298348a6a66f748bd3b873
+      review_revision: b1d8575fbd984cd396408a591770cddf2fa900cc
+      changed_paths:
+        - tools/ai/antigravity-adapter.mjs
+        - tools/ai/claude-adapter.mjs
+        - tools/ai/contracts.mjs
+        - tools/ai/process-termination.mjs
+        - tools/ai/service.mjs
+        - tools/ai/transcript-cache.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/tests/ai-contracts.test.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+        - tools/tests/antigravity-adapter.test.mjs
+        - tools/tests/claude-adapter.test.mjs
+        - tools/tests/claude-interaction.test.mjs
+        - tools/tests/process-termination.test.mjs
+      worktree_patch_fingerprint: cfb9710c5168c7379a3bf4202a9d05399afae8d574c8791311f06512f554037c
+    self_check:
+      fingerprint: 23706f53018c0d6e271142b702660f5fc01cffdd80fc2646bce335aa8c9485d4
+      revision: b1d8575fbd984cd396408a591770cddf2fa900cc
+      commands:
+        - command: node --test tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/claude-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: spec-creation-wizard-and-agent-scaffolding
+    order: 15
+    file: tasks/15-spec-creation-wizard-and-agent-scaffolding.md
+    status: verified
+    depends_on:
+      - dashboard-session-ux-and-spec-binding
+      - agent-execution-modes-and-permissions
+    implementation:
+      baseline_revision: 36bf20eab7f7a81263a36b8edeb9c1c839234195
+      review_revision: 1e4c2361b19197330e75da18d50fcf91876fbc2e
+      changed_paths:
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/src/App.tsx
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+        - tools/dashboard/src/components/app-sidebar.tsx
+        - tools/dashboard/src/components/spec-create-modal.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/spec-create-helpers.ts
+        - tools/dashboard/tests/spec-create-api.test.mjs
+        - tools/dashboard/tests/spec-create-helpers.test.mjs
+        - tools/specs/service.mjs
+        - tools/tests/spec-scaffolding.test.mjs
+      worktree_patch_fingerprint: 62a5ec1bfdae773b99155e9e14426fca925ac387bfeb8ca3aeb47a9da6a8c48d
+    self_check:
+      fingerprint: b1b97b47f992bbf25a1069a623670c98ced9c35ca2815296a41f1e24df92def5
+      revision: 1e4c2361b19197330e75da18d50fcf91876fbc2e
+      commands:
+        - command: node --test tools/tests/spec-scaffolding.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
+
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 29
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 30
+spec_id: d9d40a17-cb1b-4cb5-b562-36f9bc75b726

@@ -1,4 +1,8 @@
-import { AiError, validateAgentIdentity } from './contracts.mjs';
+import { randomUUID } from 'node:crypto';
+import {
+  validateAgentIdentity,
+  validateAgentExecutionMode,
+} from './contracts.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -12,11 +16,99 @@ export class AiSessionService {
     return this.registry.descriptors();
   }
 
+  async createSession(provider, options = {}) {
+    const descriptor = this.registry.get(provider).descriptor;
+    const providerSessionId = randomUUID();
+    const taskId = options.taskId || (Array.isArray(options.taskIds) && options.taskIds.length === 1 ? options.taskIds[0] : undefined);
+    const purpose = options.purpose || options.title || (taskId ? `task:${taskId}` : 'interactive');
+    const mode = options.mode
+      ? validateAgentExecutionMode(options.mode, 'mode')
+      : (descriptor.defaultMode || 'edit');
+
+    const binding = this.bindingService
+      ? await this.bindingService.bindSession({
+          provider,
+          providerSessionId,
+          specId: options.specId,
+          taskId,
+          purpose,
+          mode,
+        })
+      : {
+          provider,
+          providerSessionId,
+          sessionId: providerSessionId,
+          specId: options.specId,
+          taskId,
+          purpose,
+          mode,
+          title: options.title || `${provider} session`,
+          createdAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        };
+    return binding;
+  }
+
   async listSessions(filters = {}) {
-    if (this.bindingService) {
-      return this.bindingService.listBindings(filters);
+    if (!this.bindingService) return [];
+    const bindings = await this.bindingService.listBindings(filters);
+    if (!this.transcriptCache) return bindings.map(binding => ({ ...binding, status: 'idle' }));
+    return Promise.all(bindings.map(async (binding) => {
+      try {
+        const transcript = await this.transcriptCache.getTranscript(binding.provider, binding.providerSessionId);
+        const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+        // `getTranscript` synthesizes an empty, timestamped-`now` object for a session that
+        // never had a turn — never treat that synthetic timestamp as real activity, or every
+        // untouched session would show "just now" the moment it's first listed after a restart.
+        const hasRecordedActivity = Boolean(transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
+        return {
+          ...binding,
+          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || binding.lastSeenAt,
+          status,
+          activeTurn,
+          pendingInteraction,
+        };
+      } catch {
+        return { ...binding, status: 'idle' };
+      }
+    }));
+  }
+
+  /**
+   * Computes a session's live `status` (`idle` | `running` | `waitingForUser`) from a
+   * transcript snapshot, cross-checked against the in-memory turn runtime. Shared by
+   * `listSessions` and the single-session detail route so the dashboard home page and
+   * the chat view can never disagree (D8).
+   */
+  resolveSessionActivity(transcript) {
+    let activeTurn = null;
+    let pendingInteraction = transcript?.pendingInteraction || null;
+
+    if (transcript?.activeTurn?.turnId) {
+      try {
+        const turnSnapshot = this.getTurn(transcript.activeTurn.turnId);
+        if (turnSnapshot && turnSnapshot.status !== 'completed' && turnSnapshot.status !== 'failed') {
+          activeTurn = {
+            turnId: turnSnapshot.turnId,
+            startedAt: turnSnapshot.startedAt,
+            status: turnSnapshot.status,
+          };
+          pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
+        }
+      } catch {
+        // No in-memory turn for this persisted `activeTurn` (already reconciled at boot,
+        // or a narrow race) — never assume "running" from a raw, status-less persisted
+        // record; that was the exact bug behind a session showing a permanently
+        // "running" ghost status after an ungraceful restart.
+        activeTurn = null;
+      }
     }
-    return [];
+
+    const status = activeTurn
+      ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
+      : 'idle';
+
+    return { status, activeTurn, pendingInteraction };
   }
 
   async getSession(provider, providerSessionId) {
@@ -25,6 +117,15 @@ export class AiSessionService {
       return this.bindingService.getBinding(provider, providerSessionId);
     }
     return null;
+  }
+
+  async updateSessionMode(provider, providerSessionId, mode) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const validatedMode = validateAgentExecutionMode(mode, 'mode');
+    if (this.bindingService) {
+      return this.bindingService.updateSessionMode(provider, providerSessionId, validatedMode);
+    }
+    return { provider, providerSessionId, mode: validatedMode };
   }
 
   async listMessages(provider, providerSessionId) {
@@ -54,6 +155,25 @@ export class AiSessionService {
     if (providerSessionId) {
       validateAgentIdentity({ provider, providerSessionId });
     }
+
+    let resolvedMode;
+    let existingBinding = null;
+    if (providerSessionId && typeof this.bindingService?.getBinding === 'function') {
+      existingBinding = await this.bindingService.getBinding(provider, providerSessionId);
+    }
+    const descriptor = this.registry.get(provider).descriptor;
+
+    if (input.mode !== undefined) {
+      resolvedMode = validateAgentExecutionMode(input.mode, 'mode');
+      if (existingBinding && typeof this.bindingService?.updateSessionMode === 'function') {
+        await this.bindingService.updateSessionMode(provider, providerSessionId, resolvedMode);
+      }
+    } else if (existingBinding?.mode) {
+      resolvedMode = validateAgentExecutionMode(existingBinding.mode, 'mode');
+    } else {
+      resolvedMode = descriptor?.defaultMode || 'edit';
+    }
+
     const onSessionEstablished = async (allocatedSessionId) => {
       if (input.specId && this.bindingService) {
         await this.bindingService.bindSession({
@@ -62,18 +182,19 @@ export class AiSessionService {
           specId: input.specId,
           taskId: input.taskId,
           purpose: input.purpose || 'interactive',
+          mode: resolvedMode,
         });
       }
     };
+
     return this.turnRuntime.startTurn({
       provider,
       providerSessionId,
       ...input,
+      mode: resolvedMode,
       onSessionEstablished,
     });
   }
-
-
 
   getTurn(turnId) {
     return this.turnRuntime.getSnapshot(turnId);
@@ -87,13 +208,12 @@ export class AiSessionService {
     return this.turnRuntime.subscribeToSession({ provider, providerSessionId }, options);
   }
 
-
-  async resolveInteraction(turnId, interactionId, response) {
-    return this.turnRuntime.resolveInteraction(turnId, interactionId, response);
+  async resolveInteraction(turnId, interactionId, response, options = {}) {
+    return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
   }
 
-  async cancelTurn(turnId) {
-    return this.turnRuntime.cancelTurn(turnId);
+  async cancelTurn(turnId, options = {}) {
+    return this.turnRuntime.cancelTurn(turnId, options);
   }
 }
 

@@ -364,3 +364,6 @@ MigrationBackup/
 
 # Code coverage
 coverage.xml
+
+# Playwright MCP artifacts
+.playwright-mcp/

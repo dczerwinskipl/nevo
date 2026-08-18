@@ -13,7 +13,6 @@ allowed_paths:
   - tools/dashboard/src/components/ai-tool-view.tsx
   - tools/dashboard/src/components/ai-interaction-prompt.tsx
   - tools/dashboard/src/components/ai-reasoning-view.tsx
-  - tools/dashboard/src/lib/types.ts
 forbidden_paths:
   - src/**
   - tools/dashboard/server/**

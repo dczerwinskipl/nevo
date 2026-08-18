@@ -3,6 +3,7 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 
@@ -11,6 +12,11 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createClaudeAgentProvider } from '../ai/claude-adapter.mjs';
 import { createClaudeContinuationStore } from '../ai/claude-continuation-store.mjs';
+import { createAiAdapterRegistry } from '../ai/registry.mjs';
+import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
+import { createTranscriptCacheService } from '../ai/transcript-cache.mjs';
+import { createAgentSessionBindingService } from '../ai/binding-service.mjs';
+import { createAiSessionService } from '../ai/service.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -422,4 +428,248 @@ test('Full integration: adapter -> generated settings -> real claude-hook.mjs su
     await rm(tmpBase, { recursive: true, force: true });
   }
 });
+
+async function waitForCondition(read, predicate, message = 'condition') {
+  for (let index = 0; index < 100; index += 1) {
+    const value = read();
+    if (predicate(value)) return value;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error(`Timed out waiting for ${message}.`);
+}
+
+for (const mode of ['ask', 'edit', 'agent']) {
+  test(`AiTurnRuntime preserves original mode '${mode}' across multiple consecutive interactions (Finding 1)`, async () => {
+    const expectedFlag = mode === 'ask' ? 'plan' : mode === 'edit' ? 'acceptEdits' : 'bypassPermissions';
+    const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-claude-turn-mode-'));
+    try {
+      const store = createClaudeContinuationStore({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') });
+      const capturedCalls = [];
+
+      const deferredLines1 = [
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: 'Clarification 1' },
+        }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_deferred' },
+          deferred_tool_use: {
+            id: `toolu_q1_${mode}`,
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Question 1?', header: 'Q1', multiSelect: false }] },
+          },
+        }),
+      ];
+
+      const deferredLines2 = [
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: 'Clarification 2' },
+        }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_deferred' },
+          deferred_tool_use: {
+            id: `toolu_q2_${mode}`,
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Question 2?', header: 'Q2', multiSelect: false }] },
+          },
+        }),
+      ];
+
+      const completedLines = [
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: 'Final answer after 2 questions' },
+        }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+        }),
+      ];
+
+      let spawnCount = 0;
+      const provider = createClaudeAgentProvider({
+        cwd: tmpBase,
+        continuationStore: store,
+        spawnProcess: (exec, args) => {
+          spawnCount += 1;
+          capturedCalls.push({ exec, args: [...args] });
+          const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+          const sid = sIdx !== -1 ? args[sIdx + 1] : undefined;
+          if (spawnCount === 1) return createStreamProcess(deferredLines1, { sessionId: sid });
+          if (spawnCount === 2) return createStreamProcess(deferredLines2, { sessionId: sid });
+          return createStreamProcess(completedLines, { sessionId: sid });
+        },
+      });
+
+      const registry = createAiAdapterRegistry([provider]);
+      const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpBase, '.nevo-ai-local', 'transcripts') });
+      const runtime = createAiTurnRuntime({ registry, transcriptCache, idleTimeoutMs: 0 });
+
+      // 1. Start turn in mode
+      const { turnId } = await runtime.startTurn({
+        provider: 'claude',
+        providerSessionId: `sess-consec-${mode}`,
+        message: `Start in ${mode}`,
+        mode,
+      });
+
+      // 2. Wait for first deferral
+      const snap1 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.pendingInteraction, 'first deferral');
+      assert.equal(snap1.status, 'waitingForUser');
+      assert.equal(capturedCalls.length, 1);
+      assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1], expectedFlag);
+
+      // 3. Resolve first interaction -> provider defers a second time
+      await runtime.resolveInteraction(turnId, snap1.pendingInteraction.id, {
+        answers: [{ questionId: snap1.pendingInteraction.questions[0].id, value: 'Answer 1' }],
+      });
+
+      const snap2 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.pendingInteraction, 'second deferral');
+      assert.equal(snap2.status, 'waitingForUser');
+      assert.equal(capturedCalls.length, 2);
+      assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--permission-mode') + 1], expectedFlag);
+
+      // 4. Resolve second interaction -> provider completes
+      await runtime.resolveInteraction(turnId, snap2.pendingInteraction.id, {
+        answers: [{ questionId: snap2.pendingInteraction.questions[0].id, value: 'Answer 2' }],
+      });
+
+      const snap3 = await waitForCondition(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completion');
+      assert.equal(snap3.status, 'completed');
+      assert.equal(capturedCalls.length, 3);
+      assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--permission-mode') + 1], expectedFlag);
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
+  ['agent', 'edit', 'bypassPermissions'],
+  ['ask', 'agent', 'plan'],
+]) {
+  test(`Restart recovery restores original turn mode '${turnMode}' even if session preference changes to '${updatedSessionPref}' (Finding 2)`, async () => {
+    const tmpBase = await mkdtemp(join(tmpdir(), 'nevo-restart-mode-'));
+    try {
+      const storeDir = join(tmpBase, '.nevo-ai-local', 'transcripts', 'claude', 'continuations');
+      const transcriptDir = join(tmpBase, '.nevo-ai-local', 'transcripts');
+      const bindingDir = join(tmpBase, '.nevo-ai-local', 'sessions');
+
+      const deferredLines = [
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: `Please clarify in ${turnMode}` },
+        }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_deferred' },
+          deferred_tool_use: {
+            id: `toolu_restart_${turnMode}`,
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Confirm choice?', header: 'Choice', multiSelect: false }] },
+          },
+        }),
+      ];
+
+      const completedLines = [
+        JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: `Done in original mode` },
+        }),
+        JSON.stringify({
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+        }),
+      ];
+
+      const capturedCalls = [];
+
+      // 1. Initial runtime / provider instance
+      const store1 = createClaudeContinuationStore({ baseDir: storeDir });
+      const provider1 = createClaudeAgentProvider({
+        cwd: tmpBase,
+        continuationStore: store1,
+        spawnProcess: (exec, args) => {
+          capturedCalls.push({ exec, args: [...args] });
+          const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+          return createStreamProcess(deferredLines, { sessionId: args[sIdx + 1] });
+        },
+      });
+
+      const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir });
+      const bindingService = createAgentSessionBindingService({ storageDir: bindingDir });
+      const registry1 = createAiAdapterRegistry([provider1]);
+      const runtime1 = createAiTurnRuntime({ registry: registry1, transcriptCache, idleTimeoutMs: 0 });
+      const service1 = createAiSessionService({ registry: registry1, turnRuntime: runtime1, transcriptCache, bindingService });
+
+      const specId = randomUUID();
+      const session = await service1.createSession('claude', { title: 'Test', mode: turnMode, specId });
+      const sessionId = session.providerSessionId;
+
+      // Start turn in turnMode
+      const { turnId } = await service1.startTurn('claude', sessionId, {
+        message: `Initial prompt in ${turnMode}`,
+        mode: turnMode,
+      });
+
+      // Wait for deferral
+      const pendingSnap = await waitForCondition(() => service1.getTurn(turnId), v => v.pendingInteraction, 'initial deferral');
+      assert.equal(pendingSnap.status, 'waitingForUser');
+      assert.equal(capturedCalls.length, 1);
+      const initialPermissionFlag = turnMode === 'agent' ? 'bypassPermissions' : 'plan';
+      assert.equal(capturedCalls[0].args[capturedCalls[0].args.indexOf('--permission-mode') + 1], initialPermissionFlag);
+
+      // Persist transcript state to disk
+      await transcriptCache.flushAll();
+
+      // Shutdown first runtime/service instance
+      runtime1.shutdown();
+
+      // 2. Recreate runtime/service (simulating server restart)
+      const store2 = createClaudeContinuationStore({ baseDir: storeDir });
+      const provider2 = createClaudeAgentProvider({
+        cwd: tmpBase,
+        continuationStore: store2,
+        spawnProcess: (exec, args) => {
+          capturedCalls.push({ exec, args: [...args] });
+          const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
+          return createStreamProcess(completedLines, { sessionId: args[sIdx + 1] });
+        },
+      });
+
+      const registry2 = createAiAdapterRegistry([provider2]);
+      const freshTranscriptCache = createTranscriptCacheService({ baseDir: transcriptDir });
+      const freshBindingService = createAgentSessionBindingService({ storageDir: bindingDir });
+      const runtime2 = createAiTurnRuntime({ registry: registry2, transcriptCache: freshTranscriptCache, idleTimeoutMs: 0 });
+      const service2 = createAiSessionService({ registry: registry2, turnRuntime: runtime2, transcriptCache: freshTranscriptCache, bindingService: freshBindingService });
+
+      // Optionally change session preference in binding service
+      await service2.updateSessionMode('claude', sessionId, updatedSessionPref);
+      const sessionDetail = await service2.getSession('claude', sessionId);
+      assert.equal(sessionDetail.mode, updatedSessionPref);
+
+      // Resolve pending interaction on restored turn
+      await service2.resolveInteraction(turnId, pendingSnap.pendingInteraction.id, {
+        answers: [{ questionId: pendingSnap.pendingInteraction.questions[0].id, value: 'Confirmed' }],
+      }, { provider: 'claude', providerSessionId: sessionId });
+
+      const finalSnap = await waitForCondition(() => service2.getTurn(turnId), v => v.status === 'completed', 'resumed completion');
+      assert.equal(finalSnap.status, 'completed');
+
+      // Verify resumed Claude invocation used the ORIGINAL turn mode (expectedResumedFlag), NOT updatedSessionPref
+      assert.equal(capturedCalls.length, 2);
+      assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--permission-mode') + 1], expectedResumedFlag);
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+}
 

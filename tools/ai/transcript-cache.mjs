@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, unlink, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -10,6 +10,15 @@ import {
 
 function sanitizeFilename(value) {
   return encodeURIComponent(value).replace(/[*~]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function completeRunningToolCalls(state) {
+  for (const msg of state.messages) {
+    if (!msg.toolCalls) continue;
+    for (const tool of msg.toolCalls) {
+      if (tool.status === 'running') tool.status = 'completed';
+    }
+  }
 }
 
 export class SessionTranscriptCacheService {
@@ -32,6 +41,76 @@ export class SessionTranscriptCacheService {
     const safeProvider = sanitizeFilename(provider);
     const safeSessionId = sanitizeFilename(providerSessionId);
     return join(this.#baseDir, safeProvider, `${safeSessionId}.json`);
+  }
+
+  *entries() {
+    for (const [key, state] of this.#inMemory.entries()) {
+      yield [key, structuredClone(state)];
+    }
+  }
+
+  /**
+   * Lists every session with a persisted transcript file on disk, including ones never
+   * loaded into the in-memory cache yet (e.g. right after a process restart). Used by
+   * boot-time orphaned-turn reconciliation, which otherwise has nothing to scan since
+   * `entries()` only sees what's already been loaded.
+   */
+  async listPersistedSessions() {
+    const results = [];
+    let providerEntries;
+    try {
+      providerEntries = await readdir(this.#baseDir, { withFileTypes: true });
+    } catch (err) {
+      if (err.code === 'ENOENT') return results;
+      throw err;
+    }
+    for (const providerEntry of providerEntries) {
+      if (!providerEntry.isDirectory()) continue;
+      const provider = decodeURIComponent(providerEntry.name);
+      const providerDir = join(this.#baseDir, providerEntry.name);
+      let fileEntries;
+      try {
+        fileEntries = await readdir(providerDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const fileEntry of fileEntries) {
+        if (!fileEntry.isFile() || !fileEntry.name.endsWith('.json')) continue;
+        const providerSessionId = decodeURIComponent(fileEntry.name.slice(0, -'.json'.length));
+        results.push({ provider, providerSessionId });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Finalizes an orphaned `activeTurn` left behind by a session whose owning turn was
+   * never terminated (e.g. an ungraceful server restart) — clears the ghost `activeTurn`,
+   * completes any still-`running` tool calls, and appends a visible message so the next
+   * read reflects reality instead of a stale "running" state. Requires the transcript to
+   * already be loaded (via `getTranscript`); a no-op if there is no `activeTurn` to clear.
+   */
+  markTurnInterrupted(provider, providerSessionId, { text, createdAt = new Date().toISOString() } = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const key = this.#key(provider, providerSessionId);
+    const state = this.#inMemory.get(key);
+    if (!state || !state.activeTurn) return null;
+
+    delete state.activeTurn;
+    delete state.pendingInteraction;
+    completeRunningToolCalls(state);
+    state.lastEventSeq = (state.lastEventSeq || 0) + 1;
+
+    const msg = {
+      id: `system-${randomUUID()}`,
+      role: 'assistant',
+      text: typeof text === 'string' ? text : '',
+      createdAt: normalizeTimestamp(createdAt, 'createdAt'),
+    };
+    state.messages.push(msg);
+    state.updatedAt = msg.createdAt;
+    this.#markDirty(provider, providerSessionId);
+    return msg;
   }
 
   async getTranscript(provider, providerSessionId) {
@@ -142,6 +221,7 @@ export class SessionTranscriptCacheService {
         state.activeTurn = {
           turnId: event.turnId,
           startedAt: event.timestamp,
+          ...(event.mode ? { mode: event.mode } : {}),
         };
         break;
       }
@@ -226,11 +306,13 @@ export class SessionTranscriptCacheService {
       }
       case 'turn.completed': {
         delete state.activeTurn;
+        completeRunningToolCalls(state);
         break;
       }
       case 'turn.failed': {
         delete state.activeTurn;
         delete state.pendingInteraction;
+        completeRunningToolCalls(state);
         break;
       }
       default:
@@ -278,7 +360,21 @@ export class SessionTranscriptCacheService {
     const content = JSON.stringify(state, null, 2);
     const tempPath = `${filePath}.${randomUUID()}.tmp`;
     await writeFile(tempPath, content, 'utf-8');
-    await rename(tempPath, filePath);
+    try {
+      await rename(tempPath, filePath);
+    } catch (renameErr) {
+      if (process.platform === 'win32') {
+        await new Promise(r => setTimeout(r, 10));
+        try {
+          await rename(tempPath, filePath);
+        } catch {
+          await writeFile(filePath, content, 'utf-8');
+          await unlink(tempPath).catch(() => {});
+        }
+      } else {
+        throw renameErr;
+      }
+    }
   }
 
   async flushAll() {

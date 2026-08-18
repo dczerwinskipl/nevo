@@ -29,7 +29,13 @@ export class MockAiAdapter {
       label: 'Mock AI',
       enabled: true,
       capabilities: MOCK_CAPABILITIES,
+      supportedModes: ['ask', 'edit', 'agent'],
+      defaultMode: 'edit',
     });
+  }
+
+  isAvailable() {
+    return { available: true };
   }
 
   async startTurn({

@@ -63,8 +63,8 @@ button {
 }
 
 ::selection {
-  background: rgba(200, 248, 90, 0.25);
-  color: var(--foreground);
+  background: rgba(200, 248, 90, 0.3);
+  color: #ffffff;
 }
 
 .markdown-body {

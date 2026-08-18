@@ -2,6 +2,7 @@ import {
   Archive,
   FileText,
   LayoutDashboard,
+  Plus,
   Search,
   MessagesSquare,
   X,
@@ -12,7 +13,9 @@ import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
-import { AiSessionRow } from '@/components/ai-session-list';
+import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
+import { useDeleteAiSession } from '@/hooks/use-dashboard-data';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -28,6 +31,7 @@ interface AppSidebarProps {
   sessionsError: string | null;
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
+  onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
   open: boolean;
@@ -106,6 +110,7 @@ export function AppSidebar({
   sessionsError,
   onSessionsRetry,
   onOpenSession,
+  onOpenCreateSpec,
   search,
   onSearchChange,
   open,
@@ -117,8 +122,16 @@ export function AppSidebar({
     !query || change.title.toLocaleLowerCase('pl').includes(query) || change.slug.includes(query),
   );
   const activeSpecIds = new Set(active.map(change => change.specId).filter(Boolean));
-  const recentSessions = sessions.filter(session => activeSpecIds.has(session.specId)).slice(0, 5);
+  const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
   const activeTasks = active.flatMap(change => change.tasks);
+
+  const deleteMutation = useDeleteAiSession();
+  const handleDeleteSession = async (session: AiSession) => {
+    await deleteMutation.deleteSession({
+      provider: session.provider,
+      sessionId: session.providerSessionId || session.sessionId,
+    });
+  };
 
   return (
     <>
@@ -144,9 +157,21 @@ export function AppSidebar({
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">NEvo Flow</p>
               <p className="mt-1 text-base font-semibold text-[var(--foreground)]">Specyfikacje</p>
             </div>
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
-              <X className="size-4" />
-            </Button>
+            <div className="flex items-center gap-1.5">
+              {onOpenCreateSpec && (
+                <Button
+                  size="sm"
+                  onClick={onOpenCreateSpec}
+                  aria-label="Nowa specyfikacja"
+                >
+                  <Plus className="mr-1.5 size-3.5" />
+                  Nowa specyfikacja
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
+                <X className="size-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
@@ -193,12 +218,28 @@ export function AppSidebar({
             <section className="mb-4 border-b border-[var(--border)] px-2 pb-4" aria-label="Ostatnie sesje AI">
               <div className="mb-2 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]"><MessagesSquare className="size-3" />Ostatnie sesje</span>
-                {sessionsError && <button type="button" onClick={onSessionsRetry} className="text-[10px] text-[var(--accent)]">Ponów</button>}
+                {sessionsError && (
+                  <RetryButton
+                    size="icon"
+                    onClick={onSessionsRetry}
+                    label="Ponów pobieranie sesji"
+                  />
+                )}
               </div>
-              {sessionsLoading ? <p className="py-3 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
-                : sessionsError ? <p className="py-3 text-[11px] text-[var(--muted)]">Sesje są niedostępne.</p>
-                  : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} compact />)}</div>
-                    : <p className="py-3 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
+              {sessionsLoading ? <p className="py-2 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
+                : sessionsError ? (
+                  <div className="my-1">
+                    <StatusCard
+                      variant="warning"
+                      size="sm"
+                      title="Nie udało się wczytać sesji"
+                      description={sessionsError}
+                      onRetry={onSessionsRetry}
+                    />
+                  </div>
+                )
+                : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} onDelete={handleDeleteSession} compact />)}</div>
+                : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
             </section>
           )}
           <div className="mb-2 flex items-center justify-between px-2">
