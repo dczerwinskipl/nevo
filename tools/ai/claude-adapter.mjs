@@ -169,6 +169,14 @@ export class ClaudeAgentProvider {
       let isDeferred = false;
       let deferredPayload = null;
       let isMaterialized = sessionFlag === '--resume';
+      let emittedAnyText = false;
+
+      const sendTextDelta = text => {
+        if (!text) return;
+        emittedAnyText = true;
+        if (emitTextDelta) emitTextDelta(text);
+        else if (emitDelta) emitDelta(text);
+      };
 
       const cleanupSettings = () => {
         try { unlinkSync(settingsPath); } catch {}
@@ -205,6 +213,39 @@ export class ClaudeAgentProvider {
         }
 
         switch (event.type) {
+          case 'assistant': {
+            const message = event.message;
+            if (message && Array.isArray(message.content)) {
+              for (const block of message.content) {
+                if (block.type === 'thinking' && block.thinking) {
+                  if (emitReasoningDelta) emitReasoningDelta(block.thinking);
+                } else if (block.type === 'text' && block.text) {
+                  sendTextDelta(block.text);
+                } else if (block.type === 'tool_use') {
+                  activeTool = {
+                    id: block.id,
+                    name: block.name,
+                    input: block.input || {},
+                  };
+                  if (emitToolStarted) {
+                    emitToolStarted({
+                      toolId: activeTool.id,
+                      toolName: activeTool.name,
+                      input: activeTool.input,
+                    });
+                  }
+                }
+              }
+            }
+            if (message?.usage && emitUsageUpdated) {
+              emitUsageUpdated({
+                tokensIn: message.usage.input_tokens,
+                tokensOut: message.usage.output_tokens,
+              });
+            }
+            break;
+          }
+
           case 'content_block_start': {
             if (event.content_block?.type === 'thinking') {
               activeThinking = true;
@@ -213,8 +254,7 @@ export class ClaudeAgentProvider {
               }
             } else if (event.content_block?.type === 'text') {
               if (event.content_block.text) {
-                if (emitTextDelta) emitTextDelta(event.content_block.text);
-                else if (emitDelta) emitDelta(event.content_block.text);
+                sendTextDelta(event.content_block.text);
               }
             } else if (event.content_block?.type === 'tool_use') {
               activeTool = {
@@ -239,8 +279,7 @@ export class ClaudeAgentProvider {
               }
             } else if (event.delta?.type === 'text_delta') {
               if (event.delta.text) {
-                if (emitTextDelta) emitTextDelta(event.delta.text);
-                else if (emitDelta) emitDelta(event.delta.text);
+                sendTextDelta(event.delta.text);
               }
             } else if (event.delta?.type === 'input_json_delta' && activeTool) {
               if (emitToolUpdated) {
@@ -276,6 +315,15 @@ export class ClaudeAgentProvider {
             if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
               isDeferred = true;
               deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload || activeTool;
+            }
+            if (event.result && typeof event.result === 'string' && !emittedAnyText && !isDeferred) {
+              sendTextDelta(event.result);
+            }
+            if (event.usage && emitUsageUpdated) {
+              emitUsageUpdated({
+                tokensIn: event.usage.input_tokens,
+                tokensOut: event.usage.output_tokens,
+              });
             }
             break;
           }
