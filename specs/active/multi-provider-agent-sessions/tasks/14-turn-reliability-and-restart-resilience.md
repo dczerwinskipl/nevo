@@ -35,7 +35,9 @@ eventually fail with a clear error instead of leaving a turn `running` indefinit
 ungraceful server restart (crash, kill, service restart) must never leave a session showing a
 permanently "running"/"generating" ghost status. Additionally, unify how `GET /api/agent-sessions`
 (list) and `GET /api/agent-sessions/:provider/:providerSessionId` (detail) compute session status
-so the dashboard home page and the chat view never disagree.
+so the dashboard home page and the chat view never disagree. The user must also always have a
+working way to stop a turn themselves, on demand, without waiting for the idle watchdog — the
+existing cancel control must reliably appear and reliably terminate the underlying process.
 
 ## Requirements
 
@@ -87,6 +89,24 @@ so the dashboard home page and the chat view never disagree.
      `publicAiError`/`turn.failed` event path so the chat UI shows a clear, human-readable failure
      message instead of leaving the UI silently spinning.
 
+5. **Guaranteed, user-triggerable cancellation during an active turn:**
+   - The existing chat "Przerwij"/cancel control (`tools/dashboard/src/components/ai-chat.tsx`,
+     wired to `POST /api/agent-sessions/:provider/:providerSessionId/turns/:turnId/cancel`) must
+     reliably render whenever a session's live status is `running`/`waitingForUser` — this falls
+     out directly of requirement 3's status-parity fix (`assistant.isRunning` is driven by the same
+     `activeTurn` snapshot), but must be explicitly verified end-to-end here, not merely assumed.
+   - `AiTurnRuntime#cancelTurn` currently calls the adapter's `cancelTurn` (e.g.
+     `claude-adapter.mjs`'s `child.kill('SIGINT')`) and unconditionally finalizes the turn without
+     ever confirming the underlying child process actually exited, which can leave an orphaned OS
+     process running after NEvo has already reported the turn as cancelled. Harden this by reusing
+     the idle-watchdog's own bounded-wait/force-terminate mechanism from requirement 1: after
+     requesting adapter cancellation, wait up to a short bounded grace period (default 5 seconds)
+     for the operation to actually stop; if it hasn't, escalate to a forceful kill
+     (`child.kill()` with no signal — Windows has no distinct SIGINT/SIGTERM semantics and this is
+     the only reliable forced-termination path there; POSIX platforms escalate `SIGINT` →
+     `SIGKILL`) before finishing the turn. This guarantees cancellation is never a no-op the user
+     has to retry, on any OS.
+
 ## Verification
 
 1. **Watchdog fires on silence:** with a fake/mocked adapter that starts a turn and never emits
@@ -107,6 +127,12 @@ so the dashboard home page and the chat view never disagree.
    `waitingForUser` cases.
 7. **Dashboard UI:** the session list component renders the live status from `listSessions`
    instead of defaulting to an idle-looking badge.
+8. **Forced cancellation:** with a mocked adapter whose `cancelTurn` does not actually stop the
+   underlying operation within the grace period, `AiTurnRuntime#cancelTurn` still reaches a
+   terminal `turn.failed` state within a bounded time via the forceful escalation path.
+9. **Cancel control visibility:** a session snapshot with a live `running` turn always yields
+   `capabilities.cancelTurn: true` and a populated `activeTurn`, so the chat UI's existing cancel
+   control is guaranteed to render — verified via `tools/dashboard/tests/ai-chat.test.mjs`.
 
 ```bash
 node --test tools/tests/ai-turn-runtime.test.mjs

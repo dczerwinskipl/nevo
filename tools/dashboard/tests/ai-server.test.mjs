@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,10 +19,18 @@ function fakeHub() {
   return { subscribe: () => () => {}, close: () => {} };
 }
 
+// Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
+// boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
+// cross-run fixtures there would otherwise leak into whichever test happens to reuse the
+// same deterministic mock session ID.
+function isolatedTranscriptCache() {
+  return createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-ai-server-test-${randomUUID()}`) });
+}
+
 function createStack() {
   const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
   const registry = createAiAdapterRegistry([adapter]);
-  const transcriptCache = createTranscriptCacheService();
+  const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService();
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
   return { adapter, service: createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
@@ -380,7 +389,7 @@ test('session control endpoints enforce strict correlation between provider, ses
 test('pending interaction can be resolved after server restart retaining persisted transcript state with strict correlation', async () => {
   const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
   const registry = createAiAdapterRegistry([adapter]);
-  const transcriptCache = createTranscriptCacheService();
+  const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService();
 
   // Phase 1: Server 1 runs, turn reaches waitingForUser

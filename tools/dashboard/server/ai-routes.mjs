@@ -321,28 +321,7 @@ export async function handleAiRequest({
           ? await service.transcriptCache.getTranscript(provider, providerSessionId)
           : await service.getTranscript(provider, providerSessionId);
 
-        let activeTurn = null;
-        let pendingInteraction = transcript?.pendingInteraction || null;
-
-        if (transcript?.activeTurn?.turnId) {
-          try {
-            const turnSnapshot = service.getTurn(transcript.activeTurn.turnId);
-            if (turnSnapshot && turnSnapshot.status !== 'completed' && turnSnapshot.status !== 'failed') {
-              activeTurn = {
-                turnId: turnSnapshot.turnId,
-                startedAt: turnSnapshot.startedAt,
-                status: turnSnapshot.status,
-              };
-              pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
-            }
-          } catch {
-            activeTurn = transcript.activeTurn;
-          }
-        }
-
-        const status = activeTurn
-          ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
-          : 'idle';
+        const { status, activeTurn, pendingInteraction } = service.resolveSessionActivity(transcript);
 
         const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
 

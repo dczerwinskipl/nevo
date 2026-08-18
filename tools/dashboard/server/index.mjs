@@ -127,6 +127,16 @@ export function createDashboardServer({
     resolvedAiService ||= aiServiceFactory({ dataLoader });
     return resolvedAiService;
   };
+  let aiReconciliationPromise = null;
+  const ensureAiReconciled = () => {
+    const service = getAiService();
+    if (!aiReconciliationPromise) {
+      aiReconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch(err => {
+        console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
+      });
+    }
+    return aiReconciliationPromise;
+  };
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
@@ -138,6 +148,7 @@ export function createDashboardServer({
       url.pathname === '/api/agent-providers' ||
       url.pathname.startsWith('/api/agent-providers/')
     ) {
+      await ensureAiReconciled();
       await handleAiRequest({
         request,
         response,

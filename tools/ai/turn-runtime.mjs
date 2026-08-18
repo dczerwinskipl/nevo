@@ -22,6 +22,15 @@ function publicFailure(error) {
   return { code: normalized.code, message: normalized.message };
 }
 
+const TURN_ACTIVITY_EVENT_TYPES = new Set([
+  'text.delta',
+  'reasoning.delta',
+  'tool.started',
+  'tool.updated',
+  'tool.completed',
+  'usage.updated',
+]);
+
 export class AiTurnRuntime {
   #turns = new Map();
   #activeBySession = new Map();
@@ -31,6 +40,7 @@ export class AiTurnRuntime {
   #sessionEvents = new Map();
   #terminalOrder = [];
   #closed = false;
+  #idleWatchdogTimer = null;
 
   constructor({
     registry,
@@ -39,6 +49,8 @@ export class AiTurnRuntime {
     maxRetainedTurns = 100,
     idFactory = randomUUID,
     clock = () => new Date(),
+    idleTimeoutMs = 5 * 60 * 1000,
+    idleCheckIntervalMs = Math.min(idleTimeoutMs > 0 ? idleTimeoutMs : 30_000, 30_000),
   } = {}) {
     this.registry = registry;
     this.transcriptCache = transcriptCache ?? createTranscriptCacheService();
@@ -46,6 +58,13 @@ export class AiTurnRuntime {
     this.maxRetainedTurns = maxRetainedTurns;
     this.idFactory = idFactory;
     this.clock = clock;
+    this.idleTimeoutMs = idleTimeoutMs;
+    this.idleCheckIntervalMs = idleCheckIntervalMs;
+
+    if (this.idleTimeoutMs > 0) {
+      this.#idleWatchdogTimer = setInterval(() => this.#checkIdleTurns(), this.idleCheckIntervalMs);
+      this.#idleWatchdogTimer.unref?.();
+    }
   }
 
   async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished } = {}) {
@@ -135,6 +154,7 @@ export class AiTurnRuntime {
         privateOperation: undefined,
         startedAt,
         completedAt: undefined,
+        lastActivityAt: this.clock().getTime(),
       };
 
       let resolveEstablished;
@@ -481,6 +501,7 @@ export class AiTurnRuntime {
     const interaction = state.pendingInteraction;
     state.pendingInteraction = null;
     state.status = 'running';
+    state.lastActivityAt = this.clock().getTime();
     this.#notifyAdapterState(state);
     this.#emit(state, 'interaction.resolved', { interactionId, response: normalized });
     queueMicrotask(() => this.#runContinuation(state, interactionId, interaction, normalized));
@@ -530,18 +551,90 @@ export class AiTurnRuntime {
       this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
       return this.getSnapshot(turnId);
     }
+    await this.#cancelRunningTurn(state, new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
+    return this.getSnapshot(turnId);
+  }
+
+  /**
+   * Explicit-cancel termination path — mirrors the pre-watchdog `cancelTurn` behavior
+   * exactly: the adapter must declare `cancelTurn` capability (throws
+   * `CapabilityNotSupportedError` otherwise, before anything is aborted/finished).
+   */
+  async #cancelRunningTurn(state, error) {
     const adapter = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
     if (state.privateOperation) {
       await adapter.cancelTurn({
-        turnId,
+        turnId: state.turnId,
         providerSessionId: state.providerSessionId,
         identity: state.identity,
         operation: state.privateOperation,
       });
     }
     state.abortController.abort();
-    this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
-    return this.getSnapshot(turnId);
+    this.#finish(state, 'turn.failed', error);
+  }
+
+  /**
+   * Best-effort termination path used by the idle watchdog: a hung turn must still reach
+   * a terminal state even when the provider doesn't declare `cancelTurn` capability, or
+   * adapter-level cancellation itself fails.
+   */
+  async #timeoutRunningTurn(state, error) {
+    if (this.#isTerminal(state)) return;
+    const entry = this.registry.get(state.provider);
+    if (state.privateOperation && entry?.adapter?.cancelTurn) {
+      try {
+        await entry.adapter.cancelTurn({
+          turnId: state.turnId,
+          providerSessionId: state.providerSessionId,
+          identity: state.identity,
+          operation: state.privateOperation,
+        });
+      } catch {}
+    }
+    state.abortController.abort();
+    this.#finish(state, 'turn.failed', error);
+  }
+
+  #checkIdleTurns() {
+    if (this.idleTimeoutMs <= 0) return;
+    const now = this.clock().getTime();
+    for (const state of this.#turns.values()) {
+      if (state.status !== 'running') continue;
+      const lastActivityAt = state.lastActivityAt ?? (state.startedAt ? new Date(state.startedAt).getTime() : now);
+      if (now - lastActivityAt >= this.idleTimeoutMs) {
+        void this.#timeoutRunningTurn(state, new AiError(
+          'AI_TURN_TIMEOUT',
+          'The turn was cancelled because it stopped responding.',
+          { status: 504 },
+        ));
+      }
+    }
+  }
+
+  /**
+   * Boot-time reconciliation (D8): finalizes any persisted `activeTurn` left behind by a
+   * session whose owning turn was never terminated (ungraceful restart), since the
+   * in-memory `turnRuntime` always starts empty. Sessions with a `pendingInteraction`
+   * (`waitingForUser`) are left untouched — they remain resumable. Safe to call even when
+   * `transcriptCache` doesn't support persisted-session enumeration (e.g. a test double).
+   */
+  async reconcileOrphanedTurns() {
+    if (typeof this.transcriptCache?.listPersistedSessions !== 'function') return { reconciledCount: 0 };
+    const sessions = await this.transcriptCache.listPersistedSessions();
+    let reconciledCount = 0;
+    for (const { provider, providerSessionId } of sessions) {
+      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
+      if (!transcript?.activeTurn || transcript.pendingInteraction) continue;
+      this.transcriptCache.markTurnInterrupted(provider, providerSessionId, {
+        text: 'Interrupted by server restart.',
+      });
+      reconciledCount += 1;
+    }
+    if (reconciledCount > 0 && typeof this.transcriptCache.flushAll === 'function') {
+      await this.transcriptCache.flushAll();
+    }
+    return { reconciledCount };
   }
 
   getSnapshot(turnId) {
@@ -618,6 +711,10 @@ export class AiTurnRuntime {
   shutdown() {
     if (this.#closed) return;
     this.#closed = true;
+    if (this.#idleWatchdogTimer) {
+      clearInterval(this.#idleWatchdogTimer);
+      this.#idleWatchdogTimer = null;
+    }
     for (const state of this.#turns.values()) {
       if (this.#isTerminal(state)) continue;
       if (state.status === 'waitingForUser') continue;
@@ -674,6 +771,7 @@ export class AiTurnRuntime {
     };
     state.events.push(event);
     if (state.events.length > this.maxEventsPerTurn) state.events.shift();
+    if (TURN_ACTIVITY_EVENT_TYPES.has(type)) state.lastActivityAt = this.clock().getTime();
 
     if (state.provider && state.providerSessionId) {
       const key = sessionKey(state.provider, state.providerSessionId);

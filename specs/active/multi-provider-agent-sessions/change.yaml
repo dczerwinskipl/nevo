@@ -317,8 +317,10 @@ tasks:
   - id: turn-reliability-and-restart-resilience
     order: 14
     file: tasks/14-turn-reliability-and-restart-resilience.md
-    status: approved
-    depends_on: [ agent-execution-modes-and-permissions ]
+    status: in-implementation
+    depends_on: [ final-verification-and-architecture-docs ]
+    implementation:
+      baseline_revision: b8609808bb02d6b42d298348a6a66f748bd3b873
 
 pull_requests:
   - provider: github

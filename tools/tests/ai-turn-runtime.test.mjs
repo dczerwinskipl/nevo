@@ -20,7 +20,7 @@ const capabilities = Object.freeze({
   usage: true,
 });
 
-function createFixture({ sessionLookupGate, transcriptCache } = {}) {
+function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = {}) {
   const cache = transcriptCache ?? createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-test-cache-${randomUUID()}`) });
   let starts = 0;
   let cancels = 0;
@@ -53,6 +53,11 @@ function createFixture({ sessionLookupGate, transcriptCache } = {}) {
         emitUsageUpdated({ tokensIn: 50, tokensOut: 20 });
       } else if (message === 'hang') {
         await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      } else if (message === 'slow-drip') {
+        for (let i = 0; i < 4; i += 1) {
+          await new Promise(resolve => setTimeout(resolve, 15));
+          emitDelta(`chunk${i} `);
+        }
       }
       emitDelta('two');
     },
@@ -74,6 +79,8 @@ function createFixture({ sessionLookupGate, transcriptCache } = {}) {
     transcriptCache: cache,
     idFactory: () => String(++id),
     clock: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 7, 15, 10, 0, tick++)); })(),
+    idleTimeoutMs: 0,
+    ...runtimeOptions,
   });
   return {
     runtime,
@@ -351,6 +358,89 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     assert.equal(transcript.lastEventSeq, 8);
     const snapshot = fixture.runtime.getSnapshot(turnId);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('idle watchdog fails a silent turn via the adapter cancel path with AI_TURN_TIMEOUT', async () => {
+  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 30, idleCheckIntervalMs: 5, clock: () => new Date() } });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-timeout', message: 'hang' });
+  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
+
+  const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'failed', 'idle timeout');
+  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+  assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_TIMEOUT');
+  assert.equal(fixture.cancels, 1);
+  fixture.runtime.shutdown();
+});
+
+test('idle watchdog never fires while a turn keeps emitting activity', async () => {
+  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 40, idleCheckIntervalMs: 5, clock: () => new Date() } });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-reset', message: 'slow-drip' });
+
+  const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion despite long total duration');
+  assert.equal(snapshot.events.some(event => event.type === 'turn.failed'), false);
+  assert.equal(fixture.cancels, 0);
+  fixture.runtime.shutdown();
+});
+
+test('idle watchdog exempts turns waitingForUser', async () => {
+  const fixture = createFixture({ runtimeOptions: { idleTimeoutMs: 20, idleCheckIntervalMs: 5, clock: () => new Date() } });
+  const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'idle-waiting', message: 'permission' });
+  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
+
+  // Wait well past the idle window; a waitingForUser turn must never be timed out.
+  await new Promise(resolve => setTimeout(resolve, 80));
+  const snapshot = fixture.runtime.getSnapshot(turnId);
+  assert.equal(snapshot.status, 'waitingForUser');
+  assert.equal(fixture.cancels, 0);
+  fixture.runtime.shutdown();
+});
+
+test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_INTERRUPTED with a visible message', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reconcile-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const orphan = createFixture({ transcriptCache });
+    const { turnId } = await orphan.runtime.startTurn({ provider: 'fake', providerSessionId: 'orphan-session', message: 'hang' });
+    await waitFor(() => orphan.runtime.getSnapshot(turnId), value => value.events.length >= 2, 'started turn');
+    // Simulate an ungraceful process exit: the in-memory runtime is discarded without
+    // ever finishing the turn, but the persisted transcript still has `activeTurn` set.
+    await transcriptCache.flush('fake', 'orphan-session');
+
+    const fresh = createFixture({ transcriptCache });
+    const { reconciledCount } = await fresh.runtime.reconcileOrphanedTurns();
+    assert.equal(reconciledCount, 1);
+
+    const transcript = await transcriptCache.getTranscript('fake', 'orphan-session');
+    assert.equal(transcript.activeTurn, undefined);
+    assert.equal(transcript.messages.at(-1).text, 'Interrupted by server restart.');
+    fresh.runtime.shutdown();
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('boot reconciliation leaves a waitingForUser session (pendingInteraction) untouched', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reconcile-pending-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const original = createFixture({ transcriptCache });
+    const { turnId } = await original.runtime.startTurn({ provider: 'fake', providerSessionId: 'pending-session', message: 'permission' });
+    const pending = await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
+    await transcriptCache.flush('fake', 'pending-session');
+
+    const fresh = createFixture({ transcriptCache });
+    const { reconciledCount } = await fresh.runtime.reconcileOrphanedTurns();
+    assert.equal(reconciledCount, 0);
+
+    const transcript = await transcriptCache.getTranscript('fake', 'pending-session');
+    assert.deepEqual(transcript.pendingInteraction, pending.pendingInteraction);
+    assert.ok(transcript.activeTurn);
+    fresh.runtime.shutdown();
   } finally {
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

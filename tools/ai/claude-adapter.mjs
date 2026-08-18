@@ -34,6 +34,7 @@ export class ClaudeAgentProvider {
   #hookScriptPath;
   #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
+  #cancelGraceMs;
 
   constructor({
     executable = 'claude',
@@ -41,12 +42,14 @@ export class ClaudeAgentProvider {
     spawnProcess = spawn,
     continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
     hookScriptPath = HOOK_SCRIPT_PATH,
+    cancelGraceMs = 5_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#continuationStore = continuationStore;
     this.#hookScriptPath = hookScriptPath;
+    this.#cancelGraceMs = cancelGraceMs;
     this.descriptor = Object.freeze({
       id: 'claude',
       label: 'Claude Code',
@@ -570,15 +573,41 @@ export class ClaudeAgentProvider {
   }
 
   async cancelTurn({ operation } = {}) {
-    if (operation) {
-      operation.cancelled = true;
-      if (operation.childProcess) {
-        try {
-          operation.childProcess.kill('SIGINT');
-        } catch {}
-      }
-    }
+    if (!operation) return;
+    operation.cancelled = true;
+    const child = operation.childProcess;
+    if (!child) return;
+
+    try {
+      child.kill('SIGINT');
+    } catch {}
+
+    const exited = await waitForChildExit(child, this.#cancelGraceMs);
+    if (exited) return;
+
+    // SIGINT didn't stop it within the grace period (ignored by the process, or a no-op
+    // on this platform). Escalate to a forceful, unsignaled kill — the only reliable
+    // forced-termination path on Windows, and equivalent to SIGKILL on POSIX — so the
+    // user's cancel request never becomes a silent no-op they have to retry.
+    try {
+      child.kill();
+    } catch {}
   }
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (typeof child.exitCode === 'number' || typeof child.signalCode === 'string') return Promise.resolve(true);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    function onExit() {
+      clearTimeout(timer);
+      resolve(true);
+    }
+    child.once('exit', onExit);
+  });
 }
 
 export function createClaudeAgentProvider(options) {

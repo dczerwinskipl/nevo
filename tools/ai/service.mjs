@@ -57,15 +57,59 @@ export class AiSessionService {
   async listSessions(filters = {}) {
     if (!this.bindingService) return [];
     const bindings = await this.bindingService.listBindings(filters);
-    if (!this.transcriptCache) return bindings;
+    if (!this.transcriptCache) return bindings.map(binding => ({ ...binding, status: 'idle' }));
     return Promise.all(bindings.map(async (binding) => {
       try {
         const transcript = await this.transcriptCache.getTranscript(binding.provider, binding.providerSessionId);
-        return { ...binding, lastActivityAt: transcript?.updatedAt || binding.lastSeenAt };
+        const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+        return {
+          ...binding,
+          lastActivityAt: transcript?.updatedAt || binding.lastSeenAt,
+          status,
+          activeTurn,
+          pendingInteraction,
+        };
       } catch {
-        return binding;
+        return { ...binding, status: 'idle' };
       }
     }));
+  }
+
+  /**
+   * Computes a session's live `status` (`idle` | `running` | `waitingForUser`) from a
+   * transcript snapshot, cross-checked against the in-memory turn runtime. Shared by
+   * `listSessions` and the single-session detail route so the dashboard home page and
+   * the chat view can never disagree (D8).
+   */
+  resolveSessionActivity(transcript) {
+    let activeTurn = null;
+    let pendingInteraction = transcript?.pendingInteraction || null;
+
+    if (transcript?.activeTurn?.turnId) {
+      try {
+        const turnSnapshot = this.getTurn(transcript.activeTurn.turnId);
+        if (turnSnapshot && turnSnapshot.status !== 'completed' && turnSnapshot.status !== 'failed') {
+          activeTurn = {
+            turnId: turnSnapshot.turnId,
+            startedAt: turnSnapshot.startedAt,
+            status: turnSnapshot.status,
+          };
+          pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
+        }
+      } catch {
+        // No in-memory turn for this persisted `activeTurn` (already reconciled at boot,
+        // or a narrow race) — never assume "running" from a raw, status-less persisted
+        // record; that was the exact bug behind a session showing a permanently
+        // "running" ghost status after an ungraceful restart.
+        activeTurn = null;
+      }
+    }
+
+    const status = activeTurn
+      ? (activeTurn.status === 'waitingForUser' ? 'waitingForUser' : 'running')
+      : 'idle';
+
+    return { status, activeTurn, pendingInteraction };
   }
 
   async getSession(provider, providerSessionId) {

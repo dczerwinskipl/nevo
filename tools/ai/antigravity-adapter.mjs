@@ -33,15 +33,18 @@ export class AntigravityAgentProvider {
   #spawnProcess;
   #activeOperations = new Map();
   #availabilityCache = { checkedAt: 0, result: null };
+  #cancelGraceMs;
 
   constructor({
     executable = 'agy',
     cwd = process.cwd(),
     spawnProcess = spawn,
+    cancelGraceMs = 5_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
+    this.#cancelGraceMs = cancelGraceMs;
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
   }
 
@@ -431,10 +434,18 @@ export class AntigravityAgentProvider {
     const operation = turnId ? this.#activeOperations.get(turnId) : null;
     if (operation) {
       operation.cancelled = true;
-      if (operation.child && !operation.child.killed) {
-        operation.child.kill('SIGINT');
-      }
       this.#activeOperations.delete(turnId);
+      const child = operation.child;
+      if (child && !child.killed) {
+        try { child.kill('SIGINT'); } catch {}
+        const exited = await waitForChildExit(child, this.#cancelGraceMs);
+        if (!exited) {
+          // SIGINT didn't stop it within the grace period — escalate to a forceful,
+          // unsignaled kill (the only reliable forced-termination path on Windows;
+          // equivalent to SIGKILL on POSIX) so cancellation is never a silent no-op.
+          try { child.kill(); } catch {}
+        }
+      }
     }
     return { cancelled: true };
   }
@@ -445,6 +456,21 @@ export class AntigravityAgentProvider {
     }
     return { resolved: true, interactionId };
   }
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (typeof child.exitCode === 'number' || typeof child.signalCode === 'string') return Promise.resolve(true);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    function onExit() {
+      clearTimeout(timer);
+      resolve(true);
+    }
+    child.once('exit', onExit);
+  });
 }
 
 export function createAntigravityAgentProvider(options) {

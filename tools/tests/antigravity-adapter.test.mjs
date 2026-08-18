@@ -44,6 +44,39 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {})
   return child;
 }
 
+// A process that never completes on its own — only `kill()` ever terminates it. Used to
+// test `cancelTurn`'s grace-period + forced-kill escalation in isolation from the normal
+// stdout-streaming completion path.
+function createHangingMockProcess({ ignoreSignal = false } = {}) {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+
+  const finishKill = (signal) => {
+    child.killed = true;
+    child.killSignal = signal;
+    child.signalCode = signal || null;
+    child.exitCode = signal ? null : 0;
+    child.emit('exit', child.exitCode, child.signalCode);
+    child.emit('close', child.exitCode);
+  };
+
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    // `ignoreSignal` simulates a process that doesn't respond to SIGINT (or on Windows,
+    // where Node has no real signal delivery) — only a subsequent unsignaled kill() works.
+    if (ignoreSignal && signal) return true;
+    setImmediate(() => finishKill(signal));
+    return true;
+  };
+
+  return child;
+}
+
 test('AntigravityAgentProvider declares honest capabilities', () => {
   const provider = createAntigravityAgentProvider();
   assert.equal(provider.descriptor.id, 'antigravity');
@@ -172,18 +205,11 @@ test('maps reasoning, tool calls, and usage events', async () => {
 });
 
 test('supports turn cancellation via cancelTurn', async () => {
-  let killed = false;
-  const child = new EventEmitter();
-  child.stdin = new Writable({ write(c, e, cb) { cb(); } });
-  child.stdout = new Readable({ read() {} });
-  child.stderr = new Readable({ read() {} });
-  child.kill = () => {
-    killed = true;
-    setImmediate(() => child.emit('close', 0));
-  };
+  const child = createHangingMockProcess();
 
   const provider = createAntigravityAgentProvider({
     spawnProcess: () => child,
+    cancelGraceMs: 200,
   });
 
   const turnPromise = provider.startTurn({
@@ -194,7 +220,28 @@ test('supports turn cancellation via cancelTurn', async () => {
 
   const cancelResult = await provider.cancelTurn({ turnId: 'turn-cancel', providerSessionId: 'sess-c' });
   assert.equal(cancelResult.cancelled, true);
-  assert.equal(killed, true);
+  assert.deepEqual(child.killCalls, ['SIGINT']);
+
+  await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+});
+
+test('cancelTurn escalates to a forceful, unsignaled kill when SIGINT is ignored past the grace period', async () => {
+  const child = createHangingMockProcess({ ignoreSignal: true });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 20,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-cancel-escalate',
+    providerSessionId: 'sess-escalate',
+    message: 'Long query',
+  });
+
+  const cancelResult = await provider.cancelTurn({ turnId: 'turn-cancel-escalate', providerSessionId: 'sess-escalate' });
+  assert.equal(cancelResult.cancelled, true);
+  assert.deepEqual(child.killCalls, ['SIGINT', undefined]);
 
   await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
 });

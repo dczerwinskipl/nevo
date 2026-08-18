@@ -161,6 +161,9 @@ test('AiSessionService uses binding service for listings and transcript cache fo
     providerSessionId: 'sess-1',
     specId: 'spec-123',
     lastActivityAt: '2026-08-18T10:00:00.000Z',
+    status: 'idle',
+    activeTurn: null,
+    pendingInteraction: null,
   }]);
 
   const session = await service.getSession('claude', 'sess-1');

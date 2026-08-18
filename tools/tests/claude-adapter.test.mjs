@@ -11,8 +11,10 @@ import {
   CLAUDE_CAPABILITIES,
 } from '../ai/claude-adapter.mjs';
 
-function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId } = {}) {
+function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId, ignoreSignal = false } = {}) {
   const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
   child.stdin = new Writable({
     write(chunk, encoding, callback) { callback(); },
   });
@@ -23,10 +25,23 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
     read() {},
   });
 
-  child.kill = (signal) => {
+  // Mirrors real Node child_process semantics closely enough for adapter tests: 'exit'
+  // fires as soon as the process itself has terminated, 'close' once stdio finishes too.
+  const finishKill = (signal) => {
     child.killed = true;
     child.killSignal = signal;
-    setImmediate(() => child.emit('close', 0));
+    child.signalCode = signal || null;
+    child.exitCode = signal ? null : 0;
+    child.emit('exit', child.exitCode, child.signalCode);
+    child.emit('close', child.exitCode);
+  };
+
+  child.kill = (signal) => {
+    // `ignoreSignal` simulates a process that doesn't respond to SIGINT (or on Windows,
+    // where Node has no real signal delivery) — only an unsignaled forceful kill() works.
+    if (ignoreSignal && signal) return true;
+    setImmediate(() => finishKill(signal));
+    return true;
   };
 
   setImmediate(async () => {
@@ -45,8 +60,12 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
       child.stdout.push(`${line}\n`);
       if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
     }
-    child.stdout.push(null);
-    child.emit('close', exitCode);
+    if (!child.killed) {
+      child.stdout.push(null);
+      child.exitCode = exitCode;
+      child.emit('exit', exitCode, null);
+      child.emit('close', exitCode);
+    }
   });
 
   return child;
@@ -55,6 +74,39 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessio
 function extractSessionId(args = []) {
   const sIdx = args.indexOf('--session-id') !== -1 ? args.indexOf('--session-id') : args.indexOf('--resume');
   return sIdx !== -1 ? args[sIdx + 1] : undefined;
+}
+
+// A process that never completes on its own — only `kill()` ever terminates it. Used to
+// test `cancelTurn`'s grace-period + forced-kill escalation in isolation from the normal
+// stdout-streaming completion path.
+function createHangingMockProcess({ ignoreSignal = false } = {}) {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, callback) { callback(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+
+  const finishKill = (signal) => {
+    child.killed = true;
+    child.killSignal = signal;
+    child.signalCode = signal || null;
+    child.exitCode = signal ? null : 0;
+    child.emit('exit', child.exitCode, child.signalCode);
+    child.emit('close', child.exitCode);
+  };
+
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    // `ignoreSignal` simulates a process that doesn't respond to SIGINT (or on Windows,
+    // where Node has no real signal delivery) — only a subsequent unsignaled kill() works.
+    if (ignoreSignal && signal) return true;
+    setImmediate(() => finishKill(signal));
+    return true;
+  };
+
+  return child;
 }
 
 
@@ -495,4 +547,46 @@ test('Claude ask mode behavioral guarantee: analyzes without modifying workspace
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {
+  const child = createHangingMockProcess();
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 200,
+  });
+
+  let operation;
+  const startPromise = provider.startTurn({
+    turnId: 'turn-cancel-graceful',
+    message: 'hello',
+    setOperation: op => { operation = op; },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
+
+  await provider.cancelTurn({ operation });
+  assert.deepEqual(child.killCalls, ['SIGINT']);
+  await assert.rejects(startPromise, { code: 'AI_TURN_CANCELLED' });
+});
+
+test('cancelTurn escalates to a forceful, unsignaled kill when SIGINT is ignored past the grace period', async () => {
+  const child = createHangingMockProcess({ ignoreSignal: true });
+  const provider = createClaudeAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 20,
+  });
+
+  let operation;
+  const startPromise = provider.startTurn({
+    turnId: 'turn-cancel-escalate',
+    message: 'hello',
+    setOperation: op => { operation = op; },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(operation, 'setOperation must be called before cancelTurn can be exercised');
+
+  await provider.cancelTurn({ operation });
+  assert.deepEqual(child.killCalls, ['SIGINT', undefined]);
+  await assert.rejects(startPromise, { code: 'AI_TURN_CANCELLED' });
 });
