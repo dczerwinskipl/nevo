@@ -101,11 +101,10 @@ existing cancel control must reliably appear and reliably terminate the underlyi
      process running after NEvo has already reported the turn as cancelled. Harden this by reusing
      the idle-watchdog's own bounded-wait/force-terminate mechanism from requirement 1: after
      requesting adapter cancellation, wait up to a short bounded grace period (default 5 seconds)
-     for the operation to actually stop; if it hasn't, escalate to a forceful kill
-     (`child.kill()` with no signal — Windows has no distinct SIGINT/SIGTERM semantics and this is
-     the only reliable forced-termination path there; POSIX platforms escalate `SIGINT` →
-     `SIGKILL`) before finishing the turn. This guarantees cancellation is never a no-op the user
-     has to retry, on any OS.
+     for the operation to actually stop; if it hasn't, escalate to a forceful kill with explicit
+     `SIGKILL` (`SIGINT` -> bounded grace period -> `SIGKILL` if still alive) and wait a second
+     bounded grace period for terminal exit before finishing the turn. This guarantees cancellation
+     is bounded, forceful, and never a silent no-op on any supported OS.
    - The composer's send button (`tools/dashboard/src/components/ai-chat.tsx`) follows the same
      convention established clients use: while a turn is running, it becomes an enabled stop
      control (same icon/behavior as the header's existing cancel button) instead of a disabled

@@ -11,8 +11,8 @@ unresolved_needs_clarification: 0
 spec_fingerprint: 2d6e9ba0c36eee842339b30b46400f7616a8d9844f07109c395670d421788bf2
 task_fingerprints:
   final-verification-and-architecture-docs: 0f089f0f5a4e9c87d06aa57fd97bc61e357532932bbb187542dd324195ae486c
-  agent-execution-modes-and-permissions: 7b4f69d57cf15fdcbcd12bfb7c0f7d8e752c11d22d1266f84c4fadeb9eec99bd
-  turn-reliability-and-restart-resilience: f4c95bab8da7c1acd997fd740a2e01954ae7310e1c4f48f4cad4f9b3d65c856f
+  agent-execution-modes-and-permissions: d0ae8ec4d37989e7f5501014adf7616d999fb5ebcf63dbf63fee30ce573f098f
+  turn-reliability-and-restart-resilience: 23706f53018c0d6e271142b702660f5fc01cffdd80fc2646bce335aa8c9485d4
   spec-creation-wizard-and-agent-scaffolding: d452fa6909f6c89e59eb6129cf3925317928239d9d6ccf4e7bcaf593a7ca4895
 ---
 

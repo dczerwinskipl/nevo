@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T15:40:44.840Z",
+  "generated": "2026-08-18T16:10:16.995Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -471,13 +471,14 @@
           ],
           "implementation": {
             "baseline_revision": "89f1dfdd1e1e7121e9c687d9e534892927c8d666",
-            "review_revision": "e81603027eac9d4644a85cc6742de93a0044702c",
+            "review_revision": "b1d8575fbd984cd396408a591770cddf2fa900cc",
             "changed_paths": [
               "tools/ai/antigravity-adapter.mjs",
               "tools/ai/binding-service.mjs",
               "tools/ai/claude-adapter.mjs",
               "tools/ai/contracts.mjs",
               "tools/ai/mock-adapter.mjs",
+              "tools/ai/process-termination.mjs",
               "tools/ai/registry.mjs",
               "tools/ai/service.mjs",
               "tools/ai/transcript-cache.mjs",
@@ -508,13 +509,14 @@
               "tools/tests/ai-turn-runtime.test.mjs",
               "tools/tests/antigravity-adapter.test.mjs",
               "tools/tests/claude-adapter.test.mjs",
-              "tools/tests/claude-interaction.test.mjs"
+              "tools/tests/claude-interaction.test.mjs",
+              "tools/tests/process-termination.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "cfb9710c5168c7379a3bf4202a9d05399afae8d574c8791311f06512f554037c"
           },
           "self_check": {
-            "fingerprint": "7b4f69d57cf15fdcbcd12bfb7c0f7d8e752c11d22d1266f84c4fadeb9eec99bd",
-            "revision": "e81603027eac9d4644a85cc6742de93a0044702c",
+            "fingerprint": "d0ae8ec4d37989e7f5501014adf7616d999fb5ebcf63dbf63fee30ce573f098f",
+            "revision": "b1d8575fbd984cd396408a591770cddf2fa900cc",
             "commands": [
               {
                 "command": "node --test tools/tests/agent-binding.test.mjs",
@@ -558,11 +560,12 @@
           ],
           "implementation": {
             "baseline_revision": "b8609808bb02d6b42d298348a6a66f748bd3b873",
-            "review_revision": "e81603027eac9d4644a85cc6742de93a0044702c",
+            "review_revision": "b1d8575fbd984cd396408a591770cddf2fa900cc",
             "changed_paths": [
               "tools/ai/antigravity-adapter.mjs",
               "tools/ai/claude-adapter.mjs",
               "tools/ai/contracts.mjs",
+              "tools/ai/process-termination.mjs",
               "tools/ai/service.mjs",
               "tools/ai/transcript-cache.mjs",
               "tools/ai/turn-runtime.mjs",
@@ -576,13 +579,14 @@
               "tools/tests/ai-turn-runtime.test.mjs",
               "tools/tests/antigravity-adapter.test.mjs",
               "tools/tests/claude-adapter.test.mjs",
-              "tools/tests/claude-interaction.test.mjs"
+              "tools/tests/claude-interaction.test.mjs",
+              "tools/tests/process-termination.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "cfb9710c5168c7379a3bf4202a9d05399afae8d574c8791311f06512f554037c"
           },
           "self_check": {
-            "fingerprint": "f4c95bab8da7c1acd997fd740a2e01954ae7310e1c4f48f4cad4f9b3d65c856f",
-            "revision": "e81603027eac9d4644a85cc6742de93a0044702c",
+            "fingerprint": "23706f53018c0d6e271142b702660f5fc01cffdd80fc2646bce335aa8c9485d4",
+            "revision": "b1d8575fbd984cd396408a591770cddf2fa900cc",
             "commands": [
               {
                 "command": "node --test tools/tests/ai-turn-runtime.test.mjs",

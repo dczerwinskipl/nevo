@@ -47,7 +47,7 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
      - `agent`:
        - *Guarantee*: Explicit unattended autonomous mode with provider permission bypass under Nevo's defined policy.
        - *Claude Code mapping*: `--permission-mode bypassPermissions`.
-       - *Antigravity mapping*: `--mode=default --dangerously-skip-permissions` (invocation-scoped flags).
+       - *Antigravity mapping*: `--mode=accept-edits --dangerously-skip-permissions` (invocation-scoped flags).
        - *Safety constraints*:
          - Fresh or default sessions must never silently escalate to `agent`.
          - `agent` is activated strictly when explicitly requested by user in turn/session parameters or restored from an explicitly persisted user preference.
@@ -60,7 +60,7 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
    - In `plan`, `acceptEdits`, and `bypassPermissions` modes, verify that native interactive questions remain operational and correctly defer.
 
 3. **Explicit invocation-scoped Antigravity mapping:**
-   - Separate execution mode (`--mode <plan|accept-edits|default>`), permission policy (`--dangerously-skip-permissions` for `agent` mode), and subagent behavior.
+   - Separate execution mode (`--mode <plan|accept-edits>`), permission policy (`--dangerously-skip-permissions` for `agent` mode), and subagent behavior.
    - All flags must be invocation-scoped CLI arguments passed to child processes; no global user settings files may be mutated.
 
 4. **Session mode lifecycle, precedence, and persistence:**
@@ -85,7 +85,7 @@ Introduce provider-neutral execution modes (`ask`, `edit`, `agent`) with strict 
    - Deterministic adapter tests prove the exact plan mode invocation flags.
    - Offline provider fixture/transcript tests demonstrate that file-modification operations are prevented/omitted in `ask` mode without altering workspace files, ensuring the semantic guarantee cannot be claimed merely because a CLI flag string was passed.
 7. **Edit mode CLI mapping**: Claude spawns with `--permission-mode acceptEdits` and Antigravity spawns with `--mode=accept-edits`.
-8. **Agent mode CLI mapping**: Claude spawns with `--permission-mode bypassPermissions` and Antigravity spawns with `--mode=default --dangerously-skip-permissions`.
+8. **Agent mode CLI mapping**: Claude spawns with `--permission-mode bypassPermissions` and Antigravity spawns with `--mode=accept-edits --dangerously-skip-permissions`.
 9. **Precedence**: Turn mode overrides session mode; session mode overrides provider default mode (`edit`).
 10. **Persistence**: Session mode survives `AgentSessionBindingService` reload from disk per-spec file.
 11. **Session isolation**: Updating mode for session A leaves session B unaffected.

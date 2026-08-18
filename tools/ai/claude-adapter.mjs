@@ -10,6 +10,7 @@ import {
   validateAgentExecutionMode,
 } from './contracts.mjs';
 import { createClaudeContinuationStore } from './claude-continuation-store.mjs';
+import { terminateChildProcess } from './process-termination.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -45,6 +46,7 @@ export class ClaudeAgentProvider {
   #materializedSessions = new Set();
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
+  #forceGraceMs;
   #probeExecutable;
 
   constructor({
@@ -54,6 +56,7 @@ export class ClaudeAgentProvider {
     continuationStore = createClaudeContinuationStore({ baseDir: join(cwd, '.nevo-ai-local', 'transcripts', 'claude', 'continuations') }),
     hookScriptPath = HOOK_SCRIPT_PATH,
     cancelGraceMs = 5_000,
+    forceGraceMs = 2_000,
     probeExecutable,
   } = {}) {
     this.#executable = executable;
@@ -62,6 +65,7 @@ export class ClaudeAgentProvider {
     this.#continuationStore = continuationStore;
     this.#hookScriptPath = hookScriptPath;
     this.#cancelGraceMs = cancelGraceMs;
+    this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
     this.descriptor = Object.freeze({
       id: 'claude',
@@ -207,7 +211,12 @@ export class ClaudeAgentProvider {
       if (signal) {
         signal.addEventListener('abort', () => {
           operation.cancelled = true;
-          try { child.kill('SIGINT'); } catch {}
+          if (child) {
+            terminateChildProcess(child, {
+              graceMs: this.#cancelGraceMs,
+              forceGraceMs: this.#forceGraceMs,
+            }).catch(() => {});
+          }
         }, { once: true });
       }
 
@@ -589,36 +598,14 @@ export class ClaudeAgentProvider {
     const child = operation.childProcess;
     if (!child) return;
 
-    try {
-      child.kill('SIGINT');
-    } catch {}
-
-    const exited = await waitForChildExit(child, this.#cancelGraceMs);
-    if (exited) return;
-
-    // SIGINT didn't stop it within the grace period (ignored by the process, or a no-op
-    // on this platform). Escalate to a forceful, unsignaled kill — the only reliable
-    // forced-termination path on Windows, and equivalent to SIGKILL on POSIX — so the
-    // user's cancel request never becomes a silent no-op they have to retry.
-    try {
-      child.kill();
-    } catch {}
-  }
-}
-
-function waitForChildExit(child, timeoutMs) {
-  if (typeof child.exitCode === 'number' || typeof child.signalCode === 'string') return Promise.resolve(true);
-  return new Promise(resolve => {
-    const timer = setTimeout(() => {
-      child.off('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    function onExit() {
-      clearTimeout(timer);
-      resolve(true);
+    const result = await terminateChildProcess(child, {
+      graceMs: this.#cancelGraceMs,
+      forceGraceMs: this.#forceGraceMs,
+    });
+    if (!result.terminated) {
+      throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Claude CLI process within bounded timeout.', { status: 500 });
     }
-    child.once('exit', onExit);
-  });
+  }
 }
 
 export function createClaudeAgentProvider(options) {

@@ -53,7 +53,7 @@ task's own acceptance criteria — noted for clarity, not a scope violation (sti
   strings (`contracts.mjs:424-432`); `defaultMode: 'edit'` / `supportedModes: ['ask','edit','agent']` on provider descriptors (`contracts.mjs:438-453`); omitted mode resolves to
   `edit` without escalation (`service.mjs:123-132`); `agent` only passed when explicitly
   selected or restored from a binding (same resolution path, no implicit default); Claude
-  `ask`→`plan`, `edit`→`acceptEdits`, `agent`→`bypassPermissions` (`claude-adapter.mjs:161-166`); Antigravity `ask`→`--mode=plan`, `edit`→`--mode=accept-edits`, `agent`→`--mode=default --dangerously-skip-permissions` (`antigravity-adapter.mjs:116-121`); both providers'
+  `ask`→`plan`, `edit`→`acceptEdits`, `agent`→`bypassPermissions` (`claude-adapter.mjs:161-166`); Antigravity `ask`→`--mode=plan`, `edit`→`--mode=accept-edits`, `agent`→`--mode=accept-edits --dangerously-skip-permissions` (`antigravity-adapter.mjs:116-121`); both providers'
   `ask`-mode adapter contract simulation verified via offline fixture tests, not just flag strings;
   turn mode overrides session mode overrides provider default (`service.mjs:123-132`);
   mode persists across `AgentSessionBindingService` reload and stays isolated per session

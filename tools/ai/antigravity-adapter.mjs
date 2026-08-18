@@ -8,6 +8,7 @@ import {
   CapabilityNotSupportedError,
   validateAgentExecutionMode,
 } from './contracts.mjs';
+import { terminateChildProcess } from './process-termination.mjs';
 
 export const ANTIGRAVITY_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
@@ -67,6 +68,7 @@ export class AntigravityAgentProvider {
   #mappingFilePath;
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
+  #forceGraceMs;
   #probeExecutable;
 
   constructor({
@@ -74,6 +76,7 @@ export class AntigravityAgentProvider {
     cwd = process.cwd(),
     spawnProcess = spawn,
     cancelGraceMs = 5_000,
+    forceGraceMs = 2_000,
     probeExecutable,
     materializedSessions,
     mappingFilePath = null,
@@ -82,6 +85,7 @@ export class AntigravityAgentProvider {
     this.#cwd = cwd;
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
+    this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
     if (Array.isArray(materializedSessions)) {
@@ -261,8 +265,11 @@ export class AntigravityAgentProvider {
       if (signal) {
         signal.addEventListener('abort', () => {
           operation.cancelled = true;
-          if (child && !child.killed) {
-            child.kill('SIGINT');
+          if (child) {
+            terminateChildProcess(child, {
+              graceMs: this.#cancelGraceMs,
+              forceGraceMs: this.#forceGraceMs,
+            }).catch(() => {});
           }
         }, { once: true });
       }
@@ -567,20 +574,28 @@ export class AntigravityAgentProvider {
     });
   }
 
-  async cancelTurn({ turnId, providerSessionId } = {}) {
-    const operation = turnId ? this.#activeOperations.get(turnId) : null;
+  async cancelTurn({ turnId, providerSessionId, operation: passedOp } = {}) {
+    const operation = passedOp || (turnId ? this.#activeOperations.get(turnId) : null);
     if (operation) {
       operation.cancelled = true;
-      this.#activeOperations.delete(turnId);
       const child = operation.child;
-      if (child && !child.killed) {
-        try { child.kill('SIGINT'); } catch {}
-        const exited = await waitForChildExit(child, this.#cancelGraceMs);
-        if (!exited) {
-          // SIGINT didn't stop it within the grace period — escalate to a forceful,
-          // unsignaled kill (the only reliable forced-termination path on Windows;
-          // equivalent to SIGKILL on POSIX) so cancellation is never a silent no-op.
-          try { child.kill(); } catch {}
+      if (child) {
+        try {
+          const result = await terminateChildProcess(child, {
+            graceMs: this.#cancelGraceMs,
+            forceGraceMs: this.#forceGraceMs,
+          });
+          if (!result.terminated) {
+            throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Antigravity CLI process within bounded timeout.', { status: 500 });
+          }
+        } finally {
+          if (turnId) {
+            this.#activeOperations.delete(turnId);
+          }
+        }
+      } else {
+        if (turnId) {
+          this.#activeOperations.delete(turnId);
         }
       }
     }
@@ -593,21 +608,6 @@ export class AntigravityAgentProvider {
     }
     return { resolved: true, interactionId };
   }
-}
-
-function waitForChildExit(child, timeoutMs) {
-  if (typeof child.exitCode === 'number' || typeof child.signalCode === 'string') return Promise.resolve(true);
-  return new Promise(resolve => {
-    const timer = setTimeout(() => {
-      child.off('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    function onExit() {
-      clearTimeout(timer);
-      resolve(true);
-    }
-    child.once('exit', onExit);
-  });
 }
 
 export function createAntigravityAgentProvider(options = {}) {
