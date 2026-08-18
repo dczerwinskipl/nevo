@@ -21,7 +21,20 @@ export function slugifyTitle(title: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export function generateInitialPrompt(title: string, goal: string): string {
-  const goalText = goal.trim() || 'Zdefiniuj cel, kryteria akceptacji i podział na zadania.';
-  return `Pomóż mi zaplanować i przygotować pełną specyfikację dla zadania: ${title || 'Nowa specyfikacja'}.\n\nCel:\n${goalText}`;
+export function generateInitialPrompt(title: string, goal: string, slug?: string): string {
+  const goalText = goal.trim() || 'Define the goals, constraints, affected areas, and task decomposition.';
+  const effectiveSlug = slug?.trim() || slugifyTitle(title) || 'new-specification';
+  const effectiveTitle = title?.trim() || 'New Specification';
+
+  return `[NEvo Context: Specification '${effectiveSlug}']
+Title: "${effectiveTitle}"
+Location: specs/active/${effectiveSlug}/
+Status: draft (skeleton files change.yaml and overview.md already created)
+Scope: Specification refinement and task planning
+
+You are assisting with the existing NEvo specification '${effectiveSlug}'.
+Do NOT scaffold a new or duplicate specification. Work directly on the existing files in 'specs/active/${effectiveSlug}/' (overview.md, change.yaml).
+
+Goal:
+${goalText}`;
 }

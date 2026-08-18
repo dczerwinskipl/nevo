@@ -68,7 +68,12 @@ export function AiSessionCreateModal({
       mode,
       ...(title.trim() ? { title: title.trim() } : {}),
     });
-    onCreated(session, initialPromptWithTaskContext(initialMessage, taskIds));
+    const promptToSend = initialPromptWithTaskContext(initialMessage, taskIds, {
+      slug: change.slug,
+      title: change.title,
+      tasks: change.tasks,
+    });
+    onCreated(session, promptToSend);
   };
 
   return (
@@ -189,40 +194,42 @@ export function AiSessionCreateModal({
               />
             </label>
 
-            <fieldset className="mt-5">
-              <legend className="text-xs font-semibold">
-                Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span>
-              </legend>
-              <div className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
-                {change.tasks.map((task) => {
-                  const checked = taskIds.includes(task.id);
-                  return (
-                    <label
-                      key={task.id}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs hover:bg-white/5"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setTaskIds((prev) =>
-                            checked ? prev.filter((id) => id !== task.id) : [...prev, task.id]
-                          )
-                        }
-                        className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
-                      />
-                      <span className="font-mono text-[11px] text-[var(--muted-strong)]">{task.id}</span>
-                      <span className="truncate text-[var(--foreground)]">{task.title}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              {taskIds.length > 0 && (
-                <code className="mt-2 block break-words rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] text-[var(--muted-strong)]">
-                  Context: tasks {taskIds.join(', ')}
-                </code>
-              )}
-            </fieldset>
+            {change.tasks && change.tasks.length > 0 && (
+              <fieldset className="mt-5">
+                <legend className="text-xs font-semibold">
+                  Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span>
+                </legend>
+                <div className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
+                  {change.tasks.map((task) => {
+                    const checked = taskIds.includes(task.id);
+                    return (
+                      <label
+                        key={task.id}
+                        className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs hover:bg-white/5"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setTaskIds((prev) =>
+                              checked ? prev.filter((id) => id !== task.id) : [...prev, task.id]
+                            )
+                          }
+                          className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
+                        />
+                        <span className="font-mono text-[11px] text-[var(--muted-strong)]">{task.id}</span>
+                        <span className="truncate text-[var(--foreground)]">{task.title}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {taskIds.length > 0 && (
+                  <code className="mt-2 block break-words rounded-lg border border-[var(--border)] bg-black/20 p-2 text-[10px] text-[var(--muted-strong)]">
+                    Context: tasks {taskIds.join(', ')}
+                  </code>
+                )}
+              </fieldset>
+            )}
 
             <label className="mt-4 block text-xs font-semibold">
               Pierwsza wiadomość <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>

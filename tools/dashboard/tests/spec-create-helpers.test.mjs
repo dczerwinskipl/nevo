@@ -11,14 +11,17 @@ test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
   assert.equal(slugifyTitle(''), '');
 });
 
-test('generateInitialPrompt generates structured template with title and goal', () => {
-  const prompt = generateInitialPrompt('My Great Feature', 'Deliver amazing value');
-  assert.ok(prompt.includes('My Great Feature'));
+test('generateInitialPrompt generates structured template with title, slug, and goal', () => {
+  const prompt = generateInitialPrompt('My Great Feature', 'Deliver amazing value', 'my-great-feature');
+  assert.ok(prompt.includes("[NEvo Context: Specification 'my-great-feature']"));
+  assert.ok(prompt.includes('Title: "My Great Feature"'));
+  assert.ok(prompt.includes('Location: specs/active/my-great-feature/'));
   assert.ok(prompt.includes('Deliver amazing value'));
+  assert.ok(prompt.includes('Do NOT scaffold a new or duplicate specification'));
 
-  const emptyGoalPrompt = generateInitialPrompt('My Feature', '');
+  const emptyGoalPrompt = generateInitialPrompt('My Feature', '', 'my-feature');
   assert.ok(emptyGoalPrompt.includes('My Feature'));
-  assert.ok(emptyGoalPrompt.includes('Zdefiniuj cel, kryteria akceptacji'));
+  assert.ok(emptyGoalPrompt.includes('Define the goals, constraints, affected areas'));
 });
 
 test('SPEC_TYPES_OPTIONS contains standard, architectural, small, exploratory options', () => {

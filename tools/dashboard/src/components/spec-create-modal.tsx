@@ -45,11 +45,12 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
   // Auto-generate slug when title changes unless manually touched (or if slug is empty)
   const handleTitleChange = (val: string) => {
     setTitle(val);
+    const newSlug = (!slugManuallyEdited || !slug.trim()) ? slugifyTitle(val) : slug;
     if (!slugManuallyEdited || !slug.trim()) {
-      setSlug(slugifyTitle(val));
+      setSlug(newSlug);
     }
     if (!promptManuallyEdited) {
-      setInitialPrompt(generateInitialPrompt(val, goal));
+      setInitialPrompt(generateInitialPrompt(val, goal, newSlug));
     }
   };
 
@@ -57,20 +58,31 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
     setSlug(val);
     if (!val.trim()) {
       setSlugManuallyEdited(false);
+      const autoSlug = slugifyTitle(title);
+      if (!promptManuallyEdited) {
+        setInitialPrompt(generateInitialPrompt(title, goal, autoSlug));
+      }
     } else {
       setSlugManuallyEdited(true);
+      if (!promptManuallyEdited) {
+        setInitialPrompt(generateInitialPrompt(title, goal, val));
+      }
     }
   };
 
   const handleSyncSlugWithTitle = () => {
-    setSlug(slugifyTitle(title));
+    const autoSlug = slugifyTitle(title);
+    setSlug(autoSlug);
     setSlugManuallyEdited(false);
+    if (!promptManuallyEdited) {
+      setInitialPrompt(generateInitialPrompt(title, goal, autoSlug));
+    }
   };
 
   const handleGoalChange = (val: string) => {
     setGoal(val);
     if (!promptManuallyEdited) {
-      setInitialPrompt(generateInitialPrompt(title, val));
+      setInitialPrompt(generateInitialPrompt(title, val, slug));
     }
   };
 

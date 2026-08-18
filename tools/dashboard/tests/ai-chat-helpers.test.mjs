@@ -22,11 +22,36 @@ test('turn idempotency keys work when randomUUID is unavailable on an HTTP VPN o
   }), 'ui-stable-uuid');
 });
 
-test('selected stable task IDs are prepended to the initial prompt', () => {
-  assert.equal(initialPromptWithTaskContext(' Review these tasks. ', ['task-a', 'task-b']),
-    'Context: tasks task-a, task-b\n\nReview these tasks.');
+test('selected stable task IDs and specification context are prepended to the initial prompt', () => {
+  assert.equal(
+    initialPromptWithTaskContext(' Review these tasks. ', ['task-a', 'task-b']),
+    'Context: tasks task-a, task-b\n\nReview these tasks.'
+  );
   assert.equal(initialPromptWithTaskContext(' General review. ', []), 'General review.');
   assert.equal(initialPromptWithTaskContext('   ', ['task-a']), null);
+
+  const specPrompt = initialPromptWithTaskContext(
+    'Please analyze this task.',
+    ['task-1'],
+    {
+      slug: 'my-feature',
+      title: 'My Feature',
+      tasks: [{ id: 'task-1', title: 'First Task' }],
+    }
+  );
+  assert.ok(specPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
+  assert.ok(specPrompt?.includes('Title: "My Feature"'));
+  assert.ok(specPrompt?.includes('Location: specs/active/my-feature/'));
+  assert.ok(specPrompt?.includes('Focus Tasks: task-1 ("First Task")'));
+  assert.ok(specPrompt?.includes('Please analyze this task.'));
+
+  const emptyMsgSpecPrompt = initialPromptWithTaskContext(
+    '',
+    [],
+    { slug: 'my-feature', title: 'My Feature' }
+  );
+  assert.ok(emptyMsgSpecPrompt?.includes("[NEvo Context: Specification 'my-feature']"));
+  assert.ok(emptyMsgSpecPrompt?.includes('Scope: Full specification'));
 });
 
 test('persisted assistant messages replace their streamed version by stable message ID', () => {
