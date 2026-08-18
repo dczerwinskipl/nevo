@@ -41,9 +41,9 @@ task's own acceptance criteria — noted for clarity, not a scope violation (sti
 - `node --test tools/tests/agent-binding.test.mjs` — passed (9/9, including mode
   persistence and session isolation)
 - `node --test tools/tests/claude-adapter.test.mjs` — passed (18/18, including ask-mode
-  offline behavioral-guarantee fixture)
+  offline adapter contract simulation fixture)
 - `node --test tools/tests/antigravity-adapter.test.mjs` — passed (11/11, including
-  ask-mode offline behavioral-guarantee fixture)
+  ask-mode offline adapter contract simulation fixture)
 - `npm --prefix tools/dashboard test` — passed (116/116)
 - `node tools/specs.mjs validate` — passed
 
@@ -54,7 +54,7 @@ task's own acceptance criteria — noted for clarity, not a scope violation (sti
   `edit` without escalation (`service.mjs:123-132`); `agent` only passed when explicitly
   selected or restored from a binding (same resolution path, no implicit default); Claude
   `ask`→`plan`, `edit`→`acceptEdits`, `agent`→`bypassPermissions` (`claude-adapter.mjs:161-166`); Antigravity `ask`→`--mode=plan`, `edit`→`--mode=accept-edits`, `agent`→`--mode=default --dangerously-skip-permissions` (`antigravity-adapter.mjs:116-121`); both providers'
-  `ask`-mode behavioral guarantee proven via offline fixture tests, not just flag strings;
+  `ask`-mode adapter contract simulation verified via offline fixture tests, not just flag strings;
   turn mode overrides session mode overrides provider default (`service.mjs:123-132`);
   mode persists across `AgentSessionBindingService` reload and stays isolated per session
   (`agent-binding.test.mjs` subtest 9); `AskUserQuestion` transport unchanged across modes
