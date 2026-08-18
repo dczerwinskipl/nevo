@@ -398,8 +398,13 @@ test('directory removal failure during rollback throws SpecRollbackError with fa
 test('index rebuild failure during rollback throws SpecRollbackError with failed step and cause', async () => {
   const env = await createTempSpecsEnvironment();
   try {
-    const alwaysFailingRefresh = () => {
-      throw new Error('Index IO failure');
+    let callCount = 0;
+    const failingRefresh = () => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new Error('Initial index write failed');
+      }
+      throw new Error('Rollback index rebuild failed');
     };
 
     await assert.rejects(
@@ -411,16 +416,16 @@ test('index rebuild failure during rollback throws SpecRollbackError with failed
         activeIndexMd: env.activeIndexMd,
         archiveIndexMd: env.archiveIndexMd,
         indexJson: env.indexJson,
-        refreshIndexes: alwaysFailingRefresh,
+        refreshIndexes: failingRefresh,
       }),
       err => {
         assert.ok(err instanceof SpecRollbackError);
         assert.equal(err.code, 'SPEC_ROLLBACK_FAILED');
         assert.equal(err.slug, 'rollback-index-fail');
         assert.deepEqual(err.failedSteps, ['rebuild_indexes']);
-        assert.equal(err.cause?.message, 'Index IO failure');
+        assert.equal(err.cause?.message, 'Initial index write failed');
         assert.equal(err.recoveryErrors.length, 1);
-        assert.equal(err.recoveryErrors[0].message, 'Index IO failure');
+        assert.equal(err.recoveryErrors[0].message, 'Rollback index rebuild failed');
         return true;
       }
     );
@@ -433,10 +438,15 @@ test('both rollback steps failing throws SpecRollbackError with all failed steps
   const env = await createTempSpecsEnvironment();
   try {
     const failingFsRm = () => {
-      throw new Error('Failed to delete directory');
+      throw new Error('Rollback directory deletion failed');
     };
+    let callCount = 0;
     const failingRefresh = () => {
-      throw new Error('Failed to rebuild indexes');
+      callCount += 1;
+      if (callCount === 1) {
+        throw new Error('Initial index write failed');
+      }
+      throw new Error('Rollback index rebuild failed');
     };
 
     await assert.rejects(
@@ -457,9 +467,11 @@ test('both rollback steps failing throws SpecRollbackError with all failed steps
         assert.equal(err.code, 'SPEC_ROLLBACK_FAILED');
         assert.equal(err.slug, 'both-rollback-fail');
         assert.deepEqual(err.failedSteps, ['cleanup_directory', 'rebuild_indexes']);
+        assert.equal(err.cause?.message, 'Initial index write failed');
         assert.equal(err.recoveryErrors.length, 2);
+        assert.equal(err.recoveryErrors[0].message, 'Rollback directory deletion failed');
+        assert.equal(err.recoveryErrors[1].message, 'Rollback index rebuild failed');
         assert.ok(err.message.includes('cleanup_directory, rebuild_indexes'));
-        assert.equal(err.cause?.message, 'Failed to rebuild indexes');
         return true;
       }
     );
