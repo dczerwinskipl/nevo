@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
 import { createDashboardServer } from '../server/index.mjs';
-import { refreshSpecsIndexes } from '../../specs/service.mjs';
+import { refreshSpecsIndexes, SpecRollbackError } from '../../specs/service.mjs';
 
 function fakeHub() {
   return { subscribe: () => () => {}, close: () => {} };
@@ -122,6 +122,35 @@ test('POST /api/specs rejects duplicate slug with 409 Conflict', async () => {
     assert.equal(secondRes.status, 409);
     const body = await secondRes.json();
     assert.equal(body.code, 'SPEC_CONFLICT');
+  } finally {
+    await env.close();
+  }
+});
+
+test('POST /api/specs returns 500 on SpecRollbackError with failedSteps metadata', async () => {
+  const env = await startTestServer({
+    specCreator: async () => {
+      throw new SpecRollbackError('Rollback failed during index recovery', {
+        slug: 'failed-rollback-spec',
+        failedSteps: ['rebuild_indexes'],
+      });
+    },
+  });
+  try {
+    const res = await fetch(`${env.baseUrl}/api/specs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        slug: 'failed-rollback-spec',
+        title: 'Failing Rollback Spec',
+      }),
+    });
+
+    assert.equal(res.status, 500);
+    const body = await res.json();
+    assert.equal(body.code, 'SPEC_ROLLBACK_FAILED');
+    assert.equal(body.slug, 'failed-rollback-spec');
+    assert.deepEqual(body.failedSteps, ['rebuild_indexes']);
   } finally {
     await env.close();
   }

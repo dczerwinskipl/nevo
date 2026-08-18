@@ -11,9 +11,11 @@ import {
   validateSpecType,
   refreshSpecsIndexes,
   buildSpecsIndexes,
+  checkSpecsIndexes,
   loadChange,
   SpecValidationError,
   SpecConflictError,
+  SpecRollbackError,
 } from '../specs/service.mjs';
 
 async function createTempSpecsEnvironment() {
@@ -232,10 +234,67 @@ test('createSpecification handles concurrent different-slug creation safely', as
   }
 });
 
-test('createSpecification rolls back directory and index on partial failure', async () => {
+test('creation failure + successful rollback: rethrows original error and restores consistent state', async () => {
   const env = await createTempSpecsEnvironment();
   try {
-    // Seed one valid initial spec
+    // Seed initial spec
+    await createSpecification({
+      slug: 'pre-existing',
+      title: 'Pre-existing Spec',
+      activeDir: env.activeDir,
+      archiveDir: env.archiveDir,
+      activeIndexMd: env.activeIndexMd,
+      archiveIndexMd: env.archiveIndexMd,
+      indexJson: env.indexJson,
+    });
+
+    let attempts = 0;
+    const failingRefreshIndexes = (options) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error('Initial index write failed');
+      }
+      // Recovery call succeeds
+      return refreshSpecsIndexes(options);
+    };
+
+    await assert.rejects(
+      () => createSpecification({
+        slug: 'failing-spec',
+        title: 'Failing Spec',
+        activeDir: env.activeDir,
+        archiveDir: env.archiveDir,
+        activeIndexMd: env.activeIndexMd,
+        archiveIndexMd: env.archiveIndexMd,
+        indexJson: env.indexJson,
+        refreshIndexes: failingRefreshIndexes,
+      }),
+      err => {
+        assert.equal(err.message, 'Initial index write failed');
+        return true;
+      }
+    );
+
+    // Spec directory removed
+    assert.equal(existsSync(join(env.activeDir, 'failing-spec')), false);
+
+    // Verify index is untouched and consistent with disk
+    const problems = checkSpecsIndexes({
+      activeDir: env.activeDir,
+      archiveDir: env.archiveDir,
+      activeIndexMd: env.activeIndexMd,
+      archiveIndexMd: env.archiveIndexMd,
+      indexJson: env.indexJson,
+    });
+    assert.deepEqual(problems, []);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('partial index write + successful recovery: directory removed and indexes remain consistent', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
     await createSpecification({
       slug: 'initial-spec',
       title: 'Initial Spec',
@@ -246,8 +305,17 @@ test('createSpecification rolls back directory and index on partial failure', as
       indexJson: env.indexJson,
     });
 
-    // Attempt creation with invalid indexJson path that triggers index-writing failure
-    const invalidIndexJsonPath = join(env.root, 'nonexistent-dir', 'unwritable.json');
+    let callCount = 0;
+    const partiallyFailingRefresh = (options) => {
+      callCount += 1;
+      if (callCount === 1) {
+        // Write active.generated.md, then fail before index.generated.json
+        writeFileSync(options.activeIndexMd, 'corrupted partial active content');
+        throw new Error('Disk full writing indexJson');
+      }
+      // Rollback recovery call: full proper rebuild/write
+      return refreshSpecsIndexes(options);
+    };
 
     await assert.rejects(
       () => createSpecification({
@@ -257,18 +325,144 @@ test('createSpecification rolls back directory and index on partial failure', as
         archiveDir: env.archiveDir,
         activeIndexMd: env.activeIndexMd,
         archiveIndexMd: env.archiveIndexMd,
-        indexJson: invalidIndexJsonPath,
-      })
+        indexJson: env.indexJson,
+        refreshIndexes: partiallyFailingRefresh,
+      }),
+      err => {
+        assert.equal(err.message, 'Disk full writing indexJson');
+        return true;
+      }
     );
 
-    // Spec directory must have been cleaned up
+    // Spec directory was removed during rollback
     assert.equal(existsSync(join(env.activeDir, 'failing-spec')), false);
 
-    // Valid spec still exists and indexes remain consistent
-    assert.ok(existsSync(join(env.activeDir, 'initial-spec')));
-    const indexData = JSON.parse(readFileSync(env.indexJson, 'utf-8'));
-    assert.equal(indexData.changes.length, 1);
-    assert.equal(indexData.changes[0].id, 'initial-spec');
+    // Rollback restored the generated index files to match disk exactly
+    const problems = checkSpecsIndexes({
+      activeDir: env.activeDir,
+      archiveDir: env.archiveDir,
+      activeIndexMd: env.activeIndexMd,
+      archiveIndexMd: env.archiveIndexMd,
+      indexJson: env.indexJson,
+    });
+    assert.deepEqual(problems, []);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('directory removal failure during rollback throws SpecRollbackError with failed step and cause', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    let callCount = 0;
+    const failingRefresh = (options) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new Error('Index failure triggering rollback');
+      }
+      return refreshSpecsIndexes(options);
+    };
+
+    const failingFsRm = () => {
+      throw new Error('EACCES: permission denied, unlink directory');
+    };
+
+    await assert.rejects(
+      () => createSpecification({
+        slug: 'rollback-dir-fail',
+        title: 'Rollback Directory Fail',
+        activeDir: env.activeDir,
+        archiveDir: env.archiveDir,
+        activeIndexMd: env.activeIndexMd,
+        archiveIndexMd: env.archiveIndexMd,
+        indexJson: env.indexJson,
+        fsRm: failingFsRm,
+        refreshIndexes: failingRefresh,
+      }),
+      err => {
+        assert.ok(err instanceof SpecRollbackError);
+        assert.equal(err.code, 'SPEC_ROLLBACK_FAILED');
+        assert.equal(err.slug, 'rollback-dir-fail');
+        assert.deepEqual(err.failedSteps, ['cleanup_directory']);
+        assert.equal(err.cause?.message, 'Index failure triggering rollback');
+        assert.equal(err.recoveryErrors.length, 1);
+        assert.equal(err.recoveryErrors[0].message, 'EACCES: permission denied, unlink directory');
+        return true;
+      }
+    );
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('index rebuild failure during rollback throws SpecRollbackError with failed step and cause', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    const alwaysFailingRefresh = () => {
+      throw new Error('Index IO failure');
+    };
+
+    await assert.rejects(
+      () => createSpecification({
+        slug: 'rollback-index-fail',
+        title: 'Rollback Index Fail',
+        activeDir: env.activeDir,
+        archiveDir: env.archiveDir,
+        activeIndexMd: env.activeIndexMd,
+        archiveIndexMd: env.archiveIndexMd,
+        indexJson: env.indexJson,
+        refreshIndexes: alwaysFailingRefresh,
+      }),
+      err => {
+        assert.ok(err instanceof SpecRollbackError);
+        assert.equal(err.code, 'SPEC_ROLLBACK_FAILED');
+        assert.equal(err.slug, 'rollback-index-fail');
+        assert.deepEqual(err.failedSteps, ['rebuild_indexes']);
+        assert.equal(err.cause?.message, 'Index IO failure');
+        assert.equal(err.recoveryErrors.length, 1);
+        assert.equal(err.recoveryErrors[0].message, 'Index IO failure');
+        return true;
+      }
+    );
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('both rollback steps failing throws SpecRollbackError with all failed steps and explicit recovery context', async () => {
+  const env = await createTempSpecsEnvironment();
+  try {
+    const failingFsRm = () => {
+      throw new Error('Failed to delete directory');
+    };
+    const failingRefresh = () => {
+      throw new Error('Failed to rebuild indexes');
+    };
+
+    await assert.rejects(
+      () => createSpecification({
+        slug: 'both-rollback-fail',
+        title: 'Both Rollback Fail',
+        activeDir: env.activeDir,
+        archiveDir: env.archiveDir,
+        activeIndexMd: env.activeIndexMd,
+        archiveIndexMd: env.archiveIndexMd,
+        indexJson: env.indexJson,
+        fsRm: failingFsRm,
+        refreshIndexes: failingRefresh,
+      }),
+      err => {
+        assert.ok(err instanceof SpecRollbackError);
+        assert.equal(err.name, 'SpecRollbackError');
+        assert.equal(err.code, 'SPEC_ROLLBACK_FAILED');
+        assert.equal(err.slug, 'both-rollback-fail');
+        assert.deepEqual(err.failedSteps, ['cleanup_directory', 'rebuild_indexes']);
+        assert.equal(err.recoveryErrors.length, 2);
+        assert.ok(err.message.includes('cleanup_directory, rebuild_indexes'));
+        assert.equal(err.cause?.message, 'Failed to rebuild indexes');
+        return true;
+      }
+    );
   } finally {
     await env.cleanup();
   }

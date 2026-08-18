@@ -35,6 +35,7 @@ import {
   createSpecification,
   SpecValidationError,
   SpecConflictError,
+  SpecRollbackError,
 } from '../../specs/service.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -270,6 +271,13 @@ export function createDashboardServer({
             sendJson(response, 400, { error: error.message, code: error.code, field: error.field });
           } else if (error instanceof SpecConflictError) {
             sendJson(response, 409, { error: error.message, code: error.code, slug: error.slug });
+          } else if (error instanceof SpecRollbackError) {
+            sendJson(response, 500, {
+              error: error.message,
+              code: error.code,
+              slug: error.slug,
+              failedSteps: error.failedSteps,
+            });
           } else {
             sendJson(response, 500, { error: error?.message || 'Unable to create specification.' });
           }

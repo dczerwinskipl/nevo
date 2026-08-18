@@ -911,6 +911,20 @@ export class SpecConflictError extends CliError {
   }
 }
 
+export class SpecRollbackError extends CliError {
+  constructor(message, { cause = null, slug = null, failedSteps = [], recoveryErrors = [] } = {}) {
+    super(message);
+    this.name = 'SpecRollbackError';
+    this.code = 'SPEC_ROLLBACK_FAILED';
+    this.slug = slug;
+    this.failedSteps = failedSteps;
+    this.recoveryErrors = recoveryErrors;
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
 export const SPEC_SLUG_REGEX = /^[a-z0-9][a-z0-9._-]*$/;
 export const SPEC_TYPES = Object.freeze(['standard', 'architectural', 'small', 'exploratory']);
 
@@ -979,6 +993,8 @@ export async function createSpecification({
   activeIndexMd = ACTIVE_INDEX_MD,
   archiveIndexMd = ARCHIVE_INDEX_MD,
   indexJson = INDEX_JSON,
+  fsRm = rmSync,
+  refreshIndexes = refreshSpecsIndexes,
 } = {}) {
   return withSpecificationCreationLock(async () => {
     const validSlug = validateSpecSlug(slug);
@@ -1047,7 +1063,7 @@ ${validGoal || 'Define the goals and expected outcomes of this specification.'}
       writeUtf8(join(targetDir, 'overview.md'), overviewMdContent);
 
       attemptedIndexWrite = true;
-      refreshSpecsIndexes({
+      refreshIndexes({
         activeDir,
         archiveDir,
         activeIndexMd,
@@ -1062,26 +1078,48 @@ ${validGoal || 'Define the goals and expected outcomes of this specification.'}
         specId,
         change: loadedChange,
       };
-    } catch (err) {
+    } catch (creationError) {
+      const failedSteps = [];
+      const recoveryErrors = [];
+
       if (createdDirectory) {
         try {
-          rmSync(targetDir, { recursive: true, force: true });
-        } catch {}
+          fsRm(targetDir, { recursive: true, force: true });
+        } catch (dirError) {
+          failedSteps.push('cleanup_directory');
+          recoveryErrors.push(dirError);
+        }
       }
 
       if (attemptedIndexWrite) {
         try {
-          refreshSpecsIndexes({
+          refreshIndexes({
             activeDir,
             archiveDir,
             activeIndexMd,
             archiveIndexMd,
             indexJson,
           });
-        } catch {}
+        } catch (indexError) {
+          failedSteps.push('rebuild_indexes');
+          recoveryErrors.push(indexError);
+        }
       }
 
-      throw err;
+      if (failedSteps.length > 0) {
+        const stepNames = failedSteps.join(', ');
+        throw new SpecRollbackError(
+          `Specification creation failed and rollback was incomplete (failed steps: ${stepNames}): ${creationError?.message || String(creationError)}`,
+          {
+            cause: creationError,
+            slug: validSlug,
+            failedSteps,
+            recoveryErrors,
+          }
+        );
+      }
+
+      throw creationError;
     }
   });
 }

@@ -57,11 +57,14 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
      4. Create directory `specs/active/<slug>/` and write `change.yaml` and `overview.md`.
      5. Rebuild and write indexes using `buildSpecsIndexes(...)` and `writeSpecsIndexes(...)`.
      6. Release lock and return success.
-   - **Atomic rollback & index consistency:**
+   - **Atomic rollback & recovery error handling:**
      - If any failure occurs during file creation (`change.yaml`, `overview.md`) or index writing (including partial index-write failures where one generated file was updated before another failed):
-       1. Remove the newly created directory `specs/active/<slug>/` and all its contents.
-       2. Rebuild and rewrite generated indexes from the filesystem using `buildSpecsIndexes(...)` and `writeSpecsIndexes(...)` so generated files match disk state with zero orphaned or ghost references.
-       3. Release the lock and rethrow the original error.
+       1. Capture the original creation/index failure.
+       2. Attempt removal of the newly created directory `specs/active/<slug>/` and all its contents.
+       3. Attempt rebuilding and rewriting generated indexes from the filesystem using `buildSpecsIndexes(...)` and `writeSpecsIndexes(...)` so generated files match disk state with zero orphaned or ghost references.
+       4. Collect any recovery failures during rollback steps.
+       5. If rollback succeeds completely, release lock and rethrow the original failure.
+       6. If one or more recovery operations fail, throw a `SpecRollbackError` (`code: 'SPEC_ROLLBACK_FAILED'`) preserving the original failure as `cause`, listing `failedSteps` (e.g. `['cleanup_directory', 'rebuild_indexes']`) and `recoveryErrors`.
    - Existing specifications must NEVER be overwritten under any circumstances.
 
 3. **Domain-neutral specification errors:**
@@ -69,9 +72,11 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
    - It throws neutral domain errors:
      - `SpecValidationError` (`code: 'SPEC_VALIDATION_ERROR'`) for invalid slug, title, or type.
      - `SpecConflictError` (`code: 'SPEC_CONFLICT'`) when a slug already exists in active or archive specs.
+     - `SpecRollbackError` (`code: 'SPEC_ROLLBACK_FAILED'`) when specification rollback fails after a creation error.
    - The dashboard HTTP handler `POST /api/specs` maps these errors to HTTP responses:
      - `SpecValidationError` -> HTTP 400 Bad Request
      - `SpecConflictError` -> HTTP 409 Conflict
+     - `SpecRollbackError` -> HTTP 500 Internal Server Error (with `failedSteps` and `code: 'SPEC_ROLLBACK_FAILED'`)
      - Unexpected server/IO errors -> HTTP 500 Internal Server Error
 
 4. **Two-phase spec + AI flow:**
@@ -89,11 +94,10 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
 
 5. **Deterministic, capability-driven planning provider and mode selection:**
    - Uses the existing provider capability API (`useAiProviders()` / `GET /api/ai/providers`).
-   - **Provider availability:** Unavailable providers (`enabled === false` or probe failure) are disabled and cannot be selected.
+   - **Provider availability & ordering:** Unavailable providers (`enabled === false` or probe failure) are disabled and cannot be selected; the `mock` demonstration provider is placed at the end of the provider list.
    - **Mode selection:**
      - Mode options are populated dynamically from the selected provider's `supportedModes`.
-     - Initial mode selection defaults to `'ask'` (planning mode) if supported by the provider; otherwise falls back to the provider's declared `defaultMode`.
-     - Never silently falls back or escalates to `'agent'` mode.
+     - Initial mode selection defaults to `'agent'` (autonomous mode) if supported by the provider; otherwise falls back to the provider's declared `defaultMode` or `'edit'`.
      - Changing the selected provider dynamically re-evaluates and resets the selected mode according to the newly chosen provider's capabilities.
    - **Prompt input:**
      - Rendered as a multi-line, resizable `<textarea>`.
@@ -102,7 +106,7 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
    - **Generic session API:** Uses the standard, provider-neutral agent-session API without wizard-specific provider branching or proprietary hooks.
 
 6. **Dashboard UI integration (`AppSidebar` & `SpecCreateModal`):**
-   - Add a primary "+ Nowa specyfikacja" action button in `tools/dashboard/src/components/app-sidebar.tsx` in the header section.
+   - Add a primary "+ Nowa specyfikacja" action button in `tools/dashboard/src/components/app-sidebar.tsx` in the header section, styled consistently with the "Nowa sesja" action.
    - Implement `tools/dashboard/src/components/spec-create-modal.tsx`:
      - **Step 1 / Core specification data:**
        - `Tytuł` (Title): text input; auto-generates recommended `slug` conforming to `^[a-z0-9][a-z0-9._-]*$` as the user types (with manual override capability).
@@ -111,8 +115,8 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
        - `Cel / Opis (Goal)`: textarea describing the change goal.
      - **Step 2 / Optional AI Planning Session:**
        - Toggle: "Rozpocznij sesję AI do zaplanowania specyfikacji".
-       - Provider selector with availability badges.
-       - Execution mode selector (`ask` [Plan], `edit` [Domyślny], `agent` [Auto]) populated from `supportedModes`.
+       - Provider selector with availability badges (mock provider at the end).
+       - Execution mode selector (`agent` [Auto - Domyślny], `edit` [Domyślny/Standard], `ask` [Plan]) populated from `supportedModes`.
        - Initial prompt textarea.
    - Wire `SpecCreateModal` into `App.tsx` and add `useCreateSpecification` hook in `tools/dashboard/src/hooks/use-dashboard-data.ts`.
 
@@ -123,14 +127,15 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
 3. **Collision rejection:** Active and archived duplicate slugs are rejected with domain-neutral `SpecConflictError` without modifying existing specifications.
 4. **Concurrent same-slug creation:** Concurrent creation requests for the same slug result in exactly one successful creation and HTTP 409 Conflict for the competing request.
 5. **Concurrent different-slug creation:** Concurrent creation requests for distinct slugs serialize safely without race conditions, creating both specifications and updating generated indexes to contain both without lost updates.
-6. **Partial index-write failure & rollback:** A simulated failure during index writing triggers complete directory removal and subsequent index rebuilding/rewriting, leaving generated indexes on disk exactly matching active/archived specs with zero ghost references.
-7. **Immediate discoverability:** A created specification is immediately discoverable via `listChanges`, `tools/specs.mjs list`, and dashboard API.
-8. **Thin dashboard endpoint:** `POST /api/specs` validates input, delegates to the canonical helper, and returns 201 Created with `{ ok: true, slug, specId, change }`.
-9. **Wizard without AI:** Creates specification skeleton, does not call AI session APIs, and navigates to the new specification.
-10. **Two-phase wizard with AI:** Creates specification skeleton first, then creates AI session bound to `specId` with chosen mode and sends the initial prompt.
-11. **AI failure resilience:** If AI session creation fails after spec creation, the spec is preserved, UI displays error banner, and user can either view spec or retry AI session without re-calling `POST /api/specs`.
-12. **Capability-driven mode selection:** Unavailable providers cannot be chosen, modes are filtered by `supportedModes`, defaults to `ask` if available, and changing provider revalidates mode.
-13. **Offline-only tests:** All tests run offline with zero external network or process dependencies.
+6. **Partial index-write failure & clean rollback:** A simulated failure during index writing triggers complete directory removal and subsequent index rebuilding/rewriting, leaving generated indexes on disk exactly matching active/archived specs with zero ghost references.
+7. **Rollback recovery failure surfacing:** If directory removal or index rebuilding fails during rollback, `SpecRollbackError` is thrown with `code: 'SPEC_ROLLBACK_FAILED'`, listing `failedSteps`, recovery errors, and preserving the original cause.
+8. **Immediate discoverability:** A created specification is immediately discoverable via `listChanges`, `tools/specs.mjs list`, and dashboard API.
+9. **Thin dashboard endpoint:** `POST /api/specs` validates input, delegates to the canonical helper, and returns 201 Created with `{ ok: true, slug, specId, change }`.
+10. **Wizard without AI:** Creates specification skeleton, does not call AI session APIs, and navigates to the new specification.
+11. **Two-phase wizard with AI:** Creates specification skeleton first, then creates AI session bound to `specId` with chosen mode and sends the initial prompt.
+12. **AI failure resilience:** If AI session creation fails after spec creation, the spec is preserved, UI displays error banner, and user can either view spec or retry AI session without re-calling `POST /api/specs`.
+13. **Capability-driven mode selection:** Unavailable providers cannot be chosen, modes are filtered by `supportedModes`, defaults to `agent` if available, mock provider is listed last, and changing provider revalidates mode.
+14. **Offline-only tests:** All tests run offline with zero external network or process dependencies.
 
 ## Verification
 
