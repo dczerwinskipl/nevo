@@ -42,15 +42,29 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
   const [aiError, setAiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-generate slug when title changes unless manually touched
+  // Auto-generate slug when title changes unless manually touched (or if slug is empty)
   const handleTitleChange = (val: string) => {
     setTitle(val);
-    if (!slugManuallyEdited) {
+    if (!slugManuallyEdited || !slug.trim()) {
       setSlug(slugifyTitle(val));
     }
     if (!promptManuallyEdited) {
       setInitialPrompt(generateInitialPrompt(val, goal));
     }
+  };
+
+  const handleSlugChange = (val: string) => {
+    setSlug(val);
+    if (!val.trim()) {
+      setSlugManuallyEdited(false);
+    } else {
+      setSlugManuallyEdited(true);
+    }
+  };
+
+  const handleSyncSlugWithTitle = () => {
+    setSlug(slugifyTitle(title));
+    setSlugManuallyEdited(false);
   };
 
   const handleGoalChange = (val: string) => {
@@ -271,16 +285,25 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
 
           {/* Slug */}
           <div>
-            <label htmlFor="spec-slug" className="block text-xs font-semibold">
-              Identyfikator / Slug <span className="text-red-400">*</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="spec-slug" className="block text-xs font-semibold">
+                Identyfikator / Slug <span className="text-red-400">*</span>
+              </label>
+              {slugManuallyEdited && title.trim() && slug !== slugifyTitle(title) && (
+                <button
+                  type="button"
+                  onClick={handleSyncSlugWithTitle}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--accent)] hover:underline"
+                >
+                  <RefreshCw className="size-3" />
+                  Zsynchronizuj z tytułem
+                </button>
+              )}
+            </div>
             <input
               id="spec-slug"
               value={slug}
-              onChange={(e) => {
-                setSlug(e.target.value);
-                setSlugManuallyEdited(true);
-              }}
+              onChange={(e) => handleSlugChange(e.target.value)}
               disabled={Boolean(createdSpec)}
               required
               pattern="^[a-z0-9][a-z0-9._-]*$"
