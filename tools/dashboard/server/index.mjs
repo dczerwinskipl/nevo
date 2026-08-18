@@ -31,6 +31,11 @@ import {
   createOperationRuntime,
   OperationNotFoundError,
 } from './operations.mjs';
+import {
+  createSpecification,
+  SpecValidationError,
+  SpecConflictError,
+} from '../../specs/service.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
@@ -119,6 +124,7 @@ export function createDashboardServer({
   aiServiceFactory = createDefaultDashboardAiService,
   aiAccessPolicy = createTrustedNetworkAiAccessPolicy(),
   operationRuntime = createOperationRuntime(),
+  specCreator = createSpecification,
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
   const runningActions = new Set();
@@ -239,6 +245,38 @@ export function createDashboardServer({
         const status = error instanceof OperationNotFoundError ? 404 : 500;
         sendJson(response, status, { error: error?.message || 'Operation not found' });
       }
+      return;
+    }
+
+    if (url.pathname === '/api/specs') {
+      if (method === 'POST') {
+        try {
+          const body = await readJsonBody(request);
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            sendJson(response, 400, { error: 'Request body must be a JSON object.' });
+            return;
+          }
+
+          const result = await specCreator({
+            slug: body.slug,
+            title: body.title,
+            type: body.type,
+            goal: body.goal,
+          });
+
+          sendJson(response, 201, result);
+        } catch (error) {
+          if (error instanceof SpecValidationError) {
+            sendJson(response, 400, { error: error.message, code: error.code, field: error.field });
+          } else if (error instanceof SpecConflictError) {
+            sendJson(response, 409, { error: error.message, code: error.code, slug: error.slug });
+          } else {
+            sendJson(response, 500, { error: error?.message || 'Unable to create specification.' });
+          }
+        }
+        return;
+      }
+      sendJson(response, 405, { error: 'Method not allowed' });
       return;
     }
 

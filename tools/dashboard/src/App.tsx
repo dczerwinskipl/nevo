@@ -6,6 +6,7 @@ import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
 import { AiChatPage } from '@/components/ai-chat';
 import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
+import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
@@ -52,6 +53,7 @@ export default function App() {
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => (typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null));
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
+  const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
@@ -218,10 +220,24 @@ export default function App() {
           sessionsError={globalSessions.error}
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={session => openSession(session, null, null)}
+          onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+        />
+      )}
+      {createSpecOpen && (
+        <SpecCreateModal
+          onClose={() => setCreateSpecOpen(false)}
+          onCreated={(spec, session, initialPrompt) => {
+            setCreateSpecOpen(false);
+            setMode('active');
+            setSelectedSlug(spec.slug);
+            if (session) {
+              openSession(session, initialPrompt, null);
+            }
+          }}
         />
       )}
       {createChange && (

@@ -722,3 +722,47 @@ export function useCancelAiTurn(turnId: string | null) {
   });
   return { cancel: mutation.mutateAsync, cancelling: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 }
+
+export type CreateSpecificationInput = {
+  slug: string;
+  title: string;
+  type?: 'standard' | 'architectural' | 'small' | 'exploratory';
+  goal?: string;
+};
+
+export type CreateSpecificationResult = {
+  ok: boolean;
+  slug: string;
+  specId: string;
+  change: DashboardChange;
+};
+
+export function useCreateSpecification() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (input: CreateSpecificationInput) => {
+      const response = await fetch('/api/specs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!response.ok) {
+        let errPayload: { error?: string; code?: string } = {};
+        try { errPayload = await response.json(); } catch {}
+        throw new Error(errPayload.error || `Specification creation failed (${response.status})`);
+      }
+      return (await response.json()) as CreateSpecificationResult;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY });
+    },
+  });
+
+  return {
+    createSpecification: mutation.mutateAsync,
+    creating: mutation.isPending,
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+    reset: mutation.reset,
+  };
+}
+

@@ -2,6 +2,7 @@ import {
   Archive,
   FileText,
   LayoutDashboard,
+  Plus,
   Search,
   MessagesSquare,
   X,
@@ -30,6 +31,7 @@ interface AppSidebarProps {
   sessionsError: string | null;
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
+  onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
   open: boolean;
@@ -108,6 +110,7 @@ export function AppSidebar({
   sessionsError,
   onSessionsRetry,
   onOpenSession,
+  onOpenCreateSpec,
   search,
   onSearchChange,
   open,
@@ -154,9 +157,22 @@ export function AppSidebar({
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">NEvo Flow</p>
               <p className="mt-1 text-base font-semibold text-[var(--foreground)]">Specyfikacje</p>
             </div>
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
-              <X className="size-4" />
-            </Button>
+            <div className="flex items-center gap-1.5">
+              {onOpenCreateSpec && (
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 rounded-lg bg-[var(--accent)] px-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[color-mix(in_srgb,var(--accent)_85%,black)]"
+                  onClick={onOpenCreateSpec}
+                  aria-label="Nowa specyfikacja"
+                >
+                  <Plus className="size-3.5" />
+                  <span>Nowa</span>
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
+                <X className="size-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">

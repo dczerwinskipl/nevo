@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T16:26:47.656Z",
+  "generated": "2026-08-18T16:35:55.323Z",
   "changes": [
     {
       "id": "multi-provider-agent-sessions",
@@ -620,11 +620,55 @@
           "id": "spec-creation-wizard-and-agent-scaffolding",
           "order": 15,
           "file": "tasks/15-spec-creation-wizard-and-agent-scaffolding.md",
-          "status": "approved",
+          "status": "verified",
           "depends_on": [
             "dashboard-session-ux-and-spec-binding",
             "agent-execution-modes-and-permissions"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "36bf20eab7f7a81263a36b8edeb9c1c839234195",
+            "review_revision": "36bf20eab7f7a81263a36b8edeb9c1c839234195",
+            "changed_paths": [
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/src/App.tsx",
+              "tools/dashboard/src/components/app-sidebar.tsx",
+              "tools/dashboard/src/components/spec-create-modal.tsx",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/lib/spec-create-helpers.ts",
+              "tools/dashboard/tests/spec-create-api.test.mjs",
+              "tools/dashboard/tests/spec-create-helpers.test.mjs",
+              "tools/specs/service.mjs",
+              "tools/tests/spec-scaffolding.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "000baabc8f7af7284cfdff8aa3c5459cb763979bcf0a9ea05c29152d6a43317b"
+          },
+          "self_check": {
+            "fingerprint": "aa27d878092058afa6bbbdfcdeece7c8693bd1f80578a55e3225f39b01417222",
+            "revision": "36bf20eab7f7a81263a36b8edeb9c1c839234195",
+            "commands": [
+              {
+                "command": "node --test tools/tests/spec-scaffolding.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },

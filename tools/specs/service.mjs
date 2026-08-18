@@ -1,7 +1,7 @@
 // Domain logic for tools/specs.mjs: loading changes, building context packets,
 // fingerprinting, and generating indexes. No Commander, no process.argv here.
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
@@ -890,4 +890,198 @@ export function checkSpecsIndexes({
   }
 
   return problems;
+}
+
+export class SpecValidationError extends CliError {
+  constructor(message, { field = null, details = null } = {}) {
+    super(message);
+    this.name = 'SpecValidationError';
+    this.code = 'SPEC_VALIDATION_ERROR';
+    this.field = field;
+    this.details = details;
+  }
+}
+
+export class SpecConflictError extends CliError {
+  constructor(message, { slug = null } = {}) {
+    super(message);
+    this.name = 'SpecConflictError';
+    this.code = 'SPEC_CONFLICT';
+    this.slug = slug;
+  }
+}
+
+export const SPEC_SLUG_REGEX = /^[a-z0-9][a-z0-9._-]*$/;
+export const SPEC_TYPES = Object.freeze(['standard', 'architectural', 'small', 'exploratory']);
+
+export function validateSpecSlug(slug) {
+  if (typeof slug !== 'string' || !slug.trim()) {
+    throw new SpecValidationError('Specification slug is required.', { field: 'slug' });
+  }
+  const trimmed = slug.trim();
+  if (!SPEC_SLUG_REGEX.test(trimmed)) {
+    throw new SpecValidationError(
+      `Invalid specification slug '${trimmed}'. Must match ${SPEC_SLUG_REGEX} (lowercase alphanumeric, dot, underscore, or hyphen).`,
+      { field: 'slug' }
+    );
+  }
+  if (trimmed.includes('..') || trimmed.startsWith('/') || trimmed.startsWith('\\')) {
+    throw new SpecValidationError(`Invalid specification slug '${trimmed}': path traversal is forbidden.`, { field: 'slug' });
+  }
+  return trimmed;
+}
+
+export function validateSpecType(type) {
+  const normalized = (type || 'standard').toString().trim().toLowerCase();
+  if (!SPEC_TYPES.includes(normalized)) {
+    throw new SpecValidationError(
+      `Invalid specification type '${type}'. Must be one of: ${SPEC_TYPES.join(', ')}.`,
+      { field: 'type' }
+    );
+  }
+  return normalized;
+}
+
+export function refreshSpecsIndexes({
+  activeDir = ACTIVE_DIR,
+  archiveDir = ARCHIVE_DIR,
+  activeIndexMd = ACTIVE_INDEX_MD,
+  archiveIndexMd = ARCHIVE_INDEX_MD,
+  indexJson = INDEX_JSON,
+} = {}) {
+  const built = buildSpecsIndexes({ activeDir, archiveDir });
+  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
+  return built;
+}
+
+let creationLockPromise = Promise.resolve();
+
+export function withSpecificationCreationLock(fn) {
+  const previous = creationLockPromise;
+  let release;
+  creationLockPromise = new Promise(resolve => { release = resolve; });
+  return previous.then(async () => {
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  });
+}
+
+export async function createSpecification({
+  slug,
+  title,
+  type = 'standard',
+  goal = '',
+  activeDir = ACTIVE_DIR,
+  archiveDir = ARCHIVE_DIR,
+  activeIndexMd = ACTIVE_INDEX_MD,
+  archiveIndexMd = ARCHIVE_INDEX_MD,
+  indexJson = INDEX_JSON,
+} = {}) {
+  return withSpecificationCreationLock(async () => {
+    const validSlug = validateSpecSlug(slug);
+    if (typeof title !== 'string' || !title.trim()) {
+      throw new SpecValidationError('Specification title is required.', { field: 'title' });
+    }
+    const validTitle = title.trim();
+    const validType = validateSpecType(type);
+    const validGoal = typeof goal === 'string' ? goal.trim() : '';
+
+    const targetDir = join(activeDir, validSlug);
+    const archiveTargetDir = join(archiveDir, validSlug);
+    if (existsSync(targetDir) || existsSync(archiveTargetDir)) {
+      throw new SpecConflictError(`Specification '${validSlug}' already exists.`, { slug: validSlug });
+    }
+
+    const specId = randomUUID();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const changeYamlContent = `# Specification manifest for ${validSlug}
+id: ${validSlug}
+title: ${JSON.stringify(validTitle)}
+type: ${validType}
+status: draft
+priority: 10
+created: ${today}
+tasks: []
+spec_id: ${specId}
+`;
+
+    const overviewMdContent = `---
+id: spec.${validSlug}
+type: change
+title: ${JSON.stringify(validTitle)}
+status: draft
+change: ${validSlug}
+---
+
+# ${validTitle}
+
+## Context
+
+## Goal
+
+${validGoal || 'Define the goals and expected outcomes of this specification.'}
+
+## Non-goals
+
+## Constraints
+
+## Affected Areas
+
+## Implementation Decomposition
+
+## Acceptance Criteria & Verification
+`;
+
+    let createdDirectory = false;
+    let attemptedIndexWrite = false;
+
+    try {
+      mkdirSync(targetDir, { recursive: false });
+      createdDirectory = true;
+
+      writeUtf8(join(targetDir, 'change.yaml'), changeYamlContent);
+      writeUtf8(join(targetDir, 'overview.md'), overviewMdContent);
+
+      attemptedIndexWrite = true;
+      refreshSpecsIndexes({
+        activeDir,
+        archiveDir,
+        activeIndexMd,
+        archiveIndexMd,
+        indexJson,
+      });
+
+      const loadedChange = loadChange(validSlug, activeDir);
+      return {
+        ok: true,
+        slug: validSlug,
+        specId,
+        change: loadedChange,
+      };
+    } catch (err) {
+      if (createdDirectory) {
+        try {
+          rmSync(targetDir, { recursive: true, force: true });
+        } catch {}
+      }
+
+      if (attemptedIndexWrite) {
+        try {
+          refreshSpecsIndexes({
+            activeDir,
+            archiveDir,
+            activeIndexMd,
+            archiveIndexMd,
+            indexJson,
+          });
+        } catch {}
+      }
+
+      throw err;
+    }
+  });
 }
