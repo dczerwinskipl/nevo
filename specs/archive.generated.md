@@ -8,6 +8,7 @@
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
 | `dashboard-loading-and-progress` | Dashboard data loading and long-running operation progress | archived | 20 | 2026-08-15 |
 | `event-sourcing-api-hardening` | Event Sourcing API hardening and persistence readiness | archived | 10 | 2026-08-10 |
+| `multi-provider-agent-sessions` | Multi-provider local agent chat and session integration | archived | 10 | 2026-08-17 |
 | `nevo-ai-operational-workflow` | NEvo AI operational workflow (Claude Code layer) | archived | 10 | 2026-08-01 |
 | `nevo-ai-process-continuity-and-hardening` | NEvo AI workflow process continuity and hardening | archived | 10 | 2026-08-04 |
 | `nevo-ai-review-hardening` | Deterministic approval gate and hardened Bash guard (PR #13 fix) | archived | 10 | 2026-08-02 |
