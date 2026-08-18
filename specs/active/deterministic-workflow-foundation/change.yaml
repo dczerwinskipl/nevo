@@ -33,7 +33,7 @@ tasks:
   - id: concrete-action-commit-and-push
     order: 4
     file: tasks/04-concrete-action-commit-and-push.md
-    status: draft
+    status: approved
     depends_on:
       - composable-actions-and-contracts
 
