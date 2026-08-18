@@ -6,6 +6,10 @@ status: draft
 priority: 10
 created: 2026-08-18
 
+workflow:
+  mode: deterministic
+  version: 1
+
 branch:
   mode: per-change
   prefix: feature
@@ -14,14 +18,55 @@ tasks:
   - id: workflow-schema-and-compatibility
     order: 1
     file: tasks/01-workflow-schema-and-compatibility.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      review_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      changed_paths:
+        - specs/active/deterministic-workflow-foundation/change.yaml
+        - tools/specs/validation.mjs
+        - tools/specs/workflow/compatibility.mjs
+        - tools/specs/workflow/definitions/architectural.yaml
+        - tools/specs/workflow/definitions/exploratory.yaml
+        - tools/specs/workflow/definitions/loader.mjs
+        - tools/specs/workflow/definitions/schema.mjs
+        - tools/specs/workflow/definitions/small.yaml
+        - tools/specs/workflow/definitions/standard.yaml
+        - tools/specs/workflow/index.mjs
+        - tools/tests/workflow-compatibility.test.mjs
+      worktree_patch_fingerprint: e740e09b3f8b6f71288a93d7d2b18ad37974566e8a6ce4a0d7a0c47230d70b9d
+    self_check:
+      fingerprint: 79af529344179d6b9f7f49fb530d5e861790300af32e4bab9cfdaee402fc7907
+      revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      commands:
+        - command: node --test tools/tests/workflow-compatibility.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
 
   - id: composable-actions-and-contracts
     order: 2
     file: tasks/02-composable-actions-and-contracts.md
-    status: approved
+    status: implemented
     depends_on:
       - workflow-schema-and-compatibility
+    implementation:
+      baseline_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      review_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      changed_paths:
+        - tools/specs/workflow/contracts.mjs
+        - tools/specs/workflow/errors.mjs
+        - tools/specs/workflow/index.mjs
+        - tools/tests/workflow-contracts.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: a07d463ff22fd06df2ccf071fbe88077492fff1b2dce504f38c3965e58af7332
+      revision: 315a74e8c2bf867f6c6bff659cc272acda267388
+      commands:
+        - command: node --test tools/tests/workflow-contracts.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: action-registry-and-aggregated-checks
     order: 3

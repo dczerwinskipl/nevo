@@ -53,6 +53,51 @@ export function validatePullRequestReferences(change, errors, label = change._fi
   });
 }
 
+const ALLOWED_WORKFLOW_MODES = new Set(['legacy', 'deterministic']);
+
+/**
+ * Validates the optional `workflow` and `workflow_mode` configuration on a change manifest.
+ *
+ * An omitted workflow configuration cleanly defaults to legacy mode without error.
+ * When present, mode must be 'legacy' | 'deterministic', version must be a positive integer,
+ * and definition must be a non-empty string.
+ */
+export function validateWorkflowConfiguration(change, errors, label = change._file || 'change') {
+  if (change.workflow !== undefined) {
+    if (!isPlainObject(change.workflow)) {
+      errors.push(`${label}: workflow must be an object`);
+      return;
+    }
+    if (change.workflow.mode !== undefined) {
+      if (!ALLOWED_WORKFLOW_MODES.has(change.workflow.mode)) {
+        errors.push(
+          `${label}: workflow.mode must be 'legacy' or 'deterministic', got '${change.workflow.mode}'`
+        );
+      }
+    }
+    if (change.workflow.version !== undefined) {
+      if (!Number.isInteger(change.workflow.version) || change.workflow.version < 1) {
+        errors.push(
+          `${label}: workflow.version must be a positive integer, got '${change.workflow.version}'`
+        );
+      }
+    }
+    if (change.workflow.definition !== undefined) {
+      if (typeof change.workflow.definition !== 'string' || !change.workflow.definition.trim()) {
+        errors.push(`${label}: workflow.definition must be a non-empty string`);
+      }
+    }
+  }
+
+  if (change.workflow_mode !== undefined) {
+    if (!ALLOWED_WORKFLOW_MODES.has(change.workflow_mode)) {
+      errors.push(
+        `${label}: workflow_mode must be 'legacy' or 'deterministic', got '${change.workflow_mode}'`
+      );
+    }
+  }
+}
+
 /**
  * `spec_id` (D2, area stable-spec-identity, task 01; tightened per owner
  * review of PR #25 — see overview.md's Compatibility and migration section).
@@ -516,6 +561,7 @@ export function validateSpecs() {
     if (!change.status) errors.push(`${change._file}: missing 'status'`);
     validateStatusValue(change.status, CHANGE_STATUSES, errors, `${change._file}: change.status`);
     validatePullRequestReferences(change, errors);
+    validateWorkflowConfiguration(change, errors, change._file);
     validateSpecId(change, specIds, errors, change._file);
 
     const decisionsMap = parseOwnerDecisions(
