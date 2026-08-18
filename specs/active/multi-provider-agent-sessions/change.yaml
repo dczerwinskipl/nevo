@@ -235,7 +235,7 @@ tasks:
   - id: antigravity-adapter-and-events
     order: 10
     file: tasks/10-antigravity-adapter-and-events.md
-    status: in-implementation
+    status: verified
     depends_on: [ agent-session-http-sse-api ]
     implementation:
       baseline_revision: 14754b761817f3b26412bb2d7e02066bb5240010
@@ -256,10 +256,27 @@ tasks:
   - id: multi-provider-consistency-audit-and-refinement
     order: 11
     file: tasks/11-multi-provider-consistency-audit-and-refinement.md
-    status: approved
+    status: in-implementation
     depends_on:
       - dashboard-session-ux-and-spec-binding
       - antigravity-adapter-and-events
+    implementation:
+      baseline_revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      review_revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      changed_paths:
+        - tools/ai/claude-adapter.mjs
+      worktree_patch_fingerprint: 6ecc9405faba25ad665eb4fea501649d0b9e9de567a97c70f2feacbd46a4495f
+    self_check:
+      fingerprint: 71ae5bedf4bfe6d0b37e80635dac9a49194088d146d882f20cb03f2c45a136c1
+      revision: d389ca2078550669ee07b54b296b11bf47bdb3e0
+      commands:
+        - command: node --test tools/tests/*.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: final-verification-and-architecture-docs
     order: 12
     file: tasks/12-final-verification-and-architecture-docs.md

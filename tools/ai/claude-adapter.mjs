@@ -86,9 +86,10 @@ export class ClaudeAgentProvider {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
+    const isNew = !params.providerSessionId;
     const effectiveSessionId = params.providerSessionId || randomUUID();
     const isMaterialized = this.#materializedSessions.has(effectiveSessionId);
-    const initialFlag = isMaterialized ? '--resume' : '--session-id';
+    const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';
 
     try {
       return await this.#runClaudeProcess(params, { effectiveSessionId, sessionFlag: initialFlag });
