@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T19:17:32.902Z",
+  "generated": "2026-08-18T19:17:39.797Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -28,7 +28,7 @@
           "id": "action-registry-and-aggregated-checks",
           "order": 3,
           "file": "tasks/03-action-registry-and-aggregated-checks.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "composable-actions-and-contracts"
           ]

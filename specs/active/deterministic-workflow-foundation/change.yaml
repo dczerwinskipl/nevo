@@ -26,7 +26,7 @@ tasks:
   - id: action-registry-and-aggregated-checks
     order: 3
     file: tasks/03-action-registry-and-aggregated-checks.md
-    status: draft
+    status: approved
     depends_on:
       - composable-actions-and-contracts
 
