@@ -214,6 +214,11 @@ export function useNevoAssistantRuntime({
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
+  const onTurnCompletedRef = useRef(onTurnCompleted);
+  onTurnCompletedRef.current = onTurnCompleted;
 
   const lastSeqRef = useRef<number>(0);
   lastSeqRef.current = lastEventSeq;
@@ -247,7 +252,12 @@ export function useNevoAssistantRuntime({
           setIsRunning(false);
         }
       } catch (err) {
-        if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
+        if (!cancelled) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          if (error.name !== 'AbortError') {
+            onErrorRef.current?.(error);
+          }
+        }
       }
     }
 
@@ -255,7 +265,7 @@ export function useNevoAssistantRuntime({
     return () => {
       cancelled = true;
     };
-  }, [provider, providerSessionId, onError]);
+  }, [provider, providerSessionId]);
 
   // 2. Live SSE connection & event deduplication
   useEffect(() => {
@@ -294,7 +304,7 @@ export function useNevoAssistantRuntime({
           setIsRunning(false);
           setActiveTurnId(null);
           setPendingInteraction(null);
-          onTurnCompleted?.();
+          onTurnCompletedRef.current?.();
           break;
 
         case 'turn.failed':
@@ -302,7 +312,7 @@ export function useNevoAssistantRuntime({
           setActiveTurnId(null);
           setPendingInteraction(null);
           if (event.error) {
-            onError?.(new Error(event.error.message));
+            onErrorRef.current?.(new Error(event.error.message));
           }
           break;
       }
@@ -313,7 +323,7 @@ export function useNevoAssistantRuntime({
     return () => {
       unsubscribe();
     };
-  }, [provider, providerSessionId, onTurnCompleted, onError]);
+  }, [provider, providerSessionId]);
 
   // 3. Send Turn
   const handleSendTurn = useCallback(

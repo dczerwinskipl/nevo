@@ -31,6 +31,7 @@ export class ClaudeAgentProvider {
   #spawnProcess;
   #continuationStore;
   #hookScriptPath;
+  #materializedSessions = new Set();
 
   constructor({
     executable = 'claude',
@@ -79,7 +80,34 @@ export class ClaudeAgentProvider {
     return settingsPath;
   }
 
-  async startTurn({
+  async startTurn(params = {}) {
+    const userPrompt = params.message ?? params.prompt;
+    if (!userPrompt || typeof userPrompt !== 'string') {
+      throw new AiValidationError('A valid message/prompt is required.');
+    }
+
+    const effectiveSessionId = params.providerSessionId || randomUUID();
+    const isMaterialized = this.#materializedSessions.has(effectiveSessionId);
+    const initialFlag = isMaterialized ? '--resume' : '--session-id';
+
+    try {
+      return await this.#runClaudeProcess(params, { effectiveSessionId, sessionFlag: initialFlag });
+    } catch (err) {
+      const isSessionNotFound =
+        err instanceof AiError &&
+        (err.message.includes('No conversation found with session ID') ||
+         err.message.includes('not match any session'));
+
+      if (initialFlag === '--resume' && isSessionNotFound) {
+        console.warn(`[claude] session ${effectiveSessionId} not found in Claude CLI DB, retrying with --session-id`);
+        this.#materializedSessions.delete(effectiveSessionId);
+        return await this.#runClaudeProcess(params, { effectiveSessionId, sessionFlag: '--session-id' });
+      }
+      throw err;
+    }
+  }
+
+  async #runClaudeProcess({
     turnId,
     providerSessionId,
     setProviderSessionId,
@@ -97,17 +125,9 @@ export class ClaudeAgentProvider {
     emitUsageUpdated,
     emitEvent,
     requestInteraction,
-  } = {}) {
+  } = {}, { effectiveSessionId, sessionFlag }) {
     const userPrompt = message ?? prompt;
-    if (!userPrompt || typeof userPrompt !== 'string') {
-      throw new AiValidationError('A valid message/prompt is required.');
-    }
-
-    const isInitialTurn = !providerSessionId;
-    const effectiveSessionId = providerSessionId || randomUUID();
-
     const settingsPath = this.#createSettingsFile();
-    const sessionFlag = isInitialTurn ? '--session-id' : '--resume';
     const args = [
       '-p',
       '--verbose',
@@ -148,7 +168,7 @@ export class ClaudeAgentProvider {
       let activeTool = null;
       let isDeferred = false;
       let deferredPayload = null;
-      let isMaterialized = !isInitialTurn;
+      let isMaterialized = sessionFlag === '--resume';
 
       const cleanupSettings = () => {
         try { unlinkSync(settingsPath); } catch {}
@@ -157,6 +177,7 @@ export class ClaudeAgentProvider {
       const maybeConfirmSession = async (event) => {
         if (!isMaterialized && event.session_id === effectiveSessionId) {
           isMaterialized = true;
+          this.#materializedSessions.add(effectiveSessionId);
           if (setProviderSessionId) {
             try {
               await setProviderSessionId(effectiveSessionId);
@@ -358,10 +379,7 @@ export class ClaudeAgentProvider {
           return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Claude process exited with code ${exitCode}: ${stderrOutput || 'Unknown error'}`));
         }
 
-        if (!isMaterialized && isInitialTurn) {
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', 'Claude process exited before confirming session materialization'));
-        }
-
+        this.#materializedSessions.add(effectiveSessionId);
         resolve({ operation, providerSessionId: effectiveSessionId });
       });
 
