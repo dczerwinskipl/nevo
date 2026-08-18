@@ -13,7 +13,7 @@ task_fingerprints:
   final-verification-and-architecture-docs: 0f089f0f5a4e9c87d06aa57fd97bc61e357532932bbb187542dd324195ae486c
   agent-execution-modes-and-permissions: d0ae8ec4d37989e7f5501014adf7616d999fb5ebcf63dbf63fee30ce573f098f
   turn-reliability-and-restart-resilience: 23706f53018c0d6e271142b702660f5fc01cffdd80fc2646bce335aa8c9485d4
-  spec-creation-wizard-and-agent-scaffolding: 8f3b299c0fcf21c97ecca6f21123d5beb4180014ed9e149166755336afd813f1
+  spec-creation-wizard-and-agent-scaffolding: aa27d878092058afa6bbbdfcdeece7c8693bd1f80578a55e3225f39b01417222
 ---
 
 # Review: multi-provider-agent-sessions (scope: tasks 12-15)
