@@ -238,7 +238,7 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
                 size="sm"
                 onClick={() => void handleRetryAi()}
                 disabled={isSubmitting}
-                className="h-8 gap-1.5 bg-[var(--accent)] text-xs text-white"
+                className="h-8 gap-1.5 text-xs font-semibold"
               >
                 {isSubmitting ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
                 Spróbuj ponownie
@@ -453,7 +453,7 @@ export function SpecCreateModal({ onClose, onCreated }: SpecCreateModalProps) {
             <Button
               type="submit"
               disabled={isSubmitting || !title.trim() || !slug.trim() || (startAiSession && (!provider || !isSelectedProviderAvailable))}
-              className="gap-2 bg-[var(--accent)] font-semibold text-white"
+              className="gap-2 font-semibold"
             >
               {isSubmitting ? (
                 <>

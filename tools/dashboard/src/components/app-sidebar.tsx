@@ -161,12 +161,11 @@ export function AppSidebar({
               {onOpenCreateSpec && (
                 <Button
                   size="sm"
-                  className="h-8 gap-1.5 rounded-lg bg-[var(--accent)] px-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[color-mix(in_srgb,var(--accent)_85%,black)]"
                   onClick={onOpenCreateSpec}
                   aria-label="Nowa specyfikacja"
                 >
-                  <Plus className="size-3.5" />
-                  <span>Nowa</span>
+                  <Plus className="mr-1.5 size-3.5" />
+                  Nowa specyfikacja
                 </Button>
               )}
               <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
