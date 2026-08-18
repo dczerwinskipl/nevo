@@ -19,7 +19,7 @@ tasks:
   - id: composable-actions-and-contracts
     order: 2
     file: tasks/02-composable-actions-and-contracts.md
-    status: draft
+    status: approved
     depends_on:
       - workflow-schema-and-compatibility
 

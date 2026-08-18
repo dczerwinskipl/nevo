@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T19:17:25.357Z",
+  "generated": "2026-08-18T19:17:32.902Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -19,7 +19,7 @@
           "id": "composable-actions-and-contracts",
           "order": 2,
           "file": "tasks/02-composable-actions-and-contracts.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "workflow-schema-and-compatibility"
           ]
