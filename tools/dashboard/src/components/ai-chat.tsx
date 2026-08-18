@@ -50,7 +50,7 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
       <div className={cn(
         'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
         user
-          ? 'bg-[var(--accent)] text-[#111604] selection-inverted'
+          ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
           : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
       )}>
         {message.reasoning && (
@@ -61,14 +61,14 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
         ))}
         {message.text && (
           user ? (
-            <div className="whitespace-pre-wrap font-medium selection-inverted">{message.text}</div>
+            <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
           ) : (
             <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
           )
         )}
       </div>
       {user && (
-        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]">
+        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]">
           <User className="size-4" />
         </div>
       )}

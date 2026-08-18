@@ -64,14 +64,7 @@ button {
 
 ::selection {
   background: rgba(200, 248, 90, 0.3);
-  color: var(--foreground);
-}
-
-.selection-inverted,
-.selection-inverted *::selection,
-.selection-inverted::selection {
-  background: #111604 !important;
-  color: #c8f85a !important;
+  color: #ffffff;
 }
 
 .markdown-body {
