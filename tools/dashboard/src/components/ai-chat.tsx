@@ -195,7 +195,8 @@ export function AiChatPage({
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [chatViewport.height, chatViewport.keyboardOpen]);
 
-  const [currentMode, setCurrentMode] = useState<AgentExecutionMode>(session?.mode || 'edit');
+  const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
+  const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
   const { deleteSession, deleting } = useDeleteAiSession();
 
   const handleDeleteSession = async () => {
@@ -207,12 +208,6 @@ export function AiChatPage({
       setSubmissionError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  useEffect(() => {
-    if (session?.mode) {
-      setCurrentMode(session.mode);
-    }
-  }, [session?.mode]);
 
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
@@ -234,6 +229,27 @@ export function AiChatPage({
 
   const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
+
+  if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) {
+    return (
+      <div className={shellClassName} style={shellStyle}>
+        <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
+            <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label={backLabel} title={backLabel}>
+              <ArrowLeft className="size-4" />
+            </Button>
+            <span className="text-xs text-[var(--muted)]">Ładowanie sesji...</span>
+          </div>
+        </header>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <LoaderCircle className="size-8 animate-spin text-[var(--accent)]" />
+            <p className="text-sm font-medium text-[var(--muted)]">Wczytywanie historii i stanu rozmowy...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const header = (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
@@ -257,7 +273,7 @@ export function AiChatPage({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setCurrentMode(m)}
+                    onClick={() => setSelectedModeOverride(m)}
                     className={cn(
                       'rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-[9px] transition-colors',
                       currentMode === m
