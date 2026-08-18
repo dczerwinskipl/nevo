@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
 import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
+import { useDeleteAiSession } from '@/hooks/use-dashboard-data';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -121,6 +122,14 @@ export function AppSidebar({
   const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
   const activeTasks = active.flatMap(change => change.tasks);
 
+  const deleteMutation = useDeleteAiSession();
+  const handleDeleteSession = async (session: AiSession) => {
+    await deleteMutation.deleteSession({
+      provider: session.provider,
+      sessionId: session.providerSessionId || session.sessionId,
+    });
+  };
+
   return (
     <>
       <button
@@ -214,7 +223,7 @@ export function AppSidebar({
                     />
                   </div>
                 )
-                : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} compact />)}</div>
+                : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} onDelete={handleDeleteSession} compact />)}</div>
                 : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
             </section>
           )}

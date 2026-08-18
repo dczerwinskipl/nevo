@@ -1,9 +1,21 @@
-import { Bot, CheckCircle2, Clock3, Cpu, LoaderCircle, MessagesSquare, RefreshCw, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  Cpu,
+  LoaderCircle,
+  MessagesSquare,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import type { AiSession, DashboardTask } from '@/lib/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { useAiProviders } from '@/hooks/use-dashboard-data';
+import { useAiProviders, useDeleteAiSession } from '@/hooks/use-dashboard-data';
 
 function sessionTitle(session: AiSession) {
   if (session.title?.trim()) return session.title.trim();
@@ -62,16 +74,19 @@ export function AiSessionRow({
   session,
   tasks,
   onOpen,
+  onDelete,
   compact = false,
 }: {
   session: AiSession;
   tasks: DashboardTask[];
   onOpen: (session: AiSession) => void;
+  onDelete?: (session: AiSession) => void | Promise<void>;
   compact?: boolean;
 }) {
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === session.provider);
   const isAvailable = providerInfo?.available !== false;
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const taskList = session.taskIds?.length
     ? session.taskIds
@@ -82,11 +97,18 @@ export function AiSessionRow({
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(session)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(session);
+        }
+      }}
       className={cn(
-        'group flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left outline-none transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left outline-none transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-pointer',
         compact ? 'p-3' : 'p-4'
       )}
     >
@@ -97,7 +119,7 @@ export function AiSessionRow({
           <MessagesSquare className="size-4" />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pr-6">
         <div className="flex items-start justify-between gap-2">
           <p className="truncate text-sm font-semibold text-[var(--foreground)]">{sessionTitle(session)}</p>
           <span
@@ -129,7 +151,27 @@ export function AiSessionRow({
           {linked.length ? linked.join(' · ') : 'Kontekst całej specyfikacji'}
         </p>
       </div>
-    </button>
+      {onDelete && (
+        <button
+          type="button"
+          title="Usuń sesję z dysku"
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (isDeleting) return;
+            setIsDeleting(true);
+            try {
+              await onDelete(session);
+            } finally {
+              setIsDeleting(false);
+            }
+          }}
+          disabled={isDeleting}
+          className="absolute right-2.5 top-2.5 flex size-6 items-center justify-center rounded-lg text-[var(--muted)] opacity-0 transition-all hover:bg-red-500/15 hover:text-red-400 focus:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+        >
+          {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -140,6 +182,7 @@ export function AiSessionList({
   error,
   onRetry,
   onOpen,
+  onDelete,
   emptyLabel = 'Brak sesji w tym kontekście.',
   limit,
 }: {
@@ -149,9 +192,20 @@ export function AiSessionList({
   error: string | null;
   onRetry: () => void;
   onOpen: (session: AiSession) => void;
+  onDelete?: (session: AiSession) => void | Promise<void>;
   emptyLabel?: string;
   limit?: number;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const deleteMutation = useDeleteAiSession();
+
+  const handleDelete = onDelete || (async (session: AiSession) => {
+    await deleteMutation.deleteSession({
+      provider: session.provider,
+      sessionId: session.providerSessionId || session.sessionId,
+    });
+  });
+
   if (loading)
     return (
       <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] p-4 text-xs text-[var(--muted)]">
@@ -175,7 +229,7 @@ export function AiSessionList({
       </div>
     );
   const sorted = sortSessionsByRecency(sessions);
-  const visible = limit ? sorted.slice(0, limit) : sorted;
+  const visible = limit && !showAll ? sorted.slice(0, limit) : sorted;
   const current = visible.filter((session) => session.status !== 'completed');
   const completed = visible.filter((session) => session.status === 'completed');
   return (
@@ -196,11 +250,34 @@ export function AiSessionList({
                   session={session}
                   tasks={tasks}
                   onOpen={onOpen}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>
           </div>
         ) : null
+      )}
+      {limit && sorted.length > limit && (
+        <div className="pt-1">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowAll((prev) => !prev)}
+            className="text-xs"
+          >
+            {showAll ? (
+              <>
+                <ChevronUp className="mr-1.5 size-3.5" />
+                Zwiń do {limit}
+              </>
+            ) : (
+              <>
+                <ChevronDown className="mr-1.5 size-3.5" />
+                Pokaż wszystkie sesje ({sorted.length})
+              </>
+            )}
+          </Button>
+        </div>
       )}
     </div>
   );

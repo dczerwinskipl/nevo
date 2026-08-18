@@ -646,6 +646,24 @@ export function useCreateAiSession() {
   return { create: mutation.mutateAsync, creating: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null, reset: mutation.reset };
 }
 
+export function useDeleteAiSession() {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async ({ provider, sessionId }: { provider: string; sessionId: string }) => {
+      const response = await fetch(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        headers: { 'x-nevo-dashboard-action': '1' },
+      });
+      return await aiPayload<{ unbind: boolean; deleted?: boolean }>(response, 'Delete AI session API');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AI_SESSIONS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: AI_SESSION_QUERY_KEY });
+    },
+  });
+  return { deleteSession: mutation.mutateAsync, deleting: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+}
+
 export function useStartAiTurn(provider: string, sessionId: string) {
   const queryClient = useQueryClient();
   const mutation = useMutation({

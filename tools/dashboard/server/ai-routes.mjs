@@ -306,7 +306,10 @@ export async function handleAiRequest({
         if (service.bindingService) {
           await service.bindingService.unbindSession(provider, providerSessionId);
         }
-        sendJson(response, 200, { unbind: true });
+        if (service.transcriptCache) {
+          await service.transcriptCache.deleteTranscript(provider, providerSessionId);
+        }
+        sendJson(response, 200, { unbind: true, deleted: true });
         return true;
       }
 
