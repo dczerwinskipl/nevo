@@ -619,6 +619,7 @@ export class AiTurnRuntime {
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
     this.#notifyAdapterState(state);
+    console.log(`[ai] [turn:${type}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${error ? ` error="${error.message}"` : ''}`);
     this.#emit(state, type, error ? { error: publicFailure(error) } : {});
     state.subscribers.clear();
     this.#terminalOrder.push(state.turnId);

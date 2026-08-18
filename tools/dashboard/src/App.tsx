@@ -130,11 +130,9 @@ export default function App() {
   };
 
   const leaveChat = () => {
-    if (window.history.state?.nevoSession) window.history.back();
-    else {
-      window.history.replaceState({}, '', '/');
-      setSessionRoute(null);
-    }
+    window.history.pushState({}, '', '/');
+    setSessionRoute(null);
+    setPendingInitialMessage(null);
   };
 
   if (sessionRoute) {

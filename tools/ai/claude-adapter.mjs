@@ -118,6 +118,7 @@ export class ClaudeAgentProvider {
       '--permission-mode', 'dontAsk',
     ];
 
+    console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
     return new Promise((resolve, reject) => {
       let child;
       try {
@@ -127,6 +128,7 @@ export class ClaudeAgentProvider {
           env: { ...process.env, CLAUDE_INTERACTIVE: '0' },
         });
       } catch (err) {
+        console.error(`[claude] spawn failed: ${err.message}`);
         try { unlinkSync(settingsPath); } catch {}
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', `Failed to spawn claude CLI: ${err.message}`, { cause: err }));
       }
@@ -283,15 +285,19 @@ export class ClaudeAgentProvider {
 
       let stderrOutput = '';
       child.stderr?.on('data', chunk => {
-        stderrOutput += chunk.toString();
+        const text = chunk.toString();
+        stderrOutput += text;
+        console.warn(`[claude] [stderr] ${text.trim()}`);
       });
 
       child.on('error', err => {
+        console.error(`[claude] [process-error] ${err.message}`);
         cleanupSettings();
         reject(new AiError('AI_PROVIDER_PROCESS_ERROR', `Claude process error: ${err.message}`, { cause: err }));
       });
 
       child.on('close', async exitCode => {
+        console.log(`[claude] process exited code=${exitCode} isDeferred=${isDeferred}`);
         try {
           await processingQueue;
         } catch (e) {

@@ -65,10 +65,12 @@ function writeSse(response, eventName, data, id) {
 
 function errorResponse(error, sendJson, response) {
   if (error?.name === 'SpecificationActionError') {
+    console.error(`[ai] [error] validation error: ${error.message}`);
     sendJson(response, error.status || 400, { error: { code: 'AI_VALIDATION_ERROR', message: error.message } });
     return;
   }
   const normalized = publicAiError(error);
+  console.error(`[ai] [error] status=${normalized.status} code=${normalized.code} message="${normalized.message}"`);
   sendJson(response, normalized.status, normalized.toJSON());
 }
 
@@ -108,6 +110,7 @@ export async function handleAiRequest({
       const provider = decodedSegment(body.provider, PROVIDER_PATTERN, 'provider ID');
       if (body.specId && !UUID_PATTERN.test(body.specId)) throw new AiValidationError('Invalid specification ID.');
       if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
+      console.log(`[ai] [turn:start] provider=${provider} session=new specId=${body.specId || '-'} taskId=${body.taskId || '-'}`);
       const result = await service.startTurn(provider, undefined, {
         message: body.message ?? body.prompt,
         specId: body.specId,
@@ -115,6 +118,7 @@ export async function handleAiRequest({
         purpose: body.purpose,
         idempotencyKey: body.idempotencyKey,
       });
+      console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
       sendJson(response, result.idempotent ? 200 : 201, result);
       return true;
     }
@@ -185,6 +189,8 @@ export async function handleAiRequest({
       const afterSequence = Number(headerCursor ?? queryCursor ?? 0);
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new AiValidationError('Invalid event cursor.');
 
+      console.log(`[ai] [sse:connect] provider=${provider} session=${providerSessionId} after=${afterSequence}`);
+
       response.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache, no-transform',
@@ -217,6 +223,7 @@ export async function handleAiRequest({
       const body = assertBodyObject(await readJsonBody(request, 16_384));
 
       const turnId = body.turnId ? decodedSegment(body.turnId, TURN_PATTERN, 'turn ID') : undefined;
+      console.log(`[ai] [interaction:resolve] provider=${provider} session=${providerSessionId} interaction=${interactionId}${turnId ? ` turnId=${turnId}` : ''}`);
 
       const turn = await service.resolveInteraction(turnId, interactionId, body, { provider, providerSessionId });
       sendJson(response, 200, { turn });
@@ -233,6 +240,7 @@ export async function handleAiRequest({
       const turnId = decodedSegment(sessionTurnCancelRoute[3], TURN_PATTERN, 'turn ID');
       await readJsonBody(request, 512);
 
+      console.log(`[ai] [turn:cancel] provider=${provider} session=${providerSessionId} turnId=${turnId}`);
       const turn = await service.cancelTurn(turnId, { provider, providerSessionId });
       sendJson(response, 200, { turn });
       return true;
@@ -258,10 +266,12 @@ export async function handleAiRequest({
       const body = assertBodyObject(await readJsonBody(request, 128 * 1024));
       const provider = decodedSegment(turnsRoute[1], PROVIDER_PATTERN, 'provider ID');
       const sessionId = decodedSessionId(turnsRoute[2]);
+      console.log(`[ai] [turn:start] provider=${provider} session=${sessionId} prompt="${(body.message ?? body.prompt ?? '').slice(0, 60)}"`);
       const result = await service.startTurn(provider, sessionId, {
         message: body.message ?? body.prompt,
         ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
       });
+      console.log(`[ai] [turn:started] provider=${provider} session=${result.providerSessionId} turnId=${result.turnId} idempotent=${result.idempotent}`);
       sendJson(response, result.idempotent ? 200 : 202, result);
       return true;
     }
