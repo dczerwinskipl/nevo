@@ -158,20 +158,23 @@ export async function handleAiRequest({
           return true;
         }
 
-        if (typeof service.createSession === 'function') {
-          if (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId))) {
-            throw new AiValidationError('Task IDs must be an array of stable IDs.');
-          }
-          const session = await service.createSession(provider, {
-            specId: body.specId,
-            taskIds: body.taskIds,
-            ...(body.title === undefined ? {} : { title: body.title }),
-          });
-          sendJson(response, 201, { session });
-          return true;
+        if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+          throw new AiValidationError('Task IDs must be an array of stable IDs.');
+        }
+        if (body.taskId !== undefined && !TURN_PATTERN.test(body.taskId)) {
+          throw new AiValidationError('Invalid task ID.');
         }
 
-        throw new AiValidationError('providerSessionId is required to bind an existing session.');
+        console.log(`[ai] [session:create] provider=${provider} specId=${body.specId} taskId=${body.taskId || '-'}`);
+        const session = await service.createSession(provider, {
+          specId: body.specId,
+          taskId: body.taskId,
+          taskIds: body.taskIds,
+          ...(body.title === undefined ? {} : { title: body.title }),
+          ...(body.purpose === undefined ? {} : { purpose: body.purpose }),
+        });
+        sendJson(response, 201, { session });
+        return true;
       }
       sendJson(response, 405, { error: 'Method not allowed' });
       return true;

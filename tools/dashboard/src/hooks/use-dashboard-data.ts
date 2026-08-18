@@ -624,8 +624,8 @@ export function useAiMessages(provider: string, sessionId: string, enabled = tru
 export function useCreateAiSession() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (input: { provider: string; specId: string; taskIds: string[]; title?: string }) => {
-      const response = await fetch('/api/ai/sessions', {
+    mutationFn: async (input: { provider: string; specId: string; taskIds?: string[]; taskId?: string; title?: string; purpose?: string }) => {
+      const response = await fetch('/api/agent-sessions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
         body: JSON.stringify(input),

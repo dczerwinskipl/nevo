@@ -134,7 +134,20 @@ test('Agent session routes expose the complete provider-neutral session and turn
     const attachBody = await attachResponse.json();
     assert.equal(attachBody.session.providerSessionId, 'pre-allocated-sess-1');
 
-    // 8. Delete / unbind session
+    // 8. New session allocation via modal flow (omitting providerSessionId): POST /api/agent-sessions
+    const createModalResponse = await fetch(`${baseUrl}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskIds: ['task-a'],
+      title: 'Modal allocated session',
+    }));
+    assert.equal(createModalResponse.status, 201);
+    const createModalBody = await createModalResponse.json();
+    assert.ok(createModalBody.session.providerSessionId);
+    assert.equal(createModalBody.session.specId, specId);
+    assert.equal(createModalBody.session.taskId, 'task-a');
+
+    // 9. Delete / unbind session
     const deleteResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/pre-allocated-sess-1`, {
       method: 'DELETE',
       headers: { 'x-nevo-dashboard-action': '1' },

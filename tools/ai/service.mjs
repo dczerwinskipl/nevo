@@ -1,4 +1,5 @@
-import { AiError, validateAgentIdentity } from './contracts.mjs';
+import { randomUUID } from 'node:crypto';
+import { AiError, AiNotFoundError, validateAgentIdentity } from './contracts.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -10,6 +11,36 @@ export class AiSessionService {
 
   listProviders() {
     return this.registry.descriptors();
+  }
+
+  async createSession(provider, options = {}) {
+    const descriptor = this.registry.get(provider);
+    if (!descriptor) {
+      throw new AiNotFoundError(`Provider '${provider}' was not found.`);
+    }
+    const providerSessionId = randomUUID();
+    const taskId = options.taskId || (Array.isArray(options.taskIds) && options.taskIds.length === 1 ? options.taskIds[0] : undefined);
+    const purpose = options.purpose || options.title || (taskId ? `task:${taskId}` : 'interactive');
+    const binding = this.bindingService
+      ? await this.bindingService.bindSession({
+          provider,
+          providerSessionId,
+          specId: options.specId,
+          taskId,
+          purpose,
+        })
+      : {
+          provider,
+          providerSessionId,
+          sessionId: providerSessionId,
+          specId: options.specId,
+          taskId,
+          purpose,
+          title: options.title || `${provider} session`,
+          createdAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString(),
+        };
+    return binding;
   }
 
   async listSessions(filters = {}) {
