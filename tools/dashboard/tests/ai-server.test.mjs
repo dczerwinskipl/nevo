@@ -120,6 +120,11 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(sessionBody.status, 'idle');
     assert.ok(sessionBody.messages.length >= 2);
     assert.ok(sessionBody.lastEventSeq > 0);
+    // Regression guard: registry.get(provider) returns { adapter, descriptor }, not the
+    // descriptor itself — a session snapshot must still surface the provider's real
+    // declared capabilities (this is what drives the chat UI's cancel-button visibility).
+    assert.equal(sessionBody.capabilities.cancelTurn, true);
+    assert.equal(sessionBody.mode, 'edit');
 
     // 5. Subsequent turn: POST /api/agent-sessions/:provider/:providerSessionId/turns
     const secondTurnResponse = await fetch(

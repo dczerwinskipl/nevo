@@ -312,7 +312,7 @@ export async function handleAiRequest({
 
       if (method === 'GET') {
         authorize(accessPolicy, 'read', request);
-        const descriptor = service.registry?.get(provider);
+        const descriptor = service.registry?.get(provider)?.descriptor;
         const capabilities = descriptor?.capabilities || {};
         const binding = service.bindingService
           ? await service.bindingService.getBinding(provider, providerSessionId)

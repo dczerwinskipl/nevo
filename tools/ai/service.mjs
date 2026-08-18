@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-  AiError,
-  AiNotFoundError,
   validateAgentIdentity,
   validateAgentExecutionMode,
 } from './contracts.mjs';
@@ -19,10 +17,7 @@ export class AiSessionService {
   }
 
   async createSession(provider, options = {}) {
-    const descriptor = this.registry.get(provider);
-    if (!descriptor) {
-      throw new AiNotFoundError(`Provider '${provider}' was not found.`);
-    }
+    const descriptor = this.registry.get(provider).descriptor;
     const providerSessionId = randomUUID();
     const taskId = options.taskId || (Array.isArray(options.taskIds) && options.taskIds.length === 1 ? options.taskIds[0] : undefined);
     const purpose = options.purpose || options.title || (taskId ? `task:${taskId}` : 'interactive');
@@ -166,7 +161,7 @@ export class AiSessionService {
     if (providerSessionId && typeof this.bindingService?.getBinding === 'function') {
       existingBinding = await this.bindingService.getBinding(provider, providerSessionId);
     }
-    const descriptor = this.registry.get(provider);
+    const descriptor = this.registry.get(provider).descriptor;
 
     if (input.mode !== undefined) {
       resolvedMode = validateAgentExecutionMode(input.mode, 'mode');
