@@ -71,7 +71,7 @@ Provide a robust, multi-provider chat and session integration for local AI codin
 
 ## Implementation Decomposition
 
-The implementation is organized into 3 sequential parts (13 tasks total) plus future extension:
+The implementation is organized into 3 sequential parts (15 tasks total) plus future extension:
 
 - **Part 1: Backend Foundation, CLI Binding & Discovery** (Tasks 01–06)
   - Task 01: `provider-neutral-core-and-capabilities` (Core contracts, `AgentIdentity { provider, providerSessionId }`, capabilities, event schemas, normalized UI read-model cache)
@@ -84,13 +84,13 @@ The implementation is organized into 3 sequential parts (13 tasks total) plus fu
   - Task 07: `assistant-ui-integration-and-adapter` (`@assistant-ui/react`, custom `NevoAssistantRuntime` adapter, thread restoration on reload, removal of legacy chat mechanics)
   - Task 08: `custom-renderers-and-interaction-ui` (Tailwind/Radix renderers for thinking accordion, tool cards, permission prompts, question forms, pending interaction correlation)
   - Task 09: `dashboard-session-ux-and-spec-binding` (Sidebar session list, provider badges, spec detail session panel, new session modal)
-- **Part 3: Antigravity Provider, Execution Modes & Multi-Provider Consistency** (Tasks 10–13)
+- **Part 3: Antigravity Provider, Execution Modes, Resilience & Spec Creation Wizard** (Tasks 10–15)
   - Task 10: `antigravity-adapter-and-events` (Antigravity CLI adapter, verified session resume, stream parsing, capability enforcement)
   - Task 11: `multi-provider-consistency-audit-and-refinement` (Cross-provider consistency audit, eliminating provider bias in backend and UI)
   - Task 12: `final-verification-and-architecture-docs` (ADR-0007 update, architecture docs in `docs/development/`, full repo verification)
   - Task 13: `agent-execution-modes-and-permissions` (Provider-neutral execution modes `ask`/`edit`/`agent`, deterministic CLI mappings, dynamic dashboard mode switcher, binding persistence, and verified question transport)
   - Task 14: `turn-reliability-and-restart-resilience` (Idle-based turn timeout watchdog, boot-time reconciliation of orphaned turns after an ungraceful server restart, and unified session list/detail status computation)
-  - Task 15: `spec-creation-wizard-and-agent-scaffolding` (Sidebar specification creation action, minimal metadata modal/wizard, optional AI planning session kickoff with provider/mode selection bound to new spec)
+  - Task 15: `spec-creation-wizard-and-agent-scaffolding` (Canonical specification creation operation with atomic rollback semantics, dashboard "+ Nowa specyfikacja" action, two-phase creation wizard, and capability-driven AI planning kickoff)
 - **Part 4: Future Provider Extension** (Out of initial implementation scope)
   - Codex App Server / ACP adapter
 
@@ -105,4 +105,4 @@ The implementation is organized into 3 sequential parts (13 tasks total) plus fu
 7. **AC7 — Multi-Provider Consistency & Docs:** Full consistency audit confirms no residual provider-specific bias in core contracts, verified across Claude and Antigravity with updated ADRs and architecture docs. Verified via complete test suite pass (`node --test tools/tests/*.test.mjs`, `npm --prefix tools/dashboard test`, `node tools/specs.mjs check`).
 8. **AC8 — Execution Modes & Permission Policies:** Configurable provider-neutral execution modes (`ask`, `edit`, `agent`) map deterministically to provider CLI flags without mutating global settings, preserve verified `AskUserQuestion` interaction transport, persist session preferences in local bindings, and support dynamic UI mode switching. Verified via `tools/tests/agent-binding.test.mjs`, `tools/tests/claude-adapter.test.mjs`, `tools/tests/antigravity-adapter.test.mjs`.
 9. **AC9 — Turn Reliability & Restart Resilience:** A turn that stops emitting events fails with a clear `AI_TURN_TIMEOUT` error via an idle watchdog instead of running forever; an ungraceful server restart never leaves a session showing a permanently "running" status (boot reconciliation finalizes orphaned turns as `AI_TURN_INTERRUPTED`); `GET /api/agent-sessions` and `GET /api/agent-sessions/:provider/:providerSessionId` compute session status identically. Verified via `tools/tests/ai-turn-runtime.test.mjs`, `tools/tests/claude-adapter.test.mjs`, `npm --prefix tools/dashboard test`.
-10. **AC10 — Specification Creation & Agent Scaffolding:** Dashboard sidebar provides a "+ Nowa specyfikacja" action to scaffold a new specification skeleton with minimal fields (slug, title, type, goal) and an optional wizard step to immediately start an AI planning session bound to the new specification (`specId`) with selected provider, execution mode, and initial prompt. Verified via `tools/dashboard/tests/` and `npm --prefix tools/dashboard test`.
+10. **AC10 — Specification Creation & Agent Scaffolding:** Canonical specification creation operation scaffolds a new specification skeleton with minimal fields (slug, title, type, goal) under atomic/rollback semantics; dashboard provides "+ Nowa specyfikacja" action and a two-phase creation wizard to optionally start an AI planning session bound to the new specification (`specId`) with capability-driven provider and mode selection. Verified via `tools/tests/`, `tools/dashboard/tests/`, and `npm --prefix tools/dashboard test`.
