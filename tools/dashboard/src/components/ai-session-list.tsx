@@ -2,6 +2,7 @@ import { Bot, CheckCircle2, Clock3, Cpu, LoaderCircle, MessagesSquare, RefreshCw
 import type { AiSession, DashboardTask } from '@/lib/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { StatusCard } from '@/components/ui/status-card';
 import { useAiProviders } from '@/hooks/use-dashboard-data';
 
 function sessionTitle(session: AiSession) {
@@ -152,13 +153,13 @@ export function AiSessionList({
     );
   if (error)
     return (
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-xs text-[var(--muted)]">
-        <span>Sesje są chwilowo niedostępne.</span>
-        <Button variant="ghost" size="sm" onClick={onRetry}>
-          <RefreshCw className="mr-1.5 size-3" />
-          Ponów
-        </Button>
-      </div>
+      <StatusCard
+        variant="warning"
+        size="sm"
+        title="Sesje są chwilowo niedostępne"
+        description={error !== 'Failed to fetch' ? error : undefined}
+        onRetry={onRetry}
+      />
     );
   if (!sessions.length)
     return (

@@ -16,8 +16,10 @@ import type {
   DashboardChange,
   SpecificationManifestDirectorySection,
 } from '@/lib/types';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { StatusCard } from '@/components/ui/status-card';
 import { MarkdownContent } from '@/components/markdown-content';
 import { useSpecificationDocument } from '@/hooks/use-dashboard-data';
 
@@ -40,18 +42,12 @@ function ContentLoading() {
 
 function ContentError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <Card className="border-red-400/20 p-8">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-300" />
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--foreground)]">Nie udało się wczytać treści</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">{message}</p>
-          <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
-            <RefreshCw className="mr-2 size-3.5" /> Spróbuj ponownie
-          </Button>
-        </div>
-      </div>
-    </Card>
+    <StatusCard
+      variant="error"
+      title="Nie udało się wczytać treści"
+      description={message}
+      onRetry={onRetry}
+    />
   );
 }
 

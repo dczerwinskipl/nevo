@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useFullDiff, useProgressiveDiffPreload, usePullRequestFileDiffs, usePullRequestFiles, usePullRequests } from '@/hooks/use-dashboard-data';
 import type { FileDiffRequest } from '@/hooks/use-dashboard-data';
 import { computeVisibility, groupFiles, type GroupByMode } from '@/lib/changes-grouping';
@@ -644,14 +645,13 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
 
   if (query.error) {
     return (
-      <Card className="border-red-400/20 p-8">
-        <AlertTriangle className="size-5 text-red-300" />
-        <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">Nie udało się wczytać zmian</h2>
-        <p className="mt-1 text-xs text-[var(--muted)]">{query.error}</p>
-        <Button variant="secondary" size="sm" className="mt-4" onClick={() => void query.refresh()}>
-          <RefreshCw className="mr-2 size-3.5" /> Spróbuj ponownie
-        </Button>
-      </Card>
+      <StatusCard
+        variant="error"
+        title="Nie udało się wczytać zmian"
+        description={query.error}
+        onRetry={() => void query.refresh()}
+        retryLoading={query.refreshing}
+      />
     );
   }
 
@@ -675,16 +675,14 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
 
   if (hasPullRequestList && !selectedPullRequest) {
     return (
-      <div>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Pull requests</p>
             <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{pullRequests.length} pull requesty</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">Wybierz pull request, aby zobaczyć jego pliki i zmiany.</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void query.refresh()} disabled={query.refreshing} aria-label="Odśwież pull requesty">
-            <RefreshCw className={cn('size-4', query.refreshing && 'animate-spin')} />
-          </Button>
+          <RetryButton size="icon" onClick={() => void query.refresh()} loading={query.refreshing} label="Odśwież pull requesty" />
         </div>
 
         <div className="space-y-3">
@@ -717,9 +715,7 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
           {detailPullRequest.availability === 'available' && (
             <DiffModeControl mode={mode} onChange={nextMode => { setModeOverridden(true); setMode(nextMode); }} />
           )}
-          <Button variant="ghost" size="icon" onClick={() => void query.refresh()} disabled={query.refreshing} aria-label="Odśwież pull requesty">
-            <RefreshCw className={cn('size-4', query.refreshing && 'animate-spin')} />
-          </Button>
+          <RetryButton size="icon" onClick={() => void query.refresh()} loading={query.refreshing} label="Odśwież pull requesty" />
         </div>
       </div>
 

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
 import { AiSessionRow } from '@/components/ai-session-list';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -193,12 +194,27 @@ export function AppSidebar({
             <section className="mb-4 border-b border-[var(--border)] px-2 pb-4" aria-label="Ostatnie sesje AI">
               <div className="mb-2 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]"><MessagesSquare className="size-3" />Ostatnie sesje</span>
-                {sessionsError && <button type="button" onClick={onSessionsRetry} className="text-[10px] text-[var(--accent)]">Ponów</button>}
+                {sessionsError && (
+                  <RetryButton
+                    size="icon"
+                    onClick={onSessionsRetry}
+                    label="Ponów pobieranie sesji"
+                  />
+                )}
               </div>
-              {sessionsLoading ? <p className="py-3 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
-                : sessionsError ? <p className="py-3 text-[11px] text-[var(--muted)]">Sesje są niedostępne.</p>
-                  : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} compact />)}</div>
-                    : <p className="py-3 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
+              {sessionsLoading ? <p className="py-2 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
+                : sessionsError ? (
+                  <div className="my-1">
+                    <StatusCard
+                      variant="warning"
+                      size="sm"
+                      title="Sesje niedostępne"
+                      onRetry={onSessionsRetry}
+                    />
+                  </div>
+                )
+                : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} compact />)}</div>
+                : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
             </section>
           )}
           <div className="mb-2 flex items-center justify-between px-2">

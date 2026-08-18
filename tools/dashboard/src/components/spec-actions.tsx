@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
 
 export function RepositoryActionsCard({
   data,
@@ -48,17 +49,13 @@ export function RepositoryActionsCard({
 
   if (error || !data) {
     return (
-      <Card className="border-red-400/20 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">Nie udało się sprawdzić workflow</p>
-            <p className="mt-1 text-[10px] leading-5 text-[var(--muted)]">{error || 'Brak danych bramek aktywnej specyfikacji.'}</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onRefresh} aria-label="Ponów sprawdzanie workflow">
-            <RefreshCw className="size-4" />
-          </Button>
-        </div>
-      </Card>
+      <StatusCard
+        variant="warning"
+        title="Nie udało się sprawdzić workflow"
+        description={error || 'Brak danych bramek aktywnej specyfikacji.'}
+        onRetry={onRefresh}
+        retryLoading={refreshing}
+      />
     );
   }
 
@@ -81,9 +78,7 @@ export function RepositoryActionsCard({
             </Badge>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onRefresh} disabled={refreshing || executing} aria-label="Odśwież bramki workflow">
-          <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
-        </Button>
+        <RetryButton size="icon" onClick={onRefresh} loading={refreshing || executing} label="Odśwież bramki workflow" />
       </div>
 
       <div className="mt-4 space-y-2 text-[10px] leading-5 text-[var(--muted)]">

@@ -7,6 +7,7 @@ import { SpecDetail } from '@/components/spec-detail';
 import { AiChatPage } from '@/components/ai-chat';
 import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
 import { Button } from '@/components/ui/button';
+import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -179,9 +180,7 @@ export default function App() {
             <Radio className={cn('size-3', live ? 'text-[var(--accent)]' : 'text-amber-300')} />
             {live ? 'Pliki połączone' : 'Ponowne łączenie'}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={refreshing} aria-label="Odśwież dashboard">
-            <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />
-          </Button>
+          <RetryButton size="icon" onClick={() => void refresh()} loading={refreshing} label="Odśwież dashboard" />
         </div>
       </header>
 
@@ -189,13 +188,15 @@ export default function App() {
         {loading && !data ? (
           <LoadingScreen />
         ) : error && !data ? (
-          <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6 text-center">
-            <div className="flex size-12 items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/8 text-red-300">
-              <AlertTriangle className="size-5" />
-            </div>
-            <h1 className="mt-5 text-xl font-semibold text-[var(--foreground)]">Nie udało się wczytać specyfikacji</h1>
-            <p className="mt-2 text-sm text-[var(--muted)]">{error}</p>
-            <Button className="mt-6" onClick={() => void refresh()}>Spróbuj ponownie</Button>
+          <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+            <StatusCard
+              variant="error"
+              title="Nie udało się wczytać specyfikacji"
+              description={error}
+              onRetry={() => void refresh()}
+              retryLabel="Spróbuj ponownie"
+              className="w-full text-left"
+            />
           </div>
         ) : selected ? (
           <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
