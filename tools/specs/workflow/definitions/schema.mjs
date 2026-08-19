@@ -38,7 +38,9 @@ export function validateGateDefinition(gate, label, errors, { knownGates, knownA
     const hasCommand = gate.command !== undefined;
 
     if (!hasAction && !hasCommand) {
-      errors.push(`${label}: command gate must declare an 'action' or 'command'`);
+      errors.push(`${label}: command gate must declare either 'action' or 'command'`);
+    } else if (hasAction && hasCommand) {
+      errors.push(`${label}: command gate cannot declare both 'action' and 'command' — specify exactly one execution target`);
     }
 
     if (hasAction) {

@@ -1,376 +1,24 @@
-// ActionContract, GateContract, parameter schema validation, and context result models.
+// ActionContract, GateContract, and result models.
 
 import { PreconditionError, WorkflowError } from './errors.mjs';
+import {
+  ALLOWED_PARAM_TYPES,
+  validateActionParameterSchemas,
+  assertActionParameterSchemas,
+  validateActionInputs,
+  assertActionInputs,
+} from './input-schema.mjs';
 
-export const ALLOWED_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
+export {
+  ALLOWED_PARAM_TYPES,
+  validateActionParameterSchemas,
+  assertActionParameterSchemas,
+  validateActionInputs,
+  assertActionInputs,
+};
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * Validates caller-supplied inputs against an action's parameter schemas.
- * Also validates the parameter schemas themselves, failing closed if schemas are malformed.
- * Rejects unexpected input keys not declared in the schemas.
- *
- * @param {Array<object>} schemas - Parameter schema descriptors
- * @param {Record<string, any>} [inputs={}] - Caller-supplied input object
- * @param {object} [options={}]
- * @param {boolean} [options.throwOnError=false] - If true, throws PreconditionError on invalid inputs
- * @param {string} [options.actionId] - Action ID for error context
- * @returns {{ valid: boolean, errors: Array<{ field: string, message: string, code: string }> }}
- */
-export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
-  const errors = [];
-
-  // 1. Validate the parameter schemas themselves (fail closed)
-  if (!Array.isArray(schemas)) {
-    errors.push({
-      field: '$schema',
-      message: `Action parameter schemas must be an array, got '${schemas === null ? 'null' : typeof schemas}'`,
-      code: 'INVALID_SCHEMA',
-    });
-    const result = { valid: false, errors };
-    if (options.throwOnError) {
-      const actionLabel = options.actionId ? ` for action '${options.actionId}'` : '';
-      throw new PreconditionError(`Precondition validation failed${actionLabel}: ${errors.map(e => e.message).join('; ')}`, errors, options.actionId);
-    }
-    return result;
-  }
-
-  const declaredParamNames = new Set();
-  const validSchemas = [];
-
-  for (let i = 0; i < schemas.length; i++) {
-    const schema = schemas[i];
-    const schemaLabel = `$schema[${i}]`;
-
-    if (!isPlainObject(schema)) {
-      errors.push({
-        field: schemaLabel,
-        message: `Parameter schema entry at index ${i} must be a plain object, got '${Array.isArray(schema) ? 'array' : typeof schema}'`,
-        code: 'INVALID_SCHEMA_ENTRY',
-      });
-      continue;
-    }
-
-    if (typeof schema.name !== 'string' || !schema.name.trim()) {
-      errors.push({
-        field: `${schemaLabel}.name`,
-        message: `Parameter schema entry at index ${i} missing non-empty 'name'`,
-        code: 'INVALID_SCHEMA_NAME',
-      });
-      continue;
-    }
-
-    const fieldName = schema.name.trim();
-
-    if (declaredParamNames.has(fieldName)) {
-      errors.push({
-        field: fieldName,
-        message: `Duplicate parameter schema definition for '${fieldName}'`,
-        code: 'DUPLICATE_SCHEMA_PARAMETER',
-      });
-      continue;
-    }
-    declaredParamNames.add(fieldName);
-
-    if (typeof schema.type !== 'string' || !ALLOWED_PARAM_TYPES.has(schema.type)) {
-      errors.push({
-        field: fieldName,
-        message: `Parameter '${fieldName}' has invalid type '${schema.type}' (expected one of: ${[...ALLOWED_PARAM_TYPES].join(', ')})`,
-        code: 'INVALID_SCHEMA_TYPE',
-      });
-      continue;
-    }
-
-    if (schema.required !== undefined && typeof schema.required !== 'boolean') {
-      errors.push({
-        field: fieldName,
-        message: `Parameter '${fieldName}' property 'required' must be a boolean, got '${typeof schema.required}'`,
-        code: 'INVALID_SCHEMA_REQUIRED',
-      });
-      continue;
-    }
-
-    if (schema.constraints !== undefined) {
-      if (!isPlainObject(schema.constraints)) {
-        errors.push({
-          field: fieldName,
-          message: `Parameter '${fieldName}' property 'constraints' must be a plain object`,
-          code: 'INVALID_SCHEMA_CONSTRAINTS',
-        });
-        continue;
-      }
-
-      const c = schema.constraints;
-
-      if (c.minLength !== undefined && (!Number.isInteger(c.minLength) || c.minLength < 0)) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'minLength' for '${fieldName}' must be a non-negative integer`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.maxLength !== undefined && (!Number.isInteger(c.maxLength) || c.maxLength < 0)) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'maxLength' for '${fieldName}' must be a non-negative integer`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.minValue !== undefined && (typeof c.minValue !== 'number' || Number.isNaN(c.minValue))) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'minValue' for '${fieldName}' must be a valid number`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.maxValue !== undefined && (typeof c.maxValue !== 'number' || Number.isNaN(c.maxValue))) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'maxValue' for '${fieldName}' must be a valid number`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.allowedValues !== undefined && !Array.isArray(c.allowedValues)) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'allowedValues' for '${fieldName}' must be an array`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.itemType !== undefined && (typeof c.itemType !== 'string' || !ALLOWED_PARAM_TYPES.has(c.itemType))) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'itemType' for '${fieldName}' must be one of: ${[...ALLOWED_PARAM_TYPES].join(', ')}`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
-      }
-      if (c.pattern !== undefined) {
-        if (typeof c.pattern !== 'string' && !(c.pattern instanceof RegExp)) {
-          errors.push({
-            field: fieldName,
-            message: `Constraint 'pattern' for '${fieldName}' must be a string or RegExp`,
-            code: 'INVALID_SCHEMA_CONSTRAINT',
-          });
-        } else if (typeof c.pattern === 'string') {
-          try {
-            new RegExp(c.pattern);
-          } catch (regexErr) {
-            errors.push({
-              field: fieldName,
-              message: `Invalid regex pattern '${c.pattern}' for parameter '${fieldName}': ${regexErr.message}`,
-              code: 'INVALID_SCHEMA_PATTERN',
-            });
-          }
-        }
-      }
-    }
-
-    validSchemas.push({ ...schema, name: fieldName });
-  }
-
-  // 2. Validate caller inputs object format
-  if (!isPlainObject(inputs)) {
-    errors.push({
-      field: '$inputs',
-      message: `Caller inputs must be a plain object, got '${Array.isArray(inputs) ? 'array' : (inputs === null ? 'null' : typeof inputs)}'`,
-      code: 'INVALID_INPUTS_OBJECT',
-    });
-    const result = { valid: false, errors };
-    if (options.throwOnError) {
-      const actionLabel = options.actionId ? ` for action '${options.actionId}'` : '';
-      throw new PreconditionError(`Precondition validation failed${actionLabel}: ${errors.map(e => e.message).join('; ')}`, errors, options.actionId);
-    }
-    return result;
-  }
-
-  // 3. Reject unexpected caller input keys (deterministic execution)
-  for (const inputKey of Object.keys(inputs)) {
-    if (!declaredParamNames.has(inputKey)) {
-      errors.push({
-        field: inputKey,
-        message: `Unexpected input parameter '${inputKey}' not declared in action schema`,
-        code: 'UNEXPECTED_INPUT_PARAMETER',
-      });
-    }
-  }
-
-  // 4. Validate input values against valid schemas
-  for (const schema of validSchemas) {
-    const fieldName = schema.name;
-    const value = inputs[fieldName];
-    const isPresent = value !== undefined && value !== null;
-
-    if (schema.required) {
-      if (!isPresent) {
-        errors.push({
-          field: fieldName,
-          message: `Missing required input '${fieldName}': ${schema.description || 'no description provided'}`,
-          code: 'REQUIRED_FIELD_MISSING',
-        });
-        continue;
-      }
-
-      if (schema.type === 'string' && typeof value === 'string' && value.trim() === '') {
-        errors.push({
-          field: fieldName,
-          message: `Required input '${fieldName}' cannot be empty`,
-          code: 'REQUIRED_FIELD_EMPTY',
-        });
-        continue;
-      }
-    }
-
-    if (!isPresent) {
-      continue;
-    }
-
-    const expectedType = schema.type || 'string';
-    let typeValid = true;
-
-    switch (expectedType) {
-      case 'string':
-        typeValid = typeof value === 'string';
-        break;
-      case 'number':
-        typeValid = typeof value === 'number' && !Number.isNaN(value);
-        break;
-      case 'boolean':
-        typeValid = typeof value === 'boolean';
-        break;
-      case 'array':
-        typeValid = Array.isArray(value);
-        break;
-      case 'object':
-        typeValid = isPlainObject(value);
-        break;
-      default:
-        typeValid = true;
-    }
-
-    if (!typeValid) {
-      const actualType = Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value);
-      errors.push({
-        field: fieldName,
-        message: `Input '${fieldName}' must be of type '${expectedType}', got '${actualType}'`,
-        code: 'INVALID_TYPE',
-      });
-      continue;
-    }
-
-    if (schema.constraints && typeof schema.constraints === 'object') {
-      const c = schema.constraints;
-
-      if (typeof c.minLength === 'number') {
-        if ((typeof value === 'string' || Array.isArray(value)) && value.length < c.minLength) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' length (${value.length}) is less than minimum length ${c.minLength}`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
-        }
-      }
-
-      if (typeof c.maxLength === 'number') {
-        if ((typeof value === 'string' || Array.isArray(value)) && value.length > c.maxLength) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' length (${value.length}) exceeds maximum length ${c.maxLength}`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
-        }
-      }
-
-      if (typeof c.minValue === 'number' && typeof value === 'number') {
-        if (value < c.minValue) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' value (${value}) is less than minimum value ${c.minValue}`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
-        }
-      }
-
-      if (typeof c.maxValue === 'number' && typeof value === 'number') {
-        if (value > c.maxValue) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' value (${value}) exceeds maximum value ${c.maxValue}`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
-        }
-      }
-
-      if (c.pattern && typeof value === 'string') {
-        try {
-          const regex = typeof c.pattern === 'string' ? new RegExp(c.pattern) : c.pattern;
-          if (!regex.test(value)) {
-            errors.push({
-              field: fieldName,
-              message: `Input '${fieldName}' does not match required pattern '${c.pattern}'`,
-              code: 'CONSTRAINT_VIOLATION',
-            });
-          }
-        } catch {
-          // Already checked in schema validation
-        }
-      }
-
-      if (Array.isArray(c.allowedValues)) {
-        if (!c.allowedValues.includes(value)) {
-          errors.push({
-            field: fieldName,
-            message: `Input '${fieldName}' value '${value}' is not one of allowed values: [${c.allowedValues.join(', ')}]`,
-            code: 'CONSTRAINT_VIOLATION',
-          });
-        }
-      }
-
-      if (c.itemType && Array.isArray(value)) {
-        value.forEach((item, idx) => {
-          let itemValid = true;
-          switch (c.itemType) {
-            case 'string': itemValid = typeof item === 'string'; break;
-            case 'number': itemValid = typeof item === 'number' && !Number.isNaN(item); break;
-            case 'boolean': itemValid = typeof item === 'boolean'; break;
-            case 'array': itemValid = Array.isArray(item); break;
-            case 'object': itemValid = isPlainObject(item); break;
-          }
-          if (!itemValid) {
-            errors.push({
-              field: `${fieldName}[${idx}]`,
-              message: `Array item at index ${idx} of '${fieldName}' must be of type '${c.itemType}'`,
-              code: 'INVALID_ITEM_TYPE',
-            });
-          }
-        });
-      }
-    }
-  }
-
-  const result = { valid: errors.length === 0, errors };
-
-  if (options.throwOnError && !result.valid) {
-    const actionLabel = options.actionId ? ` for action '${options.actionId}'` : '';
-    const summary = errors.map(e => e.message).join('; ');
-    throw new PreconditionError(`Precondition validation failed${actionLabel}: ${summary}`, errors, options.actionId);
-  }
-
-  return result;
-}
-
-/**
- * Asserts that action inputs satisfy parameter schemas, throwing PreconditionError if invalid.
- *
- * @param {Array<object>} schemas
- * @param {Record<string, any>} inputs
- * @param {string} [actionId]
- * @throws {PreconditionError}
- */
-export function assertActionInputs(schemas, inputs, actionId) {
-  return validateActionInputs(schemas, inputs, { throwOnError: true, actionId });
 }
 
 /**
@@ -400,6 +48,9 @@ export class ActionCheckResult {
     if (!Array.isArray(requiredInputs)) {
       throw new WorkflowError(`ActionCheckResult 'requiredInputs' must be an array, got '${typeof requiredInputs}'`);
     }
+    // Fail-closed validation of parameter schemas at the producer boundary (Constraint C3)
+    assertActionParameterSchemas(requiredInputs, actionId);
+
     if (!isPlainObject(context)) {
       throw new WorkflowError(`ActionCheckResult 'context' must be a plain object, got '${Array.isArray(context) ? 'array' : (context === null ? 'null' : typeof context)}'`);
     }
@@ -486,10 +137,24 @@ export class ActionExecuteResult {
 /**
  * Abstract base class defining the composable Action contract.
  *
- * Implements the authoritative execution boundary: validates inputs against
- * the action's declared requiredInputs schema prior to any mutating execution logic.
+ * Implements the authoritative execution boundary:
+ * 1. Executes non-mutating check() to inspect state and obtain requiredInputs
+ * 2. Validates action identity on the check result
+ * 3. Enforces ready === true before any domain mutation
+ * 4. Validates caller inputs against parameter schemas
+ * 5. Delegates only validated inputs to executeValidated()
+ * 6. Validates action identity on the execution result
  */
 export class ActionContract {
+  constructor() {
+    // Structural invariant: prevent subclasses from bypassing the authoritative execution wrapper
+    if (this.execute !== ActionContract.prototype.execute) {
+      throw new WorkflowError(
+        `ActionContract subclass '${this.constructor.name}' must not override execute(). Implement executeValidated() instead.`
+      );
+    }
+  }
+
   /**
    * Unique action identifier (e.g. 'commit-and-push', 'verify-task-output').
    * @returns {string}
@@ -517,7 +182,7 @@ export class ActionContract {
   }
 
   /**
-   * Authoritative execution boundary: validates inputs against check() schemas before mutation.
+   * Authoritative execution boundary: validates ready state and inputs before mutation.
    * Subclasses implement executeValidated(inputs, context) for their domain logic.
    *
    * @param {Record<string, any>} inputs - Caller-supplied input parameters
@@ -532,8 +197,27 @@ export class ActionContract {
       );
     }
 
+    // Action identity boundary check
+    if (checkResult.actionId !== this.id) {
+      throw new WorkflowError(
+        `Action '${this.id}' check() returned ActionCheckResult with mismatched actionId '${checkResult.actionId}'`
+      );
+    }
+
+    // Fail-closed readiness check: ready === false blocks domain execution
+    if (!checkResult.ready) {
+      const message = `Action '${this.id}' is not ready for execution: ${checkResult.summary || 'prerequisites not satisfied'}`;
+      throw new PreconditionError(
+        message,
+        [{ field: '$action', message: checkResult.summary || 'Action is not ready for execution', code: 'ACTION_NOT_READY' }],
+        this.id
+      );
+    }
+
+    // Fail-closed input validation
     assertActionInputs(checkResult.requiredInputs, inputs, this.id);
 
+    // Delegate to subclass domain implementation
     const execResult = await this.executeValidated(inputs, context);
     if (!(execResult instanceof ActionExecuteResult)) {
       throw new WorkflowError(
@@ -541,11 +225,18 @@ export class ActionContract {
       );
     }
 
+    // Action identity boundary check
+    if (execResult.actionId !== this.id) {
+      throw new WorkflowError(
+        `Action '${this.id}' executeValidated() returned ActionExecuteResult with mismatched actionId '${execResult.actionId}'`
+      );
+    }
+
     return execResult;
   }
 
   /**
-   * Subclass hook to perform domain execution operations after inputs have been strictly validated.
+   * Subclass hook to perform domain execution operations after inputs and readiness have been strictly validated.
    *
    * @param {Record<string, any>} inputs - Validated inputs
    * @param {object} context - Environmental context

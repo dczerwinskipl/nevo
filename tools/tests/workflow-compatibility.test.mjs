@@ -211,7 +211,7 @@ describe('Manifest workflow schema validation (AC2, AC3, Review Finding 3)', () 
   });
 });
 
-describe('Workflow definition parser, loader, and gate validation (AC1, Review Finding 2)', () => {
+describe('Workflow definition parser, loader, and gate validation (AC1, Review Finding 2 & 3)', () => {
   test('built-in definitions exist and parse cleanly', () => {
     const definitions = listBuiltInWorkflowDefinitions();
     assert.ok(definitions.includes('standard'), 'standard workflow definition exists');
@@ -314,6 +314,44 @@ steps:
     assert.equal(def.steps.step1.exitGates[0].command, 'npm run test:unit');
   });
 
+  test('rejects command gate with neither action nor command', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    exitGates:
+      - type: command
+`;
+    assert.throws(
+      () => parseWorkflowDefinition(yaml),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /command gate must declare either 'action' or 'command'/);
+        return true;
+      }
+    );
+  });
+
+  test('rejects command gate declaring both action and command (exactly one target required)', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    exitGates:
+      - type: command
+        action: test
+        command: "npm test"
+`;
+    assert.throws(
+      () => parseWorkflowDefinition(yaml),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /command gate cannot declare both 'action' and 'command' — specify exactly one execution target/);
+        return true;
+      }
+    );
+  });
+
   test('parseWorkflowDefinition rejects unknown actions when knownActions is provided', () => {
     const yaml = `
 id: custom-v1
@@ -345,24 +383,6 @@ steps:
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.match(err.message, /unknown gate type 'magical-gate'/);
-        return true;
-      }
-    );
-  });
-
-  test('parseWorkflowDefinition rejects command gate missing action or command', () => {
-    const yaml = `
-id: custom-v1
-steps:
-  step1:
-    exitGates:
-      - type: command
-`;
-    assert.throws(
-      () => parseWorkflowDefinition(yaml),
-      (err) => {
-        assert.ok(err instanceof WorkflowDefinitionError);
-        assert.match(err.message, /command gate must declare an 'action' or 'command'/);
         return true;
       }
     );

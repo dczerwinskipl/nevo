@@ -11,6 +11,7 @@ context:
     - docs/ai/specification-workflow.md
 allowed_paths:
   - tools/specs/workflow/contracts.mjs
+  - tools/specs/workflow/input-schema.mjs
   - tools/specs/workflow/errors.mjs
   - tools/specs/workflow/index.mjs
   - tools/tests/workflow-contracts.test.mjs

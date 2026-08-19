@@ -10,8 +10,13 @@ export {
 
 export {
   ALLOWED_PARAM_TYPES,
+  validateActionParameterSchemas,
+  assertActionParameterSchemas,
   validateActionInputs,
   assertActionInputs,
+} from './input-schema.mjs';
+
+export {
   ActionCheckResult,
   ActionExecuteResult,
   ActionContract,
