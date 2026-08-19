@@ -258,36 +258,4 @@ export class ActionContract {
   }
 }
 
-/**
- * Abstract base class defining the Gate contract.
- */
-export class GateContract {
-  /**
-   * Gate type identifier ('command' | 'markdown' | 'human').
-   * @returns {string}
-   */
-  get type() {
-    throw new Error(`GateContract subclass '${this.constructor.name}' must implement get type()`);
-  }
-
-  /**
-   * Non-mutating inspection of gate status without executing heavy actions.
-   *
-   * @param {object} config - Gate configuration from workflow definition
-   * @param {object} context - Environmental context
-   * @returns {Promise<object>}
-   */
-  async inspect(config, context) {
-    throw new Error(`GateContract subclass '${this.constructor.name}' must implement inspect(config, context)`);
-  }
-
-  /**
-   * Explicit gate verification execution.
-   *
-   * @param {object} config - Gate configuration from workflow definition
-   * @returns {Promise<object>}
-   */
-  async verify(config, context) {
-    throw new Error(`GateContract subclass '${this.constructor.name}' must implement verify(config, context)`);
-  }
-}
+export { GateContract } from './gates/contracts.mjs';

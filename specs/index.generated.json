@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-19T06:08:26.053Z",
+  "generated": "2026-08-19T06:32:16.572Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -84,10 +84,32 @@
           "id": "action-registry-and-aggregated-checks",
           "order": 3,
           "file": "tasks/03-action-registry-and-aggregated-checks.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "composable-actions-and-contracts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "review_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "changed_paths": [
+              "tools/specs/workflow/engine.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/registry.mjs",
+              "tools/tests/workflow-engine.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4a3012fdd2183cf9501e33f689a52c62ab1f4c953d4f4c3b656cb7900d42186b"
+          },
+          "self_check": {
+            "fingerprint": "a63cdb9e095ebb04bc7ad81ad4a19b1658101d68f71ca7d9ca0fad8162796d54",
+            "revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-engine.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "concrete-action-commit-and-push",
@@ -102,10 +124,36 @@
           "id": "deterministic-gates-and-human-verification",
           "order": 5,
           "file": "tasks/05-deterministic-gates-and-human-verification.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "composable-actions-and-contracts"
-          ]
+          ],
+          "self_check": {
+            "fingerprint": "1240624c8cee41d4bf8f9f6bd8d25408c171fae683a2329b63c7b8ff2549f4f9",
+            "revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-gates.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          },
+          "implementation": {
+            "baseline_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "review_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "changed_paths": [
+              "tools/specs/workflow/gates/command-gate.mjs",
+              "tools/specs/workflow/gates/contracts.mjs",
+              "tools/specs/workflow/gates/human-gate.mjs",
+              "tools/specs/workflow/gates/index.mjs",
+              "tools/specs/workflow/gates/markdown-gate.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/registry.mjs",
+              "tools/tests/workflow-gates.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "4a3012fdd2183cf9501e33f689a52c62ab1f4c953d4f4c3b656cb7900d42186b"
+          }
         },
         {
           "id": "step-orchestration-and-next-step-service",
@@ -128,6 +176,15 @@
           ]
         }
       ]
+    },
+    {
+      "id": "ux-improvements-version-1",
+      "specId": "e016307e-bf62-4906-80bf-5296de377db6",
+      "title": "UX Improvements version 1",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-19",
+      "tasks": []
     },
     {
       "id": "ai-sessions-live-chat-integration",

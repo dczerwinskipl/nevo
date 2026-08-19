@@ -25,6 +25,29 @@ export {
 } from './contracts.mjs';
 
 export {
+  GateInspectionResult,
+  GateVerificationResult,
+  CommandGate,
+  resolveCommandTarget,
+  MarkdownGate,
+  analyzeMarkdownArtifact,
+  HumanVerificationGate,
+} from './gates/index.mjs';
+
+export {
+  ActionRegistry,
+  GateRegistry,
+  createDefaultGateRegistry,
+  defaultActionRegistry,
+  defaultGateRegistry,
+} from './registry.mjs';
+
+export {
+  WorkflowEngine,
+  defaultWorkflowEngine,
+} from './engine.mjs';
+
+export {
   KNOWN_GATE_TYPES,
   validateGateDefinition,
   validateActionReference,
