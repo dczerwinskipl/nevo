@@ -28,10 +28,13 @@ export {
   GateInspectionResult,
   GateVerificationResult,
   CommandGate,
+  KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
   MarkdownGate,
   analyzeMarkdownArtifact,
   HumanVerificationGate,
+  HumanVerificationReader,
+  MemoryHumanVerificationReader,
 } from './gates/index.mjs';
 
 export {

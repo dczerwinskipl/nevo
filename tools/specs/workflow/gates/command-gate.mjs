@@ -4,12 +4,17 @@ import { execSync } from 'node:child_process';
 import { GateContract, GateInspectionResult, GateVerificationResult } from './contracts.mjs';
 import { WorkflowError } from '../errors.mjs';
 
+/** Built-in logical command verification aliases */
+export const KNOWN_COMMAND_ACTIONS = new Set(['test', 'build']);
+
 /**
  * Resolves the target shell command for a command gate configuration.
+ * Fails closed on unknown logical command aliases.
  *
  * @param {object} config - Gate configuration
  * @param {object} [context={}] - Context containing overrides or environment facts
  * @returns {string}
+ * @throws {WorkflowError} If action alias is unknown or configuration is invalid
  */
 export function resolveCommandTarget(config, context = {}) {
   if (!config || typeof config !== 'object') {
@@ -22,16 +27,28 @@ export function resolveCommandTarget(config, context = {}) {
 
   if (typeof config.action === 'string' && config.action.trim()) {
     const action = config.action.trim();
-    if (context.actionCommands && typeof context.actionCommands[action] === 'string') {
+
+    // 1. Check explicit caller/environment verification command maps
+    if (context.verificationCommands && typeof context.verificationCommands[action] === 'string' && context.verificationCommands[action].trim()) {
+      return context.verificationCommands[action].trim();
+    }
+    if (context.actionCommands && typeof context.actionCommands[action] === 'string' && context.actionCommands[action].trim()) {
       return context.actionCommands[action].trim();
     }
+
+    // 2. Built-in standard command aliases
     if (action === 'test') {
       return context.testCommand || 'npm test';
     }
     if (action === 'build') {
       return context.buildCommand || 'npm run build';
     }
-    return context[`${action}Command`] || action;
+
+    // 3. Fail closed on unknown logical alias (no silent fallback to action string)
+    throw new WorkflowError(
+      `Unknown command verification alias '${action}' — must be a known alias ('test', 'build') or configured in context.verificationCommands`,
+      { code: 'UNKNOWN_COMMAND_ACTION', action }
+    );
   }
 
   throw new WorkflowError("CommandGate configuration must declare either 'action' or 'command'");

@@ -49,7 +49,7 @@ export function analyzeMarkdownArtifact(content, requiredSections = []) {
 }
 
 /**
- * Gate that verifies existence and completeness of markdown verification artifacts.
+ * Gate that verifies existence and completeness of markdown verification artifacts strictly within the repository.
  */
 export class MarkdownGate extends GateContract {
   get type() {
@@ -57,22 +57,50 @@ export class MarkdownGate extends GateContract {
   }
 
   /**
-   * Resolves target file path.
+   * Resolves target file path ensuring it remains strictly inside repoRoot.
    *
    * @param {object} config
-   * @param {object} context
+   * @param {object} [context={}]
    * @returns {string}
+   * @throws {WorkflowError} If path is absolute or attempts traversal outside repoRoot
    */
   _resolveFilePath(config, context = {}) {
     if (!config?.file || typeof config.file !== 'string' || !config.file.trim()) {
       throw new WorkflowError("MarkdownGate configuration requires a non-empty string 'file'");
     }
     const relativePath = config.file.trim();
-    if (path.isAbsolute(relativePath)) {
-      return relativePath;
+
+    // Reject absolute paths (POSIX and Windows drive letters)
+    if (path.isAbsolute(relativePath) || /^[a-zA-Z]:/.test(relativePath) || relativePath.startsWith('/') || relativePath.startsWith('\\')) {
+      throw new WorkflowError(
+        `Absolute paths are forbidden for markdown verification artifacts: '${relativePath}'. Artifacts must be repository-relative paths.`,
+        { code: 'PATH_TRAVERSAL_FORBIDDEN', requested: relativePath }
+      );
     }
-    const root = context.repoRoot || process.cwd();
-    return path.resolve(root, relativePath);
+
+    // Reject explicit path traversal indicators
+    if (relativePath.includes('..')) {
+      throw new WorkflowError(
+        `Path traversal sequences ('..') are forbidden in markdown artifact paths: '${relativePath}'.`,
+        { code: 'PATH_TRAVERSAL_FORBIDDEN', requested: relativePath }
+      );
+    }
+
+    const root = path.resolve(context.repoRoot || process.cwd());
+    const resolvedPath = path.resolve(root, relativePath);
+    const normalizedRoot = path.normalize(root);
+    const normalizedPath = path.normalize(resolvedPath);
+
+    // Verify containment strictly under repository root
+    const isInside = normalizedPath === normalizedRoot || normalizedPath.startsWith(normalizedRoot + path.sep);
+    if (!isInside) {
+      throw new WorkflowError(
+        `Markdown artifact path '${relativePath}' escapes the repository root '${root}'.`,
+        { code: 'PATH_TRAVERSAL_FORBIDDEN', requested: relativePath, resolvedPath }
+      );
+    }
+
+    return normalizedPath;
   }
 
   /**

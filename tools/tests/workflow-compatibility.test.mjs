@@ -32,6 +32,8 @@ import {
 import { validateWorkflowConfiguration, validateSpecs } from '../specs/validation.mjs';
 import { WorkflowDefinitionError, WorkflowError } from '../specs/workflow/errors.mjs';
 
+const REPO_ROOT = resolve(process.cwd());
+
 describe('Workflow compatibility mode resolution (AC4, AC5)', () => {
   test('manifests omitting workflow metadata cleanly resolve to default legacy mode', () => {
     const change = { id: 'sample-change', title: 'Sample' };
@@ -218,9 +220,42 @@ describe('Manifest workflow schema validation (AC2, AC3)', () => {
   });
 });
 
-describe('Repository-local workflow loader (.nevo-ai/workflows/)', () => {
-  test('standard resolves from .nevo-ai/workflows/standard.yaml', () => {
-    const standardDef = loadWorkflowDefinition('standard');
+describe('Repository-local workflow loader (.nevo-ai/workflows/) and explicit repoRoot (Finding 4)', () => {
+  test('loadWorkflowDefinition requires explicit options.repoRoot', () => {
+    assert.throws(
+      () => loadWorkflowDefinition('standard'),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.equal(err.details?.code, 'MISSING_REPO_ROOT');
+        return true;
+      }
+    );
+  });
+
+  test('listRepositoryWorkflowDefinitions requires explicit repoRoot', () => {
+    assert.throws(
+      () => listRepositoryWorkflowDefinitions(),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.equal(err.details?.code, 'MISSING_REPO_ROOT');
+        return true;
+      }
+    );
+  });
+
+  test('resolveWorkflowPath requires explicit repoRoot', () => {
+    assert.throws(
+      () => resolveWorkflowPath('standard'),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.equal(err.details?.code, 'MISSING_REPO_ROOT');
+        return true;
+      }
+    );
+  });
+
+  test('standard resolves from .nevo-ai/workflows/standard.yaml with explicit repoRoot', () => {
+    const standardDef = loadWorkflowDefinition('standard', { repoRoot: REPO_ROOT });
     assert.equal(standardDef.id, 'standard-v1');
     assert.equal(standardDef.type, 'standard');
     assert.ok(standardDef.steps.implementation);
@@ -235,14 +270,14 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/)', () => {
   });
 
   test('repository definitions exist in .nevo-ai/workflows/ and parse cleanly', () => {
-    const repoDefs = listRepositoryWorkflowDefinitions();
+    const repoDefs = listRepositoryWorkflowDefinitions(REPO_ROOT);
     assert.ok(repoDefs.includes('standard'), 'standard workflow definition exists in .nevo-ai/workflows/');
     assert.ok(repoDefs.includes('architectural'), 'architectural workflow definition exists in .nevo-ai/workflows/');
     assert.ok(repoDefs.includes('small'), 'small workflow definition exists in .nevo-ai/workflows/');
     assert.ok(repoDefs.includes('exploratory'), 'exploratory workflow definition exists in .nevo-ai/workflows/');
 
     for (const name of repoDefs) {
-      const def = loadWorkflowDefinition(name);
+      const def = loadWorkflowDefinition(name, { repoRoot: REPO_ROOT });
       assert.ok(def.id);
       assert.ok(def.steps);
       assert.ok(Object.keys(def.steps).length > 0);
@@ -265,7 +300,7 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/)', () => {
 
   test('missing configured definition fails closed with structured WorkflowDefinitionError', () => {
     assert.throws(
-      () => loadWorkflowDefinition('non-existent-workflow'),
+      () => loadWorkflowDefinition('non-existent-workflow', { repoRoot: REPO_ROOT }),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.match(err.message, /Deterministic workflow definition 'non-existent-workflow' not found/);
@@ -332,7 +367,7 @@ describe('Repository-local workflow loader (.nevo-ai/workflows/)', () => {
 describe('Path traversal and security boundaries', () => {
   test('rejects ../ and ..\\ path traversal in definition name', () => {
     assert.throws(
-      () => resolveWorkflowPath('../secret', process.cwd()),
+      () => resolveWorkflowPath('../secret', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
@@ -341,7 +376,7 @@ describe('Path traversal and security boundaries', () => {
     );
 
     assert.throws(
-      () => resolveWorkflowPath('..\\secret', process.cwd()),
+      () => resolveWorkflowPath('..\\secret', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
@@ -350,7 +385,7 @@ describe('Path traversal and security boundaries', () => {
     );
 
     assert.throws(
-      () => resolveWorkflowPath('nested/../../escape', process.cwd()),
+      () => resolveWorkflowPath('nested/../../escape', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
@@ -361,7 +396,7 @@ describe('Path traversal and security boundaries', () => {
 
   test('rejects absolute paths', () => {
     assert.throws(
-      () => resolveWorkflowPath('/etc/passwd', process.cwd()),
+      () => resolveWorkflowPath('/etc/passwd', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
@@ -370,7 +405,7 @@ describe('Path traversal and security boundaries', () => {
     );
 
     assert.throws(
-      () => resolveWorkflowPath('C:\\Windows\\System32\\workflow', process.cwd()),
+      () => resolveWorkflowPath('C:\\Windows\\System32\\workflow', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
@@ -381,7 +416,7 @@ describe('Path traversal and security boundaries', () => {
 
   test('rejects invalid or dangerous characters in definition name', () => {
     assert.throws(
-      () => resolveWorkflowPath('workflow;evil', process.cwd()),
+      () => resolveWorkflowPath('workflow;evil', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'INVALID_WORKFLOW_DEFINITION_NAME');
@@ -390,7 +425,7 @@ describe('Path traversal and security boundaries', () => {
     );
 
     assert.throws(
-      () => resolveWorkflowPath('workflow name with spaces', process.cwd()),
+      () => resolveWorkflowPath('workflow name with spaces', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'INVALID_WORKFLOW_DEFINITION_NAME');
@@ -399,7 +434,7 @@ describe('Path traversal and security boundaries', () => {
     );
 
     assert.throws(
-      () => resolveWorkflowPath('', process.cwd()),
+      () => resolveWorkflowPath('', REPO_ROOT),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
         assert.equal(err.details?.code, 'INVALID_WORKFLOW_DEFINITION_NAME');
@@ -409,7 +444,7 @@ describe('Path traversal and security boundaries', () => {
   });
 });
 
-describe('Workflow definition pure parser and semantic validation', () => {
+describe('Workflow definition pure parser and semantic validation (Finding 2 namespace separation)', () => {
   test('parseWorkflowDefinition parses valid YAML definition string', () => {
     const yaml = `
 id: custom-v1
@@ -445,7 +480,7 @@ steps: [ unclosed array
     );
   });
 
-  test('validates known command-gate action when knownActions is supplied', () => {
+  test('validates known command-gate action against knownCommandActions', () => {
     const yaml = `
 id: custom-v1
 steps:
@@ -456,11 +491,14 @@ steps:
       - type: command
         action: test
 `;
-    const def = parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task', 'test']) });
+    const def = parseWorkflowDefinition(yaml, {
+      knownActions: new Set(['implement-task']),
+      knownCommandActions: new Set(['test', 'build']),
+    });
     assert.equal(def.id, 'custom-v1');
   });
 
-  test('rejects unknown command-gate action when knownActions is supplied', () => {
+  test('rejects unknown command-gate action when knownCommandActions is supplied', () => {
     const yaml = `
 id: custom-v1
 steps:
@@ -472,10 +510,38 @@ steps:
         action: tetss
 `;
     assert.throws(
-      () => parseWorkflowDefinition(yaml, { knownActions: new Set(['implement-task', 'test']) }),
+      () => parseWorkflowDefinition(yaml, {
+        knownActions: new Set(['implement-task']),
+        knownCommandActions: new Set(['test', 'build']),
+      }),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
-        assert.match(err.message, /unknown command gate action 'tetss'/);
+        assert.match(err.message, /unknown command gate action alias 'tetss'/);
+        return true;
+      }
+    );
+  });
+
+  test('workflow action ID is not accepted as command gate action alias during validation', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: implement-task
+`;
+    // 'implement-task' is in knownActions, but NOT in knownCommandActions
+    assert.throws(
+      () => parseWorkflowDefinition(yaml, {
+        knownActions: new Set(['implement-task']),
+        knownCommandActions: new Set(['test', 'build']),
+      }),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /unknown command gate action alias 'implement-task'/);
         return true;
       }
     );

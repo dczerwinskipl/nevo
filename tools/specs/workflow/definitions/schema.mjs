@@ -1,6 +1,7 @@
 // Declarative workflow definition schema and validation.
 
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
+export const KNOWN_COMMAND_ACTIONS = new Set(['test', 'build']);
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -14,9 +15,9 @@ function isPlainObject(value) {
  * @param {string[]} errors - Output error collector
  * @param {object} [options]
  * @param {Set<string>|Array<string>} [options.knownGates] - Optional set of allowed gate types
- * @param {Set<string>|Array<string>} [options.knownActions] - Optional set of registered action IDs
+ * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases (e.g. 'test', 'build')
  */
-export function validateGateDefinition(gate, label, errors, { knownGates, knownActions } = {}) {
+export function validateGateDefinition(gate, label, errors, { knownGates, knownCommandActions } = {}) {
   if (!isPlainObject(gate)) {
     errors.push(`${label}: gate must be an object`);
     return;
@@ -46,11 +47,11 @@ export function validateGateDefinition(gate, label, errors, { knownGates, knownA
     if (hasAction) {
       if (typeof gate.action !== 'string' || !gate.action.trim()) {
         errors.push(`${label}: command gate 'action' must be a non-empty string`);
-      } else if (knownActions) {
-        const allowedActions = knownActions instanceof Set ? knownActions : new Set(knownActions);
-        if (!allowedActions.has(gate.action.trim())) {
+      } else if (knownCommandActions) {
+        const allowed = knownCommandActions instanceof Set ? knownCommandActions : new Set(knownCommandActions);
+        if (!allowed.has(gate.action.trim())) {
           errors.push(
-            `${label}: unknown command gate action '${gate.action}' (expected one of: ${[...allowedActions].join(', ')})`
+            `${label}: unknown command gate action alias '${gate.action}' (expected one of: ${[...allowed].join(', ')})`
           );
         }
       }
@@ -116,7 +117,8 @@ export function validateTransitionDefinition(transition, label, errors) {
  *
  * @param {object} definition - Parsed workflow definition object
  * @param {object} [options]
- * @param {Set<string>|Array<string>} [options.knownActions] - Allowed action IDs
+ * @param {Set<string>|Array<string>} [options.knownActions] - Allowed action IDs for step actions / finalize
+ * @param {Set<string>|Array<string>} [options.knownCommandActions] - Allowed command alias actions for command gates
  * @param {Set<string>|Array<string>} [options.knownGates] - Allowed gate types
  * @returns {{ valid: boolean, errors: string[] }}
  */

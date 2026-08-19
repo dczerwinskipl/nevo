@@ -21,7 +21,7 @@ tasks:
     status: verified
     implementation:
       baseline_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
-      review_revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      review_revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       changed_paths:
         - .nevo-ai/workflows/architectural.yaml
         - .nevo-ai/workflows/exploratory.yaml
@@ -38,10 +38,10 @@ tasks:
         - tools/specs/workflow/templates/small.yaml
         - tools/specs/workflow/templates/standard.yaml
         - tools/tests/workflow-compatibility.test.mjs
-      worktree_patch_fingerprint: 3e331a6aeea05646e680160b9280a2eeea7dd403db656fa100a9b9b19b1e46cc
+      worktree_patch_fingerprint: ee0a73c00323212bf4e2fb9602a16b47e4d2986c1977ab717aecf85d2ecf1bbb
     self_check:
       fingerprint: 5eb862fb7e07a9ed3217b8302b579c7fb6a44ba938d658efa14ad122f79446c1
-      revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       commands:
         - command: node --test tools/tests/workflow-compatibility.test.mjs
           exit_code: 0
@@ -57,17 +57,17 @@ tasks:
       - workflow-schema-and-compatibility
     implementation:
       baseline_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
-      review_revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      review_revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       changed_paths:
         - tools/specs/workflow/contracts.mjs
         - tools/specs/workflow/errors.mjs
         - tools/specs/workflow/index.mjs
         - tools/specs/workflow/input-schema.mjs
         - tools/tests/workflow-contracts.test.mjs
-      worktree_patch_fingerprint: 864c09271679b4e98269d02a419ee1532e5cca57569d6307274ef77300c6d003
+      worktree_patch_fingerprint: 35ce876a6dd7f76476d333661e754d2c66ff531097313b9d121cf5bc0ba3b1cc
     self_check:
       fingerprint: b929581e8de533efc7eaf7236aed2b6f2414927472d2e260d259f16a34323651
-      revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       commands:
         - command: node --test tools/tests/workflow-contracts.test.mjs
           exit_code: 0
@@ -81,16 +81,16 @@ tasks:
       - composable-actions-and-contracts
     implementation:
       baseline_revision: c9fd7a793144cee27646fe613a300687401fdc8f
-      review_revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      review_revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       changed_paths:
         - tools/specs/workflow/engine.mjs
         - tools/specs/workflow/index.mjs
         - tools/specs/workflow/registry.mjs
         - tools/tests/workflow-engine.test.mjs
-      worktree_patch_fingerprint: d8f119d035521b987ef17a6053e41ce2223dfe8ca4f2205daba8626417c68910
+      worktree_patch_fingerprint: 35ce876a6dd7f76476d333661e754d2c66ff531097313b9d121cf5bc0ba3b1cc
     self_check:
       fingerprint: a63cdb9e095ebb04bc7ad81ad4a19b1658101d68f71ca7d9ca0fad8162796d54
-      revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       commands:
         - command: node --test tools/tests/workflow-engine.test.mjs
           exit_code: 0
@@ -111,14 +111,14 @@ tasks:
       - composable-actions-and-contracts
     self_check:
       fingerprint: 1240624c8cee41d4bf8f9f6bd8d25408c171fae683a2329b63c7b8ff2549f4f9
-      revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       commands:
         - command: node --test tools/tests/workflow-gates.test.mjs
           exit_code: 0
       status: passed
     implementation:
       baseline_revision: c9fd7a793144cee27646fe613a300687401fdc8f
-      review_revision: 87dcd5cd1276c5a5091ed5d1ce6b810b2651bcfe
+      review_revision: 71975454f95bf3bef25102ad655fe31c1048c4c4
       changed_paths:
         - tools/specs/workflow/gates/command-gate.mjs
         - tools/specs/workflow/gates/contracts.mjs
@@ -128,7 +128,7 @@ tasks:
         - tools/specs/workflow/index.mjs
         - tools/specs/workflow/registry.mjs
         - tools/tests/workflow-gates.test.mjs
-      worktree_patch_fingerprint: d8f119d035521b987ef17a6053e41ce2223dfe8ca4f2205daba8626417c68910
+      worktree_patch_fingerprint: 3ca9eb959560be83ea48790f97ac7001e1fa4bdd27019bcda953972f07edc19f
 
   - id: step-orchestration-and-next-step-service
     order: 6
