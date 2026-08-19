@@ -81,7 +81,7 @@ export class MarkdownEvidenceReader {
 
 /**
  * In-memory implementation of MarkdownEvidenceReader for testing and composition.
- * Matches on target identity and returns the recorded evidence object.
+ * Matches on target identity and exact artifactHash when multiple versions exist.
  */
 export class MemoryMarkdownEvidenceReader extends MarkdownEvidenceReader {
   /**
@@ -102,22 +102,38 @@ export class MemoryMarkdownEvidenceReader extends MarkdownEvidenceReader {
     }
   }
 
-  getEvidence({ scope, targetId, file }) {
+  getEvidence({ scope, targetId, file, artifactHash }) {
+    // 1. Check for exact match including artifactHash
+    if (artifactHash) {
+      const exactMatch = this._evidence.find(
+        (e) =>
+          e &&
+          typeof e === 'object' &&
+          e.scope === scope &&
+          e.targetId === targetId &&
+          e.file === file &&
+          e.artifactHash === artifactHash
+      );
+      if (exactMatch) return exactMatch;
+    }
+
+    // 2. Fall back to target identity match so hash mismatches can be diagnosed
     return (
-      this._evidence.find((e) => {
-        if (!e || typeof e !== 'object') return false;
-        if (e.scope !== scope) return false;
-        if (e.targetId !== targetId) return false;
-        if (e.file !== file) return false;
-        return true;
-      }) || null
+      this._evidence.find(
+        (e) =>
+          e &&
+          typeof e === 'object' &&
+          e.scope === scope &&
+          e.targetId === targetId &&
+          e.file === file
+      ) || null
     );
   }
 }
 
 /**
  * Gate that verifies existence, structure, and trusted evidence of markdown verification artifacts.
- * Structurally inspecting text alone is read-only; explicit verification requires trusted evidence records bound to the exact content hash.
+ * Both inspect() and verify() agree on whether the complete gate condition is satisfied.
  */
 export class MarkdownGate extends GateContract {
   /**
@@ -192,24 +208,22 @@ export class MarkdownGate extends GateContract {
   }
 
   /**
-   * Introspects markdown artifact structure and checklist completeness without modifying state.
+   * Common read-only evaluation of artifact structural completeness and trusted evidence.
    *
    * @param {object} config
    * @param {object} [context={}]
-   * @returns {Promise<GateInspectionResult>}
+   * @returns {Promise<{ status: 'passed' | 'blocked', reason?: string, message: string, details: Record<string, any> }>}
    */
-  async inspect(config, context = {}) {
+  async _evaluateArtifact(config, context = {}) {
     const filePath = this._resolveFilePath(config, context);
 
     if (!this._fs.existsSync(filePath)) {
-      return new GateInspectionResult({
-        gateType: this.type,
+      return {
         status: 'blocked',
         reason: 'artifact-missing',
-        target: config.file,
         message: `Markdown verification artifact '${config.file}' does not exist`,
         details: { file: config.file, resolvedPath: filePath, exists: false },
-      });
+      };
     }
 
     const content = this._fs.readFileSync(filePath, 'utf8');
@@ -225,11 +239,9 @@ export class MarkdownGate extends GateContract {
         reasons.push(`missing required section(s): [${analysis.missingSections.join(', ')}]`);
       }
 
-      return new GateInspectionResult({
-        gateType: this.type,
+      return {
         status: 'blocked',
         reason: 'artifact-incomplete',
-        target: config.file,
         message: `Markdown artifact '${config.file}' is incomplete: ${reasons.join(', ')}`,
         details: {
           file: config.file,
@@ -237,70 +249,33 @@ export class MarkdownGate extends GateContract {
           artifactHash,
           ...analysis,
         },
-      });
-    }
-
-    return new GateInspectionResult({
-      gateType: this.type,
-      status: 'passed',
-      target: config.file,
-      message: `Markdown artifact '${config.file}' is structurally valid and complete`,
-      details: {
-        file: config.file,
-        exists: true,
-        artifactHash,
-        ...analysis,
-      },
-    });
-  }
-
-  /**
-   * Explicitly evaluates and verifies markdown artifact completeness and trusted evidence bound to exact artifact content hash.
-   *
-   * @param {object} config
-   * @param {object} [context={}]
-   * @returns {Promise<GateVerificationResult>}
-   */
-  async verify(config, context = {}) {
-    // 1. Structural inspection check
-    const inspection = await this.inspect(config, context);
-    if (inspection.status !== 'passed') {
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
-        status: 'blocked',
-        message: inspection.message,
-        details: inspection.details,
-      });
+      };
     }
 
     const scope = config.scope || 'task';
     const targetId = resolveHumanScopeTarget(scope, context);
     const file = config.file.trim();
-    const artifactHash = inspection.details?.artifactHash;
 
     if (!targetId) {
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
+      return {
         status: 'blocked',
+        reason: 'missing-scope-identity',
         message: `Markdown verification for scope '${scope}' requires explicit target identity in context`,
         details: {
           file,
           scope,
-          reason: 'missing-scope-identity',
-          ...inspection.details,
+          artifactHash,
+          ...analysis,
         },
-      });
+      };
     }
 
-    // 2. Query trusted evidence reader
+    // Query trusted evidence reader
     const reader = this._evidenceReader;
     if (!reader || typeof reader.getEvidence !== 'function') {
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
+      return {
         status: 'blocked',
+        reason: 'evidence-required',
         message: `Markdown artifact '${file}' is structurally complete, but no trusted evidence reader is configured`,
         details: {
           file,
@@ -308,19 +283,18 @@ export class MarkdownGate extends GateContract {
           targetId,
           artifactHash,
           reason: 'evidence-reader-missing',
-          ...inspection.details,
+          ...analysis,
         },
-      });
+      };
     }
 
     let evidence = null;
     try {
       evidence = await reader.getEvidence({ scope, targetId, file, artifactHash });
     } catch (err) {
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
+      return {
         status: 'blocked',
+        reason: 'evidence-required',
         message: `Failed to query markdown evidence reader: ${err.message}`,
         details: {
           file,
@@ -328,12 +302,12 @@ export class MarkdownGate extends GateContract {
           targetId,
           artifactHash,
           error: err.message,
-          ...inspection.details,
+          ...analysis,
         },
-      });
+      };
     }
 
-    // 3. Strict match validation against all expected fields
+    // Strict validation of retrieved evidence record
     const isVerified = evidence && typeof evidence === 'object' && evidence.verified === true;
     const scopeMatches = evidence?.scope === scope;
     const targetMatches = evidence?.targetId === targetId;
@@ -341,16 +315,11 @@ export class MarkdownGate extends GateContract {
     const hashMatches = evidence?.artifactHash === artifactHash;
 
     if (!isVerified || !scopeMatches || !targetMatches || !fileMatches || !hashMatches) {
-      let mismatchReason = 'evidence-required';
-      if (evidence && !hashMatches) {
-        mismatchReason = 'evidence-hash-mismatch';
-      }
-
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
+      const mismatchReason = evidence && !hashMatches ? 'evidence-hash-mismatch' : 'evidence-required';
+      return {
         status: 'blocked',
-        message: `Markdown verification artifact '${file}' is structurally complete, but no matching verified evidence record exists for target '${targetId}' (hash: ${artifactHash ? artifactHash.slice(0, 8) : 'none'}...)`,
+        reason: mismatchReason,
+        message: `Markdown verification artifact '${file}' is structurally complete, but no matching verified evidence record exists for target '${targetId}' (hash: ${artifactHash.slice(0, 8)}...)`,
         details: {
           file,
           scope,
@@ -358,14 +327,12 @@ export class MarkdownGate extends GateContract {
           artifactHash,
           reason: mismatchReason,
           recordedEvidence: evidence || null,
-          ...inspection.details,
+          ...analysis,
         },
-      });
+      };
     }
 
-    return new GateVerificationResult({
-      gateType: this.type,
-      passed: true,
+    return {
       status: 'passed',
       message: `Markdown artifact '${file}' is verified with authoritative evidence for '${targetId}' (hash: ${artifactHash.slice(0, 8)}...)`,
       details: {
@@ -374,8 +341,49 @@ export class MarkdownGate extends GateContract {
         targetId,
         artifactHash,
         evidence,
-        ...inspection.details,
+        ...analysis,
       },
+    };
+  }
+
+  /**
+   * Introspects markdown artifact status.
+   * Returns status: 'passed' only when structural completeness and authoritative evidence are both satisfied.
+   *
+   * @param {object} config
+   * @param {object} [context={}]
+   * @returns {Promise<GateInspectionResult>}
+   */
+  async inspect(config, context = {}) {
+    const evaluation = await this._evaluateArtifact(config, context);
+
+    return new GateInspectionResult({
+      gateType: this.type,
+      status: evaluation.status,
+      target: config.file,
+      ...(evaluation.reason ? { reason: evaluation.reason } : {}),
+      message: evaluation.message,
+      details: evaluation.details,
+    });
+  }
+
+  /**
+   * Explicitly verifies markdown artifact completeness and trusted evidence bound to exact artifact content hash.
+   *
+   * @param {object} config
+   * @param {object} [context={}]
+   * @returns {Promise<GateVerificationResult>}
+   */
+  async verify(config, context = {}) {
+    const evaluation = await this._evaluateArtifact(config, context);
+    const passed = evaluation.status === 'passed';
+
+    return new GateVerificationResult({
+      gateType: this.type,
+      passed,
+      status: passed ? 'passed' : 'blocked',
+      message: evaluation.message,
+      details: evaluation.details,
     });
   }
 }

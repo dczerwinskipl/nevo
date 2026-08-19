@@ -10,6 +10,22 @@ export const DEFAULT_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
 
 /**
+ * Builds canonical composite storage key for command verification state.
+ *
+ * @param {string} command
+ * @param {string} [action]
+ * @returns {string}
+ */
+export function getCommandStoreKey(command, action) {
+  const normCmd = typeof command === 'string' ? command.trim() : '';
+  const normAct = typeof action === 'string' ? action.trim() : '';
+  if (normAct) {
+    return `action:${normAct}::cmd:${normCmd}`;
+  }
+  return `raw::cmd:${normCmd}`;
+}
+
+/**
  * Abstract interface for accessing trusted recorded command verification state.
  */
 export class CommandVerificationStore {
@@ -48,6 +64,7 @@ export const CommandVerificationReader = CommandVerificationStore;
 
 /**
  * In-memory implementation of CommandVerificationStore for testing and composition.
+ * Binds recorded verification results to exact composite identity (action + concrete command).
  */
 export class MemoryCommandVerificationStore extends CommandVerificationStore {
   /**
@@ -67,12 +84,14 @@ export class MemoryCommandVerificationStore extends CommandVerificationStore {
    */
   recordCommandResult(record) {
     if (!record || typeof record !== 'object') return;
-    const commandKey = typeof record.command === 'string' ? record.command.trim() : '';
-    const actionKey = typeof record.action === 'string' ? record.action.trim() : '';
+    const command = typeof record.command === 'string' ? record.command.trim() : '';
+    const action = typeof record.action === 'string' ? record.action.trim() : '';
+
+    if (!command) return;
 
     const entry = {
-      command: commandKey,
-      action: actionKey || null,
+      command,
+      action: action || null,
       passed: record.passed === true,
       exitCode: Number.isInteger(record.exitCode) ? record.exitCode : (record.passed ? 0 : 1),
       stale: Boolean(record.stale),
@@ -80,12 +99,8 @@ export class MemoryCommandVerificationStore extends CommandVerificationStore {
       details: record.details || {},
     };
 
-    if (commandKey) {
-      this._results.set(commandKey, entry);
-    }
-    if (actionKey) {
-      this._results.set(actionKey, entry);
-    }
+    const key = getCommandStoreKey(command, action);
+    this._results.set(key, entry);
   }
 
   /** Backward-compatible setter */
@@ -94,13 +109,8 @@ export class MemoryCommandVerificationStore extends CommandVerificationStore {
   }
 
   getCommandResult({ command, action }) {
-    if (command && this._results.has(command.trim())) {
-      return this._results.get(command.trim());
-    }
-    if (action && this._results.has(action.trim())) {
-      return this._results.get(action.trim());
-    }
-    return null;
+    const key = getCommandStoreKey(command, action);
+    return this._results.get(key) || null;
   }
 }
 
@@ -293,6 +303,7 @@ export class CommandGate extends GateContract {
 
   /**
    * Explicitly executes the target verification command and records the authoritative result to the store.
+   * Fails closed if no store is configured or if persistence fails.
    *
    * @param {object} config - Gate configuration
    * @param {object} [context={}] - Environmental context (must supply explicit context.repoRoot for execSync)
@@ -303,14 +314,12 @@ export class CommandGate extends GateContract {
     const runner = this._runner;
 
     let evalResult;
-    let rawError = null;
 
     if (typeof runner === 'function') {
       try {
         const rawResult = await runner(targetCommand, context);
         evalResult = evaluateRunnerResult(rawResult, targetCommand);
       } catch (err) {
-        rawError = err.message;
         evalResult = {
           passed: false,
           exitCode: 1,
@@ -345,36 +354,65 @@ export class CommandGate extends GateContract {
       }
     }
 
-    const passed = evalResult.passed;
+    // Require authoritative verification store to record state
+    if (!this._verificationStore || typeof this._verificationStore.recordCommandResult !== 'function') {
+      return new GateVerificationResult({
+        gateType: this.type,
+        passed: false,
+        status: 'blocked',
+        message: `Command '${targetCommand}' executed (passed: ${evalResult.passed}), but no authoritative verification store is configured to record state`,
+        details: {
+          targetCommand,
+          action: config.action || null,
+          exitCode: evalResult.exitCode,
+          stdout: evalResult.stdout || '',
+          stderr: evalResult.stderr || '',
+          executionPassed: evalResult.passed,
+          reason: 'verification-store-missing',
+        },
+      });
+    }
 
     // Record the authoritative verification result into the trusted store
-    if (this._verificationStore && typeof this._verificationStore.recordCommandResult === 'function') {
-      try {
-        await this._verificationStore.recordCommandResult({
-          command: targetCommand,
+    try {
+      await this._verificationStore.recordCommandResult({
+        command: targetCommand,
+        action: config.action || null,
+        passed: evalResult.passed,
+        exitCode: evalResult.exitCode,
+        stale: false,
+        timestamp: new Date().toISOString(),
+        details: {
+          stdout: evalResult.stdout || '',
+          stderr: evalResult.stderr || '',
+          ...(evalResult.error ? { error: evalResult.error } : {}),
+        },
+      });
+    } catch (err) {
+      return new GateVerificationResult({
+        gateType: this.type,
+        passed: false,
+        status: 'failed',
+        message: `Failed to record authoritative verification state for '${targetCommand}': ${err.message}`,
+        details: {
+          targetCommand,
           action: config.action || null,
-          passed,
           exitCode: evalResult.exitCode,
-          stale: false,
-          timestamp: new Date().toISOString(),
-          details: {
-            stdout: evalResult.stdout || '',
-            stderr: evalResult.stderr || '',
-            ...(evalResult.error ? { error: evalResult.error } : {}),
-          },
-        });
-      } catch {
-        // Store failure is non-fatal to verification result evaluation
-      }
+          error: err.message,
+          executionPassed: evalResult.passed,
+          reason: 'verification-record-failed',
+        },
+      });
     }
 
     return new GateVerificationResult({
       gateType: this.type,
-      passed,
-      status: passed ? 'passed' : 'failed',
-      message: evalResult.error || (passed ? `Command '${targetCommand}' passed` : `Command '${targetCommand}' failed`),
+      passed: evalResult.passed,
+      status: evalResult.passed ? 'passed' : 'failed',
+      message: evalResult.error || (evalResult.passed ? `Command '${targetCommand}' passed` : `Command '${targetCommand}' failed`),
       details: {
         targetCommand,
+        action: config.action || null,
         exitCode: evalResult.exitCode,
         stdout: evalResult.stdout || '',
         stderr: evalResult.stderr || '',
