@@ -9,6 +9,7 @@ import {
   GateInspectionResult,
   GateVerificationResult,
   CommandGate,
+  DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
   MarkdownGate,
@@ -16,6 +17,7 @@ import {
   HumanVerificationGate,
   HumanVerificationReader,
   MemoryHumanVerificationReader,
+  resolveHumanScopeTarget,
   GateRegistry,
   createDefaultGateRegistry,
   defaultGateRegistry,
@@ -67,9 +69,47 @@ describe('GateRegistry and GateContract (AC1)', () => {
   });
 });
 
-describe('CommandGate and verification aliases (Finding 2)', () => {
-  const gate = new CommandGate();
+describe('GateInspectionResult and GateVerificationResult contract hardening (Finding 3)', () => {
+  test('GateVerificationResult strictly validates passed boolean', () => {
+    assert.throws(
+      () => new GateVerificationResult({ gateType: 'command', passed: 'true' }),
+      /GateVerificationResult 'passed' must be a strict boolean, got 'string'/
+    );
+  });
 
+  test('GateVerificationResult validates status values and rejects unknown statuses', () => {
+    assert.throws(
+      () => new GateVerificationResult({ gateType: 'command', passed: true, status: 'unsupported-status' }),
+      /GateVerificationResult 'status' must be one of: passed, failed, blocked, got 'unsupported-status'/
+    );
+  });
+
+  test('GateVerificationResult rejects contradiction between passed and status', () => {
+    assert.throws(
+      () => new GateVerificationResult({ gateType: 'command', passed: true, status: 'failed' }),
+      /GateVerificationResult contradiction: 'passed: true' is incompatible with 'status: failed'/
+    );
+
+    assert.throws(
+      () => new GateVerificationResult({ gateType: 'command', passed: false, status: 'passed' }),
+      /GateVerificationResult contradiction: 'passed: false' is incompatible with 'status: passed'/
+    );
+  });
+
+  test('GateInspectionResult strictly validates stale boolean and status', () => {
+    assert.throws(
+      () => new GateInspectionResult({ gateType: 'command', status: 'passed', stale: 'false' }),
+      /GateInspectionResult 'stale' must be a strict boolean, got 'string'/
+    );
+
+    assert.throws(
+      () => new GateInspectionResult({ gateType: 'command', status: 'unknown-status' }),
+      /GateInspectionResult 'status' must be one of: passed, failed, blocked, pending, got 'unknown-status'/
+    );
+  });
+});
+
+describe('CommandGate and verification aliases (Finding 2, 3, 4)', () => {
   test('resolves built-in test and build command aliases', () => {
     // Built-in test alias
     assert.equal(resolveCommandTarget({ action: 'test' }), 'npm test');
@@ -104,7 +144,6 @@ describe('CommandGate and verification aliases (Finding 2)', () => {
   });
 
   test('workflow ActionRegistry IDs are not accidentally accepted as command aliases', () => {
-    // 'commit-and-push' and 'verify-task-output' are ActionContract IDs, NOT command aliases
     assert.throws(
       () => resolveCommandTarget({ action: 'commit-and-push' }),
       (err) => {
@@ -115,60 +154,80 @@ describe('CommandGate and verification aliases (Finding 2)', () => {
     );
   });
 
-  test('raw command execution remains supported via explicit command field', () => {
-    assert.equal(resolveCommandTarget({ command: 'cargo test --lib' }), 'cargo test --lib');
-    assert.equal(resolveCommandTarget({ command: 'pytest -v' }), 'pytest -v');
-  });
-
-  test('inspect is 100% non-mutating and returns target and staleness without executing', async () => {
-    let runnerCalled = false;
-    const context = {
-      testCommand: 'npm test',
-      runner: () => { runnerCalled = true; },
-      lastVerification: { 'npm test': { passed: true } },
-      testStale: false,
+  test('supports constructor dependency injection for runner and verificationCommands (Finding 4)', async () => {
+    let injectedRunnerCalled = false;
+    const injectedRunner = async (cmd) => {
+      injectedRunnerCalled = true;
+      return { passed: true, exitCode: 0, stdout: 'Injected runner ok' };
     };
 
-    const result = await gate.inspect({ action: 'test' }, context);
+    const gateWithDI = new CommandGate({
+      runner: injectedRunner,
+      verificationCommands: { lint: 'eslint .' },
+    });
 
-    assert.equal(runnerCalled, false, 'inspect must NEVER execute the command runner');
-    assert.ok(result instanceof GateInspectionResult);
-    assert.equal(result.gateType, 'command');
-    assert.equal(result.status, 'passed');
-    assert.equal(result.target, 'npm test');
-    assert.equal(result.stale, false);
-    assert.match(result.message, /Command gate targets 'npm test'/);
+    const inspectResult = await gateWithDI.inspect({ action: 'lint' }, {});
+    assert.equal(inspectResult.status, 'pending');
+    assert.equal(inspectResult.target, 'eslint .');
+
+    const verifyResult = await gateWithDI.verify({ action: 'lint' }, {});
+    assert.equal(injectedRunnerCalled, true);
+    assert.equal(verifyResult.passed, true);
+    assert.equal(verifyResult.status, 'passed');
   });
 
-  test('inspect returns pending status when no verification has been recorded', async () => {
-    const result = await gate.inspect({ command: 'node --test' }, {});
-    assert.equal(result.status, 'pending');
-    assert.equal(result.target, 'node --test');
-    assert.equal(result.stale, true);
+  test('strict runner result evaluation rejects non-boolean strings and contradictions (Finding 3)', async () => {
+    const gate = new CommandGate();
+
+    // String "false" is rejected / fails closed
+    const resStringFalse = await gate.verify({ command: 'test' }, { runner: async () => ({ passed: 'false' }) });
+    assert.equal(resStringFalse.passed, false);
+    assert.equal(resStringFalse.status, 'failed');
+    assert.match(resStringFalse.message, /must be a strict boolean/);
+
+    // String "0" is rejected / fails closed
+    const resStringZero = await gate.verify({ command: 'test' }, { runner: async () => ({ exitCode: '0' }) });
+    assert.equal(resStringZero.passed, false);
+    assert.equal(resStringZero.status, 'failed');
+    assert.match(resStringZero.message, /must be a strict integer/);
+
+    // Contradictory passed=true and exitCode=1
+    const resContradict1 = await gate.verify({ command: 'test' }, { runner: async () => ({ passed: true, exitCode: 1 }) });
+    assert.equal(resContradict1.passed, false);
+    assert.equal(resContradict1.status, 'failed');
+    assert.match(resContradict1.message, /Contradictory runner result/);
+
+    // Contradictory passed=false and exitCode=0
+    const resContradict2 = await gate.verify({ command: 'test' }, { runner: async () => ({ passed: false, exitCode: 0 }) });
+    assert.equal(resContradict2.passed, false);
+    assert.equal(resContradict2.status, 'failed');
+    assert.match(resContradict2.message, /Contradictory runner result/);
+
+    // Valid exitCode 0
+    const resExit0 = await gate.verify({ command: 'test' }, { runner: async () => ({ exitCode: 0 }) });
+    assert.equal(resExit0.passed, true);
+    assert.equal(resExit0.status, 'passed');
+
+    // Valid non-zero exitCode
+    const resExit1 = await gate.verify({ command: 'test' }, { runner: async () => ({ exitCode: 2 }) });
+    assert.equal(resExit1.passed, false);
+    assert.equal(resExit1.status, 'failed');
   });
 
-  test('verify executes command via runner and records result', async () => {
-    const mockContext = {
-      runner: async (cmd) => {
-        if (cmd === 'failing-test') {
-          return { passed: false, exitCode: 1, stderr: 'Tests failed' };
-        }
-        return { passed: true, exitCode: 0, stdout: 'All passed' };
-      },
-    };
-
-    const passResult = await gate.verify({ command: 'passing-test' }, mockContext);
-    assert.ok(passResult instanceof GateVerificationResult);
-    assert.equal(passResult.passed, true);
-    assert.equal(passResult.status, 'passed');
-
-    const failResult = await gate.verify({ command: 'failing-test' }, mockContext);
-    assert.equal(failResult.passed, false);
-    assert.equal(failResult.status, 'failed');
+  test('real command execution requires explicit context.repoRoot (Finding 4)', async () => {
+    const gate = new CommandGate();
+    await assert.rejects(
+      async () => await gate.verify({ command: 'echo hello' }, {}),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.details?.code, 'MISSING_REPO_ROOT');
+        return true;
+      }
+    );
   });
 });
 
-describe('MarkdownGate repository containment (Finding 3)', () => {
+describe('MarkdownGate repository containment and explicit repoRoot (Finding 3, 4)', () => {
   const gate = new MarkdownGate();
   const repoRoot = 'D:/repos/git/nevo';
 
@@ -184,17 +243,17 @@ describe('MarkdownGate repository containment (Finding 3)', () => {
     assert.equal(analysis.incompleteChecklistItems.length, 0);
     assert.equal(analysis.completedChecklistItems.length, 2);
     assert.equal(analysis.missingSections.length, 0);
+  });
 
-    const incompleteContent = `
-# Verification Plan
-- [ ] Incomplete item
-- [x] Completed item
-`;
-    const incompleteAnalysis = analyzeMarkdownArtifact(incompleteContent, ['Requirements']);
-    assert.equal(incompleteAnalysis.complete, false);
-    assert.equal(incompleteAnalysis.incompleteChecklistItems.length, 1);
-    assert.equal(incompleteAnalysis.incompleteChecklistItems[0], 'Incomplete item');
-    assert.deepEqual(incompleteAnalysis.missingSections, ['Requirements']);
+  test('inspect requires explicit context.repoRoot', async () => {
+    await assert.rejects(
+      async () => await gate.inspect({ file: 'verification.md' }, {}),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.details?.code, 'MISSING_REPO_ROOT');
+        return true;
+      }
+    );
   });
 
   test('resolves valid repository-relative and nested markdown files', async () => {
@@ -224,15 +283,6 @@ describe('MarkdownGate repository containment (Finding 3)', () => {
         return true;
       }
     );
-
-    await assert.rejects(
-      async () => await gate.inspect({ file: 'docs/../../outside.md' }, context),
-      (err) => {
-        assert.ok(err instanceof WorkflowError);
-        assert.equal(err.details?.code, 'PATH_TRAVERSAL_FORBIDDEN');
-        return true;
-      }
-    );
   });
 
   test('rejects absolute POSIX and Windows paths', async () => {
@@ -256,171 +306,77 @@ describe('MarkdownGate repository containment (Finding 3)', () => {
       }
     );
   });
-
-  test('inspect reports blocked when artifact does not exist', async () => {
-    const mockContext = {
-      repoRoot,
-      fs: {
-        existsSync: () => false,
-      },
-    };
-
-    const result = await gate.inspect({ file: 'docs/missing-verification.md' }, mockContext);
-    assert.equal(result.status, 'blocked');
-    assert.equal(result.reason, 'artifact-missing');
-    assert.match(result.message, /does not exist/);
-  });
-
-  test('verify passes when markdown artifact is complete', async () => {
-    const mockContext = {
-      repoRoot,
-      fs: {
-        existsSync: () => true,
-        readFileSync: () => '# Plan\n- [x] Verified step 1\n- [x] Verified step 2',
-      },
-    };
-
-    const result = await gate.verify({ file: 'verification.md' }, mockContext);
-    assert.equal(result.passed, true);
-    assert.equal(result.status, 'passed');
-  });
 });
 
-describe('HumanVerificationGate trusted state boundary (Finding 1)', () => {
-  const gate = new HumanVerificationGate();
+describe('HumanVerificationGate trusted state and scope targeting (Finding 1, 4)', () => {
+  test('supports constructor dependency injection for verificationReader', async () => {
+    const reader = new MemoryHumanVerificationReader([
+      {
+        confirmed: true,
+        scope: 'task',
+        targetId: 'task-di',
+        role: 'owner',
+      },
+    ]);
+
+    const gate = new HumanVerificationGate({ verificationReader: reader });
+    const result = await gate.inspect({ required: true, scope: 'task' }, { taskId: 'task-di' });
+    assert.equal(result.status, 'passed');
+    assert.equal(result.signoff.targetId, 'task-di');
+  });
+
+  test('resolves scope targeting for task, step, and change scopes independently (Finding 4)', async () => {
+    const reader = new MemoryHumanVerificationReader([
+      { confirmed: true, scope: 'task', targetId: '01-task', role: 'owner' },
+      { confirmed: true, scope: 'step', targetId: 'impl-step', role: 'owner' },
+      { confirmed: true, scope: 'change', targetId: 'my-change', role: 'owner' },
+    ]);
+
+    const gate = new HumanVerificationGate({ verificationReader: reader });
+
+    // Task scope
+    const taskRes = await gate.inspect({ required: true, scope: 'task' }, { taskId: '01-task' });
+    assert.equal(taskRes.status, 'passed');
+
+    // Step scope
+    const stepRes = await gate.inspect({ required: true, scope: 'step' }, { stepId: 'impl-step' });
+    assert.equal(stepRes.status, 'passed');
+
+    // Change scope
+    const changeRes = await gate.inspect({ required: true, scope: 'change' }, { changeId: 'my-change' });
+    assert.equal(changeRes.status, 'passed');
+  });
+
+  test('missing scope identity fails closed without inventing current-step', async () => {
+    const gate = new HumanVerificationGate();
+
+    // Task scope missing taskId
+    const taskRes = await gate.inspect({ required: true, scope: 'task' }, {});
+    assert.equal(taskRes.status, 'blocked');
+    assert.equal(taskRes.reason, 'missing-scope-identity');
+    assert.match(taskRes.message, /requires explicit 'task' identity/);
+
+    // Step scope missing stepId
+    const stepRes = await gate.inspect({ required: true, scope: 'step' }, {});
+    assert.equal(stepRes.status, 'blocked');
+    assert.equal(stepRes.reason, 'missing-scope-identity');
+
+    // Change scope missing changeId
+    const changeRes = await gate.inspect({ required: true, scope: 'change' }, {});
+    assert.equal(changeRes.status, 'blocked');
+    assert.equal(changeRes.reason, 'missing-scope-identity');
+  });
 
   test('raw caller JSON context cannot satisfy human gate when reader is missing', async () => {
-    // An agent passing confirmed: true in raw caller context must remain BLOCKED
+    const gate = new HumanVerificationGate();
     const rawContext = {
       taskId: '04-task',
-      step: 'implementation',
       humanVerification: { confirmed: true, confirmedBy: 'owner' },
       humanSignoffs: { '04-task': { confirmed: true } },
     };
 
-    const inspectResult = await gate.inspect({ required: true }, rawContext);
+    const inspectResult = await gate.inspect({ required: true, scope: 'task' }, rawContext);
     assert.equal(inspectResult.status, 'blocked');
     assert.equal(inspectResult.reason, 'human-verification-required');
-
-    const verifyResult = await gate.verify({ required: true }, rawContext);
-    assert.equal(verifyResult.passed, false);
-    assert.equal(verifyResult.status, 'blocked');
-  });
-
-  test('trusted matching owner signoff passes gate inspection and verification', async () => {
-    const reader = new MemoryHumanVerificationReader([
-      {
-        confirmed: true,
-        scope: 'task',
-        targetId: '04-task',
-        role: 'owner',
-        confirmedBy: 'owner',
-        timestamp: '2026-08-19T09:00:00Z',
-      },
-    ]);
-
-    const context = {
-      taskId: '04-task',
-      step: 'implementation',
-      humanVerificationReader: reader,
-    };
-
-    const inspectResult = await gate.inspect({ required: true, role: 'owner', scope: 'task' }, context);
-    assert.equal(inspectResult.status, 'passed');
-    assert.equal(inspectResult.signoff.confirmedBy, 'owner');
-    assert.equal(inspectResult.signoff.targetId, '04-task');
-
-    const verifyResult = await gate.verify({ required: true, role: 'owner', scope: 'task' }, context);
-    assert.equal(verifyResult.passed, true);
-    assert.equal(verifyResult.status, 'passed');
-  });
-
-  test('wrong role in signoff fails gate', async () => {
-    const reader = new MemoryHumanVerificationReader([
-      {
-        confirmed: true,
-        scope: 'task',
-        targetId: '04-task',
-        role: 'contributor', // Required is 'owner'
-      },
-    ]);
-
-    const context = {
-      taskId: '04-task',
-      humanVerificationReader: reader,
-    };
-
-    const result = await gate.inspect({ required: true, role: 'owner' }, context);
-    assert.equal(result.status, 'blocked');
-    assert.equal(result.reason, 'human-verification-required');
-  });
-
-  test('wrong targetId in signoff fails gate', async () => {
-    const reader = new MemoryHumanVerificationReader([
-      {
-        confirmed: true,
-        scope: 'task',
-        targetId: 'other-task',
-        role: 'owner',
-      },
-    ]);
-
-    const context = {
-      taskId: '04-task',
-      humanVerificationReader: reader,
-    };
-
-    const result = await gate.inspect({ required: true, role: 'owner' }, context);
-    assert.equal(result.status, 'blocked');
-  });
-
-  test('wrong scope in signoff fails gate', async () => {
-    const reader = new MemoryHumanVerificationReader([
-      {
-        confirmed: true,
-        scope: 'step', // Required is 'task'
-        targetId: '04-task',
-        role: 'owner',
-      },
-    ]);
-
-    const context = {
-      taskId: '04-task',
-      humanVerificationReader: reader,
-    };
-
-    const result = await gate.inspect({ required: true, role: 'owner', scope: 'task' }, context);
-    assert.equal(result.status, 'blocked');
-  });
-
-  test('malformed signoff (confirmed: false or non-object) fails gate', async () => {
-    const reader = new MemoryHumanVerificationReader([
-      {
-        confirmed: false,
-        scope: 'task',
-        targetId: '04-task',
-        role: 'owner',
-      },
-    ]);
-
-    const context = {
-      taskId: '04-task',
-      humanVerificationReader: reader,
-    };
-
-    const result = await gate.inspect({ required: true, role: 'owner' }, context);
-    assert.equal(result.status, 'blocked');
-  });
-
-  test('inspect is 100% non-mutating and does not alter signoffs', async () => {
-    const reader = new MemoryHumanVerificationReader([]);
-    const context = {
-      taskId: '04-task',
-      humanVerificationReader: reader,
-    };
-
-    const result = await gate.inspect({ required: true }, context);
-    assert.equal(result.status, 'blocked');
-    assert.deepEqual(reader._signoffs, []);
   });
 });

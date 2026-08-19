@@ -8,6 +8,7 @@ export {
 
 export {
   CommandGate,
+  DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
 } from './command-gate.mjs';
@@ -21,4 +22,5 @@ export {
   HumanVerificationGate,
   HumanVerificationReader,
   MemoryHumanVerificationReader,
+  resolveHumanScopeTarget,
 } from './human-gate.mjs';

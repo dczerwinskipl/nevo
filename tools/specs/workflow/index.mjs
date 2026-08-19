@@ -28,6 +28,7 @@ export {
   GateInspectionResult,
   GateVerificationResult,
   CommandGate,
+  DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
   MarkdownGate,
@@ -35,6 +36,7 @@ export {
   HumanVerificationGate,
   HumanVerificationReader,
   MemoryHumanVerificationReader,
+  resolveHumanScopeTarget,
 } from './gates/index.mjs';
 
 export {

@@ -40,6 +40,10 @@ export class GateInspectionResult {
       throw new WorkflowError(`GateInspectionResult 'status' must be one of: ${[...validStatuses].join(', ')}, got '${status}'`);
     }
 
+    if (stale !== undefined && typeof stale !== 'boolean') {
+      throw new WorkflowError(`GateInspectionResult 'stale' must be a strict boolean, got '${typeof stale}'`);
+    }
+
     this.gateType = gateType.trim();
     this.status = status;
     this.reason = typeof reason === 'string' ? reason : '';
@@ -94,9 +98,22 @@ export class GateVerificationResult {
       throw new WorkflowError(`GateVerificationResult 'passed' must be a strict boolean, got '${typeof passed}'`);
     }
 
+    const validStatuses = new Set(['passed', 'failed', 'blocked']);
+    const resolvedStatus = status || (passed ? 'passed' : 'failed');
+    if (!validStatuses.has(resolvedStatus)) {
+      throw new WorkflowError(`GateVerificationResult 'status' must be one of: ${[...validStatuses].join(', ')}, got '${resolvedStatus}'`);
+    }
+
+    if (passed === true && resolvedStatus !== 'passed') {
+      throw new WorkflowError(`GateVerificationResult contradiction: 'passed: true' is incompatible with 'status: ${resolvedStatus}'`);
+    }
+    if (passed === false && resolvedStatus === 'passed') {
+      throw new WorkflowError(`GateVerificationResult contradiction: 'passed: false' is incompatible with 'status: passed'`);
+    }
+
     this.gateType = gateType.trim();
     this.passed = passed;
-    this.status = status || (passed ? 'passed' : 'failed');
+    this.status = resolvedStatus;
     this.message = typeof message === 'string' ? message : '';
     this.details = isPlainObject(details) ? details : {};
     this.outputs = isPlainObject(outputs) ? outputs : {};

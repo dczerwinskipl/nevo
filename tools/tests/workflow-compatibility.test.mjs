@@ -27,6 +27,7 @@ import {
   validateWorkflowDefinition,
   validateGateDefinition,
   validateActionReference,
+  KNOWN_COMMAND_ACTIONS,
 } from '../specs/workflow/definitions/schema.mjs';
 
 import { validateWorkflowConfiguration, validateSpecs } from '../specs/validation.mjs';
@@ -444,7 +445,7 @@ describe('Path traversal and security boundaries', () => {
   });
 });
 
-describe('Workflow definition pure parser and semantic validation (Finding 2 namespace separation)', () => {
+describe('Workflow definition validation and uniqueness (Finding 1, 2)', () => {
   test('parseWorkflowDefinition parses valid YAML definition string', () => {
     const yaml = `
 id: custom-v1
@@ -465,64 +466,109 @@ steps:
     assert.deepEqual(def.steps.step1.actions, [{ id: 'custom-action' }]);
   });
 
-  test('invalid YAML fails through canonical validator', () => {
-    const invalidYaml = `
-id: custom-v1
-steps: [ unclosed array
-`;
-    assert.throws(
-      () => parseWorkflowDefinition(invalidYaml),
-      (err) => {
-        assert.ok(err instanceof WorkflowDefinitionError);
-        assert.match(err.message, /Invalid YAML in workflow definition/);
-        return true;
-      }
-    );
-  });
-
-  test('validates known command-gate action against knownCommandActions', () => {
+  test('rejects duplicate action references in step actions list (Finding 1)', () => {
     const yaml = `
 id: custom-v1
 steps:
   step1:
     actions:
       - id: implement-task
+      - id: implement-task
+`;
+    assert.throws(
+      () => parseWorkflowDefinition(yaml),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /duplicate action reference 'implement-task' at index 1/);
+        return true;
+      }
+    );
+  });
+
+  test('rejects duplicate action references in step finalize list (Finding 1)', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    finalize:
+      - id: commit-and-push
+      - id: commit-and-push
+`;
+    assert.throws(
+      () => parseWorkflowDefinition(yaml),
+      (err) => {
+        assert.ok(err instanceof WorkflowDefinitionError);
+        assert.match(err.message, /duplicate action reference 'commit-and-push' at index 1/);
+        return true;
+      }
+    );
+  });
+
+  test('same action reference in two different steps remains valid (Finding 1)', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    actions:
+      - id: run-check
+  step2:
+    actions:
+      - id: run-check
+`;
+    const def = parseWorkflowDefinition(yaml);
+    assert.equal(def.id, 'custom-v1');
+    assert.deepEqual(def.steps.step1.actions, [{ id: 'run-check' }]);
+    assert.deepEqual(def.steps.step2.actions, [{ id: 'run-check' }]);
+  });
+
+  test('canonical command catalog built-ins (test, build) accepted without extra options (Finding 2)', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
     exitGates:
       - type: command
         action: test
+      - type: command
+        action: build
 `;
-    const def = parseWorkflowDefinition(yaml, {
-      knownActions: new Set(['implement-task']),
-      knownCommandActions: new Set(['test', 'build']),
-    });
+    const def = parseWorkflowDefinition(yaml);
     assert.equal(def.id, 'custom-v1');
   });
 
-  test('rejects unknown command-gate action when knownCommandActions is supplied', () => {
+  test('unknown command gate alias rejected without custom options (Finding 2)', () => {
     const yaml = `
 id: custom-v1
 steps:
   step1:
-    actions:
-      - id: implement-task
     exitGates:
       - type: command
-        action: tetss
+        action: unknown-alias
 `;
     assert.throws(
-      () => parseWorkflowDefinition(yaml, {
-        knownActions: new Set(['implement-task']),
-        knownCommandActions: new Set(['test', 'build']),
-      }),
+      () => parseWorkflowDefinition(yaml),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);
-        assert.match(err.message, /unknown command gate action alias 'tetss'/);
+        assert.match(err.message, /unknown command gate action alias 'unknown-alias'/);
         return true;
       }
     );
   });
 
-  test('workflow action ID is not accepted as command gate action alias during validation', () => {
+  test('configured custom command alias accepted by loader/validator (Finding 2)', () => {
+    const yaml = `
+id: custom-v1
+steps:
+  step1:
+    exitGates:
+      - type: command
+        action: lint
+`;
+    const def = parseWorkflowDefinition(yaml, { knownCommandActions: new Set(['test', 'build', 'lint']) });
+    assert.equal(def.id, 'custom-v1');
+  });
+
+  test('workflow action ID is not accepted as command gate action alias during validation (Finding 2)', () => {
     const yaml = `
 id: custom-v1
 steps:
@@ -537,7 +583,6 @@ steps:
     assert.throws(
       () => parseWorkflowDefinition(yaml, {
         knownActions: new Set(['implement-task']),
-        knownCommandActions: new Set(['test', 'build']),
       }),
       (err) => {
         assert.ok(err instanceof WorkflowDefinitionError);

@@ -10,9 +10,11 @@ function isPlainObject(value) {
 
 /**
  * Extracts normalized action identifiers from a step definition or action list.
+ * Enforces action ID uniqueness within the step action list.
  *
  * @param {object|Array<string|object>} stepDefinition
  * @returns {{ stepName: string, actionIds: string[] }}
+ * @throws {WorkflowError} If step definition is invalid or contains duplicate action IDs
  */
 function normalizeStepActions(stepDefinition) {
   if (!stepDefinition) {
@@ -40,17 +42,30 @@ function normalizeStepActions(stepDefinition) {
   }
 
   const actionIds = [];
+  const seenActionIds = new Set();
+
   for (let i = 0; i < rawActions.length; i++) {
     const entry = rawActions[i];
+    let actionId = '';
     if (typeof entry === 'string' && entry.trim()) {
-      actionIds.push(entry.trim());
+      actionId = entry.trim();
     } else if (isPlainObject(entry) && typeof entry.id === 'string' && entry.id.trim()) {
-      actionIds.push(entry.id.trim());
+      actionId = entry.id.trim();
     } else {
       throw new WorkflowError(
         `Step '${stepName}' action entry at index ${i} is missing a valid string 'id'`
       );
     }
+
+    if (seenActionIds.has(actionId)) {
+      throw new WorkflowError(
+        `Duplicate action reference '${actionId}' in step '${stepName}' at index ${i}`,
+        { code: 'DUPLICATE_ACTION_REFERENCE', step: stepName, actionId, index: i }
+      );
+    }
+
+    seenActionIds.add(actionId);
+    actionIds.push(actionId);
   }
 
   return { stepName, actionIds };

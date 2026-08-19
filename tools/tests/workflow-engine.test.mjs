@@ -1,4 +1,4 @@
-// Tests for ActionRegistry, aggregated step checking, and WorkflowEngine.
+// Tests for ActionRegistry, aggregated step checking, duplicate action prevention, and WorkflowEngine.
 // Run: node --test tools/tests/workflow-engine.test.mjs
 
 import { test, describe, beforeEach } from 'node:test';
@@ -45,6 +45,7 @@ class CommitAndPushAction extends ActionContract {
     super();
     this.readyFlag = options.ready !== undefined ? options.ready : true;
     this.shouldFailExecution = options.shouldFailExecution || false;
+    this.executionCount = 0;
   }
 
   get id() { return 'commit-and-push'; }
@@ -67,6 +68,8 @@ class CommitAndPushAction extends ActionContract {
   }
 
   async executeValidated(inputs, context) {
+    this.executionCount += 1;
+
     if (this.shouldFailExecution) {
       return new ActionExecuteResult({
         actionId: this.id,
@@ -233,9 +236,28 @@ describe('WorkflowEngine aggregated step checks (AC2, AC4, AC5)', () => {
       }
     );
   });
+
+  test('checkStep fails closed on duplicate action references in programmatic step (Finding 1)', async () => {
+    registry.register(new CommitAndPushAction());
+
+    const duplicateStep = {
+      name: 'bad-step',
+      actions: [{ id: 'commit-and-push' }, { id: 'commit-and-push' }],
+    };
+
+    await assert.rejects(
+      async () => await engine.checkStep(duplicateStep, {}),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.details?.code, 'DUPLICATE_ACTION_REFERENCE');
+        assert.match(err.message, /Duplicate action reference 'commit-and-push'/);
+        return true;
+      }
+    );
+  });
 });
 
-describe('WorkflowEngine sequential step execution (AC3, AC5)', () => {
+describe('WorkflowEngine sequential step execution (AC3, AC5, Finding 1)', () => {
   let registry;
   let engine;
 
@@ -328,5 +350,42 @@ describe('WorkflowEngine sequential step execution (AC3, AC5)', () => {
     assert.equal(result.failedAction, 'commit-and-push');
     assert.match(result.error, /Precondition validation failed/);
     assert.equal(result.actions['verify-task-output'], undefined);
+  });
+
+  test('executeStep fails closed on duplicate action references before any mutation (Finding 1)', async () => {
+    const commitAction = new CommitAndPushAction();
+    registry.register(commitAction);
+
+    const duplicateStep = {
+      name: 'finalize',
+      actions: [{ id: 'commit-and-push' }, { id: 'commit-and-push' }],
+    };
+
+    await assert.rejects(
+      async () => await engine.executeStep(duplicateStep, { 'commit-and-push': { commitMessage: 'm', include: ['a.js'] } }, {}),
+      (err) => {
+        assert.ok(err instanceof WorkflowError);
+        assert.equal(err.details?.code, 'DUPLICATE_ACTION_REFERENCE');
+        return true;
+      }
+    );
+
+    assert.equal(commitAction.executionCount, 0, 'Action must never be executed if duplicate exists in step');
+  });
+
+  test('same action can be used in two different steps independently (Finding 1)', async () => {
+    const commitAction = new CommitAndPushAction();
+    registry.register(commitAction);
+
+    const step1 = { name: 'step1', actions: [{ id: 'commit-and-push' }] };
+    const step2 = { name: 'step2', actions: [{ id: 'commit-and-push' }] };
+
+    const res1 = await engine.executeStep(step1, { 'commit-and-push': { commitMessage: 'm1', include: ['a.js'] } }, {});
+    assert.equal(res1.success, true);
+    assert.equal(commitAction.executionCount, 1);
+
+    const res2 = await engine.executeStep(step2, { 'commit-and-push': { commitMessage: 'm2', include: ['b.js'] } }, {});
+    assert.equal(res2.success, true);
+    assert.equal(commitAction.executionCount, 2);
   });
 });

@@ -1,7 +1,9 @@
 // Declarative workflow definition schema and validation.
 
+import { DEFAULT_COMMAND_ACTIONS } from '../gates/command-gate.mjs';
+
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
-export const KNOWN_COMMAND_ACTIONS = new Set(['test', 'build']);
+export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -15,7 +17,7 @@ function isPlainObject(value) {
  * @param {string[]} errors - Output error collector
  * @param {object} [options]
  * @param {Set<string>|Array<string>} [options.knownGates] - Optional set of allowed gate types
- * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases (e.g. 'test', 'build')
+ * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases (defaults to canonical catalog)
  */
 export function validateGateDefinition(gate, label, errors, { knownGates, knownCommandActions } = {}) {
   if (!isPlainObject(gate)) {
@@ -47,9 +49,13 @@ export function validateGateDefinition(gate, label, errors, { knownGates, knownC
     if (hasAction) {
       if (typeof gate.action !== 'string' || !gate.action.trim()) {
         errors.push(`${label}: command gate 'action' must be a non-empty string`);
-      } else if (knownCommandActions) {
-        const allowed = knownCommandActions instanceof Set ? knownCommandActions : new Set(knownCommandActions);
-        if (!allowed.has(gate.action.trim())) {
+      } else {
+        const actionAlias = gate.action.trim();
+        const allowed = knownCommandActions
+          ? (knownCommandActions instanceof Set ? knownCommandActions : new Set(knownCommandActions))
+          : KNOWN_COMMAND_ACTIONS;
+
+        if (!allowed.has(actionAlias)) {
           errors.push(
             `${label}: unknown command gate action alias '${gate.action}' (expected one of: ${[...allowed].join(', ')})`
           );
@@ -114,6 +120,7 @@ export function validateTransitionDefinition(transition, label, errors) {
 
 /**
  * Validates an entire workflow definition object.
+ * Enforces action ID uniqueness within individual step action lists.
  *
  * @param {object} definition - Parsed workflow definition object
  * @param {object} [options]
@@ -162,7 +169,16 @@ export function validateWorkflowDefinition(definition, options = {}) {
       if (!Array.isArray(stepConfig.actions)) {
         errors.push(`${stepLabel}.actions: must be an array`);
       } else {
+        const seenActions = new Set();
         stepConfig.actions.forEach((act, idx) => {
+          const actionId = typeof act === 'string' ? act.trim() : act?.id?.trim();
+          if (actionId) {
+            if (seenActions.has(actionId)) {
+              errors.push(`${stepLabel}.actions: duplicate action reference '${actionId}' at index ${idx}`);
+            } else {
+              seenActions.add(actionId);
+            }
+          }
           validateActionReference(act, `${stepLabel}.actions[${idx}]`, errors, options);
         });
       }
@@ -182,7 +198,16 @@ export function validateWorkflowDefinition(definition, options = {}) {
       if (!Array.isArray(stepConfig.finalize)) {
         errors.push(`${stepLabel}.finalize: must be an array`);
       } else {
+        const seenFinalize = new Set();
         stepConfig.finalize.forEach((act, idx) => {
+          const actionId = typeof act === 'string' ? act.trim() : act?.id?.trim();
+          if (actionId) {
+            if (seenFinalize.has(actionId)) {
+              errors.push(`${stepLabel}.finalize: duplicate action reference '${actionId}' at index ${idx}`);
+            } else {
+              seenFinalize.add(actionId);
+            }
+          }
           validateActionReference(act, `${stepLabel}.finalize[${idx}]`, errors, options);
         });
       }

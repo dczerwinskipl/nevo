@@ -58,16 +58,25 @@ export class MarkdownGate extends GateContract {
 
   /**
    * Resolves target file path ensuring it remains strictly inside repoRoot.
+   * Requires explicit context.repoRoot.
    *
    * @param {object} config
    * @param {object} [context={}]
    * @returns {string}
-   * @throws {WorkflowError} If path is absolute or attempts traversal outside repoRoot
+   * @throws {WorkflowError} If repoRoot is missing, or path is absolute, or attempts traversal
    */
   _resolveFilePath(config, context = {}) {
     if (!config?.file || typeof config.file !== 'string' || !config.file.trim()) {
       throw new WorkflowError("MarkdownGate configuration requires a non-empty string 'file'");
     }
+
+    if (!context.repoRoot || typeof context.repoRoot !== 'string' || !context.repoRoot.trim()) {
+      throw new WorkflowError(
+        "MarkdownGate file resolution requires explicit 'context.repoRoot'",
+        { code: 'MISSING_REPO_ROOT', requested: config.file }
+      );
+    }
+
     const relativePath = config.file.trim();
 
     // Reject absolute paths (POSIX and Windows drive letters)
@@ -86,7 +95,7 @@ export class MarkdownGate extends GateContract {
       );
     }
 
-    const root = path.resolve(context.repoRoot || process.cwd());
+    const root = path.resolve(context.repoRoot.trim());
     const resolvedPath = path.resolve(root, relativePath);
     const normalizedRoot = path.normalize(root);
     const normalizedPath = path.normalize(resolvedPath);

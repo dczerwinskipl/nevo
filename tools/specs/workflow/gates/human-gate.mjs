@@ -1,4 +1,4 @@
-// Human verification gate implementation with trusted state boundary.
+// Human verification gate implementation with trusted state boundary and scope targeting.
 
 import { GateContract, GateInspectionResult, GateVerificationResult } from './contracts.mjs';
 
@@ -57,10 +57,39 @@ export class MemoryHumanVerificationReader extends HumanVerificationReader {
 }
 
 /**
+ * Resolves the explicit identity target for a given verification scope.
+ *
+ * @param {string} scope - 'task' | 'step' | 'change'
+ * @param {object} context - Runtime environmental facts
+ * @returns {string|null} Target ID or null if not provided
+ */
+export function resolveHumanScopeTarget(scope, context = {}) {
+  if (scope === 'task') {
+    return context.taskId || context.task?.id || null;
+  }
+  if (scope === 'step') {
+    return context.stepId || context.step?.id || (typeof context.step === 'string' ? context.step : null) || null;
+  }
+  if (scope === 'change') {
+    return context.changeId || context.change?.id || context.change?.slug || null;
+  }
+  return null;
+}
+
+/**
  * Gate enforcing mandatory human operator sign-off from a trusted verification state reader.
  * Raw caller JSON context cannot self-satisfy this gate.
  */
 export class HumanVerificationGate extends GateContract {
+  /**
+   * @param {object} [options={}]
+   * @param {HumanVerificationReader} [options.verificationReader=null] - Trusted verification reader (DI)
+   */
+  constructor({ verificationReader = null } = {}) {
+    super();
+    this._verificationReader = verificationReader;
+  }
+
   get type() {
     return 'human';
   }
@@ -69,29 +98,50 @@ export class HumanVerificationGate extends GateContract {
    * Introspects human verification state from a trusted reader without modifying state.
    *
    * @param {object} config - Gate configuration (declaring required, role, message, scope)
-   * @param {object} [context={}] - Context containing taskId/step and humanVerificationReader
+   * @param {object} [context={}] - Context containing runtime facts (taskId, stepId, changeId)
    * @returns {Promise<GateInspectionResult>}
    */
   async inspect(config = {}, context = {}) {
     const isRequired = config.required !== false;
     const requiredRole = config.role || 'owner';
     const scope = config.scope || 'task';
-    const targetId = context.taskId || context.task?.id || context.step || 'current-step';
-    const stepName = context.step || 'implementation';
+    const stepName = typeof context.step === 'string' ? context.step : (context.step?.id || context.stepId || 'step');
 
-    // Must query trusted reader, not caller-controlled raw JSON objects
-    const reader = context.humanVerificationReader || context.verificationReader;
+    // Target identity is resolved strictly by configured scope (no invented "current-step" fallbacks)
+    const targetId = resolveHumanScopeTarget(scope, context);
+
+    if (isRequired && !targetId) {
+      return new GateInspectionResult({
+        gateType: this.type,
+        status: 'blocked',
+        reason: 'missing-scope-identity',
+        target: '',
+        message: `Human verification requires explicit '${scope}' identity in context for scope '${scope}'`,
+        signoff: {
+          requiredRole,
+          scope,
+          targetId: '',
+        },
+        details: {
+          required: true,
+          error: `Missing target identity for scope '${scope}'`,
+        },
+      });
+    }
 
     if (!isRequired) {
       return new GateInspectionResult({
         gateType: this.type,
         status: 'passed',
-        target: targetId,
-        message: `Human verification optional for '${targetId}'`,
-        signoff: { requiredRole, scope, targetId },
+        target: targetId || '',
+        message: `Human verification optional for '${targetId || scope}'`,
+        signoff: { requiredRole, scope, targetId: targetId || '' },
         details: { required: false },
       });
     }
+
+    // Must query trusted reader (injected via constructor or supplied by composition root)
+    const reader = this._verificationReader || context.humanVerificationReader || context.verificationReader;
 
     if (!reader || typeof reader.getSignoff !== 'function') {
       return new GateInspectionResult({
@@ -107,7 +157,7 @@ export class HumanVerificationGate extends GateContract {
         },
         details: {
           required: true,
-          error: 'No trusted human verification reader configured in context',
+          error: 'No trusted human verification reader configured',
         },
       });
     }
