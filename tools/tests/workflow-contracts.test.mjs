@@ -9,6 +9,7 @@ import {
   GateContract,
   ActionCheckResult,
   ActionExecuteResult,
+  KNOWN_CONSTRAINT_KEYS,
   validateActionParameterSchemas,
   assertActionParameterSchemas,
   validateActionInputs,
@@ -71,20 +72,53 @@ describe('ActionContract authoritative fail-closed execution boundary (AC1, Revi
     await assert.rejects(async () => await gate.verify({}, {}), /must implement verify\(config, context\)/);
   });
 
-  test('subclass overriding execute() is rejected at construction to prevent validation bypass', () => {
-    class RogueAction extends ActionContract {
-      get id() { return 'rogue-action'; }
-      get description() { return 'Bypasses validation'; }
+  test('subclass overriding execute() via prototype is rejected at construction', () => {
+    class RoguePrototypeAction extends ActionContract {
+      get id() { return 'rogue-proto-action'; }
+      get description() { return 'Bypasses validation via prototype'; }
       async execute(inputs, context) {
         return { success: true };
       }
     }
 
     assert.throws(
-      () => new RogueAction(),
+      () => new RoguePrototypeAction(),
       (err) => {
         assert.ok(err instanceof WorkflowError);
         assert.match(err.message, /must not override execute\(\)\. Implement executeValidated\(\) instead/);
+        return true;
+      }
+    );
+  });
+
+  test('subclass overriding execute() via class-field is rejected/prevented at construction (Finding 1)', () => {
+    class RogueClassFieldAction extends ActionContract {
+      get id() { return 'rogue-field-action'; }
+      get description() { return 'Bypasses validation via class field'; }
+      execute = async () => {
+        return { bypassed: true };
+      };
+    }
+
+    assert.throws(
+      () => new RogueClassFieldAction(),
+      (err) => {
+        assert.ok(err instanceof TypeError);
+        assert.match(err.message, /Cannot redefine property: execute|Cannot assign to read only property 'execute'/);
+        return true;
+      }
+    );
+  });
+
+  test('direct mutation of action.execute on instance is blocked', () => {
+    const action = new SafeAction(true);
+    assert.throws(
+      () => {
+        action.execute = async () => { return { hacked: true }; };
+      },
+      (err) => {
+        assert.ok(err instanceof TypeError);
+        assert.match(err.message, /Cannot assign to read only property 'execute'/);
         return true;
       }
     );
@@ -270,6 +304,97 @@ describe('validateActionParameterSchemas producer contract validation (AC2, Revi
     const result2 = validateActionParameterSchemas([{ name: 'param', type: 'string', required: true, description: '   ' }]);
     assert.equal(result2.valid, false);
     assert.ok(result2.errors.some(e => e.code === 'INVALID_SCHEMA_DESCRIPTION'));
+  });
+
+  test('rejects unknown or misspelled constraint keys (Finding 2)', () => {
+    const resultTypo = validateActionParameterSchemas([
+      { name: 'msg', type: 'string', required: true, description: 'Desc', constraints: { minLenght: 5 } },
+    ]);
+    assert.equal(resultTypo.valid, false);
+    assert.ok(resultTypo.errors.some(e => e.code === 'UNKNOWN_CONSTRAINT' && e.message.includes('minLenght')));
+
+    const resultUnknown = validateActionParameterSchemas([
+      { name: 'msg', type: 'string', required: true, description: 'Desc', constraints: { arbitraryExtra: true } },
+    ]);
+    assert.equal(resultUnknown.valid, false);
+    assert.ok(resultUnknown.errors.some(e => e.code === 'UNKNOWN_CONSTRAINT' && e.message.includes('arbitraryExtra')));
+  });
+
+  test('validates pattern regex string compilation and rejects native RegExp (Finding 2)', () => {
+    // Valid regex string
+    const validResult = validateActionParameterSchemas([
+      { name: 'branch', type: 'string', required: true, description: 'Branch', constraints: { pattern: '^feature/[a-z]+$' } },
+    ]);
+    assert.equal(validResult.valid, true);
+
+    // Invalid regex syntax string
+    const invalidResult = validateActionParameterSchemas([
+      { name: 'branch', type: 'string', required: true, description: 'Branch', constraints: { pattern: '[unclosed-bracket' } },
+    ]);
+    assert.equal(invalidResult.valid, false);
+    assert.ok(invalidResult.errors.some(e => e.code === 'INVALID_SCHEMA_PATTERN'));
+
+    // Native RegExp object rejected (non JSON-serializable)
+    const nativeRegExpResult = validateActionParameterSchemas([
+      { name: 'branch', type: 'string', required: true, description: 'Branch', constraints: { pattern: /^feature/ } },
+    ]);
+    assert.equal(nativeRegExpResult.valid, false);
+    assert.ok(nativeRegExpResult.errors.some(e => e.code === 'INVALID_SCHEMA_PATTERN' && e.message.includes('RegExp objects are not JSON-serializable')));
+  });
+
+  test('validates allowedValues against declared scalar type and rejects complex types (Finding 2)', () => {
+    // Valid string allowedValues
+    const validString = validateActionParameterSchemas([
+      { name: 'mode', type: 'string', required: true, description: 'Mode', constraints: { allowedValues: ['fast', 'slow'] } },
+    ]);
+    assert.equal(validString.valid, true);
+
+    // Valid number allowedValues
+    const validNumber = validateActionParameterSchemas([
+      { name: 'priority', type: 'number', required: true, description: 'Priority', constraints: { allowedValues: [1, 2, 3] } },
+    ]);
+    assert.equal(validNumber.valid, true);
+
+    // Valid boolean allowedValues
+    const validBool = validateActionParameterSchemas([
+      { name: 'flag', type: 'boolean', required: true, description: 'Flag', constraints: { allowedValues: [true] } },
+    ]);
+    assert.equal(validBool.valid, true);
+
+    // String parameter with incompatible number in allowedValues
+    const incompatibleString = validateActionParameterSchemas([
+      { name: 'mode', type: 'string', required: true, description: 'Mode', constraints: { allowedValues: ['fast', 123] } },
+    ]);
+    assert.equal(incompatibleString.valid, false);
+    assert.ok(incompatibleString.errors.some(e => e.code === 'INVALID_ALLOWED_VALUE'));
+
+    // Number parameter with incompatible string in allowedValues
+    const incompatibleNumber = validateActionParameterSchemas([
+      { name: 'priority', type: 'number', required: true, description: 'Priority', constraints: { allowedValues: [1, 'two'] } },
+    ]);
+    assert.equal(incompatibleNumber.valid, false);
+    assert.ok(incompatibleNumber.errors.some(e => e.code === 'INVALID_ALLOWED_VALUE'));
+
+    // allowedValues defined on array (unsupported complex type)
+    const arrayAllowed = validateActionParameterSchemas([
+      { name: 'tags', type: 'array', required: true, description: 'Tags', constraints: { allowedValues: [['a'], ['b']] } },
+    ]);
+    assert.equal(arrayAllowed.valid, false);
+    assert.ok(arrayAllowed.errors.some(e => e.code === 'INCOMPATIBLE_CONSTRAINT' && e.message.includes('only supported on scalar parameter types')));
+
+    // allowedValues defined on object (unsupported complex type)
+    const objectAllowed = validateActionParameterSchemas([
+      { name: 'cfg', type: 'object', required: true, description: 'Config', constraints: { allowedValues: [{ a: 1 }] } },
+    ]);
+    assert.equal(objectAllowed.valid, false);
+    assert.ok(objectAllowed.errors.some(e => e.code === 'INCOMPATIBLE_CONSTRAINT' && e.message.includes('only supported on scalar parameter types')));
+
+    // empty allowedValues array
+    const emptyAllowed = validateActionParameterSchemas([
+      { name: 'mode', type: 'string', required: true, description: 'Mode', constraints: { allowedValues: [] } },
+    ]);
+    assert.equal(emptyAllowed.valid, false);
+    assert.ok(emptyAllowed.errors.some(e => e.code === 'INVALID_SCHEMA_CONSTRAINT'));
   });
 
   test('rejects incompatible constraint definitions', () => {
@@ -596,6 +721,15 @@ describe('ActionCheckResult and ActionExecuteResult hardened constructor contrac
         requiredInputs: [{ name: 'msg', type: 'number', required: true, description: 'desc', constraints: { pattern: '.*' } }],
       }),
       /Constraint 'pattern' is only applicable to parameters of type 'string'/
+    );
+
+    // Unknown constraint key
+    assert.throws(
+      () => new ActionCheckResult({
+        actionId: 'test',
+        requiredInputs: [{ name: 'msg', type: 'string', required: true, description: 'desc', constraints: { minLenght: 5 } }],
+      }),
+      /Unknown constraint property 'minLenght'/
     );
   });
 

@@ -4,6 +4,16 @@ import { PreconditionError, WorkflowError } from './errors.mjs';
 
 export const ALLOWED_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'array', 'object']);
 
+export const KNOWN_CONSTRAINT_KEYS = new Set([
+  'minLength',
+  'maxLength',
+  'minValue',
+  'maxValue',
+  'pattern',
+  'allowedValues',
+  'itemType',
+]);
+
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -113,7 +123,18 @@ export function validateActionParameterSchemas(schemas, options = {}) {
 
       const c = schema.constraints;
 
-      // Type-compatibility checks for constraints
+      // Reject unknown constraint keys (fail-closed)
+      for (const constraintKey of Object.keys(c)) {
+        if (!KNOWN_CONSTRAINT_KEYS.has(constraintKey)) {
+          errors.push({
+            field: fieldName,
+            message: `Unknown constraint property '${constraintKey}' for parameter '${fieldName}' (expected one of: ${[...KNOWN_CONSTRAINT_KEYS].join(', ')})`,
+            code: 'UNKNOWN_CONSTRAINT',
+          });
+        }
+      }
+
+      // Type-compatibility and serialization checks for constraints
       if (c.pattern !== undefined) {
         if (schema.type !== 'string') {
           errors.push({
@@ -121,13 +142,13 @@ export function validateActionParameterSchemas(schemas, options = {}) {
             message: `Constraint 'pattern' is only applicable to parameters of type 'string', got '${schema.type}'`,
             code: 'INCOMPATIBLE_CONSTRAINT',
           });
-        } else if (typeof c.pattern !== 'string' && !(c.pattern instanceof RegExp)) {
+        } else if (typeof c.pattern !== 'string' || !c.pattern.trim()) {
           errors.push({
             field: fieldName,
-            message: `Constraint 'pattern' for '${fieldName}' must be a string or RegExp`,
-            code: 'INVALID_SCHEMA_CONSTRAINT',
+            message: `Constraint 'pattern' for '${fieldName}' must be a non-empty regex string (RegExp objects are not JSON-serializable)`,
+            code: 'INVALID_SCHEMA_PATTERN',
           });
-        } else if (typeof c.pattern === 'string') {
+        } else {
           try {
             new RegExp(c.pattern);
           } catch (regexErr) {
@@ -220,12 +241,37 @@ export function validateActionParameterSchemas(schemas, options = {}) {
         }
       }
 
-      if (c.allowedValues !== undefined && !Array.isArray(c.allowedValues)) {
-        errors.push({
-          field: fieldName,
-          message: `Constraint 'allowedValues' for '${fieldName}' must be an array`,
-          code: 'INVALID_SCHEMA_CONSTRAINT',
-        });
+      if (c.allowedValues !== undefined) {
+        if (!Array.isArray(c.allowedValues) || c.allowedValues.length === 0) {
+          errors.push({
+            field: fieldName,
+            message: `Constraint 'allowedValues' for '${fieldName}' must be a non-empty array`,
+            code: 'INVALID_SCHEMA_CONSTRAINT',
+          });
+        } else if (schema.type !== 'string' && schema.type !== 'number' && schema.type !== 'boolean') {
+          errors.push({
+            field: fieldName,
+            message: `Constraint 'allowedValues' is only supported on scalar parameter types ('string', 'number', 'boolean'), got '${schema.type}'`,
+            code: 'INCOMPATIBLE_CONSTRAINT',
+          });
+        } else {
+          for (let idx = 0; idx < c.allowedValues.length; idx++) {
+            const val = c.allowedValues[idx];
+            let valValid = false;
+            if (schema.type === 'string' && typeof val === 'string') valValid = true;
+            else if (schema.type === 'number' && typeof val === 'number' && !Number.isNaN(val)) valValid = true;
+            else if (schema.type === 'boolean' && typeof val === 'boolean') valValid = true;
+
+            if (!valValid) {
+              const actualType = val === null ? 'null' : (Array.isArray(val) ? 'array' : typeof val);
+              errors.push({
+                field: `${fieldName}.allowedValues[${idx}]`,
+                message: `Allowed value at index ${idx} ('${val}') is of type '${actualType}', which is incompatible with declared parameter type '${schema.type}'`,
+                code: 'INVALID_ALLOWED_VALUE',
+              });
+            }
+          }
+        }
       }
     }
 
@@ -410,7 +456,7 @@ export function validateActionInputs(schemas = [], inputs = {}, options = {}) {
 
       if (c.pattern && typeof value === 'string') {
         try {
-          const regex = typeof c.pattern === 'string' ? new RegExp(c.pattern) : c.pattern;
+          const regex = new RegExp(c.pattern);
           if (!regex.test(value)) {
             errors.push({
               field: fieldName,

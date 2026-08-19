@@ -10,6 +10,7 @@ export {
 
 export {
   ALLOWED_PARAM_TYPES,
+  KNOWN_CONSTRAINT_KEYS,
   validateActionParameterSchemas,
   assertActionParameterSchemas,
   validateActionInputs,

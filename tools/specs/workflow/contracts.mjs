@@ -3,6 +3,7 @@
 import { PreconditionError, WorkflowError } from './errors.mjs';
 import {
   ALLOWED_PARAM_TYPES,
+  KNOWN_CONSTRAINT_KEYS,
   validateActionParameterSchemas,
   assertActionParameterSchemas,
   validateActionInputs,
@@ -11,6 +12,7 @@ import {
 
 export {
   ALLOWED_PARAM_TYPES,
+  KNOWN_CONSTRAINT_KEYS,
   validateActionParameterSchemas,
   assertActionParameterSchemas,
   validateActionInputs,
@@ -147,12 +149,21 @@ export class ActionExecuteResult {
  */
 export class ActionContract {
   constructor() {
-    // Structural invariant: prevent subclasses from bypassing the authoritative execution wrapper
+    // 1. Prototype method override check
     if (this.execute !== ActionContract.prototype.execute) {
       throw new WorkflowError(
         `ActionContract subclass '${this.constructor.name}' must not override execute(). Implement executeValidated() instead.`
       );
     }
+
+    // 2. Lock the instance property 'execute' as non-writable and non-configurable, bound to the authoritative base implementation.
+    // This prevents class-field overrides (execute = async () => ...) and direct property reassignment.
+    Object.defineProperty(this, 'execute', {
+      value: ActionContract.prototype.execute.bind(this),
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
   }
 
   /**
@@ -274,7 +285,6 @@ export class GateContract {
    * Explicit gate verification execution.
    *
    * @param {object} config - Gate configuration from workflow definition
-   * @param {object} context - Environmental context
    * @returns {Promise<object>}
    */
   async verify(config, context) {
