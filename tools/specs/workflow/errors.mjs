@@ -10,6 +10,9 @@ export class WorkflowError extends CliError {
     super(message);
     this.name = 'WorkflowError';
     this.details = details;
+    if (details?.code) {
+      this.code = details.code;
+    }
   }
 }
 
@@ -48,16 +51,20 @@ export class GateBlockedError extends WorkflowError {
 }
 
 /**
- * Thrown when a workflow definition fails structural or semantic validation.
+ * Thrown when a workflow definition fails structural or semantic validation, or resolution.
  */
 export class WorkflowDefinitionError extends WorkflowError {
   /**
    * @param {string} message - Error message
-   * @param {string[]} validationErrors - List of validation error strings
+   * @param {string[]|object} [detailsOrErrors] - List of validation error strings or details object
    */
-  constructor(message, validationErrors = []) {
-    super(message, { validationErrors });
+  constructor(message, detailsOrErrors = {}) {
+    const isArray = Array.isArray(detailsOrErrors);
+    const details = isArray
+      ? { validationErrors: detailsOrErrors }
+      : (detailsOrErrors && typeof detailsOrErrors === 'object' ? detailsOrErrors : {});
+    super(message, details);
     this.name = 'WorkflowDefinitionError';
-    this.validationErrors = validationErrors;
+    this.validationErrors = isArray ? detailsOrErrors : (details.validationErrors || []);
   }
 }

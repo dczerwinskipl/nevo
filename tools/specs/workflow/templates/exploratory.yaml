@@ -1,0 +1,17 @@
+# Default Exploratory Specification Workflow template for repository initialization.
+id: exploratory-v1
+title: "Exploratory Specification Workflow"
+type: exploratory
+version: 1
+steps:
+  discovery:
+    entryGates: []
+    actions:
+      - id: discover-scope
+    exitGates:
+      - type: markdown
+        file: discovery.md
+      - type: human
+        required: true
+    transitions:
+      - to: refined

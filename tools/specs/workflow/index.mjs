@@ -57,10 +57,13 @@ export {
 } from './definitions/schema.mjs';
 
 export {
-  DEFINITIONS_DIR,
+  WORKFLOWS_REL_DIR,
+  TEMPLATES_DIR,
+  resolveWorkflowPath,
   parseWorkflowDefinition,
   loadWorkflowDefinition,
-  listBuiltInWorkflowDefinitions,
+  listRepositoryWorkflowDefinitions,
+  listBuiltInWorkflowTemplates,
 } from './definitions/loader.mjs';
 
 export {

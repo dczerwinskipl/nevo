@@ -12,6 +12,8 @@ context:
   optional:
     - docs/ai/specification-workflow.md
 allowed_paths:
+  - .nevo-ai/workflows/**
+  - tools/specs/workflow/templates/**
   - tools/specs/workflow/definitions/**
   - tools/specs/workflow/compatibility.mjs
   - tools/specs/workflow/index.mjs
@@ -31,11 +33,11 @@ semantic_references:
 
 ## Goal
 
-Introduce the declarative workflow definition schema and YAML parser in `tools/specs/workflow/definitions/`, add the `workflow` manifest schema in `change.yaml`, validate workflow configuration in `tools/specs/validation.mjs`, implement workflow mode resolution in `tools/specs/workflow/compatibility.mjs`, and prove that legacy specifications continue running in legacy mode without regression.
+Introduce the repository-local declarative workflow definitions in `.nevo-ai/workflows/`, default templates in `tools/specs/workflow/templates/`, definition schema and YAML parser in `tools/specs/workflow/definitions/`, add the `workflow` manifest schema in `change.yaml`, validate workflow configuration in `tools/specs/validation.mjs`, implement workflow mode resolution in `tools/specs/workflow/compatibility.mjs`, and prove that legacy specifications continue running in legacy mode without regression.
 
 ## Implementation constraints
 
-- Implement the workflow definition loader and validator in `tools/specs/workflow/definitions/loader.mjs`, validating steps, action IDs, and gate configurations.
+- Implement the workflow definition loader and validator in `tools/specs/workflow/definitions/loader.mjs`, resolving repository-local definitions from `.nevo-ai/workflows/<name>.yaml` without runtime fallback to templates.
 - Do not break existing specifications in `specs/active/` or `specs/archive/`; manifests without explicit `workflow` configuration must cleanly default to `mode: 'legacy'`.
 - Validate that `workflow.mode` (when present) is either `'legacy'` or `'deterministic'`, and that `workflow.version` is a positive integer.
 - Create `tools/specs/workflow/compatibility.mjs` as a focused horizontal module with pure mode-resolution logic.

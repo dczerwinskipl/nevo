@@ -69,7 +69,7 @@ Provide a robust, modular foundation for migrating Nevo from agent-orchestrated 
 ## Affected Areas
 
 - **Manifest Schemas & Validation:** `tools/specs/validation.mjs`, `tools/specs/service.mjs`, `change.yaml` schema updates for `workflow` mode, version, and definition reference.
-- **Workflow Definitions & Loader:** New `tools/specs/workflow/definitions/` containing declarative workflow schema, YAML loader, validator, and built-in definition configurations.
+- **Workflow Definitions & Loader:** Repository-local configuration in `.nevo-ai/workflows/` with loader/schema in `tools/specs/workflow/definitions/` and scaffolding templates in `tools/specs/workflow/templates/`.
 - **Composable Actions:** `tools/specs/workflow/contracts.mjs`, `tools/specs/workflow/registry.mjs`, `tools/specs/workflow/actions/commit-and-push.mjs`, `tools/specs/workflow/actions/verify-output.mjs`.
 - **Deterministic Gates:** `tools/specs/workflow/gates/` implementing `GateContract` with `inspect` vs `verify` separation, `CommandGate`, `MarkdownGate`, and `HumanVerificationGate`.
 - **Step Orchestration & Next-Step Service:** `tools/specs/workflow/step-runner.mjs` and `next-step.mjs` evaluating steps, actions, gates, and valid transitions.
@@ -115,8 +115,8 @@ steps:
     transitions:
       - to: verified
 ```
-- **Loader & Validator (`tools/specs/workflow/definitions/loader.mjs`):** Parses workflow definition files, validates steps, action IDs, and gate configurations. Unknown actions or gates trigger fail-closed validation errors.
-- **Class Support:** Supports distinct definitions for `standard`, `architectural`, `small`, and `exploratory` classes without code modifications.
+- **Loader & Validator (`tools/specs/workflow/definitions/loader.mjs`):** Loads repository-local workflow definition files from `.nevo-ai/workflows/<name>.yaml`, validates steps, action IDs, and gate configurations. Unknown actions or gates trigger fail-closed validation errors.
+- **Class Support:** Supports distinct definitions for `standard`, `architectural`, `small`, and `exploratory` classes under `.nevo-ai/workflows/` without code modifications.
 
 ### 3. Composable Action Model (`check` and `execute`)
 

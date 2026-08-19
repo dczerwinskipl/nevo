@@ -29,14 +29,18 @@ steps:
 ```
 
 ### Key Requirements:
-1. **Definition Loader and Validator (`tools/specs/workflow/definitions/`):**
-   - Parses workflow YAML definitions.
+1. **Repository Configuration and Runtime Source of Truth (`.nevo-ai/workflows/`):**
+   - Declarative workflow definitions configured for a repository live under `.nevo-ai/workflows/<name>.yaml`.
+   - Default initialization templates are provided in `tools/specs/workflow/templates/` for project scaffolding.
+2. **Definition Loader and Validator (`tools/specs/workflow/definitions/`):**
+   - Pure structural and semantic schema validator in `tools/specs/workflow/definitions/schema.mjs`.
+   - Repository-local loader in `tools/specs/workflow/definitions/loader.mjs` that loads `.nevo-ai/workflows/<name>.yaml` without fallback.
    - Validates that every declared action is registered in `ActionRegistry`.
    - Validates that every declared gate is registered in `GateRegistry`.
    - Invalid definitions or references to unknown actions/gates fail closed with descriptive validation errors.
-2. **Support for Multiple Specification Classes:**
+3. **Support for Multiple Specification Classes:**
    - The engine is decoupled from any specific workflow sequence.
-   - Standard, Architectural, Small, and Exploratory workflows are declared as distinct definition templates without changing orchestration code.
+   - Standard, Architectural, Small, and Exploratory workflows are declared as distinct definition files in `.nevo-ai/workflows/` without changing orchestration code.
    - Reordering or composing new steps in a definition does not require modifying core engine logic.
 
 ## Manifest Schema Extension (`change.yaml`)
