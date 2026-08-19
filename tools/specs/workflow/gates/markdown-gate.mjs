@@ -1,10 +1,21 @@
 // Markdown artifact verification gate implementation.
 
-import fs from 'node:fs';
+import nodeFs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { GateContract, GateInspectionResult, GateVerificationResult } from './contracts.mjs';
 import { resolveHumanScopeTarget } from './human-gate.mjs';
 import { WorkflowError } from '../errors.mjs';
+
+/**
+ * Computes a deterministic SHA-256 digest of artifact contents.
+ *
+ * @param {string|Buffer} content
+ * @returns {string} Hexadecimal SHA-256 hash
+ */
+export function computeArtifactHash(content) {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
 
 /**
  * Parses markdown checklist and section completeness.
@@ -54,13 +65,13 @@ export function analyzeMarkdownArtifact(content, requiredSections = []) {
  */
 export class MarkdownEvidenceReader {
   /**
-   * Retrieves recorded verification evidence for a markdown artifact.
+   * Retrieves recorded verification evidence for a specific markdown artifact version.
    *
    * @param {object} query
    * @param {string} query.scope - 'task' | 'step' | 'change'
-   * @param {string} query.targetId - Identifier of target
-   * @param {string} query.artifactPath - Absolute normalized file path
-   * @param {string} query.file - Configured relative file path
+   * @param {string} query.targetId - Identifier of target task/step/change
+   * @param {string} query.file - Canonical repository-relative file path
+   * @param {string} [query.artifactHash] - Deterministic SHA-256 hash of the artifact content
    * @returns {Promise<object|null>|object|null}
    */
   getEvidence(query) {
@@ -70,6 +81,7 @@ export class MarkdownEvidenceReader {
 
 /**
  * In-memory implementation of MarkdownEvidenceReader for testing and composition.
+ * Matches on target identity and returns the recorded evidence object.
  */
 export class MemoryMarkdownEvidenceReader extends MarkdownEvidenceReader {
   /**
@@ -90,13 +102,13 @@ export class MemoryMarkdownEvidenceReader extends MarkdownEvidenceReader {
     }
   }
 
-  getEvidence({ scope, targetId, artifactPath, file }) {
+  getEvidence({ scope, targetId, file }) {
     return (
       this._evidence.find((e) => {
-        if (!e || typeof e !== 'object' || e.verified !== true) return false;
-        if (targetId && e.targetId && e.targetId !== targetId) return false;
-        if (scope && e.scope && e.scope !== scope) return false;
-        if (artifactPath && e.artifactPath && e.artifactPath !== artifactPath && e.file !== file) return false;
+        if (!e || typeof e !== 'object') return false;
+        if (e.scope !== scope) return false;
+        if (e.targetId !== targetId) return false;
+        if (e.file !== file) return false;
         return true;
       }) || null
     );
@@ -105,16 +117,18 @@ export class MemoryMarkdownEvidenceReader extends MarkdownEvidenceReader {
 
 /**
  * Gate that verifies existence, structure, and trusted evidence of markdown verification artifacts.
- * Structurally inspecting text alone is read-only; explicit verification requires trusted evidence records.
+ * Structurally inspecting text alone is read-only; explicit verification requires trusted evidence records bound to the exact content hash.
  */
 export class MarkdownGate extends GateContract {
   /**
    * @param {object} [options={}]
    * @param {MarkdownEvidenceReader} [options.evidenceReader=null] - Trusted evidence reader (DI only)
+   * @param {object} [options.fs=nodeFs] - Optional filesystem interface (DI only)
    */
-  constructor({ evidenceReader = null } = {}) {
+  constructor({ evidenceReader = null, fs = nodeFs } = {}) {
     super();
     this._evidenceReader = evidenceReader;
+    this._fs = fs;
   }
 
   get type() {
@@ -187,7 +201,7 @@ export class MarkdownGate extends GateContract {
   async inspect(config, context = {}) {
     const filePath = this._resolveFilePath(config, context);
 
-    if (context.fs?.existsSync ? !context.fs.existsSync(filePath) : !fs.existsSync(filePath)) {
+    if (!this._fs.existsSync(filePath)) {
       return new GateInspectionResult({
         gateType: this.type,
         status: 'blocked',
@@ -198,10 +212,8 @@ export class MarkdownGate extends GateContract {
       });
     }
 
-    const content = context.fs?.readFileSync
-      ? context.fs.readFileSync(filePath, 'utf8')
-      : fs.readFileSync(filePath, 'utf8');
-
+    const content = this._fs.readFileSync(filePath, 'utf8');
+    const artifactHash = computeArtifactHash(content);
     const analysis = analyzeMarkdownArtifact(content, config.requiredSections || []);
 
     if (!analysis.complete) {
@@ -222,6 +234,7 @@ export class MarkdownGate extends GateContract {
         details: {
           file: config.file,
           exists: true,
+          artifactHash,
           ...analysis,
         },
       });
@@ -235,14 +248,14 @@ export class MarkdownGate extends GateContract {
       details: {
         file: config.file,
         exists: true,
+        artifactHash,
         ...analysis,
       },
     });
   }
 
   /**
-   * Explicitly evaluates and verifies markdown artifact completeness and trusted evidence.
-   * Reading mutable markdown checkboxes alone cannot self-satisfy verification without a trusted evidence record.
+   * Explicitly evaluates and verifies markdown artifact completeness and trusted evidence bound to exact artifact content hash.
    *
    * @param {object} config
    * @param {object} [context={}]
@@ -262,20 +275,38 @@ export class MarkdownGate extends GateContract {
     }
 
     const scope = config.scope || 'task';
-    const targetId = resolveHumanScopeTarget(scope, context) || config.file;
-    const artifactPath = this._resolveFilePath(config, context);
+    const targetId = resolveHumanScopeTarget(scope, context);
+    const file = config.file.trim();
+    const artifactHash = inspection.details?.artifactHash;
 
-    // 2. Query trusted evidence reader (cannot be satisfied by editing checkboxes in repository files)
+    if (!targetId) {
+      return new GateVerificationResult({
+        gateType: this.type,
+        passed: false,
+        status: 'blocked',
+        message: `Markdown verification for scope '${scope}' requires explicit target identity in context`,
+        details: {
+          file,
+          scope,
+          reason: 'missing-scope-identity',
+          ...inspection.details,
+        },
+      });
+    }
+
+    // 2. Query trusted evidence reader
     const reader = this._evidenceReader;
     if (!reader || typeof reader.getEvidence !== 'function') {
       return new GateVerificationResult({
         gateType: this.type,
         passed: false,
         status: 'blocked',
-        message: `Markdown artifact '${config.file}' is structurally complete, but no trusted evidence reader is configured`,
+        message: `Markdown artifact '${file}' is structurally complete, but no trusted evidence reader is configured`,
         details: {
-          file: config.file,
+          file,
+          scope,
           targetId,
+          artifactHash,
           reason: 'evidence-reader-missing',
           ...inspection.details,
         },
@@ -284,7 +315,7 @@ export class MarkdownGate extends GateContract {
 
     let evidence = null;
     try {
-      evidence = await reader.getEvidence({ scope, targetId, artifactPath, file: config.file });
+      evidence = await reader.getEvidence({ scope, targetId, file, artifactHash });
     } catch (err) {
       return new GateVerificationResult({
         gateType: this.type,
@@ -292,26 +323,41 @@ export class MarkdownGate extends GateContract {
         status: 'blocked',
         message: `Failed to query markdown evidence reader: ${err.message}`,
         details: {
-          file: config.file,
+          file,
+          scope,
           targetId,
+          artifactHash,
           error: err.message,
           ...inspection.details,
         },
       });
     }
 
+    // 3. Strict match validation against all expected fields
     const isVerified = evidence && typeof evidence === 'object' && evidence.verified === true;
-    if (!isVerified) {
+    const scopeMatches = evidence?.scope === scope;
+    const targetMatches = evidence?.targetId === targetId;
+    const fileMatches = evidence?.file === file;
+    const hashMatches = evidence?.artifactHash === artifactHash;
+
+    if (!isVerified || !scopeMatches || !targetMatches || !fileMatches || !hashMatches) {
+      let mismatchReason = 'evidence-required';
+      if (evidence && !hashMatches) {
+        mismatchReason = 'evidence-hash-mismatch';
+      }
+
       return new GateVerificationResult({
         gateType: this.type,
         passed: false,
         status: 'blocked',
-        message: `Markdown verification artifact '${config.file}' is structurally complete, but no verified evidence record exists for target '${targetId}'`,
+        message: `Markdown verification artifact '${file}' is structurally complete, but no matching verified evidence record exists for target '${targetId}' (hash: ${artifactHash ? artifactHash.slice(0, 8) : 'none'}...)`,
         details: {
-          file: config.file,
+          file,
+          scope,
           targetId,
-          reason: 'evidence-required',
-          evidence: null,
+          artifactHash,
+          reason: mismatchReason,
+          recordedEvidence: evidence || null,
           ...inspection.details,
         },
       });
@@ -321,10 +367,12 @@ export class MarkdownGate extends GateContract {
       gateType: this.type,
       passed: true,
       status: 'passed',
-      message: `Markdown artifact '${config.file}' is verified with authoritative evidence for '${targetId}'`,
+      message: `Markdown artifact '${file}' is verified with authoritative evidence for '${targetId}' (hash: ${artifactHash.slice(0, 8)}...)`,
       details: {
-        file: config.file,
+        file,
+        scope,
         targetId,
+        artifactHash,
         evidence,
         ...inspection.details,
       },

@@ -10,9 +10,9 @@ export const DEFAULT_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
 
 /**
- * Abstract reader interface for accessing trusted recorded command verification results.
+ * Abstract interface for accessing trusted recorded command verification state.
  */
-export class CommandVerificationReader {
+export class CommandVerificationStore {
   /**
    * Retrieves recorded verification result for a command.
    *
@@ -22,46 +22,99 @@ export class CommandVerificationReader {
    * @returns {Promise<object|null>|object|null}
    */
   getCommandResult(query) {
-    throw new Error('CommandVerificationReader.getCommandResult() must be implemented');
+    throw new Error('CommandVerificationStore.getCommandResult() must be implemented');
+  }
+
+  /**
+   * Records verification result for a command.
+   *
+   * @param {object} record
+   * @param {string} record.command
+   * @param {string} [record.action]
+   * @param {boolean} record.passed
+   * @param {number} [record.exitCode]
+   * @param {boolean} [record.stale=false]
+   * @param {string} [record.timestamp]
+   * @param {Record<string, any>} [record.details]
+   * @returns {Promise<void>|void}
+   */
+  recordCommandResult(record) {
+    throw new Error('CommandVerificationStore.recordCommandResult() must be implemented');
   }
 }
 
-/**
- * In-memory implementation of CommandVerificationReader for testing and composition.
- */
-export class MemoryCommandVerificationReader extends CommandVerificationReader {
-  /**
-   * @param {Record<string, object>} [results={}]
-   */
-  constructor(results = {}) {
-    super();
-    this._results = new Map(Object.entries(results));
-  }
+/** Backward-compatible alias for reader */
+export const CommandVerificationReader = CommandVerificationStore;
 
+/**
+ * In-memory implementation of CommandVerificationStore for testing and composition.
+ */
+export class MemoryCommandVerificationStore extends CommandVerificationStore {
   /**
-   * Sets a verification result in memory.
-   * @param {string} commandOrAction
-   * @param {object} result
+   * @param {Record<string, object>} [initialResults={}]
    */
-  setResult(commandOrAction, result) {
-    if (commandOrAction && typeof result === 'object' && result !== null) {
-      this._results.set(commandOrAction, result);
+  constructor(initialResults = {}) {
+    super();
+    this._results = new Map();
+    for (const [key, value] of Object.entries(initialResults)) {
+      this.recordCommandResult({ command: key, ...value });
     }
   }
 
+  /**
+   * Records a command verification result in memory.
+   * @param {object} record
+   */
+  recordCommandResult(record) {
+    if (!record || typeof record !== 'object') return;
+    const commandKey = typeof record.command === 'string' ? record.command.trim() : '';
+    const actionKey = typeof record.action === 'string' ? record.action.trim() : '';
+
+    const entry = {
+      command: commandKey,
+      action: actionKey || null,
+      passed: record.passed === true,
+      exitCode: Number.isInteger(record.exitCode) ? record.exitCode : (record.passed ? 0 : 1),
+      stale: Boolean(record.stale),
+      timestamp: record.timestamp || new Date().toISOString(),
+      details: record.details || {},
+    };
+
+    if (commandKey) {
+      this._results.set(commandKey, entry);
+    }
+    if (actionKey) {
+      this._results.set(actionKey, entry);
+    }
+  }
+
+  /** Backward-compatible setter */
+  setResult(commandOrAction, result) {
+    this.recordCommandResult({ command: commandOrAction, ...result });
+  }
+
   getCommandResult({ command, action }) {
-    return this._results.get(command) || (action ? this._results.get(action) : null) || null;
+    if (command && this._results.has(command.trim())) {
+      return this._results.get(command.trim());
+    }
+    if (action && this._results.has(action.trim())) {
+      return this._results.get(action.trim());
+    }
+    return null;
   }
 }
 
+/** Backward-compatible alias */
+export const MemoryCommandVerificationReader = MemoryCommandVerificationStore;
+
 /**
  * Resolves the target shell command using a trusted CommandCatalog.
- * Fails closed on unknown logical command aliases.
+ * Fails closed on unknown logical command aliases or ambiguous configs.
  *
  * @param {object} config - Gate configuration
  * @param {CommandCatalog} [catalog=defaultCommandCatalog] - Trusted command catalog
  * @returns {string} Target shell command
- * @throws {WorkflowError} If action alias is unknown or configuration is invalid
+ * @throws {WorkflowError} If configuration is invalid
  */
 export function resolveCommandTarget(config, catalog = defaultCommandCatalog) {
   const cat = catalog instanceof CommandCatalog ? catalog : defaultCommandCatalog;
@@ -73,7 +126,7 @@ export function resolveCommandTarget(config, catalog = defaultCommandCatalog) {
  *
  * @param {any} rawResult
  * @param {string} targetCommand
- * @returns {{ passed: boolean, exitCode: number, error?: string }}
+ * @returns {{ passed: boolean, exitCode: number, error?: string, stdout?: string, stderr?: string }}
  */
 function evaluateRunnerResult(rawResult, targetCommand) {
   if (!rawResult || typeof rawResult !== 'object') {
@@ -149,28 +202,36 @@ function evaluateRunnerResult(rawResult, targetCommand) {
   return {
     passed,
     exitCode: rawResult.exitCode !== undefined ? rawResult.exitCode : (passed ? 0 : 1),
+    stdout: typeof rawResult.stdout === 'string' ? rawResult.stdout : '',
+    stderr: typeof rawResult.stderr === 'string' ? rawResult.stderr : '',
   };
 }
 
 /**
  * Automated test/command gate.
  * Strictly separates read-only introspection (inspect) from explicit test execution (verify).
- * All trusted capabilities (runner, command catalog, verification reader) must be injected at construction.
+ * All trusted capabilities (runner, command catalog, verification store) must be injected at construction.
  */
 export class CommandGate extends GateContract {
   /**
    * @param {object} [options={}]
    * @param {Function} [options.runner=null] - Trusted runner capability (DI only)
    * @param {CommandCatalog} [options.commandCatalog=defaultCommandCatalog] - Trusted command catalog (DI only)
-   * @param {CommandVerificationReader} [options.verificationReader=null] - Trusted verification reader (DI only)
+   * @param {CommandVerificationStore} [options.verificationStore=null] - Trusted verification state store (DI only)
+   * @param {CommandVerificationStore} [options.verificationReader=null] - Alias for verificationStore
    */
-  constructor({ runner = null, commandCatalog = defaultCommandCatalog, verificationReader = null } = {}) {
+  constructor({
+    runner = null,
+    commandCatalog = defaultCommandCatalog,
+    verificationStore = null,
+    verificationReader = null,
+  } = {}) {
     super();
     this._runner = typeof runner === 'function' ? runner : null;
     this._commandCatalog = commandCatalog instanceof CommandCatalog
       ? commandCatalog
       : (commandCatalog ? new CommandCatalog(commandCatalog) : defaultCommandCatalog);
-    this._verificationReader = verificationReader;
+    this._verificationStore = verificationStore || verificationReader || null;
   }
 
   get type() {
@@ -178,7 +239,7 @@ export class CommandGate extends GateContract {
   }
 
   /**
-   * Introspects command gate status using trusted dependencies without executing test commands.
+   * Introspects command gate status using trusted store without executing test commands.
    * Runtime context cannot manufacture passed status or override command mappings.
    *
    * @param {object} config - Gate configuration (declaring action or command)
@@ -188,11 +249,11 @@ export class CommandGate extends GateContract {
   async inspect(config, context = {}) {
     const targetCommand = this._commandCatalog.resolve(config);
 
-    // Read previous verification result strictly from trusted verification reader (not caller JSON)
+    // Read previous verification result strictly from trusted verification store (not caller JSON)
     let lastResult = null;
-    if (this._verificationReader && typeof this._verificationReader.getCommandResult === 'function') {
+    if (this._verificationStore && typeof this._verificationStore.getCommandResult === 'function') {
       try {
-        lastResult = await this._verificationReader.getCommandResult({
+        lastResult = await this._verificationStore.getCommandResult({
           command: targetCommand,
           action: config.action,
         });
@@ -231,7 +292,7 @@ export class CommandGate extends GateContract {
   }
 
   /**
-   * Explicitly executes the target verification command using injected trusted runner or process exec.
+   * Explicitly executes the target verification command and records the authoritative result to the store.
    *
    * @param {object} config - Gate configuration
    * @param {object} [context={}] - Environmental context (must supply explicit context.repoRoot for execSync)
@@ -241,70 +302,84 @@ export class CommandGate extends GateContract {
     const targetCommand = this._commandCatalog.resolve(config);
     const runner = this._runner;
 
+    let evalResult;
+    let rawError = null;
+
     if (typeof runner === 'function') {
       try {
         const rawResult = await runner(targetCommand, context);
-        const evalResult = evaluateRunnerResult(rawResult, targetCommand);
-        const passed = evalResult.passed;
-
-        return new GateVerificationResult({
-          gateType: this.type,
-          passed,
-          status: passed ? 'passed' : 'failed',
-          message: evalResult.error || (passed ? `Command '${targetCommand}' passed` : `Command '${targetCommand}' failed`),
-          details: {
-            targetCommand,
-            exitCode: evalResult.exitCode,
-            stdout: rawResult?.stdout || '',
-            stderr: rawResult?.stderr || '',
-            ...(evalResult.error ? { error: evalResult.error } : {}),
-          },
-        });
+        evalResult = evaluateRunnerResult(rawResult, targetCommand);
       } catch (err) {
-        return new GateVerificationResult({
-          gateType: this.type,
+        rawError = err.message;
+        evalResult = {
           passed: false,
-          status: 'failed',
-          message: `Command '${targetCommand}' execution failed: ${err.message}`,
-          details: {
-            targetCommand,
-            error: err.message,
-          },
-        });
+          exitCode: 1,
+          error: `Command '${targetCommand}' execution failed: ${err.message}`,
+        };
       }
-    }
+    } else {
+      if (!context.repoRoot || typeof context.repoRoot !== 'string' || !context.repoRoot.trim()) {
+        throw new WorkflowError(
+          `CommandGate verification requires explicit 'context.repoRoot' for process execution`,
+          { code: 'MISSING_REPO_ROOT', targetCommand }
+        );
+      }
 
-    if (!context.repoRoot || typeof context.repoRoot !== 'string' || !context.repoRoot.trim()) {
-      throw new WorkflowError(
-        `CommandGate verification requires explicit 'context.repoRoot' for process execution`,
-        { code: 'MISSING_REPO_ROOT', targetCommand }
-      );
-    }
-
-    try {
-      const cwd = context.repoRoot.trim();
-      const stdout = execSync(targetCommand, { cwd, encoding: 'utf8', stdio: 'pipe' });
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: true,
-        status: 'passed',
-        message: `Command '${targetCommand}' passed successfully`,
-        details: { targetCommand, exitCode: 0, stdout },
-      });
-    } catch (err) {
-      return new GateVerificationResult({
-        gateType: this.type,
-        passed: false,
-        status: 'failed',
-        message: `Command '${targetCommand}' failed with exit code ${err.status ?? 1}`,
-        details: {
-          targetCommand,
+      try {
+        const cwd = context.repoRoot.trim();
+        const stdout = execSync(targetCommand, { cwd, encoding: 'utf8', stdio: 'pipe' });
+        evalResult = {
+          passed: true,
+          exitCode: 0,
+          stdout,
+          stderr: '',
+        };
+      } catch (err) {
+        evalResult = {
+          passed: false,
           exitCode: err.status ?? 1,
           stdout: err.stdout ? String(err.stdout) : '',
           stderr: err.stderr ? String(err.stderr) : '',
-          error: err.message,
-        },
-      });
+          error: `Command '${targetCommand}' failed with exit code ${err.status ?? 1}`,
+        };
+      }
     }
+
+    const passed = evalResult.passed;
+
+    // Record the authoritative verification result into the trusted store
+    if (this._verificationStore && typeof this._verificationStore.recordCommandResult === 'function') {
+      try {
+        await this._verificationStore.recordCommandResult({
+          command: targetCommand,
+          action: config.action || null,
+          passed,
+          exitCode: evalResult.exitCode,
+          stale: false,
+          timestamp: new Date().toISOString(),
+          details: {
+            stdout: evalResult.stdout || '',
+            stderr: evalResult.stderr || '',
+            ...(evalResult.error ? { error: evalResult.error } : {}),
+          },
+        });
+      } catch {
+        // Store failure is non-fatal to verification result evaluation
+      }
+    }
+
+    return new GateVerificationResult({
+      gateType: this.type,
+      passed,
+      status: passed ? 'passed' : 'failed',
+      message: evalResult.error || (passed ? `Command '${targetCommand}' passed` : `Command '${targetCommand}' failed`),
+      details: {
+        targetCommand,
+        exitCode: evalResult.exitCode,
+        stdout: evalResult.stdout || '',
+        stderr: evalResult.stderr || '',
+        ...(evalResult.error ? { error: evalResult.error } : {}),
+      },
+    });
   }
 }

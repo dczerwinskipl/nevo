@@ -86,25 +86,54 @@ export class CommandCatalog {
 
   /**
    * Resolves a gate configuration object ({ action?: string, command?: string }) to a shell command.
+   * Strictly enforces XOR: requires exactly one of 'action' or 'command'.
    *
    * @param {object} config
    * @returns {string} Target shell command
-   * @throws {WorkflowError} If configuration is invalid or action is unknown
+   * @throws {WorkflowError} If configuration declares both, neither, or empty values
    */
   resolve(config) {
     if (!config || typeof config !== 'object') {
-      throw new WorkflowError('CommandGate requires a valid configuration object');
+      throw new WorkflowError('CommandGate requires a valid configuration object', { code: 'INVALID_COMMAND_CONFIG' });
     }
 
-    if (typeof config.command === 'string' && config.command.trim()) {
+    const hasAction = config.action !== undefined;
+    const hasCommand = config.command !== undefined;
+
+    if (!hasAction && !hasCommand) {
+      throw new WorkflowError("CommandGate configuration must declare either 'action' or 'command'", {
+        code: 'INVALID_COMMAND_CONFIG',
+      });
+    }
+
+    if (hasAction && hasCommand) {
+      throw new WorkflowError(
+        "CommandGate configuration cannot declare both 'action' and 'command' — specify exactly one execution target",
+        { code: 'AMBIGUOUS_COMMAND_CONFIG' }
+      );
+    }
+
+    if (hasCommand) {
+      if (typeof config.command !== 'string' || !config.command.trim()) {
+        throw new WorkflowError("CommandGate 'command' must be a non-empty string", {
+          code: 'INVALID_COMMAND_CONFIG',
+        });
+      }
       return config.command.trim();
     }
 
-    if (typeof config.action === 'string' && config.action.trim()) {
+    if (hasAction) {
+      if (typeof config.action !== 'string' || !config.action.trim()) {
+        throw new WorkflowError("CommandGate 'action' must be a non-empty string", {
+          code: 'INVALID_COMMAND_CONFIG',
+        });
+      }
       return this.get(config.action.trim());
     }
 
-    throw new WorkflowError("CommandGate configuration must declare either 'action' or 'command'");
+    throw new WorkflowError("CommandGate configuration must declare either 'action' or 'command'", {
+      code: 'INVALID_COMMAND_CONFIG',
+    });
   }
 }
 

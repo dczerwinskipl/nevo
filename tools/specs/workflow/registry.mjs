@@ -236,29 +236,34 @@ export const defaultActionRegistry = new ActionRegistry();
  * @param {object} [options={}]
  * @param {Function} [options.commandRunner=null] - Trusted runner capability (DI)
  * @param {import('./gates/index.mjs').CommandCatalog} [options.commandCatalog=defaultCommandCatalog] - Trusted command catalog
- * @param {import('./gates/index.mjs').CommandVerificationReader} [options.commandVerificationReader=null] - Trusted command verification reader
+ * @param {import('./gates/index.mjs').CommandVerificationStore} [options.commandVerificationStore=null] - Trusted command verification store
+ * @param {import('./gates/index.mjs').CommandVerificationReader} [options.commandVerificationReader=null] - Alias for commandVerificationStore
  * @param {import('./gates/index.mjs').HumanVerificationReader} [options.humanVerificationReader=null] - Trusted human signoff reader
  * @param {import('./gates/index.mjs').MarkdownEvidenceReader} [options.markdownEvidenceReader=null] - Trusted markdown evidence reader
+ * @param {object} [options.fs] - Optional trusted filesystem interface for MarkdownGate
  * @returns {GateRegistry}
  */
 export function createDefaultGateRegistry({
   commandRunner = null,
   commandCatalog = defaultCommandCatalog,
+  commandVerificationStore = null,
   commandVerificationReader = null,
   humanVerificationReader = null,
   markdownEvidenceReader = null,
+  fs = undefined,
 } = {}) {
   const registry = new GateRegistry();
   registry.register(
     new CommandGate({
       runner: commandRunner,
       commandCatalog,
-      verificationReader: commandVerificationReader,
+      verificationStore: commandVerificationStore || commandVerificationReader,
     })
   );
   registry.register(
     new MarkdownGate({
       evidenceReader: markdownEvidenceReader,
+      ...(fs ? { fs } : {}),
     })
   );
   registry.register(

@@ -17,13 +17,16 @@ export {
   DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
+  CommandVerificationStore,
   CommandVerificationReader,
+  MemoryCommandVerificationStore,
   MemoryCommandVerificationReader,
 } from './command-gate.mjs';
 
 export {
   MarkdownGate,
   analyzeMarkdownArtifact,
+  computeArtifactHash,
   MarkdownEvidenceReader,
   MemoryMarkdownEvidenceReader,
 } from './markdown-gate.mjs';
