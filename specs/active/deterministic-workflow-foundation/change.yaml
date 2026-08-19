@@ -18,7 +18,7 @@ tasks:
   - id: workflow-schema-and-compatibility
     order: 1
     file: tasks/01-workflow-schema-and-compatibility.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 315a74e8c2bf867f6c6bff659cc272acda267388
       review_revision: c47b09204fe94940a38843e7c9c9b5da1b0a60d0
@@ -48,7 +48,7 @@ tasks:
   - id: composable-actions-and-contracts
     order: 2
     file: tasks/02-composable-actions-and-contracts.md
-    status: implemented
+    status: verified
     depends_on:
       - workflow-schema-and-compatibility
     implementation:
