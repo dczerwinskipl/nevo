@@ -1,9 +1,9 @@
 // Declarative workflow definition schema and validation.
 
-import { DEFAULT_COMMAND_ACTIONS } from '../gates/command-gate.mjs';
+import { defaultCommandCatalog, CommandCatalog } from '../gates/command-catalog.mjs';
 
 export const KNOWN_GATE_TYPES = new Set(['command', 'markdown', 'human']);
-export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
+export const KNOWN_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -17,9 +17,10 @@ function isPlainObject(value) {
  * @param {string[]} errors - Output error collector
  * @param {object} [options]
  * @param {Set<string>|Array<string>} [options.knownGates] - Optional set of allowed gate types
- * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases (defaults to canonical catalog)
+ * @param {CommandCatalog|Set<string>|Array<string>} [options.commandCatalog] - Optional command catalog for alias validation
+ * @param {Set<string>|Array<string>} [options.knownCommandActions] - Optional set of allowed command aliases
  */
-export function validateGateDefinition(gate, label, errors, { knownGates, knownCommandActions } = {}) {
+export function validateGateDefinition(gate, label, errors, { knownGates, commandCatalog, knownCommandActions } = {}) {
   if (!isPlainObject(gate)) {
     errors.push(`${label}: gate must be an object`);
     return;
@@ -51,13 +52,25 @@ export function validateGateDefinition(gate, label, errors, { knownGates, knownC
         errors.push(`${label}: command gate 'action' must be a non-empty string`);
       } else {
         const actionAlias = gate.action.trim();
-        const allowed = knownCommandActions
-          ? (knownCommandActions instanceof Set ? knownCommandActions : new Set(knownCommandActions))
-          : KNOWN_COMMAND_ACTIONS;
+        const catalog = commandCatalog || knownCommandActions || defaultCommandCatalog;
 
-        if (!allowed.has(actionAlias)) {
+        let isAllowed = false;
+        let allowedList = [];
+
+        if (catalog instanceof CommandCatalog) {
+          isAllowed = catalog.has(actionAlias);
+          allowedList = catalog.listAliases();
+        } else if (catalog instanceof Set) {
+          isAllowed = catalog.has(actionAlias);
+          allowedList = Array.from(catalog);
+        } else if (Array.isArray(catalog)) {
+          isAllowed = catalog.includes(actionAlias);
+          allowedList = catalog;
+        }
+
+        if (!isAllowed) {
           errors.push(
-            `${label}: unknown command gate action alias '${gate.action}' (expected one of: ${[...allowed].join(', ')})`
+            `${label}: unknown command gate action alias '${gate.action}' (expected one of: ${allowedList.join(', ')})`
           );
         }
       }
@@ -125,6 +138,7 @@ export function validateTransitionDefinition(transition, label, errors) {
  * @param {object} definition - Parsed workflow definition object
  * @param {object} [options]
  * @param {Set<string>|Array<string>} [options.knownActions] - Allowed action IDs for step actions / finalize
+ * @param {CommandCatalog|Set<string>|Array<string>} [options.commandCatalog] - Allowed command catalog for command gates
  * @param {Set<string>|Array<string>} [options.knownCommandActions] - Allowed command alias actions for command gates
  * @param {Set<string>|Array<string>} [options.knownGates] - Allowed gate types
  * @returns {{ valid: boolean, errors: string[] }}

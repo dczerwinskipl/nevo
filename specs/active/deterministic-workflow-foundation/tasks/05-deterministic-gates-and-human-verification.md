@@ -12,6 +12,7 @@ context:
     - docs/ai/specification-workflow.md
 allowed_paths:
   - tools/specs/workflow/gates/contracts.mjs
+  - tools/specs/workflow/gates/command-catalog.mjs
   - tools/specs/workflow/gates/command-gate.mjs
   - tools/specs/workflow/gates/markdown-gate.mjs
   - tools/specs/workflow/gates/human-gate.mjs
@@ -31,25 +32,26 @@ semantic_references:
 
 ## Goal
 
-Implement the `GateContract` interface with distinct non-mutating `inspect` and explicit `verify` operations, gate registry, and concrete gates (`CommandGate`, `MarkdownGate`, `HumanVerificationGate`) under `tools/specs/workflow/gates/`, establishing first-class machine-readable human verification state.
+Implement the `GateContract` interface with distinct non-mutating `inspect` and explicit `verify` operations, gate registry, and concrete gates (`CommandGate`, `MarkdownGate`, `HumanVerificationGate`) under `tools/specs/workflow/gates/`, establishing first-class machine-readable human verification state and authoritative evidence boundaries.
 
 ## Implementation constraints
 
 - Gates determine whether a workflow step can be exited, strictly separated from action side effects.
-- **Inspection vs Execution Separation:** `GateContract` defines `inspect(config, context)` (returns target, scope, known result, and staleness without executing tests) and `verify(config, context)` (explicitly runs verification checks).
-- `CommandGate` maps logical verification actions (`test`, `build`) to configured command runners. `inspect` reports the target command without running it.
-- `MarkdownGate` verifies the existence, sections, and checklist completeness of specified markdown verification artifacts.
-- `HumanVerificationGate` returns machine-readable `{ status: 'blocked', reason: 'human-verification-required' }` when human sign-off is needed.
-- An AI agent must never be able to programmatically self-satisfy or bypass a human verification gate.
+- **Inspection vs Execution Separation:** `GateContract` defines `inspect(config, context)` (returns target, scope, known result from trusted readers, and staleness without executing tests) and `verify(config, context)` (explicitly runs verification checks).
+- `CommandGate` maps logical verification actions (`test`, `build`) via trusted `CommandCatalog`. `inspect` reports the target command and queries `CommandVerificationReader`.
+- `MarkdownGate` inspects markdown verification artifacts for structural completeness (`inspect`), and verifies authoritative evidence records via `MarkdownEvidenceReader` (`verify`).
+- `HumanVerificationGate` returns machine-readable `{ status: 'blocked', reason: 'human-verification-required' }` when human sign-off is not recorded in trusted `HumanVerificationReader`.
+- An AI agent must never be able to programmatically self-satisfy or bypass human verification or markdown verification gates through caller-controlled runtime JSON context or editing repository files.
+- Trusted capabilities (`runner`, `commandCatalog`, `verificationReader`, `evidenceReader`) are injected via constructor/factory DI; runtime context contains only deterministic facts (`repoRoot`, `taskId`, `stepId`, `changeId`).
 
 ## Acceptance criteria
 
 1. `GateContract` base interface defines `type`, `inspect(config, context)`, and `verify(config, context)`. `automated: node --test tools/tests/workflow-gates.test.mjs`
-2. `CommandGate.inspect` returns target verification command and staleness without executing commands or child processes. `automated: node --test tools/tests/workflow-gates.test.mjs`
+2. `CommandGate.inspect` returns target verification command and staleness from trusted reader without executing commands or child processes. `automated: node --test tools/tests/workflow-gates.test.mjs`
 3. `CommandGate.verify` executes logical test/build verification commands and records passing or failing status. `automated: node --test tools/tests/workflow-gates.test.mjs`
-4. `MarkdownGate` inspects markdown verification artifacts and detects missing files or incomplete checklist items. `automated: node --test tools/tests/workflow-gates.test.mjs`
-5. `HumanVerificationGate` returns `{ status: 'blocked', reason: 'human-verification-required' }` when required human verification is not recorded. `automated: node --test tools/tests/workflow-gates.test.mjs`
-6. Unit tests verify that `inspect` is 100% read-only and that blocked gates prevent transition while satisfied gates allow progression. `automated: node --test tools/tests/workflow-gates.test.mjs`
+4. `MarkdownGate` structurally inspects markdown artifacts (`inspect`) and verifies trusted evidence records beyond mutable file text (`verify`). `automated: node --test tools/tests/workflow-gates.test.mjs`
+5. `HumanVerificationGate` queries trusted `HumanVerificationReader` and blocks when required sign-off is absent. `automated: node --test tools/tests/workflow-gates.test.mjs`
+6. Unit tests verify that `inspect` is 100% read-only, that blocked gates prevent transition, and that caller context cannot forge verification passes. `automated: node --test tools/tests/workflow-gates.test.mjs`
 
 ## Verification
 

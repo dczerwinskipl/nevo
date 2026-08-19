@@ -2,7 +2,7 @@
 
 import { WorkflowError } from './errors.mjs';
 import { ActionContract, GateContract } from './contracts.mjs';
-import { CommandGate, MarkdownGate, HumanVerificationGate } from './gates/index.mjs';
+import { CommandGate, MarkdownGate, HumanVerificationGate, defaultCommandCatalog } from './gates/index.mjs';
 
 /**
  * Registry for managing extensible workflow actions.
@@ -231,14 +231,41 @@ export class GateRegistry {
 export const defaultActionRegistry = new ActionRegistry();
 
 /**
- * Creates a new GateRegistry pre-populated with built-in gates.
+ * Creates a new GateRegistry populated with built-in gates injected with explicit trusted capabilities.
+ *
+ * @param {object} [options={}]
+ * @param {Function} [options.commandRunner=null] - Trusted runner capability (DI)
+ * @param {import('./gates/index.mjs').CommandCatalog} [options.commandCatalog=defaultCommandCatalog] - Trusted command catalog
+ * @param {import('./gates/index.mjs').CommandVerificationReader} [options.commandVerificationReader=null] - Trusted command verification reader
+ * @param {import('./gates/index.mjs').HumanVerificationReader} [options.humanVerificationReader=null] - Trusted human signoff reader
+ * @param {import('./gates/index.mjs').MarkdownEvidenceReader} [options.markdownEvidenceReader=null] - Trusted markdown evidence reader
  * @returns {GateRegistry}
  */
-export function createDefaultGateRegistry() {
+export function createDefaultGateRegistry({
+  commandRunner = null,
+  commandCatalog = defaultCommandCatalog,
+  commandVerificationReader = null,
+  humanVerificationReader = null,
+  markdownEvidenceReader = null,
+} = {}) {
   const registry = new GateRegistry();
-  registry.register(new CommandGate());
-  registry.register(new MarkdownGate());
-  registry.register(new HumanVerificationGate());
+  registry.register(
+    new CommandGate({
+      runner: commandRunner,
+      commandCatalog,
+      verificationReader: commandVerificationReader,
+    })
+  );
+  registry.register(
+    new MarkdownGate({
+      evidenceReader: markdownEvidenceReader,
+    })
+  );
+  registry.register(
+    new HumanVerificationGate({
+      verificationReader: humanVerificationReader,
+    })
+  );
   return registry;
 }
 

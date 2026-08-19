@@ -78,12 +78,12 @@ export function resolveHumanScopeTarget(scope, context = {}) {
 
 /**
  * Gate enforcing mandatory human operator sign-off from a trusted verification state reader.
- * Raw caller JSON context cannot self-satisfy this gate.
+ * All authority must be injected at construction — raw caller JSON context cannot satisfy this gate.
  */
 export class HumanVerificationGate extends GateContract {
   /**
    * @param {object} [options={}]
-   * @param {HumanVerificationReader} [options.verificationReader=null] - Trusted verification reader (DI)
+   * @param {HumanVerificationReader} [options.verificationReader=null] - Trusted verification reader (DI only)
    */
   constructor({ verificationReader = null } = {}) {
     super();
@@ -95,10 +95,10 @@ export class HumanVerificationGate extends GateContract {
   }
 
   /**
-   * Introspects human verification state from a trusted reader without modifying state.
+   * Introspects human verification state from trusted reader without modifying state.
    *
    * @param {object} config - Gate configuration (declaring required, role, message, scope)
-   * @param {object} [context={}] - Context containing runtime facts (taskId, stepId, changeId)
+   * @param {object} [context={}] - Context containing runtime facts only (taskId, stepId, changeId)
    * @returns {Promise<GateInspectionResult>}
    */
   async inspect(config = {}, context = {}) {
@@ -140,8 +140,8 @@ export class HumanVerificationGate extends GateContract {
       });
     }
 
-    // Must query trusted reader (injected via constructor or supplied by composition root)
-    const reader = this._verificationReader || context.humanVerificationReader || context.verificationReader;
+    // Must query trusted reader injected via constructor (never caller context)
+    const reader = this._verificationReader;
 
     if (!reader || typeof reader.getSignoff !== 'function') {
       return new GateInspectionResult({
@@ -157,7 +157,7 @@ export class HumanVerificationGate extends GateContract {
         },
         details: {
           required: true,
-          error: 'No trusted human verification reader configured',
+          error: 'No trusted human verification reader configured in gate',
         },
       });
     }

@@ -39,17 +39,18 @@ export class GateContract {
 ## Gate Types
 
 ### 1. `CommandGate` (Automated Command / Test Verification)
-- **`inspect(config, context)`**: Returns the verification target (e.g. `action: "test"`), execution scope, current known pass/fail status, and whether verification is required or stale, **without running tests**.
-- **`verify(config, context)`**: Explicitly invokes the logical test runner (e.g. `npm test` or `dotnet test`) and records the result.
-- **Invariant:** Introspection commands (`status`, `next-step`, `--check`) invoke `inspect`, never `verify`.
+- **`inspect(config, context)`**: Returns the verification target (e.g. `action: "test"`), execution scope, known recorded result from trusted `CommandVerificationReader`, and staleness, **without running tests**.
+- **`verify(config, context)`**: Explicitly invokes the logical test runner (e.g. `npm test` or `dotnet test`) via injected runner or process execution and returns strict verification results.
+- **Invariant:** Introspection commands (`status`, `next-step`, `--check`) invoke `inspect`, never `verify`. Capabilities (`runner`, `commandCatalog`, `verificationReader`) are injected via constructor/factory, never trusted from runtime context.
 
 ### 2. `MarkdownGate` (Verification Artifact Gate)
-- **`inspect(config, context)`**: Checks for the existence of the referenced verification artifact (e.g. `verification.md` or task `## Verification` section) and inspects required checklist items.
-- **`verify(config, context)`**: Evaluates recorded evidence and validates that all checklist criteria are marked verified. Reading the file alone does not pass the gate; explicit evidence/sign-off is checked.
+- **`inspect(config, context)`**: Structurally inspects the existence of the referenced verification artifact, required sections, and checklist items in a non-mutating manner.
+- **`verify(config, context)`**: Validates structural completeness and checks authoritative verification evidence records via trusted `MarkdownEvidenceReader`. Editing markdown checkbox text alone in the repository does not pass verification without trusted evidence.
+- **Invariant:** Verification evidence must be supplied by trusted composition boundaries, never by caller-controlled runtime JSON.
 
 ### 3. `HumanVerificationGate` (First-Class Machine-Readable Human Verification)
-- Human verification is never represented solely as prose instructions in markdown files.
-- **`inspect(config, context)`**: Returns the machine-readable blocking state:
+- Human verification is never represented solely as prose instructions in markdown files or caller-provided JSON context.
+- **`inspect(config, context)`**: Returns the machine-readable blocking state or validated sign-off from trusted `HumanVerificationReader`:
   ```json
   {
     "status": "blocked",
@@ -63,5 +64,5 @@ export class GateContract {
     }
   }
   ```
-- **`verify(config, context)`**: Checks if an explicit operator confirmation has been recorded in workflow state via `node tools/specs.mjs workflow verify-human <change> <task> --confirm`.
-- **Invariant:** The deterministic workflow engine strictly prevents the agent from self-authorizing or marking human verification as completed.
+- **`verify(config, context)`**: Checks if an explicit operator confirmation has been recorded via trusted `HumanVerificationReader`.
+- **Invariant:** The deterministic workflow engine strictly prevents the agent from self-authorizing or marking human verification as completed via runtime context.

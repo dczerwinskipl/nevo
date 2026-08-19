@@ -2,66 +2,70 @@
 
 import { execSync } from 'node:child_process';
 import { GateContract, GateInspectionResult, GateVerificationResult } from './contracts.mjs';
+import { defaultCommandCatalog, CommandCatalog } from './command-catalog.mjs';
 import { WorkflowError } from '../errors.mjs';
 
-/** Canonical built-in logical command verification aliases */
-export const DEFAULT_COMMAND_ACTIONS = new Set(['test', 'build']);
-
-/** Alias for backward compatibility */
+/** Canonical built-in command actions alias for backward compatibility */
+export const DEFAULT_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
 
 /**
- * Resolves the target shell command for a command gate configuration.
+ * Abstract reader interface for accessing trusted recorded command verification results.
+ */
+export class CommandVerificationReader {
+  /**
+   * Retrieves recorded verification result for a command.
+   *
+   * @param {object} query
+   * @param {string} query.command - Concrete shell command
+   * @param {string} [query.action] - Logical action alias
+   * @returns {Promise<object|null>|object|null}
+   */
+  getCommandResult(query) {
+    throw new Error('CommandVerificationReader.getCommandResult() must be implemented');
+  }
+}
+
+/**
+ * In-memory implementation of CommandVerificationReader for testing and composition.
+ */
+export class MemoryCommandVerificationReader extends CommandVerificationReader {
+  /**
+   * @param {Record<string, object>} [results={}]
+   */
+  constructor(results = {}) {
+    super();
+    this._results = new Map(Object.entries(results));
+  }
+
+  /**
+   * Sets a verification result in memory.
+   * @param {string} commandOrAction
+   * @param {object} result
+   */
+  setResult(commandOrAction, result) {
+    if (commandOrAction && typeof result === 'object' && result !== null) {
+      this._results.set(commandOrAction, result);
+    }
+  }
+
+  getCommandResult({ command, action }) {
+    return this._results.get(command) || (action ? this._results.get(action) : null) || null;
+  }
+}
+
+/**
+ * Resolves the target shell command using a trusted CommandCatalog.
  * Fails closed on unknown logical command aliases.
  *
  * @param {object} config - Gate configuration
- * @param {object} [context={}] - Context containing overrides or environment facts
- * @param {Set<string>|Array<string>} [catalog=null] - Allowed logical command aliases
- * @returns {string}
+ * @param {CommandCatalog} [catalog=defaultCommandCatalog] - Trusted command catalog
+ * @returns {string} Target shell command
  * @throws {WorkflowError} If action alias is unknown or configuration is invalid
  */
-export function resolveCommandTarget(config, context = {}, catalog = null) {
-  if (!config || typeof config !== 'object') {
-    throw new WorkflowError('CommandGate requires a valid configuration object');
-  }
-
-  if (typeof config.command === 'string' && config.command.trim()) {
-    return config.command.trim();
-  }
-
-  if (typeof config.action === 'string' && config.action.trim()) {
-    const action = config.action.trim();
-
-    // 1. Check explicit caller/environment verification command maps
-    if (context.verificationCommands && typeof context.verificationCommands[action] === 'string' && context.verificationCommands[action].trim()) {
-      return context.verificationCommands[action].trim();
-    }
-    if (context.actionCommands && typeof context.actionCommands[action] === 'string' && context.actionCommands[action].trim()) {
-      return context.actionCommands[action].trim();
-    }
-
-    // 2. Allowed catalog check
-    const allowedCatalog = catalog
-      ? (catalog instanceof Set ? catalog : new Set(catalog))
-      : DEFAULT_COMMAND_ACTIONS;
-
-    if (!allowedCatalog.has(action)) {
-      throw new WorkflowError(
-        `Unknown command verification alias '${action}' — must be a known alias (${[...allowedCatalog].join(', ')}) or configured in context.verificationCommands`,
-        { code: 'UNKNOWN_COMMAND_ACTION', action }
-      );
-    }
-
-    // 3. Built-in standard command aliases
-    if (action === 'test') {
-      return context.testCommand || 'npm test';
-    }
-    if (action === 'build') {
-      return context.buildCommand || 'npm run build';
-    }
-  }
-
-  throw new WorkflowError("CommandGate configuration must declare either 'action' or 'command'");
+export function resolveCommandTarget(config, catalog = defaultCommandCatalog) {
+  const cat = catalog instanceof CommandCatalog ? catalog : defaultCommandCatalog;
+  return cat.resolve(config);
 }
 
 /**
@@ -151,23 +155,22 @@ function evaluateRunnerResult(rawResult, targetCommand) {
 /**
  * Automated test/command gate.
  * Strictly separates read-only introspection (inspect) from explicit test execution (verify).
+ * All trusted capabilities (runner, command catalog, verification reader) must be injected at construction.
  */
 export class CommandGate extends GateContract {
   /**
    * @param {object} [options={}]
-   * @param {Function} [options.runner=null] - Trusted runner capability (dependency injection)
-   * @param {Set<string>|Array<string>} [options.commandCatalog=null] - Allowed logical command aliases
-   * @param {Record<string, string>} [options.verificationCommands={}] - Custom command mappings
+   * @param {Function} [options.runner=null] - Trusted runner capability (DI only)
+   * @param {CommandCatalog} [options.commandCatalog=defaultCommandCatalog] - Trusted command catalog (DI only)
+   * @param {CommandVerificationReader} [options.verificationReader=null] - Trusted verification reader (DI only)
    */
-  constructor({ runner = null, commandCatalog = null, verificationCommands = {} } = {}) {
+  constructor({ runner = null, commandCatalog = defaultCommandCatalog, verificationReader = null } = {}) {
     super();
     this._runner = typeof runner === 'function' ? runner : null;
-    this._commandCatalog = commandCatalog
-      ? (commandCatalog instanceof Set ? commandCatalog : new Set(commandCatalog))
-      : null;
-    this._verificationCommands = verificationCommands && typeof verificationCommands === 'object'
-      ? { ...verificationCommands }
-      : {};
+    this._commandCatalog = commandCatalog instanceof CommandCatalog
+      ? commandCatalog
+      : (commandCatalog ? new CommandCatalog(commandCatalog) : defaultCommandCatalog);
+    this._verificationReader = verificationReader;
   }
 
   get type() {
@@ -175,27 +178,41 @@ export class CommandGate extends GateContract {
   }
 
   /**
-   * Introspects command gate status without executing child processes or running tests.
+   * Introspects command gate status using trusted dependencies without executing test commands.
+   * Runtime context cannot manufacture passed status or override command mappings.
    *
    * @param {object} config - Gate configuration (declaring action or command)
-   * @param {object} [context={}] - Environmental context
+   * @param {object} [context={}] - Environmental context containing deterministic facts
    * @returns {Promise<GateInspectionResult>}
    */
   async inspect(config, context = {}) {
-    const effectiveContext = {
-      ...context,
-      verificationCommands: {
-        ...this._verificationCommands,
-        ...(context.verificationCommands || {}),
-      },
-    };
-    const targetCommand = resolveCommandTarget(config, effectiveContext, this._commandCatalog);
-    const lastResult = context.lastVerification?.[targetCommand] || context.verificationResults?.[targetCommand];
-    const isStale = context.testStale ?? (lastResult ? false : true);
+    const targetCommand = this._commandCatalog.resolve(config);
+
+    // Read previous verification result strictly from trusted verification reader (not caller JSON)
+    let lastResult = null;
+    if (this._verificationReader && typeof this._verificationReader.getCommandResult === 'function') {
+      try {
+        lastResult = await this._verificationReader.getCommandResult({
+          command: targetCommand,
+          action: config.action,
+        });
+      } catch {
+        lastResult = null;
+      }
+    }
 
     let status = 'pending';
-    if (lastResult) {
-      status = lastResult.passed ? 'passed' : 'failed';
+    let isStale = true;
+
+    if (lastResult && typeof lastResult === 'object') {
+      // Validate recorded result strictly
+      if (lastResult.passed === true) {
+        status = 'passed';
+        isStale = typeof lastResult.stale === 'boolean' ? lastResult.stale : false;
+      } else if (lastResult.passed === false || (Number.isInteger(lastResult.exitCode) && lastResult.exitCode !== 0)) {
+        status = 'failed';
+        isStale = typeof lastResult.stale === 'boolean' ? lastResult.stale : false;
+      }
     }
 
     return new GateInspectionResult({
@@ -203,7 +220,7 @@ export class CommandGate extends GateContract {
       status,
       target: targetCommand,
       message: `Command gate targets '${targetCommand}' (run verify to execute)`,
-      stale: typeof isStale === 'boolean' ? isStale : Boolean(isStale),
+      stale: isStale,
       details: {
         action: config.action,
         command: config.command,
@@ -214,26 +231,19 @@ export class CommandGate extends GateContract {
   }
 
   /**
-   * Explicitly executes the target verification command.
+   * Explicitly executes the target verification command using injected trusted runner or process exec.
    *
    * @param {object} config - Gate configuration
-   * @param {object} [context={}] - Environmental context
+   * @param {object} [context={}] - Environmental context (must supply explicit context.repoRoot for execSync)
    * @returns {Promise<GateVerificationResult>}
    */
   async verify(config, context = {}) {
-    const effectiveContext = {
-      ...context,
-      verificationCommands: {
-        ...this._verificationCommands,
-        ...(context.verificationCommands || {}),
-      },
-    };
-    const targetCommand = resolveCommandTarget(config, effectiveContext, this._commandCatalog);
-    const runner = this._runner || context.runner;
+    const targetCommand = this._commandCatalog.resolve(config);
+    const runner = this._runner;
 
     if (typeof runner === 'function') {
       try {
-        const rawResult = await runner(targetCommand, effectiveContext);
+        const rawResult = await runner(targetCommand, context);
         const evalResult = evaluateRunnerResult(rawResult, targetCommand);
         const passed = evalResult.passed;
 
