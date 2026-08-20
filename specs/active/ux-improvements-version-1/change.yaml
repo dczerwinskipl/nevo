@@ -14,7 +14,7 @@ tasks:
   - id: design-tokens
     order: 1
     file: tasks/01-design-tokens.md
-    status: draft
+    status: approved
 
   - id: composer-alignment
     order: 2
