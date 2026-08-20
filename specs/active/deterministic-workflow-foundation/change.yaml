@@ -76,7 +76,7 @@ tasks:
   - id: action-registry-and-aggregated-checks
     order: 3
     file: tasks/03-action-registry-and-aggregated-checks.md
-    status: implemented
+    status: verified
     depends_on:
       - composable-actions-and-contracts
     implementation:
