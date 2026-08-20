@@ -6,7 +6,6 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/navigation-and-ia.md
-    - .nevo-ai-local/ux-review/report/03-navigation-and-ia.md
     - tools/dashboard/src/App.tsx
   optional: []
 allowed_paths:

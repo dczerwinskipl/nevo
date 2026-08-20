@@ -6,10 +6,8 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/task-board-and-reviews.md
-    - .nevo-ai-local/ux-review/report/04-task-board-and-reviews.md
     - tools/dashboard/src/components/status-board.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/08-review-column-card-in-card.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/status-board.tsx
 forbidden_paths:
@@ -35,14 +33,14 @@ moved into the column header next to "REVIEW N", not as the first list item.
 - Check whether the same "title + separate button block underneath" pattern repeats on PR
   cards and review cards elsewhere in `status-board.tsx`; if so, unify to the same one
   inline-metadata-plus-one-primary-action pattern rather than fixing only the task card.
-- Color-coding of the columns (COLOR-1's "Bonus" section) is a separate task
-  (`design-tokens`, task 01) — do not duplicate that work here, this task is structure only.
+- Column color-coding is owned by the `design-tokens` task (task 01) — do not duplicate that
+  work here, this task is structure only.
 
 ## Acceptance criteria
 
 1. The per-task "Zaakceptuj" action renders inline on the task card's title row
    (right-aligned), not as a separate full-width block beneath it.
-   `inspection: compare against .nevo-ai-local/ux-review/screenshots/08-review-column-card-in-card.png`
+   `inspection: visually confirm the action no longer renders as a separate block beneath the title`
 2. "Zaakceptuj wszystkie (N)" renders in the Review column's header (next to the column
    count), not as the first item in the card list.
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`

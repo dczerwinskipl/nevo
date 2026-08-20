@@ -6,11 +6,9 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
     - tools/dashboard/src/components/ai-session-create-modal.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/04-new-session-mock-and-slug-hierarchy.png
-    - .nevo-ai-local/ux-review/screenshots/01-desktop-home.png
+    - tools/dashboard/src/components/status-board.tsx
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/ai-session-create-modal.tsx
 forbidden_paths:
@@ -26,7 +24,8 @@ forbidden_paths:
 In the "New session" modal's task checklist (`ai-session-create-modal.tsx:203-224`, "Kontekst
 zadań"), swap the visual weights: task title becomes the primary (bold/larger) text, the slug
 becomes a small secondary caption — matching the pattern already used correctly on the main
-task cards (`01-desktop-home.png`, where `#01` is a small prefix and the title is primary).
+task board's cards (`status-board.tsx:60,70`: the order number renders as a small `#01`-style
+prefix, `task.title` renders as the primary `<h3 className="... font-semibold ...">`).
 
 ## Implementation constraints
 

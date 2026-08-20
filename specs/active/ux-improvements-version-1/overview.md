@@ -10,16 +10,16 @@ change: ux-improvements-version-1
 
 ## Context
 
-A UX/UI review of the local dashboard (`http://100.117.54.81:4317/`, desktop 1440×900 and
-mobile 375×812, Chromium via Playwright, 2026-08-18/19) recorded 24 findings (2 High, 11
-Medium, 11 Low — plus CHAT-8, which is stated as "Severity: Medium" in its own section but
-omitted from the review's own severity-summary table; treated as real, not retracted) across
-colors, chat/AI sessions, navigation & information architecture, the task board & PR reviews,
-accessibility/touch targets, and typography/interaction consistency. The review is scoped to
-UX/UI/IA/interaction only — spec *content* quality and area/path-to-area configuration
-authoring are explicitly out of scope of the review itself. Full findings live in
-`.nevo-ai-local/ux-review/report/*.md` (gitignored, local materials); screenshots in
-`.nevo-ai-local/ux-review/screenshots/`.
+This specification was derived from a manual UX/UI review of the local dashboard
+(`http://100.117.54.81:4317/`, desktop 1440×900 and mobile 375×812, 2026-08-18/19), which
+recorded 24 findings across colors, chat/AI sessions, navigation & information architecture,
+the task board & PR reviews, accessibility/touch targets, and typography/interaction
+consistency. The review was scoped to UX/UI/IA/interaction only — spec *content* quality and
+area/path-to-area configuration authoring were explicitly out of scope of that review. The
+review itself is provenance/history for this spec, not an input the implementing agent needs:
+every fact, measurement, and file:line citation required to understand and verify each task is
+inlined directly in that task (or its area file) below — nothing in this specification depends
+on any local, out-of-repository review material.
 
 ## Current architecture
 
@@ -32,9 +32,8 @@ package outside `tools/dashboard` consumes it.
   `--border-strong`, `--foreground`, `--muted`, `--muted-strong`, `--accent`,
   `--accent-strong`). Everything else (status/severity colors, provider badge colors, kanban
   column colors) is inlined Tailwind color-shade classes or raw hex per component — 56
-  distinct values total, none derived from a shared source (`01-colors.md`, COLOR-1). One
-  `color-mix()`-derived usage already exists (`status-board.tsx:21`) as the only precedent for
-  a derived-variant pattern.
+  distinct values total, none derived from a shared source. One `color-mix()`-derived usage
+  already exists (`status-board.tsx:21`) as the only precedent for a derived-variant pattern.
 - AI providers: `tools/ai/registry.mjs`'s `AiAdapterRegistry.descriptors()` returns providers
   in `Map` insertion order, which is set once by the array passed to
   `createAiAdapterRegistry([...])` in `tools/dashboard/server/ai-services.mjs:28` — currently
@@ -43,8 +42,10 @@ package outside `tools/dashboard` consumes it.
   (`tools/dashboard/src/components/ai-session-create-modal.tsx:22-26`) re-implements the same
   "mock last" rule with a hardcoded sort, independently of that server order.
 - Session↔task linkage: `AiSession` objects already carry `taskId`/`taskIds`
-  (`tools/dashboard/src/lib/types.ts:407-408`); the data exists, it just isn't rendered as a
-  bidirectional link anywhere today (CHAT-8).
+  (`tools/dashboard/src/lib/types.ts:407-408`). Task → session already works (`TaskDialog` in
+  `spec-detail.tsx` lists every session bound to the open task). Session → task only works via
+  ephemeral navigation-history state (`chatOriginTaskId` in `App.tsx`), not the session's own
+  data — opening a task-bound session from a task-agnostic entry point loses the link (CHAT-8).
 - Session deletion already prompts via a native `window.confirm(...)`
   (`ai-chat.tsx:208`, `ai-session-list.tsx:157`) before the filesystem delete — the review
   flagged this as unverified; it is in fact present. The remaining problem is only the 24×24px
@@ -54,7 +55,7 @@ package outside `tools/dashboard` consumes it.
 
 - No shared design-token set beyond neutrals → real semantic color collisions (e.g. amber
   means both "warning" and "tool call running"; two different reds for the same "danger"
-  meaning) — see `01-colors.md`.
+  meaning) — see `areas/colors.md`.
 - Several measured layout bugs: composer input/send button misaligned by 6–8px
   (`ai-chat.tsx`); task-detail modal rendered ~96px underneath the sidebar at 1440×900
   (`TASK-1`).
@@ -153,10 +154,10 @@ existing neutral token.
 `npm --prefix tools/dashboard run build` (`tsc -b && vite build`, catches type errors) after
 every task. Visual/layout fixes (composer alignment, modal clipping, touch-target sizing,
 column nesting) have no automated visual-regression tooling in this repo, so each such task's
-acceptance criteria include an explicit inspection step against the specific screenshot in
-`.nevo-ai-local/ux-review/screenshots/` that documented the original problem, plus the DOM
-measurement the review took (`getBoundingClientRect()`/`getComputedStyle()` values), so the
-fix is checkable without guessing at "looks right."
+acceptance criteria instead state the exact DOM measurement to reproduce
+(`getBoundingClientRect()`/`getComputedStyle()` values, inlined directly in that task) and
+what the corrected value must be, so the fix is checkable without guessing at "looks right"
+and without any external screenshot.
 
 ## ADR impact
 
@@ -169,11 +170,10 @@ None — no durable architectural decision, no existing ADR superseded.
 - TASK-5 (PR diff viewer scope/filtering) — retracted by the review itself; already works as
   intended.
 - CHAT-9 (chat as a desktop side panel), NAV-4 (global search), NAV-5 (lifecycle stepper),
-  NAV-7 (supersedes/superseded-by links) — explicitly framed by the review as
-  opportunities/proposals, not defects; each needs its own design/scoping pass. Copied
-  verbatim to `.nevo-ai-local/ux-review/report/07-deferred-v2-proposals.md` as candidate
-  `ux-improvements-version-2` material (owner decision D1).
-- The "choose which active spec" picker screen — noted by the review as a new surface it
-  didn't get to review yet; not covered by this spec at all.
-- Area/path-to-area configuration authoring — out of scope of the review itself
-  (`.nevo-ai-local/ux-review/report/00-index.md`), unrelated to this spec's UI-only concern.
+  NAV-7 (supersedes/superseded-by links) — explicitly framed by the original review as
+  opportunities/proposals, not defects; each needs its own design/scoping pass before it could
+  become a task. Recorded separately, outside this repository, as candidate
+  `ux-improvements-version-2` material (owner decision D1) — not tracked here.
+- The "choose which active spec" picker screen — a newer dashboard surface not covered by the
+  original review and not covered by this spec at all.
+- Area/path-to-area configuration authoring — unrelated to this spec's UI-only concern.

@@ -6,10 +6,8 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
     - tools/dashboard/src/components/ai-chat.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/12-composer-input-send-button-misaligned.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
 forbidden_paths:
@@ -40,7 +38,7 @@ button, and unify their `border-radius`, in `tools/dashboard/src/components/ai-c
 ## Acceptance criteria
 
 1. `<textarea>` and `<button>` share the same `bottom` edge (±1px), in both idle and
-   generating states. `inspection: measure via getBoundingClientRect() in both states, compare against the screenshot`
+   generating states. `inspection: measure via getBoundingClientRect() in both states, compare against the baseline in "Implementation constraints" above`
 2. Both elements use `border-radius: 12px`. `inspection: read computed style`
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 

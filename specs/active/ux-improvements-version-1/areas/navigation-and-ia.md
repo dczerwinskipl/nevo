@@ -62,4 +62,4 @@ None between this area's own tasks.
 ## Out of scope
 
 NAV-4 (global search), NAV-5 (lifecycle stepper), NAV-7 (supersedes/superseded-by links) —
-deferred, see `07-deferred-v2-proposals.md`.
+deferred, not tracked in this repository.

@@ -6,11 +6,9 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/task-board-and-reviews.md
-    - .nevo-ai-local/ux-review/report/04-task-board-and-reviews.md
     - tools/dashboard/src/components/spec-detail.tsx
     - tools/dashboard/src/components/app-sidebar.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/02-task-modal-clipped-by-sidebar.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/spec-detail.tsx
 forbidden_paths:
@@ -43,9 +41,9 @@ ends at x≈368.
 
 1. At 1440×900, the task-detail modal's bounding rect no longer overlaps the sidebar's
    bounding rect (`dialog.left >= sidebar.right`, or the modal renders above the sidebar with
-   no visible clipping). `inspection: reproduce the exact 1440x900 measurement from the report, confirm no overlap`
+   no visible clipping). `inspection: reproduce the 1440x900 measurement above, confirm no overlap`
 2. Every character of modal content is visible (no leading characters cut off).
-   `inspection: compare against .nevo-ai-local/ux-review/screenshots/02-task-modal-clipped-by-sidebar.png`
+   `inspection: visually confirm no text is clipped behind the sidebar at 1440x900`
 3. Mobile (full-screen modal) behavior is unchanged. `inspection: verify at 375px width`
 4. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 

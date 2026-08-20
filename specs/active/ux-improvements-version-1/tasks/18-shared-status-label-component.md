@@ -6,15 +6,11 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/typography-and-consistency.md
-    - .nevo-ai-local/ux-review/report/06-typography-and-consistency.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
     - tools/dashboard/src/components/stage-progress.tsx
     - tools/dashboard/src/components/status-board.tsx
     - tools/dashboard/src/components/ai-session-list.tsx
     - tools/dashboard/src/components/ai-chat.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/01-desktop-home.png
-    - .nevo-ai-local/ux-review/screenshots/06a-session-header-idle-en.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/stage-progress.tsx
   - tools/dashboard/src/components/status-board.tsx
@@ -58,7 +54,8 @@ the same root cause: no shared `StatusLabel`/`StatusBadge` component. Create one
 
 1. `stage-progress.tsx`, and `status-board.tsx`'s column header (`lane.shortLabel`) and
    task-card pill (`formatStatus(task.status)`) all render the same status name with one
-   consistent size/case/tracking. `inspection: measure via getComputedStyle() at all 3 sites, compare against the report's baseline (9px/11px/9px, mixed case)`
+   consistent size/case/tracking (current baseline: 9px/11px/9px, mixed case across the three).
+   `inspection: measure via getComputedStyle() at all 3 sites`
 2. `ai-session-list.tsx`'s session card and `ai-chat.tsx`'s session header render the *same*
    text (language and case) for the same session's status.
    `inspection: open a session, compare its card label and header label`

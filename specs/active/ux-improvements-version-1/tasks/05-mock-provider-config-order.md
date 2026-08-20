@@ -7,11 +7,9 @@ context:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/owner-decisions.md
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
     - tools/dashboard/src/components/ai-session-create-modal.tsx
     - tools/dashboard/server/ai-services.mjs
   optional:
-    - .nevo-ai-local/ux-review/screenshots/04-new-session-mock-and-slug-hierarchy.png
     - tools/ai/registry.mjs
 allowed_paths:
   - tools/dashboard/src/components/ai-session-create-modal.tsx

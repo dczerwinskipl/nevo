@@ -6,10 +6,8 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/task-board-and-reviews.md
-    - .nevo-ai-local/ux-review/report/04-task-board-and-reviews.md
     - tools/dashboard/src/components/status-board.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/07-mobile-empty-kanban-columns.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/status-board.tsx
 forbidden_paths:
@@ -29,8 +27,8 @@ first.
 
 ## Implementation constraints
 
-- Desktop layout (narrow columns in a horizontal grid) is unaffected — the report notes empty
-  columns cost nothing there; this is a mobile-only (stacked-vertically) fix.
+- Desktop layout (narrow columns in a horizontal grid) is unaffected — empty columns cost
+  nothing there; this is a mobile-only (stacked-vertically) fix.
 - Preserve the ability to see/reach an empty column's state (e.g. via a collapsed
   header showing "Nowe (0)") — don't make empty stages undiscoverable, just non-blocking.
 
@@ -38,7 +36,7 @@ first.
 
 1. At 375px width, populated columns ("Implementacja", "Gotowe" or whichever have tasks)
    appear before or without requiring scroll past empty ones.
-   `inspection: reproduce at 375px, compare against .nevo-ai-local/ux-review/screenshots/07-mobile-empty-kanban-columns.png`
+   `inspection: reproduce at 375px width, confirm no scroll past empty columns is required to reach populated ones`
 2. Desktop column layout/order is unchanged. `inspection: verify at 1440px`
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 

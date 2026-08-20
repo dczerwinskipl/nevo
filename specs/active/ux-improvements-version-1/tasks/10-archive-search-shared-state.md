@@ -6,12 +6,10 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/navigation-and-ia.md
-    - .nevo-ai-local/ux-review/report/03-navigation-and-ia.md
     - tools/dashboard/src/App.tsx
     - tools/dashboard/src/components/list-overview.tsx
     - tools/dashboard/src/components/app-sidebar.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/03-archive-search-desync.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/App.tsx
   - tools/dashboard/src/components/list-overview.tsx
@@ -43,8 +41,9 @@ logic) into `ListOverview` so both panels agree.
 
 ## Acceptance criteria
 
-1. Typing `zzzzzznoresults` into the archive search box produces the same empty result in
-   both the sidebar and the main content panel. `inspection: reproduce the exact query the review used, compare both panels`
+1. Typing a no-match query (e.g. `zzzzzznoresults`) into the archive search box produces the
+   same empty result in both the sidebar and the main content panel.
+   `inspection: type a no-match query, compare both panels`
 2. A real, matching query filters both panels identically (not just the empty case).
    `inspection: type a query matching a known archived spec title, verify both panels agree`
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`

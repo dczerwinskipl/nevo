@@ -6,11 +6,8 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/05-accessibility-and-touch-targets.md
     - tools/dashboard/src/components/ai-chat.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/10-mobile-session-mode-pills-tiny.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
 forbidden_paths:
@@ -38,8 +35,8 @@ measured height of 36–40px on every viewport — they currently measure 19px t
 
 ## Acceptance criteria
 
-1. Each of the ask/edit/agent pills measures ≥36px tall on both desktop and mobile viewports.
-   `inspection: measure via getBoundingClientRect(), compare against the report's 19px baseline`
+1. Each of the ask/edit/agent pills measures ≥36px tall on both desktop and mobile viewports
+   (current baseline: 19px tall, 31–45px wide). `inspection: measure via getBoundingClientRect()`
 2. No confirmation step is added to mode switching. `inspection: confirm mode switch remains a single click/tap`
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 

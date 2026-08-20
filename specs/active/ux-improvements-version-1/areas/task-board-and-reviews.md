@@ -39,7 +39,7 @@ here.
 
 1. The task-detail modal is centered against the content area (viewport minus sidebar width),
    or raised above the sidebar's stacking order — no clipped leading characters at 1440×900.
-   `inspection: compare against .nevo-ai-local/ux-review/screenshots/02-task-modal-clipped-by-sidebar.png`
+   `inspection: reproduce at 1440x900, confirm no text is clipped behind the sidebar`
 2. The per-task "Zaakceptuj" action renders inline on the task-card title row (right-aligned),
    not as a separate block layer; "Zaakceptuj wszystkie (N)" renders in the column header, not
    as the first list item.

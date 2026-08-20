@@ -6,12 +6,9 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/02-chat-and-sessions.md
-    - .nevo-ai-local/ux-review/report/05-accessibility-and-touch-targets.md
     - tools/dashboard/src/components/ai-chat.tsx
     - tools/dashboard/src/components/ai-session-list.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/09-mobile-delete-icon-touch-target.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
   - tools/dashboard/src/components/ai-session-list.tsx
@@ -36,14 +33,14 @@ its visual size. A confirmation dialog already exists
 - Increase the *clickable* padding around the 24px icon to reach a ≥44px effective target;
   the visible icon size does not need to change.
 - Keep it far enough from the larger session-card click target that the two remain
-  distinguishable (per the report, the two currently sit immediately adjacent).
+  distinguishable — the two currently sit immediately adjacent.
 - Do not touch the existing `window.confirm(...)` call — it already satisfies the "reversible
   vs. destructive" distinction the review draws relative to CHAT-3's mode-switch case.
 
 ## Acceptance criteria
 
-1. The delete button's effective clickable area measures ≥44×44px on both files/locations.
-   `inspection: measure via getBoundingClientRect() including padding, compare against the report's 24px baseline`
+1. The delete button's effective clickable area measures ≥44×44px on both files/locations
+   (current baseline: 24×24px). `inspection: measure via getBoundingClientRect() including padding`
 2. The `window.confirm` delete-confirmation flow still fires exactly as before (unchanged).
    `inspection: trigger delete, confirm the same confirm() dialog appears`
 3. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
@@ -57,5 +54,6 @@ npm --prefix tools/dashboard run build
 
 ## Out of scope
 
-Replacing `window.confirm` with a styled dialog — not requested, current native confirm is
-sufficient per the review's own resolved framing.
+Replacing `window.confirm` with a styled dialog — not requested; the current native confirm
+already distinguishes this destructive action from the intentionally unconfirmed mode-switch
+interaction, and that distinction is sufficient as-is.

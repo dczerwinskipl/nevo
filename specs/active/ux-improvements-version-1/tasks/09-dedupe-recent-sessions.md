@@ -6,11 +6,9 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/navigation-and-ia.md
-    - .nevo-ai-local/ux-review/report/03-navigation-and-ia.md
     - tools/dashboard/src/components/app-sidebar.tsx
     - tools/dashboard/src/components/spec-detail.tsx
-  optional:
-    - .nevo-ai-local/ux-review/screenshots/01-desktop-home.png
+  optional: []
 allowed_paths:
   - tools/dashboard/src/components/app-sidebar.tsx
   - tools/dashboard/src/components/spec-detail.tsx
@@ -33,8 +31,8 @@ session).
 
 ## Implementation constraints
 
-- Do not remove either location entirely — the report's fix is "one job per location," not
-  "delete one of them."
+- Do not remove either location entirely — give each one distinct job, not "delete one of
+  them."
 - Sidebar version: drop the "Kontekst całej specyfikacji" subtitle and any action buttons;
   keep it click-to-open only.
 - Main panel version (`spec-detail.tsx`): keeps full detail + actions, unchanged in that

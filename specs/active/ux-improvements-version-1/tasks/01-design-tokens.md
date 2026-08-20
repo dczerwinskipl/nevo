@@ -7,7 +7,6 @@ context:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/owner-decisions.md
     - specs/active/ux-improvements-version-1/areas/colors.md
-    - .nevo-ai-local/ux-review/report/01-colors.md
     - tools/dashboard/src/index.css
   optional: []
 allowed_paths:
@@ -29,45 +28,67 @@ forbidden_paths:
 
 ## Goal
 
-Add semantic (`--secondary`, `--success`, `--warning`, `--danger`, `--info`, each with a
-`-strong` variant) and categorical (`--cat-1`, `--cat-2`, `--cat-3`) CSS custom properties to
-`tools/dashboard/src/index.css`, following the `color-mix()` derivation pattern already used at
-`status-board.tsx:21`, then migrate every hardcoded usage listed in
-`.nevo-ai-local/ux-review/report/01-colors.md`'s migration table to the matching token.
+`tools/dashboard/src/index.css` currently defines CSS custom properties for neutrals only
+(`--background`, `--surface`, `--surface-raised`, `--surface-hover`, `--border`,
+`--border-strong`, `--foreground`, `--muted`, `--muted-strong`, `--accent`,
+`--accent-strong`). Add **13** new custom properties to `:root` — 5 semantic roles
+(`--secondary`, `--success`, `--warning`, `--danger`, `--info`), each with a base and a
+`-strong` variant (5 × 2 = 10), plus 3 categorical identifiers (`--cat-1`, `--cat-2`,
+`--cat-3`) — then migrate every hardcoded color usage listed below to the matching token.
 
 ## Implementation constraints
 
-- Add tokens exactly as proposed in COLOR-1's "Ready-to-paste block for `index.css`" (hex
-  values formalize colors already in use in the app, not new colors — no separate owner
-  decision needed on the values themselves).
-- Do not modify `--accent`, `--accent-strong`, or any existing neutral token
-  (`--background`, `--surface`, `--surface-raised`, `--surface-hover`, `--border`,
-  `--border-strong`, `--foreground`, `--muted`, `--muted-strong`).
-- Every `-bg`/`-border` variant is derived via `color-mix(in srgb, var(--role) N%, ...)` —
-  do not introduce a second derivation mechanism.
-- Migrate, file:line exact per the report:
-  - `text-rose-*`/`bg-rose-*` (`operation-progress.tsx` 6 spots, `status-card.tsx:90,98,101`) → `--danger`.
+- Add exactly these 13 custom properties to `:root`, no more, no fewer:
+  `--secondary`, `--secondary-strong`, `--success`, `--success-strong`, `--warning`,
+  `--warning-strong`, `--danger`, `--danger-strong`, `--info`, `--info-strong`, `--cat-1`,
+  `--cat-2`, `--cat-3`. These formalize colors already in use in the app (e.g. `--danger`
+  formalizes the already-dominant `red-400`), not new colors — no separate owner decision
+  is needed on the specific hex values; pick values consistent with the colors already in
+  use at each migration site below (e.g. `--danger` ≈ existing `red-400`, `--info` ≈
+  existing `sky-400`/sole "running" color, `--warning` ≈ existing `amber-400`, `--success`
+  ≈ existing `emerald-400`, `--secondary` ≈ the blue already present in the background glow
+  in `index.css`).
+- `-bg`/`-border` variants are **not** separate custom properties and must not be added to
+  `:root`. They are computed inline, at each usage site, via
+  `color-mix(in srgb, var(--role) N%, ...)` — the same pattern `index.css` already uses in
+  one place (`status-board.tsx:21`'s `color-mix(in_srgb,var(--accent)_25%,transparent)`).
+  Do not introduce a global `.tone-*` utility class or any other second derivation
+  mechanism — every `-bg`/`-border` need is a one-off inline `color-mix()` value on the
+  element that needs it, exactly like the existing `--accent` usage.
+- Do not modify `--accent`, `--accent-strong`, or any existing neutral token.
+- Migrate every one of these hardcoded usages to the matching token:
+  - `text-rose-*`/`bg-rose-*` (`operation-progress.tsx`, 6 spots; `status-card.tsx:90,98,101`) → `--danger`.
   - `text-amber-*` on `isRunning` (`ai-tool-view.tsx:40,50`) → `--info`.
   - `text-sky-*` on `running` (`operation-progress.tsx:24,38,52`) → `--info`.
   - `bg-amber-500/10 text-amber-300` Claude badge (`ai-session-list.tsx:54`) → `--cat-1`.
   - `bg-emerald-500/10 text-emerald-300` mock/fallback badge (`ai-session-list.tsx:67`) →
-    `--muted-strong` on `--surface`.
+    `--muted-strong` on `--surface` (an existing neutral pair, not a new token — deliberately
+    muted so the mock provider reads as "not a real option").
   - `stageTone` 5 hues (`status-board.tsx:15-22`): New/Design/Ready → `--muted` (no fill);
     Implementation → `--info`; Review → `--warning`; Done → unchanged `--accent`.
   - Remaining `text-slate-*`/`text-zinc-*` neutral text (`operation-progress.tsx`,
     `changes-panel.tsx:64`, `stage-progress.tsx:10`) → `--muted`/`--muted-strong`.
-- Semantic tokens are never applied to pure decoration/identity uses; categorical tokens never
-  signal status/severity.
+- Semantic tokens (`--success`/`--warning`/`--danger`/`--info`/`--secondary`) are never
+  applied to pure decoration/identity uses; categorical tokens (`--cat-1..3`) never signal
+  status/severity. This produces real collisions today (e.g. `amber` currently means both
+  "warning" and "tool call running" in different files) — the migration above is what
+  removes them, so no two migrated sites may end up sharing a token for two different
+  meanings.
 
 ## Acceptance criteria
 
-1. `index.css` defines all 11 new tokens (5 roles × text/strong, + 3 categorical), each with
-   `-bg`/`-border` derivable via `color-mix()`. `inspection: read index.css, confirm the token block matches COLOR-1's proposed block`
-2. No file:line listed above still contains its pre-migration Tailwind class or raw hex.
+1. `index.css` defines exactly the 13 custom properties listed above at `:root`; no `-bg`/
+   `-border` custom properties or `.tone-*` classes are added.
+   `inspection: read index.css, count and name the new custom properties, confirm exactly 13`
+2. No file:line listed above still contains its pre-migration Tailwind class or raw hex; each
+   now references the corresponding CSS variable (directly or via an inline `color-mix()`).
    `inspection: grep each listed file for the old class name, expect zero matches`
-3. `npm --prefix tools/dashboard run build` passes (catches any broken className/type
+3. No token is used for two different meanings across the migrated files (e.g. no remaining
+   case of the same color meaning both a status and an unrelated identity).
+   `inspection: read every migrated site, confirm each token's usage matches its declared role`
+4. `npm --prefix tools/dashboard run build` passes (catches any broken className/type
    reference). `automated: npm --prefix tools/dashboard run build`
-4. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
+5. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
@@ -82,4 +103,5 @@ node tools/specs.mjs validate
 - The task-board column *structure* (nesting, bulk-approve placement) —
   `flatten-review-card-nesting` (task 14) owns that; this task only changes which color each
   column state uses.
-- NAV-5's lifecycle stepper (deferred) — not built here.
+- Any lifecycle-stepper or other new UI element that would consume these tokens — not built
+  in this specification.

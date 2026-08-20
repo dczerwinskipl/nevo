@@ -2,9 +2,9 @@
 
 ## D1: Scope of "version 1"
 
-- **Question:** Of the 24 findings in `.nevo-ai-local/ux-review/report/` (2 High, 11 Medium,
-  11 Low, plus CHAT-8 which the review's own severity table omits despite stating
-  "Severity: Medium" in its own section), which belong in this spec?
+- **Question:** Of the 24 findings recorded in the local UX review materials used to draft
+  this spec (2 High, 11 Medium, 11 Low, plus CHAT-8 which that review's own severity table
+  omitted despite stating "Severity: Medium" in its own section), which belong in this spec?
 - **Options considered:** (1) the 19 items the review itself frames as defects/consistency
   fixes, deferring the 4 items explicitly framed as "opportunity, not a defect" (CHAT-9,
   NAV-4, NAV-5, NAV-7) | (2) all findings in one spec | (3) a custom subset named by the owner
@@ -21,13 +21,11 @@
     affordance: `AiSession` already carries `taskId`/`taskIds`
     (`tools/dashboard/src/lib/types.ts:407-408`), so surfacing the relationship is a
     frontend-only filter/render over data already fetched — no backend change.
-  - Out of scope, moved verbatim to
-    `.nevo-ai-local/ux-review/report/07-deferred-v2-proposals.md`: CHAT-9, NAV-4, NAV-5,
-    NAV-7 — candidate material for a future `ux-improvements-version-2`.
+  - Out of scope, recorded separately outside this repository: CHAT-9, NAV-4, NAV-5, NAV-7 —
+    candidate material for a future `ux-improvements-version-2`.
   - Already retracted by the review itself, no action here: CHAT-3, TASK-5.
 - **Date:** 2026-08-19
-- **Affected artifacts:** `overview.md` ("Out of scope"), all `areas/*.md` and `tasks/*.md`,
-  `.nevo-ai-local/ux-review/report/07-deferred-v2-proposals.md`.
+- **Affected artifacts:** `overview.md` ("Out of scope"), all `areas/*.md` and `tasks/*.md`.
 
 ## D2: Mock AI provider ordering and default selection (CHAT-6)
 

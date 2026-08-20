@@ -6,7 +6,6 @@ context:
   required:
     - specs/active/ux-improvements-version-1/overview.md
     - specs/active/ux-improvements-version-1/areas/typography-and-consistency.md
-    - .nevo-ai-local/ux-review/report/06-typography-and-consistency.md
     - tools/dashboard/src/components/spec-detail.tsx
     - tools/dashboard/src/components/ai-session-create-modal.tsx
   optional: []
