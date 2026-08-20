@@ -17,6 +17,7 @@ export {
   DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
+  getCommandStoreKey,
   CommandVerificationStore,
   CommandVerificationReader,
   MemoryCommandVerificationStore,

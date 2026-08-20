@@ -393,7 +393,7 @@ export class CommandGate extends GateContract {
         gateType: this.type,
         passed: false,
         status: 'failed',
-        message: `Failed to record authoritative verification state for '${targetCommand}': ${err.message}`,
+        message: `Failed to record authoritative verification state: ${err.message} (command: '${targetCommand}')`,
         details: {
           targetCommand,
           action: config.action || null,

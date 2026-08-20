@@ -229,6 +229,56 @@ describe('CommandGate authoritative verification state recording and composite i
     assert.equal(verifyRes.details.executionPassed, true);
   });
 
+  test('verify fails closed when store recording throws error on a failing command (Finding 2)', async () => {
+    const faultyStore = {
+      getCommandResult: () => null,
+      recordCommandResult: () => {
+        throw new Error('Disk full');
+      },
+    };
+
+    const mockRunner = async () => ({ passed: false, exitCode: 1, stderr: 'boom' });
+    const gate = new CommandGate({ runner: mockRunner, verificationStore: faultyStore });
+
+    const verifyRes = await gate.verify({ action: 'test' }, {});
+    assert.equal(verifyRes.passed, false);
+    assert.equal(verifyRes.status, 'failed');
+    assert.match(verifyRes.message, /Failed to record authoritative verification state: Disk full/);
+    assert.equal(verifyRes.details.reason, 'verification-record-failed');
+    assert.equal(verifyRes.details.executionPassed, false);
+
+    // Subsequent inspect must not resurrect a passed state either, since nothing was persisted
+    const inspectRes = await gate.inspect({ action: 'test' }, {});
+    assert.notEqual(inspectRes.status, 'passed');
+  });
+
+  test('different action pointing to same command does not inherit another action\'s recorded result (Finding 3)', async () => {
+    const store = new MemoryCommandVerificationStore();
+    const catalog = new CommandCatalog({ test: 'npm run check', lint: 'npm run check' });
+    const passingRunner = async () => ({ passed: true, exitCode: 0 });
+
+    const testGate = new CommandGate({
+      commandCatalog: catalog,
+      runner: passingRunner,
+      verificationStore: store,
+    });
+
+    await testGate.verify({ action: 'test' }, {});
+    const testInspect = await testGate.inspect({ action: 'test' }, {});
+    assert.equal(testInspect.status, 'passed');
+
+    const lintGate = new CommandGate({
+      commandCatalog: catalog,
+      verificationStore: store,
+    });
+
+    // 'lint' resolves to the identical concrete command 'npm run check', but must not
+    // inherit 'test' action's recorded result absent an explicit sharing decision
+    const lintInspect = await lintGate.inspect({ action: 'lint' }, {});
+    assert.equal(lintInspect.status, 'pending');
+    assert.equal(lintInspect.stale, true);
+  });
+
   test('binds recorded command verification to exact composite identity (Finding 3)', async () => {
     const store = new MemoryCommandVerificationStore();
     const catalogA = new CommandCatalog({ test: 'npm test' });
