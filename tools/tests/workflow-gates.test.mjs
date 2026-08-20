@@ -17,7 +17,6 @@ import {
   DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
-  getCommandStoreKey,
   CommandVerificationStore,
   CommandVerificationReader,
   MemoryCommandVerificationStore,
@@ -312,6 +311,42 @@ describe('CommandGate authoritative verification state recording and composite i
     await rawGate.verify({ command: 'npm run lint' }, {});
     const rawInspect = await rawGate.inspect({ command: 'npm run lint' }, {});
     assert.equal(rawInspect.status, 'passed');
+  });
+
+  test('adversarial: shifting the action/command delimiter boundary cannot collide into the same stored record (Finding 3)', async () => {
+    const store = new MemoryCommandVerificationStore();
+    const passingRunner = async () => ({ passed: true, exitCode: 0 });
+    const failingRunner = async () => ({ passed: false, exitCode: 1 });
+
+    // Under a naive delimiter-joined key `action:${action}::cmd:${command}`, these two
+    // distinct (action, command) pairs produce the identical concatenated string
+    // "action:a::cmd:b::cmd:c" by shifting where the delimiter boundary falls:
+    //   pair 1: action = "a::cmd:b", command = "c"
+    //   pair 2: action = "a",        command = "b::cmd:c"
+    const catalogOne = new CommandCatalog({ 'a::cmd:b': 'c' });
+    const catalogTwo = new CommandCatalog({ a: 'b::cmd:c' });
+
+    const gateOne = new CommandGate({
+      commandCatalog: catalogOne,
+      runner: passingRunner,
+      verificationStore: store,
+    });
+    const gateTwo = new CommandGate({
+      commandCatalog: catalogTwo,
+      runner: failingRunner,
+      verificationStore: store,
+    });
+
+    await gateOne.verify({ action: 'a::cmd:b' }, {});
+    await gateTwo.verify({ action: 'a' }, {});
+
+    const inspectOne = await gateOne.inspect({ action: 'a::cmd:b' }, {});
+    const inspectTwo = await gateTwo.inspect({ action: 'a' }, {});
+
+    // Each gate must see its own recorded result, not the other's, despite the
+    // delimiter-colliding string shapes of their action/command identities.
+    assert.equal(inspectOne.status, 'passed');
+    assert.equal(inspectTwo.status, 'failed');
   });
 });
 
