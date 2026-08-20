@@ -14,7 +14,9 @@ tasks:
   - id: design-tokens
     order: 1
     file: tasks/01-design-tokens.md
-    status: approved
+    status: in-implementation
+    implementation:
+      baseline_revision: aa17c86bd89326a3475d0d07e42b54df1779ccee
 
   - id: composer-alignment
     order: 2

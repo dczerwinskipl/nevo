@@ -51,20 +51,20 @@ export function ProviderBadge({ provider }: { provider: string }) {
   const norm = provider.toLowerCase();
   if (norm.includes('claude')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-300">
+      <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--cat-1)_10%,transparent)] px-1.5 py-0.5 font-medium text-[var(--cat-1)]">
         <Sparkles className="size-3" /> Claude
       </span>
     );
   }
   if (norm.includes('antigravity')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 px-1.5 py-0.5 font-medium text-purple-300">
+      <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--cat-2)_10%,transparent)] px-1.5 py-0.5 font-medium text-[var(--cat-2)]">
         <Cpu className="size-3" /> Antigravity
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-300">
+    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--surface)] px-1.5 py-0.5 font-medium text-[var(--muted-strong)]">
       <Bot className="size-3" /> {provider}
     </span>
   );

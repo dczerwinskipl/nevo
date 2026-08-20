@@ -37,8 +37,8 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
           <span
             className={cn(
               'rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider',
-              isRunning && 'bg-amber-400/10 text-amber-300',
-              isCompleted && 'bg-emerald-400/10 text-emerald-300',
+              isRunning && 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] text-[var(--info)]',
+              isCompleted && 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success-strong)]',
               isFailed && 'bg-red-400/10 text-red-300'
             )}
           >
@@ -48,7 +48,7 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
 
         <div className="flex items-center gap-2 shrink-0 text-[var(--muted)]">
           {isRunning && <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />}
-          {isCompleted && <CheckCircle2 className="size-3.5 text-emerald-400" />}
+          {isCompleted && <CheckCircle2 className="size-3.5 text-[var(--success)]" />}
           {isFailed && <XCircle className="size-3.5 text-red-400" />}
           {toolCall.durationMs != null && (
             <span className="flex items-center gap-1 text-[10px]">

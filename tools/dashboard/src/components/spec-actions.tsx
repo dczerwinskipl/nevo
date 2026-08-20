@@ -69,11 +69,11 @@ export function RepositoryActionsCard({
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Workflow</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge className={worktree.clean
-              ? 'border-emerald-300/20 bg-emerald-300/8 text-emerald-200'
-              : 'border-amber-300/20 bg-amber-300/8 text-amber-200'}>
+              ? 'border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[color-mix(in_srgb,var(--success)_8%,transparent)] text-[var(--success)]'
+              : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]'}>
               {worktree.clean ? 'Worktree czysty' : `${worktree.total} zmian bez commita`}
             </Badge>
-            <Badge className={synchronized ? 'text-[var(--muted-strong)]' : 'border-amber-300/20 text-amber-200'}>
+            <Badge className={synchronized ? 'text-[var(--muted-strong)]' : 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] text-[var(--warning)]'}>
               {synchronized ? 'Branch zsynchronizowany' : 'Git wymaga uwagi'}
             </Badge>
           </div>
@@ -89,7 +89,7 @@ export function RepositoryActionsCard({
         {worktree.hasUpstream ? (
           <p className="flex items-center gap-2"><GitCommitHorizontal className="size-3.5" />Ahead {worktree.ahead ?? 0} · behind {worktree.behind ?? 0}</p>
         ) : (
-          <p className="text-amber-200/80">Branch nie ma upstreamu.</p>
+          <p className="text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">Branch nie ma upstreamu.</p>
         )}
       </div>
 
@@ -195,7 +195,7 @@ export function FinalizeDialog({
       <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="finalize-dialog-title" className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
           <div>
-            <Badge className="border-amber-300/20 bg-amber-300/8 text-amber-200">Operacja końcowa</Badge>
+            <Badge className="border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] text-[var(--warning)]">Operacja końcowa</Badge>
             <h2 id="finalize-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)]">Finalizować specyfikację?</h2>
           </div>
           <Button variant="ghost" size="icon" disabled={executing} onClick={onClose} aria-label="Zamknij dialog finalizacji"><X className="size-4" /></Button>

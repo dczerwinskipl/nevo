@@ -7,7 +7,7 @@ const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'implementation', label: 'Implementacja', color: 'bg-amber-300/60' },
   { id: 'ready', label: 'Ready', color: 'bg-sky-400/60' },
   { id: 'design', label: 'Projekt', color: 'bg-violet-400/60' },
-  { id: 'new', label: 'Nowe', color: 'bg-slate-400/25' },
+  { id: 'new', label: 'Nowe', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
 ];
 
 export function StageProgress({
