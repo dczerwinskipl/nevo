@@ -14,7 +14,6 @@ allowed_paths:
   - tools/dashboard/src/App.tsx
   - tools/dashboard/src/components/list-overview.tsx
   - tools/dashboard/src/components/app-sidebar.tsx
-  - tools/dashboard/src/lib/spec-search.ts
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
@@ -39,24 +38,25 @@ re-implementations that happen to look similar today and can silently diverge la
 
 ## Implementation constraints
 
-- Required end state: exactly one place computes "mode-selected list, filtered by `search`."
-  Preferred approach: compute it once in `App.tsx` (which already owns both `mode` and
-  `search` state) and pass the resulting filtered list down to both `ListOverview` (replacing
-  today's unfiltered `changes={source}`) and `AppSidebar` (replacing its own independent
-  `source`/`query`/`visible` computation at `app-sidebar.tsx:119-123`, which must be deleted,
-  not left in place alongside the new App.tsx-level filtering — do not end up with App.tsx
-  filtering once and `AppSidebar` filtering the same data again).
+- Required end state, unambiguous: `App.tsx` owns `mode` and `search` state (already does).
+  Exactly one place — in `App.tsx` — computes "mode-selected list, filtered by `search`" (a
+  plain `useMemo`/computed value is sufficient; no new file or abstraction is required for
+  this). The resulting filtered list is passed down to both `ListOverview` (replacing today's
+  unfiltered `changes={source}`) and `AppSidebar`.
+- `AppSidebar`'s own independent `source`/`query`/`visible` computation
+  (`app-sidebar.tsx:119-123`) must be deleted, not left in place alongside the new
+  `App.tsx`-level filtering. `AppSidebar` renders the filtered list it receives — it does not
+  re-run the search/mode filter on data it's given.
 - `AppSidebar` still needs the raw, unfiltered `active` list for its other, unrelated
   computations (`activeSpecIds`, `activeTasks` at `app-sidebar.tsx:124-126`, which are not
   search-related) — keep those working from the raw list; only the *rendered spec list* must
   switch to the shared filtered result.
-- Alternative, also acceptable: extract the query predicate itself into one small shared
-  function (e.g. `tools/dashboard/src/lib/spec-search.ts`, pre-authorized in `allowed_paths`
-  for this reason) imported by both `App.tsx`/`ListOverview` and `AppSidebar`, if reading the
-  current component structure makes that cleaner than lifting full state — but even then,
-  both consumers must apply it to the *same* mode-selected source list and reach the same
-  result; do not keep two hand-written copies of the `.trim().toLocaleLowerCase('pl')` +
-  title/slug match logic.
+- Do not extract a separate helper module (e.g. a `spec-search.ts`-style file) for this — a
+  computed value in `App.tsx` is enough for the amount of logic involved, and a second file
+  whose only job is to be imported by two components is not simpler than passing the already-
+  computed result down as a prop. Do not create an abstraction whose only purpose is to let
+  two components filter independently while nominally sharing a predicate — the requirement is
+  one execution of the filter, not one shared function definition invoked twice.
 - Preserve the exact matching behavior already implemented in `app-sidebar.tsx:120-122`
   (locale `'pl'`, case-insensitive, matches on `change.title` or `change.slug`) — this task
   unifies *where* the query runs, not what it matches.
