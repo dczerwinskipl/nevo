@@ -146,7 +146,7 @@ export function TaskActionFooter({
     <div className="flex flex-col gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
       <div className="min-w-0">
         <p className="text-xs font-semibold text-[var(--foreground)]">Akcja właściciela</p>
-        <p className={cn('mt-1 text-[10px] leading-4', error ? 'text-red-300' : 'text-[var(--muted)]')}>
+        <p className={cn('mt-1 text-[10px] leading-4', error ? 'text-[var(--danger-strong)]' : 'text-[var(--muted)]')}>
           {error || gate.reason || 'Bramka workflow przeszła — akcja jest dostępna.'}
         </p>
       </div>
@@ -209,7 +209,7 @@ export function FinalizeDialog({
             <li>scali pull request,</li>
             <li>uruchomi kontrolę po merge i posprząta branch.</li>
           </ol>
-          {error && <div className="mt-4 flex gap-2 rounded-lg border border-red-300/20 bg-red-300/8 px-3 py-2 text-red-200"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
+          {error && <div className="mt-4 flex gap-2 rounded-lg border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] px-3 py-2 text-[var(--danger-strong)]"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
         </div>
         <div className="flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
           <Button ref={cancelRef} variant="secondary" size="sm" disabled={executing} onClick={onClose}>Anuluj</Button>

@@ -163,7 +163,7 @@ function FileChange({
 
       {open && (
         diffItem.isError ? (
-          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-red-300">
+          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--danger-strong)]">
             {diffItem.error?.message || 'Nie udało się wczytać diffu dla tego pliku.'}
           </div>
         ) : diff === undefined ? (
@@ -439,7 +439,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
               <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie listy plików…
             </div>
           ) : filesQuery.error ? (
-            <div className="rounded-xl border border-red-400/20 px-5 py-10 text-center text-xs text-red-300">
+            <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] px-5 py-10 text-center text-xs text-[var(--danger-strong)]">
               {filesQuery.error}
             </div>
           ) : groups.length ? (
@@ -537,7 +537,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
               </div>
             ) : fullDiffQuery.error ? (
-              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-red-300">{fullDiffQuery.error}</div>
+              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--danger-strong)]">{fullDiffQuery.error}</div>
             ) : fullDiffQuery.data ? (
               <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
                 {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}
