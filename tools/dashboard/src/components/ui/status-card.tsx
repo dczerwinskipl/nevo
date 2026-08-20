@@ -87,19 +87,19 @@ export function StatusCard({
 
   const containerStyles = cn(
     'group relative flex min-w-0 items-center justify-between gap-4 rounded-xl border transition-colors',
-    isError && 'border-rose-500/20 bg-rose-500/5 text-rose-200',
-    isWarning && 'border-amber-500/20 bg-amber-500/5 text-amber-200',
+    isError && 'border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_5%,transparent)] text-[var(--danger)]',
+    isWarning && 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_5%,transparent)] text-[var(--warning)]',
     variant === 'info' && 'border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]',
     size === 'sm' ? 'p-3 text-xs' : 'p-4 sm:p-5 text-sm',
     className,
   );
 
   const Icon = isError ? AlertCircle : isWarning ? AlertTriangle : Info;
-  const iconColor = isError ? 'text-rose-400' : isWarning ? 'text-amber-400' : 'text-[var(--accent)]';
+  const iconColor = isError ? 'text-[var(--danger)]' : isWarning ? 'text-[var(--warning)]' : 'text-[var(--accent)]';
   const iconBadgeStyles = cn(
     'flex size-8 shrink-0 items-center justify-center rounded-lg border',
-    isError && 'border-rose-500/20 bg-rose-500/10',
-    isWarning && 'border-amber-500/20 bg-amber-500/10',
+    isError && 'border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]',
+    isWarning && 'border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]',
     variant === 'info' && 'border-[var(--border)] bg-[var(--surface-raised)]',
   );
 

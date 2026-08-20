@@ -61,7 +61,7 @@ function stateLabel(pullRequest: AvailablePullRequest) {
 }
 
 function stateTone(pullRequest: AvailablePullRequest) {
-  if (pullRequest.draft) return 'border-slate-400/20 bg-slate-400/8 text-slate-300';
+  if (pullRequest.draft) return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
   if (pullRequest.state === 'merged') return 'border-violet-400/25 bg-violet-400/10 text-violet-300';
   if (pullRequest.state === 'closed') return 'border-red-400/20 bg-red-400/8 text-red-300';
   return 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]';
@@ -163,7 +163,7 @@ function FileChange({
 
       {open && (
         diffItem.isError ? (
-          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-red-300">
+          <div className="border-t border-[var(--border)] px-4 py-7 text-center text-xs text-[var(--danger-strong)]">
             {diffItem.error?.message || 'Nie udało się wczytać diffu dla tego pliku.'}
           </div>
         ) : diff === undefined ? (
@@ -226,7 +226,7 @@ function IncompleteDiffIndicator({
   if (!incomplete) return null;
 
   return (
-    <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/6 px-3 py-2.5 text-[10px] leading-5 text-amber-100/80">
+    <div className="mb-4 flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--warning)_15%,transparent)] bg-[color-mix(in_srgb,var(--warning)_6%,transparent)] px-3 py-2.5 text-[10px] leading-5 text-[color-mix(in_srgb,var(--warning)_80%,transparent)]">
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
       Część diffu może być niedostępna lub skrócona przez providera. Lista plików i statystyki pozostają widoczne.
     </div>
@@ -439,7 +439,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
               <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie listy plików…
             </div>
           ) : filesQuery.error ? (
-            <div className="rounded-xl border border-red-400/20 px-5 py-10 text-center text-xs text-red-300">
+            <div className="rounded-xl border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] px-5 py-10 text-center text-xs text-[var(--danger-strong)]">
               {filesQuery.error}
             </div>
           ) : groups.length ? (
@@ -537,7 +537,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" /> Wczytywanie pełnego diffu…
               </div>
             ) : fullDiffQuery.error ? (
-              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-red-300">{fullDiffQuery.error}</div>
+              <div className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--danger-strong)]">{fullDiffQuery.error}</div>
             ) : fullDiffQuery.data ? (
               <pre className="max-h-[70vh] overflow-auto border-t border-[var(--border)] p-4 font-mono text-[11px] leading-5 text-[var(--muted-strong)]">
                 {fullDiffQuery.data.diffAvailable ? fullDiffQuery.data.diff : 'Provider nie zwrócił pełnego diffu.'}
@@ -594,9 +594,9 @@ function PullRequestSummaryCard({
 
 function UnavailableCard({ result }: { result: UnavailablePullRequest }) {
   return (
-    <Card className="border-amber-300/15 p-5 sm:p-6">
+    <Card className="border-[color-mix(in_srgb,var(--warning)_15%,transparent)] p-5 sm:p-6">
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-amber-300/15 bg-amber-300/6 text-amber-200">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[color-mix(in_srgb,var(--warning)_15%,transparent)] bg-[color-mix(in_srgb,var(--warning)_6%,transparent)] text-[var(--warning)]">
           <AlertTriangle className="size-4" />
         </div>
         <div>

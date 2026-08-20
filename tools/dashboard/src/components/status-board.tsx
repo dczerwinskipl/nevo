@@ -13,11 +13,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = {
-  new: { dot: 'bg-slate-400', tint: 'bg-slate-400/7', line: 'border-slate-400/25' },
-  design: { dot: 'bg-violet-400', tint: 'bg-violet-400/7', line: 'border-violet-400/25' },
-  ready: { dot: 'bg-sky-400', tint: 'bg-sky-400/7', line: 'border-sky-400/25' },
-  implementation: { dot: 'bg-amber-300', tint: 'bg-amber-300/7', line: 'border-amber-300/25' },
-  review: { dot: 'bg-fuchsia-400', tint: 'bg-fuchsia-400/7', line: 'border-fuchsia-400/25' },
+  new: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  design: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  ready: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  implementation: { dot: 'bg-[var(--info)]', tint: 'bg-[color-mix(in_srgb,var(--info)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--info)_25%,transparent)]' },
+  review: { dot: 'bg-[var(--warning)]', tint: 'bg-[color-mix(in_srgb,var(--warning)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--warning)_25%,transparent)]' },
   done: { dot: 'bg-[var(--accent)]', tint: 'bg-[color-mix(in_srgb,var(--accent)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)]' },
 };
 
