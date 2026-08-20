@@ -80,12 +80,17 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
      - Unexpected server/IO errors -> HTTP 500 Internal Server Error
 
 4. **Two-phase spec + AI flow:**
-   - Specification creation and AI-session creation are distinct, durable operations.
+   - Specification creation and AI-session creation are distinct, durable operations with clear failure ownership.
    - **Phase 1:** Create specification skeleton via `POST /api/specs`.
-   - **Phase 2 (Optional):** If AI planning is selected, create and initialize the planning agent session via generic `POST /api/agent-sessions` (`{ provider, specId, mode, title: "Planowanie specyfikacji" }`) and kick off the initial turn (`POST /api/agent-sessions/:provider/:providerSessionId/turns`).
+   - **Phase 2 (Optional):** If AI planning is selected, create and bind the planning agent session via generic `POST /api/agent-sessions` (`{ provider, specId, mode, title: "Planowanie specyfikacji" }`).
+   - **Handoff after Phase 2:**
+     - Once Phase 2 succeeds, `SpecCreateModal` hands the created `session` and optional `initialPrompt` to `App` and closes.
+     - `App` opens `AiChatPage`, which submits the initial prompt through the normal chat `sendTurn` path.
+     - The creation wizard is not kept alive merely to orchestrate agent turns; once chat opens, initial-turn and runtime failures are normal chat errors handled by the standard chat error and retry UX.
+     - If the initial prompt is empty, opening the created session in chat without automatically starting a turn is valid.
    - **Failure handling & recovery:**
      - If Phase 1 (spec creation) fails: the wizard halts, does not call AI session endpoints, and displays the error message.
-     - If Phase 1 succeeds but Phase 2 (AI session creation or kickoff) fails:
+     - If Phase 1 succeeds but Phase 2 (AI session creation) fails:
        - The created specification is preserved on disk (never deleted or rolled back).
        - The UI displays a clear notification banner: `"Specyfikacja została utworzona pomyślnie, ale uruchomienie sesji AI nie powiodło się: <error>"`.
        - The user is presented with two explicit options:
@@ -137,8 +142,8 @@ Provide a canonical, atomic, and serialized specification-creation operation sha
 8. **Immediate discoverability:** A created specification is immediately discoverable via `listChanges`, `tools/specs.mjs list`, and dashboard API.
 9. **Thin dashboard endpoint:** `POST /api/specs` validates input, delegates to the canonical helper, and returns 201 Created with `{ ok: true, slug, specId, change }`.
 10. **Wizard without AI:** Creates specification skeleton, does not call AI session APIs, and navigates to the new specification.
-11. **Two-phase wizard with AI:** Creates specification skeleton first, then creates AI session bound to `specId` with chosen mode and sends the initial prompt.
-12. **AI failure resilience:** If AI session creation fails after spec creation, the spec is preserved, UI displays error banner, and user can either view spec or retry AI session without re-calling `POST /api/specs`.
+11. **Two-phase wizard with AI:** Creates specification skeleton (Phase 1), then creates AI session bound to `specId` (Phase 2), closes the wizard and hands off the session + optional initial prompt to the standard chat page.
+12. **AI failure resilience:** If AI session creation fails after spec creation, the spec is preserved, UI displays error banner, and user can either view spec or retry AI session without re-calling `POST /api/specs`. Failure of any subsequent chat turn is handled in chat, not misclassified as wizard creation failure.
 13. **Capability-driven mode selection:** Unavailable providers cannot be chosen, modes are filtered by `supportedModes`, defaults to `'ask'` when supported (or `defaultMode` / `'edit'`), never silently escalates to `'agent'`, mock provider is listed last, and changing provider revalidates mode.
 14. **Offline-only tests:** All tests run offline with zero external network or process dependencies.
 

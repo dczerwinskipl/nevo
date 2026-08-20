@@ -1,0 +1,17 @@
+# Default Small Specification Workflow template for repository initialization.
+id: small-v1
+title: "Small Specification Workflow"
+type: small
+version: 1
+steps:
+  implementation:
+    entryGates: []
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+    finalize:
+      - id: commit-and-push
+    transitions:
+      - to: verified

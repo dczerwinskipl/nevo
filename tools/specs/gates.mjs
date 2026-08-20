@@ -215,6 +215,32 @@ registerValidator('task-in-implemented', {
   },
 });
 
+registerValidator('task-self-check-passed', {
+  cost: 'cheap',
+  validate(context) {
+    const task = context.task;
+    if (!task) return { ok: false, reason: 'Task context is required.' };
+    if (task.status === 'verified') return { ok: true, idempotent: true };
+    if (task.self_check) {
+      if (task.self_check.status !== 'passed') {
+        return {
+          ok: false,
+          reason: `Task '${task.id}' self-check status is '${task.self_check.status}'. Must be 'passed' to verify.`,
+        };
+      }
+      if (task.implementation?.baseline_revision && (task.implementation?.changed_paths || []).length > 0) {
+        if (task.self_check.revision === task.implementation.baseline_revision) {
+          return {
+            ok: false,
+            reason: `Task '${task.id}' self_check.revision ('${task.self_check.revision}') matches baseline_revision and predates task implementation. Re-run self-check against the implementation state.`,
+          };
+        }
+      }
+    }
+    return { ok: true };
+  },
+});
+
 registerValidator('task-approval-valid', {
   cost: 'cheap',
   validate(context) {
@@ -255,6 +281,7 @@ export const gateDefinitions = {
   'task.verify': {
     validators: [
       'task-in-implemented',
+      'task-self-check-passed',
     ],
   },
   'task.approve': {

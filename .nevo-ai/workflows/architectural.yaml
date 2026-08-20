@@ -1,0 +1,19 @@
+id: architectural-v1
+title: "Architectural Specification Workflow"
+type: architectural
+version: 1
+steps:
+  implementation:
+    entryGates: []
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+      - type: human
+        required: true
+    finalize:
+      - id: verify-task-output
+      - id: commit-and-push
+    transitions:
+      - to: verified

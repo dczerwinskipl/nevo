@@ -1,6 +1,316 @@
 {
-  "generated": "2026-08-18T17:33:24.986Z",
+  "generated": "2026-08-20T17:54:08.487Z",
   "changes": [
+    {
+      "id": "deterministic-workflow-foundation",
+      "specId": "11c1c495-7548-44ac-a63a-d868dd1b7507",
+      "title": "Deterministic workflow foundation",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-18",
+      "tasks": [
+        {
+          "id": "workflow-schema-and-compatibility",
+          "order": 1,
+          "file": "tasks/01-workflow-schema-and-compatibility.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "review_revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "changed_paths": [
+              ".nevo-ai/workflows/architectural.yaml",
+              ".nevo-ai/workflows/exploratory.yaml",
+              ".nevo-ai/workflows/small.yaml",
+              ".nevo-ai/workflows/standard.yaml",
+              "specs/active/deterministic-workflow-foundation/change.yaml",
+              "tools/specs/validation.mjs",
+              "tools/specs/workflow/compatibility.mjs",
+              "tools/specs/workflow/definitions/loader.mjs",
+              "tools/specs/workflow/definitions/schema.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/templates/architectural.yaml",
+              "tools/specs/workflow/templates/exploratory.yaml",
+              "tools/specs/workflow/templates/small.yaml",
+              "tools/specs/workflow/templates/standard.yaml",
+              "tools/tests/workflow-compatibility.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "ee0a73c00323212bf4e2fb9602a16b47e4d2986c1977ab717aecf85d2ecf1bbb"
+          },
+          "self_check": {
+            "fingerprint": "5eb862fb7e07a9ed3217b8302b579c7fb6a44ba938d658efa14ad122f79446c1",
+            "revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-compatibility.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "composable-actions-and-contracts",
+          "order": 2,
+          "file": "tasks/02-composable-actions-and-contracts.md",
+          "status": "verified",
+          "depends_on": [
+            "workflow-schema-and-compatibility"
+          ],
+          "implementation": {
+            "baseline_revision": "315a74e8c2bf867f6c6bff659cc272acda267388",
+            "review_revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "changed_paths": [
+              "tools/specs/workflow/contracts.mjs",
+              "tools/specs/workflow/errors.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/input-schema.mjs",
+              "tools/tests/workflow-contracts.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "35ce876a6dd7f76476d333661e754d2c66ff531097313b9d121cf5bc0ba3b1cc"
+          },
+          "self_check": {
+            "fingerprint": "b929581e8de533efc7eaf7236aed2b6f2414927472d2e260d259f16a34323651",
+            "revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-contracts.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "action-registry-and-aggregated-checks",
+          "order": 3,
+          "file": "tasks/03-action-registry-and-aggregated-checks.md",
+          "status": "verified",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ],
+          "implementation": {
+            "baseline_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "review_revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "changed_paths": [
+              "tools/specs/workflow/engine.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/registry.mjs",
+              "tools/tests/workflow-engine.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "35ce876a6dd7f76476d333661e754d2c66ff531097313b9d121cf5bc0ba3b1cc"
+          },
+          "self_check": {
+            "fingerprint": "a63cdb9e095ebb04bc7ad81ad4a19b1658101d68f71ca7d9ca0fad8162796d54",
+            "revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-engine.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "concrete-action-commit-and-push",
+          "order": 4,
+          "file": "tasks/04-concrete-action-commit-and-push.md",
+          "status": "approved",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ]
+        },
+        {
+          "id": "deterministic-gates-and-human-verification",
+          "order": 5,
+          "file": "tasks/05-deterministic-gates-and-human-verification.md",
+          "status": "verified",
+          "depends_on": [
+            "composable-actions-and-contracts"
+          ],
+          "self_check": {
+            "fingerprint": "1240624c8cee41d4bf8f9f6bd8d25408c171fae683a2329b63c7b8ff2549f4f9",
+            "revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "commands": [
+              {
+                "command": "node --test tools/tests/workflow-gates.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          },
+          "implementation": {
+            "baseline_revision": "c9fd7a793144cee27646fe613a300687401fdc8f",
+            "review_revision": "71975454f95bf3bef25102ad655fe31c1048c4c4",
+            "changed_paths": [
+              "tools/specs/workflow/gates/command-gate.mjs",
+              "tools/specs/workflow/gates/contracts.mjs",
+              "tools/specs/workflow/gates/human-gate.mjs",
+              "tools/specs/workflow/gates/index.mjs",
+              "tools/specs/workflow/gates/markdown-gate.mjs",
+              "tools/specs/workflow/index.mjs",
+              "tools/specs/workflow/registry.mjs",
+              "tools/tests/workflow-gates.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "3ca9eb959560be83ea48790f97ac7001e1fa4bdd27019bcda953972f07edc19f"
+          }
+        },
+        {
+          "id": "step-orchestration-and-next-step-service",
+          "order": 6,
+          "file": "tasks/06-step-orchestration-and-next-step-service.md",
+          "status": "approved",
+          "depends_on": [
+            "action-registry-and-aggregated-checks",
+            "deterministic-gates-and-human-verification"
+          ]
+        },
+        {
+          "id": "cli-integration-and-vertical-poc",
+          "order": 7,
+          "file": "tasks/07-cli-integration-and-vertical-poc.md",
+          "status": "approved",
+          "depends_on": [
+            "concrete-action-commit-and-push",
+            "step-orchestration-and-next-step-service"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ux-improvements-version-1",
+      "specId": "e016307e-bf62-4906-80bf-5296de377db6",
+      "title": "UX Improvements version 1",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-19",
+      "tasks": [
+        {
+          "id": "design-tokens",
+          "order": 1,
+          "file": "tasks/01-design-tokens.md",
+          "status": "approved"
+        },
+        {
+          "id": "composer-alignment",
+          "order": 2,
+          "file": "tasks/02-composer-alignment.md",
+          "status": "draft"
+        },
+        {
+          "id": "mode-switcher-touch-target",
+          "order": 3,
+          "file": "tasks/03-mode-switcher-touch-target.md",
+          "status": "draft"
+        },
+        {
+          "id": "mode-description-tooltip",
+          "order": 4,
+          "file": "tasks/04-mode-description-tooltip.md",
+          "status": "draft"
+        },
+        {
+          "id": "mock-provider-config-order",
+          "order": 5,
+          "file": "tasks/05-mock-provider-config-order.md",
+          "status": "draft"
+        },
+        {
+          "id": "task-checklist-visual-hierarchy",
+          "order": 6,
+          "file": "tasks/06-task-checklist-visual-hierarchy.md",
+          "status": "draft"
+        },
+        {
+          "id": "task-session-linking",
+          "order": 7,
+          "file": "tasks/07-task-session-linking.md",
+          "status": "draft"
+        },
+        {
+          "id": "delete-session-touch-target",
+          "order": 8,
+          "file": "tasks/08-delete-session-touch-target.md",
+          "status": "draft"
+        },
+        {
+          "id": "dedupe-recent-sessions",
+          "order": 9,
+          "file": "tasks/09-dedupe-recent-sessions.md",
+          "status": "draft"
+        },
+        {
+          "id": "archive-search-shared-state",
+          "order": 10,
+          "file": "tasks/10-archive-search-shared-state.md",
+          "status": "draft"
+        },
+        {
+          "id": "consolidate-documentation-tabs",
+          "order": 11,
+          "file": "tasks/11-consolidate-documentation-tabs.md",
+          "status": "draft"
+        },
+        {
+          "id": "move-connectivity-indicator",
+          "order": 12,
+          "file": "tasks/12-move-connectivity-indicator.md",
+          "status": "draft"
+        },
+        {
+          "id": "task-modal-clipped-by-sidebar",
+          "order": 13,
+          "file": "tasks/13-task-modal-clipped-by-sidebar.md",
+          "status": "draft"
+        },
+        {
+          "id": "flatten-review-card-nesting",
+          "order": 14,
+          "file": "tasks/14-flatten-review-card-nesting.md",
+          "status": "draft"
+        },
+        {
+          "id": "mobile-collapse-empty-columns",
+          "order": 15,
+          "file": "tasks/15-mobile-collapse-empty-columns.md",
+          "status": "draft"
+        },
+        {
+          "id": "label-commit-hash",
+          "order": 16,
+          "file": "tasks/16-label-commit-hash.md",
+          "status": "draft"
+        },
+        {
+          "id": "mock-provider-accessible-name",
+          "order": 17,
+          "file": "tasks/17-mock-provider-accessible-name.md",
+          "status": "draft"
+        },
+        {
+          "id": "shared-status-label-component",
+          "order": 18,
+          "file": "tasks/18-shared-status-label-component.md",
+          "status": "draft"
+        },
+        {
+          "id": "standardize-h2-scale",
+          "order": 19,
+          "file": "tasks/19-standardize-h2-scale.md",
+          "status": "draft"
+        },
+        {
+          "id": "escape-key-closes-all-modals",
+          "order": 20,
+          "file": "tasks/20-escape-key-closes-all-modals.md",
+          "status": "draft"
+        }
+      ]
+    },
     {
       "id": "ai-sessions-live-chat-integration",
       "specId": "70609aaf-bb62-40bf-a25e-bec65c583495",

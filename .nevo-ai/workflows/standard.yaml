@@ -1,0 +1,19 @@
+id: standard-v1
+title: "Standard Specification Workflow"
+type: standard
+version: 1
+steps:
+  implementation:
+    entryGates: []
+    actions:
+      - id: implement-task
+    exitGates:
+      - type: command
+        action: test
+      - type: human
+        required: true
+    finalize:
+      - id: verify-task-output
+      - id: commit-and-push
+    transitions:
+      - to: verified
