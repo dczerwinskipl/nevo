@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-20T08:28:00.841Z",
+  "generated": "2026-08-20T17:54:08.487Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -88,7 +88,7 @@
           "id": "action-registry-and-aggregated-checks",
           "order": 3,
           "file": "tasks/03-action-registry-and-aggregated-checks.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "composable-actions-and-contracts"
           ],
@@ -128,7 +128,7 @@
           "id": "deterministic-gates-and-human-verification",
           "order": 5,
           "file": "tasks/05-deterministic-gates-and-human-verification.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "composable-actions-and-contracts"
           ],

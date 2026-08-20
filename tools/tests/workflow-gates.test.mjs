@@ -17,7 +17,6 @@ import {
   DEFAULT_COMMAND_ACTIONS,
   KNOWN_COMMAND_ACTIONS,
   resolveCommandTarget,
-  getCommandStoreKey,
   CommandVerificationStore,
   CommandVerificationReader,
   MemoryCommandVerificationStore,
@@ -229,6 +228,56 @@ describe('CommandGate authoritative verification state recording and composite i
     assert.equal(verifyRes.details.executionPassed, true);
   });
 
+  test('verify fails closed when store recording throws error on a failing command (Finding 2)', async () => {
+    const faultyStore = {
+      getCommandResult: () => null,
+      recordCommandResult: () => {
+        throw new Error('Disk full');
+      },
+    };
+
+    const mockRunner = async () => ({ passed: false, exitCode: 1, stderr: 'boom' });
+    const gate = new CommandGate({ runner: mockRunner, verificationStore: faultyStore });
+
+    const verifyRes = await gate.verify({ action: 'test' }, {});
+    assert.equal(verifyRes.passed, false);
+    assert.equal(verifyRes.status, 'failed');
+    assert.match(verifyRes.message, /Failed to record authoritative verification state: Disk full/);
+    assert.equal(verifyRes.details.reason, 'verification-record-failed');
+    assert.equal(verifyRes.details.executionPassed, false);
+
+    // Subsequent inspect must not resurrect a passed state either, since nothing was persisted
+    const inspectRes = await gate.inspect({ action: 'test' }, {});
+    assert.notEqual(inspectRes.status, 'passed');
+  });
+
+  test('different action pointing to same command does not inherit another action\'s recorded result (Finding 3)', async () => {
+    const store = new MemoryCommandVerificationStore();
+    const catalog = new CommandCatalog({ test: 'npm run check', lint: 'npm run check' });
+    const passingRunner = async () => ({ passed: true, exitCode: 0 });
+
+    const testGate = new CommandGate({
+      commandCatalog: catalog,
+      runner: passingRunner,
+      verificationStore: store,
+    });
+
+    await testGate.verify({ action: 'test' }, {});
+    const testInspect = await testGate.inspect({ action: 'test' }, {});
+    assert.equal(testInspect.status, 'passed');
+
+    const lintGate = new CommandGate({
+      commandCatalog: catalog,
+      verificationStore: store,
+    });
+
+    // 'lint' resolves to the identical concrete command 'npm run check', but must not
+    // inherit 'test' action's recorded result absent an explicit sharing decision
+    const lintInspect = await lintGate.inspect({ action: 'lint' }, {});
+    assert.equal(lintInspect.status, 'pending');
+    assert.equal(lintInspect.stale, true);
+  });
+
   test('binds recorded command verification to exact composite identity (Finding 3)', async () => {
     const store = new MemoryCommandVerificationStore();
     const catalogA = new CommandCatalog({ test: 'npm test' });
@@ -262,6 +311,42 @@ describe('CommandGate authoritative verification state recording and composite i
     await rawGate.verify({ command: 'npm run lint' }, {});
     const rawInspect = await rawGate.inspect({ command: 'npm run lint' }, {});
     assert.equal(rawInspect.status, 'passed');
+  });
+
+  test('adversarial: shifting the action/command delimiter boundary cannot collide into the same stored record (Finding 3)', async () => {
+    const store = new MemoryCommandVerificationStore();
+    const passingRunner = async () => ({ passed: true, exitCode: 0 });
+    const failingRunner = async () => ({ passed: false, exitCode: 1 });
+
+    // Under a naive delimiter-joined key `action:${action}::cmd:${command}`, these two
+    // distinct (action, command) pairs produce the identical concatenated string
+    // "action:a::cmd:b::cmd:c" by shifting where the delimiter boundary falls:
+    //   pair 1: action = "a::cmd:b", command = "c"
+    //   pair 2: action = "a",        command = "b::cmd:c"
+    const catalogOne = new CommandCatalog({ 'a::cmd:b': 'c' });
+    const catalogTwo = new CommandCatalog({ a: 'b::cmd:c' });
+
+    const gateOne = new CommandGate({
+      commandCatalog: catalogOne,
+      runner: passingRunner,
+      verificationStore: store,
+    });
+    const gateTwo = new CommandGate({
+      commandCatalog: catalogTwo,
+      runner: failingRunner,
+      verificationStore: store,
+    });
+
+    await gateOne.verify({ action: 'a::cmd:b' }, {});
+    await gateTwo.verify({ action: 'a' }, {});
+
+    const inspectOne = await gateOne.inspect({ action: 'a::cmd:b' }, {});
+    const inspectTwo = await gateTwo.inspect({ action: 'a' }, {});
+
+    // Each gate must see its own recorded result, not the other's, despite the
+    // delimiter-colliding string shapes of their action/command identities.
+    assert.equal(inspectOne.status, 'passed');
+    assert.equal(inspectTwo.status, 'failed');
   });
 });
 

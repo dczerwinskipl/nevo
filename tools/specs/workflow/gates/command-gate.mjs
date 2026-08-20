@@ -10,19 +10,23 @@ export const DEFAULT_COMMAND_ACTIONS = defaultCommandCatalog.asSet();
 export const KNOWN_COMMAND_ACTIONS = DEFAULT_COMMAND_ACTIONS;
 
 /**
- * Builds canonical composite storage key for command verification state.
+ * Builds a deterministic, collision-free composite storage key for command verification state.
+ * Uses a JSON-encoded tuple rather than delimiter-joined strings so that action aliases or
+ * commands containing delimiter-like substrings cannot be crafted to collide with another
+ * distinct (action, command) or raw-command identity. Internal implementation detail — not
+ * part of the public workflow API.
  *
  * @param {string} command
  * @param {string} [action]
  * @returns {string}
  */
-export function getCommandStoreKey(command, action) {
+function buildCommandStoreKey(command, action) {
   const normCmd = typeof command === 'string' ? command.trim() : '';
   const normAct = typeof action === 'string' ? action.trim() : '';
   if (normAct) {
-    return `action:${normAct}::cmd:${normCmd}`;
+    return JSON.stringify(['action', normAct, normCmd]);
   }
-  return `raw::cmd:${normCmd}`;
+  return JSON.stringify(['raw', normCmd]);
 }
 
 /**
@@ -99,7 +103,7 @@ export class MemoryCommandVerificationStore extends CommandVerificationStore {
       details: record.details || {},
     };
 
-    const key = getCommandStoreKey(command, action);
+    const key = buildCommandStoreKey(command, action);
     this._results.set(key, entry);
   }
 
@@ -109,7 +113,7 @@ export class MemoryCommandVerificationStore extends CommandVerificationStore {
   }
 
   getCommandResult({ command, action }) {
-    const key = getCommandStoreKey(command, action);
+    const key = buildCommandStoreKey(command, action);
     return this._results.get(key) || null;
   }
 }
@@ -393,7 +397,7 @@ export class CommandGate extends GateContract {
         gateType: this.type,
         passed: false,
         status: 'failed',
-        message: `Failed to record authoritative verification state for '${targetCommand}': ${err.message}`,
+        message: `Failed to record authoritative verification state: ${err.message} (command: '${targetCommand}')`,
         details: {
           targetCommand,
           action: config.action || null,
