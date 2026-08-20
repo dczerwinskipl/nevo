@@ -80,9 +80,9 @@ Seven tasks: `composer-alignment`, `mode-switcher-touch-target`, `mode-descripti
 5. The task-context checklist renders task title as the primary (bold/larger) text and the
    slug as a small secondary caption, matching the pattern on the main task cards.
 6. A task's detail continues to link to its related session(s) (already working); any session
-   whose `taskId`/`taskIds` names a real task exposes a link back to that task regardless of
-   how the session was opened, derived from that data — not from navigation-history state
-   alone.
+   whose `taskIds`/`taskId` names one or more real tasks exposes a link back to **each** of
+   them, regardless of how the session was opened, derived from that data — not from
+   navigation-history state alone.
 7. The delete-session trash icon's effective hit area is ≥44px (padding, not visual size
    change) on both mobile and desktop.
 

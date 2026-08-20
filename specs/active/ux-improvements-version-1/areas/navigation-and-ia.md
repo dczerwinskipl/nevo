@@ -9,9 +9,13 @@ deferred (opportunities, not defects).
 
 ## Current state
 
-- **Duplicate list (NAV-1):** the same 4 session cards render independently in the right
-  sidebar and in the main "Przegląd" panel's "Sesje AI → Ostatnie rozmowy" section — zero
-  content difference between the two renders.
+- **Duplicate list (NAV-1):** the same 4 session cards render in both the right sidebar
+  (`app-sidebar.tsx`, via `AiSessionRow` directly, `compact` prop set) and the main "Przegląd"
+  panel's "Sesje AI → Ostatnie rozmowy" section (`spec-detail.tsx`, via `AiSessionList`, which
+  also renders `AiSessionRow`) — both already share the same row component, so the duplication
+  is in information density, not markup: `compact` today only reduces padding, it doesn't
+  suppress the delete action or the linked-task subtitle, so the two renders show identical
+  content.
 - **Archive search desync (NAV-2, High):** typing a no-match query into "Szukaj w archiwum..."
   correctly empties the sidebar list ("Brak wyników") but the main content panel keeps showing
   the full, unfiltered 12-item list — two panels contradicting each other after the same user
@@ -44,12 +48,13 @@ evidence). Do not gate one on the other.
 
 ## Area-specific acceptance criteria
 
-1. The session list renders from one shared data/component; the sidebar shows a short
-   navigational summary (no "Kontekst całej specyfikacji" subtitle), the main panel shows the
-   full list with actions (delete, open).
-2. Typing a no-match archive search query produces the same (empty) result in both the
-   sidebar and the main content panel — verified with the same `zzzzzznoresults` query the
-   review used.
+1. Both locations keep rendering through the same shared `AiSessionRow` component (no second,
+   independent row renderer is added); the sidebar shows a short navigational summary (no
+   delete action, no "Kontekst całej specyfikacji"/linked-task subtitle), the main panel keeps
+   the full row (delete action, subtitle).
+2. Typing a no-match archive search query (e.g. `zzzzzznoresults`) produces the same (empty)
+   result in both the sidebar and the main content panel, because both are driven by exactly
+   one implementation of the mode-selection + text-match query — not two independent copies.
 3. The four document tabs (Specyfikacja / Obszary / Opcje rozwiązań / Decyzje) become one
    "Documentation" view with a tree on the left.
 4. The connectivity indicator is no longer in primary header chrome (moved to a footer/status

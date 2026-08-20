@@ -24,59 +24,85 @@ forbidden_paths:
   - tools/dashboard/server/**
 ---
 
-# Task: Make the task↔session link data-driven in both directions (CHAT-8)
+# Task: Make the task↔session link data-driven and many-to-many in both directions (CHAT-8)
 
 ## Goal
 
-`AiSession` already carries `taskId`/`taskIds` (`tools/dashboard/src/lib/types.ts:407-408`).
+`AiSession` carries both `taskIds: string[]` (the canonical collection — zero, one, or many
+task IDs) and a legacy optional `taskId?: string` (`tools/dashboard/src/lib/types.ts:407-408`).
+The "New session" creation flow already reflects this: its task checklist lets the user pick
+"zero lub wiele" tasks and submits `taskIds: string[]` (`ai-session-create-modal.tsx`). A task,
+symmetrically, can have any number of sessions bound to it.
+
 The task → session direction already works: `TaskDialog` (`spec-detail.tsx:144-257`) renders a
 "Powiązane sesje" section listing every session bound to the open task, each clickable via
-`onOpenSession`. The session → task direction does not reliably work: it is driven entirely by
-ephemeral navigation-history state (`chatOriginTaskId` in `App.tsx:54`, set inside
-`openSession()` at `App.tsx:108-125`, surfaced as the "Wróć do taska" back-button label at
-`App.tsx:160` / rendered in `ai-chat.tsx:244,264`), not by the session's own `taskId` data. A
-session opened via any path other than clicking it from its task's "Powiązane sesje" list —
-e.g. from the "Ostatnie rozmowy" list in `spec-detail.tsx:290-314` or the sidebar — always
-resolves `originTaskId` to `null` (`App.tsx:117`, the `sessionRoute` guard is false on a fresh
-open), even when that session's own `taskId` is set. Separately, `ai-session-list.tsx:91-96`
-already resolves each session's linked task title as **text** (`Zadanie: <title>`) but does not
-render it as a navigable link. Fix both: make the session → task link derive from
-`session.taskId`/`taskIds` at every entry point, and make the existing text-only task
-reference in `ai-session-list.tsx` clickable.
+`onOpenSession`. The session → task direction does not reliably work, for two separate reasons:
+
+1. It is driven by ephemeral navigation-history state (`chatOriginTaskId` in `App.tsx:54`, set
+   inside `openSession()` at `App.tsx:108-125`, surfaced as the single "Wróć do taska"
+   back-button label at `App.tsx:160` / rendered in `ai-chat.tsx:244,264`) — a single value,
+   not `session.taskId`/`taskIds` data. A session opened via any path other than clicking it
+   from one specific task's "Powiązane sesje" list — e.g. from the "Ostatnie rozmowy" list in
+   `spec-detail.tsx:290-314` or the sidebar — always resolves `originTaskId` to `null`
+   (`App.tsx:117`), even when the session's own `taskIds` names one or more real tasks.
+2. Even where the data *is* already read, it's collapsed to a single value: `ai-session-list.tsx:91-96`
+   already computes `taskList` (the full array — `session.taskIds` if present, else
+   `[session.taskId]`, else `[]`) and resolves each entry's title, but renders the result as
+   **joined display text** (`linked.join(' · ')`, line 151) — not as individually clickable
+   links. Both a single `chatOriginTaskId`-based back-button and a joined text string are
+   incompatible with a session that names more than one task.
+
+Fix both: derive the session → task relationship from `session.taskId`/`taskIds` at every
+entry point (not from navigation history), and make each task in that collection its own
+clickable link — not one link, not joined text.
 
 ## Implementation constraints
 
 - No new backend endpoint or data field — the relationship is already fully present in
   already-fetched data (`session.taskId`/`taskIds`, `change.tasks`).
+- Treat `taskIds` as the canonical collection (already used this way in
+  `ai-session-list.tsx:91-95`'s `taskList` computation); do not reduce it to "the first task"
+  or otherwise pick one arbitrarily. If a session names multiple tasks, all of them must be
+  individually reachable from the UI (e.g. one link per task, not a single link to an
+  arbitrary member of the set).
 - Do not remove or weaken the existing `chatOriginTaskId` "Wróć do taska"/"Wróć do
-  specyfikacji" back-navigation behavior — it may continue to exist, but it must stop being
-  the *only* signal that a related task exists. If a session's own `taskId`/`taskIds` names a
-  real task, the "related task" link must be available regardless of `chatOriginTaskId`'s
-  value.
-- A task may have zero, one, or multiple related sessions; a session may have zero or one
-  related task — every new UI element added here must handle the zero case (render nothing)
-  without error.
-- Do not change the "Kontekst całej specyfikacji" wording used for sessions that genuinely
-  aren't bound to a specific task.
+  specyfikacji" back-navigation behavior — it may continue to exist for history/back
+  navigation, but it is not, and must not become, the source of truth for the session↔task
+  *relationship*. That relationship is `session.taskId`/`taskIds` only.
+- A `taskId`/entry in `taskIds` that no longer matches any task in `change.tasks` (stale/
+  deleted task) must not produce a broken link or a thrown error — `ai-session-list.tsx:96`
+  already falls back to displaying the raw ID string when no matching task title is found;
+  preserve at least that safety (render the stale reference as inert text, or omit it, but
+  never navigate to a nonexistent task or crash).
+- Do not change the "Kontekst całej specyfikacji" wording used for sessions with an empty
+  `taskIds`/no `taskId`.
 
 ## Acceptance criteria
 
 1. Opening a task's detail continues to show every session bound to it (via `taskId`/
    `taskIds`), each navigable to that session — regression check on the already-working
    direction. `inspection: open a task with at least one bound session, confirm the "Powiązane sesje" list and that clicking a session opens it`
-2. Opening a session whose `taskId`/`taskIds` names a real task exposes a clickable link to
-   that task, **regardless of how the session was opened** — verified specifically by opening
-   a task-bound session from a task-agnostic entry point (e.g. the "Ostatnie rozmowy" list),
-   not only via that task's own "Powiązane sesje" list. `inspection: open a task-bound session from the Ostatnie rozmowy list (not from its task), confirm the related-task link is present and correct`
-3. In any session list that already renders a session's linked-task title as text
-   (`ai-session-list.tsx:91-96`), that text becomes a clickable navigation to the task.
-   `inspection: read the rendered session card, confirm the task reference is a link, click it`
-4. A session with no bound task, or a task with no bound sessions, renders no related-item
-   link (no broken/empty link). `inspection: verify the zero case in both directions`
-5. After navigating from a session to its related task, that task is the one shown as
-   selected/open — not whatever task `chatOriginTaskId` happened to hold from an unrelated
-   prior navigation. `inspection: open task A, open a session bound to task B via a task-agnostic path, click that session's related-task link, confirm task B (not A) opens`
-6. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
+2. Opening a session whose `taskId`/`taskIds` names one or more real tasks exposes a clickable
+   link for **each** named task, **regardless of how the session was opened** — verified
+   specifically by opening a task-bound session from a task-agnostic entry point (e.g. the
+   "Ostatnie rozmowy" list), not only via one of its tasks' "Powiązane sesje" list.
+   `inspection: open a task-bound session from the Ostatnie rozmowy list (not from one of its tasks), confirm every related-task link is present and correct`
+3. A session bound to **multiple** tasks (`taskIds.length > 1`) exposes a working link to each
+   one — not just the first, not a single ambiguous link.
+   `inspection: create or find a session with 2+ taskIds, confirm each resolves to its own working link`
+4. Wherever `ai-session-list.tsx` already resolves linked-task titles (`taskList`/`linked` at
+   lines 91-96), each resolved task becomes its own clickable navigation target instead of
+   plain joined text.
+   `inspection: read the rendered session row, confirm each task reference is individually clickable, click each`
+5. A session with an empty `taskIds` and no `taskId` renders no related-task link; a task with
+   no bound sessions renders no related-session link (no broken/empty link either direction).
+   `inspection: verify the zero case in both directions`
+6. A stale/nonexistent task ID in a session's `taskIds` does not crash the UI or navigate to a
+   broken destination. `inspection: construct a session referencing a taskId absent from change.tasks, confirm no crash and no dead link`
+7. After navigating from a session to one of its related tasks, that specific task is the one
+   shown as selected/open — not whatever task `chatOriginTaskId` happened to hold from an
+   unrelated prior navigation. `inspection: open task A, open a (task-agnostic) session bound to task B, click the link to task B, confirm task B (not A) opens`
+8. `npm --prefix tools/dashboard test` passes. `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
@@ -88,5 +114,6 @@ npm --prefix tools/dashboard run build
 ## Out of scope
 
 CHAT-9's two-pane desktop side-panel redesign — deferred; this task only makes the existing
-full-page-takeover navigation model's task↔session relationship data-driven and consistently
-navigable, it does not change the navigation model itself.
+full-page-takeover navigation model's task↔session relationship data-driven, many-to-many
+where the data is, and consistently navigable — it does not change the navigation model
+itself.

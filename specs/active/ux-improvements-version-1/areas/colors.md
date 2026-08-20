@@ -20,24 +20,35 @@ files; `emerald` means both "success" and the mock-provider badge color
 
 ## Requirements
 
-- Add exactly 13 new custom properties to `index.css`'s `:root`: 5 semantic roles
-  (`--secondary`, `--success`, `--warning`, `--danger`, `--info`), each with a base and a
-  `-strong` variant (10 properties), plus 3 categorical identifiers (`--cat-1`, `--cat-2`,
-  `--cat-3`). Semantic roles are for status/severity only, never decoration; categorical
-  identifiers are identity-only (e.g. AI provider badges), never status/severity. Pick hex
-  values consistent with the colors already in use at each migration site below (this
-  formalizes colors already in use in the app — e.g. `--danger` ≈ the already-dominant
-  `red-400` — not new colors, so no separate owner sign-off is needed on the specific values).
+- Add exactly 10 new custom properties to `index.css`'s `:root`: 4 semantic roles
+  (`--success`, `--warning`, `--danger`, `--info`), each with a base and a `-strong` variant
+  (8 properties), plus 2 categorical identifiers (`--cat-1` for Claude, `--cat-2` for
+  Antigravity). Semantic roles are for status/severity only, never decoration; categorical
+  identifiers are identity-only (e.g. AI provider badges), never status/severity. Every token
+  has a concrete current migration site (see `tasks/01-design-tokens.md`'s "Token-by-token
+  source and migration sites") — no token is added speculatively. `--secondary` and a third
+  categorical `--cat-3` were considered and dropped: neither has a current component-level
+  consumer (`--secondary`'s only basis was a decorative background gradient, not a hardcoded
+  value scattered across components like the others here; `--cat-3` was proposed only for "a
+  future third provider"). Pick hex values consistent with the colors already in use at each
+  migration site (this formalizes colors already in use in the app, not new colors, so no
+  separate owner sign-off is needed on the specific values).
   `owner-decision: none required — formalizes existing in-use colors, not new ones`
 - `-bg`/`-border` variants are **not** separate custom properties. They are computed inline,
   per usage site, via `color-mix(in srgb, var(--role) N%, ...)` — the same pattern already at
   `status-board.tsx:21`. No global `.tone-*` utility class or other second derivation
   mechanism.
-- Migrate every hardcoded usage below to the matching token:
-  `rose-*` → `--danger`; `amber-*` on `isRunning` (`ai-tool-view.tsx:40,50`) → `--info`;
-  `sky-*` on `running` (`operation-progress.tsx:24,38,52`) → `--info`; Claude badge
-  (`ai-session-list.tsx:54`) → `--cat-1`; mock/fallback badge (`ai-session-list.tsx:67`) →
-  `--muted-strong` on `--surface`; `stageTone` 5 hues (`status-board.tsx:15-22`) → `--muted`
+- Migrate every hardcoded usage below to the matching token (exact sites in
+  `tasks/01-design-tokens.md`): `rose-*` (errors) → `--danger`, its lighter emphasis shade →
+  `--danger-strong`; `amber-*` on `isRunning` (`ai-tool-view.tsx:40,50`) and `sky-*` on
+  `running` (`operation-progress.tsx:24,38,52`) → `--info`, its lighter emphasis shade →
+  `--info-strong`; `amber-*` warning badges (`spec-actions.tsx`, `changes-panel.tsx`) →
+  `--warning`, its lighter emphasis shade → `--warning-strong`; `emerald-*` success states
+  (`spec-actions.tsx`, `ai-tool-view.tsx`) → `--success`, its lighter emphasis shade →
+  `--success-strong`; Claude badge (`ai-session-list.tsx:52-57`) → `--cat-1`; Antigravity
+  badge (`ai-session-list.tsx:59-64`, currently hardcoded purple with no token) → `--cat-2`;
+  mock/fallback badge (`ai-session-list.tsx:67`) → `--muted-strong` on `--surface` (existing
+  neutral, not a new token); `stageTone` 5 hues (`status-board.tsx:15-22`) → `--muted`
   (New/Design/Ready), `--info` (Implementation), `--warning` (Review), unchanged `--accent`
   (Done); remaining `slate-*`/`zinc-*` neutral text → `--muted`/`--muted-strong`.
 
@@ -59,9 +70,9 @@ task is layout/nesting only, not color).
 
 ## Area-specific acceptance criteria
 
-1. `index.css` gains exactly the 13 custom properties described above; no existing neutral or
-   `--accent` value changes; no `-bg`/`-border` custom properties or `.tone-*` classes are
-   added.
+1. `index.css` gains exactly the 10 custom properties described above; no existing neutral or
+   `--accent` value changes; no `-bg`/`-border` custom properties, `.tone-*` classes,
+   `--secondary`, or `--cat-3` are added.
 2. Every file:line listed in "Requirements" above no longer contains the pre-migration
    hardcoded class/hex; it references the corresponding CSS variable instead.
 3. No new semantic collision is introduced (e.g. no token is reused for two unrelated

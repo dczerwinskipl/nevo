@@ -10,9 +10,9 @@ change: ux-improvements-version-1
 
 ## Context
 
-This specification was derived from a manual UX/UI review of the local dashboard
-(`http://100.117.54.81:4317/`, desktop 1440×900 and mobile 375×812, 2026-08-18/19), which
-recorded 24 findings across colors, chat/AI sessions, navigation & information architecture,
+This specification was derived from a manual UX/UI review of the local dashboard (desktop
+1440×900 and mobile 375×812, 2026-08-18/19), which recorded 24 findings across colors,
+chat/AI sessions, navigation & information architecture,
 the task board & PR reviews, accessibility/touch targets, and typography/interaction
 consistency. The review was scoped to UX/UI/IA/interaction only — spec *content* quality and
 area/path-to-area configuration authoring were explicitly out of scope of that review. The
@@ -93,7 +93,8 @@ package outside `tools/dashboard` consumes it.
 
 `tools/dashboard/src/index.css`; `tools/dashboard/src/components/ai-chat.tsx`,
 `ai-session-list.tsx`, `ai-session-create-modal.tsx`, `ai-tool-view.tsx`,
-`operation-progress.tsx`, `status-card.tsx`, `status-board.tsx`, `changes-panel.tsx`,
+`operation-progress.tsx`, `ui/status-card.tsx`, `status-board.tsx`, `changes-panel.tsx`,
+`spec-actions.tsx`,
 `stage-progress.tsx`, `spec-detail.tsx`, and the task-board/kanban, PR-review, and
 modal/dialog components under `tools/dashboard/src/components/`. No `src/**` (core NEvo
 library) or `tools/dashboard/server/**` files are in scope.
