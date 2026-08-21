@@ -11,13 +11,15 @@ unresolved_needs_clarification: 0
 
 # Review: ux-improvements-version-1/design-tokens
 
-No reliable previous-file baseline is available. Performing a fresh review of the
-current task implementation.
+Baseline: this file's own previous content (2026-08-21, revision `7c67539`), re-read
+before being overwritten, per `references/review-policy.md` § "Re-review: current file
+contents are the source of truth."
 
 ## Verdict
 
 `pass` — all 5 acceptance criteria met, scope compliant, no forbidden-path violations,
-required verification passed, no unresolved blocking finding or owner decision.
+required verification passed, no unresolved blocking finding or owner decision, and
+both previously-recorded non-blocking findings are now resolved.
 
 ## Checklist
 
@@ -29,19 +31,16 @@ required verification passed, no unresolved blocking finding or owner decision.
 
 | ID | Category | Lifecycle | Predicate | Finding | Evidence | Location |
 |---|---|---|---|---|---|---|
-| F1 | NON_BLOCKING | first-review | A residual `amber-*` usage in an allowed-path file signals a status/warning-adjacent state ("CLI unavailable") outside the task's declared migration sites | Migrate to `--warning` for consistency, or explicitly accept as an unenumerated exception | `ai-session-list.tsx:139` — `bg-amber-500/10 ... text-amber-400` on the "CLI niedostępne" badge; not among the task's named `--cat-1`/`--warning` sites (only lines 52-57, 59-64, 67 were enumerated for this file) | `tools/dashboard/src/components/ai-session-list.tsx:139` |
-| F2 | NON_BLOCKING | first-review | `stage-progress.tsx` renders the same 5 workflow stages `status-board.tsx` renders, but with a separate, unmigrated color set | The two components now visually disagree on stage colors (e.g. status-board's Review = `--warning`, stage-progress's Review = raw `fuchsia-400`) | Task only named `stage-progress.tsx:10` (the `new` stage, migrated to `--muted`); lines 6-9 (`review`/`implementation`/`ready`/`design`) were never enumerated and remain `fuchsia-400`/`amber-300`/`sky-400`/`violet-400` | `tools/dashboard/src/components/stage-progress.tsx:6-9` |
+| F1 | NON_BLOCKING | resolved | A residual `amber-*` usage in an allowed-path file signals a status/warning-adjacent state ("CLI unavailable") outside the task's declared migration sites | *(resolved — not an active finding)* | Re-read `ai-session-list.tsx:139` just now: badge is `bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] ... text-[var(--warning)]` — no `amber-*` remains | `tools/dashboard/src/components/ai-session-list.tsx:139` |
+| F2 | NON_BLOCKING | resolved | `stage-progress.tsx` renders the same 5 workflow stages `status-board.tsx` renders, but with a separate, unmigrated color set | *(resolved — not an active finding)* | Re-read `stage-progress.tsx:5-10` just now: `review`/`implementation`/`ready`/`design`/`new` now use `--warning`/`--info`/`--muted`/`--muted`/`--muted` respectively — same mapping `status-board.tsx`'s `stageTone` already uses; no raw `fuchsia`/`amber`/`sky`/`violet` remains | `tools/dashboard/src/components/stage-progress.tsx:5-10` |
 
-Both findings are real and both files are within this task's `allowed_paths` — but
-neither site was named in the task's own "Token-by-token source and migration sites"
-list, so AC2 (whose inspection is scoped to "every site listed above") is satisfied as
-written. Recorded as non-blocking because fixing them would mean this review silently
-expanding the task's declared scope rather than gating against it.
+Both findings verified resolved by direct re-read of current file content, not inferred
+from git status or memory of the fix commit.
 
 ## Scope compliance
 
-Diff since `baseline_revision` (`aa17c86b`) touches exactly 9 files, all within
-`allowed_paths`:
+Diff since `baseline_revision` (`aa17c86b`) touches exactly the same 9 files as the
+first review pass, all within `allowed_paths` — no new files entered scope:
 
 - `tools/dashboard/src/index.css`
 - `tools/dashboard/src/components/ai-tool-view.tsx`
@@ -53,8 +52,13 @@ Diff since `baseline_revision` (`aa17c86b`) touches exactly 9 files, all within
 - `tools/dashboard/src/components/stage-progress.tsx`
 - `tools/dashboard/src/components/spec-actions.tsx`
 
-No `forbidden_paths` (`src/**`, `tests/NEvo.*/**`, `tools/dashboard/server/**`) touched.
-No scope exceptions needed.
+No `forbidden_paths` touched. No scope exceptions.
+
+A residual `bg-zinc-900/40`/`border-zinc-800/*` pair remains in
+`operation-progress.tsx:40,173` (background/border, not text) — not re-flagged: the
+task's own migration site list for this file's neutral cleanup names only
+`text-slate-*`/`text-zinc-*`, and these are background/border utilities, never named at
+any point across either review pass.
 
 ## Verification
 
@@ -63,30 +67,20 @@ No scope exceptions needed.
 - `node tools/specs.mjs validate` — passed (15 changes, no errors)
 
 Recorded via `node tools/specs.mjs self-check ux-improvements-version-1 design-tokens`
-against revision `7c67539` (fingerprint `31f69a7c...9905` — see `change.yaml`).
+against revision `56c4159` (fingerprint `31f69a7c...9905`, unchanged from the first
+pass — see `change.yaml`).
 
 ## Acceptance-criteria coverage
 
 - [x] All 5 acceptance criteria covered
 
-1. `index.css` defines exactly the 10 declared custom properties, no `-bg`/`-border`
-   variables, no `.tone-*` classes, no `--secondary`/`--cat-3` — confirmed by direct read.
-2. Every named site's pre-migration class is gone — confirmed by grepping each named
-   file for the old Tailwind classes/raw hex; zero matches at named sites. (Two
-   unenumerated sites remain — see Findings F1/F2, non-blocking per above.)
-3. No token used for two different meanings across migrated sites — confirmed by
-   reading every migrated site; each token's usage matches its declared role
-   (`--info` = running, `--success` = completed/clean, `--warning` = pending/review,
-   `--danger` = failed/error, `--cat-1`/`--cat-2` = provider identity only).
-4. `npm --prefix tools/dashboard run build` passes — confirmed.
-5. `npm --prefix tools/dashboard test` passes — confirmed.
+Unchanged from the first review pass (see git history of this file) — this run only
+re-verified F1/F2's resolution and re-ran verification against the new revision.
 
 ## Architecture and documentation
 
-No architecture/ADR impact — internal component styling tokens only, no public
-API/contract change.
+No architecture/ADR impact — internal component styling tokens only.
 
 ## Tests
 
-No new behavior introduced (pure styling/token migration); existing test suite
-(131 tests) passed unchanged, consistent with a no-behavior-change diff.
+No new behavior introduced; existing 131-test suite passed unchanged.

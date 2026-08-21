@@ -17,7 +17,7 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: aa17c86bd89326a3475d0d07e42b54df1779ccee
-      review_revision: 7c67539bc19c368b9562bdb43c2a3b6911757967
+      review_revision: 56c41598f451c255b41af6ad7d9ef660dd8efce6
       changed_paths:
         - tools/dashboard/src/components/ai-session-list.tsx
         - tools/dashboard/src/components/ai-tool-view.tsx
@@ -31,7 +31,7 @@ tasks:
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: 31f69a7c31e29061eae6ad1ab5974123b599ef6cad9395f3da273004fa109905
-      revision: 7c67539bc19c368b9562bdb43c2a3b6911757967
+      revision: 56c41598f451c255b41af6ad7d9ef660dd8efce6
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
