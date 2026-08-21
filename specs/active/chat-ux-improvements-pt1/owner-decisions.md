@@ -100,7 +100,8 @@
     `options.taskIds` (instead of collapsing to a single `taskId`). Add aggregation at
     the service/API boundary: `AiSessionService`/`ai-routes.mjs` read via
     `listBindings` (already multi-row-capable) instead of `getBinding` wherever a
-    logical session is being assembled, group rows by `(provider, providerSessionId)`,
+    logical session is being assembled, group rows by `(provider, providerSessionId,
+    specId)` (spec-scoped — see D10, corrected after this option was first drafted),
     and expose the canonical `taskIds[]` the frontend type (`types.ts:408`) already
     declares. `getBinding`'s single-record contract can stay as-is for callers that
     genuinely want "any one binding row" (e.g. `tools/specs.mjs`'s
@@ -149,14 +150,25 @@
     reaches this route handler would not fix the observable bug. The same pass also
     found `AiSessionService.listSessions` (`service.mjs:52-66`) maps each row returned
     by `bindingService.listBindings` directly into its own list entry with no
-    grouping by `(provider, providerSessionId)` — today a session with 3 task-bound
-    rows would surface as 3 separate list entries, not 1. Task 06's aggregation must
-    fix both the single-session route and this list-grouping gap;
+    grouping at all — today a session with 3 task-bound rows would surface as 3
+    separate list entries, not 1. Task 06's aggregation must fix both the
+    single-session route and this list-grouping gap;
+  - **the aggregation key is `(provider, providerSessionId, specId)`, not
+    `(provider, providerSessionId)` alone — see D10.** A second verification pass
+    found the same provider session can legitimately hold binding rows under more
+    than one spec (storage is partitioned per spec, and nothing currently prevents or
+    replaces a prior spec's binding when a new one is written — see D10's evidence).
+    Grouping by `(provider, providerSessionId)` alone would merge unrelated specs'
+    task IDs into one `taskIds[]`. Per D10 (Option C): the single-session route treats
+    the binding row with the most recent `lastSeenAt` across all of a provider
+    session's specs as the "current" spec, and aggregates `taskIds[]` only from rows
+    sharing that row's `specId`;
   - the aggregated result exposes the canonical `taskIds[]` the frontend/session
-    snapshot already expects (`types.ts:408`);
+    snapshot already expects (`types.ts:408`), scoped to the current spec only;
   - `getBinding`'s single-record contract, and deterministic-flow semantics for
     when/how `task start` or other workflow operations bind sessions
-    (`tools/specs.mjs`'s `autoBindAgentSession`), are unchanged by this decision.
+    (`tools/specs.mjs`'s `autoBindAgentSession`), are unchanged by this decision — see
+    D10, which confirms Option C requires no changes there.
 - **Rationale (owner):** "The evidence shows the storage model already supports the
   required cardinality. Do not redesign persistence to fix a service/API aggregation
   bug."
@@ -435,5 +447,144 @@
   allowed frontend-only data cannot actually know. Adjust its dependencies/allowed
   paths if backend/projection work belongs in Task 01 instead." (original); "the spec
   must not state something factually false about the current type" (this correction).
+- **Second correction — the dead members are removed, not preserved.** A follow-up
+  review (against commit `220e512`) found no evidence anywhere in the repository that
+  `AiSessionStatus`'s `'completed'`/`'failed'` members are reserved for an imminent
+  concrete contract — no comment near the type declaration, no `completedAt` producer,
+  no roadmap reference. `AiSessionService.resolveSessionActivity`'s own comment
+  (`service.mjs:78-82`) explains the *current* three-value design was a deliberate
+  simplification ("so the dashboard home page and the chat view can never disagree,
+  D8") — consistent with `'completed'`/`'failed'` being leftover from an earlier
+  design, not a placeholder for a future one. Given that, and given explicit owner
+  authorization to widen scope specifically for this cleanup: **Task 09 narrows
+  `AiSessionStatus` to `'idle' | 'running' | 'waitingForUser'` and removes the
+  corresponding dead branches** in `ai-chat.tsx:457,465,482` (composer-disable checks)
+  and `ai-session-list.tsx:116,128,234-235,46` (status icon swap, badge tone,
+  `statusLabel`'s `'completed'` case, and the "Aktualne"/"Zakończone" current/completed
+  list split, which becomes meaningless once `'completed'` can never match — collapses
+  to one flat list). `ai-session-list.tsx` is added to Task 09's `allowed_paths` for
+  this narrow purpose only — general sidebar work (density, dedupe) stays
+  `ux-improvements-version-1`'s `dedupe-recent-sessions`, per D8; Task 09 must not
+  otherwise restyle or restructure that file. This reverses the "do not delete"
+  conclusion recorded above earlier the same day — recorded here rather than editing
+  history, per this repository's decision-log convention of layering corrections
+  rather than silently rewriting prior entries.
+- **Rationale (owner, this correction):** "Do not preserve dead code merely because
+  ai-session-list.tsx is outside Task 09's current allowed_paths... remove the current
+  requirement that implementation must preserve harmless always-false branches solely
+  because they already exist." "If repository evidence shows those members are
+  intentionally retained for an imminent concrete contract... do not delete them
+  silently" — no such evidence was found.
 - **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/09-session-states-integration.md`.
+
+## D10: Cross-spec session binding — Option C decided (spec-scoped aggregation; no deterministic-flow change)
+
+- **Question:** D5's Option A (as written after `220e512`) aggregates binding rows by
+  `(provider, providerSessionId)` alone. Repository inspection (this review) found
+  that's an incomplete key: the same provider session can legitimately accumulate
+  binding rows under **more than one specification**, and aggregating by
+  `(provider, providerSessionId)` would merge unrelated specs' task IDs into one
+  "current specification" view.
+
+  **Evidence, all independently verified:**
+  - **Storage is partitioned per spec.** `AgentSessionBindingService` persists to
+    `.nevo-ai-local/sessions/<specId>.json` — one file per spec
+    (`tools/ai/binding-service.mjs`'s `#storageDir` mode, `#loadForSpec(specId)`
+    reading `join(storageDir, '${specId}.json')`).
+  - **`bindSession`/`bindSessionSync` never check or replace bindings in other specs'
+    files.** Both load only `this.#loadForSpec(specId)` (the *target* spec's own file,
+    `binding-service.mjs:265,346`) and match/upsert within it. Binding session X to
+    spec B when it already has a row in spec A's file does not touch spec A's file at
+    all — both rows persist independently, forever, unless explicitly unbound.
+  - **`autoBindAgentSession(change, taskId, purpose)` (`tools/specs.mjs:52-73`) is
+    called from `requireChange` (`:81-86`), `requireChangeAnywhere` (`:92-98`), and
+    `requireTask` (`:101-106`) — i.e. from nearly every `tools/specs.mjs` command that
+    touches a change.** If the same external agent CLI session (same
+    `NEVO_AGENT_PROVIDER`/`NEVO_AGENT_PROVIDER_SESSION_ID` env vars, persisted for the
+    lifetime of one CLI/agent process) runs a command against change A and later a
+    command against change B — an entirely ordinary occurrence for a long-lived agent
+    session working across multiple specs, not an edge case — it silently accumulates
+    a binding row under both A and B, per the point above.
+  - **A second path exists too:** `node tools/specs.mjs agent-session attach --spec
+    <other> --provider <p> --session-id <same-id>` (`handleAgentSessionAttach`,
+    `tools/specs.mjs:1793-1810`) explicitly allows binding an already-used
+    `providerSessionId` to a different spec.
+  - **`getBinding(provider, providerSessionId)` (`binding-service.mjs:475-480`) already
+    has to cope with this today**, and does so arbitrarily: it calls `#loadForSpec()`
+    with no `specId`, which enumerates *every* spec file via `readdir(storageDir)`
+    (`binding-service.mjs:140-148`) — filesystem/directory-listing order, not
+    recency — concatenates all rows, and returns the first match. If a session has
+    rows under specs A and B, which one `getBinding` returns today already depends on
+    directory-listing order, not on which spec the user is actually viewing. D5's
+    original `(provider, providerSessionId)`-only aggregation would take this existing
+    latent bug and make it worse — instead of an arbitrary *single* wrong-or-right
+    spec, it would merge task IDs from unrelated specs into one list.
+  - **Noted, not addressed here (pre-existing, unaffected by this change either way):**
+    `unbindSession(Sync)` (`binding-service.mjs:482+,504+`) deletes *every* row
+    matching `(provider, providerSessionId)` across *all* specs in one call — i.e.
+    delete is already cross-spec-aware (destructively), while bind is not
+    (additively). This asymmetry predates this change and pt1 does not alter it (Task
+    06 reuses the existing delete flow unmodified, per its own constraints).
+  - **No pre-existing "current spec association" concept was found.** `AiSession
+    .specId` (`types.ts:406`) is a single field, not a list or a distinguished
+    "current" pointer; nothing in `tools/ai/*.mjs` or `tools/dashboard/src` already
+    picks one spec as authoritative when more than one binding exists for the same
+    provider session.
+- **Options considered:**
+  - **A — one current spec association; binding to a new spec replaces/moves it.**
+    Would require `autoBindAgentSession`/`bindSession` to actively unbind (or
+    invalidate) a session's rows in other specs' files when binding a new one — a
+    behavior change to the deterministic-flow binding path itself, exercised by nearly
+    every `tools/specs.mjs` command (`requireChange`/`requireChangeAnywhere`/
+    `requireTask`), not just chat-related ones. Silently "losing" an old binding the
+    moment a new one is written is also a compatibility risk for any workflow that
+    currently relies on `bindSession`'s additive/idempotent behavior across specs
+    (e.g. a long CLI session legitimately working two specs in parallel would have one
+    silently evicted).
+  - **B — multiple spec associations coexist; a separate explicit "current"
+    pointer/field is introduced.** Needs a new persisted field/concept (which spec is
+    "current" and when it's updated) with its own semantics for who sets it and when —
+    new persistence shape, new write path, likely touching `autoBindAgentSession` and/
+    or the dashboard's session-open flow. Larger surface than C for the same
+    observable outcome pt1 actually needs (one specification's tasks shown correctly).
+  - **C — for pt1, keep bindings spec-scoped; aggregate `taskIds` only within
+    `(provider, providerSessionId, specId)`; defer the long-lived-session-across-specs
+    "current association"/reassignment model to Chat Capabilities.** Zero changes to
+    `bindSession`/`autoBindAgentSession`/deterministic-flow semantics. The
+    single-session route picks *which* spec is "current" using data that already
+    exists (no new field): the binding row with the most recent `lastSeenAt` across
+    all of a provider session's specs is treated as current, and `taskIds[]` is
+    aggregated only from rows sharing *that* row's `specId` — never merged across
+    specs. This also happens to make `getBinding`'s existing arbitrary
+    directory-order tie-break deterministic (recency-based) as a side effect, without
+    being asked to fix that separately.
+- **Evaluated against the requested criteria:**
+  | Criterion | A | B | C |
+  |---|---|---|---|
+  | Deterministic-flow semantics | Changes `bindSession`'s write behavior — high blast radius | Changes `autoBindAgentSession`'s write behavior | Unchanged — read-path only |
+  | `autoBindAgentSession` | Must be modified | Must be modified | Untouched |
+  | Session details' singular "current spec" | Achieved, but via a write-path guarantee | Achieved, via a new pointer | Achieved, via a deterministic read-time pick (recency) |
+  | List/single-session APIs | Simplify once A lands, but A itself is the risk | Need to read the new pointer | `listSessions`/single-session route group by `(provider, providerSessionId, specId)` instead of `(provider, providerSessionId)` — small, local change |
+  | Chat surviving a spec move (future) | Conflicts with "replace" semantics unless carefully layered | Natural fit, but not needed by pt1 | Explicitly deferred (matches D4) |
+  | Persistence compatibility | No new field, but a behavior change to existing writes | New field/concept needed | No schema change at all |
+  | Cross-spec task leakage | Prevented once implemented, but implementation is broad | Prevented once implemented, but implementation is broad | Prevented by construction — the aggregation key itself excludes it |
+- **Decision:** **C.** No deterministic-flow change; aggregation is spec-scoped
+  `(provider, providerSessionId, specId)`, not session-scoped; "current spec" is
+  chosen deterministically by most-recent `lastSeenAt` among a provider session's
+  bindings, using only already-persisted data.
+- **Rationale (owner):** "My current preference is Option C for pt1 unless repository
+  evidence shows there is already an authoritative concept of current spec
+  association. It avoids silently changing deterministic-flow/reassignment semantics
+  in a UX change while still allowing correct multi-task display inside one spec." No
+  authoritative current-association concept was found (see evidence above), so C
+  applies as stated.
+- **Consequences:** D5's aggregation key changes from `(provider, providerSessionId)`
+  to `(provider, providerSessionId, specId)` with a recency-based spec pick for the
+  single-session route. Task 06 gains a regression requirement: the same
+  `(provider, providerSessionId)` bound under two different specs must never produce a
+  merged `taskIds[]` in Session details or the list API. Long-lived-chat-across-specs
+  and explicit reassignment remain deferred to Chat Capabilities (consistent with D4).
+- **Date:** 2026-08-21.
+- **Affected artifacts:** `overview.md`, `tasks/06-shared-session-details.md`,
+  `owner-decisions.md` D5 (aggregation key correction).

@@ -10,13 +10,17 @@ context:
     - docs/development/react-component-guidelines.md
     - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
+    - tools/dashboard/src/components/ai-session-list.tsx
     - tools/dashboard/src/lib/types.ts
   optional:
     - specs/active/ux-improvements-version-1/tasks/18-shared-status-label-component.md
+    - specs/active/ux-improvements-version-1/tasks/09-dedupe-recent-sessions.md
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
+  - tools/dashboard/src/components/ai-session-list.tsx
   - tools/dashboard/src/components/work/**
   - tools/dashboard/src/components/composer/**
+  - tools/dashboard/src/lib/types.ts
   - tools/dashboard/tests/**
 forbidden_paths:
   - src/**
@@ -48,21 +52,38 @@ concepts conflated:
   (success, failure, cancellation) always leaves the session back at `idle` — outcome
   and activity are not the same axis.
 
-**Correction to a second factual error introduced by the first correction**
-(`owner-decisions.md` D9, updated): `AiSessionStatus` as actually *declared*
-(`tools/dashboard/src/lib/types.ts:346`) is **not** 3 members — it is `'idle' |
-'running' | 'waitingForUser' | 'completed' | 'failed'`, 5 members, and this task does
-not change that declaration. `'completed'`/`'failed'` have no current producer (no
-code path sets a session's `.status` to either), but they are not merely unused: real
-consumer code still checks them — `ai-chat.tsx:457,465,482` (inside this task's
-`allowed_paths`) disables/relabels the composer when `session?.status === 'completed'`;
-`ai-session-list.tsx:116,128,234-235` (sidebar, **not** in this task's `allowed_paths`)
-groups sessions by the same check. Both are dead code today (the value never arrives),
-not broken code. **This task must not delete the type members or the code that checks
-them**, and must not build any *new* Session Activity behavior on top of `'completed'`/
-`'failed'` — if this task's own redesign touches the `ai-chat.tsx` lines that check
-`session.status === 'completed'`, it preserves their current (harmless, always-false)
-behavior rather than extending it.
+**Second correction (`owner-decisions.md` D9, final): the dead members are removed,
+not preserved.** An intermediate revision of this spec found `AiSessionStatus`
+*declared* (`tools/dashboard/src/lib/types.ts:346`) 5 members —
+`'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed'` — with real (if dead)
+consumers of `'completed'`/`'failed'` in `ai-chat.tsx:457,465,482` (composer-disable
+checks) and `ai-session-list.tsx:116,128,234-235,46` (status icon, badge tone,
+`statusLabel`, and a current/completed list split) and, on that basis, directed this
+task to leave the type and both files alone. A follow-up review reversed that
+conclusion: no evidence was found anywhere in the repository that `'completed'`/
+`'failed'` are reserved for an imminent concrete contract (no `completedAt` producer,
+no comment near the declaration indicating intent), and preserving harmless-looking
+dead branches "because they already exist" is worse than removing them once their
+falseness is understood. **This task now:**
+
+- narrows `AiSessionStatus` to `'idle' | 'running' | 'waitingForUser'` (types.ts:346);
+- removes the `session?.status === 'completed'` checks in `ai-chat.tsx:457,465,482`
+  (the composer is no longer conditionally disabled/relabeled by a session status that
+  can no longer exist — verify what condition should replace each check contextually,
+  e.g. drop the clause rather than leaving a always-`false`/dead comparison against a
+  narrower type, which would be a type error once the union shrinks);
+- removes the corresponding branches in `ai-session-list.tsx`: the `'completed'` icon
+  swap (line 116), the `'completed'`-vs-other badge tone branch (line 128, collapses
+  to the existing running/waitingForUser check), `statusLabel`'s `'completed'` case
+  (line 46, falls through to the existing default), and the "Aktualne"/"Zakończone"
+  current/completed list split (lines 234-235) — which becomes meaningless once
+  `'completed'` can never match, so the list renders as one flat, ungrouped list
+  instead of two sections where one can never contain anything.
+- `ai-session-list.tsx` is in this task's `allowed_paths` **narrowly for this
+  purpose** — general sidebar work (row density, dedupe) remains
+  `ux-improvements-version-1`'s `dedupe-recent-sessions` task (D8); if that task is
+  in flight at the same time, coordinate rather than let both restyle the same lines
+  independently.
 
 There is still no `stopped` session-activity value, and this task does not add one.
 
@@ -100,14 +121,13 @@ There is still no `stopped` session-activity value, and this task does not add o
 1. All three actual Session Activity values (`idle`, `running`, `waitingForUser`)
    remain visible/discoverable somewhere in the redesigned chat.
    `inspection: simulate each activity value, confirm a visible indicator exists`
-2. No **new** UI element claims a session-level "completed" or "failed" activity
-   state — Session Activity (header/composer status indicator) only ever displays
+2. No UI element claims a session-level "completed" or "failed" activity state —
+   Session Activity (header/composer status indicator) only ever displays
    `idle`/`running`/`waitingForUser`; "completed"/"failed" are rendered as Turn/Work
-   Outcome (in Work/history) instead. This does not require removing the existing,
-   currently-inert `session.status === 'completed'` checks in `ai-chat.tsx` (see
-   "Corrected vocabulary" above) — it requires not adding new live behavior that
-   depends on a session activity ever actually being `'completed'`/`'failed'`.
-   `inspection: confirm the header/composer status indicator only ever shows idle/running/waitingForUser, and that no new code assumes session.status can be 'completed'/'failed' at runtime`
+   Outcome (in Work/history) instead. The dead `session.status === 'completed'` checks
+   in `ai-chat.tsx` and `ai-session-list.tsx` are removed (see "Corrected vocabulary"
+   above), not merely left inert.
+   `inspection: confirm the header/composer status indicator only ever shows idle/running/waitingForUser, and that no code checks session.status === 'completed'/'failed' anywhere`
 3. Shared status label/token component is reused for both axes, not duplicated
    locally (once available; see implementation constraints for the not-yet-landed
    case).
@@ -121,10 +141,25 @@ There is still no `stopped` session-activity value, and this task does not add o
 6. Existing stop/cancel control works unchanged.
    `automated: npm --prefix tools/dashboard test`
 7. No new Session Activity or Turn/Work Outcome value is invented (no `stopped` added
-   to `AiSessionStatus`; no new `AgentToolCall.status` value added — see D6/D9). The
-   existing `AiSessionStatus` declaration (5 members, including the legacy
-   `'completed'`/`'failed'`) is also not narrowed or deleted by this task.
-   `inspection: diff tools/dashboard/src/lib/types.ts's AiSessionStatus/AgentToolCall unions — confirm no member added or removed`
+   to `AiSessionStatus`; no new `AgentToolCall.status` value added — see D6/D9).
+   `inspection: diff tools/dashboard/src/lib/types.ts's AgentToolCall union — confirm no member added`
+8. `AiSessionStatus` is narrowed to exactly `'idle' | 'running' | 'waitingForUser'`.
+   `automated: npm --prefix tools/dashboard test` (a type-level test/assertion that the union has exactly these 3 members, or the TypeScript build itself failing to compile a `'completed'`/`'failed'` comparison against `AiSession['status']`)
+9. `npm --prefix tools/dashboard run build` succeeds after the narrowing — i.e. no
+   remaining code anywhere in the dashboard still compares `session.status` (or any
+   `AiSessionStatus`-typed value) against `'completed'`/`'failed'`, which the type
+   change would otherwise surface as a compile error.
+   `automated: npm --prefix tools/dashboard run build`
+10. `ai-chat.tsx`'s composer disable/relabel logic (previously gated in part by
+    `session?.status === 'completed'`) still behaves correctly for the conditions that
+    remain meaningful (provider unavailable, load error, running state) — the removed
+    clause is confirmed to have been dead (always false) by inspecting it before
+    deletion, not assumed.
+    `automated: npm --prefix tools/dashboard test`
+11. `ai-session-list.tsx` renders session rows as a single list — the
+    "Aktualne"/"Zakończone" split is removed since it can no longer produce a
+    non-empty "Zakończone" group; `statusLabel` no longer has a `'completed'` case.
+    `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
@@ -139,3 +174,11 @@ npm --prefix tools/dashboard run build
   `ux-improvements-version-1`'s task; this task only consumes it.
 - Computing/deriving Turn/Work Outcome from raw events — that is Task 01's
   responsibility; this task is forbidden from `tools/ai/**` by design.
+- Any `ai-session-list.tsx` change beyond removing the dead `'completed'`/`'failed'`
+  branches and the current/completed split that existed only to support them — row
+  density, dedupe, and other sidebar restructuring stay
+  `ux-improvements-version-1`'s `dedupe-recent-sessions` task.
+- Re-deriving a "session completed" concept by any other means (e.g. from
+  `completedAt`, from the absence of an active turn, etc.) — Session Activity stays
+  exactly `idle | running | waitingForUser`; a finished turn's outcome is Turn/Work
+  Outcome, displayed in Work/history, not as a session-level state.
