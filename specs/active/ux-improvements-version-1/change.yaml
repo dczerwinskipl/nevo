@@ -14,9 +14,32 @@ tasks:
   - id: design-tokens
     order: 1
     file: tasks/01-design-tokens.md
-    status: in-implementation
+    status: verified
     implementation:
       baseline_revision: aa17c86bd89326a3475d0d07e42b54df1779ccee
+      review_revision: 56c41598f451c255b41af6ad7d9ef660dd8efce6
+      changed_paths:
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/ai-tool-view.tsx
+        - tools/dashboard/src/components/changes-panel.tsx
+        - tools/dashboard/src/components/operation-progress.tsx
+        - tools/dashboard/src/components/spec-actions.tsx
+        - tools/dashboard/src/components/stage-progress.tsx
+        - tools/dashboard/src/components/status-board.tsx
+        - tools/dashboard/src/components/ui/status-card.tsx
+        - tools/dashboard/src/index.css
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 31f69a7c31e29061eae6ad1ab5974123b599ef6cad9395f3da273004fa109905
+      revision: 56c41598f451c255b41af6ad7d9ef660dd8efce6
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
   - id: composer-alignment
     order: 2

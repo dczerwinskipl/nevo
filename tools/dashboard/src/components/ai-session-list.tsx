@@ -136,7 +136,7 @@ export function AiSessionRow({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">
+            <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--warning)]">
               CLI niedostępne
             </span>
           )}
