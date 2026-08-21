@@ -39,6 +39,21 @@ Avoid duplicate implementation and conflicting design contracts between this cha
 depends on Task 10, so the real, implemented shape — not the plan — is what gets
 compared).
 
+## Relationship to the D8 preflight
+
+This is not the first point overlap gets addressed — `owner-decisions.md` D8 records a
+pre-implementation preflight (coordination guidance, not a status write) covering
+`task-session-linking`, `mode-description-tooltip`, `shared-status-label-component`,
+`composer-alignment`, `mode-switcher-touch-target`, the header instance of
+`delete-session-touch-target`, and `dedupe-recent-sessions`, decided before Tasks
+02-09 began implementation. This task's job is to **verify reality still matches D8's
+preflight** after implementation (D8's classifications may have shifted — e.g. a
+"dependency/reuse" item that never actually landed in
+`ux-improvements-version-1` in time, forcing this change to build its own version
+after all) and to perform the actual `abandoned` status transitions D8 explicitly did
+not perform. The table below restates D8's classification as a starting point, not a
+re-derivation from scratch.
+
 ## Overlap classification from repository discovery (confirm/refine, don't re-derive from scratch)
 
 | `ux-improvements-version-1` task | Classification | Rationale |

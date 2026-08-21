@@ -7,10 +7,12 @@ context:
   required:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
+    - docs/development/react-component-guidelines.md
     - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
     - tools/dashboard/src/components/ai-tool-view.tsx
     - tools/dashboard/src/lib/nevo-assistant-runtime.ts
+    - tools/dashboard/src/lib/types.ts
   optional:
     - specs/active/chat-ux-improvements-pt1/tasks/01-semantic-chat-presentation-model.md
 allowed_paths:
@@ -48,12 +50,18 @@ independent `AiToolView` card per call (`ai-chat.tsx:62-64`) with no grouping �
   "Work · 8 actions ✓"), expandable to inspect individual actions via the existing
   `AiToolView` expand pattern.
 - Failure visibility (FR-4, reinforced by `owner-decisions.md` D6): if any activity in
-  the group is `'failed'` (including the abrupt-termination case Task 01 now
-  represents correctly), the collapsed summary must visibly indicate attention is
-  needed — it must not be presented as a uniform success summary. The failed action
-  remains individually inspectable even while the rest of the group is collapsed.
+  the group is `'failed'` — including a tool that never received a real successful
+  completion before its turn ended abnormally, once Task 01's D6 fix lands (D6 is an
+  open owner decision as of this writing; this task consumes whatever corrected
+  status Task 01 produces, it does not re-derive one) — the collapsed summary must
+  visibly indicate attention is needed. It must not be presented as a uniform success
+  summary. The failed action remains individually inspectable even while the rest of
+  the group is collapsed.
 - Do not invent new provider states beyond what Task 01's projection already
-  distinguishes (FR-4).
+  distinguishes (FR-4). Turn/Work Outcome (successful/failed/cancelled) is a distinct
+  concept from per-tool status — see `owner-decisions.md` D9; this component displays
+  whichever of the two Task 01 actually exposes for a given activity, it does not
+  blend them.
 - Work associates with the relevant assistant turn per Task 01's documented
   correlation — do not merge Work from unrelated turns where the data can distinguish
   them.

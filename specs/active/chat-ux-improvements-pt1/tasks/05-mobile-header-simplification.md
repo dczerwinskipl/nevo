@@ -7,6 +7,7 @@ context:
   required:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
+    - docs/development/react-component-guidelines.md
     - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
   optional: []
@@ -48,6 +49,11 @@ both.
   exist yet (NFR mirrors FR-23).
 - Reuse `ux-improvements-version-1`'s shared status primitives/tokens once available
   (see Task 09 and Task 11's overlap notes) rather than a chat-local status treatment.
+- Per `owner-decisions.md` D8: `ux-improvements-version-1`'s `mode-switcher-touch-
+  target` and the header instance of `delete-session-touch-target` target exactly the
+  header controls this task removes — do not implement or wait on those tasks
+  independently; this task's removal is what makes them moot, not a touch-target fix
+  applied to code about to be deleted.
 
 ## Acceptance criteria
 

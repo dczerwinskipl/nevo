@@ -7,6 +7,7 @@ context:
   required:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
+    - docs/development/react-component-guidelines.md
     - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-tool-view.tsx
     - tools/dashboard/src/lib/types.ts
@@ -53,10 +54,11 @@ secondary.
 - Preserve the existing input/output expand pattern (`ai-tool-view.tsx:63-87`); large
   payloads stay capped/scrollable (`max-h-48 overflow-auto` today) rather than
   overflowing on mobile.
-- Per `owner-decisions.md` D6: the detail view for a tool call that Task 01's
-  projection marked as not-successfully-completed (abrupt termination) must reflect
-  that corrected status, not "completed" — this task's detail rendering must read
-  Task 01's corrected status, not re-derive its own from raw events.
+- Per `owner-decisions.md` D6 (open as of this writing — this task consumes whatever
+  fix Task 01 lands, it does not re-derive tool terminal status from raw events): the
+  detail view for a tool call Task 01's projection marks as not-successfully-completed
+  must reflect that corrected status, never "completed" regardless of how the turn
+  actually ended.
 - Technical tool type (`toolCall.name`) remains discoverable even once a friendlier
   label is primary — do not hide it entirely, demote it visually.
 

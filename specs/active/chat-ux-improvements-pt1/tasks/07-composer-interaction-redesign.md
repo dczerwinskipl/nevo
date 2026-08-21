@@ -6,6 +6,7 @@ context:
   required:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
+    - docs/development/react-component-guidelines.md
     - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
   optional:
@@ -54,6 +55,11 @@ submitMessage(composer); }`) — this task inverts that.
   that module exists.
 - Do not add placeholder model/usage controls (FR-23) — no dead UI for capabilities
   that don't exist yet.
+- Per `owner-decisions.md` D8: `ux-improvements-version-1`'s `composer-alignment` and
+  `mode-switcher-touch-target` are "do not start independently" items — this task's
+  redesign is what makes them moot, so do not implement or wait on those two tasks
+  separately. `mode-description-tooltip` (`ai-mode-meta.ts`) is a dependency/reuse
+  item — coordinate with it as described above, do not fork a second label source.
 - Preserve existing send/stop/cancel semantics exactly (`ai-chat.tsx:474-488`'s toggle
   behavior) — do not invent new cancellation backend behavior (FR-22).
 - State ownership: composer draft is local component state, not duplicated into a
