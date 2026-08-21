@@ -67,3 +67,8 @@ tasks:
     status: draft
 
 spec_id: fbcaabec-610d-4662-9fff-62a716e90cfd
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 35
