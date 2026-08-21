@@ -40,14 +40,6 @@ forbidden_paths:
 
 # Task: Establish semantic chat presentation model
 
-## Blocked on an open owner decision
-
-This task cannot move past `draft` review to `approved` until `owner-decisions.md` D6
-(tool terminal-status contract, Option A vs. B) is resolved — see "Owner decision
-gate" below. The acceptance criteria in this file are written so that everything
-**not** specific to the A/B choice can be implemented and tested regardless of which
-option is eventually picked; the criteria that do depend on the choice are marked.
-
 ## Goal
 
 Create the pure, deterministic projection layer that turns already-fetched session
@@ -59,9 +51,9 @@ cannot be fixed there alone.
 
 ### Why this task's scope reaches into adapters and contracts
 
-A second verification pass (2026-08-22, recorded in `owner-decisions.md` D6) found
-that "no explicit successful completion was received" is not a sufficient description
-of the problem — an explicit-looking success signal can itself be synthetic or wrong:
+A verification pass (recorded in `owner-decisions.md` D6) found that "no explicit
+successful completion was received" is not a sufficient description of the problem —
+an explicit-looking success signal can itself be synthetic or wrong:
 
 - **Claude adapter** emits a synthetic `tool.completed` at `content_block_stop`
   (`tools/ai/claude-adapter.mjs:348-357`) before the tool's real result is known, then
@@ -101,28 +93,38 @@ allowed the smallest structured model change needed to make that true — prefer
 explicit `turnId` (or equivalent stable turn-boundary metadata) on the normalized
 projection over parsing display text or relying on the `id` string convention.
 
-## Owner decision gate (`owner-decisions.md` D6)
+## D6 — tool terminal-status contract (decided: Option A)
 
-Implement everything below that does **not** depend on the A/B choice first; it is
-required under either option:
+`owner-decisions.md` D6 records the final decision: `tool.completed` is the single
+terminal tool event and carries an explicit validated `status: 'completed' |
+'failed'`. Implement:
 
-- Reorder the Antigravity adapter's close handler so cancellation and exit-code checks
-  run **before** any synthetic terminal signal for a still-active tool, and derive
-  that signal's outcome from those checks instead of hardcoding `'completed'`.
-- Stop Claude's `content_block_stop` handler from emitting a signal that a downstream
-  consumer could mistake for the tool's real terminal outcome — it must not be able to
-  overwrite or race a later, real `tool_result`-driven outcome for the same `toolId`.
+- Reorder the Antigravity adapter's close handler so `operation.cancelled` and the
+  process exit-code checks run **before** any terminal signal is emitted for a
+  still-active tool, and derive that signal's `status` from those checks instead of
+  hardcoding `'completed'`.
+- Stop Claude's `content_block_stop` handler from emitting a signal that could be
+  mistaken for the tool's real terminal outcome — it must not overwrite or race the
+  later, real `tool_result`-driven outcome for the same `toolId`; only the
+  `tool_result`-driven call is the terminal signal.
+- Add a validated `status` field to `contracts.mjs`'s `tool.completed` shape.
+- Make `turn-runtime.mjs#emitToolCompleted` accept and forward `status` instead of
+  dropping it.
 - Change `completeRunningToolCalls` (and therefore `turn.completed`, `turn.failed`,
-  and `markTurnInterrupted()`/orphan recovery) to stop force-setting `'completed'` for
-  a still-`'running'` tool call — it must resolve to a non-success outcome instead.
+  and `markTurnInterrupted()`/orphan recovery) to resolve a still-`'running'` tool call
+  to `status: 'failed'`, never `'completed'`, when the turn did not end via a real
+  successful completion.
 
-Once D6 records an explicit A or B answer, implement the option-specific parts:
+Do not add new per-tool statuses such as `'cancelled'` or `'interrupted'` —
+`AgentToolCall.status` stays `'running' | 'completed' | 'failed'`. A finer-grained
+distinction between "failed" and "cancelled/interrupted" is carried as turn-outcome
+metadata (see Implementation constraints below and D9), not as a new tool-status
+value.
 
-- **If A:** add a validated `status` field to `contracts.mjs`'s `tool.completed`
-  shape; make `turn-runtime.mjs#emitToolCompleted` accept and forward `status`.
-- **If B:** introduce/repurpose the separate terminal-failure signal per D6's Option B
-  description, and the ordering/idempotency rule that a real failure can never be
-  downgraded back to success by a later signal for the same `toolId`.
+This work is accepted in pt1 despite touching adapters/runtime/contracts because it
+corrects existing lifecycle semantics required for truthful Work UX — it must not
+expand into new provider capabilities, headless interaction protocols, orchestration,
+deterministic-flow behavior, or provider session lifecycle redesign.
 
 ## Implementation constraints
 
@@ -161,7 +163,7 @@ Once D6 records an explicit A or B answer, implement the option-specific parts:
 
 ## Acceptance criteria
 
-**Required under either A or B (D6):**
+**Tool terminal-status contract (D6, Option A):**
 
 1. Antigravity's close handler checks `operation.cancelled` and the process exit code
    **before** determining the outcome of any still-active tool at close time; no path
@@ -173,16 +175,13 @@ Once D6 records an explicit A or B answer, implement the option-specific parts:
    stale/synthetic success.
    `automated: node --test tools/tests/claude-adapter.test.mjs`
 3. A tool call still `'running'` when a turn ends via `turn.failed`, cancellation, or
-   `markTurnInterrupted()`/orphan recovery resolves to a non-success outcome — never
+   `markTurnInterrupted()`/orphan recovery resolves to `status: 'failed'` — never
    `'completed'`.
    `automated: node --test tools/tests/ai-turn-runtime.test.mjs`
-
-**Option-specific (implement once D6 is resolved):**
-
-4. The chosen option (A: `status` field on `tool.completed`; B: separate
-   failure-terminal signal with first-real-failure-wins ordering) is implemented
-   consistently across `contracts.mjs`, `turn-runtime.mjs`, both adapters, and the
-   frontend reducer — not partially on one side of the wire.
+4. `contracts.mjs`'s `tool.completed` shape validates an explicit `status: 'completed'
+   | 'failed'` field, `turn-runtime.mjs#emitToolCompleted` forwards it, and both
+   adapters and the frontend reducer consume it consistently — implemented across the
+   whole wire, not partially on one side.
    `automated: node --test tools/tests/ai-contracts.test.mjs && npm --prefix tools/dashboard test`
 
 **Turn/message correlation (D7):**
@@ -212,8 +211,7 @@ Once D6 records an explicit A or B answer, implement the option-specific parts:
    `tools/dashboard/src/lib/types.ts`.
    `automated: npm --prefix tools/dashboard test`
 
-**Required test scenarios (from `owner-decisions.md` D6, all must exist regardless of
-A/B):**
+**Required test scenarios (from `owner-decisions.md` D6):**
 
 10. Successful Claude tool execution.
 11. Failed Claude tool result.
@@ -245,6 +243,8 @@ node tools/specs.mjs validate
   03 (Work) consume this task's output; this task ships no visible UI change.
 - Human-readable activity labels — Task 04.
 - Session details / spec / task association data — Task 06 (unrelated data source;
-  see `owner-decisions.md` D5, a separate open decision).
-- Introducing a `stopped` session-activity value or any other new session-activity
-  state — see `owner-decisions.md` D9.
+  see `owner-decisions.md` D5).
+- Introducing a `stopped` session-activity value, or any `AgentToolCall.status` value
+  beyond `'running' | 'completed' | 'failed'` — see `owner-decisions.md` D6/D9.
+- New provider capabilities, headless interaction protocols, orchestration,
+  deterministic-flow behavior, or provider session lifecycle redesign.

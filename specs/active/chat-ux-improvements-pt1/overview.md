@@ -21,12 +21,15 @@ the brief onto the current implementation, and surfacing genuine implementation
 contradictions the brief could not have known about — not re-opening product scope
 (`owner-decisions.md` D1).
 
-This overview was corrected on 2026-08-22 after a review of PR #35 found that the
+This overview was corrected on 2026-08-21 after a review of PR #35 found that the
 first pass under-scoped two problems (tool terminal-status correctness, and
 session→task binding persistence) by describing them as smaller/more local than the
 evidence actually supports, and conflated two distinct concepts (Session Activity vs.
-Turn/Work Outcome). See `owner-decisions.md` D5-D9 for the corrected analysis; this
-file reflects the corrected state throughout, not the original one.
+Turn/Work Outcome). D5 and D6 were then finalized the same day — D5 as Option A
+(aggregate existing binding rows) and D6 as Option A (`tool.completed` carries an
+explicit terminal `status`). See `owner-decisions.md` D5-D9 for the full analysis and
+final decisions; this file reflects the decided state throughout, not the original
+open-question framing.
 
 ## Current architecture
 
@@ -127,19 +130,21 @@ correctness/completeness gaps discovered during repository mapping and a second
 verification pass that block correct display of data this change's UI already needs
 and cannot be fixed by UI projection alone:
 
-1. **Session→task association** (`owner-decisions.md` D5, **open**): the service
-   layer never fans out or aggregates a session's multiple task associations, even
-   though the underlying binding storage already supports one row per task. Fixing
-   this requires an explicit owner choice between aggregating the existing storage
-   (recommended) and migrating to a different persisted shape — see D5.
-2. **Tool terminal status** (`owner-decisions.md` D6, **open**): two adapters can each
-   produce a terminal-looking signal that misrepresents a tool's actual outcome
-   (premature synthetic success, hardcoded success ahead of cancellation/exit checks,
-   a dropped `status` field, and identical mishandling during restart/orphan
-   recovery). This directly blocks FR-4 (Work failure visibility) and cannot be fixed
-   downstream in UI projection, because the wire contract itself cannot currently
-   express "this tool failed" in `tool.completed`. Fixing this requires an explicit
-   owner choice between two contract shapes — see D6.
+1. **Session→task association** (`owner-decisions.md` D5, **decided — Option A**): the
+   service layer never fans out or aggregates a session's multiple task associations,
+   even though the underlying binding storage already supports one row per task. Fixed
+   by aggregating the existing storage (`createSession` fans out to one `bindSession`
+   call per task; session assembly reads via `listBindings` instead of `getBinding`) —
+   not by migrating the persisted shape — see D5.
+2. **Tool terminal status** (`owner-decisions.md` D6, **decided — Option A**): two
+   adapters can each produce a terminal-looking signal that misrepresents a tool's
+   actual outcome (premature synthetic success, hardcoded success ahead of
+   cancellation/exit checks, a dropped `status` field, and identical mishandling during
+   restart/orphan recovery). This directly blocks FR-4 (Work failure visibility) and
+   cannot be fixed downstream in UI projection, because the wire contract itself cannot
+   currently express "this tool failed" in `tool.completed`. Fixed by making
+   `tool.completed` a true terminal event carrying an explicit validated
+   `status: 'completed' | 'failed'` — see D6.
 3. **Turn↔message correlation** (`owner-decisions.md` D7, decided): assumed available
    for free from `NormalizedMessage[]`; verification shows `NormalizedMessage` has no
    `turnId` field, so this must be proven and possibly given a small structural fix,
@@ -150,8 +155,8 @@ and cannot be fixed by UI projection alone:
 - No deterministic-workflow behavior change: `tools/specs.mjs start` →
   `autoBindAgentSession` (`tools/specs.mjs:52-73,104`) and the `agent-session attach`
   CLI path (`tools/specs.mjs:1793-1810`) are out of scope; this change only changes how
-  the *result* of that binding is displayed and (per D5, once resolved) how faithfully
-  it is aggregated/persisted, never how/when a task auto-binds a session.
+  the *result* of that binding is displayed and (per D5) how faithfully it is
+  aggregated, never how/when a task auto-binds a session.
 - No new provider capability, headless interaction protocol, or subagent execution
   support (brief §3.3).
 - **Session Activity** vocabulary stays as-is: `idle | running | waitingForUser`
@@ -176,8 +181,9 @@ and cannot be fixed by UI projection alone:
   tasks rather than reinventing chat-local equivalents — coordinated as a
   pre-implementation preflight, not left to Task 11 alone (`owner-decisions.md` D8;
   see "Overlap preflight" below).
-- **Task 01 and Task 06 cannot move past `draft` review to `approved` while
-  `owner-decisions.md` D6 and D5 respectively remain open.**
+- D5 and D6 are both decided (Option A in each case, `owner-decisions.md`) — Task 01
+  and Task 06 are no longer gated on an open decision; implement the option-A
+  directives recorded there directly.
 
 ## Affected modules
 
@@ -199,20 +205,24 @@ and cannot be fixed by UI projection alone:
 
 ## Options and trade-offs
 
-Two change-level forks are open owner decisions, not implementation details — see
-`owner-decisions.md` for the full option analysis (both options, trade-offs,
-recommendation) for each:
+Two change-level forks were presented as gated owner decisions (both options,
+trade-offs, and a recommendation each) and have since been decided — see
+`owner-decisions.md` for the full analysis:
 
-- **D5 — session→task binding aggregation.** Option A (recommended): fan out
-  `createSession` into one `bindSession` call per task, aggregate existing multi-row
-  storage at the service/API boundary via `listBindings`. Option B: migrate the
-  binding record itself to a persisted `taskIds[]`, with the redefinitions and
-  migration that implies.
-- **D6 — tool terminal-status contract.** Option A (recommended): `tool.completed`
-  becomes a true terminal event carrying an explicit `status`. Option B:
-  `tool.completed` stays success-only; failure is carried by a separate explicit
-  terminal signal. Both options require the same adapter-level reordering/suppression
-  fixes and the same restart/orphan-recovery fix.
+- **D5 — session→task binding aggregation. Decided: Option A.** Fan out
+  `createSession` into one `bindSession` call per task; aggregate existing multi-row
+  storage at the service/API boundary via `listBindings`. Option B (migrate the
+  binding record itself to a persisted `taskIds[]`) was considered and rejected — the
+  storage already supports the required cardinality, so migrating it would have fixed
+  a service/API aggregation bug by redesigning persistence instead.
+- **D6 — tool terminal-status contract. Decided: Option A.** `tool.completed` becomes
+  a true terminal event carrying an explicit validated `status: 'completed' |
+  'failed'`. Option B (`tool.completed` stays success-only; failure carried by a
+  separate explicit terminal signal) was considered and rejected in favor of the
+  smaller net surface and consistency with the existing `tool.updated` status
+  precedent. Both options would have required the same adapter-level
+  reordering/suppression fixes and the same restart/orphan-recovery fix — those are
+  implemented regardless of which option was chosen.
 
 Turn/message correlation (D7) is a decided correction, not an open fork: prove the
 correlation, allow the smallest structural change needed (preferring an explicit
@@ -222,27 +232,30 @@ achievable unconditionally.
 ## Owner decisions
 
 See `owner-decisions.md` — D1 (requirements source), D2 (Architectural
-classification), D3 (Radix Dialog), D4 (defer FR-17 reassignment), **D5 (session→task
-binding aggregation — OPEN)**, **D6 (tool terminal-status contract — OPEN)**, D7 (turn↔
-message correlation is a verified prerequisite), D8 (pre-implementation overlap
-preflight with `ux-improvements-version-1`), D9 (Session Activity vs. Turn/Work
-Outcome vocabulary).
+classification), D3 (Radix Dialog), D4 (defer FR-17 reassignment), D5 (session→task
+binding aggregation — decided: Option A), D6 (tool terminal-status contract —
+decided: Option A), D7 (turn↔message correlation is a verified prerequisite), D8
+(pre-implementation overlap preflight with `ux-improvements-version-1`), D9 (Session
+Activity vs. Turn/Work Outcome vocabulary).
 
 ## Proposed architecture
 
 ```text
 provider adapters (tools/ai/claude-adapter.mjs, antigravity-adapter.mjs)
-  — D6: stop emitting a premature/hardcoded terminal signal ahead of the real outcome
+  — D6 (Option A): stop emitting a premature/hardcoded terminal signal ahead of the
+    real outcome
         ↓
 AiTurnRuntime (tools/ai/turn-runtime.mjs) — emits AGENT_EVENT_TYPES
-  — D6: #emitToolCompleted must stop dropping `status`
+  — D6 (Option A): #emitToolCompleted must preserve and forward `status`
         ↓
 contracts.mjs — AGENT_EVENT_TYPES validation
-  — D6: tool.completed's shape gains what the chosen option (A/B) requires
+  — D6 (Option A): tool.completed's shape gains a validated `status: 'completed' |
+    'failed'` field
         ↓
 SessionTranscriptCacheService (tools/ai/transcript-cache.mjs) — persists messages/toolCalls
-  — D6: completeRunningToolCalls must stop forcing 'completed' on turn.failed/
-        markTurnInterrupted(); D7: turnId (or equivalent) must survive persistence
+  — D6 (Option A): completeRunningToolCalls must stop forcing 'completed' on
+        turn.failed/markTurnInterrupted(); D7: turnId (or equivalent) must survive
+        persistence
         ↓  SSE + REST snapshot
 useNevoAssistantRuntime / applyAgentEvent (nevo-assistant-runtime.ts)
         ↓
@@ -283,8 +296,9 @@ write to `ux-improvements-version-1`'s manifest — see D8 and Task 11).
 
 - [ ] No task requires a new provider capability, headless interaction protocol, or
       deterministic-workflow behavior change.
-- [ ] `owner-decisions.md` D5 and D6 are resolved with an explicit choice before Task
-      06 and Task 01 (respectively) are approved.
+- [ ] Task 06 implements D5's Option A (aggregate existing binding rows; no persisted
+      schema migration) and Task 01 implements D6's Option A (`tool.completed` carries
+      an explicit validated terminal `status`) as decided in `owner-decisions.md`.
 - [ ] A tool call that never received a real successful completion, in a turn that
       terminated abnormally (failure, cancellation, or restart/orphan recovery), is
       never presented as successfully completed anywhere in the UI — enforced in
@@ -330,7 +344,10 @@ redesign), plus, per owner decisions recorded here:
   surfaces — noted as a constraint/observation, not addressed by this change unless a
   specific task requires touching one of the legacy-surface call sites it already
   relies on (session create/delete).
-- Migrating the session→task binding record's on-disk shape (D5 Option B) unless D5
-  is resolved in that direction.
-- Introducing a new event type or a new `AgentToolCall.status` value beyond what D6's
-  chosen option requires.
+- Migrating the session→task binding record's on-disk shape (D5's Option B —
+  considered and rejected; D5 is decided as Option A).
+- Introducing a new event type, or any `AgentToolCall.status` value beyond `'running' |
+  'completed' | 'failed'` (e.g. `'cancelled'`/`'interrupted'`) — D6's Option A adds a
+  validated `status` field to the existing `tool.completed` event only; finer-grained
+  outcome distinctions are carried as turn-outcome metadata (D9), not new tool-status
+  values.

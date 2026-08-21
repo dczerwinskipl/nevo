@@ -36,14 +36,6 @@ forbidden_paths:
 
 # Task: Introduce shared Session details
 
-## Blocked on an open owner decision
-
-The multi-task binding fix below (D5) cannot be implemented until
-`owner-decisions.md` D5 is resolved with an explicit A or B answer — this task cannot
-move past `draft` review to `approved` while D5 is open. The Sheet/Dialog primitive
-work (D3) and the read-only display of specification/provider/mode/delete (independent
-of D5) are not blocked and may proceed.
-
 ## Goal
 
 Move session context (specification, associated tasks, provider, mode) and secondary
@@ -58,9 +50,9 @@ of it (`tools/dashboard/src/components/ui/dialog.tsx`, `sheet.tsx`), per
 (`SessionDetails`) must consume the Nevo wrapper, never import
 `@radix-ui/react-dialog` directly.
 
-## D5 — session→task association display (open, choose per `owner-decisions.md` D5)
+## D5 — session→task association display (decided: Option A)
 
-A second verification pass **refuted** the original premise that fixing this requires
+A verification pass **refuted** the original premise that fixing this requires
 migrating the binding record to an array-valued `taskIds[]`. What's actually true:
 
 - `AgentSessionBindingService` (`tools/ai/binding-service.mjs`) **already** stores one
@@ -76,18 +68,22 @@ migrating the binding record to an array-valued `taskIds[]`. What's actually tru
 - `AiSessionService.createSession` (`service.mjs:22`) derives a single `taskId` from
   `options.taskId` or a *single-element* `options.taskIds`; for `taskIds.length > 1`
   it sets no `taskId` at all — the bug is here and in the read-side aggregation gap,
-  not (necessarily) in the storage shape.
+  not in the storage shape.
 
-Per `owner-decisions.md` D5, the recommended (but not yet decided) direction is
-**Option A — minimum change**: call `bindSession` once per task in
-`options.taskIds` from `createSession` instead of collapsing to a single `taskId`, and
-add aggregation at the service/API boundary — read via `listBindings` (not
-`getBinding`) wherever a logical session is being assembled, group rows by
-`(provider, providerSessionId)`, and expose the canonical `taskIds[]` the frontend type
-already declares (`types.ts:408`). **Option B** (migrate the binding record itself to
-a genuine `taskIds[]`, with the redefinitions and migration that implies) is the
-alternative — see D5 for the full trade-off analysis. Do not start implementation
-until D5 records an explicit choice.
+`owner-decisions.md` D5 records the final decision: **Option A — minimum change**.
+Keep the existing normalized one-row-per-task persistence model; do not migrate
+persisted binding records to a new array-valued `taskIds[]` schema. Implement:
+
+- `AiSessionService.createSession` calls `bindSession` once per task in
+  `options.taskIds` (instead of collapsing to a single `taskId`);
+- logical session assembly (`AiSessionService`/`ai-routes.mjs`) reads via
+  `listBindings`/`listBindingsSync` (not `getBinding`) wherever a logical session is
+  being assembled, grouping rows by `(provider, providerSessionId)`;
+  - the aggregated result exposes the canonical `taskIds[]` the frontend type already
+  declares (`types.ts:408`).
+Option B (migrate the binding record itself to a genuine `taskIds[]`, with the
+redefinitions and migration that implies) was considered and rejected — see D5 for the
+full trade-off analysis.
 
 ## D4 — no reassignment action (decided, not blocked)
 
@@ -105,8 +101,8 @@ scoped to `mode` — do not fold a reassignment capability in "while we're here.
   separated Actions section (delete) — destructive action must not sit next to
   informational content without visual separation.
 - Manual task attach/detach is not introduced as a routine workflow (FR-16) — task
-  association display stays derived from the (once D5 is resolved and implemented)
-  correctly-aggregated `taskIds` data, not a new editable UI.
+  association display stays derived from the correctly-aggregated `taskIds` data (per
+  D5's Option A), not a new editable UI.
 - Reuse the existing `window.confirm(...)` + `useDeleteAiSession()` delete flow
   (`ai-chat.tsx:207-215`) rather than inventing new cancellation/deletion backend
   behavior — only its presentation location moves.
@@ -119,12 +115,12 @@ scoped to `mode` — do not fold a reassignment capability in "while we're here.
   building a second, parallel linking implementation. Its `ai-chat.tsx` header-
   metadata portion becomes moot once this task's Session details ships (that display
   moves here) — do not implement that portion of it separately.
-- Whichever D5 option is chosen must not change `tools/specs.mjs start` →
-  `autoBindAgentSession`'s existing behavior/semantics (`tools/specs.mjs:52-73,104`) —
-  that call path binds one task at a time and stays out of scope; if Option A is
-  chosen, `getBinding`'s single-record contract may stay unchanged for callers like
-  `autoBindAgentSession` that genuinely want one row — only the session-assembly path
-  (`AiSessionService`/`ai-routes.mjs`) needs to switch to the aggregating read.
+- D5's Option A must not change `tools/specs.mjs start` → `autoBindAgentSession`'s
+  existing behavior/semantics (`tools/specs.mjs:52-73,104`) — that call path binds one
+  task at a time and stays out of scope. `getBinding`'s single-record contract stays
+  unchanged for callers like `autoBindAgentSession` that genuinely want one row — only
+  the session-assembly path (`AiSessionService`/`ai-routes.mjs`) switches to the
+  aggregating read.
 
 ## Acceptance criteria
 
@@ -141,17 +137,16 @@ scoped to `mode` — do not fold a reassignment capability in "while we're here.
    `inspection: render at mobile and desktop breakpoints`
 5. Current specification is displayed.
    `automated: npm --prefix tools/dashboard test`
-6. **(Depends on D5 being resolved and implemented.)** Associated NEvo tasks are
-   displayed — including every task when a session has more than one associated task,
-   not just the first.
+6. Associated NEvo tasks are displayed — including every task when a session has more
+   than one associated task, not just the first (D5's Option A).
    `automated: npm --prefix tools/dashboard test`
-7. **(Depends on D5 being resolved and implemented.)** A session created with
-   `taskIds.length > 1` persists and can be read back as all of them, verified at the
-   `AgentSessionBindingService`/`AiSessionService` layer, not only in a UI mock.
+7. A session created with `taskIds.length > 1` persists and can be read back as all of
+   them, verified at the `AgentSessionBindingService`/`AiSessionService` layer, not
+   only in a UI mock.
    `automated: node --test tools/tests/agent-binding.test.mjs`
-8. Whichever D5 option is chosen, `getBinding`'s existing single-record callers (e.g.
-   `autoBindAgentSession`) are unaffected — verified by the existing binding test
-   suite continuing to pass unmodified in its currently-covered scenarios.
+8. `getBinding`'s existing single-record callers (e.g. `autoBindAgentSession`) are
+   unaffected by D5's Option A — verified by the existing binding test suite
+   continuing to pass unmodified in its currently-covered scenarios.
    `automated: node --test tools/tests/agent-binding.test.mjs`
 9. Provider and mode are displayed where available.
    `inspection: open Session details for a session with a known provider/mode`
@@ -181,5 +176,5 @@ node tools/specs.mjs validate
   action) — deferred to Chat Capabilities per D4.
 - A separate, simplified desktop information architecture — deferred per FR-15.
 - General task attach/detach UI.
-- Migrating the binding record's on-disk shape (Option B of D5) unless D5 is resolved
-  in that direction.
+- Migrating the binding record's on-disk shape (D5's Option B — considered and
+  rejected).

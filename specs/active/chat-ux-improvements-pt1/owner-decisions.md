@@ -68,9 +68,9 @@
 - **Date:** 2026-08-21
 - **Affected artifacts:** `overview.md` ("Out of scope"), `tasks/06-shared-session-details.md`.
 
-## D5: Session→task binding persistence — aggregate existing rows vs. migrate to `taskIds[]` — OPEN, owner choice required
+## D5: Session→task binding persistence — Option A decided (aggregate existing rows)
 
-- **Question:** The original D5 (2026-08-21) assumed the `taskIds` display bug required
+- **Question:** The original D5 assumed the `taskIds` display bug required
   migrating the binding record to an array-valued `taskIds[]`. A second verification
   pass against the actual code refutes that premise: `AgentSessionBindingService`
   (`tools/ai/binding-service.mjs`) already stores **one row per task** for a given
@@ -129,17 +129,30 @@
   and is already exercised by `bindSession`'s own matching logic; B would replace a
   working (if under-used) shape to solve a problem that's actually in the callers, not
   the storage.
-- **Decision:** **Open — the owner has asked for this choice to be gated, not
-  pre-selected.** Do not implement either option until this entry is updated with an
-  explicit A/B/other answer. Task 06 (`shared-session-details`) may not move past
-  `draft` review to `approved` while this is open.
-- **Date:** 2026-08-21 (original), corrected 2026-08-22 after second verification pass
-  refuted the "must migrate to an array" premise.
+- **Decision:** **A — decided.** Keep the existing normalized one-row-per-task
+  persistence model; do not migrate persisted binding records to a new array-valued
+  `taskIds[]` schema. Implement:
+  - `AiSessionService.createSession` binds each task from `taskIds` (one `bindSession`
+    call per task) instead of dropping the multi-task association;
+  - logical session assembly (`AiSessionService`/`ai-routes.mjs`) aggregates the
+    existing binding rows using the multi-row binding APIs (`listBindings`/
+    `listBindingsSync`), not `getBinding`;
+  - the aggregated result exposes the canonical `taskIds[]` the frontend/session
+    snapshot already expects (`types.ts:408`);
+  - `getBinding`'s single-record contract, and deterministic-flow semantics for
+    when/how `task start` or other workflow operations bind sessions
+    (`tools/specs.mjs`'s `autoBindAgentSession`), are unchanged by this decision.
+- **Rationale (owner):** "The evidence shows the storage model already supports the
+  required cardinality. Do not redesign persistence to fix a service/API aggregation
+  bug."
+- **Date:** 2026-08-21. (Recorded open earlier the same day pending explicit choice;
+  finalized as Option A the same day — no calendar-date change, correcting an earlier
+  mis-dated revision that had incorrectly logged this as a following day.)
 - **Affected artifacts:** `overview.md`, `tasks/06-shared-session-details.md`.
 
-## D6: Tool terminal-status correctness across the full lifecycle (adapters → contracts → runtime → transcript cache → frontend) — OPEN, owner choice required
+## D6: Tool terminal-status correctness across the full lifecycle (adapters → contracts → runtime → transcript cache → frontend) — Option A decided
 
-- **Question:** The original D6 (2026-08-21) scoped this as "if no explicit successful
+- **Question:** The original D6 scoped this as "if no explicit successful
   completion exists, do not show completed" and left the fix location open to Task 01.
   A second verification pass shows the problem is broader and earlier in the pipeline
   than that framing assumed — an explicit-looking success signal can itself be
@@ -220,28 +233,49 @@
 - **Recommendation:** A — smaller net surface once the adapter-level fix (needed
   either way) is accounted for, and consistent with the existing `tool.updated` status
   precedent.
-- **Decision:** **Open — the owner has asked for this choice to be gated, not
-  pre-selected**, and has explicitly declined to prescribe the resulting status
-  vocabulary in advance ("nie narzucałbym od razu, czy status ma być failed,
-  interrupted czy coś istniejącego"). Do not invent a new `AgentToolCall.status` value
-  beyond the existing `'running' | 'completed' | 'failed'` (`types.ts:379`) without a
-  separate, explicit decision — a turn-level distinction between "failed" and
-  "cancelled/interrupted" should be carried as turn-outcome metadata (`turn.failed`
-  already validates `error: { code, message }` — `contracts.mjs:400-405`, with existing
-  codes `AI_TURN_CANCELLED`, `AI_TURN_INTERRUPTED`, `AI_TURN_TIMEOUT`,
-  `AI_PROVIDER_EXIT_ERROR`), not as a new per-tool status value (see D9). Task 01 may
-  not move past `draft` review to `approved` while this is open.
-- **Required tests regardless of which option is chosen** (from the owner's
-  instructions, applies to whichever option is selected): successful Claude tool
+- **Decision:** **A — decided.** `tool.completed` is the single terminal tool event
+  and carries an explicit validated `status: 'completed' | 'failed'`. Implement the
+  lifecycle coherently end-to-end:
+  - Claude must not emit a terminal completion at `content_block_stop` before the real
+    `tool_result` outcome is known;
+  - Antigravity must evaluate cancellation and process exit result before emitting a
+    terminal outcome for an active tool, and must not hardcode successful completion;
+  - `AiTurnRuntime#emitToolCompleted` must preserve and forward `status`;
+  - `contracts.mjs`'s `tool.completed` shape must validate the terminal `status`;
+  - `completeRunningToolCalls`/`markTurnInterrupted()`/orphan recovery must never
+    force an unfinished tool to successful `'completed'` when the turn failed, was
+    cancelled/interrupted, or was recovered after an orphaned execution;
+  - live SSE projection and a persisted/reloaded transcript must resolve to the same
+    semantic result.
+  Do not add new per-tool statuses such as `'cancelled'` or `'interrupted'` —
+  `AgentToolCall.status` stays `'running' | 'completed' | 'failed'` (`types.ts:379`).
+  The distinction already established in D9 is unchanged and is what carries the
+  finer-grained outcome instead of a new tool-status value:
+  - tool status: `running | completed | failed`;
+  - Session Activity: `idle | running | waitingForUser`;
+  - Turn/Work Outcome: successful vs. failed vs. cancelled/interrupted, derived from
+    existing terminal turn metadata/error codes (`turn.failed`'s `error: { code,
+    message }` — `contracts.mjs:400-405`, e.g. `AI_TURN_CANCELLED`/
+    `AI_TURN_INTERRUPTED`/`AI_TURN_TIMEOUT`/`AI_PROVIDER_EXIT_ERROR`).
+  This work is accepted in pt1 despite touching adapters/runtime/contracts because it
+  corrects existing lifecycle semantics required for truthful Work UX. It must not
+  expand into new provider capabilities, headless interaction protocols,
+  orchestration, deterministic-flow behavior, or provider session lifecycle redesign.
+- **Rationale (owner):** "This work is accepted in pt1 despite touching
+  adapters/runtime/contracts because it corrects existing lifecycle semantics required
+  for truthful Work UX." "Nie narzucałbym od razu, czy status ma być failed,
+  interrupted czy coś istniejącego" (from the original framing) is superseded by the
+  explicit choice recorded here — the vocabulary question is now answered: no new
+  per-tool status values, existing turn-outcome metadata carries the finer detail.
+- **Required tests** (from the owner's instructions): successful Claude tool
   execution; failed Claude tool result; Claude tool lifecycle does not complete merely
   because the `tool_use` content block finished; successful Antigravity tool;
   Antigravity cancellation while a tool is active; Antigravity non-zero exit while a
   tool is active; turn-level failure with an active tool; live event projection and a
   persisted/reloaded transcript produce the same semantic result.
-- **Date:** 2026-08-21 (original), corrected 2026-08-22 — original framing ("if no
-  explicit success, don't show completed") replaced with the full lifecycle analysis
-  above after verification showed an explicit-looking success can itself be wrong, not
-  merely absent.
+- **Date:** 2026-08-21. (Recorded open earlier the same day pending explicit choice;
+  finalized as Option A the same day — no calendar-date change, correcting an earlier
+  mis-dated revision that had incorrectly logged this as a following day.)
 - **Affected artifacts:** `overview.md`, `tasks/01-semantic-chat-presentation-model.md`,
   `tasks/03-per-turn-work-presentation.md`, `tasks/04-tool-activity-normalization-and-details.md`.
 
@@ -272,7 +306,7 @@
   whatever persists/reloads it — a small, additive structural change, not the "purely
   frontend, zero backend change" framing the original overview asserted for Work
   grouping generally.
-- **Date:** 2026-08-22.
+- **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/01-semantic-chat-presentation-model.md`.
 
 ## D8: Pre-implementation overlap preflight with `ux-improvements-version-1`
@@ -306,7 +340,7 @@
   implementation." (Note: this repository's actual task-status vocabulary has no
   `blocked`/`superseded` — see Task 11's own implementation constraints — so "mark" here
   means recording the disposition in this decision, not a `change.yaml` status write.)
-- **Date:** 2026-08-22.
+- **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/11-reconcile-ux-improvements-overlap.md`,
   and the implementation constraints of Tasks 05, 06, 07, 09 (coordinate with the
   dependency/reuse items above rather than reimplementing them).
@@ -340,5 +374,5 @@
 - **Rationale (owner):** "Do not require Task 09 to distinguish states that its
   allowed frontend-only data cannot actually know. Adjust its dependencies/allowed
   paths if backend/projection work belongs in Task 01 instead."
-- **Date:** 2026-08-22.
+- **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/09-session-states-integration.md`.

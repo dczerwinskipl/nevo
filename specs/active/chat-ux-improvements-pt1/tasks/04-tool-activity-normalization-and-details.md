@@ -54,11 +54,10 @@ secondary.
 - Preserve the existing input/output expand pattern (`ai-tool-view.tsx:63-87`); large
   payloads stay capped/scrollable (`max-h-48 overflow-auto` today) rather than
   overflowing on mobile.
-- Per `owner-decisions.md` D6 (open as of this writing — this task consumes whatever
-  fix Task 01 lands, it does not re-derive tool terminal status from raw events): the
-  detail view for a tool call Task 01's projection marks as not-successfully-completed
-  must reflect that corrected status, never "completed" regardless of how the turn
-  actually ended.
+- Per `owner-decisions.md` D6 (decided Option A — this task consumes the fix Task 01
+  implements, it does not re-derive tool terminal status from raw events): the detail
+  view for a tool call Task 01's projection marks `status: 'failed'` must reflect that
+  status, never "completed", regardless of how the turn actually ended.
 - Technical tool type (`toolCall.name`) remains discoverable even once a friendlier
   label is primary — do not hide it entirely, demote it visually.
 

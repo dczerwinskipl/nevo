@@ -49,14 +49,13 @@ independent `AiToolView` card per call (`ai-chat.tsx:62-64`) with no grouping �
 - Completed state: a successful sequence collapses to one compact summary (e.g.
   "Work · 8 actions ✓"), expandable to inspect individual actions via the existing
   `AiToolView` expand pattern.
-- Failure visibility (FR-4, reinforced by `owner-decisions.md` D6): if any activity in
-  the group is `'failed'` — including a tool that never received a real successful
-  completion before its turn ended abnormally, once Task 01's D6 fix lands (D6 is an
-  open owner decision as of this writing; this task consumes whatever corrected
-  status Task 01 produces, it does not re-derive one) — the collapsed summary must
-  visibly indicate attention is needed. It must not be presented as a uniform success
-  summary. The failed action remains individually inspectable even while the rest of
-  the group is collapsed.
+- Failure visibility (FR-4, reinforced by `owner-decisions.md` D6, decided Option A):
+  if any activity in the group is `'failed'` — including a tool that never received a
+  real successful completion before its turn ended abnormally, per Task 01's D6 fix
+  (this task consumes the corrected status Task 01's projection produces, it does not
+  re-derive one) — the collapsed summary must visibly indicate attention is needed. It
+  must not be presented as a uniform success summary. The failed action remains
+  individually inspectable even while the rest of the group is collapsed.
 - Do not invent new provider states beyond what Task 01's projection already
   distinguishes (FR-4). Turn/Work Outcome (successful/failed/cancelled) is a distinct
   concept from per-tool status — see `owner-decisions.md` D9; this component displays
