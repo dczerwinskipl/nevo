@@ -110,10 +110,16 @@ terminal tool event and carries an explicit validated `status: 'completed' |
 - Add a validated `status` field to `contracts.mjs`'s `tool.completed` shape.
 - Make `turn-runtime.mjs#emitToolCompleted` accept and forward `status` instead of
   dropping it.
-- Change `completeRunningToolCalls` (and therefore `turn.completed`, `turn.failed`,
-  and `markTurnInterrupted()`/orphan recovery) to resolve a still-`'running'` tool call
-  to `status: 'failed'`, never `'completed'`, when the turn did not end via a real
-  successful completion.
+- Change `completeRunningToolCalls` (called from `turn.completed`, `turn.failed`, and
+  `markTurnInterrupted()`/orphan recovery alike) to resolve a still-`'running'` tool
+  call to `status: 'failed'`, never `'completed'`. This applies **regardless of the
+  turn's own outcome** — the governing invariant is about the tool's own terminal
+  signal, not the turn's: a tool is presented/persisted as successfully completed only
+  when a real successful terminal tool outcome was received for that specific tool. A
+  turn reaching normal `turn.completed` is not evidence that every tool lingering
+  within it succeeded — a tool still `'running'` at that point, with no real
+  `tool.completed{status:'completed'}` ever received for it, resolves to `'failed'`
+  exactly like the failure/cancellation/orphan-recovery cases.
 
 Do not add new per-tool statuses such as `'cancelled'` or `'interrupted'` —
 `AgentToolCall.status` stays `'running' | 'completed' | 'failed'`. A finer-grained
@@ -174,9 +180,11 @@ deterministic-flow behavior, or provider session lifecycle redesign.
    `tool_result`-driven outcome for the same `toolId` to be lost or overwritten with a
    stale/synthetic success.
    `automated: node --test tools/tests/claude-adapter.test.mjs`
-3. A tool call still `'running'` when a turn ends via `turn.failed`, cancellation, or
-   `markTurnInterrupted()`/orphan recovery resolves to `status: 'failed'` — never
-   `'completed'`.
+3. A tool call still `'running'` when a turn ends resolves to `status: 'failed'` —
+   never `'completed'` — regardless of *how* the turn ended: `turn.failed`,
+   cancellation, `markTurnInterrupted()`/orphan recovery, **and normal `turn.completed`
+   while that specific tool never received a real successful terminal signal**. A
+   successful turn outcome is not evidence that every lingering tool succeeded.
    `automated: node --test tools/tests/ai-turn-runtime.test.mjs`
 4. `contracts.mjs`'s `tool.completed` shape validates an explicit `status: 'completed'
    | 'failed'` field, `turn-runtime.mjs#emitToolCompleted` forwards it, and both
@@ -221,7 +229,13 @@ deterministic-flow behavior, or provider session lifecycle redesign.
 14. Antigravity cancellation while a tool is active.
 15. Antigravity non-zero exit while a tool is active.
 16. Turn-level failure with an active tool.
-17. Live event projection and a persisted/reloaded transcript produce the same
+17. **A turn reaching normal `turn.completed` while a different tool call in the same
+    turn is still `'running'` and never received a real successful terminal signal —
+    that tool resolves to `'failed'`, not `'completed'`, even though the turn itself
+    succeeded.** This is a distinct scenario from 16 (turn-level failure) — here the
+    turn itself is fine; only one lingering tool within it is unresolved.
+    `automated: node --test tools/tests/ai-turn-runtime.test.mjs`
+18. Live event projection and a persisted/reloaded transcript produce the same
     semantic result for every scenario above.
     `automated: node --test tools/tests/claude-adapter.test.mjs tools/tests/antigravity-adapter.test.mjs tools/tests/ai-turn-runtime.test.mjs tools/tests/ai-contracts.test.mjs && npm --prefix tools/dashboard test`
 

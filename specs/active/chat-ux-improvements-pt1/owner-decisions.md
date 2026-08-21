@@ -137,6 +137,21 @@
   - logical session assembly (`AiSessionService`/`ai-routes.mjs`) aggregates the
     existing binding rows using the multi-row binding APIs (`listBindings`/
     `listBindingsSync`), not `getBinding`;
+  - **the aggregation must land in the actual HTTP route the dashboard consumes, not
+    only inside the service layer.** A follow-up verification pass confirmed the
+    single-session route (`tools/dashboard/server/ai-routes.mjs:315-350`, matching
+    both `GET /api/agent-sessions/:provider/:providerSessionId` and the legacy `GET
+    /api/ai/sessions/:provider/:providerSessionId` alias) calls
+    `service.bindingService.getBinding(...)` directly and builds its response object
+    with `taskId: binding?.taskId` only — no `taskIds` field at all. This is the exact
+    route `fetchAgentSessionSnapshot` (`nevo-assistant-runtime.ts`) calls, so an
+    aggregation that only exists inside `AiSessionService`/`bindingService` and never
+    reaches this route handler would not fix the observable bug. The same pass also
+    found `AiSessionService.listSessions` (`service.mjs:52-66`) maps each row returned
+    by `bindingService.listBindings` directly into its own list entry with no
+    grouping by `(provider, providerSessionId)` — today a session with 3 task-bound
+    rows would surface as 3 separate list entries, not 1. Task 06's aggregation must
+    fix both the single-session route and this list-grouping gap;
   - the aggregated result exposes the canonical `taskIds[]` the frontend/session
     snapshot already expects (`types.ts:408`);
   - `getBinding`'s single-record contract, and deterministic-flow semantics for
@@ -242,9 +257,16 @@
     terminal outcome for an active tool, and must not hardcode successful completion;
   - `AiTurnRuntime#emitToolCompleted` must preserve and forward `status`;
   - `contracts.mjs`'s `tool.completed` shape must validate the terminal `status`;
-  - `completeRunningToolCalls`/`markTurnInterrupted()`/orphan recovery must never
-    force an unfinished tool to successful `'completed'` when the turn failed, was
-    cancelled/interrupted, or was recovered after an orphaned execution;
+  - the governing invariant is about the tool's own terminal signal, not the turn's
+    outcome: **a tool is presented/persisted as successfully completed only when a
+    real successful terminal tool outcome was received for that specific tool.** A
+    successful turn outcome is not evidence that every lingering tool succeeded —
+    `completeRunningToolCalls`/`markTurnInterrupted()`/orphan recovery must never
+    force an unfinished tool to `'completed'` when the turn failed, was
+    cancelled/interrupted, was recovered after an orphaned execution, **or reached a
+    normal `turn.completed` while that specific tool never received a real successful
+    terminal signal** — any of these forced-finalization paths resolves to `'failed'`
+    instead;
   - live SSE projection and a persisted/reloaded transcript must resolve to the same
     semantic result.
   Do not add new per-tool statuses such as `'cancelled'` or `'interrupted'` —
@@ -271,8 +293,11 @@
   execution; failed Claude tool result; Claude tool lifecycle does not complete merely
   because the `tool_use` content block finished; successful Antigravity tool;
   Antigravity cancellation while a tool is active; Antigravity non-zero exit while a
-  tool is active; turn-level failure with an active tool; live event projection and a
-  persisted/reloaded transcript produce the same semantic result.
+  tool is active; turn-level failure with an active tool; **a turn reaching normal
+  `turn.completed` while a different tool call in the same turn is still `'running'`
+  and never received a real successful terminal signal — that tool resolves to
+  `'failed'`, not `'completed'`, even though the turn itself succeeded**; live event
+  projection and a persisted/reloaded transcript produce the same semantic result.
 - **Date:** 2026-08-21. (Recorded open earlier the same day pending explicit choice;
   finalized as Option A the same day — no calendar-date change, correcting an earlier
   mis-dated revision that had incorrectly logged this as a following day.)
@@ -345,7 +370,7 @@
   and the implementation constraints of Tasks 05, 06, 07, 09 (coordinate with the
   dependency/reuse items above rather than reimplementing them).
 
-## D9: Session Activity vocabulary corrected to match `resolveSessionActivity()`; Turn/Work Outcome is a separate concept
+## D9: Session Activity vocabulary corrected to match `resolveSessionActivity()`; Turn/Work Outcome is a separate concept; `AiSessionStatus`'s declared type is wider than its real producer
 
 - **Question:** Task 09 originally listed `idle | running | waitingForUser | completed
   | failed` as "existing session states." Verification shows `AiSessionService
@@ -354,25 +379,61 @@
   session-activity values the backend produces — they describe how a *turn* ended, and
   a turn ending (successfully, by failure, or by cancellation) always leaves the
   session at `idle` again.
+
+  A follow-up review of the prior correction (commit `e3ec2bf`) found that fix
+  overcorrected into a second factual error: it claimed `AiSessionStatus`
+  (`tools/dashboard/src/lib/types.ts:346`) *is* `idle | running | waitingForUser` —
+  but the type as actually declared is `'idle' | 'running' | 'waitingForUser' |
+  'completed' | 'failed'` (5 members, unchanged). A second verification pass across
+  every producer and consumer of session `.status` found:
+  - **Producers** (`resolveSessionActivity()`, used by both `AiSessionService
+    .listSessions` — `service.mjs:52-66` — and the single-session GET route —
+    `tools/dashboard/server/ai-routes.mjs:315-350`): only ever emit `idle`/`running`/
+    `waitingForUser`. No code path was found that sets a session's `.status` to
+    `'completed'` or `'failed'`. `AiSession.completedAt` (`types.ts:416`) is likewise
+    never assigned anywhere in `tools/ai/*.mjs`.
+  - **Consumers** (real, in files within this change's scope): `ai-chat.tsx:457,465,
+    482` disables/relabels the composer when `session?.status === 'completed'`;
+    `ai-session-list.tsx:116,128,234-235` (sidebar, outside this change's scope) groups
+    sessions into "current" vs. "completed" using the same check. Both are checking a
+    value no current producer ever emits — dead code today, not a hypothetical.
+  So the type is not "stale" in the sense of having zero references — real consumer
+  code (some inside this change's scope, some outside it) still branches on
+  `'completed'`/`'failed'`, even though nothing produces them. Deleting the type
+  members would be a breaking change to files outside some tasks' `allowed_paths`
+  (`ai-session-list.tsx` is not in Task 09's `allowed_paths`), which this
+  spec-correction pass must not silently trigger.
 - **Decision:** Split the vocabulary into two distinct concepts across
-  `overview.md`/Task 09:
-  - **Session Activity** (what `resolveSessionActivity()` actually computes):
-    `idle | running | waitingForUser`.
+  `overview.md`/Task 09, **without deleting or narrowing the declared
+  `AiSessionStatus` type**:
+  - **Session Activity** (what `resolveSessionActivity()` actually computes, and the
+    only values any task in this change may treat as live/producible): `idle |
+    running | waitingForUser`.
   - **Turn/Work Outcome** (a property of the most recent turn, not the session):
     `successful | failed | cancelled/interrupted`, limited to what the terminal
     `error.code` metadata can actually distinguish (see D6 — `turn.failed`'s
     `error.code`, e.g. `AI_TURN_CANCELLED`/`AI_TURN_INTERRUPTED`/`AI_TURN_TIMEOUT`/
     `AI_PROVIDER_EXIT_ERROR`).
+  `AiSessionStatus`'s `'completed'`/`'failed'` members, and the existing
+  `ai-chat.tsx`/`ai-session-list.tsx` checks against them, are **legacy/dead** —
+  Task 09 must not build any *new* Session Activity behavior on top of them, must not
+  claim they are live in spec text, and must not delete them or the code that checks
+  them (that code is inert, not broken, and touching `ai-session-list.tsx` is outside
+  this change's scope). If Task 09's own redesign happens to touch the `ai-chat.tsx`
+  lines that check `session.status === 'completed'`, it must preserve their current
+  (harmless, always-false-today) behavior rather than extend it.
   No `stopped` session-activity value is introduced (unchanged from the original D6/
-  FR-26 note — it still doesn't exist in `AiSessionStatus`, `types.ts:346`, and this
-  correction doesn't add one either).
+  FR-26 note).
 - **Consequences:** Task 09 must not be required to distinguish outcomes its allowed
   (frontend-only) data can't actually know from Session Activity alone — displaying
   Turn/Work Outcome distinctly (e.g. "failed" vs. "cancelled") depends on Task 01
   exposing the turn's terminal `error.code`, which is backend/projection work, not
-  something Task 09 can produce within its own `allowed_paths`.
+  something Task 09 can produce within its own `allowed_paths`. Separately, the spec
+  must describe `AiSessionStatus` accurately — a 5-member declared type with a
+  3-member live producer — rather than asserting the type itself has 3 members.
 - **Rationale (owner):** "Do not require Task 09 to distinguish states that its
   allowed frontend-only data cannot actually know. Adjust its dependencies/allowed
-  paths if backend/projection work belongs in Task 01 instead."
+  paths if backend/projection work belongs in Task 01 instead." (original); "the spec
+  must not state something factually false about the current type" (this correction).
 - **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/09-session-states-integration.md`.

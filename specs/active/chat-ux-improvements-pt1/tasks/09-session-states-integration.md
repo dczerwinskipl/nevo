@@ -41,13 +41,28 @@ The original framing of this task listed `idle | running | waitingForUser | comp
 concepts conflated:
 
 - **Session Activity** — what `AiSessionService.resolveSessionActivity()`
-  (`tools/ai/service.mjs:83-112`) actually computes: `idle | running |
-  waitingForUser`. This is the only vocabulary `AiSessionStatus`
-  (`tools/dashboard/src/lib/types.ts:346`) carries.
+  (`tools/ai/service.mjs:83-112`) actually *computes* (the only values this task may
+  treat as live/producible): `idle | running | waitingForUser`.
 - **Turn/Work Outcome** — a property of the most recently finished turn, not the
   session: `successful | failed | cancelled/interrupted`. A turn ending any way
   (success, failure, cancellation) always leaves the session back at `idle` — outcome
   and activity are not the same axis.
+
+**Correction to a second factual error introduced by the first correction**
+(`owner-decisions.md` D9, updated): `AiSessionStatus` as actually *declared*
+(`tools/dashboard/src/lib/types.ts:346`) is **not** 3 members — it is `'idle' |
+'running' | 'waitingForUser' | 'completed' | 'failed'`, 5 members, and this task does
+not change that declaration. `'completed'`/`'failed'` have no current producer (no
+code path sets a session's `.status` to either), but they are not merely unused: real
+consumer code still checks them — `ai-chat.tsx:457,465,482` (inside this task's
+`allowed_paths`) disables/relabels the composer when `session?.status === 'completed'`;
+`ai-session-list.tsx:116,128,234-235` (sidebar, **not** in this task's `allowed_paths`)
+groups sessions by the same check. Both are dead code today (the value never arrives),
+not broken code. **This task must not delete the type members or the code that checks
+them**, and must not build any *new* Session Activity behavior on top of `'completed'`/
+`'failed'` — if this task's own redesign touches the `ai-chat.tsx` lines that check
+`session.status === 'completed'`, it preserves their current (harmless, always-false)
+behavior rather than extending it.
 
 There is still no `stopped` session-activity value, and this task does not add one.
 
@@ -85,10 +100,14 @@ There is still no `stopped` session-activity value, and this task does not add o
 1. All three actual Session Activity values (`idle`, `running`, `waitingForUser`)
    remain visible/discoverable somewhere in the redesigned chat.
    `inspection: simulate each activity value, confirm a visible indicator exists`
-2. No UI element claims a session-level "completed" or "failed" activity state — those
-   are rendered as Turn/Work Outcome (in Work/history), not Session Activity (in the
-   header/composer status indicator).
-   `inspection: confirm the header/composer status indicator only ever shows idle/running/waitingForUser`
+2. No **new** UI element claims a session-level "completed" or "failed" activity
+   state — Session Activity (header/composer status indicator) only ever displays
+   `idle`/`running`/`waitingForUser`; "completed"/"failed" are rendered as Turn/Work
+   Outcome (in Work/history) instead. This does not require removing the existing,
+   currently-inert `session.status === 'completed'` checks in `ai-chat.tsx` (see
+   "Corrected vocabulary" above) — it requires not adding new live behavior that
+   depends on a session activity ever actually being `'completed'`/`'failed'`.
+   `inspection: confirm the header/composer status indicator only ever shows idle/running/waitingForUser, and that no new code assumes session.status can be 'completed'/'failed' at runtime`
 3. Shared status label/token component is reused for both axes, not duplicated
    locally (once available; see implementation constraints for the not-yet-landed
    case).
@@ -102,8 +121,10 @@ There is still no `stopped` session-activity value, and this task does not add o
 6. Existing stop/cancel control works unchanged.
    `automated: npm --prefix tools/dashboard test`
 7. No new Session Activity or Turn/Work Outcome value is invented (no `stopped` added
-   to `AiSessionStatus`; no new `AgentToolCall.status` value added — see D6/D9).
-   `inspection: diff tools/dashboard/src/lib/types.ts's AiSessionStatus/AgentToolCall unions`
+   to `AiSessionStatus`; no new `AgentToolCall.status` value added — see D6/D9). The
+   existing `AiSessionStatus` declaration (5 members, including the legacy
+   `'completed'`/`'failed'`) is also not narrowed or deleted by this task.
+   `inspection: diff tools/dashboard/src/lib/types.ts's AiSessionStatus/AgentToolCall unions — confirm no member added or removed`
 
 ## Verification
 

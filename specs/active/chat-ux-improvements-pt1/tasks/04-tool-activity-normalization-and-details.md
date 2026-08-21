@@ -46,9 +46,22 @@ secondary.
   lookup consumed by more than one component). No backend/adapter change is needed:
   `AgentToolCall.input`/`toolName` are already delivered to the frontend
   (`tools/dashboard/src/lib/types.ts:374-381`).
-- No extra LLM call for label generation (FR-5, explicit non-goal) — purely
-  deterministic string derivation from structured data, with a sane fallback (e.g.
-  "Running command") when no specific mapping exists for a tool/command.
+- **Presentation precedence (explicit, three tiers, checked in order):**
+  1. An existing meaningful structured description already supplied with the tool
+     input/event (e.g. an `input.description`-shaped field), when present — use it
+     verbatim, do not discard a good provider/tool-supplied description only to
+     synthesize another one. (Note: no current adapter/tool populates such a field as
+     of this writing — `grep` across `tools/ai/*.mjs`/`contracts.mjs` found no
+     `description` field on any tool-call input shape — so this tier is a
+     forward-compatible precedence rule, not dead code for a case that can't occur;
+     tier 2 is what actually fires for every tool today.)
+  2. Deterministic Nevo normalization from structured data already available
+     client-side (file path, command, query, etc.) — the `tool-activity-labels.ts`
+     lookup this task builds.
+  3. A generic deterministic fallback (e.g. "Running command", "Reading file") when
+     neither tier 1 nor tier 2 produces anything.
+- No extra LLM call for label generation at any tier (FR-5, explicit non-goal) —
+  purely deterministic string derivation from structured data.
 - Status is visually secondary to the activity label (reverse of today's uppercase
   badge-as-primary treatment).
 - Preserve the existing input/output expand pattern (`ai-tool-view.tsx:63-87`); large
@@ -63,28 +76,37 @@ secondary.
 
 ## Acceptance criteria
 
-1. When a meaningful description already exists in structured data, it is used as the
-   primary label.
-   `inspection: verify a tool call carrying a descriptive input (e.g. a file path) renders a specific label, not the raw tool name`
-2. When no such description exists, a deterministically derived label is shown instead
-   of the raw tool name; unmapped tools fall back to a generic but still human label
-   (e.g. "Running command"), never a blank/undefined label.
+1. **Tier 1 wins when present:** a tool call carrying an existing structured
+   description (e.g. `input.description`) renders that description verbatim as the
+   primary label — it is never discarded in favor of a synthesized tier-2/3 label.
    `automated: npm --prefix tools/dashboard test`
-3. No new LLM call is introduced for label generation.
+2. **Tier 2 fires when tier 1 is absent:** a tool call with useful structured input
+   but no explicit description (the case every current tool hits) renders a
+   deterministically derived label instead of the raw tool name.
+   `automated: npm --prefix tools/dashboard test`
+3. **Tier 3 fires when neither tier 1 nor 2 applies:** an unmapped tool with no useful
+   structured input falls back to a generic but still human label (e.g. "Running
+   command"), never a blank/undefined label.
+   `automated: npm --prefix tools/dashboard test`
+4. No new LLM call is introduced for label generation, at any tier.
    `inspection: read the label module, confirm no network/model call`
-4. Technical tool type remains discoverable (e.g. in the expanded detail view).
+5. Technical tool type (`toolCall.name`) remains discoverable (e.g. in the expanded
+   detail view) as secondary/debug information, regardless of which tier produced the
+   primary label.
    `inspection: expand a Work item, confirm the raw tool name is still visible`
-5. Status is visually secondary to the activity label.
+6. Status is visually secondary to the activity label.
    `inspection: compare visual weight of label vs. status badge before/after`
-6. Input/output/errors remain inspectable; large payloads remain usable on mobile
+7. Input/output/errors remain inspectable; large payloads remain usable on mobile
    (capped/scrollable, no unbounded overflow).
    `inspection: expand a tool call with a large output at a narrow viewport`
-7. A tool call Task 01 marked as not-successfully-completed (abrupt termination) shows
+8. A tool call Task 01 marked as not-successfully-completed (abrupt termination) shows
    that corrected status in its detail view, not "completed".
    `automated: npm --prefix tools/dashboard test`
-8. Label normalization has focused unit tests for at least: `Read` with a path,
-   `Bash` with a known vs. unknown command, and a tool with no useful structured
-   input (fallback case).
+9. Label normalization has focused unit tests for at least: a tool call carrying an
+   explicit structured description (tier 1 wins over tier 2 even when tier 2 could
+   also produce a label); `Read` with a path and `Bash` with a known command (tier 2);
+   `Bash` with an unknown command and a tool with no useful structured input (tier 3
+   fallback).
    `automated: npm --prefix tools/dashboard test`
 
 ## Verification

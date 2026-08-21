@@ -107,17 +107,34 @@ change. There is no reassignment endpoint — `PATCH
 `/api/ai/...` "legacy" surface (`ai-routes.mjs:87-89`) still used for session
 create/delete (`hooks/use-dashboard-data.ts`, wired into `ai-chat.tsx:29-31`).
 
-**Session Activity vs. Turn/Work Outcome — two concepts, not one vocabulary**
-(`owner-decisions.md` D9): `AiSessionService.resolveSessionActivity()`
-(`service.mjs:83-112`) computes only `idle | running | waitingForUser` — the full
-`AiSessionStatus` vocabulary (`types.ts:346`). There is no `completed`/`failed`
-session-activity value; a turn ending any way (success, failure, cancellation) always
-leaves the session at `idle`. How that turn ended is separate, existing metadata:
-`turn.failed` validates `error: { code, message }` (`contracts.mjs:400-405`) with
-existing codes including `AI_TURN_CANCELLED`, `AI_TURN_INTERRUPTED`,
-`AI_TURN_TIMEOUT`, `AI_PROVIDER_EXIT_ERROR` (`turn-runtime.mjs`) — validated on the
-wire today but not currently exposed on `NormalizedMessage`/the session snapshot in a
-way that survives reload.
+**Session Activity vs. Turn/Work Outcome — two concepts, not one vocabulary, and the
+declared type is wider than its live producer** (`owner-decisions.md` D9):
+`AiSessionService.resolveSessionActivity()` (`service.mjs:83-112`) computes only
+`idle | running | waitingForUser` — but `AiSessionStatus` as actually **declared**
+(`types.ts:346`) is `'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed'`,
+5 members, unchanged by this spec. No current producer (`resolveSessionActivity`, used
+by both `listSessions` and the single-session GET route) ever emits `'completed'`/
+`'failed'` for a session — a turn ending any way (success, failure, cancellation)
+always leaves the session at `idle`. Those two members are legacy/dead, not absent:
+real consumer code still checks them (`ai-chat.tsx:457,465,482` composer-disable logic
+inside this change's scope; `ai-session-list.tsx:116,128,234-235` sidebar grouping,
+outside this change's scope) even though nothing produces the value — this spec
+neither deletes those type members nor the code that checks them (see D9). How a turn
+ended is separate, existing metadata: `turn.failed` validates `error: { code, message
+}` (`contracts.mjs:400-405`) with existing codes including `AI_TURN_CANCELLED`,
+`AI_TURN_INTERRUPTED`, `AI_TURN_TIMEOUT`, `AI_PROVIDER_EXIT_ERROR`
+(`turn-runtime.mjs`) — validated on the wire today but not currently exposed on
+`NormalizedMessage`/the session snapshot in a way that survives reload.
+
+**Session→task association at the actual HTTP boundary** (`owner-decisions.md` D5):
+the single-session GET route (`tools/dashboard/server/ai-routes.mjs:315-350`, serving
+both `/api/agent-sessions/:provider/:providerSessionId` and the legacy `/api/ai/
+sessions/:provider/:providerSessionId` alias — the exact route
+`fetchAgentSessionSnapshot` calls) builds its response with `taskId: binding?.taskId`
+only, calling `getBinding` directly. `AiSessionService.listSessions`
+(`service.mjs:52-66`) maps each raw binding row into its own list entry with no
+grouping by `(provider, providerSessionId)`. Both must change for D5's Option A
+aggregation to be observable by the dashboard, not just internally correct.
 
 ## Problem
 
@@ -159,9 +176,14 @@ and cannot be fixed by UI projection alone:
   aggregated, never how/when a task auto-binds a session.
 - No new provider capability, headless interaction protocol, or subagent execution
   support (brief §3.3).
-- **Session Activity** vocabulary stays as-is: `idle | running | waitingForUser`
-  (`tools/dashboard/src/lib/types.ts:346` — the full `AiSessionStatus` union). Do not
-  invent a `stopped` value. **Turn/Work Outcome** (`successful | failed | cancelled/
+- **Session Activity** — the only values any task may treat as live/producible:
+  `idle | running | waitingForUser` (what `resolveSessionActivity()` actually emits).
+  `AiSessionStatus` as **declared** (`tools/dashboard/src/lib/types.ts:346`) is wider
+  — `'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed'` — and this change
+  does not narrow or delete that type; `'completed'`/`'failed'` are legacy members
+  with no current producer but real existing consumers outside a clean removal
+  boundary (see D9) — do not build new behavior on them, and do not delete them. Do
+  not invent a `stopped` value. **Turn/Work Outcome** (`successful | failed | cancelled/
   interrupted`) is a separate concept, sourced from existing turn-level `error.code`
   metadata, not a new session-activity value (`owner-decisions.md` D9).
 - Do not invent a new `AgentToolCall.status` value beyond `'running' | 'completed' |
@@ -299,13 +321,17 @@ write to `ux-improvements-version-1`'s manifest — see D8 and Task 11).
 - [ ] Task 06 implements D5's Option A (aggregate existing binding rows; no persisted
       schema migration) and Task 01 implements D6's Option A (`tool.completed` carries
       an explicit validated terminal `status`) as decided in `owner-decisions.md`.
-- [ ] A tool call that never received a real successful completion, in a turn that
-      terminated abnormally (failure, cancellation, or restart/orphan recovery), is
-      never presented as successfully completed anywhere in the UI — enforced in
-      Tasks 01, 03, 04, tested per D6's required scenario list.
+- [ ] A tool call that never received a real successful terminal signal — whether the
+      turn terminated abnormally (failure, cancellation, restart/orphan recovery) *or*
+      reached a normal `turn.completed` while that tool was still lingering — is never
+      presented as successfully completed anywhere in the UI — enforced in Tasks 01,
+      03, 04, tested per D6's required scenario list (including the normal-completion
+      lingering-tool case).
 - [ ] A session created with multiple linked tasks displays all of them in Session
-      details, not just one — enforced in Task 06, tested at the binding-service layer,
-      not only in a UI mock.
+      details, not just one — enforced in Task 06, verified at the actual HTTP session
+      route (`GET /api/agent-sessions/:provider/:providerSessionId`) the dashboard
+      consumes, not only at the binding-service layer or a UI mock; list-session
+      filtering by one task does not truncate a logical session's `taskIds[]`.
 - [ ] Turn/message correlation is verified (live and after reload) before Work
       grouping ships — enforced in Task 01.
 - [ ] Session Activity and Turn/Work Outcome are never conflated in any task's UI or
