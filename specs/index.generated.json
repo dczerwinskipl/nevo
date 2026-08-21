@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-21T07:01:53.804Z",
+  "generated": "2026-08-21T07:07:26.201Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -193,7 +193,7 @@
           "id": "design-tokens",
           "order": 1,
           "file": "tasks/01-design-tokens.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "aa17c86bd89326a3475d0d07e42b54df1779ccee",
             "review_revision": "56c41598f451c255b41af6ad7d9ef660dd8efce6",
