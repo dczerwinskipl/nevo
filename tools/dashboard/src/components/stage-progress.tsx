@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'done', label: 'Gotowe', color: 'bg-[var(--accent)]' },
-  { id: 'review', label: 'Review', color: 'bg-fuchsia-400/60' },
-  { id: 'implementation', label: 'Implementacja', color: 'bg-amber-300/60' },
-  { id: 'ready', label: 'Ready', color: 'bg-sky-400/60' },
-  { id: 'design', label: 'Projekt', color: 'bg-violet-400/60' },
+  { id: 'review', label: 'Review', color: 'bg-[color-mix(in_srgb,var(--warning)_60%,transparent)]' },
+  { id: 'implementation', label: 'Implementacja', color: 'bg-[color-mix(in_srgb,var(--info)_60%,transparent)]' },
+  { id: 'ready', label: 'Ready', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  { id: 'design', label: 'Projekt', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
   { id: 'new', label: 'Nowe', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
 ];
 
