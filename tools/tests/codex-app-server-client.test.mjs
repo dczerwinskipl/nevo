@@ -120,6 +120,7 @@ test('initializes once, sends initialized before gated requests, and uses persis
   assert.deepEqual(capture.options.stdio, ['pipe', 'pipe', 'pipe']);
   assert.deepEqual(child.received.map(message => message.method), ['initialize', 'initialized', 'thread/start']);
   assert.equal(child.received[0].params.clientInfo.name, 'nevo');
+  assert.deepEqual(child.received[0].params.capabilities, { experimentalApi: true });
   assert.ok(!Object.hasOwn(child.received[0], 'jsonrpc'));
   assert.deepEqual(child.received[1], { method: 'initialized' });
 });

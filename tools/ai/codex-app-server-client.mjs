@@ -92,6 +92,7 @@ export class CodexAppServerClient {
   #env;
   #spawnProcess;
   #clientInfo;
+  #initializeCapabilities;
   #child = null;
   #initializationPromise = null;
   #initializationResult = null;
@@ -117,6 +118,7 @@ export class CodexAppServerClient {
     env = process.env,
     spawnProcess = spawn,
     clientInfo = DEFAULT_CLIENT_INFO,
+    initializeCapabilities = { experimentalApi: true },
     maxStderrBytes = 8_192,
     disposeGraceMs = 500,
     forceGraceMs = 2_000,
@@ -129,6 +131,7 @@ export class CodexAppServerClient {
     this.#env = env;
     this.#spawnProcess = spawnProcess;
     this.#clientInfo = Object.freeze({ ...clientInfo });
+    this.#initializeCapabilities = Object.freeze({ ...initializeCapabilities });
     this.#maxStderrBytes = maxStderrBytes;
     this.#disposeGraceMs = disposeGraceMs;
     this.#forceGraceMs = forceGraceMs;
@@ -259,6 +262,7 @@ export class CodexAppServerClient {
       try {
         const result = validateInitializeResult(await this.#sendRequest('initialize', {
           clientInfo: this.#clientInfo,
+          capabilities: this.#initializeCapabilities,
         }));
         this.#writeEnvelope({ method: 'initialized' });
         this.#initializationResult = result;
