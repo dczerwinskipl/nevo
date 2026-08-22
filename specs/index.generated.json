@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T10:08:55.521Z",
+  "generated": "2026-08-22T10:30:07.575Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -395,6 +395,38 @@
           "depends_on": [
             "concrete-action-commit-and-push",
             "step-orchestration-and-next-step-service"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openai-codex-provider-support",
+      "specId": "38d72d6b-3b47-4a07-8973-33ae5cee3ebc",
+      "title": "OpenAI Codex provider support",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-22",
+      "tasks": [
+        {
+          "id": "provider-neutral-persistent-turn-contracts",
+          "order": 1,
+          "file": "tasks/01-provider-neutral-persistent-turn-contracts.md",
+          "status": "draft"
+        },
+        {
+          "id": "codex-app-server-client",
+          "order": 2,
+          "file": "tasks/02-codex-app-server-client.md",
+          "status": "draft"
+        },
+        {
+          "id": "codex-provider-adapter-and-registration",
+          "order": 3,
+          "file": "tasks/03-codex-provider-adapter-and-registration.md",
+          "status": "draft",
+          "depends_on": [
+            "provider-neutral-persistent-turn-contracts",
+            "codex-app-server-client"
           ]
         }
       ]
