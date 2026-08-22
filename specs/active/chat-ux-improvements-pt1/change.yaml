@@ -26,7 +26,7 @@ tasks:
   - id: per-turn-work-presentation
     order: 3
     file: tasks/03-per-turn-work-presentation.md
-    status: draft
+    status: approved
     depends_on:
       - semantic-chat-presentation-model
 
