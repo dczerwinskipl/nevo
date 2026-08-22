@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T03:17:25.385Z",
+  "generated": "2026-08-22T03:17:31.425Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -37,7 +37,7 @@
           "id": "tool-activity-normalization-and-details",
           "order": 4,
           "file": "tasks/04-tool-activity-normalization-and-details.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "semantic-chat-presentation-model",
             "per-turn-work-presentation"

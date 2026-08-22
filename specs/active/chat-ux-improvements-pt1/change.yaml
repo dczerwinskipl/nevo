@@ -33,7 +33,7 @@ tasks:
   - id: tool-activity-normalization-and-details
     order: 4
     file: tasks/04-tool-activity-normalization-and-details.md
-    status: draft
+    status: approved
     depends_on:
       - semantic-chat-presentation-model
       - per-turn-work-presentation
