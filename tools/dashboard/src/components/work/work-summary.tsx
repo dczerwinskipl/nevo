@@ -82,6 +82,34 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
 });
 
 /**
+ * Lightweight turn-level error row, rendered below tool items inside expanded Work
+ * when the turn ended via `turn.failed` (owner-decisions.md D6/D9). This is what makes
+ * the reason for "requires attention" visible — the error is separate from per-tool
+ * statuses (successful tools stay successful) and is never hidden inside raw event
+ * details. No card chrome — just a compact inline row consistent with the rest of Work.
+ */
+const TurnErrorRow = memo(function TurnErrorRow({
+  turnError,
+}: {
+  turnError: { code: string; message: string };
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-md px-1 py-1.5 text-xs text-red-300" role="alert">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-red-400" />
+      <div className="min-w-0 flex-1">
+        <span className="font-medium">Turn failed</span>
+        {turnError.message && (
+          <span className="ml-1 text-red-200/80">{turnError.message}</span>
+        )}
+        {turnError.code && (
+          <span className="ml-1 font-mono text-[10px] text-red-200/50">({turnError.code})</span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+/**
  * Compact per-turn Work presentation (owner-decisions.md, replaces one `AiToolView`
  * card per tool call). Consumes Task 01's `TurnWork` projection directly — grouping
  * (current/completed/failed, and the independent `hasFailures` signal) is already
@@ -116,6 +144,10 @@ export function WorkSummary({ work }: WorkSummaryProps) {
             {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
           </div>
         )}
+        {/* Turn-level error exposed separately when expanded — successful tools stay successful. */}
+        {expanded && work.turnError && (
+          <TurnErrorRow turnError={work.turnError} />
+        )}
         <WorkCurrentActivity item={currentItem} />
       </div>
     );
@@ -133,6 +165,10 @@ export function WorkSummary({ work }: WorkSummaryProps) {
         <div className="space-y-1.5 pl-1">
           {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
         </div>
+      )}
+      {/* Turn-level error exposed separately when expanded — successful tools stay successful. */}
+      {expanded && work.turnError && (
+        <TurnErrorRow turnError={work.turnError} />
       )}
     </div>
   );

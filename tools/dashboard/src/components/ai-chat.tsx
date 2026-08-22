@@ -398,9 +398,13 @@ export function AiChatPage({
                 <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
               </div>
             )}
-            {assistant.messages.map(message => (
-              <ChatMessage key={message.id} message={message} work={message.turnId ? workByTurnId.get(message.turnId) : undefined} />
-            ))}
+            {assistant.messages.map(message => {
+              // Work is rendered exactly once per turn — at the anchor message
+              // (TurnWork.messageId). Other messages in the same turn render prose only.
+              const turnWork = message.turnId ? workByTurnId.get(message.turnId) : undefined;
+              const work = turnWork?.messageId === message.id ? turnWork : undefined;
+              return <ChatMessage key={message.id} message={message} work={work} />;
+            })}
             {assistant.isRunning && !assistant.pendingInteraction && (
               <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />

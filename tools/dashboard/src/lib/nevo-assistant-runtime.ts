@@ -82,29 +82,44 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
 }
 
 /**
- * Finds this event's owning assistant message, preferring `turnId` — the single
- * correlation key every assistant-message-producing event shares (owner-decisions.md
- * D7) — over `messageId`, whose default format differs between event types on the wire
- * (`turn-runtime.mjs#emitTextDelta` defaults it to `message-${turnId}` while tool
- * events carry none at all) and previously caused two separate messages, and therefore
- * two independently-rendered Work summaries, for the same turn. `messageId` is only a
- * fallback, for an event that genuinely carries no `turnId`. Returns the existing
- * message index, or -1 if no message exists yet for this event.
+ * Finds this event's owning assistant message.
+ *
+ * Priority (owner-decisions.md D7):
+ *  1. Explicit `messageId` — when the provider sends a distinct `messageId`, that
+ *     identity is preserved so message-A and message-B within the same turn stay
+ *     separate `NormalizedMessage` records.
+ *  2. `turnId` fallback — for events that carry a `turnId` but no explicit `messageId`
+ *     (e.g. `tool.started`/`tool.completed`, which must attach to the existing turn
+ *     message regardless of which prose message owns the turn).
+ *
+ * Work de-duplication is NOT done here — the projection layer (`chat-projection.ts`)
+ * aggregates all messages sharing a `turnId` into exactly one `TurnWork`.
+ *
+ * Returns the existing message index, or -1 if no message exists yet for this event.
  */
 function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
-  if (event.turnId) {
-    const byTurn = messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
-    if (byTurn >= 0) return byTurn;
-  }
+  // Explicit messageId takes priority — preserves distinct message identity within a turn.
+  // If the event carries an explicit messageId but it isn't in the list yet, return -1
+  // to create a new message with that ID (do NOT fall through to the turnId fallback,
+  // which would merge two distinct messages sharing only a turnId).
   if (event.messageId) {
     return messages.findIndex((m) => m.id === event.messageId);
+  }
+  // turnId fallback — tool events carry turnId but no messageId; they must land in the
+  // existing assistant message for that turn, whichever message currently owns it.
+  if (event.turnId) {
+    return messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
   }
   return -1;
 }
 
 function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'messageId'>): string {
+  // Prefer the explicit messageId the provider assigned; fall back to a turnId-derived
+  // synthetic ID for events that carry only a turnId (tool events, reasoning without
+  // an explicit messageId, etc.).
+  if (event.messageId) return event.messageId;
   if (event.turnId) return `msg-${event.turnId}`;
-  return event.messageId || 'msg-current';
+  return 'msg-current';
 }
 
 export function applyAgentEvent(

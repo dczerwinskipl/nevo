@@ -51,11 +51,13 @@ below).
 - **Ownership: Work is per-turn, not per-message-chunk.** A turn represents its tool
   activity as exactly one Work group, and the transcript renders **at most one** `Work`
   summary for that turn — never once per assistant message/prose segment that happens to
-  share the turn. If more than one assistant message can exist for a single turn (e.g.
-  prose plus a separate tool-bearing segment), Work is anchored at exactly one
-  deterministic position for that turn (preferring the position corresponding to the
-  turn's tool activity, while preserving transcript order) and is never repeated
-  alongside each segment.
+  share the turn. A turn may produce multiple assistant messages (e.g. when the provider
+  emits distinct `messageId` values for separate content segments); Work is anchored at
+  exactly one deterministic position for that turn (the `TurnWork.messageId` field
+  produced by the projection — the first message in transcript order with tool calls or
+  a `turnError`) and is never repeated alongside each segment. The rendering layer uses
+  `TurnWork.messageId` to decide which message owns the Work row; all other messages for
+  the same turn render prose only.
 - Build a new `WorkSummary` component (module-level, per
   `docs/development/react-component-guidelines.md` §20.1) consuming Task 01's per-turn
   Work view-model — do not re-derive current/completed/failed grouping inside this

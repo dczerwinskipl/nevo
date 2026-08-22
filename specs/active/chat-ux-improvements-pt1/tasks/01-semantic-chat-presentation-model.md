@@ -159,19 +159,21 @@ task owns (`chat-projection.ts`, `transcript-cache.mjs`, `nevo-assistant-runtime
    `turnId` and only resolve tool calls on messages whose own `turnId` matches — a
    terminal event for one turn can never mutate a different turn's still-`running`
    actions, explicit and tested rather than relying on the invariant alone.
-3. **The frontend reducer's turn/message correlation had a latent format mismatch that
-   could split one turn's activity across two messages.** `applyAgentEvent`'s
-   `text.delta`/`reasoning.delta` cases preferred `event.messageId` (which
-   `turn-runtime.mjs#emitTextDelta` defaults to `message-${turnId}`) while
-   `tool.started`/`tool.completed` always used a separately-computed `msg-${turnId}` —
-   two different ID formats for the same turn, which could produce two separate
-   assistant messages (one prose-bearing, one tool-bearing) sharing the same `turnId`,
-   and therefore two independently-rendered Work summaries for what should be one turn
-   (see Task 03's ownership correction). Corrected: every assistant-message-producing
-   event case now resolves its target message by `turnId` first (via one shared
-   resolver), falling back to `messageId` only for an event that genuinely carries no
-   `turnId`. This is the root fix Task 03's "at most one Work summary per turn"
-   correction depends on.
+3. **The frontend reducer's turn/message correlation was corrected to preserve explicit
+   message identity.** `applyAgentEvent`'s event-dispatch logic previously searched by
+   `turnId` first, merging all events for a turn into a single `NormalizedMessage`
+   regardless of explicit `messageId` values. Corrected: events are now correlated by
+   explicit `messageId` first — when an event explicitly names a `messageId`, that
+   identity is preserved and two distinct events in the same turn with different
+   `messageId`s produce two separate `NormalizedMessage` records. `turnId` is only a
+   fallback, for events (e.g. `tool.started`/`tool.completed`) that carry no explicit
+   `messageId`. Work de-duplication belongs in the projection layer, not in the reducer:
+   `chat-projection.ts#projectChat` now aggregates all messages sharing a `turnId` into
+   exactly one `TurnWork`, regardless of how many individual messages a turn produced.
+   The invariant is **Work is per-turn** (one `TurnWork` per `turnId`), not "one turn =
+   exactly one assistant message" — a turn may legitimately produce multiple assistant
+   messages when the provider emits distinct `messageId` values for separate content
+   segments.
 
 ## Implementation constraints
 

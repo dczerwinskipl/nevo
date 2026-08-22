@@ -98,12 +98,15 @@ function computeHasFailures(items: WorkItem[], turnError: { code: string; messag
  * into Conversation entries and per-turn Work groups (owner-decisions.md D6/D7/D9).
  *
  * Turn/message correlation (D7) and turn outcome (D6/D9) both come from the explicit
- * `turnId`/`turnError` fields on `NormalizedMessage` — never from parsing message text
- * or `id`'s naming convention. Each assistant message already corresponds to exactly one
- * turn (verified: neither the Claude nor the Antigravity adapter ever emits an explicit
- * `messageId`, so every content/tool event within one turn resolves to the same
- * `turnId`-keyed message — see `tools/tests/chat-projection.test.mjs` for the fixture
- * proving this holds for a multi-tool-call turn).
+ * `turnId`/`turnError` fields on `NormalizedMessage`. A single turn may legitimately
+ * produce multiple `NormalizedMessage` records when the provider emits distinct
+ * `messageId`s for different content segments — the projection aggregates all messages
+ * sharing a `turnId` into exactly **one** `TurnWork`, never one per message.
+ *
+ * `TurnWork.messageId` is the "anchor" — the ID of the first message in transcript
+ * order for that turn that carries tool calls or a `turnError`. The anchor determines
+ * where the single Work summary is rendered in the transcript; other messages for the
+ * same turn render only prose.
  *
  * `activeTurnId` (the session's current in-flight turn, if any) is the only extra input
  * needed beyond the message list itself — it is what distinguishes a Work group that is
@@ -122,7 +125,17 @@ export function projectChat(
     createdAt: message.createdAt,
   }));
 
-  const workByTurn: TurnWork[] = [];
+  // Aggregate all messages sharing a turnId into a single TurnWork — one per turn,
+  // never one per message. The anchor is the first message in transcript order that
+  // has tool calls or a turnError; that message's `id` is what TurnWork.messageId
+  // records so the rendering layer can place Work exactly once.
+  const turnWorkMap = new Map<string, {
+    anchorMessageId: string;
+    items: WorkItem[];
+    turnError: { code: string; message: string } | undefined;
+    isActiveTurn: boolean;
+  }>();
+
   for (const message of messages) {
     if (message.role !== 'assistant' || !message.turnId) continue;
     const items: WorkItem[] = (message.toolCalls ?? []).map(call => ({
@@ -133,19 +146,37 @@ export function projectChat(
       status: call.status,
       ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }),
     }));
-    // A turn with no tool calls and no error has no Work to show — plain conversational
-    // text stays represented in `conversation` only.
-    if (items.length === 0 && !message.turnError) continue;
-    const isActiveTurn = message.turnId === activeTurnId;
+    const hasTurnContent = items.length > 0 || Boolean(message.turnError);
+    const existing = turnWorkMap.get(message.turnId);
+    if (existing) {
+      // Merge additional tool calls from later messages for the same turn.
+      existing.items.push(...items);
+      // If a turnError arrives on a later message in the same turn, adopt it.
+      if (message.turnError && !existing.turnError) {
+        existing.turnError = message.turnError;
+      }
+    } else if (hasTurnContent) {
+      // First message for this turn that has Work content — becomes the anchor.
+      turnWorkMap.set(message.turnId, {
+        anchorMessageId: message.id,
+        items,
+        turnError: message.turnError,
+        isActiveTurn: message.turnId === activeTurnId,
+      });
+    }
+  }
+
+  const workByTurn: TurnWork[] = [];
+  for (const [turnId, { anchorMessageId, items, turnError, isActiveTurn }] of turnWorkMap) {
     const lifecycle = computeWorkLifecycle(items, isActiveTurn);
-    const hasFailures = computeHasFailures(items, message.turnError);
+    const hasFailures = computeHasFailures(items, turnError);
     workByTurn.push({
-      turnId: message.turnId,
-      messageId: message.id,
+      turnId,
+      messageId: anchorMessageId,
       status: lifecycle === 'current' ? 'current' : (hasFailures ? 'failed' : 'completed'),
       hasFailures,
       items,
-      ...(message.turnError === undefined ? {} : { turnError: message.turnError }),
+      ...(turnError === undefined ? {} : { turnError }),
     });
   }
 
@@ -159,7 +190,9 @@ export function projectChat(
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message.role !== 'assistant' || !message.turnId || message.turnId === activeTurnId) continue;
-    turnOutcome = { turnId: message.turnId, turnError: message.turnError ?? null };
+    // Find the Work entry for this turn to get its error state.
+    const turnWork = turnWorkMap.get(message.turnId);
+    turnOutcome = { turnId: message.turnId, turnError: turnWork?.turnError ?? message.turnError ?? null };
     break;
   }
 

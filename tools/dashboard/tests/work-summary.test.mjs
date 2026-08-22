@@ -184,3 +184,55 @@ test('G: the collapsed Work row source carries no card container styling', () =>
   assert.doesNotMatch(collapsedSummarySource, /\bborder\b/, 'no prominent border');
   assert.match(collapsedSummarySource, /hover:bg-white\/4/, 'reads as a lightweight row with only a hover affordance');
 });
+// ── New required scenarios (PR #35 review, Issue 2) ───────────────────────────────────
+
+// When Work reports 'requires attention' solely because of a turnError (no failed tools),
+// expanding must expose the turn error — otherwise the UI says "requires attention" with
+// no visible reason.
+test('L: a turnError-only Work group — no failed tools — surfaces turnError via hasFailures', () => {
+  const messages = [
+    { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z',
+      toolCalls: [{ id: 't1', name: 'Read', input: { path: 'a.ts' }, output: 'ok', status: 'completed' }],
+      turnError: { code: 'AI_SESSION_LIMIT', message: "You've hit your session limit" } },
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn.length, 1, 'Work exists');
+  assert.equal(workByTurn[0].status, 'failed', 'turn is terminal and failed');
+  assert.equal(workByTurn[0].hasFailures, true, 'hasFailures reflects turnError presence');
+  // The successful tool remains successful — turnError must not corrupt per-tool statuses.
+  assert.equal(workByTurn[0].items[0].status, 'completed', 'successful tool remains completed');
+  // The turnError is present for the expanded-Work row to render.
+  assert.deepEqual(workByTurn[0].turnError, { code: 'AI_SESSION_LIMIT', message: "You've hit your session limit" });
+});
+
+// A failed tool AND a turnError are independently inspectable — neither overwrites the other.
+test('L: failed tool + turnError are independently inspectable in Work projection', () => {
+  const messages = [
+    { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: { path: 'a.ts' }, output: 'ok', status: 'completed' },
+        { id: 't2', name: 'Bash', input: { command: 'bad' }, status: 'failed' },
+      ],
+      turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' } },
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].hasFailures, true);
+  // Each tool retains its own status — the failed tool is still failed,
+  // the completed tool is still completed.
+  assert.equal(workByTurn[0].items.find(i => i.toolId === 't1')?.status, 'completed');
+  assert.equal(workByTurn[0].items.find(i => i.toolId === 't2')?.status, 'failed');
+  // Turn error is independently present.
+  assert.deepEqual(workByTurn[0].turnError, { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' });
+});
+
+// Source check: TurnErrorRow must exist in work-summary.tsx and must render the turnError
+// fields, not a string-matched hardcoded message.
+test('L: work-summary.tsx source contains TurnErrorRow that renders turnError fields', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  assert.match(source, /const TurnErrorRow/, 'TurnErrorRow component must exist');
+  assert.match(source, /turnError\.message/, 'must render turnError.message');
+  assert.match(source, /turnError\.code/, 'must render turnError.code as secondary info');
+  // Must NOT use string matching on session-limit text or similar heuristics.
+  assert.doesNotMatch(source, /session.limit/i, 'must not use string-matching heuristics');
+  assert.doesNotMatch(source, /includes\s*\(/, 'must not classify error text with includes()');
+});

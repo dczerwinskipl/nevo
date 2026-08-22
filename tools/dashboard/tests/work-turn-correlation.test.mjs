@@ -96,3 +96,64 @@ test('J: a current-schema turn with multiple actions survives reload/reprojectio
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+// ── New required scenarios (PR #35 review, Issue 1) ───────────────────────────────────
+
+// When the provider explicitly emits distinct messageId values for two content events
+// within the same turn, both messages must survive as separate NormalizedMessage records.
+// (One turn = 0..N assistant messages; Work is per-turn, not per-message.)
+test('K: two explicit messageId-bearing events in same turn produce two distinct messages', () => {
+  let messages = [];
+  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-A', text: 'First segment.' });
+  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-B', text: 'Second segment.' });
+
+  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  assert.equal(assistantMessages.length, 2, 'two explicit messageIds must stay distinct — not merged');
+  assert.equal(assistantMessages.find(m => m.id === 'msg-A')?.text, 'First segment.', 'message-A identity preserved');
+  assert.equal(assistantMessages.find(m => m.id === 'msg-B')?.text, 'Second segment.', 'message-B identity preserved');
+});
+
+// Tools distributed across multiple messages in the same turn (each message has its own
+// explicit messageId) must still produce exactly one TurnWork with all actions included.
+test('K: tools distributed across two messages in the same turn aggregate into one TurnWork', () => {
+  let messages = [];
+  // Message A carries the first tool.
+  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-A', text: 'I will read.' });
+  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'tool.started', turnId: 'turn-1', toolId: 't1', toolName: 'Read', input: { path: 'a.ts' } });
+  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'tool.completed', turnId: 'turn-1', toolId: 't1', output: 'ok', status: 'completed' });
+  // Message B (separate messageId) carries the second tool.
+  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-B', text: 'Now editing.' });
+  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.started', turnId: 'turn-1', toolId: 't2', toolName: 'Edit', input: { path: 'b.ts' } });
+  messages = applyAgentEvent(messages, { id: 6, seq: 6, type: 'tool.completed', turnId: 'turn-1', toolId: 't2', output: 'ok', status: 'completed' });
+  messages = applyAgentEvent(messages, { id: 7, seq: 7, type: 'turn.completed', turnId: 'turn-1' });
+
+  // Two distinct assistant messages survive.
+  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  assert.equal(assistantMessages.length, 2, 'message-A and message-B remain distinct');
+  assert.equal(assistantMessages.find(m => m.id === 'msg-A')?.text, 'I will read.');
+  assert.equal(assistantMessages.find(m => m.id === 'msg-B')?.text, 'Now editing.');
+
+  // But Work aggregates into exactly one TurnWork with all actions.
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn.length, 1, 'exactly one TurnWork regardless of how many messages');
+  assert.equal(workByTurn[0].items.length, 2, 'all actions included regardless of which message carried them');
+  assert.ok(workByTurn[0].items.find(i => i.toolId === 't1'), 'tool from message-A included');
+  assert.ok(workByTurn[0].items.find(i => i.toolId === 't2'), 'tool from message-B included');
+});
+
+// Work anchor: when a turn has two messages and the first carries tool activity, TurnWork
+// anchors at the first message — the one that corresponds naturally to the tool activity.
+test('K: Work anchors at the first message with tool activity for the turn', () => {
+  let messages = [];
+  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-A', text: 'I will read.' });
+  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'tool.started', turnId: 'turn-1', toolId: 't1', toolName: 'Read', input: {} });
+  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'tool.completed', turnId: 'turn-1', toolId: 't1', output: 'ok', status: 'completed' });
+  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-B', text: 'Done.' });
+  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'turn.completed', turnId: 'turn-1' });
+
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn.length, 1);
+  // msg-A was first; tool.started had no explicit messageId so attached to msg-A via turnId fallback.
+  assert.equal(workByTurn[0].messageId, 'msg-A', 'anchor is the message that actually carries the tool calls');
+});
+
