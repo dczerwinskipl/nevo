@@ -25,6 +25,8 @@ const capabilities = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 test('validateAgentIdentity enforces canonical pair (provider, providerSessionId)', () => {
@@ -190,6 +192,47 @@ test('AiSessionService uses binding service for listings and transcript cache fo
 
   const messages = await service.listMessages('claude', 'sess-1');
   assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+});
+
+test('AiSessionService binds a provider-created session identity only after creation succeeds', async () => {
+  const bindings = [];
+  const bindingService = {
+    async bindSession(binding) {
+      bindings.push(binding);
+      return binding;
+    },
+  };
+  const adapter = {
+    descriptor: { id: 'owned', label: 'Owned', capabilities },
+    async createSession({ mode, purpose }) {
+      assert.equal(mode, 'edit');
+      assert.equal(purpose, 'task:task-1');
+      return { providerSessionId: 'provider-thread-1' };
+    },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const registry = createAiAdapterRegistry([adapter]);
+  const service = createAiSessionService({ registry, bindingService });
+
+  const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
+  assert.equal(session.providerSessionId, 'provider-thread-1');
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
+
+  let failedBindingCalled = false;
+  const failingAdapter = {
+    descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
+    async createSession() { throw new Error('provider creation failed'); },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const failingService = createAiSessionService({
+    registry: createAiAdapterRegistry([failingAdapter]),
+    bindingService: { async bindSession() { failedBindingCalled = true; } },
+  });
+  await assert.rejects(() => failingService.createSession('failing-owned', { specId: 'spec-1' }), /provider creation failed/);
+  assert.equal(failedBindingCalled, false);
 });
 
 test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {

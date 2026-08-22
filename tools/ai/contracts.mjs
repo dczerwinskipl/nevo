@@ -9,6 +9,8 @@ export const AGENT_CAPABILITIES = Object.freeze([
   'toolCalls',
   'reasoning',
   'usage',
+  'steerTurn',
+  'planUpdates',
 ]);
 
 export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
@@ -20,6 +22,8 @@ export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
   toolCalls: false,
   reasoning: false,
   usage: false,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 export const AGENT_EVENT_TYPES = Object.freeze([

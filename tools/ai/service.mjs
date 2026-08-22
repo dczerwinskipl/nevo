@@ -17,13 +17,29 @@ export class AiSessionService {
   }
 
   async createSession(provider, options = {}) {
-    const descriptor = this.registry.get(provider).descriptor;
-    const providerSessionId = randomUUID();
+    const entry = this.registry.get(provider);
+    const descriptor = entry.descriptor;
     const taskId = options.taskId || (Array.isArray(options.taskIds) && options.taskIds.length === 1 ? options.taskIds[0] : undefined);
     const purpose = options.purpose || options.title || (taskId ? `task:${taskId}` : 'interactive');
     const mode = options.mode
       ? validateAgentExecutionMode(options.mode, 'mode')
       : (descriptor.defaultMode || 'edit');
+
+    let providerSessionId;
+    if (typeof entry.adapter.createSession === 'function') {
+      const created = await entry.adapter.createSession({
+        specId: options.specId,
+        taskId,
+        taskIds: options.taskIds,
+        purpose,
+        mode,
+        title: options.title,
+      });
+      providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
+      validateAgentIdentity({ provider, providerSessionId });
+    } else {
+      providerSessionId = randomUUID();
+    }
 
     const binding = this.bindingService
       ? await this.bindingService.bindSession({
@@ -214,6 +230,10 @@ export class AiSessionService {
 
   async cancelTurn(turnId, options = {}) {
     return this.turnRuntime.cancelTurn(turnId, options);
+  }
+
+  shutdown() {
+    return this.turnRuntime?.shutdown?.();
   }
 }
 

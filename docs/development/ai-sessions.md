@@ -13,6 +13,7 @@ summary: >
 related:
   - development.local-setup
   - development.architecture-overview
+  - development.codex-app-server-research
   - adr.0007-provider-neutral-ai-sessions
 ---
 
@@ -83,6 +84,50 @@ The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-f
 - `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
 
+### OpenAI Codex integration
+
+The Codex adapter uses one lazily started, persistent
+`codex app-server --listen stdio://` process per dashboard AI service. A narrow JSONL
+client owns initialization, request correlation, server requests, failure fan-out, and
+bounded disposal. The provider adapter keeps Codex thread, turn, item, and protocol
+request IDs private and exposes only the existing provider-neutral runtime contracts.
+
+Codex `thread.id` is the sole `providerSessionId`. New sessions call `thread/start`;
+recorded sessions are loaded once per app-server process with `thread/resume`, and a
+failed resume never creates replacement history. The adapter supports resumable
+sessions, cancellation, interactive command/file/permission requests, user questions,
+tool lifecycle, readable reasoning, and token usage. `steerTurn` and `planUpdates` are
+reported as `false` in the first implementation and have no hidden HTTP or transcript
+behavior.
+
+Execution modes use schema-verified Codex fields:
+
+- `ask` uses a read-only sandbox with no approval prompts, preserving non-mutating
+  analysis.
+- `edit` uses workspace-write with interactive safeguards.
+- `agent` uses workspace-write without prompts, preserving autonomous execution while
+  retaining the workspace boundary and restricted network default.
+
+The client opts into the experimental API so it can receive the required
+`item/tool/requestUserInput` interaction; the adapter consumes no unrelated
+experimental methods. Approval grants are turn-scoped; Nevo does not expose or select
+Codex session-scoped grants. Provider-global notifications are accepted outside turns
+and ignored unless the adapter consumes them.
+
+The compact compatibility inventory is stored in
+`tools/ai/codex-protocol-baseline.json`; the full generated schema is never committed.
+Refresh the inventory only after inspecting a selected Codex version, then verify it:
+
+```bash
+node tools/ai/verify-codex-schema.mjs --strict
+```
+
+The verifier generates schemas under the OS temporary directory, compares every
+consumed method/type, removes the bundle, and reports the exact Codex version. Without
+Codex installed, the non-strict command reports a clear skip. Version-specific runtime
+evidence and the distinction between observation and contract remain in
+[Codex app-server protocol research](codex-app-server-research.md).
+
 ## Verify the integration
 
 Run the tooling, server/browser contract, production build, generated-index, and
@@ -92,6 +137,7 @@ ignore-rule checks:
 node --test tools/tests/*.test.mjs
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
+node tools/ai/verify-codex-schema.mjs
 node tools/specs.mjs check
 node tools/docs.mjs check
 git check-ignore .nevo-ai-local/probe

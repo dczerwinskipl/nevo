@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T10:08:55.521Z",
+  "generated": "2026-08-22T12:01:03.907Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -396,6 +396,158 @@
             "concrete-action-commit-and-push",
             "step-orchestration-and-next-step-service"
           ]
+        }
+      ]
+    },
+    {
+      "id": "openai-codex-provider-support",
+      "specId": "38d72d6b-3b47-4a07-8973-33ae5cee3ebc",
+      "title": "OpenAI Codex provider support",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-22",
+      "tasks": [
+        {
+          "id": "provider-neutral-persistent-turn-contracts",
+          "order": 1,
+          "file": "tasks/01-provider-neutral-persistent-turn-contracts.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "5f46ca0f6cee280cea05760e610522554d06a016",
+            "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "changed_paths": [
+              "tools/ai/contracts.mjs",
+              "tools/ai/mock-adapter.mjs",
+              "tools/ai/registry.mjs",
+              "tools/ai/service.mjs",
+              "tools/ai/turn-runtime.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/tests/ai-contracts.test.mjs",
+              "tools/tests/ai-turn-runtime.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "35fbd6fcf9aa1bf8b30b7b308e20773273c7474c87c759a8ac9b961f8ae2b49b"
+          },
+          "self_check": {
+            "fingerprint": "cdd59edbfdc068c4d6e37e4011ec7be715615108a9786dce5f4d99df12e71b0e",
+            "revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/ai-contracts.test.mjs tools/tests/ai-turn-runtime.test.mjs tools/tests/mock-ai-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "codex-app-server-client",
+          "order": 2,
+          "file": "tasks/02-codex-app-server-client.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e",
+            "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "changed_paths": [
+              "tools/ai/codex-app-server-client.mjs",
+              "tools/ai/codex-protocol-baseline.json",
+              "tools/ai/verify-codex-schema.mjs",
+              "tools/tests/codex-app-server-client.test.mjs",
+              "tools/tests/codex-schema-compat.test.mjs",
+              "tools/tests/fixtures/codex-app-server/provider-global-notifications.jsonl"
+            ],
+            "worktree_patch_fingerprint": "82bdc59206ae81473f4965eb9877f1fee7eef5563e4d13bf68dc22de1ca7b08f"
+          },
+          "self_check": {
+            "fingerprint": "3ae9646b86453cb6c830e223e057803f5be68059eba54df1f96000df6c58f0fd",
+            "revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/codex-app-server-client.test.mjs tools/tests/codex-schema-compat.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/ai/verify-codex-schema.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "codex-provider-adapter-and-registration",
+          "order": 3,
+          "file": "tasks/03-codex-provider-adapter-and-registration.md",
+          "status": "implemented",
+          "depends_on": [
+            "provider-neutral-persistent-turn-contracts",
+            "codex-app-server-client"
+          ],
+          "implementation": {
+            "baseline_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "changed_paths": [
+              "docs/development/ai-sessions.md",
+              "tools/ai/codex-adapter.mjs",
+              "tools/dashboard/server/ai-services.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/tests/codex-adapter.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "f2c0a2f6859297ff20ab995c0ce676266ff121b82b9b8ba8623333938dd9c70a"
+          },
+          "self_check": {
+            "fingerprint": "cefac47ec5b8fba408ce4d6ebb17b1174dc8f2992d977f1ab05ff54a62c2fe91",
+            "revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/codex-app-server-client.test.mjs tools/tests/codex-schema-compat.test.mjs tools/tests/codex-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/ai/verify-codex-schema.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },

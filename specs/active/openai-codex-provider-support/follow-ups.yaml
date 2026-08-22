@@ -1,0 +1,13 @@
+follow_ups:
+  - id: FU-001
+    source_task: codex-provider-adapter-and-registration
+    kind: capability
+    severity: non-blocking
+    reason: >
+      The first Codex adapter intentionally declares steerTurn and planUpdates false.
+      A future change may design and implement provider-neutral active-turn steering
+      plus normalized plan-update events across registry/runtime/service, HTTP,
+      transcript, and frontend contracts after the core persistent provider ships.
+    resolver_task: null
+    status: open
+    resolution: null

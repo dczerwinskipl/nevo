@@ -65,7 +65,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
     exactKeys(providerPayload.providers[0], ['id', 'label', 'enabled', 'available', 'capabilities', 'supportedModes', 'defaultMode']);
     exactKeys(providerPayload.providers[0].capabilities, [
       'cancelTurn', 'interactiveConfirmations', 'interactivePermissions', 'interactiveQuestions',
-      'reasoning', 'resumeSession', 'toolCalls', 'usage',
+      'planUpdates', 'reasoning', 'resumeSession', 'steerTurn', 'toolCalls', 'usage',
     ]);
     assert.deepEqual(providerPayload.providers[0].supportedModes, ['ask', 'edit', 'agent']);
     assert.equal(providerPayload.providers[0].defaultMode, 'edit');

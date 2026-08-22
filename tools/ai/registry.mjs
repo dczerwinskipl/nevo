@@ -7,6 +7,7 @@ import {
 
 export class AiAdapterRegistry {
   #adapters = new Map();
+  #disposePromise;
 
   constructor(adapters = []) {
     for (const adapter of adapters) this.register(adapter);
@@ -71,6 +72,15 @@ export class AiAdapterRegistry {
       throw new CapabilityNotSupportedError(provider, capability);
     }
     return entry.adapter;
+  }
+
+  dispose() {
+    this.#disposePromise ??= Promise.allSettled(
+      [...this.#adapters.values()]
+        .filter(({ adapter }) => typeof adapter.dispose === 'function')
+        .map(({ adapter }) => Promise.resolve().then(() => adapter.dispose())),
+    );
+    return this.#disposePromise;
   }
 }
 

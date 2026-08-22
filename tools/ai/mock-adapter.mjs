@@ -12,6 +12,8 @@ const MOCK_CAPABILITIES = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 function padded(value) {
