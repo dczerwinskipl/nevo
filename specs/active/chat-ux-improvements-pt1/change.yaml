@@ -14,9 +14,46 @@ tasks:
   - id: semantic-chat-presentation-model
     order: 1
     file: tasks/01-semantic-chat-presentation-model.md
-    status: in-implementation
+    status: implemented
     implementation:
       baseline_revision: 33675746a0815ac6800ba33289af80aa9347c7a3
+      review_revision: 45a283f8dc1e6cfdf3284c4b7570be82386a36a0
+      changed_paths:
+        - tools/ai/antigravity-adapter.mjs
+        - tools/ai/claude-adapter.mjs
+        - tools/ai/contracts.mjs
+        - tools/ai/mock-adapter.mjs
+        - tools/ai/transcript-cache.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/dashboard/src/lib/chat-projection.ts
+        - tools/dashboard/src/lib/nevo-assistant-runtime.ts
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/tests/ai-contracts.test.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+        - tools/tests/antigravity-adapter.test.mjs
+        - tools/tests/claude-adapter.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 8226db8880f10cd13dc363a3c8b244ee830f2be004b125390ff7ae8c4d9f11e2
+      revision: 45a283f8dc1e6cfdf3284c4b7570be82386a36a0
+      commands:
+        - command: node --test tools/tests/claude-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/antigravity-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-turn-runtime.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/ai-contracts.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
   - id: conversation-message-presentation
     order: 2
