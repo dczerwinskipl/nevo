@@ -50,7 +50,30 @@ tasks:
   - id: codex-app-server-client
     order: 2
     file: tasks/02-codex-app-server-client.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e
+      review_revision: 86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e
+      changed_paths:
+        - tools/ai/codex-app-server-client.mjs
+        - tools/ai/codex-protocol-baseline.json
+        - tools/ai/verify-codex-schema.mjs
+        - tools/tests/codex-app-server-client.test.mjs
+        - tools/tests/codex-schema-compat.test.mjs
+        - tools/tests/fixtures/codex-app-server/provider-global-notifications.jsonl
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 3ae9646b86453cb6c830e223e057803f5be68059eba54df1f96000df6c58f0fd
+      revision: 86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e
+      commands:
+        - command: node --test tools/tests/codex-app-server-client.test.mjs
+            tools/tests/codex-schema-compat.test.mjs
+          exit_code: 0
+        - command: node tools/ai/verify-codex-schema.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
 
   - id: codex-provider-adapter-and-registration
     order: 3
