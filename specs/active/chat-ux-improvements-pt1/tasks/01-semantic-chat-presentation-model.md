@@ -23,7 +23,7 @@ context:
     - tools/dashboard/tests/ai-contract-drift.test.mjs
   optional: []
 semantic_references:
-  decisions: [D6, D7]
+  decisions: [D6, D7, D11]
 allowed_paths:
   - tools/dashboard/src/lib/**
   - tools/ai/contracts.mjs
@@ -31,6 +31,7 @@ allowed_paths:
   - tools/ai/turn-runtime.mjs
   - tools/ai/claude-adapter.mjs
   - tools/ai/antigravity-adapter.mjs
+  - tools/ai/mock-adapter.mjs
   - tools/tests/**
   - tools/dashboard/tests/**
 forbidden_paths:

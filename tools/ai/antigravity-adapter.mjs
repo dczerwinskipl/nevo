@@ -450,8 +450,11 @@ export class AntigravityAgentProvider {
           case 'done':
           case 'turn.completed': {
             if (activeTool) {
+              // Reaching a normal completion signal while this tool never received its
+              // own real terminal outcome is not evidence it succeeded (owner-decisions.md
+              // D6) — resolves to 'failed', not 'completed'.
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'completed' });
+                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
               }
               activeTool = null;
             }
@@ -525,14 +528,22 @@ export class AntigravityAgentProvider {
           try { await processLine(lineBuffer); } catch (e) { return reject(e); }
         }
 
+        // Evaluate cancellation/exit-outcome before determining what happened to a
+        // still-active tool (owner-decisions.md D6) — a tool lingering at close time
+        // never received a real successful terminal signal, so it always resolves to
+        // 'failed', whether the process was cancelled, exited non-zero, or (per D6's
+        // governing invariant) even closed normally while this tool was still running.
+        const wasCancelled = operation.cancelled;
+        const hadNonZeroExit = exitCode !== 0 && !isDone;
+
         if (activeTool) {
           if (emitToolCompleted) {
-            emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'completed' });
+            emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
           }
           activeTool = null;
         }
 
-        if (operation.cancelled) {
+        if (wasCancelled) {
           return reject(new AiError('AI_TURN_CANCELLED', 'Antigravity turn was cancelled.', { status: 409 }));
         }
 
@@ -544,7 +555,7 @@ export class AntigravityAgentProvider {
           }
         }
 
-        if (exitCode !== 0 && !isDone) {
+        if (hadNonZeroExit) {
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
           return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }

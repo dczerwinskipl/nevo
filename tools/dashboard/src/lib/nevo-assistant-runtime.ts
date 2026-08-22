@@ -123,6 +123,7 @@ export function applyAgentEvent(
           id: msgId,
           role: 'assistant',
           text,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
@@ -147,6 +148,7 @@ export function applyAgentEvent(
           role: 'assistant',
           text: '',
           reasoning,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
@@ -174,6 +176,7 @@ export function applyAgentEvent(
           role: 'assistant',
           text: '',
           toolCalls: [toolCall],
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
@@ -211,7 +214,10 @@ export function applyAgentEvent(
             ? {
                 ...tc,
                 output: event.output ?? tc.output,
-                status: (event.status as any) || 'completed',
+                // tool.completed always carries a validated 'completed' | 'failed'
+                // status on the wire (owner-decisions.md D6) — never default a
+                // missing/malformed status to success.
+                status: (event.status as 'completed' | 'failed' | undefined) ?? 'failed',
                 durationMs: event.durationMs ?? tc.durationMs,
               }
             : tc
@@ -224,13 +230,35 @@ export function applyAgentEvent(
 
     case 'turn.completed':
     case 'turn.failed': {
-      return prevMessages.map((m) => {
+      // A tool still 'running' when the turn ends never received a real successful
+      // terminal signal — resolves to 'failed', regardless of how the turn itself
+      // ended (owner-decisions.md D6), matching the backend's completeRunningToolCalls.
+      let updated = prevMessages.map((m) => {
         if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
         return {
           ...m,
-          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc)),
+          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'failed' as const } : tc)),
         };
       });
+
+      if (event.type === 'turn.failed' && event.error) {
+        const turnError = event.error;
+        const msgId = `msg-${event.turnId || 'current'}`;
+        const existingIdx = updated.findIndex((m) => m.turnId === event.turnId && m.role === 'assistant');
+        if (existingIdx >= 0) {
+          updated = [...updated];
+          updated[existingIdx] = { ...updated[existingIdx], turnError };
+        } else {
+          // The turn failed before any content/tool event created its message — reload-safe
+          // home for the error still needs a message shell to attach to (owner-decisions.md D6/D9).
+          updated = [
+            ...updated,
+            { id: msgId, role: 'assistant', text: '', turnId: event.turnId, turnError, createdAt: event.timestamp || new Date().toISOString() },
+          ];
+        }
+      }
+
+      return updated;
     }
 
     default:

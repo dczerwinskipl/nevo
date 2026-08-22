@@ -14,7 +14,9 @@ tasks:
   - id: semantic-chat-presentation-model
     order: 1
     file: tasks/01-semantic-chat-presentation-model.md
-    status: approved
+    status: in-implementation
+    implementation:
+      baseline_revision: 33675746a0815ac6800ba33289af80aa9347c7a3
 
   - id: conversation-message-presentation
     order: 2

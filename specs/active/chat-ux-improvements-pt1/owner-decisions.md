@@ -588,3 +588,25 @@
 - **Date:** 2026-08-21.
 - **Affected artifacts:** `overview.md`, `tasks/06-shared-session-details.md`,
   `owner-decisions.md` D5 (aggregation key correction).
+
+## D11: Task 01 scope amendment — `tools/ai/mock-adapter.mjs` added to `allowed_paths`
+
+- **Question:** During Task 01 implementation, adding a required, validated `status:
+  'completed' | 'failed'` field to `tool.completed` (D6) meant every `emitToolCompleted`
+  call site across the codebase now needed to pass `status` — `contracts.mjs`'s
+  `validateAgentEvent` throws otherwise. `tools/ai/mock-adapter.mjs` (used by
+  `tools/dashboard/tests/ai-contract-drift.test.mjs`, a required verification target for
+  this task) had one such call site missing `status`, but `tools/ai/mock-adapter.mjs` is
+  not in Task 01's `allowed_paths`.
+- **Options considered:** (A) accept the one-line fix as an owner-approved scope
+  exception, recorded at task review time | (B) amend Task 01's `allowed_paths` to
+  include `tools/ai/mock-adapter.mjs`, since the edit is a direct, unavoidable, mechanical
+  consequence of this task's own D6 contract change, not unrelated work.
+- **Decision:** B. `tools/ai/mock-adapter.mjs` added to
+  `tasks/01-semantic-chat-presentation-model.md`'s `allowed_paths`.
+- **Rationale (owner):** Amend the declared scope rather than carry a recurring
+  exception — the file's involvement here is structural (every `tool.completed` emitter
+  in the repo), not incidental.
+- **Date:** 2026-08-22.
+- **Affected artifacts:** `tasks/01-semantic-chat-presentation-model.md`
+  (`allowed_paths`, `semantic_references.decisions`).

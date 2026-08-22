@@ -39,6 +39,8 @@ export const AGENT_EVENT_TYPES = Object.freeze([
 
 export const AI_EVENT_TYPES = AGENT_EVENT_TYPES;
 
+export const TOOL_TERMINAL_STATUSES = Object.freeze(['completed', 'failed']);
+
 const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
@@ -115,6 +117,13 @@ function requiredString(value, field, { opaque = false, max = 512 } = {}) {
   return value;
 }
 
+function validateToolTerminalStatus(value, field) {
+  if (typeof value !== 'string' || !TOOL_TERMINAL_STATUSES.includes(value)) {
+    throw new AiValidationError(`'${field}' must be one of ${TOOL_TERMINAL_STATUSES.join(', ')}.`, { field, value });
+  }
+  return value;
+}
+
 function optionalString(value, field, max = 512) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string' || value.length > max) {
@@ -169,6 +178,13 @@ export function validateAiMessage(value) {
     role: value.role,
     text,
     ...(value.reasoning == null ? {} : { reasoning: optionalString(value.reasoning, 'reasoning', 100_000) }),
+    ...(value.turnId == null ? {} : { turnId: requiredString(value.turnId, 'turnId') }),
+    ...(value.turnError == null ? {} : {
+      turnError: {
+        code: requiredString(value.turnError.code, 'turnError.code'),
+        message: requiredString(value.turnError.message, 'turnError.message', { opaque: true, max: 2_000 }),
+      },
+    }),
     ...(Array.isArray(value.toolCalls) ? { toolCalls: structuredClone(value.toolCalls) } : {}),
     ...(value.interaction ? { interaction: structuredClone(value.interaction) } : {}),
     createdAt: normalizeTimestamp(value.createdAt, 'createdAt'),
@@ -367,6 +383,7 @@ export function validateAgentEvent(value) {
         toolId: requiredString(value.toolId, 'toolId'),
         ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
         ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+        status: validateToolTerminalStatus(value.status, 'status'),
       };
 
     case 'interaction.requested':

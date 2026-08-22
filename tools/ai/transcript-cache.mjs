@@ -16,7 +16,7 @@ function completeRunningToolCalls(state) {
   for (const msg of state.messages) {
     if (!msg.toolCalls) continue;
     for (const tool of msg.toolCalls) {
-      if (tool.status === 'running') tool.status = 'completed';
+      if (tool.status === 'running') tool.status = 'failed';
     }
   }
 }
@@ -201,14 +201,16 @@ export class SessionTranscriptCacheService {
     const getOrCreateAssistantMsg = (msgId = `message-${event.turnId}`) => {
       let msg = state.messages.find(m => m.id === msgId);
       if (!msg) {
-        // also check if there is an assistant message created for this turn
-        msg = state.messages.find(m => m.id.endsWith(event.turnId) && m.role === 'assistant');
+        // Correlate by the explicit turnId field (owner-decisions.md D7), not by
+        // parsing `id`'s naming convention.
+        msg = state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant');
       }
       if (!msg) {
         msg = {
           id: msgId,
           role: 'assistant',
           text: '',
+          turnId: event.turnId,
           createdAt: event.timestamp,
         };
         state.messages.push(msg);
@@ -233,6 +235,7 @@ export class SessionTranscriptCacheService {
             id: msgId,
             role: event.role || 'assistant',
             text: '',
+            turnId: event.turnId,
             createdAt: event.timestamp,
           };
           state.messages.push(msg);
@@ -280,11 +283,11 @@ export class SessionTranscriptCacheService {
         if (!msg.toolCalls) msg.toolCalls = [];
         let tool = msg.toolCalls.find(t => t.id === event.toolId);
         if (!tool) {
-          tool = { id: event.toolId, name: event.toolName || 'tool', status: 'completed' };
+          tool = { id: event.toolId, name: event.toolName || 'tool', status: event.status };
           msg.toolCalls.push(tool);
         }
         if (event.output !== undefined) tool.output = event.output;
-        tool.status = 'completed';
+        tool.status = event.status;
         if (typeof event.durationMs === 'number') tool.durationMs = event.durationMs;
         break;
       }
@@ -313,6 +316,12 @@ export class SessionTranscriptCacheService {
         delete state.activeTurn;
         delete state.pendingInteraction;
         completeRunningToolCalls(state);
+        if (event.error) {
+          // Reload-safe home for the turn's terminal error.code (owner-decisions.md D6/D9)
+          // so Task 09 can distinguish Turn/Work Outcome without needing backend access.
+          const msg = getOrCreateAssistantMsg();
+          msg.turnError = { code: event.error.code, message: event.error.message };
+        }
         break;
       }
       default:
