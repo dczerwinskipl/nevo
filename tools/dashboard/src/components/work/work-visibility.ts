@@ -1,4 +1,5 @@
 import type { TurnWork, WorkItem } from '../../lib/chat-projection';
+import type { NormalizedMessage } from '../../lib/types';
 
 /**
  * Which individual actions render as inspectable `AiToolView` cards while a turn is
@@ -13,11 +14,33 @@ export function visibleWorkItemsWhileRunning(work: TurnWork, expanded: boolean):
 
 /**
  * Which individual actions render as inspectable `AiToolView` cards once a turn has
- * reached a terminal state (completed/failed). A failed action stays visible even while
- * the rest of the group is collapsed (owner-decisions.md D6, FR-4). Pure and
+ * reached a terminal state (completed/failed). Historical actions — including failed
+ * ones — are only individually visible once the group is expanded; a failed action's
+ * status is retained and it becomes inspectable through expansion, but it does not
+ * render automatically alongside the collapsed row (owner-decisions.md, Task 03
+ * correction — collapsed Work must never emit historical action cards). Pure and
  * independently testable per react-component-guidelines.md §6/§16.
  */
 export function visibleWorkItemsWhenTerminal(work: TurnWork, expanded: boolean): WorkItem[] {
-  if (expanded) return work.items;
-  return work.items.filter(item => item.status === 'failed');
+  if (!expanded) return [];
+  return work.items;
+}
+
+/** Whether a message has any visible prose (assistant text or reasoning) to render. */
+export function hasVisibleProse(message: Pick<NormalizedMessage, 'text' | 'reasoning'>): boolean {
+  return Boolean(message.text) || Boolean(message.reasoning);
+}
+
+/**
+ * Whether a transcript entry should render at all. A user message always renders. An
+ * assistant message renders only once it has something to show — prose or Work — so a
+ * turn that has only just started (no content streamed in yet) never produces an empty
+ * bubble/placeholder (Finding 5/8, follow-up review of PR #35).
+ */
+export function shouldRenderChatMessage(
+  message: Pick<NormalizedMessage, 'role' | 'text' | 'reasoning'>,
+  hasWork: boolean,
+): boolean {
+  if (message.role !== 'assistant') return true;
+  return hasVisibleProse(message) || hasWork;
 }

@@ -33,7 +33,26 @@ export interface WorkItem {
 export interface TurnWork {
   turnId: string;
   messageId: string;
+  /**
+   * Lifecycle-first status: `'current'` whenever the turn itself has not reached a
+   * terminal state (it is still the active turn, or some item is still `'running'`),
+   * regardless of whether an earlier action in it already failed — an active turn can
+   * legitimately contain a failed historical action (e.g. `Read failed`, `Bash
+   * completed`, `Edit running`) and must stay `'current'` while it does. Only once the
+   * turn itself is terminal does this fall through to `'failed'`/`'completed'`,
+   * determined by `hasFailures`. This is a deliberately narrow, three-value status
+   * field, not a larger state-machine abstraction — see `hasFailures` for the
+   * orthogonal "does this Work need attention" signal.
+   */
   status: WorkGroupStatus;
+  /**
+   * Whether any individual action in this turn — at any point, including while the
+   * turn is still `'current'` — ended `'failed'`, or the turn itself carries a
+   * `turnError`. Independent of `status`'s lifecycle meaning: a `'current'` turn can
+   * have `hasFailures: true` (an earlier action failed, but the turn is still running)
+   * just as validly as a terminal one.
+   */
+  hasFailures: boolean;
   items: WorkItem[];
   /**
    * The turn's raw terminal error, present only when it ended via `turn.failed`
@@ -58,14 +77,20 @@ export interface ChatProjection {
   turnOutcome: { turnId: string; turnError: { code: string; message: string } | null } | null;
 }
 
-function computeWorkStatus(
-  items: WorkItem[],
-  turnError: { code: string; message: string } | undefined,
-  isActiveTurn: boolean,
-): WorkGroupStatus {
-  if (turnError || items.some(item => item.status === 'failed')) return 'failed';
-  if (isActiveTurn || items.some(item => item.status === 'running')) return 'current';
-  return 'completed';
+/**
+ * Lifecycle is checked before outcome, deliberately: whether this turn is still
+ * `'current'` depends only on whether it has actually terminated (the session's
+ * `activeTurnId` still names it, or some item is still `'running'`) — never on whether
+ * an earlier action in it happened to fail. Checking failure first would make a single
+ * failed historical action prematurely terminate an otherwise still-active turn's Work
+ * group, which is exactly the bug this ordering avoids.
+ */
+function computeWorkLifecycle(items: WorkItem[], isActiveTurn: boolean): 'current' | 'terminal' {
+  return isActiveTurn || items.some(item => item.status === 'running') ? 'current' : 'terminal';
+}
+
+function computeHasFailures(items: WorkItem[], turnError: { code: string; message: string } | undefined): boolean {
+  return Boolean(turnError) || items.some(item => item.status === 'failed');
 }
 
 /**
@@ -112,10 +137,13 @@ export function projectChat(
     // text stays represented in `conversation` only.
     if (items.length === 0 && !message.turnError) continue;
     const isActiveTurn = message.turnId === activeTurnId;
+    const lifecycle = computeWorkLifecycle(items, isActiveTurn);
+    const hasFailures = computeHasFailures(items, message.turnError);
     workByTurn.push({
       turnId: message.turnId,
       messageId: message.id,
-      status: computeWorkStatus(items, message.turnError, isActiveTurn),
+      status: lifecycle === 'current' ? 'current' : (hasFailures ? 'failed' : 'completed'),
+      hasFailures,
       items,
       ...(message.turnError === undefined ? {} : { turnError: message.turnError }),
     });

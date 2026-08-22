@@ -8,7 +8,6 @@ context:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
     - docs/development/react-component-guidelines.md
-    - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
     - tools/dashboard/src/components/markdown-content.tsx
     - tools/dashboard/src/lib/types.ts
@@ -38,7 +37,7 @@ background color alone (`ai-chat.tsx:53-58`).
 
 ## Implementation constraints
 
-- Per `areas/react-component-guidelines.md` §20.1, `ChatMessage` must become a
+- Per `docs/development/react-component-guidelines.md` §20.1, `ChatMessage` must become a
   module-level component (its own file under `tools/dashboard/src/components/
   conversation/`), not a nested function recreated on every `AiChatPage` render.
 - Remove avatars entirely (FR-2) — reclaim the mobile width they consume.

@@ -81,6 +81,32 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
   return `${prefix}-${timestamp}-${random}`;
 }
 
+/**
+ * Finds this event's owning assistant message, preferring `turnId` — the single
+ * correlation key every assistant-message-producing event shares (owner-decisions.md
+ * D7) — over `messageId`, whose default format differs between event types on the wire
+ * (`turn-runtime.mjs#emitTextDelta` defaults it to `message-${turnId}` while tool
+ * events carry none at all) and previously caused two separate messages, and therefore
+ * two independently-rendered Work summaries, for the same turn. `messageId` is only a
+ * fallback, for an event that genuinely carries no `turnId`. Returns the existing
+ * message index, or -1 if no message exists yet for this event.
+ */
+function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
+  if (event.turnId) {
+    const byTurn = messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
+    if (byTurn >= 0) return byTurn;
+  }
+  if (event.messageId) {
+    return messages.findIndex((m) => m.id === event.messageId);
+  }
+  return -1;
+}
+
+function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'messageId'>): string {
+  if (event.turnId) return `msg-${event.turnId}`;
+  return event.messageId || 'msg-current';
+}
+
 export function applyAgentEvent(
   prevMessages: NormalizedMessage[],
   event: AgentEvent,
@@ -107,8 +133,7 @@ export function applyAgentEvent(
 
     case 'text.delta': {
       const text = event.text ?? event.delta ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -120,7 +145,7 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text,
           turnId: event.turnId,
@@ -131,8 +156,7 @@ export function applyAgentEvent(
 
     case 'reasoning.delta': {
       const reasoning = event.text ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -144,7 +168,7 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           reasoning,
@@ -155,14 +179,13 @@ export function applyAgentEvent(
     }
 
     case 'tool.started': {
-      const msgId = `msg-${event.turnId || 'current'}`;
       const toolCall = {
         id: event.toolId || `tool-${Date.now()}`,
         name: event.toolName || 'tool',
         input: event.input,
         status: 'running' as const,
       };
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
@@ -172,7 +195,7 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           toolCalls: [toolCall],
@@ -183,8 +206,7 @@ export function applyAgentEvent(
     }
 
     case 'tool.updated': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -202,8 +224,7 @@ export function applyAgentEvent(
     }
 
     case 'tool.completed': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -233,7 +254,10 @@ export function applyAgentEvent(
       // A tool still 'running' when the turn ends never received a real successful
       // terminal signal — resolves to 'failed', regardless of how the turn itself
       // ended (owner-decisions.md D6), matching the backend's completeRunningToolCalls.
+      // Scoped strictly to this event's own turnId — a terminal event for one turn must
+      // never resolve a still-running tool belonging to a different turn.
       let updated = prevMessages.map((m) => {
+        if (m.turnId !== event.turnId) return m;
         if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
         return {
           ...m,
@@ -243,8 +267,7 @@ export function applyAgentEvent(
 
       if (event.type === 'turn.failed' && event.error) {
         const turnError = event.error;
-        const msgId = `msg-${event.turnId || 'current'}`;
-        const existingIdx = updated.findIndex((m) => m.turnId === event.turnId && m.role === 'assistant');
+        const existingIdx = findAssistantMessageIndex(updated, event);
         if (existingIdx >= 0) {
           updated = [...updated];
           updated[existingIdx] = { ...updated[existingIdx], turnError };
@@ -253,7 +276,14 @@ export function applyAgentEvent(
           // home for the error still needs a message shell to attach to (owner-decisions.md D6/D9).
           updated = [
             ...updated,
-            { id: msgId, role: 'assistant', text: '', turnId: event.turnId, turnError, createdAt: event.timestamp || new Date().toISOString() },
+            {
+              id: canonicalAssistantMessageId(event),
+              role: 'assistant',
+              text: '',
+              turnId: event.turnId,
+              turnError,
+              createdAt: event.timestamp || new Date().toISOString(),
+            },
           ];
         }
       }

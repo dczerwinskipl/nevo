@@ -144,6 +144,71 @@ test('projectChat preserves raw technical detail (toolName, input, output, durat
   });
 });
 
+// Required coverage A (follow-up review, Finding 1): an active turn containing
+// completed, failed, and running actions stays 'current' — a failed historical action
+// must never prematurely terminate an otherwise still-active turn's Work group.
+test('A: an active turn with a mix of completed, failed, and running actions stays current, with hasFailures retained', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: { path: 'a.ts' }, status: 'failed' },
+        { id: 't2', name: 'Bash', input: { command: 'npm test' }, status: 'completed' },
+        { id: 't3', name: 'Edit', input: { path: 'b.ts' }, status: 'running' },
+      ],
+    }),
+  ];
+
+  const { workByTurn, currentActivity } = projectChat(messages, { activeTurnId: 'turn-1' });
+  assert.equal(workByTurn.length, 1);
+  assert.equal(workByTurn[0].status, 'current', 'lifecycle stays current despite the earlier failure');
+  assert.equal(workByTurn[0].hasFailures, true, 'failure information is retained');
+  assert.equal(workByTurn[0].items.length, 3, 'the failed historical action is not dropped');
+  assert.equal(currentActivity?.toolId, 't3', 'the running action remains current activity');
+});
+
+// Required coverage C (follow-up review): a terminal turn with a failure surfaces
+// hasFailures/status: 'failed', independent of the lifecycle question above.
+test('C: a terminal turn with a failed action reports status failed and hasFailures true', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'completed' },
+        { id: 't2', name: 'Bash', input: {}, status: 'failed' },
+      ],
+    }),
+  ];
+
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'failed');
+  assert.equal(workByTurn[0].hasFailures, true);
+});
+
+// Required coverage H (follow-up review): one turn with both tool activity and
+// assistant prose produces exactly one Work group alongside the prose-bearing message.
+test('H: a turn with both tool activity and assistant prose produces one Work group and preserves the prose', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      text: 'Here is what I found.',
+      toolCalls: [{ id: 't1', name: 'Read', input: { path: 'a.ts' }, status: 'completed' }],
+    }),
+  ];
+
+  const { workByTurn, conversation } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn.length, 1);
+  assert.equal(workByTurn[0].turnId, 'turn-1');
+  const assistantEntry = conversation.find(entry => entry.id === 'm1');
+  assert.equal(assistantEntry.text, 'Here is what I found.');
+});
+
 test('projectChat carries turnId onto conversation entries without merging distinct turns', () => {
   const messages = [
     userMsg('u1', 'first'),

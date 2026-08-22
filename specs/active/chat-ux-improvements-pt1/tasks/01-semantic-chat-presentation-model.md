@@ -7,7 +7,6 @@ context:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
     - docs/development/react-component-guidelines.md
-    - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/lib/nevo-assistant-runtime.ts
     - tools/dashboard/src/lib/types.ts
     - tools/ai/contracts.mjs
@@ -135,6 +134,45 @@ corrects existing lifecycle semantics required for truthful Work UX — it must 
 expand into new provider capabilities, headless interaction protocols, orchestration,
 deterministic-flow behavior, or provider session lifecycle redesign.
 
+## Corrections from a follow-up review of PR #35
+
+Three defects were found in this task's first implementation pass, all in code this
+task owns (`chat-projection.ts`, `transcript-cache.mjs`, `nevo-assistant-runtime.ts`):
+
+1. **Work's status model conflated lifecycle with outcome.** The projection's
+   `computeWorkStatus` checked "any item failed" before checking "is this turn still
+   active," so a single failed historical action inside an otherwise still-running turn
+   forced the whole Work group into a terminal `'failed'` state — even while another
+   action in the same turn was still `'running'`. Corrected: lifecycle (`'current'` vs.
+   terminal) is now determined first and only from whether the turn is still active or
+   has a `'running'` item, never from whether any item failed; a turn's `TurnWork` gains
+   an independent `hasFailures: boolean` field so "does this Work need attention" and
+   "has this turn terminated" are tracked separately. A valid active turn can look like
+   `Read failed`, `Bash completed`, `Edit running` and must stay `status: 'current'`
+   with `hasFailures: true`.
+2. **Terminal cleanup was not scoped to the terminating turn.** Both
+   `completeRunningToolCalls` (`transcript-cache.mjs`) and the frontend reducer's
+   `turn.completed`/`turn.failed` handling swept *every* message's `'running'` tool
+   calls, not only the ones belonging to the turn that actually just ended. The
+   single-active-turn invariant means this was not reachable in practice, but the
+   scoping was implicit, not enforced. Corrected: both now take the terminating event's
+   `turnId` and only resolve tool calls on messages whose own `turnId` matches — a
+   terminal event for one turn can never mutate a different turn's still-`running`
+   actions, explicit and tested rather than relying on the invariant alone.
+3. **The frontend reducer's turn/message correlation had a latent format mismatch that
+   could split one turn's activity across two messages.** `applyAgentEvent`'s
+   `text.delta`/`reasoning.delta` cases preferred `event.messageId` (which
+   `turn-runtime.mjs#emitTextDelta` defaults to `message-${turnId}`) while
+   `tool.started`/`tool.completed` always used a separately-computed `msg-${turnId}` —
+   two different ID formats for the same turn, which could produce two separate
+   assistant messages (one prose-bearing, one tool-bearing) sharing the same `turnId`,
+   and therefore two independently-rendered Work summaries for what should be one turn
+   (see Task 03's ownership correction). Corrected: every assistant-message-producing
+   event case now resolves its target message by `turnId` first (via one shared
+   resolver), falling back to `messageId` only for an event that genuinely carries no
+   `turnId`. This is the root fix Task 03's "at most one Work summary per turn"
+   correction depends on.
+
 ## Implementation constraints
 
 - Follow `docs/development/react-component-guidelines.md` §6 ("keep data
@@ -221,6 +259,22 @@ deterministic-flow behavior, or provider session lifecycle redesign.
    accidental drift between `tools/ai/contracts.mjs` and
    `tools/dashboard/src/lib/types.ts`.
    `automated: npm --prefix tools/dashboard test`
+
+**Corrections from a follow-up review of PR #35:**
+
+19. An active turn containing a mix of completed, failed, and running actions stays
+    `status: 'current'` (never forced to terminal `'failed'` by the earlier failure);
+    the projection's `hasFailures` field reflects the failure independently of
+    lifecycle.
+    `automated: npm --prefix tools/dashboard test`
+20. A terminal event (`turn.completed`/`turn.failed`) for one turn never resolves a
+    still-`'running'` tool call belonging to a different turn, in both
+    `transcript-cache.mjs#completeRunningToolCalls` and the frontend reducer.
+    `automated: npm --prefix tools/dashboard test`
+21. Every assistant-message-producing event for one `turnId` (reasoning, text, and any
+    number of tool calls) correlates to exactly one assistant message — never a split
+    "Work-only" message plus a separate "prose" message for the same turn.
+    `automated: npm --prefix tools/dashboard test`
 
 **Required test scenarios (from `owner-decisions.md` D6):**
 

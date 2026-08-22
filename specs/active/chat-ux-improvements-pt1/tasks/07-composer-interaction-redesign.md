@@ -7,7 +7,6 @@ context:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
     - docs/development/react-component-guidelines.md
-    - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
   optional:
     - specs/active/ux-improvements-version-1/tasks/04-mode-description-tooltip.md

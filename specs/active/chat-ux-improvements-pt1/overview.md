@@ -234,8 +234,7 @@ and cannot be fixed by UI projection alone:
   `docs/development/react-component-guidelines.md` (component sizing/composition,
   projection outside JSX, view-model update-boundary discipline, memoization,
   accessibility, Radix-wrapper conventions) — required reading for every task listed
-  below; `areas/react-component-guidelines.md` is a thin, change-local index into it,
-  not a second copy.
+  below, cited directly (no separate spec-local index — see "Areas").
 - Reuse `ux-improvements-version-1`'s verified `design-tokens` task and its in-flight
   `shared-status-label-component`/`mode-description-tooltip`/`task-session-linking`
   tasks rather than reinventing chat-local equivalents — coordinated as a
@@ -361,9 +360,13 @@ write to `ux-improvements-version-1`'s manifest — see D8 and Task 11).
 
 ## Areas
 
-- `areas/react-component-guidelines.md` — thin, change-local index into
-  `docs/development/react-component-guidelines.md` (the durable guide itself), mapping
-  its sections onto this change's tasks. Not an independently implementable concern.
+None. Every frontend task in this change requires
+`docs/development/react-component-guidelines.md` directly in its `context.required` and
+cites the specific sections it relies on inline, in its own "Implementation constraints"
+— the durable guide is this change's sole source of truth for React guidance (follow-up
+review of PR #35 removed the spec-local `areas/react-component-guidelines.md` index,
+which had become a second, redundant required-context file duplicating what the durable
+guide and each task's own inline citations already establish).
 
 ## Change-wide acceptance criteria
 

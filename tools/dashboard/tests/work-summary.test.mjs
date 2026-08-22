@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-import { visibleWorkItemsWhenTerminal, visibleWorkItemsWhileRunning } from '../src/components/work/work-visibility.ts';
+import {
+  hasVisibleProse,
+  shouldRenderChatMessage,
+  visibleWorkItemsWhenTerminal,
+  visibleWorkItemsWhileRunning,
+} from '../src/components/work/work-visibility.ts';
+import { activityLabelFor } from '../src/lib/tool-activity-labels.ts';
 import { projectChat } from '../src/lib/chat-projection.ts';
+
+function readWorkSummarySource() {
+  return readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+}
 
 function item(id, status, overrides = {}) {
   return { toolId: id, toolName: `tool-${id}`, input: {}, status, ...overrides };
@@ -39,22 +51,24 @@ test('visibleWorkItemsWhenTerminal reveals every action once expanded', () => {
   assert.deepEqual(visibleWorkItemsWhenTerminal(work, true), work.items);
 });
 
-// owner-decisions.md, AC5: a failed action is visibly flagged and remains individually
-// inspectable even while the rest of the group is collapsed.
-test('visibleWorkItemsWhenTerminal keeps failed actions visible while collapsed', () => {
+// Finding 2 (follow-up review): a failed action's status is retained and it becomes
+// individually inspectable through expansion — collapsed Work must never automatically
+// emit historical action cards outside the group, even when one of them failed.
+test('visibleWorkItemsWhenTerminal never exposes historical actions — failed or not — while collapsed', () => {
   const work = {
     turnId: 'turn-1',
     messageId: 'm1',
     status: 'failed',
+    hasFailures: true,
     items: [item('t1', 'completed'), item('t2', 'failed'), item('t3', 'completed')],
   };
 
   const collapsed = visibleWorkItemsWhenTerminal(work, false);
-  assert.equal(collapsed.length, 1);
-  assert.equal(collapsed[0].toolId, 't2');
+  assert.deepEqual(collapsed, []);
 
   const expanded = visibleWorkItemsWhenTerminal(work, true);
   assert.equal(expanded.length, 3);
+  assert.equal(expanded.find(i => i.toolId === 't2').status, 'failed');
 });
 
 test('visibleWorkItemsWhileRunning never duplicates the current running item, only prior ones once expanded', () => {
@@ -100,4 +114,73 @@ test('two sequential turns each with tool calls produce two separate Work groups
   ];
   const { workByTurn } = projectChat(messages);
   assert.equal(workByTurn.length, 2);
+});
+
+// Required coverage B (follow-up review): eight completed actions collapse to one
+// summary; none visible while collapsed; all visible once expanded.
+test('B: eight successful actions collapse to one Work summary, no cards while collapsed, all visible expanded', () => {
+  const work = {
+    turnId: 'turn-1',
+    messageId: 'm1',
+    status: 'completed',
+    hasFailures: false,
+    items: Array.from({ length: 8 }, (_, i) => item(`t${i}`, 'completed')),
+  };
+
+  assert.deepEqual(visibleWorkItemsWhenTerminal(work, false), []);
+  const expanded = visibleWorkItemsWhenTerminal(work, true);
+  assert.equal(expanded.length, 8);
+});
+
+// Required coverage D (follow-up review, Finding 3): current activity uses Task 04's
+// human-readable normalization, never the raw provider tool name. `work-summary.tsx`
+// cannot be imported into this test runner (JSX, no loader for it here — see G below),
+// so this combines (1) proving the normalization itself never renders a raw tool name
+// for a realistic running item, with (2) a source check that `WorkCurrentActivity`
+// actually calls the normalization function rather than rendering `item.toolName`.
+test('D: current activity label uses Task 04 normalization, not the raw tool name', () => {
+  const runningItem = activityLabelFor('Read', { path: 'specs/active/chat-ux-improvements-pt1/foo.md' });
+  assert.notEqual(runningItem.label, 'Read', 'must not render the raw provider tool name');
+  assert.equal(runningItem.label, 'Reading specs/active/chat-ux-improvements-pt1/foo.md');
+
+  const bashItem = activityLabelFor('Bash', { command: 'node tools/specs.mjs validate' });
+  assert.equal(bashItem.label, 'Running: node tools/specs.mjs validate');
+
+  const source = readWorkSummarySource();
+  const currentActivityMatch = source.match(/const WorkCurrentActivity[\s\S]*?\n\}\);/);
+  assert.ok(currentActivityMatch, 'WorkCurrentActivity must exist in work-summary.tsx');
+  assert.match(currentActivityMatch[0], /activityLabelFor\(/, 'must call the Task 04 normalization function');
+  assert.doesNotMatch(currentActivityMatch[0], />\{item\.toolName\}</, 'must not render the raw tool name directly');
+});
+
+// Required coverage F (follow-up review, Findings 5/8): a Work-only turn (no assistant
+// prose) still renders — via Work, not an empty assistant bubble/card/placeholder — and
+// a turn with no content at all yet renders nothing rather than an empty placeholder.
+test('F: a Work-only assistant message renders (has Work), an empty one does not', () => {
+  const workOnlyMessage = { role: 'assistant', text: '', reasoning: undefined };
+  assert.equal(hasVisibleProse(workOnlyMessage), false);
+  assert.equal(shouldRenderChatMessage(workOnlyMessage, true), true, 'Work alone is enough to render');
+  assert.equal(shouldRenderChatMessage(workOnlyMessage, false), false, 'no prose and no Work renders nothing — no empty placeholder');
+
+  const proseMessage = { role: 'assistant', text: 'Hello', reasoning: undefined };
+  assert.equal(shouldRenderChatMessage(proseMessage, false), true, 'prose alone is enough to render');
+
+  const userMessage = { role: 'user', text: '', reasoning: undefined };
+  assert.equal(shouldRenderChatMessage(userMessage, false), true, 'a user message always renders');
+});
+
+// Required coverage G (follow-up review, Finding 6): collapsed Work renders as a
+// lightweight transcript row, not a card/bubble container. `work-summary.tsx` cannot be
+// rendered in this test runner (no jsdom/RTL, and Node's loader does not transform
+// JSX), so this asserts the component-structure invariant the way it exists here: the
+// collapsed row's own class list carries no card chrome (border/rounded-xl/background),
+// only a hover affordance — a structural check on the source, not a pixel comparison.
+test('G: the collapsed Work row source carries no card container styling', () => {
+  const source = readWorkSummarySource();
+  const collapsedSummaryMatch = source.match(/const WorkCollapsedSummary[\s\S]*?\n\}\);/);
+  assert.ok(collapsedSummaryMatch, 'WorkCollapsedSummary must exist in work-summary.tsx');
+  const collapsedSummarySource = collapsedSummaryMatch[0];
+  assert.doesNotMatch(collapsedSummarySource, /rounded-xl/, 'no large rounded card container');
+  assert.doesNotMatch(collapsedSummarySource, /\bborder\b/, 'no prominent border');
+  assert.match(collapsedSummarySource, /hover:bg-white\/4/, 'reads as a lightweight row with only a hover affordance');
 });

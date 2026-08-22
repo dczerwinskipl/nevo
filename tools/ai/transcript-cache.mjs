@@ -12,8 +12,16 @@ function sanitizeFilename(value) {
   return encodeURIComponent(value).replace(/[*~]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-function completeRunningToolCalls(state) {
+/**
+ * Resolves a still-`running` tool call to `'failed'` when its turn ends without a real
+ * successful terminal signal (owner-decisions.md D6). Scoped strictly to `turnId` — a
+ * terminal event for one turn must never mutate a different turn's still-running tools
+ * (the single-active-turn invariant means only one turn can be non-terminal at a time in
+ * practice, but this scoping makes that safety explicit rather than implicit).
+ */
+function completeRunningToolCalls(state, turnId) {
   for (const msg of state.messages) {
+    if (turnId && msg.turnId !== turnId) continue;
     if (!msg.toolCalls) continue;
     for (const tool of msg.toolCalls) {
       if (tool.status === 'running') tool.status = 'failed';
@@ -96,9 +104,10 @@ export class SessionTranscriptCacheService {
     const state = this.#inMemory.get(key);
     if (!state || !state.activeTurn) return null;
 
+    const interruptedTurnId = state.activeTurn.turnId;
     delete state.activeTurn;
     delete state.pendingInteraction;
-    completeRunningToolCalls(state);
+    completeRunningToolCalls(state, interruptedTurnId);
     state.lastEventSeq = (state.lastEventSeq || 0) + 1;
 
     const msg = {
@@ -309,13 +318,13 @@ export class SessionTranscriptCacheService {
       }
       case 'turn.completed': {
         delete state.activeTurn;
-        completeRunningToolCalls(state);
+        completeRunningToolCalls(state, event.turnId);
         break;
       }
       case 'turn.failed': {
         delete state.activeTurn;
         delete state.pendingInteraction;
-        completeRunningToolCalls(state);
+        completeRunningToolCalls(state, event.turnId);
         if (event.error) {
           // Reload-safe home for the turn's terminal error.code (owner-decisions.md D6/D9)
           // so Task 09 can distinguish Turn/Work Outcome without needing backend access.

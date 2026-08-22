@@ -8,7 +8,6 @@ context:
     - specs/active/chat-ux-improvements-pt1/overview.md
     - specs/active/chat-ux-improvements-pt1/owner-decisions.md
     - docs/development/react-component-guidelines.md
-    - specs/active/chat-ux-improvements-pt1/areas/react-component-guidelines.md
     - tools/dashboard/src/components/ai-tool-view.tsx
     - tools/dashboard/src/lib/types.ts
   optional:
@@ -76,6 +75,14 @@ secondary.
   status, never "completed", regardless of how the turn actually ended.
 - Technical tool type (`toolCall.name`) remains discoverable even once a friendlier
   label is primary — do not hide it entirely, demote it visually.
+- **Single source of truth for every primary user-facing activity label (corrected
+  during a follow-up review of PR #35).** `tool-activity-labels.ts`'s `activityLabelFor`
+  is not only `AiToolView`'s label source — it is the one normalization path for **every**
+  place a tool's activity is shown as the primary label, including Task 03's per-turn
+  Work "current activity" line (`components/work/**`, in this task's own
+  `allowed_paths`). A raw provider tool name (`Read`, `Bash`, `Edit`, ...) must never
+  appear as a primary label anywhere in the transcript; normalization logic is never
+  duplicated into a second implementation for a different call site.
 
 ## Acceptance criteria
 
@@ -111,6 +118,10 @@ secondary.
    `Bash` with an unknown command and a tool with no useful structured input (tier 3
    fallback).
    `automated: npm --prefix tools/dashboard test`
+10. **(New)** Task 03's per-turn Work "current activity" line renders through
+    `activityLabelFor`, never the raw provider tool name — the same normalization path
+    `AiToolView` uses, not a second implementation.
+    `automated: npm --prefix tools/dashboard test`
 
 ## Verification
 
