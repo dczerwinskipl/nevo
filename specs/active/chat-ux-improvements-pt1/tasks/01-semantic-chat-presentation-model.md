@@ -22,6 +22,8 @@ context:
     - tools/dashboard/tests/ai-chat-helpers.test.mjs
     - tools/dashboard/tests/ai-contract-drift.test.mjs
   optional: []
+semantic_references:
+  decisions: [D6, D7]
 allowed_paths:
   - tools/dashboard/src/lib/**
   - tools/ai/contracts.mjs

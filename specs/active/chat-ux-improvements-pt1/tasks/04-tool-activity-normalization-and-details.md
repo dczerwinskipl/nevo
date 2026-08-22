@@ -13,6 +13,9 @@ context:
     - tools/dashboard/src/lib/types.ts
   optional:
     - specs/active/ux-improvements-version-1/tasks/04-mode-description-tooltip.md
+semantic_references:
+  decisions: [D6]
+  dependency_contracts: [semantic-chat-presentation-model, per-turn-work-presentation]
 allowed_paths:
   - tools/dashboard/src/lib/tool-activity-labels.ts
   - tools/dashboard/src/components/ai-tool-view.tsx

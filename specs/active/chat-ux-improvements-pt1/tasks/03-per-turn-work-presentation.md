@@ -15,6 +15,9 @@ context:
     - tools/dashboard/src/lib/types.ts
   optional:
     - specs/active/chat-ux-improvements-pt1/tasks/01-semantic-chat-presentation-model.md
+semantic_references:
+  decisions: [D6, D9]
+  dependency_contracts: [semantic-chat-presentation-model]
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
   - tools/dashboard/src/components/ai-tool-view.tsx

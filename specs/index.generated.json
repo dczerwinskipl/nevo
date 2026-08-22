@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-21T11:47:42.687Z",
+  "generated": "2026-08-21T23:16:54.056Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -19,25 +19,39 @@
           "id": "conversation-message-presentation",
           "order": 2,
           "file": "tasks/02-conversation-message-presentation.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ]
         },
         {
           "id": "per-turn-work-presentation",
           "order": 3,
           "file": "tasks/03-per-turn-work-presentation.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ]
         },
         {
           "id": "tool-activity-normalization-and-details",
           "order": 4,
           "file": "tasks/04-tool-activity-normalization-and-details.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "semantic-chat-presentation-model",
+            "per-turn-work-presentation"
+          ]
         },
         {
           "id": "mobile-header-simplification",
           "order": 5,
           "file": "tasks/05-mobile-header-simplification.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "shared-session-details",
+            "composer-interaction-redesign"
+          ]
         },
         {
           "id": "shared-session-details",
@@ -55,25 +69,45 @@
           "id": "streaming-and-scroll-behavior",
           "order": 8,
           "file": "tasks/08-streaming-and-scroll-behavior.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "semantic-chat-presentation-model",
+            "per-turn-work-presentation"
+          ]
         },
         {
           "id": "session-states-integration",
           "order": 9,
           "file": "tasks/09-session-states-integration.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ]
         },
         {
           "id": "responsive-accessibility-regression-validation",
           "order": 10,
           "file": "tasks/10-responsive-accessibility-regression-validation.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "conversation-message-presentation",
+            "per-turn-work-presentation",
+            "tool-activity-normalization-and-details",
+            "mobile-header-simplification",
+            "shared-session-details",
+            "composer-interaction-redesign",
+            "streaming-and-scroll-behavior",
+            "session-states-integration"
+          ]
         },
         {
           "id": "reconcile-ux-improvements-overlap",
           "order": 11,
           "file": "tasks/11-reconcile-ux-improvements-overlap.md",
-          "status": "draft"
+          "status": "draft",
+          "depends_on": [
+            "responsive-accessibility-regression-validation"
+          ]
         }
       ]
     },
