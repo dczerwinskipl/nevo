@@ -90,10 +90,27 @@ tasks:
   - id: tool-activity-normalization-and-details
     order: 4
     file: tasks/04-tool-activity-normalization-and-details.md
-    status: approved
+    status: implemented
     depends_on:
       - semantic-chat-presentation-model
       - per-turn-work-presentation
+    implementation:
+      baseline_revision: 7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77
+      review_revision: 7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77
+      changed_paths:
+        - tools/dashboard/src/components/ai-tool-view.tsx
+        - tools/dashboard/src/lib/tool-activity-labels.ts
+        - tools/dashboard/tests/tool-activity-labels.test.mjs
+      worktree_patch_fingerprint: c4967ad3d4b404c4a7a58e43274046f04b9de6e50e18ab652dc231105c62d359
+    self_check:
+      fingerprint: 55d982b349702202d4c696508ce348514d093f48799b9107ec8c01b3d268717a
+      revision: 7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: mobile-header-simplification
     order: 5
