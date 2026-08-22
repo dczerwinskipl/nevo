@@ -25,7 +25,7 @@ tasks:
   - id: codex-provider-adapter-and-registration
     order: 3
     file: tasks/03-codex-provider-adapter-and-registration.md
-    status: draft
+    status: approved
     depends_on:
       - provider-neutral-persistent-turn-contracts
       - codex-app-server-client
