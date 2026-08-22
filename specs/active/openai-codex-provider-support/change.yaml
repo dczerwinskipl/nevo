@@ -15,7 +15,7 @@ tasks:
   - id: provider-neutral-persistent-turn-contracts
     order: 1
     file: tasks/01-provider-neutral-persistent-turn-contracts.md
-    status: draft
+    status: approved
 
   - id: codex-app-server-client
     order: 2
