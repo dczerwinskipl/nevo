@@ -356,6 +356,8 @@ export interface AgentCapabilities {
   toolCalls: boolean;
   reasoning: boolean;
   usage: boolean;
+  steerTurn: boolean;
+  planUpdates: boolean;
 }
 
 export type AiProviderCapabilities = AgentCapabilities;

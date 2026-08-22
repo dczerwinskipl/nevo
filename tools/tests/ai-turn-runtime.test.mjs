@@ -18,6 +18,8 @@ const capabilities = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = {}) {
@@ -25,9 +27,10 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
   let starts = 0;
   let cancels = 0;
   let continuations = 0;
+  let releasePersistentTurn;
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, signal }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
       if (!providerSessionId && setProviderSessionId) {
         setProviderSessionId('sess-auto-allocated');
       }
@@ -65,6 +68,12 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         throw new Error('adapter failure mid-tool');
       } else if (message === 'hang') {
         await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      } else if (message === 'persistent-interaction') {
+        requestInteraction({ kind: 'permission', toolName: 'PersistentShell', input: { command: 'npm test' } });
+        await new Promise((resolve, reject) => {
+          releasePersistentTurn = resolve;
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
       } else if (message === 'slow-drip') {
         for (let i = 0; i < 4; i += 1) {
           await new Promise(resolve => setTimeout(resolve, 15));
@@ -81,6 +90,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         emitDelta(response.answers.map(a => a.value).join(','));
       }
       emitDelta('two');
+      if (interaction?.toolName === 'PersistentShell') return { continuesTurn: true };
     },
     async cancelTurn() { cancels += 1; },
   };
@@ -101,6 +111,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
     get starts() { return starts; },
     get cancels() { return cancels; },
     get continuations() { return continuations; },
+    releasePersistentTurn() { releasePersistentTurn?.(); },
   };
 }
 
@@ -154,6 +165,26 @@ test('permission and question interactions pause, resolve by stable IDs, and con
   });
   await waitFor(() => fixture.runtime.getSnapshot(question.turnId), value => value.status === 'completed', 'question completion');
   assert.equal(fixture.continuations, 2);
+});
+
+test('a persistent provider interaction continues until the original turn lifecycle completes', async () => {
+  const fixture = createFixture();
+  const turn = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'persistent-session',
+    message: 'persistent-interaction',
+  });
+  const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.pendingInteraction, 'persistent interaction');
+  await fixture.runtime.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const continuing = fixture.runtime.getSnapshot(turn.turnId);
+  assert.equal(continuing.status, 'running');
+  assert.equal(continuing.events.some(event => event.type === 'turn.completed'), false);
+
+  fixture.releasePersistentTurn();
+  const completed = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.status === 'completed', 'provider completion');
+  assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
 });
 
 test('duplicate, unknown, and cross-turn responses cannot resolve another request', async () => {
@@ -272,6 +303,22 @@ test('cancellation while in waitingForUser transitions to failed without process
   assert.equal(fixture.cancels, 0); // No child process was live to kill
 });
 
+test('cancellation while waiting invokes provider cancellation when a live operation remains', async () => {
+  const fixture = createFixture();
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'persistent-cancel',
+    message: 'persistent-interaction',
+  });
+  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'waitingForUser');
+
+  const snapshot = await fixture.runtime.cancelTurn(turnId);
+  assert.equal(fixture.cancels, 1);
+  assert.equal(snapshot.status, 'failed');
+  assert.equal(snapshot.pendingInteraction, null);
+  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+});
+
 test('explicit cancellation of running turn is capability-aware and produces one terminal event', async () => {
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel', message: 'hang' });
@@ -294,6 +341,19 @@ test('shutdown interrupts active turns without losing session identity', async (
   assert.equal(snapshot.sessionId, undefined);
   assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_INTERRUPTED');
   assert.equal(fixture.cancels, 0);
+});
+
+test('shutdown disposes persistent adapters exactly once', async () => {
+  let disposals = 0;
+  const adapter = {
+    descriptor: { id: 'disposable', label: 'Disposable', capabilities },
+    async startTurn() {},
+    async cancelTurn() {},
+    async dispose() { disposals += 1; },
+  };
+  const runtime = createAiTurnRuntime({ registry: createAiAdapterRegistry([adapter]), idleTimeoutMs: 0 });
+  await Promise.all([runtime.shutdown(), runtime.shutdown()]);
+  assert.equal(disposals, 1);
 });
 
 test('single-active-turn invariant rejects duplicates and honors a matching idempotency retry', async () => {

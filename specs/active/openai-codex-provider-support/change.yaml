@@ -15,7 +15,37 @@ tasks:
   - id: provider-neutral-persistent-turn-contracts
     order: 1
     file: tasks/01-provider-neutral-persistent-turn-contracts.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 5f46ca0f6cee280cea05760e610522554d06a016
+      review_revision: 5f46ca0f6cee280cea05760e610522554d06a016
+      changed_paths:
+        - tools/ai/contracts.mjs
+        - tools/ai/mock-adapter.mjs
+        - tools/ai/registry.mjs
+        - tools/ai/service.mjs
+        - tools/ai/turn-runtime.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/tests/ai-contracts.test.mjs
+        - tools/tests/ai-turn-runtime.test.mjs
+      worktree_patch_fingerprint: 81b80fb088bd22eba9f1a9f6ef58f12ad5e1b1c3861940d873b7f230f2df3eac
+    self_check:
+      fingerprint: cdd59edbfdc068c4d6e37e4011ec7be715615108a9786dce5f4d99df12e71b0e
+      revision: 5f46ca0f6cee280cea05760e610522554d06a016
+      commands:
+        - command: node --test tools/tests/ai-contracts.test.mjs
+            tools/tests/ai-turn-runtime.test.mjs
+            tools/tests/mock-ai-adapter.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+      status: passed
 
   - id: codex-app-server-client
     order: 2

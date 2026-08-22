@@ -40,6 +40,7 @@ export class AiTurnRuntime {
   #sessionEvents = new Map();
   #terminalOrder = [];
   #closed = false;
+  #shutdownPromise;
   #idleWatchdogTimer = null;
 
   constructor({
@@ -332,6 +333,8 @@ export class AiTurnRuntime {
         return;
       }
 
+      if (result?.continuesTurn === true) return;
+
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.failed', error);
@@ -562,7 +565,12 @@ export class AiTurnRuntime {
     }
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
     if (state.status === 'waitingForUser') {
-      this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
+      const error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 });
+      if (state.privateOperation) {
+        await this.#cancelRunningTurn(state, error);
+      } else {
+        this.#finish(state, 'turn.failed', error);
+      }
       return this.getSnapshot(turnId);
     }
     await this.#cancelRunningTurn(state, new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
@@ -723,7 +731,7 @@ export class AiTurnRuntime {
   }
 
   shutdown() {
-    if (this.#closed) return;
+    if (this.#closed) return this.#shutdownPromise ?? Promise.resolve();
     this.#closed = true;
     if (this.#idleWatchdogTimer) {
       clearInterval(this.#idleWatchdogTimer);
@@ -735,6 +743,8 @@ export class AiTurnRuntime {
       state.abortController.abort();
       this.#finish(state, 'turn.failed', new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 }));
     }
+    this.#shutdownPromise = Promise.resolve(this.registry?.dispose?.());
+    return this.#shutdownPromise;
   }
 
   #finish(state, type, error) {
