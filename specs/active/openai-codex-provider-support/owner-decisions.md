@@ -5,7 +5,7 @@
 - **Question:** Should Nevo integrate Codex through its persistent app-server protocol or emulate the per-turn Claude CLI process model?
 - **Options considered:** a persistent `codex app-server` JSON-RPC client and provider adapter | per-turn Codex CLI invocations shaped like the Claude adapter | Codex SDK/non-interactive execution
 - **Decision:** Use the official `codex app-server` protocol through a small persistent JSON-RPC client and a separate Codex provider adapter; do not pretend Codex behaves like Claude CLI.
-- **Rationale:** The owner explicitly required preservation of Codex threads, turns, streamed items, server requests, interruption, steering, usage, reasoning, and plan semantics.
+- **Rationale:** The owner explicitly required preservation of Codex threads, turns, streamed items, server requests, interruption, usage, reasoning, and authoritative completion/failure semantics.
 - **Consequences:** Provider-specific wire details stay in `tools/ai/codex-*.mjs`; generic runtime code receives only normalized identities, events, interactions, and capabilities.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `overview.md`, all areas and tasks
@@ -24,9 +24,9 @@
 
 - **Question:** How far may this change extend the shared runtime and browser contracts?
 - **Options considered:** Codex-specific branches in generic code | minimal provider-neutral lifecycle/capability extensions | redesign the whole session runtime
-- **Decision:** Add only neutral seams needed by a persistent bidirectional provider: provider-allocated session creation, asynchronous interaction continuation, provider cancellation while waiting for input, adapter disposal, active-turn steering, and normalized plan updates. Do not add Codex wire types or request IDs to shared or browser contracts.
+- **Decision:** Add only neutral seams needed by a persistent bidirectional provider: provider-allocated session creation, asynchronous interaction continuation, provider cancellation while waiting for input, and adapter disposal. Per D8, add steering/plan capability flags only so support is reported honestly; do not add their operations/events or Codex wire types/request IDs to shared or browser contracts.
 - **Rationale:** The owner requested Codex as a validation of the existing abstraction while forbidding a generic runtime or dashboard redesign.
-- **Consequences:** Existing Claude, Antigravity, and mock behavior remains compatible; their descriptors explicitly report unsupported new capabilities. No new visual plan or steering UI is part of this change.
+- **Consequences:** Existing Claude, Antigravity, and mock behavior remains compatible; their descriptors and the first Codex adapter explicitly report unsupported steering/plan capabilities. No steering route, plan event, transcript expansion, or visual UI is part of this change.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `areas/provider-neutral-runtime.md`, task 01
 
@@ -49,6 +49,7 @@
 - **Consequences:** Codex may declare both capabilities true after tests prove the mappings; existing providers declare them false. A later UX change can consume the neutral contracts without changing Codex integration.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `areas/provider-neutral-runtime.md`, tasks 01 and 03
+- **Supersession:** Kept for the audit trail; D8 is authoritative for initial implementation scope.
 
 ## D6: Validate against generated Codex schemas without vendoring the full protocol
 
@@ -69,3 +70,13 @@
 - **Consequences:** Request correlation may never depend on array position or arrival order. Unexpected exit, malformed messages, unknown response IDs, failed initialization, and disposal with active work reject pending operations and must never produce Nevo success.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `areas/app-server-client.md`, `areas/codex-adapter.md`, tasks 02 and 03
+
+## D8: Defer steering and plan-update implementation from the first adapter
+
+- **Question:** Must the first Codex provider implement `turn/steer` and plan updates, or may it ship the required persistent provider lifecycle first?
+- **Options considered:** implement steering plus normalized plan events end to end now | omit both capabilities entirely | add honest capability flags now, report both false, and defer their operations/events as an explicit follow-up
+- **Decision:** Add `steerTurn` and `planUpdates` to the neutral capability descriptor only, with false defaults. The first Codex adapter declares both false and does not implement `turn/steer`, plan events, related HTTP controls, transcript projection, or frontend behavior. Record the missing optional capabilities as a non-blocking follow-up.
+- **Rationale:** Current-code inspection found that steering crosses registry, runtime, service, HTTP, and transcript behavior, while plan updates add a new validated/replayed event through runtime, transcript, server, and frontend contracts. Those are useful but not required to host Codex correctly. The two descriptor flags themselves are a small, honest discovery surface and avoid claiming support that the adapter does not provide.
+- **Consequences:** Provider-created identity, persistent interaction continuation, waiting cancellation, disposal, thread/turn execution, approvals/questions, normalized messages/tools/reasoning/usage, and completion/failure remain mandatory. `turn/steer` and plan notifications are outside the consumed protocol inventory for the first adapter; well-formed occurrences are ignored. Follow-up FU-001 owns future neutral design and implementation.
+- **Date:** 2026-08-22
+- **Affected artifacts:** `overview.md`, `areas/provider-neutral-runtime.md`, `areas/app-server-client.md`, `areas/codex-adapter.md`, tasks 01-03, `follow-ups.yaml`

@@ -13,6 +13,7 @@ summary: >
 related:
   - development.local-setup
   - development.architecture-overview
+  - development.codex-app-server-research
   - adr.0007-provider-neutral-ai-sessions
 ---
 
@@ -82,6 +83,14 @@ Claude Code (version >= 2.1.89) is integrated through non-interactive process in
 The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
 - `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
+
+### Codex app-server research (pre-implementation)
+
+The planned Codex adapter uses the persistent app-server protocol rather than a
+per-turn CLI process. A successful Windows smoke test against Codex CLI `0.149.0` and
+its version-specific lifecycle/envelope observations are recorded in
+[Codex app-server protocol research](codex-app-server-research.md). This is discovery
+evidence, not a claim that the Codex provider is already implemented.
 
 ## Verify the integration
 

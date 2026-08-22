@@ -9,8 +9,9 @@ gap, while preserving ADR-0007 and existing provider behavior.
 
 `AiSessionService#createSession` preallocates a UUID; `AiTurnRuntime` assumes a finite
 post-interaction continuation, does not call the adapter when cancelling a waiting
-turn, and has no steering/plan/disposal path. Capability and frontend drift tests lock
-the current eight keys and twelve event types.
+turn, and has no disposal path. Capability and frontend drift tests lock the current
+eight keys and twelve event types. Steering and plans have no neutral operation/event
+contract; D8 keeps those implementations deferred.
 
 ## Requirements
 
@@ -23,16 +24,16 @@ the current eight keys and twelve event types.
   and `waitingForUser`; preserve the one-terminal-event invariant.
 - Add optional idempotent adapter disposal and invoke it from runtime/service/server
   shutdown without requiring Claude, Antigravity, or mock to own a persistent process.
-- Add neutral `steerTurn` and `planUpdates` capability flags, a correlated active-turn
-  steering operation, and validated `plan.updated` events with ordered entries.
-- Update transcript/server/frontend transport contracts and exact-key drift tests, but
-  add no new visual behavior.
+- Add neutral `steerTurn` and `planUpdates` capability flags with false defaults and
+  update exact-key descriptor/type drift tests. Do not add a steering operation,
+  `plan.updated` event, transcript projection, HTTP control, or visual behavior.
 
 ## Interfaces and boundaries
 
-Generic code sees only Nevo turn IDs, session identity, normalized plan entries, and
+Generic code sees only Nevo turn IDs, session identity, normalized existing events, and
 capabilities. Provider turn/request identifiers remain inside adapter private operation
-state. Existing adapters explicitly normalize new capability flags to false.
+state. Existing adapters and Codex explicitly normalize the new capability flags to
+false.
 
 ## Area-specific acceptance criteria
 
@@ -42,13 +43,13 @@ state. Existing adapters explicitly normalize new capability flags to false.
   remains authoritative.
 - Cancelling a waiting turn with a live provider operation invokes `cancelTurn` exactly
   once and clears the pending interaction.
-- Steering rejects terminal, wrong-session, unsupported, and mismatched turns before
-  invoking the provider; accepted steering records the user input deterministically.
-- Plan events validate, replay, and persist without provider-private fields.
+- Exact capability contracts expose `steerTurn: false` and `planUpdates: false` for
+  existing providers and the first Codex adapter, with no new operation/event surface.
 - Shutdown calls each optional adapter disposal once and does not regress existing
   runtime shutdown tests.
 
 ## Out of scope
 
-Provider-specific request shapes, plan rendering, steering UI, and changing the meaning
-of existing Claude/Antigravity execution modes.
+Provider-specific request shapes, steering execution, normalized plan-update events,
+plan rendering, steering UI, and changing the meaning of existing Claude/Antigravity
+execution modes.

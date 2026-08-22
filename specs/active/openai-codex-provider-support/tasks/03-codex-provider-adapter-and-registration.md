@@ -12,6 +12,7 @@ context:
     - specs/active/openai-codex-provider-support/areas/codex-adapter.md
     - docs/decisions/ADR-0007-provider-neutral-ai-sessions.md
     - docs/development/ai-sessions.md
+    - docs/development/codex-app-server-research.md
     - tools/ai/contracts.mjs
     - tools/ai/registry.mjs
     - tools/ai/service.mjs
@@ -29,8 +30,8 @@ context:
   optional:
     - docs/development/testing-strategy.md
 semantic_references:
-  decisions: [D1, D2, D3, D4, D5, D6, D7]
-  constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11]
+  decisions: [D1, D2, D3, D4, D6, D7, D8]
+  constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12]
   dependency_contracts:
     - provider-neutral-persistent-turn-contracts
     - codex-app-server-client
@@ -65,7 +66,7 @@ contracts, register it in the default dashboard service, and document its behavi
 ## Dependencies
 
 - `provider-neutral-persistent-turn-contracts` defines provider-owned session creation,
-  continuing interactions, waiting cancellation, disposal, steering, and plan events.
+  continuing interactions, waiting cancellation, disposal, and honest capability flags.
 - `codex-app-server-client` supplies the verified request/notification/server-request
   transport and failure boundary.
 
@@ -74,7 +75,8 @@ contracts, register it in the default dashboard service, and document its behavi
 - Provider descriptor id is `codex`, label is `OpenAI Codex`, and availability probes
   the configured `codex` executable without starting/authenticating a turn. Capabilities
   are true only for tested mappings; include resume, cancel, interactive questions and
-  permissions, tools, reasoning, usage, steering, and plans.
+  permissions, tools, reasoning, and usage. Declare `steerTurn: false` and
+  `planUpdates: false` for the first adapter.
 - Own one client instance per adapter. `createSession` calls `thread/start` and returns
   `thread.id`. Atomic `startTurn` without an ID performs the same start and publishes
   that real ID before starting the turn. Never allocate or persist a Codex alias.
@@ -87,16 +89,19 @@ contracts, register it in the default dashboard service, and document its behavi
   satisfy one safely, stop for a compatibility decision.
 - After `turn/start`, correlate the returned/provider-notified Codex turn ID with the
   Nevo turn private operation. Handle notifications only when thread and turn match;
-  ignore unrelated well-formed events from other concurrently loaded threads.
-- For agent messages and plan text, accumulate deltas by item ID and treat
+  ignore unrelated well-formed events from other concurrently loaded threads and
+  provider-global notifications that carry no active-turn correlation.
+- Treat `item/started` and `item/completed` for the input user message as input lifecycle
+  only. They must not emit assistant text/tool events or complete the Nevo turn.
+- For agent messages, accumulate deltas by item ID and treat
   `item/completed` as authoritative. Emit only new text not already emitted; never
   duplicate the final body. Use final item status/data for tool completion.
 - Map command execution, file changes, MCP/dynamic tool items that occur in normal Codex
   turns to normalized tool lifecycle events. Unknown item types are ignored unless they
   are required to determine an active consumed item's outcome; never fabricate an event.
 - Map readable reasoning summary deltas and raw reasoning only when emitted and allowed.
-  Map `thread/tokenUsage/updated` fields verified by schema. Map
-  `turn/plan/updated` to the neutral ordered plan event.
+  Map `thread/tokenUsage/updated` fields verified by schema. Ignore well-formed
+  steering/plan notifications because D8 leaves those capabilities unsupported.
 - Normalize server requests with a private correlation map:
   command/file approval allow -> turn-scoped accept, deny -> decline; permission-subset
   allow -> requested subset scoped to the turn, deny -> empty/declined grant; user input
@@ -105,8 +110,7 @@ contracts, register it in the default dashboard service, and document its behavi
   continues. `serverRequest/resolved` may clear private correlation, but real
   `turn/completed` remains the sole terminal authority.
 - `cancelTurn` uses `turn/interrupt` for running and waiting turns and tolerates the
-  already-terminal race only when the final notification proves it. Steering uses
-  `turn/steer` with the private Codex ID as `expectedTurnId`.
+  already-terminal race only when the final notification proves it.
 - Normalize failed/interrupted/completed turn status exactly once. Provider/client
   failure, invalid consumed payload, failed resume, disposal, or an active item lacking
   an authoritative success outcome must never emit success.
@@ -116,14 +120,16 @@ contracts, register it in the default dashboard service, and document its behavi
 ## Acceptance criteria
 
 1. Descriptor, availability, default registration, mode metadata, and exact capability
-   keys are covered by focused and dashboard contract tests.
+   keys are covered by focused and dashboard contract tests, including false
+   `steerTurn` and `planUpdates` values.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
 2. New blank sessions and atomic first turns bind only the returned `thread.id`; existing
    sessions resume deterministically, and failed resume never starts replacement history.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
 3. Normal and multi-turn fixtures map assistant deltas/final item, reasoning, tools,
-   usage, plan updates, and completion in deterministic order without duplicate text or
-   fabricated tool success.
+   usage, and completion in deterministic order without duplicate text or fabricated
+   tool success; the preceding user-message item lifecycle and provider-global
+   notifications produce no assistant/tool/terminal event.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
 4. Command approval, file approval, permission-subset, and user-input fixtures pause the
    same turn, expose only neutral IDs/data, answer the original server request once, and
@@ -132,17 +138,14 @@ contracts, register it in the default dashboard service, and document its behavi
 5. Cancellation while executing and waiting sends `turn/interrupt`, produces one
    cancelled/interrupted Nevo terminal event, and leaves no pending interaction/request.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
-6. Steering sends `turn/steer` with the matching private Codex turn ID and rejects a
-   mismatched/no-active-turn response without corrupting the Nevo turn.
-   `automated: node --test tools/tests/codex-adapter.test.mjs`
-7. Initialization failure, unexpected exit, malformed/invalid consumed messages,
+6. Initialization failure, unexpected exit, malformed/invalid consumed messages,
    unknown response correlation, failed resume, provider error, interrupted turn, and
    disposal with active work all fail closed and never emit `turn.completed`.
    `automated: node --test tools/tests/codex-adapter.test.mjs tools/tests/codex-app-server-client.test.mjs`
-8. The full tooling/provider/browser tests and dashboard build pass without live Codex
+7. The full tooling/provider/browser tests and dashboard build pass without live Codex
    calls or credentials.
    `automated: node --test tools/tests/*.test.mjs`
-9. Maintainer documentation describes architecture, capabilities, schema refresh,
+8. Maintainer documentation describes architecture, capabilities, schema refresh,
    process ownership, limitations, and offline/strict verification.
    `automated: node tools/docs.mjs check`
 
@@ -162,10 +165,10 @@ node tools/docs.mjs check
 
 Update `docs/development/ai-sessions.md` in the same implementation branch. Do not add a
 new ADR unless implementation discovers a durable decision not already covered by
-ADR-0007 and D1-D7; that would require owner approval first.
+ADR-0007 and D1-D8; that would require owner approval first.
 
 ## Out of scope
 
 Live paid tests by default, Codex-specific visual UX, account/model/thread management,
-remote transports, session-scoped grants, and edits to shared contracts completed by
-task 01.
+remote transports, session-scoped grants, steering/plan-update implementation, and edits
+to shared contracts completed by task 01.

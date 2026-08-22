@@ -18,21 +18,21 @@ using the official app-server protocol rather than reusing either CLI adapter's 
 model.
 
 The protocol baseline was checked on 2026-08-22 against the official
-[Codex app-server documentation](https://developers.openai.com/codex/app-server). The
-documentation defines bidirectional JSON-RPC-shaped messages with the `jsonrpc` field
-omitted on the wire, JSONL over default stdio transport, a mandatory `initialize` then
-`initialized` handshake, explicit threads/turns/items, server-initiated requests, and
-version-specific TypeScript/JSON Schema generation. The packaged Codex executable was
-discoverable in the local Windows installation but could not be executed from the
-sandboxed specification session; task 02 therefore makes generated-schema verification
-an implementation gate instead of freezing unverified shapes in this spec.
+[Codex app-server documentation](https://developers.openai.com/codex/app-server) and a
+successful manual Windows smoke test of Codex CLI `0.149.0`. The test verified stdio
+JSONL, initialization, `thread/start`, `turn/start`, the returned thread/turn identities,
+the initial user-message item lifecycle, and provider-global notifications. Concise
+versioned evidence and its contract boundary are preserved in
+[`docs/development/codex-app-server-research.md`](../../docs/development/codex-app-server-research.md).
+Generated-schema verification remains an implementation gate because one successful
+version does not establish every consumed field union or future compatibility rule.
 
 ## Classification
 
 | Signal | Rating | Evidence |
 |---|---|---|
 | Behavioral clarity | YELLOW | The official protocol and owner requirements are clear, but exact generated field unions must be verified against the implementation-time Codex version. |
-| Public surface impact | RED | The provider capability/event and dashboard control contracts need small neutral additions for steering, plans, provider-allocated sessions, and persistent continuations. |
+| Public surface impact | RED | Provider-allocated sessions, persistent continuations, waiting cancellation, and adapter disposal require small neutral lifecycle additions; steering/plan operations are deferred, with capability flags remaining false. |
 | Package boundary impact | GREEN | Work remains inside the existing Node-based `tools/ai` and dashboard tooling boundary and introduces no new project/package or dependency direction. |
 | Blast radius | RED | The change touches shared turn lifecycle, interaction cancellation, shutdown, protocol transport, provider registration, and browser/server contract tests. |
 | Reversibility | GREEN | Removing the provider and its additive neutral capabilities requires no data migration; provider histories remain owned by Codex. |
@@ -44,8 +44,10 @@ is intentionally limited to tooling.
 ## Current architecture and discovered gaps
 
 - `tools/ai/contracts.mjs` defines eight fixed capabilities and normalized turn,
-  message, reasoning, tool, interaction, usage, completion, and failure events. It has
-  no steering or plan-update contract.
+  message, reasoning, tool, interaction, usage, completion, and failure events. Adding
+  honest false capability flags is small, but a real steering operation and plan event
+  would cross registry/runtime/service/HTTP/transcript/frontend boundaries; D8 defers
+  those operations from the first adapter.
 - `tools/ai/registry.mjs` requires `startTurn` and `cancelTurn`; adapters may expose
   `respondInteraction`, but there is no provider session-creation or disposal seam.
 - `tools/ai/service.mjs#createSession` allocates a UUID before the provider is called.
@@ -72,7 +74,7 @@ is intentionally limited to tooling.
 Nevo cannot currently host a provider whose conversation and active-turn lifecycles are
 managed over one persistent bidirectional connection. Treating Codex like Claude would
 lose explicit thread/turn correlation, server-request responses, interruption,
-steering, authoritative item completion, and process-wide failure behavior. Adding raw
+authoritative item completion, and process-wide failure behavior. Adding raw
 Codex branches to the dashboard would violate ADR-0007 and prevent the integration from
 validating the neutral abstraction.
 
@@ -103,24 +105,30 @@ validating the neutral abstraction.
 - **C11.** Experimental app-server capability opt-in is limited to a required feature
   in this scope (currently user-input requests) and must be confirmed by the generated
   schema; unrelated experimental methods remain unused.
+- **C12.** Treat the Codex CLI `0.149.0` smoke test as versioned evidence rather than a
+  universal contract: persist only `thread.id`, distinguish user-message items from
+  assistant/tool output, ignore unrelated well-formed provider-global notifications,
+  emit the documented minimal envelope, and tolerate an otherwise harmless incoming
+  `jsonrpc` member unless the selected generated schema explicitly requires rejection.
 
 ## Options and trade-offs
 
 ### Option 1: Native persistent app-server client and adapter — selected
 
 - **Complexity:** L
-- **What changes:** Add narrow client, Codex adapter, and the minimal neutral lifecycle,
-  steering, and plan seams described by D3-D7.
+- **What changes:** Add a narrow client, Codex adapter, the minimal neutral lifecycle
+  seams described by D3/D7, and honest false capability flags described by D8.
 - **Trade-offs:** More careful multiplexing and cleanup than a per-turn process, but the
   protocol remains authoritative and provider-specific complexity stays cohesive.
 - **Boundary check:** No new package/project or external dependency. Generic modules
   depend only on neutral callbacks and capabilities; Codex modules depend inward on
   those contracts.
-- **Unlocks:** Correct interactive requests, deterministic resume, native interrupt and
-  steer, accurate item lifecycle, concurrent request correlation, future Codex features
+- **Unlocks:** Correct interactive requests, deterministic resume, native interrupt,
+  accurate item lifecycle, concurrent request correlation, and future Codex features
   behind the same adapter boundary.
-- **Forecloses:** None of the required Codex semantics; it deliberately does not make
-  app-server payloads a shared public API.
+- **Forecloses:** Initial `turn/steer` and normalized plan-update support; both remain an
+  explicit follow-up rather than expanding unrelated surfaces before the core provider
+  ships. It deliberately does not make app-server payloads a shared public API.
 
 ### Option 2: Spawn app-server or Codex execution separately for every turn — rejected
 
@@ -129,8 +137,8 @@ validating the neutral abstraction.
   around each request, duplicates Claude's continuation shape, and makes server-initiated
   requests fragile.
 - **Unlocks:** Reuse of some process-termination helpers.
-- **Forecloses:** Natural multiplexing, native in-flight interaction continuation,
-  steering over the active turn, and faithful process-wide failure semantics.
+- **Forecloses:** Natural multiplexing, native in-flight interaction continuation, and
+  faithful process-wide failure semantics.
 - **Rejection reason:** It contradicts the owner's explicit architecture direction and
   hides rather than validates the abstraction gaps.
 
@@ -147,8 +155,8 @@ validating the neutral abstraction.
 
 ## Owner decisions
 
-The owner's initial instruction resolves the architecture and scope gates. See
-`owner-decisions.md` D1-D7. No new package, external dependency, persistence owner,
+The owner's instructions resolve the architecture and scope gates. See
+`owner-decisions.md` D1-D8. No new package, external dependency, persistence owner,
 transaction behavior, or .NET public API is introduced.
 
 ## Proposed architecture
@@ -168,7 +176,9 @@ The client lazily spawns `codex app-server --listen stdio://`, sends exactly one
 IDs, and owns a pending-request map. It parses one JSON object per stdout line and
 classifies each message as response, notification, or server request by shape. It
 provides typed-at-the-boundary/narrowly validated access only to the methods consumed by
-the adapter.
+the adapter. Outgoing messages use the documented minimal envelope. Incoming
+well-formed envelopes may carry an optional harmless `jsonrpc` member without becoming
+protocol corruption solely for that reason.
 
 Unexpected process termination or a protocol-integrity failure rejects initialization,
 every pending client request, every active adapter turn, and every unanswered server
@@ -183,16 +193,20 @@ closes stdin, and terminates the process within a bounded path.
 | first atomic turn without a session | `thread/start`, publish returned identity, then `turn/start` |
 | existing session after restart/unload | `thread/resume(threadId)`, then `turn/start` |
 | start user turn | `turn/start` with text input and mode-derived stable settings |
-| steer active turn | `turn/steer` with private Codex turn ID as `expectedTurnId` |
 | cancel running or waiting turn | `turn/interrupt`; terminal Nevo outcome is cancellation/interruption, never success |
 | assistant stream | `item/agentMessage/delta`, reconciled with authoritative final `agentMessage` item |
 | reasoning | readable summary deltas and raw reasoning only when actually emitted/allowed |
-| plan | `turn/plan/updated` -> normalized `plan.updated`; final plan item is authoritative where applicable |
 | tool/action | `item/started`, relevant deltas, and authoritative `item/completed` using Codex item ID privately mapped to neutral tool ID |
 | usage | `thread/tokenUsage/updated` -> normalized `usage.updated` using fields verified from generated schema |
 | completion/failure | `turn/completed.status`; preceding `error` details are normalized to safe `AiError` codes |
 | command/file approval | server request -> neutral permission -> turn-scoped Codex response |
 | user input | `item/tool/requestUserInput` (exact generated name wins) -> neutral question response on the same request |
+
+The adapter treats `item/started`/`item/completed` for the input user message as input
+lifecycle only, not assistant/tool output or terminal completion. Well-formed
+provider-global notifications such as `remoteControl/status/changed`,
+`mcpServer/startupStatus/updated`, and `skills/changed` may arrive without an active turn
+and are ignored unless a future, explicitly supported feature consumes them.
 
 Nevo execution modes retain their existing meanings. The implementation derives exact
 wire enums/fields from the generated schema: `ask` must be non-mutating and
@@ -210,9 +224,9 @@ mode.
 - Waiting-turn cancellation calls provider cancellation when a live private operation
   exists.
 - Registry/runtime shutdown invokes optional idempotent adapter disposal.
-- Capability contracts add `steerTurn` and `planUpdates`; a steering service/HTTP
-  control targets the active Nevo turn, and normalized `plan.updated` travels through
-  validation, SSE, transcript projection, and frontend types without new rendering.
+- Capability contracts add `steerTurn` and `planUpdates` only as honest discovery flags.
+  The first Codex adapter and existing providers report both as false; no steering
+  operation or plan event/HTTP/transcript/frontend behavior is added in this change.
 
 ## Areas
 
@@ -230,8 +244,9 @@ mode.
 2. New and resumed Codex sessions use `thread.id` as the only provider session identity,
    and multiple turns resume deterministically.
 3. Normal streamed turns preserve deterministic event order and authoritative terminal
-   outcomes for messages, reasoning, tools, usage, plans, success, interruption, and
-   failure without leaking provider-private fields.
+   outcomes for messages, reasoning, tools, usage, success, interruption, and failure
+   without leaking provider-private fields; the input user-message item lifecycle is
+   not misclassified as assistant/tool output or turn completion.
 4. Command/file approvals and user-input requests pause the same Nevo turn, correlate by
    neutral IDs, send a response to the original JSON-RPC server request, and continue
    until the real Codex terminal notification.
@@ -274,6 +289,9 @@ ADR-0007 remains current and does not need superseding.
   administration, and arbitrary app-server methods.
 - Session-scoped approval grants or provider-specific approval buttons.
 - A new visual plan/TODO component or steering composer UX.
+- Provider-neutral steering execution or normalized plan-update events; the first Codex
+  adapter advertises both capabilities as false and `follow-ups.yaml` records the
+  deferred work.
 - Persisting Codex history or raw protocol payloads in Nevo.
 - Redesigning generic session architecture beyond the gaps enumerated here.
 - Changes to .NET packages under `src/` or `tests/NEvo.*/`.

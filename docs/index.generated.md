@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-22T10:45:32.783Z_
+_Generated: 2026-08-22T11:01:53.913Z_
 
 ## Hub
 
@@ -60,6 +60,7 @@ _Generated: 2026-08-22T10:45:32.783Z_
 |---|---|---|---|
 | `development.ai-sessions` | [Local AI sessions](development/ai-sessions.md) | current |  |
 | `development.architecture-overview` | [NEvo architecture overview](development/architecture-overview.md) | current |  |
+| `development.codex-app-server-research` | [Codex app-server protocol research](development/codex-app-server-research.md) | current |  |
 | `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current |  |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current |  |
 | `development.contributing` | [Contributing](development/contributing.md) | current |  |

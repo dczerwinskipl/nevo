@@ -8,6 +8,7 @@ context:
     - specs/active/openai-codex-provider-support/owner-decisions.md
     - specs/active/openai-codex-provider-support/areas/app-server-client.md
     - docs/development/ai-sessions.md
+    - docs/development/codex-app-server-research.md
     - docs/development/testing-strategy.md
     - tools/ai/contracts.mjs
     - tools/ai/process-termination.mjs
@@ -17,8 +18,8 @@ context:
     - tools/tests/antigravity-adapter.test.mjs
   optional: []
 semantic_references:
-  decisions: [D1, D6, D7]
-  constraints: [C1, C2, C5, C6, C7, C8, C9, C11]
+  decisions: [D1, D6, D7, D8]
+  constraints: [C1, C2, C5, C6, C7, C8, C9, C11, C12]
 allowed_paths:
   - tools/ai/codex-app-server-client.mjs
   - tools/ai/codex-protocol-baseline.json
@@ -57,7 +58,10 @@ process tests. Do not implement event normalization or dashboard registration he
   stdin/stdout, and bounded stderr retained only for safe diagnostics.
 - Model wire envelopes narrowly: request `{method, params, id}`, response with exactly
   one of `result`/`error`, and notification `{method, params}`. Do not require or send a
-  `jsonrpc` member because official app-server omits it on the wire.
+  `jsonrpc` member because official app-server omits it on the wire. Do not reject an
+  otherwise well-formed incoming envelope solely because it includes the harmless
+  `jsonrpc: "2.0"` member accepted by Codex CLI `0.149.0`, unless the selected generated
+  schema explicitly requires rejection.
 - Perform one `initialize` request with stable Nevo client metadata and only the required
   client capabilities, then send `initialized`. Gate all other requests on successful
   initialization; repeated concurrent starts share the same promise/process.
@@ -66,6 +70,10 @@ process tests. Do not implement event normalization or dashboard registration he
 - Parse arbitrary stdout chunk boundaries and multiple lines per chunk. Classify
   response, notification, and server request without positional assumptions. Keep raw
   envelopes inside this module.
+- Accept well-formed provider-global notifications without active thread/turn
+  correlation and ignore them when outside the consumed inventory. Fixtures include
+  the version-observed remote-control, MCP-startup, and skills notifications without
+  promoting their payload shapes into stable contracts.
 - Provide subscription/dispatch seams for the adapter's consumed notifications and
   server requests, plus a single-use response object/function that cannot answer one
   server request twice.
@@ -90,7 +98,8 @@ process tests. Do not implement event normalization or dashboard registration he
    `automated: node --test tools/tests/codex-app-server-client.test.mjs`
 3. Fixture tests cover partial JSONL chunks, multiple messages per chunk, successful
    responses, JSON-RPC errors, notifications, server requests, one-response-only
-   enforcement, and ignored unknown well-formed notifications.
+   enforcement, optional incoming `jsonrpc`, and ignored unknown/provider-global
+   well-formed notifications outside active turns.
    `automated: node --test tools/tests/codex-app-server-client.test.mjs`
 4. Malformed JSON/envelopes, duplicate/unknown response IDs, initialization failure,
    process error/exit, and disposal reject every pending operation and cannot later
@@ -100,7 +109,7 @@ process tests. Do not implement event normalization or dashboard registration he
    or live fake process.
    `automated: node --test tools/tests/codex-app-server-client.test.mjs`
 6. The compact compatibility baseline and verifier prove that every consumed
-   thread/turn/item/approval/user-input/usage/reasoning/plan method or type exists in the
+   thread/turn/item/approval/user-input/usage/reasoning method or type exists in the
    generated schema, without committing the full bundle.
    `automated: node --test tools/tests/codex-schema-compat.test.mjs`
 7. With Codex installed, strict schema verification passes and reports the checked
@@ -118,4 +127,5 @@ node tools/specs.mjs check
 ## Out of scope
 
 WebSocket/Unix transports, automatic process restart, adapter event normalization,
-provider registration, account/auth methods, and a general app-server SDK.
+provider registration, account/auth methods, `turn/steer`/plan-update consumption, and
+a general app-server SDK.

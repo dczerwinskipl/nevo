@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T10:45:32.783Z",
+  "generated": "2026-08-22T11:01:53.913Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -298,6 +298,7 @@
       "related": [
         "development.local-setup",
         "development.architecture-overview",
+        "development.codex-app-server-research",
         "adr.0007-provider-neutral-ai-sessions"
       ]
     },
@@ -317,6 +318,23 @@
         "development.package-boundaries",
         "development.messaging-pipeline",
         "development.ai-sessions"
+      ]
+    },
+    {
+      "file": "docs/development/codex-app-server-research.md",
+      "id": "development.codex-app-server-research",
+      "type": "development",
+      "title": "Codex app-server protocol research",
+      "status": "current",
+      "read_when": [
+        "implementing or reviewing the Codex provider adapter",
+        "updating the Codex app-server protocol baseline",
+        "diagnosing Codex thread, turn, item, or notification handling"
+      ],
+      "summary": "Dated, version-specific observations from a successful local Codex app-server smoke test, separated from the protocol contracts Nevo must still verify from official documentation and generated schemas.",
+      "related": [
+        "development.ai-sessions",
+        "adr.0007-provider-neutral-ai-sessions"
       ]
     },
     {
