@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle } from 'lucide-react';
 import { AiToolView } from '@/components/ai-tool-view';
 import { visibleWorkItemsWhenTerminal, visibleWorkItemsWhileRunning } from '@/components/work/work-visibility';
@@ -87,6 +87,11 @@ const WorkCollapsedSummary = memo(function WorkCollapsedSummary({
  */
 export function WorkSummary({ work }: WorkSummaryProps) {
   const [expanded, setExpanded] = useState(false);
+  // Stable across renders so WorkCollapsedSummary's memo() actually skips a re-render
+  // when only work.items' object identity changed but count/hasFailed/expanded did not
+  // (react-component-guidelines.md §9.1) — an inline arrow here would defeat that memo
+  // on every streamed token.
+  const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
 
   const currentItem = useMemo(() => work.items.find(item => item.status === 'running') ?? null, [work.items]);
   const priorCount = useMemo(() => work.items.filter(item => item.status !== 'running').length, [work.items]);
@@ -99,7 +104,7 @@ export function WorkSummary({ work }: WorkSummaryProps) {
     return (
       <div className="my-2 space-y-1.5">
         {priorCount > 0 && (
-          <WorkCollapsedSummary count={priorCount} hasFailed={false} expanded={expanded} onToggle={() => setExpanded(prev => !prev)} />
+          <WorkCollapsedSummary count={priorCount} hasFailed={false} expanded={expanded} onToggle={toggleExpanded} />
         )}
         {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
         <WorkCurrentActivity item={currentItem} />
@@ -112,7 +117,7 @@ export function WorkSummary({ work }: WorkSummaryProps) {
 
   return (
     <div className="my-2 space-y-1.5">
-      <WorkCollapsedSummary count={work.items.length} hasFailed={hasFailed} expanded={expanded} onToggle={() => setExpanded(prev => !prev)} />
+      <WorkCollapsedSummary count={work.items.length} hasFailed={hasFailed} expanded={expanded} onToggle={toggleExpanded} />
       {visibleItems.length > 0 && (
         <div className="space-y-1.5">
           {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
