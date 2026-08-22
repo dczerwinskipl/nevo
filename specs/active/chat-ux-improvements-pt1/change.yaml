@@ -14,7 +14,7 @@ tasks:
   - id: semantic-chat-presentation-model
     order: 1
     file: tasks/01-semantic-chat-presentation-model.md
-    status: draft
+    status: approved
 
   - id: conversation-message-presentation
     order: 2

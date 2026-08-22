@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-21T23:16:54.056Z",
+  "generated": "2026-08-22T03:17:19.237Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -13,7 +13,7 @@
           "id": "semantic-chat-presentation-model",
           "order": 1,
           "file": "tasks/01-semantic-chat-presentation-model.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "conversation-message-presentation",
