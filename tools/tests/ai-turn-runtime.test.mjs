@@ -49,8 +49,20 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
       } else if (message === 'tools-and-reasoning') {
         emitReasoningDelta('thinking...');
         emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
-        emitToolCompleted({ toolId: 't1', output: ['file.txt'], durationMs: 40 });
+        emitToolCompleted({ toolId: 't1', output: ['file.txt'], durationMs: 40, status: 'completed' });
         emitUsageUpdated({ tokensIn: 50, tokensOut: 20 });
+      } else if (message === 'lingering-tool') {
+        // owner-decisions.md D6, required scenario 17: a turn reaching normal
+        // turn.completed while a different tool call in the same turn is still
+        // 'running' and never received a real successful terminal signal.
+        emitToolStarted({ toolId: 't1', toolName: 'Read', input: { path: 'a.ts' } });
+        emitToolStarted({ toolId: 't2', toolName: 'Bash', input: { command: 'slow' } });
+        emitToolCompleted({ toolId: 't1', output: 'ok', status: 'completed' });
+        // t2 never receives its own tool.completed — the turn still ends normally below.
+      } else if (message === 'fail-with-tool') {
+        // owner-decisions.md D6, required scenario 16: turn-level failure with an active tool.
+        emitToolStarted({ toolId: 't1', toolName: 'Bash', input: { command: 'boom' } });
+        throw new Error('adapter failure mid-tool');
       } else if (message === 'hang') {
         await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
       } else if (message === 'slow-drip') {
@@ -358,6 +370,74 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     assert.equal(transcript.lastEventSeq, 8);
     const snapshot = fixture.runtime.getSnapshot(turnId);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+// owner-decisions.md D6, required scenario 17: a turn reaching normal turn.completed
+// while a different tool call in the same turn is still 'running' resolves that tool to
+// 'failed', not 'completed' — a successful turn outcome is not evidence every lingering
+// tool succeeded. Also covers required scenario 18 (live projection and a
+// persisted/reloaded transcript agree) for this specific case.
+test('a tool still running when its turn reaches normal turn.completed resolves to failed, live and after reload', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-lingering-tool-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture = createFixture({ transcriptCache });
+
+    const { turnId } = await fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-lingering-tool',
+      message: 'lingering-tool',
+    });
+
+    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'turn completion');
+    assert.equal(snapshot.status, 'completed', 'the turn itself succeeds even though one tool lingers');
+
+    const transcript = await transcriptCache.getTranscript('fake', 'sess-lingering-tool');
+    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    const t1 = assistantMsg.toolCalls.find(t => t.id === 't1');
+    const t2 = assistantMsg.toolCalls.find(t => t.id === 't2');
+    assert.equal(t1.status, 'completed', 'the tool that received a real terminal signal stays completed');
+    assert.equal(t2.status, 'failed', 'the lingering tool resolves to failed, never completed, on reload');
+
+    // A second, independent read (simulating a reload) must agree with the live snapshot.
+    await transcriptCache.flush('fake', 'sess-lingering-tool');
+    const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const reloaded = await reloadedCache.getTranscript('fake', 'sess-lingering-tool');
+    const reloadedMsg = reloaded.messages.find(m => m.role === 'assistant');
+    assert.equal(reloadedMsg.toolCalls.find(t => t.id === 't2').status, 'failed');
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+// owner-decisions.md D6, required scenario 16: turn-level failure with an active tool
+// resolves that tool to 'failed', not 'completed'.
+test('a tool still running when its turn fails resolves to failed', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-turn-failure-tool-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture = createFixture({ transcriptCache });
+
+    const { turnId } = await fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'sess-fail-with-tool',
+      message: 'fail-with-tool',
+    });
+
+    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'failed', 'turn failure');
+    assert.equal(snapshot.status, 'failed');
+
+    const transcript = await transcriptCache.getTranscript('fake', 'sess-fail-with-tool');
+    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    assert.equal(assistantMsg.toolCalls.find(t => t.id === 't1').status, 'failed');
+    // owner-decisions.md D6/D9: the turn's raw terminal error is plumbed onto the message
+    // in a reload-safe way so Task 09 can later classify Turn/Work Outcome from it.
+    assert.ok(assistantMsg.turnError?.code, 'turn.failed error.code must survive onto the persisted message');
   } finally {
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

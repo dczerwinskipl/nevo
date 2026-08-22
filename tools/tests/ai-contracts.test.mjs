@@ -96,7 +96,7 @@ test('required events validate all normalized schemas and reject provider reques
     { ...base, type: 'reasoning.delta', text: 'thinking about code' },
     { ...base, type: 'tool.started', toolId: 'tool-1', toolName: 'Shell', input: { command: 'npm test' } },
     { ...base, type: 'tool.updated', toolId: 'tool-1', output: 'running...', status: 'running' },
-    { ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success', durationMs: 150 },
+    { ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success', durationMs: 150, status: 'completed' },
     { ...base, type: 'interaction.requested', interaction: { id: 'int-1', kind: 'permission', toolName: 'Shell', input: { command: 'npm test' } } },
     { ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Choose?', multiSelect: false }] } },
     { ...base, type: 'interaction.requested', interaction: { id: 'int-3', kind: 'confirmation', message: 'Proceed with changes?' } },
@@ -105,6 +105,9 @@ test('required events validate all normalized schemas and reject provider reques
     { ...base, type: 'turn.completed', durationMs: 1200, finishReason: 'stop' },
     { ...base, type: 'turn.failed', error: { code: 'FAILED', message: 'failed' } },
   ]) assert.equal(validateAgentEvent(event).type, event.type);
+
+  assert.throws(() => validateAiEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success' }), { name: 'AiValidationError' }, 'tool.completed must require a terminal status');
+  assert.throws(() => validateAiEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', status: 'running' }), { name: 'AiValidationError' }, 'tool.completed status must be completed or failed, not running');
 
   assert.throws(() => validateAiEvent({ ...base, type: 'turn.started', providerRequestId: 'secret' }), { name: 'AiValidationError' });
   assert.throws(() => validateAiEvent({ ...base, type: 'interaction.requested', interaction: { id: 'i', kind: 'permission', toolName: 'x', input: { rawPayload: {} } } }), { name: 'AiValidationError' });

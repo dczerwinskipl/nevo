@@ -385,6 +385,18 @@ export interface NormalizedMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
   reasoning?: string;
+  /**
+   * The turn this message belongs to (owner-decisions.md D7). Assistant messages are
+   * created one-per-turn and always carry it; explicit rather than recoverable only by
+   * parsing `id`'s naming convention.
+   */
+  turnId?: string;
+  /**
+   * The owning turn's terminal error, when it ended via `turn.failed` (owner-decisions.md
+   * D6/D9) — the raw `error.code`/`message`, not yet classified into the Turn/Work
+   * Outcome vocabulary (`successful | failed | cancelled/interrupted`, Task 09's job).
+   */
+  turnError?: { code: string; message: string };
   toolCalls?: AgentToolCall[];
   interaction?: {
     id: string;

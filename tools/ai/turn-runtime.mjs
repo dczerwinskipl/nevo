@@ -372,9 +372,9 @@ export class AiTurnRuntime {
     this.#emit(state, 'tool.updated', { toolId, output, status });
   }
 
-  #emitToolCompleted(state, { toolId, output, durationMs } = {}) {
+  #emitToolCompleted(state, { toolId, output, durationMs, status } = {}) {
     if (this.#isTerminal(state)) return;
-    this.#emit(state, 'tool.completed', { toolId, output, durationMs });
+    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status });
   }
 
   #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {

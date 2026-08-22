@@ -74,7 +74,7 @@ export class MockAiAdapter {
       if (emitReasoningDelta) emitReasoningDelta('Thinking through the problem...', messageId);
       if (emitToolStarted) emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
       await this.#yield(signal);
-      if (emitToolCompleted) emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15 });
+      if (emitToolCompleted) emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15, status: 'completed' });
       if (emitUsageUpdated) emitUsageUpdated({ tokensIn: 50, tokensOut: 25, cost: 0.001 });
     }
 

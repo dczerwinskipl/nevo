@@ -81,6 +81,47 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
   return `${prefix}-${timestamp}-${random}`;
 }
 
+/**
+ * Finds this event's owning assistant message.
+ *
+ * Priority (owner-decisions.md D7):
+ *  1. Explicit `messageId` — when the provider sends a distinct `messageId`, that
+ *     identity is preserved so message-A and message-B within the same turn stay
+ *     separate `NormalizedMessage` records.
+ *  2. `turnId` fallback — for events that carry a `turnId` but no explicit `messageId`
+ *     (e.g. `tool.started`/`tool.completed`, which must attach to the existing turn
+ *     message regardless of which prose message owns the turn).
+ *
+ * Work de-duplication is NOT done here — the projection layer (`chat-projection.ts`)
+ * aggregates all messages sharing a `turnId` into exactly one `TurnWork`.
+ *
+ * Returns the existing message index, or -1 if no message exists yet for this event.
+ */
+function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
+  // Explicit messageId takes priority — preserves distinct message identity within a turn.
+  // If the event carries an explicit messageId but it isn't in the list yet, return -1
+  // to create a new message with that ID (do NOT fall through to the turnId fallback,
+  // which would merge two distinct messages sharing only a turnId).
+  if (event.messageId) {
+    return messages.findIndex((m) => m.id === event.messageId);
+  }
+  // turnId fallback — tool events carry turnId but no messageId; they must land in the
+  // existing assistant message for that turn, whichever message currently owns it.
+  if (event.turnId) {
+    return messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
+  }
+  return -1;
+}
+
+function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'messageId'>): string {
+  // Prefer the explicit messageId the provider assigned; fall back to a turnId-derived
+  // synthetic ID for events that carry only a turnId (tool events, reasoning without
+  // an explicit messageId, etc.).
+  if (event.messageId) return event.messageId;
+  if (event.turnId) return `msg-${event.turnId}`;
+  return 'msg-current';
+}
+
 export function applyAgentEvent(
   prevMessages: NormalizedMessage[],
   event: AgentEvent,
@@ -107,8 +148,7 @@ export function applyAgentEvent(
 
     case 'text.delta': {
       const text = event.text ?? event.delta ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -120,9 +160,10 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
@@ -130,8 +171,7 @@ export function applyAgentEvent(
 
     case 'reasoning.delta': {
       const reasoning = event.text ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -143,24 +183,24 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           reasoning,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
     }
 
     case 'tool.started': {
-      const msgId = `msg-${event.turnId || 'current'}`;
       const toolCall = {
         id: event.toolId || `tool-${Date.now()}`,
         name: event.toolName || 'tool',
         input: event.input,
         status: 'running' as const,
       };
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
@@ -170,18 +210,18 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           toolCalls: [toolCall],
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
     }
 
     case 'tool.updated': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -199,8 +239,7 @@ export function applyAgentEvent(
     }
 
     case 'tool.completed': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -211,7 +250,10 @@ export function applyAgentEvent(
             ? {
                 ...tc,
                 output: event.output ?? tc.output,
-                status: (event.status as any) || 'completed',
+                // tool.completed always carries a validated 'completed' | 'failed'
+                // status on the wire (owner-decisions.md D6) — never default a
+                // missing/malformed status to success.
+                status: (event.status as 'completed' | 'failed' | undefined) ?? 'failed',
                 durationMs: event.durationMs ?? tc.durationMs,
               }
             : tc
@@ -224,13 +266,44 @@ export function applyAgentEvent(
 
     case 'turn.completed':
     case 'turn.failed': {
-      return prevMessages.map((m) => {
+      // A tool still 'running' when the turn ends never received a real successful
+      // terminal signal — resolves to 'failed', regardless of how the turn itself
+      // ended (owner-decisions.md D6), matching the backend's completeRunningToolCalls.
+      // Scoped strictly to this event's own turnId — a terminal event for one turn must
+      // never resolve a still-running tool belonging to a different turn.
+      let updated = prevMessages.map((m) => {
+        if (m.turnId !== event.turnId) return m;
         if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
         return {
           ...m,
-          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc)),
+          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'failed' as const } : tc)),
         };
       });
+
+      if (event.type === 'turn.failed' && event.error) {
+        const turnError = event.error;
+        const existingIdx = findAssistantMessageIndex(updated, event);
+        if (existingIdx >= 0) {
+          updated = [...updated];
+          updated[existingIdx] = { ...updated[existingIdx], turnError };
+        } else {
+          // The turn failed before any content/tool event created its message — reload-safe
+          // home for the error still needs a message shell to attach to (owner-decisions.md D6/D9).
+          updated = [
+            ...updated,
+            {
+              id: canonicalAssistantMessageId(event),
+              role: 'assistant',
+              text: '',
+              turnId: event.turnId,
+              turnError,
+              createdAt: event.timestamp || new Date().toISOString(),
+            },
+          ];
+        }
+      }
+
+      return updated;
     }
 
     default:

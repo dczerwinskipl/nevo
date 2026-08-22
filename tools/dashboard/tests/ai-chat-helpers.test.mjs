@@ -142,13 +142,15 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   assert.equal(receivedEvents.length, SUPPORTED_AGENT_EVENT_TYPES.length);
   assert.deepEqual(receivedEvents.map(e => e.type), Array.from(SUPPORTED_AGENT_EVENT_TYPES));
 
-  // 3. Verify applyAgentEvent state reduction
+  // 3. Verify applyAgentEvent state reduction — every event for one turn carries the
+  // same turnId (the real, current-schema wire shape: contracts.mjs requires turnId on
+  // every event), which is what correlates text/reasoning/tool activity into one message.
   let messages = [];
-  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', messageId: 'msg-1', text: 'Hello ' });
-  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', messageId: 'msg-1', text: 'World' });
-  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'reasoning.delta', messageId: 'msg-1', text: 'Deep thought' });
+  messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'Hello ' });
+  messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'World' });
+  messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'reasoning.delta', turnId: '1', messageId: 'msg-1', text: 'Deep thought' });
   messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'tool.started', turnId: '1', toolId: 'tool-a', toolName: 'test_tool', input: { a: 1 } });
-  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true } });
+  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true }, status: 'completed' });
 
   assert.equal(messages[0].text, 'Hello World');
   assert.equal(messages[0].reasoning, 'Deep thought');

@@ -21,15 +21,17 @@ import { Card } from '@/components/ui/card';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import { AiReasoningView } from '@/components/ai-reasoning-view';
-import { AiToolView } from '@/components/ai-tool-view';
 import { MarkdownContent } from '@/components/markdown-content';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
+import { WorkSummary } from '@/components/work/work-summary';
+import { hasVisibleProse, shouldRenderChatMessage } from '@/components/work/work-visibility';
 import {
   useAiProviders,
   useCreateAiSession,
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { projectChat, type TurnWork } from '@/lib/chat-projection';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -41,8 +43,15 @@ import type {
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-function ChatMessage({ message, isStreaming = false }: { message: NormalizedMessage; isStreaming?: boolean }) {
+function ChatMessage({ message, work, isStreaming = false }: { message: NormalizedMessage; work?: TurnWork; isStreaming?: boolean }) {
   const user = message.role === 'user';
+  const hasProse = hasVisibleProse(message);
+
+  // Nothing to show yet (no prose, no Work) — e.g. the brief moment a turn has started
+  // but no content has streamed in — render nothing rather than an empty bubble/circle;
+  // the transcript's own "isRunning" indicator already covers this loading state.
+  if (!shouldRenderChatMessage(message, Boolean(work))) return null;
+
   return (
     <div className={cn('flex gap-3', user && 'justify-end')}>
       {!user && (
@@ -50,24 +59,28 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
           <Bot className="size-4" />
         </div>
       )}
-      <div className={cn(
-        'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
-        user
-          ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
-          : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
-      )}>
-        {message.reasoning && (
-          <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
-        )}
-        {message.toolCalls?.map((tc) => (
-          <AiToolView key={tc.id} toolCall={tc} />
-        ))}
-        {message.text && (
-          user ? (
-            <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
-          ) : (
-            <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
-          )
+      <div className={cn('min-w-0 space-y-1.5', user ? 'flex max-w-[min(88%,820px)] flex-col items-end' : 'flex-1')}>
+        {/* Work is a flat transcript row, never nested inside the prose card below —
+            a turn with no prose renders Work directly with no card around it at all. */}
+        {work && <WorkSummary work={work} />}
+        {hasProse && (
+          <div className={cn(
+            'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
+            user
+              ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
+              : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
+          )}>
+            {message.reasoning && (
+              <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
+            )}
+            {message.text && (
+              user ? (
+                <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
+              ) : (
+                <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
+              )
+            )}
+          </div>
         )}
       </div>
       {user && (
@@ -181,6 +194,11 @@ export function AiChatPage({
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
   const linkedTasks = session?.taskId ? [session.taskId] : [];
+
+  const workByTurnId = useMemo(() => {
+    const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
+    return new Map(projection.workByTurn.map(work => [work.turnId, work]));
+  }, [assistant.messages, assistant.activeTurnId]);
 
   useEffect(() => {
     onTurnChange(assistant.activeTurnId);
@@ -380,7 +398,13 @@ export function AiChatPage({
                 <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
               </div>
             )}
-            {assistant.messages.map(message => <ChatMessage key={message.id} message={message} />)}
+            {assistant.messages.map(message => {
+              // Work is rendered exactly once per turn — at the anchor message
+              // (TurnWork.messageId). Other messages in the same turn render prose only.
+              const turnWork = message.turnId ? workByTurnId.get(message.turnId) : undefined;
+              const work = turnWork?.messageId === message.id ? turnWork : undefined;
+              return <ChatMessage key={message.id} message={message} work={work} />;
+            })}
             {assistant.isRunning && !assistant.pendingInteraction && (
               <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />

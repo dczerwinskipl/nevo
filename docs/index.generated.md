@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-18T18:10:23.358Z_
+_Generated: 2026-08-22T08:41:26.880Z_
 
 ## Hub
 
@@ -76,6 +76,7 @@ _Generated: 2026-08-18T18:10:23.358Z_
 | `development.persistence-development` | [Adding a persistence mechanism](development/persistence-development.md) | current |  |
 | `development.processing-model` | [Processing model](development/processing-model.md) | current |  |
 | `development.pull-requests` | [Pull requests](development/pull-requests.md) | current |  |
+| `development.react-component-guidelines` | [React component guidelines](development/react-component-guidelines.md) | current |  |
 | `development.testing` | [Testing strategy](development/testing-strategy.md) | current |  |
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current |  |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current |  |

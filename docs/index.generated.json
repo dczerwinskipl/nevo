@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T18:10:23.358Z",
+  "generated": "2026-08-22T08:41:26.880Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -583,6 +583,26 @@
       "related": [
         "development.git-workflow",
         "development.commit-conventions"
+      ]
+    },
+    {
+      "file": "docs/development/react-component-guidelines.md",
+      "id": "development.react-component-guidelines",
+      "type": "development",
+      "title": "React component guidelines",
+      "status": "current",
+      "read_when": [
+        "creating or restructuring React components",
+        "changing shared UI",
+        "introducing dialogs, drawers, menus, tooltips, or other interactive primitives",
+        "extracting reusable components",
+        "changing styling or status/color presentation",
+        "refactoring large feature components"
+      ],
+      "summary": "Preferred way to structure React UI code in Nevo: component sizing/composition, the token -> primitive -> wrapper -> feature layering, state/effect/context boundaries, memoization discipline, and the accessibility baseline. Always-read guidance for frontend implementation and refactoring, not specific to any one change.",
+      "related": [
+        "development.coding-conventions",
+        "development.architecture-overview"
       ]
     },
     {

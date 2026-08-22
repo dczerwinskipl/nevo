@@ -512,3 +512,84 @@ test('Antigravity cancelTurn bounded cancellation fails cleanly when child ignor
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
+
+// owner-decisions.md D6, required scenario: Antigravity non-zero exit while a tool is active.
+test('Antigravity non-zero process exit resolves a still-active tool call to failed, never the hardcoded completed', async () => {
+  const lines = [
+    JSON.stringify({ type: 'tool.started', toolId: 'tool-exit', toolName: 'Bash', input: { command: 'flaky' } }),
+  ];
+  const toolsCompleted = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines, { exitCode: 1 }),
+  });
+
+  await assert.rejects(
+    provider.startTurn({
+      turnId: 'turn-exit-tool',
+      providerSessionId: 'sess-exit-tool',
+      message: 'go',
+      emitToolCompleted: (t) => toolsCompleted.push(t),
+    }),
+    err => err.code === 'AI_PROVIDER_EXIT_ERROR',
+  );
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'tool-exit');
+  assert.equal(toolsCompleted[0].status, 'failed');
+});
+
+// owner-decisions.md D6, required scenario: Antigravity cancellation while a tool is active.
+test('Antigravity cancellation resolves a still-active tool call to failed only after the cancellation check runs', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  let finishSignal = null;
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    finishSignal = signal;
+    return true;
+  };
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 200,
+  });
+
+  const toolsCompleted = [];
+  const startPromise = provider.startTurn({
+    turnId: 'turn-cancel-tool',
+    providerSessionId: 'sess-cancel-tool',
+    message: 'long query',
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  child.stdout.push(`${JSON.stringify({ type: 'tool.started', toolId: 'tool-cancel', toolName: 'Bash', input: { command: 'long-running' } })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+
+  let cancelCompleted = false;
+  const cancelPromise = provider.cancelTurn({ turnId: 'turn-cancel-tool', providerSessionId: 'sess-cancel-tool' }).then(res => {
+    cancelCompleted = true;
+    return res;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cancelCompleted, false, 'cancelTurn must not report completion before the process exits');
+  assert.equal(toolsCompleted.length, 0, 'no tool.completed must be emitted before the close handler evaluates cancellation');
+
+  child.exitCode = 0;
+  child.signalCode = finishSignal;
+  child.emit('exit', 0, finishSignal);
+  child.emit('close', 0);
+
+  const cancelResult = await cancelPromise;
+  assert.equal(cancelResult.cancelled, true);
+  await assert.rejects(startPromise, err => err.code === 'AI_TURN_CANCELLED');
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'tool-cancel');
+  assert.equal(toolsCompleted[0].status, 'failed');
+});
