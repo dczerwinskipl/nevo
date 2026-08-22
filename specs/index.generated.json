@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T04:06:30.020Z",
+  "generated": "2026-08-22T04:12:03.512Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -13,7 +13,7 @@
           "id": "semantic-chat-presentation-model",
           "order": 1,
           "file": "tasks/01-semantic-chat-presentation-model.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "implementation": {
             "baseline_revision": "33675746a0815ac6800ba33289af80aa9347c7a3",
             "review_revision": "45a283f8dc1e6cfdf3284c4b7570be82386a36a0",
@@ -85,10 +85,36 @@
           "id": "per-turn-work-presentation",
           "order": 3,
           "file": "tasks/03-per-turn-work-presentation.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "semantic-chat-presentation-model"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "review_revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/work/work-summary.tsx",
+              "tools/dashboard/src/components/work/work-visibility.ts",
+              "tools/dashboard/tests/work-summary.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "7b0fb583ea2885065124579259e18a80e974b5d03055a6ffb0aeb8b1314ec911"
+          },
+          "self_check": {
+            "fingerprint": "bc15d7bc450f13c180143e84e0e8a2ded07c5f4093cfc312b853c3c65a6a2b10",
+            "revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "tool-activity-normalization-and-details",

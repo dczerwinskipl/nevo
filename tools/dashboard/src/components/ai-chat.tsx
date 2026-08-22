@@ -21,15 +21,16 @@ import { Card } from '@/components/ui/card';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import { AiReasoningView } from '@/components/ai-reasoning-view';
-import { AiToolView } from '@/components/ai-tool-view';
 import { MarkdownContent } from '@/components/markdown-content';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
+import { WorkSummary } from '@/components/work/work-summary';
 import {
   useAiProviders,
   useCreateAiSession,
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { projectChat, type TurnWork } from '@/lib/chat-projection';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -41,7 +42,7 @@ import type {
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-function ChatMessage({ message, isStreaming = false }: { message: NormalizedMessage; isStreaming?: boolean }) {
+function ChatMessage({ message, work, isStreaming = false }: { message: NormalizedMessage; work?: TurnWork; isStreaming?: boolean }) {
   const user = message.role === 'user';
   return (
     <div className={cn('flex gap-3', user && 'justify-end')}>
@@ -59,9 +60,7 @@ function ChatMessage({ message, isStreaming = false }: { message: NormalizedMess
         {message.reasoning && (
           <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
         )}
-        {message.toolCalls?.map((tc) => (
-          <AiToolView key={tc.id} toolCall={tc} />
-        ))}
+        {work && <WorkSummary work={work} />}
         {message.text && (
           user ? (
             <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
@@ -181,6 +180,11 @@ export function AiChatPage({
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
   const linkedTasks = session?.taskId ? [session.taskId] : [];
+
+  const workByTurnId = useMemo(() => {
+    const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
+    return new Map(projection.workByTurn.map(work => [work.turnId, work]));
+  }, [assistant.messages, assistant.activeTurnId]);
 
   useEffect(() => {
     onTurnChange(assistant.activeTurnId);
@@ -380,7 +384,9 @@ export function AiChatPage({
                 <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
               </div>
             )}
-            {assistant.messages.map(message => <ChatMessage key={message.id} message={message} />)}
+            {assistant.messages.map(message => (
+              <ChatMessage key={message.id} message={message} work={message.turnId ? workByTurnId.get(message.turnId) : undefined} />
+            ))}
             {assistant.isRunning && !assistant.pendingInteraction && (
               <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
                 <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />
