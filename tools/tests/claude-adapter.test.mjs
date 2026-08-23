@@ -620,6 +620,121 @@ test('Claude ask mode contract simulation: adapter correctly processes blocked m
   assert.equal(result.providerSessionId, 'sess-ask-1');
 });
 
+// owner-decisions.md D6, required scenario: Claude tool lifecycle does not complete merely
+// because the `tool_use` content block finished.
+test('Claude content_block_stop never emits a terminal signal — only the real tool_result does', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_read_01', name: 'Read', input: { path: 'a.ts' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 0 }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_read_01', is_error: false, content: 'file contents' }],
+      },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const toolsCompleted = [];
+  await provider.startTurn({
+    turnId: 'turn-content-block-stop',
+    providerSessionId: 'sess-content-block-stop',
+    message: 'Read a file',
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
+  });
+
+  // Exactly one terminal signal — the real tool_result-driven one — never a second,
+  // premature completion from content_block_stop.
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'tool_read_01');
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.equal(toolsCompleted[0].output, 'file contents');
+});
+
+// owner-decisions.md D6's governing invariant: a turn reaching its own terminal `result`
+// while a tool never received a real successful terminal signal resolves that tool to
+// 'failed', not 'completed' — content_block_stop alone must never look like success.
+test('Claude a tool still active when the turn itself ends resolves to failed, not completed', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_lingering_01', name: 'Bash', input: { command: 'long-running' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 0 }),
+    JSON.stringify({ type: 'result', result: '' }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const toolsCompleted = [];
+  await provider.startTurn({
+    turnId: 'turn-lingering-tool',
+    providerSessionId: 'sess-lingering-tool',
+    message: 'Run something slow',
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
+  });
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'tool_lingering_01');
+  assert.equal(toolsCompleted[0].status, 'failed');
+});
+
+// Finding 1 regression guard: input_json_delta must never emit illegal transient status strings
+// like 'streaming_input' that could corrupt AgentToolCall.status.
+test('Claude input_json_delta does not emit streaming_input status', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_delta_01', name: 'Bash', input: {} },
+    }),
+    JSON.stringify({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'input_json_delta', partial_json: '{"command": "echo hi"}' },
+    }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_delta_01', is_error: false, content: 'hi\n' }],
+      },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const toolsUpdated = [];
+  const toolsCompleted = [];
+  await provider.startTurn({
+    turnId: 'turn-input-delta',
+    providerSessionId: 'sess-input-delta',
+    message: 'Run echo',
+    emitToolUpdated: (tool) => toolsUpdated.push(tool),
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
+  });
+
+  for (const update of toolsUpdated) {
+    assert.notEqual(update.status, 'streaming_input', "must never emit status: 'streaming_input'");
+  }
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+});
 test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {
   const child = createHangingMockProcess();
   const provider = createClaudeAgentProvider({

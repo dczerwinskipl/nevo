@@ -1,0 +1,17 @@
+{
+  "change": "chat-ux-improvements-pt1",
+  "requestedTasks": [
+    "mobile-header-simplification",
+    "streaming-and-scroll-behavior",
+    "session-states-integration"
+  ],
+  "orderedTasks": [
+    "mobile-header-simplification",
+    "streaming-and-scroll-behavior",
+    "session-states-integration"
+  ],
+  "startRevision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+  "reviewMode": "batch",
+  "checkpointPolicy": null,
+  "temporaryInconsistencies": []
+}

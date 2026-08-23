@@ -24,6 +24,7 @@ function publicFailure(error) {
 
 const TURN_ACTIVITY_EVENT_TYPES = new Set([
   'text.delta',
+  'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
@@ -40,6 +41,7 @@ export class AiTurnRuntime {
   #sessionEvents = new Map();
   #terminalOrder = [];
   #closed = false;
+  #shutdownPromise;
   #idleWatchdogTimer = null;
 
   constructor({
@@ -257,13 +259,14 @@ export class AiTurnRuntime {
         setOperation: operation => { state.privateOperation = operation; },
         emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
         emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
+        emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
         emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
         emitToolStarted: tool => this.#emitToolStarted(state, tool),
         emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
         emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
         emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
         emitEvent: (type, data) => this.#emit(state, type, data),
-        requestInteraction: interaction => this.#requestInteraction(state, interaction),
+        requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
       });
 
       let result;
@@ -281,11 +284,15 @@ export class AiTurnRuntime {
       }
 
       if (result?.isDeferred) {
+        const interaction = normalizeInteraction({
+          ...result.interaction,
+          resumePolicy: result.resumePolicy ?? result.interaction?.resumePolicy ?? 'restart',
+        });
         state.status = 'waitingForUser';
-        state.pendingInteraction = result.interaction;
+        state.pendingInteraction = interaction;
         state.privateOperation = null;
         this.#notifyAdapterState(state);
-        this.#emit(state, 'interaction.requested', { interaction: result.interaction });
+        this.#emit(state, 'interaction.requested', { interaction });
         return;
       }
 
@@ -314,6 +321,7 @@ export class AiTurnRuntime {
           setOperation: op => { state.privateOperation = op; },
           emitDelta: (delta, msgId) => this.#emitDelta(state, delta, msgId),
           emitTextDelta: (text, msgId) => this.#emitTextDelta(state, text, msgId),
+          emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
           emitReasoningDelta: (text, msgId) => this.#emitReasoningDelta(state, text, msgId),
           emitToolStarted: tool => this.#emitToolStarted(state, tool),
           emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
@@ -324,13 +332,19 @@ export class AiTurnRuntime {
       }
 
       if (result?.isDeferred) {
+        const nextInteraction = normalizeInteraction({
+          ...result.interaction,
+          resumePolicy: result.resumePolicy ?? result.interaction?.resumePolicy ?? 'restart',
+        });
         state.status = 'waitingForUser';
-        state.pendingInteraction = result.interaction;
+        state.pendingInteraction = nextInteraction;
         state.privateOperation = null;
         this.#notifyAdapterState(state);
-        this.#emit(state, 'interaction.requested', { interaction: result.interaction });
+        this.#emit(state, 'interaction.requested', { interaction: nextInteraction });
         return;
       }
+
+      if (result?.continuesTurn === true) return;
 
       if (!this.#isTerminal(state)) this.#finish(state, 'turn.completed');
     } catch (error) {
@@ -354,6 +368,14 @@ export class AiTurnRuntime {
     this.#emit(state, 'text.delta', { messageId, text, delta: text });
   }
 
+  #emitProgressDelta(state, text, progressId = `progress-${state.turnId}`) {
+    if (this.#isTerminal(state)) return;
+    if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid progress delta.', { status: 502 });
+    }
+    this.#emit(state, 'progress.delta', { progressId, text });
+  }
+
   #emitReasoningDelta(state, text, messageId = `message-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
@@ -372,9 +394,9 @@ export class AiTurnRuntime {
     this.#emit(state, 'tool.updated', { toolId, output, status });
   }
 
-  #emitToolCompleted(state, { toolId, output, durationMs } = {}) {
+  #emitToolCompleted(state, { toolId, output, durationMs, status } = {}) {
     if (this.#isTerminal(state)) return;
-    this.#emit(state, 'tool.completed', { toolId, output, durationMs });
+    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status });
   }
 
   #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {
@@ -382,12 +404,13 @@ export class AiTurnRuntime {
     this.#emit(state, 'usage.updated', { tokensIn, tokensOut, cost });
   }
 
-  #requestInteraction(state, value) {
+  #requestInteraction(state, value, { resumePolicy = 'restart' } = {}) {
     if (this.#isTerminal(state)) throw new AiError('AI_TURN_TERMINAL', 'The turn is already terminal.', { status: 409 });
     if (state.pendingInteraction) throw new AiError('AI_INTERACTION_PENDING', 'The turn already has a pending interaction.', { status: 409 });
     const neutral = {
       ...value,
       id: undefined,
+      resumePolicy,
       ...(Array.isArray(value?.questions)
         ? { questions: value.questions.map(question => ({ ...question, id: undefined })) }
         : {}),
@@ -430,6 +453,9 @@ export class AiTurnRuntime {
         const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
         if (cached?.activeTurn && cached?.pendingInteraction?.id === interactionId) {
           if (!turnId || cached.activeTurn.turnId === turnId) {
+            if (cached.pendingInteraction.resumePolicy === 'live-operation') {
+              await this.#interruptStaleLiveInteraction(cached.provider, cached.providerSessionId);
+            }
             turnId = cached.activeTurn.turnId;
             const restoredMode = cached.activeTurn.mode
               ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
@@ -458,6 +484,9 @@ export class AiTurnRuntime {
       } else if (turnId) {
         for (const [key, cached] of this.transcriptCache.entries?.() || []) {
           if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
+            if (cached.pendingInteraction.resumePolicy === 'live-operation') {
+              await this.#interruptStaleLiveInteraction(cached.provider, cached.providerSessionId);
+            }
             const restoredMode = cached.activeTurn.mode
               ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
               : 'edit';
@@ -518,6 +547,18 @@ export class AiTurnRuntime {
     return this.getSnapshot(state.turnId);
   }
 
+  async #interruptStaleLiveInteraction(provider, providerSessionId) {
+    this.transcriptCache.markTurnInterrupted(provider, providerSessionId, {
+      text: 'Interrupted by server restart.',
+    });
+    await this.transcriptCache.flush?.(provider, providerSessionId);
+    throw new AiError(
+      'AI_TURN_INTERRUPTED',
+      'The interaction can no longer be answered because its live provider operation ended.',
+      { status: 409 },
+    );
+  }
+
   async cancelTurn(turnId, options = {}) {
     const { provider, providerSessionId } = options;
     let state = this.#turns.get(turnId);
@@ -562,7 +603,12 @@ export class AiTurnRuntime {
     }
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
     if (state.status === 'waitingForUser') {
-      this.#finish(state, 'turn.failed', new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
+      const error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 });
+      if (state.privateOperation) {
+        await this.#cancelRunningTurn(state, error);
+      } else {
+        this.#finish(state, 'turn.failed', error);
+      }
       return this.getSnapshot(turnId);
     }
     await this.#cancelRunningTurn(state, new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }));
@@ -627,10 +673,11 @@ export class AiTurnRuntime {
   }
 
   /**
-   * Boot-time reconciliation (D8): finalizes any persisted `activeTurn` left behind by a
+   * Boot-time reconciliation (D9): finalizes any persisted `activeTurn` left behind by a
    * session whose owning turn was never terminated (ungraceful restart), since the
-   * in-memory `turnRuntime` always starts empty. Sessions with a `pendingInteraction`
-   * (`waitingForUser`) are left untouched — they remain resumable. Safe to call even when
+   * in-memory `turnRuntime` always starts empty. Restart-resumable pending interactions
+   * are left untouched; live-operation interactions are interrupted because their
+   * provider correlation disappeared with the owning process. Safe to call even when the
    * `transcriptCache` doesn't support persisted-session enumeration (e.g. a test double).
    */
   async reconcileOrphanedTurns() {
@@ -639,7 +686,8 @@ export class AiTurnRuntime {
     let reconciledCount = 0;
     for (const { provider, providerSessionId } of sessions) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      if (!transcript?.activeTurn || transcript.pendingInteraction) continue;
+      if (!transcript?.activeTurn) continue;
+      if (transcript.pendingInteraction && transcript.pendingInteraction.resumePolicy !== 'live-operation') continue;
       this.transcriptCache.markTurnInterrupted(provider, providerSessionId, {
         text: 'Interrupted by server restart.',
       });
@@ -723,22 +771,25 @@ export class AiTurnRuntime {
   }
 
   shutdown() {
-    if (this.#closed) return;
+    if (this.#closed) return this.#shutdownPromise ?? Promise.resolve();
     this.#closed = true;
     if (this.#idleWatchdogTimer) {
       clearInterval(this.#idleWatchdogTimer);
       this.#idleWatchdogTimer = null;
     }
+    const transcriptFlushes = [];
     for (const state of this.#turns.values()) {
       if (this.#isTerminal(state)) continue;
-      if (state.status === 'waitingForUser') continue;
+      if (state.status === 'waitingForUser' && state.pendingInteraction?.resumePolicy !== 'live-operation') continue;
       state.abortController.abort();
-      this.#finish(state, 'turn.failed', new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 }));
+      transcriptFlushes.push(this.#finish(state, 'turn.failed', new AiError('AI_TURN_INTERRUPTED', 'The server stopped before the turn completed.', { status: 503 })));
     }
+    this.#shutdownPromise = Promise.all(transcriptFlushes).then(() => this.registry?.dispose?.());
+    return this.#shutdownPromise;
   }
 
   #finish(state, type, error) {
-    if (this.#isTerminal(state)) return;
+    if (this.#isTerminal(state)) return Promise.resolve();
     state.pendingInteraction = null;
     state.status = type === 'turn.completed' ? 'completed' : 'failed';
     state.completedAt = this.#timestamp();
@@ -753,8 +804,9 @@ export class AiTurnRuntime {
       this.#turns.delete(evicted);
     }
     if (this.transcriptCache) {
-      this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+      return this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
     }
+    return Promise.resolve();
   }
 
   #getNextSeq(state) {

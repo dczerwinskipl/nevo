@@ -9,6 +9,8 @@ export const AGENT_CAPABILITIES = Object.freeze([
   'toolCalls',
   'reasoning',
   'usage',
+  'steerTurn',
+  'planUpdates',
 ]);
 
 export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
@@ -20,12 +22,15 @@ export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
   toolCalls: false,
   reasoning: false,
   usage: false,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 export const AGENT_EVENT_TYPES = Object.freeze([
   'turn.started',
   'message.started',
   'text.delta',
+  'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
@@ -38,6 +43,9 @@ export const AGENT_EVENT_TYPES = Object.freeze([
 ]);
 
 export const AI_EVENT_TYPES = AGENT_EVENT_TYPES;
+
+export const TOOL_TERMINAL_STATUSES = Object.freeze(['completed', 'failed']);
+export const INTERACTION_RESUME_POLICIES = Object.freeze(['restart', 'live-operation']);
 
 const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -115,6 +123,13 @@ function requiredString(value, field, { opaque = false, max = 512 } = {}) {
   return value;
 }
 
+function validateToolTerminalStatus(value, field) {
+  if (typeof value !== 'string' || !TOOL_TERMINAL_STATUSES.includes(value)) {
+    throw new AiValidationError(`'${field}' must be one of ${TOOL_TERMINAL_STATUSES.join(', ')}.`, { field, value });
+  }
+  return value;
+}
+
 function optionalString(value, field, max = 512) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string' || value.length > max) {
@@ -169,6 +184,13 @@ export function validateAiMessage(value) {
     role: value.role,
     text,
     ...(value.reasoning == null ? {} : { reasoning: optionalString(value.reasoning, 'reasoning', 100_000) }),
+    ...(value.turnId == null ? {} : { turnId: requiredString(value.turnId, 'turnId') }),
+    ...(value.turnError == null ? {} : {
+      turnError: {
+        code: requiredString(value.turnError.code, 'turnError.code'),
+        message: requiredString(value.turnError.message, 'turnError.message', { opaque: true, max: 2_000 }),
+      },
+    }),
     ...(Array.isArray(value.toolCalls) ? { toolCalls: structuredClone(value.toolCalls) } : {}),
     ...(value.interaction ? { interaction: structuredClone(value.interaction) } : {}),
     createdAt: normalizeTimestamp(value.createdAt, 'createdAt'),
@@ -190,7 +212,14 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
   }
   rejectProviderFields(value, 'interaction');
   const id = value.id ?? (assignIds ? `interaction-${idFactory()}` : undefined);
-  const base = { id: requiredString(id, 'interaction.id'), kind: value.kind };
+  const resumePolicy = value.resumePolicy ?? 'restart';
+  if (!INTERACTION_RESUME_POLICIES.includes(resumePolicy)) {
+    throw new AiValidationError(
+      `Interaction 'resumePolicy' must be one of ${INTERACTION_RESUME_POLICIES.join(', ')}.`,
+      { field: 'interaction.resumePolicy' },
+    );
+  }
+  const base = { id: requiredString(id, 'interaction.id'), kind: value.kind, resumePolicy };
 
   switch (value.kind) {
     case 'permission': {
@@ -338,6 +367,13 @@ export function validateAgentEvent(value) {
       };
     }
 
+    case 'progress.delta':
+      return {
+        ...base,
+        progressId: requiredString(value.progressId, 'progressId'),
+        text: requiredString(value.text, 'text', { opaque: true, max: 50_000 }),
+      };
+
     case 'reasoning.delta':
       return {
         ...base,
@@ -367,6 +403,7 @@ export function validateAgentEvent(value) {
         toolId: requiredString(value.toolId, 'toolId'),
         ...(value.output !== undefined ? { output: structuredClone(value.output) } : {}),
         ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+        status: validateToolTerminalStatus(value.status, 'status'),
       };
 
     case 'interaction.requested':

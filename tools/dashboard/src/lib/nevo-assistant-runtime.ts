@@ -6,6 +6,7 @@ import type {
   AgentExecutionMode,
   AgentSessionSnapshot,
   AiInteraction,
+  AiSessionStatus,
   NormalizedMessage,
 } from './types';
 
@@ -20,6 +21,7 @@ export const SUPPORTED_AGENT_EVENT_TYPES = [
   'turn.started',
   'message.started',
   'text.delta',
+  'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
@@ -81,6 +83,47 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
   return `${prefix}-${timestamp}-${random}`;
 }
 
+/**
+ * Finds this event's owning assistant message.
+ *
+ * Priority (owner-decisions.md D7):
+ *  1. Explicit `messageId` — when the provider sends a distinct `messageId`, that
+ *     identity is preserved so message-A and message-B within the same turn stay
+ *     separate `NormalizedMessage` records.
+ *  2. `turnId` fallback — for events that carry a `turnId` but no explicit `messageId`
+ *     (e.g. `tool.started`/`tool.completed`, which must attach to the existing turn
+ *     message regardless of which prose message owns the turn).
+ *
+ * Work de-duplication is NOT done here — the projection layer (`chat-projection.ts`)
+ * aggregates all messages sharing a `turnId` into exactly one `TurnWork`.
+ *
+ * Returns the existing message index, or -1 if no message exists yet for this event.
+ */
+function findAssistantMessageIndex(messages: NormalizedMessage[], event: Pick<AgentEvent, 'turnId' | 'messageId'>): number {
+  // Explicit messageId takes priority — preserves distinct message identity within a turn.
+  // If the event carries an explicit messageId but it isn't in the list yet, return -1
+  // to create a new message with that ID (do NOT fall through to the turnId fallback,
+  // which would merge two distinct messages sharing only a turnId).
+  if (event.messageId) {
+    return messages.findIndex((m) => m.id === event.messageId);
+  }
+  // turnId fallback — tool events carry turnId but no messageId; they must land in the
+  // existing assistant message for that turn, whichever message currently owns it.
+  if (event.turnId) {
+    return messages.findIndex((m) => m.role === 'assistant' && m.turnId === event.turnId);
+  }
+  return -1;
+}
+
+function canonicalAssistantMessageId(event: Pick<AgentEvent, 'turnId' | 'messageId'>): string {
+  // Prefer the explicit messageId the provider assigned; fall back to a turnId-derived
+  // synthetic ID for events that carry only a turnId (tool events, reasoning without
+  // an explicit messageId, etc.).
+  if (event.messageId) return event.messageId;
+  if (event.turnId) return `msg-${event.turnId}`;
+  return 'msg-current';
+}
+
 export function applyAgentEvent(
   prevMessages: NormalizedMessage[],
   event: AgentEvent,
@@ -107,8 +150,7 @@ export function applyAgentEvent(
 
     case 'text.delta': {
       const text = event.text ?? event.delta ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -120,9 +162,10 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
@@ -130,8 +173,7 @@ export function applyAgentEvent(
 
     case 'reasoning.delta': {
       const reasoning = event.text ?? '';
-      const msgId = event.messageId || `msg-${event.turnId || 'current'}`;
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         updated[existingIdx] = {
@@ -143,24 +185,29 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           reasoning,
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
     }
 
+    case 'progress.delta':
+      // Progress is intentionally not projected into the main assistant transcript.
+      // Dedicated activity surfaces can consume the normalized event stream directly.
+      return prevMessages;
+
     case 'tool.started': {
-      const msgId = `msg-${event.turnId || 'current'}`;
       const toolCall = {
         id: event.toolId || `tool-${Date.now()}`,
         name: event.toolName || 'tool',
         input: event.input,
         status: 'running' as const,
       };
-      const existingIdx = prevMessages.findIndex((m) => m.id === msgId);
+      const existingIdx = findAssistantMessageIndex(prevMessages, event);
       if (existingIdx >= 0) {
         const updated = [...prevMessages];
         const calls = [...(updated[existingIdx].toolCalls || []), toolCall];
@@ -170,18 +217,18 @@ export function applyAgentEvent(
       return [
         ...prevMessages,
         {
-          id: msgId,
+          id: canonicalAssistantMessageId(event),
           role: 'assistant',
           text: '',
           toolCalls: [toolCall],
+          turnId: event.turnId,
           createdAt: event.timestamp || new Date().toISOString(),
         },
       ];
     }
 
     case 'tool.updated': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -189,7 +236,14 @@ export function applyAgentEvent(
         const updated = [...prevMessages];
         const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
           tc.id === event.toolId
-            ? { ...tc, input: event.input ?? tc.input, status: (event.status as any) || tc.status }
+            ? {
+                ...tc,
+                input: event.input ?? tc.input,
+                output: event.output ?? tc.output,
+                status: (event.status === 'completed' || event.status === 'failed' || event.status === 'running')
+                  ? event.status
+                  : tc.status,
+              }
             : tc
         );
         updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };
@@ -199,8 +253,7 @@ export function applyAgentEvent(
     }
 
     case 'tool.completed': {
-      const msgId = event.messageId || (event.turnId ? `msg-${event.turnId}` : null);
-      let targetIdx = msgId ? prevMessages.findIndex((m) => m.id === msgId) : -1;
+      let targetIdx = findAssistantMessageIndex(prevMessages, event);
       if (targetIdx === -1 && event.toolId) {
         targetIdx = prevMessages.findIndex((m) => m.toolCalls?.some((tc) => tc.id === event.toolId));
       }
@@ -211,7 +264,10 @@ export function applyAgentEvent(
             ? {
                 ...tc,
                 output: event.output ?? tc.output,
-                status: (event.status as any) || 'completed',
+                // tool.completed always carries a validated 'completed' | 'failed'
+                // status on the wire (owner-decisions.md D6) — never default a
+                // missing/malformed status to success.
+                status: (event.status as 'completed' | 'failed' | undefined) ?? 'failed',
                 durationMs: event.durationMs ?? tc.durationMs,
               }
             : tc
@@ -224,18 +280,106 @@ export function applyAgentEvent(
 
     case 'turn.completed':
     case 'turn.failed': {
-      return prevMessages.map((m) => {
+      // A tool still 'running' when the turn ends never received a real successful
+      // terminal signal — resolves to 'failed', regardless of how the turn itself
+      // ended (owner-decisions.md D6), matching the backend's completeRunningToolCalls.
+      // Scoped strictly to this event's own turnId — a terminal event for one turn must
+      // never resolve a still-running tool belonging to a different turn.
+      let updated = prevMessages.map((m) => {
+        if (m.turnId !== event.turnId) return m;
         if (!m.toolCalls || !m.toolCalls.some((tc) => tc.status === 'running')) return m;
         return {
           ...m,
-          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc)),
+          toolCalls: m.toolCalls.map((tc) => (tc.status === 'running' ? { ...tc, status: 'failed' as const } : tc)),
         };
       });
+
+      if (event.type === 'turn.failed' && event.error) {
+        const turnError = event.error;
+        const existingIdx = findAssistantMessageIndex(updated, event);
+        if (existingIdx >= 0) {
+          updated = [...updated];
+          updated[existingIdx] = { ...updated[existingIdx], turnError };
+        } else {
+          // The turn failed before any content/tool event created its message — reload-safe
+          // home for the error still needs a message shell to attach to (owner-decisions.md D6/D9).
+          updated = [
+            ...updated,
+            {
+              id: canonicalAssistantMessageId(event),
+              role: 'assistant',
+              text: '',
+              turnId: event.turnId,
+              turnError,
+              createdAt: event.timestamp || new Date().toISOString(),
+            },
+          ];
+        }
+      }
+
+      return updated;
     }
 
     default:
       return prevMessages;
   }
+}
+
+/**
+ * Determines whether an incoming AgentEvent changes visible transcript content.
+ * Used to increment contentRevision for useScrollFollow without triggering on
+ * telemetry (usage.updated) or metadata-only events.
+ */
+export function eventModifiesTranscriptContent(event: AgentEvent): boolean {
+  switch (event.type) {
+    case 'text.delta':
+      return Boolean(event.text || event.delta);
+    case 'reasoning.delta':
+      return Boolean(event.text);
+    case 'tool.started':
+    case 'tool.updated':
+    case 'tool.completed':
+      return true;
+    case 'turn.started':
+      return Boolean(event.userMessage?.text || event.userPrompt);
+    case 'turn.completed':
+    case 'turn.failed':
+    case 'interaction.requested':
+    case 'interaction.resolved':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Resolves authoritative session activity from a snapshot.
+ */
+export function resolveSnapshotActivity(
+  snapshot: Pick<AgentSessionSnapshot, 'status' | 'pendingInteraction' | 'activeTurn'>,
+): AiSessionStatus {
+  if (snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle') {
+    return snapshot.status;
+  }
+  if (snapshot.pendingInteraction) return 'waitingForUser';
+  if (snapshot.activeTurn) return 'running';
+  return 'idle';
+}
+
+/**
+ * Checks whether a normal new turn may be started via composer.
+ * A new turn may only be started when the session is completely 'idle'.
+ */
+export function canStartTurn(
+  activity: AiSessionStatus,
+  provider?: string,
+  providerSessionId?: string,
+  messageText?: string,
+): boolean {
+  if (!messageText || !messageText.trim()) return false;
+  if (activity !== 'idle') return false;
+  if (!provider || !providerSessionId) return false;
+  return true;
 }
 
 export type AgentSessionLoadErrorKind = 'network' | 'not_found' | 'http';
@@ -371,6 +515,89 @@ export async function fetchAgentSessionSnapshot(
   return data.session as AgentSessionSnapshot;
 }
 
+export interface ApplyCancelTurnResponseParams {
+  turnId: string;
+  response: { ok: boolean; status?: number };
+  errorData?: { error?: { message?: string }; message?: string } | null;
+  currentActiveTurnId: string | null;
+  currentActivity: 'idle' | 'running' | 'waitingForUser';
+  terminalTurnIds: Set<string>;
+}
+
+export interface ApplyCancelTurnResponseResult {
+  nextActivity: 'idle' | 'running' | 'waitingForUser';
+  nextActiveTurnId: string | null;
+  terminalTurnIds: Set<string>;
+  error?: Error;
+}
+
+export function shouldSurfaceCancelError(
+  turnId: string,
+  terminalTurnIds: Set<string>
+): boolean {
+  return !terminalTurnIds.has(turnId);
+}
+
+export function shouldSurfaceTurnError(
+  error?: { code?: string; message?: string } | null
+): boolean {
+  if (!error) return false;
+  // Explicit cancellation by user (Stop) is an intentional termination, not an unexpected error toast
+  if (error.code === 'AI_TURN_CANCELLED') return false;
+  return true;
+}
+
+export function applyCancelTurnResponse({
+  turnId,
+  response,
+  errorData,
+  currentActiveTurnId,
+  currentActivity,
+  terminalTurnIds,
+}: ApplyCancelTurnResponseParams): ApplyCancelTurnResponseResult {
+  // If the turn already became terminal (e.g. terminal SSE arrived while cancel was in flight),
+  // suppress any stale cancel responses (HTTP 200, 409, 500, etc.) without surfacing errors
+  // or resurrecting/altering state.
+  if (!shouldSurfaceCancelError(turnId, terminalTurnIds)) {
+    return {
+      nextActivity: currentActivity,
+      nextActiveTurnId: currentActiveTurnId,
+      terminalTurnIds,
+    };
+  }
+
+  if (!response.ok) {
+    const message =
+      errorData?.error?.message ||
+      errorData?.message ||
+      `Failed to cancel turn (${response.status || 'unknown'})`;
+    return {
+      nextActivity: currentActivity,
+      nextActiveTurnId: currentActiveTurnId,
+      terminalTurnIds,
+      error: new Error(message),
+    };
+  }
+
+  terminalTurnIds.add(turnId);
+
+  // Race-safety check: If terminal SSE arrived before this POST response completed,
+  // currentActiveTurnId was already cleared / transitioned to idle.
+  if (currentActiveTurnId === turnId && currentActivity === 'running') {
+    return {
+      nextActivity: 'idle',
+      nextActiveTurnId: null,
+      terminalTurnIds,
+    };
+  }
+
+  return {
+    nextActivity: currentActivity,
+    nextActiveTurnId: currentActiveTurnId,
+    terminalTurnIds,
+  };
+}
+
 export function useNevoAssistantRuntime({
   provider,
   providerSessionId,
@@ -385,7 +612,8 @@ export function useNevoAssistantRuntime({
   const [pendingInteraction, setPendingInteraction] = useState<AiInteraction | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [activity, setActivity] = useState<AiSessionStatus>('idle');
+  const [contentRevision, setContentRevision] = useState<number>(0);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -400,8 +628,13 @@ export function useNevoAssistantRuntime({
 
   const lastSeqRef = useRef<number>(0);
 
+  const activityRef = useRef<AiSessionStatus>('idle');
+  activityRef.current = activity;
+
   const activeTurnIdRef = useRef<string | null>(null);
   activeTurnIdRef.current = activeTurnId;
+
+  const terminalTurnIdsRef = useRef<Set<string>>(new Set());
 
   // Identity match check: only expose state if it belongs to the current provider + providerSessionId
   const isSnapshotLoaded = Boolean(currentIdentity && loadedIdentity === currentIdentity);
@@ -440,14 +673,21 @@ export function useNevoAssistantRuntime({
         setLastEventSeq(seq);
         lastSeqRef.current = seq;
 
+        // Authoritative activity resolution from snapshot (supports reload while waitingForUser, running, or idle)
+        const snapshotActivity = resolveSnapshotActivity(snapshot);
+
+        setActivity(snapshotActivity);
+        activityRef.current = snapshotActivity;
+
         if (snapshot.activeTurn) {
           setActiveTurnId(snapshot.activeTurn.turnId);
-          setIsRunning(true);
+          activeTurnIdRef.current = snapshot.activeTurn.turnId;
         } else {
           setActiveTurnId(null);
-          setIsRunning(false);
+          activeTurnIdRef.current = null;
         }
 
+        setContentRevision((r) => r + 1);
         setLoadedIdentity(identity);
         setLoadErrorIdentity(null);
         setLoadError(null);
@@ -461,7 +701,9 @@ export function useNevoAssistantRuntime({
           setPendingInteraction(null);
           setCapabilities(null);
           setActiveTurnId(null);
-          setIsRunning(false);
+          activeTurnIdRef.current = null;
+          setActivity('idle');
+          activityRef.current = 'idle';
           setLastEventSeq(0);
           lastSeqRef.current = 0;
 
@@ -504,35 +746,54 @@ export function useNevoAssistantRuntime({
       lastSeqRef.current = seq;
 
       setMessages((prev) => applyAgentEvent(prev, event));
+      if (eventModifiesTranscriptContent(event)) {
+        setContentRevision((r) => r + 1);
+      }
 
       switch (event.type) {
         case 'turn.started':
-          setIsRunning(true);
-          if (event.turnId) setActiveTurnId(event.turnId);
+          setActivity('running');
+          activityRef.current = 'running';
+          if (event.turnId) {
+            setActiveTurnId(event.turnId);
+            activeTurnIdRef.current = event.turnId;
+          }
           break;
 
         case 'interaction.requested':
           setPendingInteraction(event.interaction || null);
-          setIsRunning(false);
+          setActivity('waitingForUser');
+          activityRef.current = 'waitingForUser';
           break;
 
         case 'interaction.resolved':
           setPendingInteraction(null);
-          setIsRunning(true);
+          setActivity('running');
+          activityRef.current = 'running';
           break;
 
         case 'turn.completed':
-          setIsRunning(false);
+          if (event.turnId) {
+            terminalTurnIdsRef.current.add(event.turnId);
+          }
+          setActivity('idle');
+          activityRef.current = 'idle';
           setActiveTurnId(null);
+          activeTurnIdRef.current = null;
           setPendingInteraction(null);
           onTurnCompletedRef.current?.();
           break;
 
         case 'turn.failed':
-          setIsRunning(false);
+          if (event.turnId) {
+            terminalTurnIdsRef.current.add(event.turnId);
+          }
+          setActivity('idle');
+          activityRef.current = 'idle';
           setActiveTurnId(null);
+          activeTurnIdRef.current = null;
           setPendingInteraction(null);
-          if (event.error) {
+          if (event.error && shouldSurfaceTurnError(event.error)) {
             onErrorRef.current?.(new Error(event.error.message));
           }
           break;
@@ -550,7 +811,7 @@ export function useNevoAssistantRuntime({
   // 3. Send Turn
   const handleSendTurn = useCallback(
     async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!messageText.trim() || isRunning || !provider || !providerSessionId) return;
+      if (!canStartTurn(activityRef.current, provider, providerSessionId, messageText)) return;
       if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
       const idempotencyKey = createTurnIdempotencyKey();
@@ -562,7 +823,11 @@ export function useNevoAssistantRuntime({
       };
 
       setMessages((prev) => [...prev, userMessage]);
-      setIsRunning(true);
+      setContentRevision((r) => r + 1);
+      setActivity('running');
+      activityRef.current = 'running';
+      setActiveTurnId(null);
+      activeTurnIdRef.current = null;
 
       try {
         const res = await fetch(
@@ -587,23 +852,33 @@ export function useNevoAssistantRuntime({
         }
 
         const data = await res.json();
-        setActiveTurnId(data.turnId);
+        const returnedTurnId = data.turnId;
+
+        // Race-safety check: If terminal SSE arrived before this POST response completed,
+        // or the activity is no longer running, do not overwrite the cleared activeTurnId.
+        if (returnedTurnId && !terminalTurnIdsRef.current.has(returnedTurnId) && activityRef.current === 'running') {
+          setActiveTurnId(returnedTurnId);
+          activeTurnIdRef.current = returnedTurnId;
+        }
       } catch (err) {
-        setIsRunning(false);
+        setActivity('idle');
+        activityRef.current = 'idle';
+        setActiveTurnId(null);
+        activeTurnIdRef.current = null;
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, isRunning, loadedIdentity, onError]
+    [provider, providerSessionId, loadedIdentity, onError]
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
     const turnId = activeTurnIdRef.current;
-    if (!turnId || !provider || !providerSessionId) return;
+    if (!turnId || activityRef.current !== 'running' || !provider || !providerSessionId) return;
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
     try {
-      await fetch(
+      const res = await fetch(
         `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns/${encodeURIComponent(turnId)}/cancel`,
         {
           method: 'POST',
@@ -614,9 +889,38 @@ export function useNevoAssistantRuntime({
           body: JSON.stringify({}),
         }
       );
-      setIsRunning(false);
-      setActiveTurnId(null);
+
+      const errData = !res.ok ? await res.json().catch(() => ({})) : null;
+      const result = applyCancelTurnResponse({
+        turnId,
+        response: res,
+        errorData: errData,
+        currentActiveTurnId: activeTurnIdRef.current,
+        currentActivity: activityRef.current,
+        terminalTurnIds: terminalTurnIdsRef.current,
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      if (result.nextActivity !== activityRef.current) {
+        setActivity(result.nextActivity);
+        activityRef.current = result.nextActivity;
+      }
+      if (result.nextActiveTurnId !== activeTurnIdRef.current) {
+        setActiveTurnId(result.nextActiveTurnId);
+        activeTurnIdRef.current = result.nextActiveTurnId;
+      }
+      setContentRevision((r) => r + 1);
     } catch (err) {
+      // If the turn already became terminal (e.g. via SSE) while fetch was in flight or rejected,
+      // suppress late errors so they don't produce confusing user-facing alerts.
+      if (!shouldSurfaceCancelError(turnId, terminalTurnIdsRef.current)) {
+        return;
+      }
+      // On failed cancel DO NOT mutate terminalTurnIds, activity, activeTurnId, or pending turn ownership.
+      // The turn remains running and cancellation remains retryable.
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   }, [provider, providerSessionId, loadedIdentity, onError]);
@@ -644,7 +948,9 @@ export function useNevoAssistantRuntime({
           throw new Error(errData?.error?.message || `Failed to respond to interaction (${res.status})`);
         }
         setPendingInteraction(null);
-        setIsRunning(true);
+        setContentRevision((r) => r + 1);
+        setActivity('running');
+        activityRef.current = 'running';
       } catch (err) {
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
@@ -655,9 +961,13 @@ export function useNevoAssistantRuntime({
   const exposedMessages = isSnapshotLoaded ? messages : [];
   const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
-  const exposedSessionDetails = isSnapshotLoaded ? sessionDetails : null;
-  const exposedIsRunning = isSnapshotLoaded ? isRunning : false;
+  const exposedActivity: AiSessionStatus = isSnapshotLoaded ? activity : 'idle';
+  const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
   const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
+  const exposedContentRevision = isSnapshotLoaded ? contentRevision : 0;
+  const exposedSessionDetails = isSnapshotLoaded && sessionDetails
+    ? { ...sessionDetails, status: exposedActivity }
+    : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
 
@@ -697,8 +1007,10 @@ export function useNevoAssistantRuntime({
     pendingInteraction: exposedPendingInteraction,
     capabilities: exposedCapabilities,
     sessionDetails: exposedSessionDetails,
+    activity: exposedActivity,
     isRunning: exposedIsRunning,
     activeTurnId: exposedActiveTurnId,
+    contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
     loadError: exposedLoadError,
     reload,

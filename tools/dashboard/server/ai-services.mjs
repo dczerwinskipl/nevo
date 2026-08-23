@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
 import { ClaudeAgentProvider } from '../../ai/claude-adapter.mjs';
 import { AntigravityAgentProvider } from '../../ai/antigravity-adapter.mjs';
+import { CodexAgentProvider } from '../../ai/codex-adapter.mjs';
 import { createAiAdapterRegistry } from '../../ai/registry.mjs';
 import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
@@ -24,8 +25,11 @@ export function createDefaultDashboardAiService({ dataLoader } = {}) {
   const antigravityAdapter = new AntigravityAgentProvider({
     cwd: REPO_ROOT,
     mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
+    rawCaptureEnabled: true,
+    rawCaptureDir: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity_raw'),
   });
-  const registry = createAiAdapterRegistry([claudeAdapter, antigravityAdapter, mockAdapter]);
+  const codexAdapter = new CodexAgentProvider({ cwd: REPO_ROOT });
+  const registry = createAiAdapterRegistry([claudeAdapter, antigravityAdapter, codexAdapter, mockAdapter]);
   const transcriptCache = createTranscriptCacheService();
   const bindingService = createAgentSessionBindingService();
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });

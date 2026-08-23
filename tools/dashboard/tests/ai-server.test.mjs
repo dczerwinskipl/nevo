@@ -12,6 +12,7 @@ import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
+import { createDefaultDashboardAiService } from '../server/ai-services.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -27,11 +28,13 @@ function isolatedTranscriptCache() {
   return createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-ai-server-test-${randomUUID()}`) });
 }
 
-function createStack() {
+function createStack(options = {}) {
   const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
   const registry = createAiAdapterRegistry([adapter]);
   const transcriptCache = isolatedTranscriptCache();
-  const bindingService = createAgentSessionBindingService();
+  const bindingService = createAgentSessionBindingService(
+    options.storageDir ? { storageDir: options.storageDir } : (options.storageFile ? { storageFile: options.storageFile } : {})
+  );
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
   return { adapter, service: createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
 }
@@ -175,6 +178,20 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.ok(policyCalls.includes('control'));
   } finally {
     await closeServer(server);
+  }
+});
+
+test('default dashboard AI service registers Codex alongside existing providers', async () => {
+  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }) });
+  try {
+    assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
+    const descriptor = service.registry.get('codex').descriptor;
+    assert.equal(descriptor.label, 'OpenAI Codex');
+    assert.equal(descriptor.capabilities.resumeSession, true);
+    assert.equal(descriptor.capabilities.steerTurn, false);
+    assert.equal(descriptor.capabilities.planUpdates, false);
+  } finally {
+    await service.shutdown();
   }
 });
 
@@ -603,4 +620,208 @@ test('Session mode preference persistence across server restarts and snapshot ex
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list filtering does not truncate', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-multi-task-test-'));
+  const storageDir = join(tmpDir, 'sessions');
+  const specId = 'a1111111-1111-4111-a111-111111111111';
+
+  const { service } = createStack({ storageDir });
+  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // 1. Create session with multiple taskIds: POST /api/agent-sessions
+    const createRes = await fetch(`${baseUrl}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskIds: ['task-alpha', 'task-beta', 'task-gamma'],
+      title: 'Multi-task session',
+    }));
+    assert.equal(createRes.status, 201);
+    const createData = await createRes.json();
+    const sessionId = createData.session.providerSessionId;
+    assert.deepEqual(createData.session.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
+
+    // 2. AC7: HTTP GET /api/agent-sessions/:provider/:providerSessionId returns complete taskIds[]
+    const getRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}`);
+    assert.equal(getRes.status, 200);
+    const getData = await getRes.json();
+    assert.equal(getData.session.specId, specId);
+    assert.deepEqual(getData.session.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
+
+    // 3. AC8: GET /api/agent-sessions?specId=...&taskId=task-beta includes session and does not truncate taskIds[]
+    const listRes = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-beta`);
+    assert.equal(listRes.status, 200);
+    const listData = await listRes.json();
+    assert.equal(listData.sessions.length, 1);
+    const listedSession = listData.sessions[0];
+    assert.equal(listedSession.providerSessionId, sessionId);
+    assert.deepEqual(listedSession.taskIds, ['task-alpha', 'task-beta', 'task-gamma']);
+
+    // 4. Listing by non-matching task filters out the session
+    const listNonMatch = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-nonexistent`);
+    assert.equal(listNonMatch.status, 200);
+    assert.equal((await listNonMatch.json()).sessions.length, 0);
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('AC9: Cross-spec session binding isolation (D10) never produces merged taskIds and uses latest lastSeenAt', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-cross-spec-test-'));
+  const storageDir = join(tmpDir, 'sessions');
+  const specA = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+  const specB = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
+  const sharedSessionId = 'shared-agent-session-42';
+
+  const { service } = createStack({ storageDir });
+  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    // 1. Bind sharedSessionId under Spec A with tasks A1 and A2 (earlier lastSeenAt)
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specA,
+      taskId: 'task-a1',
+      lastSeenAt: '2026-08-20T10:00:00.000Z',
+    });
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specA,
+      taskId: 'task-a2',
+      lastSeenAt: '2026-08-20T10:05:00.000Z',
+    });
+
+    // 2. Bind same sharedSessionId under Spec B with task B1 (more recent lastSeenAt)
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specB,
+      taskId: 'task-b1',
+      lastSeenAt: '2026-08-21T12:00:00.000Z',
+    });
+
+    // 3. GET single session: Spec B is current due to more recent lastSeenAt, returns ONLY Spec B tasks
+    const getRes1 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes1.status, 200);
+    const getData1 = (await getRes1.json()).session;
+    assert.equal(getData1.specId, specB);
+    assert.deepEqual(getData1.taskIds, ['task-b1']);
+
+    // 4. Update Spec A lastSeenAt to be newer
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specA,
+      taskId: 'task-a1',
+      lastSeenAt: '2026-08-23T15:00:00.000Z',
+    });
+
+    // 5. GET single session now resolves to Spec A, returning ONLY Spec A tasks [task-a1, task-a2]
+    const getRes2 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes2.status, 200);
+    const getData2 = (await getRes2.json()).session;
+    assert.equal(getData2.specId, specA);
+    assert.deepEqual(getData2.taskIds, ['task-a1', 'task-a2']);
+
+    // 6. List sessions filtered by specId=specA returns only Spec A tasks
+    const listSpecARes = await fetch(`${baseUrl}/api/agent-sessions?specId=${specA}`);
+    const listSpecA = (await listSpecARes.json()).sessions;
+    assert.equal(listSpecA.length, 1);
+    assert.equal(listSpecA[0].specId, specA);
+    assert.deepEqual(listSpecA[0].taskIds, ['task-a1', 'task-a2']);
+
+    // 7. List sessions filtered by specId=specB returns only Spec B tasks
+    const listSpecBRes = await fetch(`${baseUrl}/api/agent-sessions?specId=${specB}`);
+    const listSpecB = (await listSpecBRes.json()).sessions;
+    assert.equal(listSpecB.length, 1);
+    assert.equal(listSpecB[0].specId, specB);
+    assert.deepEqual(listSpecB[0].taskIds, ['task-b1']);
+
+    // 8. List unfiltered: returns 2 separate spec-scoped entries, never merged taskIds
+    const listAllRes = await fetch(`${baseUrl}/api/agent-sessions`);
+    const listAll = (await listAllRes.json()).sessions;
+    assert.equal(listAll.length, 2);
+    const entryA = listAll.find(s => s.specId === specA);
+    const entryB = listAll.find(s => s.specId === specB);
+    assert.ok(entryA);
+    assert.ok(entryB);
+    assert.deepEqual(entryA.taskIds, ['task-a1', 'task-a2']);
+    assert.deepEqual(entryB.taskIds, ['task-b1']);
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('Finding 2: PATCH session mode updates only the current spec rows and does not switch current spec', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
+  const storageDir = join(tmpDir, 'sessions');
+  const { service } = createStack({ storageDir });
+  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const specA = '11111111-1111-4111-8111-111111111111';
+    const specB = '22222222-2222-4222-8222-222222222222';
+    const sharedSessionId = 'sess-patch-mode-test';
+
+    // Spec A older
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specA,
+      taskId: 'task-a1',
+      mode: 'edit',
+      createdAt: '2026-08-20T10:00:00.000Z',
+      lastSeenAt: '2026-08-20T10:00:00.000Z',
+    });
+
+    // Spec B newer
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specB,
+      taskId: 'task-b1',
+      mode: 'edit',
+      createdAt: '2026-08-22T10:00:00.000Z',
+      lastSeenAt: '2026-08-22T10:00:00.000Z',
+    });
+
+    // GET resolves to Spec B
+    const getRes1 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes1.status, 200);
+    const session1 = (await getRes1.json()).session;
+    assert.equal(session1.specId, specB);
+    assert.equal(session1.mode, 'edit');
+
+    // PATCH mode to 'agent'
+    const patchRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`, {
+      ...control({ mode: 'agent' }),
+      method: 'PATCH',
+    });
+    assert.equal(patchRes.status, 200);
+
+    // Verify Spec A remains untouched
+    const specABindings = await service.bindingService.listBindings({ specId: specA });
+    assert.equal(specABindings[0].mode, 'edit');
+    assert.equal(specABindings[0].lastSeenAt, '2026-08-20T10:00:00.000Z');
+
+    // Subsequent GET still returns Spec B with mode 'agent'
+    const getRes2 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes2.status, 200);
+    const session2 = (await getRes2.json()).session;
+    assert.equal(session2.specId, specB);
+    assert.equal(session2.mode, 'agent');
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 

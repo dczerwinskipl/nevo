@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-21T07:07:26.201Z",
+  "generated": "2026-08-23T20:38:29.655Z",
   "changes": [
     {
       "id": "deterministic-workflow-foundation",
@@ -234,13 +234,13 @@
           "id": "composer-alignment",
           "order": 2,
           "file": "tasks/02-composer-alignment.md",
-          "status": "draft"
+          "status": "abandoned"
         },
         {
           "id": "mode-switcher-touch-target",
           "order": 3,
           "file": "tasks/03-mode-switcher-touch-target.md",
-          "status": "draft"
+          "status": "abandoned"
         },
         {
           "id": "mode-description-tooltip",
@@ -747,6 +747,461 @@
           "order": 1,
           "file": "tasks/01-core-architecture-docs.md",
           "status": "verified"
+        }
+      ]
+    },
+    {
+      "id": "chat-ux-improvements-pt1",
+      "specId": "fbcaabec-610d-4662-9fff-62a716e90cfd",
+      "title": "Chat UX Improvements pt1",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-08-21",
+      "tasks": [
+        {
+          "id": "semantic-chat-presentation-model",
+          "order": 1,
+          "file": "tasks/01-semantic-chat-presentation-model.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "33675746a0815ac6800ba33289af80aa9347c7a3",
+            "review_revision": "45a283f8dc1e6cfdf3284c4b7570be82386a36a0",
+            "changed_paths": [
+              "tools/ai/antigravity-adapter.mjs",
+              "tools/ai/claude-adapter.mjs",
+              "tools/ai/contracts.mjs",
+              "tools/ai/mock-adapter.mjs",
+              "tools/ai/transcript-cache.mjs",
+              "tools/ai/turn-runtime.mjs",
+              "tools/dashboard/src/lib/chat-projection.ts",
+              "tools/dashboard/src/lib/nevo-assistant-runtime.ts",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/tests/ai-contracts.test.mjs",
+              "tools/tests/ai-turn-runtime.test.mjs",
+              "tools/tests/antigravity-adapter.test.mjs",
+              "tools/tests/claude-adapter.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "8226db8880f10cd13dc363a3c8b244ee830f2be004b125390ff7ae8c4d9f11e2",
+            "revision": "45a283f8dc1e6cfdf3284c4b7570be82386a36a0",
+            "commands": [
+              {
+                "command": "node --test tools/tests/claude-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/antigravity-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/ai-turn-runtime.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/ai-contracts.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "conversation-message-presentation",
+          "order": 2,
+          "file": "tasks/02-conversation-message-presentation.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ],
+          "implementation": {
+            "baseline_revision": "c0b81b05e207578d7c082ca3642d013b0412a9d0"
+          }
+        },
+        {
+          "id": "per-turn-work-presentation",
+          "order": 3,
+          "file": "tasks/03-per-turn-work-presentation.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ],
+          "implementation": {
+            "baseline_revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "review_revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/work/work-summary.tsx",
+              "tools/dashboard/src/components/work/work-visibility.ts",
+              "tools/dashboard/tests/work-summary.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "7b0fb583ea2885065124579259e18a80e974b5d03055a6ffb0aeb8b1314ec911"
+          },
+          "self_check": {
+            "fingerprint": "bc15d7bc450f13c180143e84e0e8a2ded07c5f4093cfc312b853c3c65a6a2b10",
+            "revision": "ebd8c11c4f3ca02a6813927867299b01b1d67490",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "tool-activity-normalization-and-details",
+          "order": 4,
+          "file": "tasks/04-tool-activity-normalization-and-details.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model",
+            "per-turn-work-presentation"
+          ],
+          "implementation": {
+            "baseline_revision": "7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77",
+            "review_revision": "7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-tool-view.tsx",
+              "tools/dashboard/src/lib/tool-activity-labels.ts",
+              "tools/dashboard/tests/tool-activity-labels.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "c4967ad3d4b404c4a7a58e43274046f04b9de6e50e18ab652dc231105c62d359"
+          },
+          "self_check": {
+            "fingerprint": "55d982b349702202d4c696508ce348514d093f48799b9107ec8c01b3d268717a",
+            "revision": "7b4cc62d975b1d572b0fb63abc93ad0cdc83dd77",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "mobile-header-simplification",
+          "order": 5,
+          "file": "tasks/05-mobile-header-simplification.md",
+          "status": "verified",
+          "depends_on": [
+            "shared-session-details",
+            "composer-interaction-redesign"
+          ],
+          "implementation": {
+            "baseline_revision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+            "review_revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/chat-header/chat-header.tsx",
+              "tools/dashboard/src/components/chat-header/index.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/assistant-runtime-state.test.mjs",
+              "tools/dashboard/tests/chat-header.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/scroll-follow.test.mjs",
+              "tools/dashboard/tests/session-states-integration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c30a1287d49f6bb04951f42f4f8417fff6cc7dcda3bbea79a3daad35c04502a5",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "shared-session-details",
+          "order": 6,
+          "file": "tasks/06-shared-session-details.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "ed22c28fed14e4ae1a953df673a8d6c1d6868f90",
+            "review_revision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+            "changed_paths": [
+              "tools/ai/binding-service.mjs",
+              "tools/ai/service.mjs",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/server/ai-routes.mjs",
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/session-details/index.ts",
+              "tools/dashboard/src/components/session-details/session-details.tsx",
+              "tools/dashboard/src/components/ui/dialog.tsx",
+              "tools/dashboard/src/components/ui/sheet.tsx",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/chat-message-layout.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/session-details.test.mjs",
+              "tools/dashboard/tests/work-summary.test.mjs",
+              "tools/dashboard/tests/work-turn-correlation.test.mjs",
+              "tools/tests/agent-binding.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "43f8451c59b4fee0fad01e715ceb355fa58433746e08f4e2f1581ab61b1212b4",
+            "revision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/agent-binding.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "composer-interaction-redesign",
+          "order": 7,
+          "file": "tasks/07-composer-interaction-redesign.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "ed22c28fed14e4ae1a953df673a8d6c1d6868f90",
+            "review_revision": "ed22c28fed14e4ae1a953df673a8d6c1d6868f90",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/composer/composer.tsx",
+              "tools/dashboard/src/components/composer/index.ts",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/work-summary.test.mjs",
+              "tools/dashboard/tests/work-turn-correlation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "8c94073d7d91dedd3e32797b5b552b401b151b0d2388d60b0cb8d6828e00d7d5"
+          },
+          "self_check": {
+            "fingerprint": "b330476115afaef857587b0d97fb4ef915a3b1c3bcd9cb1f5d3753db3882dc89",
+            "revision": "ed22c28fed14e4ae1a953df673a8d6c1d6868f90",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "streaming-and-scroll-behavior",
+          "order": 8,
+          "file": "tasks/08-streaming-and-scroll-behavior.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model",
+            "per-turn-work-presentation"
+          ],
+          "implementation": {
+            "baseline_revision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+            "review_revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/lib/use-scroll-follow.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/assistant-runtime-state.test.mjs",
+              "tools/dashboard/tests/chat-header.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/scroll-follow.test.mjs",
+              "tools/dashboard/tests/session-states-integration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "73df1132956f65d10253a08b7f55871fbaf5b0b90280ffce25b328401f75a554",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "session-states-integration",
+          "order": 9,
+          "file": "tasks/09-session-states-integration.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ],
+          "implementation": {
+            "baseline_revision": "67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a",
+            "review_revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat.tsx",
+              "tools/dashboard/src/components/ai-session-list.tsx",
+              "tools/dashboard/src/components/work/work-summary.tsx",
+              "tools/dashboard/src/components/work/work-visibility.ts",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/assistant-runtime-state.test.mjs",
+              "tools/dashboard/tests/chat-header.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/scroll-follow.test.mjs",
+              "tools/dashboard/tests/session-states-integration.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "a00660c56f2380b8fb87f6242db075e2fd84c77302a7706afa8f9d54824ef1e4",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "responsive-accessibility-regression-validation",
+          "order": 10,
+          "file": "tasks/10-responsive-accessibility-regression-validation.md",
+          "status": "verified",
+          "depends_on": [
+            "conversation-message-presentation",
+            "per-turn-work-presentation",
+            "tool-activity-normalization-and-details",
+            "mobile-header-simplification",
+            "shared-session-details",
+            "composer-interaction-redesign",
+            "streaming-and-scroll-behavior",
+            "session-states-integration"
+          ],
+          "self_check": {
+            "fingerprint": "1f31d4465d601e677c3ec253997ee735df010c198de3ff3b0d87005c3951c3e9",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "reconcile-ux-improvements-overlap",
+          "order": 11,
+          "file": "tasks/11-reconcile-ux-improvements-overlap.md",
+          "status": "verified",
+          "depends_on": [
+            "responsive-accessibility-regression-validation"
+          ],
+          "self_check": {
+            "fingerprint": "fa3d069369dceb7955e20795cde203f1ba37113b175ccd72e37be7038b79a032",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "antigravity-terminal-error-handling",
+          "order": 12,
+          "file": "tasks/12-antigravity-terminal-error-handling.md",
+          "status": "verified",
+          "depends_on": [
+            "semantic-chat-presentation-model"
+          ],
+          "self_check": {
+            "fingerprint": "dd1c75587d2de5c8bd03e1937171f6dcd894533d19a87b9e82f1a7f77bbd5482",
+            "revision": "7ad21710d1563d98a2634f86ec545fe064dca783",
+            "commands": [
+              {
+                "command": "node --test tools/tests/antigravity-adapter.test.mjs tools/tests/ai-turn-runtime.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         }
       ]
     },
@@ -3694,6 +4149,165 @@
               },
               {
                 "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/docs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "openai-codex-provider-support",
+      "specId": "38d72d6b-3b47-4a07-8973-33ae5cee3ebc",
+      "title": "OpenAI Codex provider support",
+      "status": "archived",
+      "priority": 10,
+      "created": "2026-08-22",
+      "tasks": [
+        {
+          "id": "provider-neutral-persistent-turn-contracts",
+          "order": 1,
+          "file": "tasks/01-provider-neutral-persistent-turn-contracts.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "5f46ca0f6cee280cea05760e610522554d06a016",
+            "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "changed_paths": [
+              "tools/ai/contracts.mjs",
+              "tools/ai/mock-adapter.mjs",
+              "tools/ai/registry.mjs",
+              "tools/ai/service.mjs",
+              "tools/ai/turn-runtime.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/src/lib/types.ts",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/tests/ai-contracts.test.mjs",
+              "tools/tests/ai-turn-runtime.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "35fbd6fcf9aa1bf8b30b7b308e20773273c7474c87c759a8ac9b961f8ae2b49b"
+          },
+          "self_check": {
+            "fingerprint": "cdd59edbfdc068c4d6e37e4011ec7be715615108a9786dce5f4d99df12e71b0e",
+            "revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/ai-contracts.test.mjs tools/tests/ai-turn-runtime.test.mjs tools/tests/mock-ai-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "codex-app-server-client",
+          "order": 2,
+          "file": "tasks/02-codex-app-server-client.md",
+          "status": "verified",
+          "implementation": {
+            "baseline_revision": "86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e",
+            "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "changed_paths": [
+              "tools/ai/codex-app-server-client.mjs",
+              "tools/ai/codex-protocol-baseline.json",
+              "tools/ai/verify-codex-schema.mjs",
+              "tools/tests/codex-app-server-client.test.mjs",
+              "tools/tests/codex-schema-compat.test.mjs",
+              "tools/tests/fixtures/codex-app-server/provider-global-notifications.jsonl"
+            ],
+            "worktree_patch_fingerprint": "82bdc59206ae81473f4965eb9877f1fee7eef5563e4d13bf68dc22de1ca7b08f"
+          },
+          "self_check": {
+            "fingerprint": "3ae9646b86453cb6c830e223e057803f5be68059eba54df1f96000df6c58f0fd",
+            "revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "commands": [
+              {
+                "command": "node --test tools/tests/codex-app-server-client.test.mjs tools/tests/codex-schema-compat.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/ai/verify-codex-schema.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
+        },
+        {
+          "id": "codex-provider-adapter-and-registration",
+          "order": 3,
+          "file": "tasks/03-codex-provider-adapter-and-registration.md",
+          "status": "verified",
+          "depends_on": [
+            "provider-neutral-persistent-turn-contracts",
+            "codex-app-server-client"
+          ],
+          "implementation": {
+            "baseline_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
+            "review_revision": "a6358caa70983953e87503c9dcfecfaac11a5dc1",
+            "changed_paths": [
+              "docs/development/ai-sessions.md",
+              "tools/ai/codex-adapter.mjs",
+              "tools/dashboard/server/ai-services.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/lib/fs.mjs",
+              "tools/tests/codex-adapter.test.mjs",
+              "tools/tests/fs-safety.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "ae4af6fb4138c90f7057f8615495d7abc31b4e32f092f7cc9b98690e03cba5b2"
+          },
+          "self_check": {
+            "fingerprint": "57df3053807f68c598379c6306f2e3b580704a422b39c7e740965a932e0e5e02",
+            "revision": "a6358caa70983953e87503c9dcfecfaac11a5dc1",
+            "commands": [
+              {
+                "command": "node --test tools/tests/codex-app-server-client.test.mjs tools/tests/codex-schema-compat.test.mjs tools/tests/codex-adapter.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/fs-safety.test.mjs tools/tests/finalize.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node --test tools/tests/*.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/ai/verify-codex-schema.mjs",
                 "exit_code": 0
               },
               {

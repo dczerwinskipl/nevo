@@ -1,0 +1,11 @@
+follow_ups:
+  - id: antigravity-deterministic-turn-outcome
+    source_task: antigravity-terminal-error-handling
+    kind: DISCOVERY
+    severity: non-blocking
+    reason: Investigate from real raw.ndjson and normalized transcript pairs whether
+      Antigravity exposes enough turn-local evidence to distinguish stale
+      session-level ERROR from genuine current-turn failure after partial prose.
+    resolver_task: null
+    status: open
+    resolution: null

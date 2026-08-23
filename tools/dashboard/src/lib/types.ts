@@ -343,7 +343,7 @@ export interface OperationSnapshot {
   events: OperationEvent[];
 }
 
-export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed';
+export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser';
 
 export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
 
@@ -356,6 +356,8 @@ export interface AgentCapabilities {
   toolCalls: boolean;
   reasoning: boolean;
   usage: boolean;
+  steerTurn: boolean;
+  planUpdates: boolean;
 }
 
 export type AiProviderCapabilities = AgentCapabilities;
@@ -380,15 +382,35 @@ export interface AgentToolCall {
   durationMs?: number;
 }
 
+export type AssistantTurnItem =
+  | { id: string; type: 'commentary'; text: string; timestamp?: string }
+  | { id: string; type: 'tool'; toolCall: AgentToolCall }
+  | { id: string; type: 'interaction'; interaction: NonNullable<NormalizedMessage['interaction']> };
+
 export interface NormalizedMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
   reasoning?: string;
+  /** Schema placeholder for future provider-neutral timeline interleaved segments. Currently unmapped pending real provider capture analysis. */
+  activityTimeline?: AssistantTurnItem[];
+  /**
+   * The turn this message belongs to (owner-decisions.md D7). Assistant messages are
+   * created one-per-turn and always carry it; explicit rather than recoverable only by
+   * parsing `id`'s naming convention.
+   */
+  turnId?: string;
+  /**
+   * The owning turn's terminal error, when it ended via `turn.failed` (owner-decisions.md
+   * D6/D9) — the raw `error.code`/`message`, not yet classified into the Turn/Work
+   * Outcome vocabulary (`successful | failed | cancelled/interrupted`, Task 09's job).
+   */
+  turnError?: { code: string; message: string };
   toolCalls?: AgentToolCall[];
   interaction?: {
     id: string;
     kind: string;
+    resumePolicy: 'restart' | 'live-operation';
     payload?: unknown;
     toolName?: string;
     input?: unknown;
@@ -444,6 +466,7 @@ export interface AiMessage {
 export interface AiPermissionInteraction {
   id: string;
   kind: 'permission';
+  resumePolicy: 'restart' | 'live-operation';
   toolName: string;
   input?: Record<string, unknown>;
   details?: string;
@@ -460,12 +483,14 @@ export interface AiQuestion {
 export interface AiQuestionInteraction {
   id: string;
   kind: 'question';
+  resumePolicy: 'restart' | 'live-operation';
   questions: AiQuestion[];
 }
 
 export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction | {
   id: string;
   kind: string;
+  resumePolicy: 'restart' | 'live-operation';
   payload?: unknown;
   [key: string]: unknown;
 };
@@ -477,6 +502,7 @@ export interface AgentEvent {
   turnId?: string;
   timestamp: string;
   messageId?: string;
+  progressId?: string;
   text?: string;
   delta?: string;
   toolId?: string;

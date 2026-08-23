@@ -1,0 +1,96 @@
+{
+  "generatedWith": {
+    "codexCliVersion": "0.149.0",
+    "verifiedOn": "2026-08-22",
+    "platform": "windows"
+  },
+  "methods": {
+    "clientRequests": [
+      "initialize",
+      "thread/start",
+      "thread/resume",
+      "turn/start",
+      "turn/interrupt"
+    ],
+    "clientNotifications": [
+      "initialized"
+    ],
+    "serverNotifications": [
+      "error",
+      "thread/status/changed",
+      "thread/tokenUsage/updated",
+      "turn/started",
+      "turn/completed",
+      "item/started",
+      "item/completed",
+      "item/agentMessage/delta",
+      "item/reasoning/summaryTextDelta",
+      "item/reasoning/textDelta"
+    ],
+    "serverRequests": [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+      "item/tool/requestUserInput"
+    ]
+  },
+  "observedProviderGlobalNotifications": [
+    "remoteControl/status/changed",
+    "mcpServer/startupStatus/updated",
+    "skills/changed"
+  ],
+  "types": {
+    "v1/InitializeParams.json": ["clientInfo"],
+    "v1/InitializeResponse.json": ["codexHome", "platformFamily", "platformOs", "userAgent"],
+    "v2/ThreadStartParams.json": [],
+    "v2/ThreadStartResponse.json": ["approvalPolicy", "approvalsReviewer", "cwd", "model", "modelProvider", "sandbox", "thread"],
+    "v2/ThreadResumeParams.json": ["threadId"],
+    "v2/ThreadResumeResponse.json": ["approvalPolicy", "approvalsReviewer", "cwd", "model", "modelProvider", "sandbox", "thread"],
+    "v2/TurnStartParams.json": ["input", "threadId"],
+    "v2/TurnStartResponse.json": ["turn"],
+    "v2/TurnInterruptParams.json": ["threadId", "turnId"],
+    "v2/TurnInterruptResponse.json": [],
+    "v2/ErrorNotification.json": ["error", "threadId", "turnId", "willRetry"],
+    "v2/ThreadStatusChangedNotification.json": ["status", "threadId"],
+    "v2/TurnStartedNotification.json": ["threadId", "turn"],
+    "v2/TurnCompletedNotification.json": ["threadId", "turn"],
+    "v2/ItemStartedNotification.json": ["item", "startedAtMs", "threadId", "turnId"],
+    "v2/ItemCompletedNotification.json": ["completedAtMs", "item", "threadId", "turnId"],
+    "v2/AgentMessageDeltaNotification.json": ["delta", "itemId", "threadId", "turnId"],
+    "v2/ReasoningSummaryTextDeltaNotification.json": ["delta", "itemId", "summaryIndex", "threadId", "turnId"],
+    "v2/ReasoningTextDeltaNotification.json": ["contentIndex", "delta", "itemId", "threadId", "turnId"],
+    "v2/ThreadTokenUsageUpdatedNotification.json": ["threadId", "tokenUsage", "turnId"],
+    "CommandExecutionRequestApprovalParams.json": ["itemId", "startedAtMs", "threadId", "turnId"],
+    "CommandExecutionRequestApprovalResponse.json": ["decision"],
+    "FileChangeRequestApprovalParams.json": ["itemId", "startedAtMs", "threadId", "turnId"],
+    "FileChangeRequestApprovalResponse.json": ["decision"],
+    "PermissionsRequestApprovalParams.json": ["cwd", "itemId", "permissions", "startedAtMs", "threadId", "turnId"],
+    "PermissionsRequestApprovalResponse.json": ["permissions"],
+    "ToolRequestUserInputParams.json": ["isBlocking", "itemId", "questions", "threadId", "turnId"],
+    "ToolRequestUserInputResponse.json": ["answers"]
+  },
+  "taggedVariants": {
+    "v2/ItemStartedNotification.json": [
+      {
+        "tag": "type",
+        "value": "agentMessage",
+        "optionalPropertyEnums": {
+          "phase": ["commentary", "final_answer"]
+        }
+      }
+    ],
+    "v2/ItemCompletedNotification.json": [
+      {
+        "tag": "type",
+        "value": "agentMessage",
+        "optionalPropertyEnums": {
+          "phase": ["commentary", "final_answer"]
+        }
+      }
+    ]
+  },
+  "envelope": {
+    "outgoingJsonrpc": "omitted",
+    "incomingJsonrpc20": "tolerated"
+  }
+}

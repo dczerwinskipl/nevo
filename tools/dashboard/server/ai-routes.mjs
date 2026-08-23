@@ -146,17 +146,39 @@ export async function handleAiRequest({
         if (body.providerSessionId) {
           const providerSessionId = decodedSessionId(body.providerSessionId);
           if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-          const binding = service.bindingService
-            ? await service.bindingService.bindSession({
+          if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+            throw new AiValidationError('Task IDs must be an array of stable IDs.');
+          }
+          const taskIds = Array.isArray(body.taskIds)
+            ? body.taskIds.filter(Boolean)
+            : (body.taskId ? [body.taskId] : []);
+          let binding;
+          if (service.bindingService) {
+            if (taskIds.length > 0) {
+              for (const tId of taskIds) {
+                binding = await service.bindingService.bindSession({
+                  provider,
+                  providerSessionId,
+                  specId: body.specId,
+                  taskId: tId,
+                  purpose: body.purpose,
+                  mode: body.mode,
+                });
+              }
+            } else {
+              binding = await service.bindingService.bindSession({
                 provider,
                 providerSessionId,
                 specId: body.specId,
                 taskId: body.taskId,
                 purpose: body.purpose,
                 mode: body.mode,
-              })
-            : { provider, providerSessionId, specId: body.specId, taskId: body.taskId, mode: body.mode };
-          sendJson(response, 201, { session: binding });
+              });
+            }
+          } else {
+            binding = { provider, providerSessionId, specId: body.specId, taskId: body.taskId, mode: body.mode };
+          }
+          sendJson(response, 201, { session: { ...binding, taskIds, taskId: body.taskId || (taskIds[0] || undefined) } });
           return true;
         }
 
@@ -317,9 +339,11 @@ export async function handleAiRequest({
         authorize(accessPolicy, 'read', request);
         const descriptor = service.registry?.get(provider)?.descriptor;
         const capabilities = descriptor?.capabilities || {};
-        const binding = service.bindingService
-          ? await service.bindingService.getBinding(provider, providerSessionId)
-          : await service.getSession(provider, providerSessionId);
+
+        const binding = await service.getSession(provider, providerSessionId);
+        const taskIds = binding?.taskIds || (binding?.taskId ? [binding.taskId] : []);
+        const specId = binding?.specId;
+
         const transcript = service.transcriptCache
           ? await service.transcriptCache.getTranscript(provider, providerSessionId)
           : await service.getTranscript(provider, providerSessionId);
@@ -335,8 +359,9 @@ export async function handleAiRequest({
           status,
           capabilities,
           mode: resolvedMode,
-          specId: binding?.specId,
+          specId: specId ?? binding?.specId,
           taskId: binding?.taskId,
+          taskIds,
           purpose: binding?.purpose,
           title: binding?.title || binding?.purpose || `${provider} session`,
           createdAt: binding?.createdAt || transcript?.createdAt || transcript?.updatedAt || new Date().toISOString(),

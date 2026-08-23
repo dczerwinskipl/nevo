@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-18T18:10:23.358Z_
+_Generated: 2026-08-23T19:57:50.238Z_
 
 ## Hub
 
@@ -60,6 +60,7 @@ _Generated: 2026-08-18T18:10:23.358Z_
 |---|---|---|---|
 | `development.ai-sessions` | [Local AI sessions](development/ai-sessions.md) | current |  |
 | `development.architecture-overview` | [NEvo architecture overview](development/architecture-overview.md) | current |  |
+| `development.codex-app-server-research` | [Codex app-server protocol research](development/codex-app-server-research.md) | current |  |
 | `development.coding-conventions` | [Coding conventions](development/coding-conventions.md) | current |  |
 | `development.commit-conventions` | [Commit conventions](development/commit-conventions.md) | current |  |
 | `development.contributing` | [Contributing](development/contributing.md) | current |  |
@@ -76,6 +77,7 @@ _Generated: 2026-08-18T18:10:23.358Z_
 | `development.persistence-development` | [Adding a persistence mechanism](development/persistence-development.md) | current |  |
 | `development.processing-model` | [Processing model](development/processing-model.md) | current |  |
 | `development.pull-requests` | [Pull requests](development/pull-requests.md) | current |  |
+| `development.react-component-guidelines` | [React component guidelines](development/react-component-guidelines.md) | current |  |
 | `development.testing` | [Testing strategy](development/testing-strategy.md) | current |  |
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current |  |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current |  |

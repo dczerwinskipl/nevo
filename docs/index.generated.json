@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-18T18:10:23.358Z",
+  "generated": "2026-08-23T19:57:50.238Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -298,6 +298,7 @@
       "related": [
         "development.local-setup",
         "development.architecture-overview",
+        "development.codex-app-server-research",
         "adr.0007-provider-neutral-ai-sessions"
       ]
     },
@@ -317,6 +318,23 @@
         "development.package-boundaries",
         "development.messaging-pipeline",
         "development.ai-sessions"
+      ]
+    },
+    {
+      "file": "docs/development/codex-app-server-research.md",
+      "id": "development.codex-app-server-research",
+      "type": "development",
+      "title": "Codex app-server protocol research",
+      "status": "current",
+      "read_when": [
+        "implementing or reviewing the Codex provider adapter",
+        "updating the Codex app-server protocol baseline",
+        "diagnosing Codex thread, turn, item, or notification handling"
+      ],
+      "summary": "Dated, version-specific observations from a successful local Codex app-server smoke test, separated from the protocol contracts Nevo must still verify from official documentation and generated schemas.",
+      "related": [
+        "development.ai-sessions",
+        "adr.0007-provider-neutral-ai-sessions"
       ]
     },
     {
@@ -583,6 +601,26 @@
       "related": [
         "development.git-workflow",
         "development.commit-conventions"
+      ]
+    },
+    {
+      "file": "docs/development/react-component-guidelines.md",
+      "id": "development.react-component-guidelines",
+      "type": "development",
+      "title": "React component guidelines",
+      "status": "current",
+      "read_when": [
+        "creating or restructuring React components",
+        "changing shared UI",
+        "introducing dialogs, drawers, menus, tooltips, or other interactive primitives",
+        "extracting reusable components",
+        "changing styling or status/color presentation",
+        "refactoring large feature components"
+      ],
+      "summary": "Preferred way to structure React UI code in Nevo: component sizing/composition, the token -> primitive -> wrapper -> feature layering, state/effect/context boundaries, memoization discipline, and the accessibility baseline. Always-read guidance for frontend implementation and refactoring, not specific to any one change.",
+      "related": [
+        "development.coding-conventions",
+        "development.architecture-overview"
       ]
     },
     {

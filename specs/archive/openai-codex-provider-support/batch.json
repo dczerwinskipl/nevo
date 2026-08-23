@@ -1,0 +1,17 @@
+{
+  "change": "openai-codex-provider-support",
+  "requestedTasks": [
+    "provider-neutral-persistent-turn-contracts",
+    "codex-app-server-client",
+    "codex-provider-adapter-and-registration"
+  ],
+  "orderedTasks": [
+    "provider-neutral-persistent-turn-contracts",
+    "codex-app-server-client",
+    "codex-provider-adapter-and-registration"
+  ],
+  "startRevision": "5f46ca0f6cee280cea05760e610522554d06a016",
+  "reviewMode": "batch",
+  "checkpointPolicy": null,
+  "temporaryInconsistencies": []
+}

@@ -1,35 +1,39 @@
 import {
   AlertTriangle,
   ArrowLeft,
-  Bot,
-  Check,
   ChevronDown,
-  CircleStop,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
-  Send,
-  ShieldAlert,
-  Trash2,
-  User,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { ChatHeader } from '@/components/chat-header';
+import { SessionDetails } from '@/components/session-details';
+import { ChatComposer } from '@/components/composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
-import { AiReasoningView } from '@/components/ai-reasoning-view';
-import { AiToolView } from '@/components/ai-tool-view';
-import { MarkdownContent } from '@/components/markdown-content';
+import { ChatMessage } from '@/components/conversation/chat-message';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
+import { WorkSummary } from '@/components/work/work-summary';
+import { hasVisibleProse, shouldRenderChatMessage } from '@/components/work/work-visibility';
 import {
   useAiProviders,
   useCreateAiSession,
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { projectChat } from '@/lib/chat-projection';
+import { useScrollFollow } from '@/lib/use-scroll-follow';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -37,48 +41,8 @@ import type {
   AiQuestionInteraction,
   AiSession,
   DashboardChange,
-  NormalizedMessage,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
-function ChatMessage({ message, isStreaming = false }: { message: NormalizedMessage; isStreaming?: boolean }) {
-  const user = message.role === 'user';
-  return (
-    <div className={cn('flex gap-3', user && 'justify-end')}>
-      {!user && (
-        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
-          <Bot className="size-4" />
-        </div>
-      )}
-      <div className={cn(
-        'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
-        user
-          ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
-          : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
-      )}>
-        {message.reasoning && (
-          <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
-        )}
-        {message.toolCalls?.map((tc) => (
-          <AiToolView key={tc.id} toolCall={tc} />
-        ))}
-        {message.text && (
-          user ? (
-            <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
-          ) : (
-            <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
-          )
-        )}
-      </div>
-      {user && (
-        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]">
-          <User className="size-4" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 
 
 function useChatVisualViewport() {
@@ -161,10 +125,17 @@ export function AiChatPage({
   onSwitchSession: (session: AiSession) => void;
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const [composer, setComposer] = useState('');
-  const transcriptRef = useRef<HTMLDivElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
+
+  const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    const isInteractive = target?.closest('button, a, input, textarea, select, [role="button"], summary, details, [data-interactive="true"]');
+    if (!isInteractive && composerTextareaRef.current && document.activeElement === composerTextareaRef.current) {
+      composerTextareaRef.current.blur();
+    }
+  };
 
   const assistant = useNevoAssistantRuntime({
     provider,
@@ -178,9 +149,27 @@ export function AiChatPage({
     },
   });
 
+  const scrollContentKey = `${assistant.contentRevision}|${submissionError ?? ''}`;
+
+  const {
+    containerRef: transcriptRef,
+    isFollowing,
+    hasUnseenContent,
+    scrollToBottom,
+  } = useScrollFollow({
+    contentKey: scrollContentKey,
+  });
+
+  const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
+
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
-  const linkedTasks = session?.taskId ? [session.taskId] : [];
+  const linkedTasks = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
+
+  const workByTurnId = useMemo(() => {
+    const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
+    return new Map(projection.workByTurn.map(work => [work.turnId, work]));
+  }, [assistant.messages, assistant.activeTurnId]);
 
   useEffect(() => {
     onTurnChange(assistant.activeTurnId);
@@ -191,14 +180,10 @@ export function AiChatPage({
   }, [provider, sessionId]);
 
   useEffect(() => {
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
-  }, [assistant.messages, assistant.pendingInteraction, submissionError]);
-
-  useEffect(() => {
-    if (!chatViewport.keyboardOpen) return;
+    if (!chatViewport.keyboardOpen || !isFollowing) return;
     window.scrollTo(0, 0);
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-  }, [chatViewport.height, chatViewport.keyboardOpen]);
+    scrollToBottom('auto');
+  }, [chatViewport.height, chatViewport.keyboardOpen, isFollowing, scrollToBottom]);
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
@@ -220,9 +205,8 @@ export function AiChatPage({
 
   const submitMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || assistant.isRunning || !isProviderAvailable) return;
+    if (!trimmed || assistant.activity !== 'idle' || !isProviderAvailable) return;
     setSubmissionError(null);
-    setComposer('');
     await assistant.sendTurn(trimmed, { mode: currentMode });
   }, [assistant, isProviderAvailable, currentMode]);
 
@@ -257,74 +241,55 @@ export function AiChatPage({
     );
   }
 
+  const headerTitle =
+    session?.title?.trim() ||
+    (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
+      ? session.purpose.trim()
+      : '') ||
+    (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
+    (session?.purpose?.trim() ? session.purpose.trim() : '') ||
+    (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`);
+
   const header = (
-    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label={backLabel} title={backLabel}><ArrowLeft className="size-4" /></Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-semibold text-[var(--foreground)]">
-                {session?.title?.trim() ||
-                  (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
-                    ? session.purpose.trim()
-                    : '') ||
-                  (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
-                  (session?.purpose?.trim() ? session.purpose.trim() : '') ||
-                  (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}
-              </p>
-              {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
-              <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[10px]">
-                {(['ask', 'edit', 'agent'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setSelectedModeOverride(m)}
-                    className={cn(
-                      'rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-[9px] transition-colors',
-                      currentMode === m
-                        ? 'bg-[var(--accent)] text-[#111604]'
-                        : 'text-[var(--muted)] hover:text-[var(--foreground)]'
-                    )}
-                    title={
-                      m === 'ask'
-                        ? 'Tryb Ask (Plan) - tylko odczyt i analiza bez modyfikacji plików'
-                        : m === 'edit'
-                        ? 'Tryb Edit (Domyślny) - bezpieczna edycja kodu w workspace'
-                        : 'Tryb Agent (Auto) - pełna autonomia z pominięciem pytań o uprawnienia'
-                    }
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {assistant.isRunning && assistant.capabilities?.cancelTurn && (
-              <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-[var(--muted)] hover:bg-red-500/15 hover:text-red-400"
-              onClick={() => void handleDeleteSession()}
-              disabled={deleting || assistant.isRunning}
-              title="Usuń sesję z dysku"
-            >
-              {deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            </Button>
-          </div>
-        </div>
-        <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'sesja'} · {provider}</p>
-      </div>
-    </header>
+    <ChatHeader
+      title={headerTitle}
+      status={session ? assistant.activity : undefined}
+      onBack={onBack}
+      backLabel={backLabel}
+      onOpenDetails={() => setIsSessionDetailsOpen(true)}
+    />
   );
 
   return (
     <AssistantRuntimeProvider runtime={assistant.runtime}>
       <div className={shellClassName} style={shellStyle}>
         {header}
+
+        <Sheet open={isSessionDetailsOpen} onOpenChange={setIsSessionDetailsOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle>Szczegóły sesji</SheetTitle>
+              <SheetDescription>
+                Kontekst wykonania i powiązania aktywnej sesji AI
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-4">
+              <SessionDetails
+                specTitle={change?.title}
+                specId={session?.specId}
+                tasks={linkedTasks}
+                provider={provider}
+                mode={currentMode}
+                onDelete={() => {
+                  setIsSessionDetailsOpen(false);
+                  void handleDeleteSession();
+                }}
+                deleting={deleting}
+                disabled={assistant.isRunning}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {!isProviderAvailable && providerInfo && (
           <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
@@ -340,7 +305,11 @@ export function AiChatPage({
           </div>
         )}
 
-        <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
+        <div
+          ref={transcriptRef}
+          onPointerDown={handleTranscriptPointerDown}
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6"
+        >
           <div className="mx-auto max-w-4xl space-y-5">
             {assistant.loadError && !assistant.sessionDetails && (
               <div className="py-16 text-center">
@@ -374,19 +343,16 @@ export function AiChatPage({
               </div>
             )}
             {!assistant.isLoading && !assistant.loadError && !assistant.messages.length && !assistant.isRunning && (
-              <div className="py-16 text-center">
-                <Bot className="mx-auto size-7 text-[var(--accent)]" />
-                <h2 className="mt-4 text-base font-semibold">Nowa rozmowa ({provider})</h2>
-                <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
+              <div className="py-20 text-center text-xs text-[var(--muted)]">
+                <p className="font-semibold text-[var(--foreground)]">Brak wiadomości w sesji</p>
+                <p className="mt-1">Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.</p>
               </div>
             )}
-            {assistant.messages.map(message => <ChatMessage key={message.id} message={message} />)}
-            {assistant.isRunning && !assistant.pendingInteraction && (
-              <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
-                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />
-                {provider} generuje odpowiedź…
-              </div>
-            )}
+            {assistant.messages.map((message) => {
+              const turnWork = message.turnId ? workByTurnId.get(message.turnId) : undefined;
+              const work = turnWork?.messageId === message.id ? turnWork : undefined;
+              return <ChatMessage key={message.id} message={message} work={work} />;
+            })}
             {assistant.pendingInteraction?.kind === 'permission' && (
               <PermissionPrompt
                 interaction={assistant.pendingInteraction as Extract<AiInteraction, { kind: 'permission' }>}
@@ -430,63 +396,38 @@ export function AiChatPage({
                 </button>
               </div>
             )}
+            {hasUnseenContent && !isFollowing && (
+              <div className="sticky bottom-3 z-20 flex justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToBottom('smooth')}
+                  className="gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-raised)]/95 px-3.5 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-lg backdrop-blur-sm transition-all hover:bg-[var(--surface-hover)]"
+                >
+                  <ChevronDown className="size-3.5" />
+                  Nowe wiadomości
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
         <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
           <div className="mx-auto max-w-4xl">
-            <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
-              <label className="min-w-0 flex-1">
-                <span className="sr-only">Wiadomość</span>
-                <textarea
-                  rows={1}
-                  value={composer}
-                  onChange={event => setComposer(event.target.value)}
-                  onFocus={() => {
-                    window.scrollTo(0, 0);
-                    setTimeout(() => {
-                      transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-                    }, 100);
-                  }}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void submitMessage(composer);
-                    }
-                  }}
-                  disabled={session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)}
-                  placeholder={
-                    assistant.loadError
-                      ? ('kind' in assistant.loadError && (assistant.loadError as any).kind === 'not_found'
-                          ? 'Sesja nie została znaleziona...'
-                          : 'Serwer dashboardu jest niedostępny...')
-                      : !isProviderAvailable
-                      ? 'Provider CLI niedostępny (brak w PATH)'
-                      : session?.status === 'completed'
-                      ? 'Ta sesja jest tylko do odczytu'
-                      : assistant.isRunning
-                      ? 'Turn trwa…'
-                      : 'Napisz wiadomość…'
-                  }
-                  className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-                />
-              </label>
-              <Button
-                size="icon"
-                className="size-11 shrink-0"
-                type={assistant.isRunning ? 'button' : 'submit'}
-                onClick={assistant.isRunning ? () => void assistant.cancelTurn() : undefined}
-                disabled={
-                  assistant.isRunning
-                    ? !assistant.capabilities?.cancelTurn
-                    : !composer.trim() || session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)
-                }
-                aria-label={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
-                title={assistant.isRunning ? 'Przerwij generowanie' : assistant.loadError ? assistant.loadError.message : 'Wyślij wiadomość'}
-              >
-                {assistant.isRunning ? <CircleStop className="size-4" /> : <Send className="size-4" />}
-              </Button>
-            </form>
+            <ChatComposer
+              key={sessionId}
+              textareaRef={composerTextareaRef}
+              currentMode={currentMode}
+              onModeChange={(m) => setSelectedModeOverride(m)}
+              onSend={(text) => submitMessage(text)}
+              onCancel={() => void assistant.cancelTurn()}
+              isRunning={assistant.isRunning}
+              canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
+              isProviderAvailable={isProviderAvailable}
+              disabled={assistant.activity !== 'idle' && !assistant.isRunning}
+              placeholder={assistant.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
+              loadError={assistant.loadError}
+            />
           </div>
         </footer>
       </div>

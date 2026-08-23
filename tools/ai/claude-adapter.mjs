@@ -340,19 +340,19 @@ export class ClaudeAgentProvider {
               }
             } else if (event.delta?.type === 'input_json_delta' && activeTool) {
               if (emitToolUpdated) {
-                emitToolUpdated({ toolId: activeTool.id, status: 'streaming_input' });
+                emitToolUpdated({ toolId: activeTool.id });
               }
             }
             break;
           }
           case 'content_block_stop': {
+            // A `tool_use` content block finishing only means the model stopped
+            // streaming the call's arguments — the tool has not actually run yet.
+            // The `tool_result` block in the later `user` event (or, if that never
+            // arrives, the `result` fallback below) is the only real terminal signal
+            // for this toolId (owner-decisions.md D6). Emitting anything here would
+            // race or overwrite that real outcome with a synthetic one.
             if (activeThinking) activeThinking = false;
-            if (activeTool) {
-              if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed' });
-              }
-              activeTool = null;
-            }
             break;
           }
           case 'message_delta': {
@@ -394,8 +394,12 @@ export class ClaudeAgentProvider {
 
           case 'result': {
             if (activeTool) {
+              // The turn ended without a real `tool_result` ever arriving for this
+              // toolId — it never received a successful terminal signal, so it
+              // resolves to 'failed' regardless of the turn's own outcome
+              // (owner-decisions.md D6).
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'completed' });
+                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
               }
               activeTool = null;
             }

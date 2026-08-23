@@ -3,6 +3,7 @@ import {
   validateAgentIdentity,
   validateAgentExecutionMode,
 } from './contracts.mjs';
+import { compareBindingRecency } from './binding-service.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -17,59 +18,133 @@ export class AiSessionService {
   }
 
   async createSession(provider, options = {}) {
-    const descriptor = this.registry.get(provider).descriptor;
-    const providerSessionId = randomUUID();
-    const taskId = options.taskId || (Array.isArray(options.taskIds) && options.taskIds.length === 1 ? options.taskIds[0] : undefined);
-    const purpose = options.purpose || options.title || (taskId ? `task:${taskId}` : 'interactive');
+    const entry = this.registry.get(provider);
+    const descriptor = entry.descriptor;
+    const taskIds = Array.isArray(options.taskIds)
+      ? options.taskIds.filter(Boolean)
+      : (options.taskId ? [options.taskId] : []);
+    const primaryTaskId = options.taskId || (taskIds.length > 0 ? taskIds[0] : undefined);
+    const purpose = options.purpose || options.title || (primaryTaskId ? `task:${primaryTaskId}` : 'interactive');
     const mode = options.mode
       ? validateAgentExecutionMode(options.mode, 'mode')
       : (descriptor.defaultMode || 'edit');
 
-    const binding = this.bindingService
-      ? await this.bindingService.bindSession({
+    let providerSessionId;
+    if (typeof entry.adapter.createSession === 'function') {
+      const created = await entry.adapter.createSession({
+        specId: options.specId,
+        taskId: primaryTaskId,
+        taskIds: taskIds.length > 0 ? taskIds : undefined,
+        purpose,
+        mode,
+        title: options.title,
+      });
+      providerSessionId = typeof created === 'string' ? created : created?.providerSessionId;
+      validateAgentIdentity({ provider, providerSessionId });
+    } else {
+      providerSessionId = randomUUID();
+    }
+
+    let binding;
+    if (this.bindingService) {
+      if (taskIds.length > 0) {
+        for (const tId of taskIds) {
+          binding = await this.bindingService.bindSession({
+            provider,
+            providerSessionId,
+            specId: options.specId,
+            taskId: tId,
+            purpose: options.purpose || options.title || `task:${tId}`,
+            mode,
+          });
+        }
+      } else {
+        binding = await this.bindingService.bindSession({
           provider,
           providerSessionId,
           specId: options.specId,
-          taskId,
+          taskId: undefined,
           purpose,
           mode,
-        })
-      : {
-          provider,
-          providerSessionId,
-          sessionId: providerSessionId,
-          specId: options.specId,
-          taskId,
-          purpose,
-          mode,
-          title: options.title || `${provider} session`,
-          createdAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-        };
-    return binding;
+        });
+      }
+    } else {
+      binding = {
+        provider,
+        providerSessionId,
+        sessionId: providerSessionId,
+        specId: options.specId,
+        taskId: primaryTaskId,
+        purpose,
+        mode,
+        title: options.title || `${provider} session`,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      };
+    }
+    return {
+      ...binding,
+      taskIds,
+      taskId: primaryTaskId,
+    };
   }
 
   async listSessions(filters = {}) {
     if (!this.bindingService) return [];
-    const bindings = await this.bindingService.listBindings(filters);
-    if (!this.transcriptCache) return bindings.map(binding => ({ ...binding, status: 'idle' }));
-    return Promise.all(bindings.map(async (binding) => {
+    const query = {};
+    if (filters.specId) query.specId = filters.specId;
+    if (filters.provider) query.provider = filters.provider;
+    if (filters.providerSessionId) query.providerSessionId = filters.providerSessionId;
+
+    const rawBindings = await this.bindingService.listBindings(query);
+
+    // Group rows by `${binding.provider}:::${binding.providerSessionId}:::${binding.specId}`
+    const groups = new Map();
+    for (const row of rawBindings) {
+      const key = `${row.provider}:::${row.providerSessionId}:::${row.specId}`;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(row);
+    }
+
+    const logicalSessions = [];
+    for (const rows of groups.values()) {
+      if (filters.taskId && !rows.some(r => r.taskId === filters.taskId)) {
+        continue;
+      }
+      const sortedRows = rows.slice().sort(compareBindingRecency);
+      const representative = sortedRows[0];
+      const taskIds = Array.from(new Set(rows.map(r => r.taskId).filter(Boolean)));
+
+      logicalSessions.push({
+        ...representative,
+        taskId: representative.taskId || (taskIds[0] || undefined),
+        taskIds,
+      });
+    }
+
+    if (!this.transcriptCache) {
+      return logicalSessions.map(session => ({ ...session, status: 'idle' }));
+    }
+
+    return Promise.all(logicalSessions.map(async (session) => {
       try {
-        const transcript = await this.transcriptCache.getTranscript(binding.provider, binding.providerSessionId);
+        const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
         const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
         // `getTranscript` synthesizes an empty, timestamped-`now` object for a session that
         // never had a turn — never treat that synthetic timestamp as real activity, or every
         // untouched session would show "just now" the moment it's first listed after a restart.
         const hasRecordedActivity = Boolean(transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
         return {
-          ...binding,
-          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || binding.lastSeenAt,
+          ...session,
+          lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
           status,
           activeTurn,
           pendingInteraction,
         };
       } catch {
-        return { ...binding, status: 'idle' };
+        return { ...session, status: 'idle' };
       }
     }));
   }
@@ -114,7 +189,16 @@ export class AiSessionService {
   async getSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.bindingService) {
-      return this.bindingService.getBinding(provider, providerSessionId);
+      if (typeof this.bindingService.resolveCurrentBinding === 'function') {
+        return this.bindingService.resolveCurrentBinding(provider, providerSessionId);
+      }
+      if (typeof this.bindingService.getBinding === 'function') {
+        return this.bindingService.getBinding(provider, providerSessionId);
+      }
+      if (typeof this.bindingService.listBindings === 'function') {
+        const list = await this.bindingService.listBindings({ provider, providerSessionId });
+        return list?.find(b => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+      }
     }
     return null;
   }
@@ -158,8 +242,8 @@ export class AiSessionService {
 
     let resolvedMode;
     let existingBinding = null;
-    if (providerSessionId && typeof this.bindingService?.getBinding === 'function') {
-      existingBinding = await this.bindingService.getBinding(provider, providerSessionId);
+    if (providerSessionId) {
+      existingBinding = await this.getSession(provider, providerSessionId);
     }
     const descriptor = this.registry.get(provider).descriptor;
 
@@ -214,6 +298,10 @@ export class AiSessionService {
 
   async cancelTurn(turnId, options = {}) {
     return this.turnRuntime.cancelTurn(turnId, options);
+  }
+
+  shutdown() {
+    return this.turnRuntime?.shutdown?.();
   }
 }
 
