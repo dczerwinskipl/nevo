@@ -1,4 +1,4 @@
-﻿---
+---
 id: chat-ux-improvements-pt1.antigravity-terminal-error-handling
 status: implemented
 change: chat-ux-improvements-pt1
@@ -56,12 +56,12 @@ an empty assistant message, active turn was cleared, and the UI displayed no err
 1. For `event: "result"`, `type: "done"`, and `type: "turn.completed"`, check the status
    of the payload (`payload.status`, `raw.status`, `payload.is_error`, `raw.is_error`).
 2. When the status indicates error:
-   - Preserve and emit non-empty `result.response` if present (without duplicating already
-     streamed text).
+   - When `response` is empty (and no text was streamed), conclude the turn as failed (`failTurn`)
+     using the error message from `result.error`. Do not emit text deltas or create empty assistant prose.
+   - When `response` is non-empty (or text was already streamed), preserve and emit `result.response`
+     (deduplicating already streamed text) and complete the turn successfully (`finishTurn`), avoiding
+     false-positive error presentation when CLI session state carries an earlier tool error echo.
    - Emit usage metrics if present in the terminal payload.
-   - Conclude the turn as failed (`failTurn`) using the error message from `result.error`.
-   - When `response` is empty, do not emit text deltas or create empty assistant prose.
-   - Do not call `finishTurn()`.
 3. Preserve existing successful result handling and streamed text deduplication.
 4. No frontend or contract changes unless strictly required.
 
@@ -70,10 +70,10 @@ an empty assistant message, active turn was cleared, and the UI displayed no err
 1. `event: "result"` + `status: "ERROR"` + empty `response` terminates in `turn.failed`,
    emits no `turn.completed`, and creates no empty assistant prose message.
 2. `event: "result"` + `status: "ERROR"` + non-empty `response` preserves response text
-   and terminates in `turn.failed`.
+   and terminates in `turn.completed` without false-positive `turnError`.
 3. Successful `event: "result"` terminates in `turn.completed`.
 4. Response text already streamed via `step_update` is not duplicated by the terminal payload.
-5. Usage metrics from the terminal payload are preserved on failed turns.
+5. Usage metrics from the terminal payload are preserved on failed and completed turns.
 
 ## Verification
 

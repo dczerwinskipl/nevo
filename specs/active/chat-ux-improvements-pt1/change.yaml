@@ -313,8 +313,8 @@ tasks:
     depends_on:
       - semantic-chat-presentation-model
     self_check:
-      fingerprint: aa88e2ee6300e575066d3b32a4b2fc4dec35606de44ed4fd608de9b4c870fa0f
-      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
+      fingerprint: 66d13832f38eef4449a610e9653ff9b4e7396be040661a109b4588ac29b19b66
+      revision: 7394ef5b81f309c2322b87a6523413802c5e626c
       commands:
         - command: node --test tools/tests/antigravity-adapter.test.mjs
             tools/tests/ai-turn-runtime.test.mjs

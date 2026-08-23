@@ -1486,15 +1486,15 @@ test('Antigravity error result: event "result" + status "ERROR" + empty response
   assert.equal(textDeltas.length, 0, 'must not emit any text delta for empty response on error');
 });
 
-test('Antigravity error result: event "result" + status "ERROR" + non-empty response preserves text and fails turn', async () => {
+test('Antigravity error result: event "result" + status "ERROR" with non-empty response completes turn successfully with response text and avoids false-positive error', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-response' }),
     JSON.stringify({
       event: 'result',
       result: {
         status: 'ERROR',
-        response: 'Częściowa odpowiedź przed błędem',
-        error: 'Tool crashed',
+        response: 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji',
+        error: 'Earlier tool failed',
       },
     }),
   ];
@@ -1504,23 +1504,15 @@ test('Antigravity error result: event "result" + status "ERROR" + non-empty resp
     spawnProcess: () => createMockProcess(lines),
   });
 
-  await assert.rejects(
-    async () => {
-      await provider.startTurn({
-        turnId: 'turn-err-response',
-        providerSessionId: 'conv-err-response',
-        message: 'Do work',
-        emitTextDelta: (t) => textDeltas.push(t),
-      });
-    },
-    (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
-      assert.equal(err.message, 'Tool crashed');
-      return true;
-    }
-  );
+  const result = await provider.startTurn({
+    turnId: 'turn-err-response',
+    providerSessionId: 'conv-err-response',
+    message: 'Do work',
+    emitTextDelta: (t) => textDeltas.push(t),
+  });
 
-  assert.deepEqual(textDeltas, ['Częściowa odpowiedź przed błędem'], 'must preserve and emit non-empty response text before failing');
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(textDeltas, ['Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji'], 'must preserve and emit response text without failing turn');
 });
 
 test('Antigravity error result: event "result" + status "ERROR" preserves usage metrics before failing', async () => {
@@ -1605,7 +1597,7 @@ test('Antigravity successful result: event "result" + status "SUCCESS" completes
   assert.equal(usages[0].tokensOut, 50);
 });
 
-test('Antigravity deduplicates already streamed text even on error result', async () => {
+test('Antigravity deduplicates already streamed text even when result event carries status ERROR', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-streamed' }),
     JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Wystreamowany tekst' } }),
@@ -1624,22 +1616,14 @@ test('Antigravity deduplicates already streamed text even on error result', asyn
     spawnProcess: () => createMockProcess(lines),
   });
 
-  await assert.rejects(
-    async () => {
-      await provider.startTurn({
-        turnId: 'turn-err-streamed',
-        providerSessionId: 'conv-err-streamed',
-        message: 'Stream and fail',
-        emitTextDelta: (t) => textDeltas.push(t),
-      });
-    },
-    (err) => {
-      assert.equal(err.code, 'AI_PROVIDER_ERROR');
-      assert.equal(err.message, 'Błąd po wygenerowaniu tekstu');
-      return true;
-    }
-  );
+  const result = await provider.startTurn({
+    turnId: 'turn-err-streamed',
+    providerSessionId: 'conv-err-streamed',
+    message: 'Stream and complete',
+    emitTextDelta: (t) => textDeltas.push(t),
+  });
 
+  assert.equal(result.status, 'completed');
   assert.deepEqual(textDeltas, ['Wystreamowany tekst'], 'must not duplicate text that was already streamed');
 });
 

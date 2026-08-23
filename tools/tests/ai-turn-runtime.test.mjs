@@ -696,7 +696,7 @@ test('Antigravity full path: error result with empty response -> turn.failed, no
   }
 });
 
-test('Antigravity full path: error result with non-empty response -> text.delta emitted, turn.failed, prose preserved', async () => {
+test('Antigravity full path: error result with non-empty response -> text.delta emitted, turn.completed, prose preserved, no false-positive turnError', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-err-prose-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -706,7 +706,7 @@ test('Antigravity full path: error result with non-empty response -> text.delta 
         event: 'result',
         result: {
           status: 'ERROR',
-          response: 'Częściowa odpowiedź asystenta przed awarią',
+          response: 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji',
           error: 'Process crashed mid-execution',
         },
       }),
@@ -731,35 +731,31 @@ test('Antigravity full path: error result with non-empty response -> text.delta 
       message: 'Run partial task',
     });
 
-    // Wait until turn reaches terminal failed state
-    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'failed', 'turn failed');
+    // Wait until turn reaches terminal completed state
+    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'completed', 'turn completed');
     await transcriptCache.flush('antigravity', 'sess-agy-err-prose');
     unsubscribe();
 
-    // 1. Verify normalized events: text.delta emitted, turn.failed emitted, no turn.completed
+    // 1. Verify normalized events: text.delta emitted, turn.completed emitted, no turn.failed
     const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
     assert.equal(textEvents.length, 1, 'text.delta emitted');
-    assert.equal(textEvents[0].text, 'Częściowa odpowiedź asystenta przed awarią');
+    assert.equal(textEvents[0].text, 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
     const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
-    assert.equal(turnCompletedEvents.length, 0, 'must not emit turn.completed');
+    assert.equal(turnCompletedEvents.length, 1, 'must emit turn.completed');
     const turnFailedEvents = collectedEvents.filter(e => e.type === 'turn.failed');
-    assert.equal(turnFailedEvents.length, 1, 'turn.failed emitted');
-    assert.equal(turnFailedEvents[0].error.message, 'Process crashed mid-execution');
+    assert.equal(turnFailedEvents.length, 0, 'must not emit turn.failed');
 
     // 2. Verify snapshot
     const snap = runtime.getSnapshot(turnId);
-    assert.equal(snap.status, 'failed');
+    assert.equal(snap.status, 'completed');
 
     // 3. Verify transcript cache on disk and reload
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-prose');
     const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
     assert.ok(assistantMsg);
-    assert.equal(assistantMsg.text, 'Częściowa odpowiedź asystenta przed awarią');
-    assert.deepEqual(assistantMsg.turnError, {
-      code: 'AI_PROVIDER_ERROR',
-      message: 'Process crashed mid-execution',
-    });
+    assert.equal(assistantMsg.text, 'Odpowiedź asystenta wygenerowana mimo wcześniejszego błędu w sesji');
+    assert.equal(assistantMsg.turnError, undefined, 'must not attach false-positive turnError');
 
     runtime.shutdown();
   } finally {

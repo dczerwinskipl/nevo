@@ -766,7 +766,7 @@ export class AntigravityAgentProvider {
               ? (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED')
               : Boolean(payload?.is_error || raw.is_error);
 
-            if (isErrorStatus) {
+            if (isErrorStatus && !accumulatedText && !finalText) {
               const rawErr = payload?.error ?? raw.error;
               const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
               failTurn(new AiError('AI_PROVIDER_ERROR', errorMessage));
