@@ -6,6 +6,7 @@
 |---|---|---|---|---|
 | `ai-sessions-live-chat-integration` | AI sessions and live chat integration | archived | 10 | 2026-08-15 |
 | `architecture-documentation` | Architecture documentation | archived | 10 | 2026-08-01 |
+| `chat-ux-improvements-pt1` | Chat UX Improvements pt1 | archived | 10 | 2026-08-21 |
 | `dashboard-loading-and-progress` | Dashboard data loading and long-running operation progress | archived | 20 | 2026-08-15 |
 | `event-sourcing-api-hardening` | Event Sourcing API hardening and persistence readiness | archived | 10 | 2026-08-10 |
 | `multi-provider-agent-sessions` | Multi-provider local agent chat and session integration | archived | 10 | 2026-08-17 |

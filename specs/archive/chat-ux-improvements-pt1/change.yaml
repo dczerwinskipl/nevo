@@ -2,7 +2,7 @@
 id: chat-ux-improvements-pt1
 title: "Chat UX Improvements pt1"
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-08-21
 
@@ -117,24 +117,30 @@ tasks:
   - id: mobile-header-simplification
     order: 5
     file: tasks/05-mobile-header-simplification.md
-    status: implemented
+    status: verified
     depends_on:
       - shared-session-details
       - composer-interaction-redesign
     implementation:
       baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
-      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/chat-header/chat-header.tsx
         - tools/dashboard/src/components/chat-header/index.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/assistant-runtime-state.test.mjs
         - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
         - tools/dashboard/tests/scroll-follow.test.mjs
         - tools/dashboard/tests/session-states-integration.test.mjs
-      worktree_patch_fingerprint: 3f982ffdd12349cfd02d999933d704a715e24281b0e316a74af9a4c65544e628
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: c30a1287d49f6bb04951f42f4f8417fff6cc7dcda3bbea79a3daad35c04502a5
-      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -216,23 +222,29 @@ tasks:
   - id: streaming-and-scroll-behavior
     order: 8
     file: tasks/08-streaming-and-scroll-behavior.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
       - per-turn-work-presentation
     implementation:
       baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
-      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/lib/use-scroll-follow.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/assistant-runtime-state.test.mjs
         - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
         - tools/dashboard/tests/scroll-follow.test.mjs
         - tools/dashboard/tests/session-states-integration.test.mjs
-      worktree_patch_fingerprint: 3f982ffdd12349cfd02d999933d704a715e24281b0e316a74af9a4c65544e628
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: 73df1132956f65d10253a08b7f55871fbaf5b0b90280ffce25b328401f75a554
-      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -243,23 +255,31 @@ tasks:
   - id: session-states-integration
     order: 9
     file: tasks/09-session-states-integration.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
     implementation:
       baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
-      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/work/work-summary.tsx
+        - tools/dashboard/src/components/work/work-visibility.ts
         - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/assistant-runtime-state.test.mjs
         - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
         - tools/dashboard/tests/scroll-follow.test.mjs
         - tools/dashboard/tests/session-states-integration.test.mjs
-      worktree_patch_fingerprint: 5589f081813d69f323cc04fa7d04147f3eab770ee541d8a95382ab4171366602
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: a00660c56f2380b8fb87f6242db075e2fd84c77302a7706afa8f9d54824ef1e4
-      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -270,7 +290,7 @@ tasks:
   - id: responsive-accessibility-regression-validation
     order: 10
     file: tasks/10-responsive-accessibility-regression-validation.md
-    status: implemented
+    status: verified
     depends_on:
       - conversation-message-presentation
       - per-turn-work-presentation
@@ -282,7 +302,7 @@ tasks:
       - session-states-integration
     self_check:
       fingerprint: 1f31d4465d601e677c3ec253997ee735df010c198de3ff3b0d87005c3951c3e9
-      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -295,12 +315,12 @@ tasks:
   - id: reconcile-ux-improvements-overlap
     order: 11
     file: tasks/11-reconcile-ux-improvements-overlap.md
-    status: implemented
+    status: verified
     depends_on:
       - responsive-accessibility-regression-validation
     self_check:
       fingerprint: fa3d069369dceb7955e20795cde203f1ba37113b175ccd72e37be7038b79a032
-      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: node tools/specs.mjs validate
           exit_code: 0
@@ -309,12 +329,12 @@ tasks:
   - id: antigravity-terminal-error-handling
     order: 12
     file: tasks/12-antigravity-terminal-error-handling.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
     self_check:
-      fingerprint: 66d13832f38eef4449a610e9653ff9b4e7396be040661a109b4588ac29b19b66
-      revision: 01275445fecd84f5a5defb25fc21c7e6ef4e6dfa
+      fingerprint: dd1c75587d2de5c8bd03e1937171f6dcd894533d19a87b9e82f1a7f77bbd5482
+      revision: 7ad21710d1563d98a2634f86ec545fe064dca783
       commands:
         - command: node --test tools/tests/antigravity-adapter.test.mjs
             tools/tests/ai-turn-runtime.test.mjs
