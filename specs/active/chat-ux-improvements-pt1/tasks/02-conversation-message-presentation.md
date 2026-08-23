@@ -10,8 +10,12 @@ context:
     - docs/development/react-component-guidelines.md
     - tools/dashboard/src/components/ai-chat.tsx
     - tools/dashboard/src/components/markdown-content.tsx
+    - tools/dashboard/src/components/work/work-visibility.ts
+    - tools/dashboard/src/lib/chat-projection.ts
     - tools/dashboard/src/lib/types.ts
   optional: []
+semantic_references:
+  dependency_contracts: [semantic-chat-presentation-model]
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
   - tools/dashboard/src/components/markdown-content.tsx
@@ -29,11 +33,17 @@ forbidden_paths:
 
 ## Goal
 
-Make the conversation readable and space-efficient per FR-2. Today, `ChatMessage`
-(`ai-chat.tsx:44-80`) is a function defined *inside* `AiChatPage`, using `Bot`/`User`
-icons in rounded boxes as avatars (`ai-chat.tsx:48-52,73-77`), plain
-`whitespace-pre-wrap` for user text with no collapse behavior, and role distinction via
-background color alone (`ai-chat.tsx:53-58`).
+Make the conversation readable and space-efficient per FR-2. `ChatMessage`
+(`ai-chat.tsx:46-93`, module-level — already extracted above `AiChatPage`, which starts
+at line 153) uses `Bot`/`User` icons in rounded boxes as avatars (`ai-chat.tsx:57-61,
+86-90`), plain `whitespace-pre-wrap` for user text with no collapse behavior
+(`ai-chat.tsx:78`), and role distinction via flex alignment (`justify-end`/`items-end`)
+plus background color (`ai-chat.tsx:56,62,67-71`) — not color alone. Task 01's
+projection output already flows through this same function via a `work?: TurnWork`
+prop, `hasVisibleProse`/`shouldRenderChatMessage`
+(`tools/dashboard/src/components/work/work-visibility.ts`), and
+`work && <WorkSummary work={work} />` (`ai-chat.tsx:65`) — this redesign must preserve
+that integration; it does not touch Work/tool rendering itself (Task 03's scope).
 
 ## Implementation constraints
 
