@@ -319,6 +319,63 @@ export function applyAgentEvent(
   }
 }
 
+/**
+ * Determines whether an incoming AgentEvent changes visible transcript content.
+ * Used to increment contentRevision for useScrollFollow without triggering on
+ * telemetry (usage.updated) or metadata-only events.
+ */
+export function eventModifiesTranscriptContent(event: AgentEvent): boolean {
+  switch (event.type) {
+    case 'text.delta':
+      return Boolean(event.text || event.delta);
+    case 'reasoning.delta':
+      return Boolean(event.text);
+    case 'tool.started':
+    case 'tool.updated':
+    case 'tool.completed':
+      return true;
+    case 'turn.started':
+      return Boolean(event.userMessage?.text || event.userPrompt);
+    case 'turn.completed':
+    case 'turn.failed':
+    case 'interaction.requested':
+    case 'interaction.resolved':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Resolves authoritative session activity from a snapshot.
+ */
+export function resolveSnapshotActivity(
+  snapshot: Pick<AgentSessionSnapshot, 'status' | 'pendingInteraction' | 'activeTurn'>,
+): AiSessionStatus {
+  if (snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle') {
+    return snapshot.status;
+  }
+  if (snapshot.pendingInteraction) return 'waitingForUser';
+  if (snapshot.activeTurn) return 'running';
+  return 'idle';
+}
+
+/**
+ * Checks whether a normal new turn may be started via composer.
+ * A new turn may only be started when the session is completely 'idle'.
+ */
+export function canStartTurn(
+  activity: AiSessionStatus,
+  provider?: string,
+  providerSessionId?: string,
+  messageText?: string,
+): boolean {
+  if (!messageText || !messageText.trim()) return false;
+  if (activity !== 'idle') return false;
+  if (!provider || !providerSessionId) return false;
+  return true;
+}
+
 export type AgentSessionLoadErrorKind = 'network' | 'not_found' | 'http';
 
 export class AgentSessionLoadError extends Error {
@@ -467,6 +524,7 @@ export function useNevoAssistantRuntime({
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [activity, setActivity] = useState<AiSessionStatus>('idle');
+  const [contentRevision, setContentRevision] = useState<number>(0);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -527,10 +585,7 @@ export function useNevoAssistantRuntime({
         lastSeqRef.current = seq;
 
         // Authoritative activity resolution from snapshot (supports reload while waitingForUser, running, or idle)
-        const snapshotActivity: AiSessionStatus =
-          snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle'
-            ? snapshot.status
-            : (snapshot.pendingInteraction ? 'waitingForUser' : (snapshot.activeTurn ? 'running' : 'idle'));
+        const snapshotActivity = resolveSnapshotActivity(snapshot);
 
         setActivity(snapshotActivity);
         activityRef.current = snapshotActivity;
@@ -543,6 +598,7 @@ export function useNevoAssistantRuntime({
           activeTurnIdRef.current = null;
         }
 
+        setContentRevision((r) => r + 1);
         setLoadedIdentity(identity);
         setLoadErrorIdentity(null);
         setLoadError(null);
@@ -601,6 +657,9 @@ export function useNevoAssistantRuntime({
       lastSeqRef.current = seq;
 
       setMessages((prev) => applyAgentEvent(prev, event));
+      if (eventModifiesTranscriptContent(event)) {
+        setContentRevision((r) => r + 1);
+      }
 
       switch (event.type) {
         case 'turn.started':
@@ -663,7 +722,7 @@ export function useNevoAssistantRuntime({
   // 3. Send Turn
   const handleSendTurn = useCallback(
     async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!messageText.trim() || activityRef.current === 'running' || !provider || !providerSessionId) return;
+      if (!canStartTurn(activityRef.current, provider, providerSessionId, messageText)) return;
       if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
       const idempotencyKey = createTurnIdempotencyKey();
@@ -675,6 +734,7 @@ export function useNevoAssistantRuntime({
       };
 
       setMessages((prev) => [...prev, userMessage]);
+      setContentRevision((r) => r + 1);
       setActivity('running');
       activityRef.current = 'running';
       setActiveTurnId(null);
@@ -741,6 +801,7 @@ export function useNevoAssistantRuntime({
         }
       );
       terminalTurnIdsRef.current.add(turnId);
+      setContentRevision((r) => r + 1);
       setActivity('idle');
       activityRef.current = 'idle';
       setActiveTurnId(null);
@@ -773,6 +834,7 @@ export function useNevoAssistantRuntime({
           throw new Error(errData?.error?.message || `Failed to respond to interaction (${res.status})`);
         }
         setPendingInteraction(null);
+        setContentRevision((r) => r + 1);
         setActivity('running');
         activityRef.current = 'running';
       } catch (err) {
@@ -788,6 +850,7 @@ export function useNevoAssistantRuntime({
   const exposedActivity: AiSessionStatus = isSnapshotLoaded ? activity : 'idle';
   const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
   const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
+  const exposedContentRevision = isSnapshotLoaded ? contentRevision : 0;
   const exposedSessionDetails = isSnapshotLoaded && sessionDetails
     ? { ...sessionDetails, status: exposedActivity }
     : null;
@@ -833,6 +896,7 @@ export function useNevoAssistantRuntime({
     activity: exposedActivity,
     isRunning: exposedIsRunning,
     activeTurnId: exposedActiveTurnId,
+    contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
     loadError: exposedLoadError,
     reload,

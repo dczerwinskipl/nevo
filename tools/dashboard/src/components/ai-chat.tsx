@@ -31,7 +31,7 @@ import {
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { projectChat } from '@/lib/chat-projection';
-import { useScrollFollow, computeTranscriptContentKey } from '@/lib/use-scroll-follow';
+import { useScrollFollow } from '@/lib/use-scroll-follow';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -146,10 +146,7 @@ export function AiChatPage({
     },
   });
 
-  const transcriptContentKey = useMemo(
-    () => computeTranscriptContentKey(assistant.messages, assistant.pendingInteraction?.id, submissionError),
-    [assistant.messages, assistant.pendingInteraction?.id, submissionError]
-  );
+  const scrollContentKey = `${assistant.contentRevision}|${submissionError ?? ''}`;
 
   const {
     containerRef: transcriptRef,
@@ -157,7 +154,7 @@ export function AiChatPage({
     hasUnseenContent,
     scrollToBottom,
   } = useScrollFollow({
-    contentKey: transcriptContentKey,
+    contentKey: scrollContentKey,
   });
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
@@ -180,10 +177,10 @@ export function AiChatPage({
   }, [provider, sessionId]);
 
   useEffect(() => {
-    if (!chatViewport.keyboardOpen) return;
+    if (!chatViewport.keyboardOpen || !isFollowing) return;
     window.scrollTo(0, 0);
     scrollToBottom('auto');
-  }, [chatViewport.height, chatViewport.keyboardOpen, scrollToBottom]);
+  }, [chatViewport.height, chatViewport.keyboardOpen, isFollowing, scrollToBottom]);
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
@@ -205,7 +202,7 @@ export function AiChatPage({
 
   const submitMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || assistant.isRunning || !isProviderAvailable) return;
+    if (!trimmed || assistant.activity !== 'idle' || !isProviderAvailable) return;
     setSubmissionError(null);
     await assistant.sendTurn(trimmed, { mode: currentMode });
   }, [assistant, isProviderAvailable, currentMode]);
@@ -424,6 +421,8 @@ export function AiChatPage({
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
               isProviderAvailable={isProviderAvailable}
+              disabled={assistant.activity !== 'idle' && !assistant.isRunning}
+              placeholder={assistant.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
               loadError={assistant.loadError}
             />
           </div>

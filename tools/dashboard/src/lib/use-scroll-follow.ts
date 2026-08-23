@@ -12,28 +12,96 @@ export function isScrolledNearBottom(
   return calculateDistanceFromBottom(el) <= threshold;
 }
 
-/**
- * Computes a stable primitive string key representing transcript content changes.
- * Unrelated component rerenders (focus, Sheet opening, status change) produce identical keys,
- * preventing spurious scroll movement or false "Nowe wiadomości" badges.
- */
-export function computeTranscriptContentKey(
-  messages: NormalizedMessage[] = [],
-  pendingInteractionId?: string | null,
-  submissionError?: string | null,
-): string {
-  if (messages.length === 0 && !pendingInteractionId && !submissionError) {
-    return 'empty';
+export interface ScrollState {
+  isFollowing: boolean;
+  hasUnseenContent: boolean;
+  isProgrammaticScroll: boolean;
+}
+
+export function createInitialScrollState(): ScrollState {
+  return {
+    isFollowing: true,
+    hasUnseenContent: false,
+    isProgrammaticScroll: false,
+  };
+}
+
+export function handleScrollEvent(
+  state: ScrollState,
+  isNearBottom: boolean,
+  isScrollingUp = false,
+  distanceFromBottom = 0,
+): ScrollState {
+  if (state.isProgrammaticScroll) {
+    if (distanceFromBottom <= 10) {
+      return {
+        ...state,
+        isFollowing: true,
+        hasUnseenContent: false,
+        isProgrammaticScroll: false,
+      };
+    }
+    // Intermediate scroll events during programmatic smooth scroll must not disable follow
+    return state;
   }
-  const lastMsg = messages[messages.length - 1];
-  let lastMsgSig = '';
-  if (lastMsg) {
-    const toolCallSig = lastMsg.toolCalls
-      ? lastMsg.toolCalls.map((tc) => `${tc.id}:${tc.status}:${tc.durationMs ?? 0}`).join(',')
-      : '';
-    lastMsgSig = `${lastMsg.id}:${lastMsg.text.length}:${lastMsg.reasoning?.length ?? 0}:${toolCallSig}:${lastMsg.turnError?.code ?? ''}`;
+
+  // Any user scroll upward away from bottom immediately pauses follow
+  if (isScrollingUp && distanceFromBottom > 0) {
+    return {
+      ...state,
+      isFollowing: false,
+    };
   }
-  return `${messages.length}|${lastMsgSig}|${pendingInteractionId ?? ''}|${submissionError ?? ''}`;
+
+  if (isNearBottom && !isScrollingUp) {
+    return {
+      ...state,
+      isFollowing: true,
+      hasUnseenContent: false,
+      isProgrammaticScroll: false,
+    };
+  }
+
+  if (!isNearBottom) {
+    return {
+      ...state,
+      isFollowing: false,
+    };
+  }
+
+  return state;
+}
+
+export function handleContentArrival(
+  state: ScrollState,
+): { state: ScrollState; shouldScrollToBottom: boolean } {
+  if (state.isFollowing) {
+    return {
+      state,
+      shouldScrollToBottom: true,
+    };
+  }
+  return {
+    state: {
+      ...state,
+      hasUnseenContent: true,
+    },
+    shouldScrollToBottom: false,
+  };
+}
+
+export function handleUserReturnToBottom(
+  state: ScrollState,
+  smooth = true,
+): { state: ScrollState; behavior: ScrollBehavior } {
+  return {
+    state: {
+      isFollowing: true,
+      hasUnseenContent: false,
+      isProgrammaticScroll: smooth,
+    },
+    behavior: smooth ? 'smooth' : 'auto',
+  };
 }
 
 export interface UseScrollFollowOptions {
@@ -68,49 +136,116 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
   const [isFollowing, setIsFollowing] = useState(true);
   const [hasUnseenContent, setHasUnseenContent] = useState(false);
   const isFollowingRef = useRef(true);
+  const isProgrammaticScrollRef = useRef(false);
   const initialMountRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const touchStartYRef = useRef(0);
 
   const isNearBottom = useCallback(() => {
     const el = containerRef.current;
     if (!el) return true;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = calculateDistanceFromBottom(el);
     return distanceFromBottom <= threshold;
   }, [threshold]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = containerRef.current;
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior });
-    }
     isFollowingRef.current = true;
     setIsFollowing(true);
     setHasUnseenContent(false);
+    if (behavior === 'smooth') {
+      isProgrammaticScrollRef.current = true;
+    } else {
+      isProgrammaticScrollRef.current = false;
+    }
+    if (el) {
+      lastScrollTopRef.current = el.scrollHeight;
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    }
   }, []);
 
   const handleScroll = useCallback(() => {
-    const nearBottom = isNearBottom();
-    if (nearBottom) {
+    const el = containerRef.current;
+    if (!el) return;
+    const currentScrollTop = el.scrollTop;
+    const distanceFromBottom = calculateDistanceFromBottom(el);
+    const isNear = distanceFromBottom <= threshold;
+    const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
+    lastScrollTopRef.current = currentScrollTop;
+
+    if (isProgrammaticScrollRef.current) {
+      if (distanceFromBottom <= 10) {
+        isProgrammaticScrollRef.current = false;
+        isFollowingRef.current = true;
+        setIsFollowing(true);
+        setHasUnseenContent(false);
+      }
+      return;
+    }
+
+    if (isScrollingUp && distanceFromBottom > 0) {
+      // Any upward user scroll immediately pauses follow even within threshold
+      isFollowingRef.current = false;
+      setIsFollowing(false);
+    } else if (isNear && !isScrollingUp) {
+      // User scrolled down to bottom
       isFollowingRef.current = true;
       setIsFollowing(true);
       setHasUnseenContent(false);
-    } else {
+    } else if (!isNear) {
       isFollowingRef.current = false;
       setIsFollowing(false);
     }
-  }, [isNearBottom]);
+  }, [threshold]);
 
-  // Attach scroll listener to container if available
+  // Attach scroll and user-gesture listeners to container
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
+    const handleWheel = (e: WheelEvent) => {
+      isProgrammaticScrollRef.current = false;
+      if (e.deltaY < 0) {
+        // Explicit wheel scroll UP pauses follow immediately
+        isFollowingRef.current = false;
+        setIsFollowing(false);
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      isProgrammaticScrollRef.current = false;
+      touchStartYRef.current = e.touches[0]?.clientY ?? 0;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const currentY = e.touches[0]?.clientY ?? 0;
+      if (currentY > touchStartYRef.current + 5) {
+        // Finger dragging DOWN means viewport scrolling UP into history -> pause follow immediately
+        isFollowingRef.current = false;
+        setIsFollowing(false);
+      }
+    };
+
+    const handlePointerDown = () => {
+      isProgrammaticScrollRef.current = false;
+    };
+
     el.addEventListener('scroll', handleScroll, { passive: true });
+    el.addEventListener('wheel', handleWheel, { passive: true });
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: true });
+    el.addEventListener('pointerdown', handlePointerDown, { passive: true });
+
     return () => {
       el.removeEventListener('scroll', handleScroll);
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('pointerdown', handlePointerDown);
     };
   }, [handleScroll]);
 
-  // React to new content signals
+  // React to semantic contentKey changes
   useEffect(() => {
     if (initialMountRef.current) {
       initialMountRef.current = false;
@@ -121,7 +256,9 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     if (isFollowingRef.current) {
       const el = containerRef.current;
       if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        lastScrollTopRef.current = el.scrollHeight;
+        // Continuous streaming follow uses immediate 'auto' positioning to prevent animation races
+        el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
       }
     } else {
       setHasUnseenContent(true);
