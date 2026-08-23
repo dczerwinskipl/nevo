@@ -1,8 +1,5 @@
 export interface ComposerLayoutConfig {
   isFocused: boolean;
-  draft?: string;
-  scrollHeight?: number;
-  maxHeightPx?: number;
 }
 
 export interface ComposerLayoutState {
@@ -10,21 +7,15 @@ export interface ComposerLayoutState {
   isExpanded: boolean;
   overflow: 'hidden' | 'auto';
   className: string;
-  computedHeightPx?: number;
 }
 
 export const COMPOSER_COMPACT_CLASSES = 'min-h-11 max-h-12 overflow-hidden';
 export const COMPOSER_EDIT_CLASSES = 'min-h-11 max-h-[40vh] overflow-y-auto';
 
 /**
- * Pure deterministic state and sizing calculator for chat composer.
- * Compact while unfocused regardless of draft length, auto-growing and internally scrollable when focused.
+ * Returns static CSS classes and presentation state based on focus status.
  */
-export function getComposerLayoutState({
-  isFocused,
-  scrollHeight,
-  maxHeightPx,
-}: ComposerLayoutConfig): ComposerLayoutState {
+export function getComposerLayoutState({ isFocused }: ComposerLayoutConfig): ComposerLayoutState {
   if (!isFocused) {
     return {
       isCompact: true,
@@ -34,18 +25,11 @@ export function getComposerLayoutState({
     };
   }
 
-  const computedHeight = scrollHeight
-    ? maxHeightPx
-      ? Math.min(scrollHeight, maxHeightPx)
-      : scrollHeight
-    : undefined;
-
   return {
     isCompact: false,
     isExpanded: true,
     overflow: 'auto',
     className: COMPOSER_EDIT_CLASSES,
-    computedHeightPx: computedHeight,
   };
 }
 

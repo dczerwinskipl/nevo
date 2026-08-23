@@ -38,7 +38,7 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
 
   return (
     <div className={cn('flex w-full min-w-0', user ? 'justify-end' : 'justify-start')}>
-      <div className={cn('min-w-0 space-y-1.5', user ? 'flex flex-col items-end' : 'flex-1')}>
+      <div className={cn('w-full min-w-0 space-y-1.5 flex flex-col', user ? 'items-end' : 'items-start')}>
         {/* Work is a flat transcript row, never nested inside the prose card below —
             a turn with no prose renders Work directly with no card around it at all. */}
         {work && <WorkSummary work={work} />}
@@ -46,7 +46,7 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
           <div className={cn(
             'rounded-2xl px-4 py-3 text-sm leading-6',
             user
-              ? 'max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
+              ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
               : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
           )}>
             {message.reasoning && (
@@ -56,7 +56,7 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
               user ? (
                 <div className="space-y-1.5">
                   <div className={cn(
-                    'whitespace-pre-wrap [overflow-wrap:anywhere] font-normal text-[var(--foreground)]',
+                    'whitespace-pre-wrap break-words font-normal text-[var(--foreground)]',
                     // Must match message-collapse.ts's COLLAPSED_LINE_LIMIT — Tailwind's
                     // scanner needs a literal class, not an interpolated variable.
                     isLong && !expanded && 'line-clamp-6'
