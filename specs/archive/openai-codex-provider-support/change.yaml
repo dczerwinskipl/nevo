@@ -3,7 +3,7 @@ id: openai-codex-provider-support
 spec_id: 38d72d6b-3b47-4a07-8973-33ae5cee3ebc
 title: "OpenAI Codex provider support"
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-08-22
 
