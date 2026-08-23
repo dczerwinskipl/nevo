@@ -58,7 +58,7 @@ tasks:
   - id: conversation-message-presentation
     order: 2
     file: tasks/02-conversation-message-presentation.md
-    status: draft
+    status: approved
     depends_on:
       - semantic-chat-presentation-model
 
