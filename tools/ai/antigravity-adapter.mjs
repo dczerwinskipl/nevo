@@ -1,6 +1,6 @@
 import { spawn, execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { mkdir, appendFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, appendFile, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import {
@@ -13,13 +13,23 @@ import { terminateChildProcess } from './process-termination.mjs';
 
 /**
  * Encodes an arbitrary opaque providerSessionId into a safe single directory segment.
- * Ensures the resulting name never contains path separators, never escapes rawCaptureDir,
- * and maintains collision resistance via a SHA-256 digest suffix.
+ * If providerSessionId is already a safe single filesystem segment (conservative chars,
+ * reasonable length, not '.' or '..'), returns it directly. Otherwise, encodes it using
+ * a collision-resistant SHA-256 digest suffix to prevent path traversal and collisions.
  */
 export function rawCaptureSessionDirectory(providerSessionId) {
   if (!providerSessionId || typeof providerSessionId !== 'string') {
     throw new TypeError('providerSessionId must be a non-empty string');
   }
+  const isSafeSegment = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
+    && providerSessionId !== '.'
+    && providerSessionId !== '..'
+    && providerSessionId.length <= 128;
+
+  if (isSafeSegment) {
+    return providerSessionId;
+  }
+
   const safePrefix = providerSessionId
     .replace(/[^a-zA-Z0-9_-]/g, '_')
     .slice(0, 32)
@@ -150,7 +160,17 @@ export class AntigravityAgentProvider {
     if (queue) await queue;
   }
 
-  #recordRawEvent({ sessionId, turnId, stream, line }) {
+  #logCapturePathOnce(sessionId) {
+    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId) return;
+    if (!this.#loggedCaptureSessions.has(sessionId)) {
+      this.#loggedCaptureSessions.add(sessionId);
+      const sessionDirName = rawCaptureSessionDirectory(sessionId);
+      const filePath = join(this.#rawCaptureDir, sessionDirName, 'raw.ndjson');
+      console.log(`[ai] Antigravity raw capture: ${filePath}`);
+    }
+  }
+
+  #recordRawEvent({ sessionId, turnId, stream, line, suppressConsoleLog = false }) {
     if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId || typeof line !== 'string') {
       return;
     }
@@ -164,6 +184,7 @@ export class AntigravityAgentProvider {
       record = {
         capturedAt,
         stream,
+        providerSessionId: sessionId,
         ...(turnId ? { turnId } : {}),
         raw: parsed,
       };
@@ -171,6 +192,7 @@ export class AntigravityAgentProvider {
       record = {
         capturedAt,
         stream,
+        providerSessionId: sessionId,
         ...(turnId ? { turnId } : {}),
         rawText: line,
       };
@@ -180,9 +202,8 @@ export class AntigravityAgentProvider {
     const sessionDir = join(this.#rawCaptureDir, sessionDirName);
     const filePath = join(sessionDir, 'raw.ndjson');
 
-    if (!this.#loggedCaptureSessions.has(sessionId)) {
-      this.#loggedCaptureSessions.add(sessionId);
-      console.log(`[ai] Antigravity raw capture: ${filePath}`);
+    if (!suppressConsoleLog) {
+      this.#logCapturePathOnce(sessionId);
     }
 
     const ndjsonLine = JSON.stringify(record) + '\n';
@@ -192,6 +213,14 @@ export class AntigravityAgentProvider {
         try {
           if (!existsSync(sessionDir)) {
             await mkdir(sessionDir, { recursive: true });
+          }
+          const sessionMetadataPath = join(sessionDir, 'session.json');
+          if (!existsSync(sessionMetadataPath)) {
+            const metadata = JSON.stringify({
+              provider: 'antigravity',
+              providerSessionId: sessionId,
+            }, null, 2);
+            await writeFile(sessionMetadataPath, metadata, 'utf8');
           }
           await appendFile(filePath, ndjsonLine, 'utf8');
         } catch (err) {
@@ -334,6 +363,8 @@ export class AntigravityAgentProvider {
       this.#activeOperations.set(turnId, operation);
 
       let currentSessionId = providerSessionId || null;
+      const isProvisional = !providerSessionId;
+      let isRawCaptureMigrated = false;
 
       const confirmSession = async (allocatedId) => {
         if (allocatedId) {
@@ -341,7 +372,8 @@ export class AntigravityAgentProvider {
           if (providerSessionId) {
             this.#saveSessionAlias(providerSessionId, allocatedId);
           }
-          if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId !== effectiveSessionId) {
+          if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId !== effectiveSessionId && !isRawCaptureMigrated) {
+            isRawCaptureMigrated = true;
             // Migrate any raw records already written under effectiveSessionId to allocatedId
             const oldDirName = rawCaptureSessionDirectory(effectiveSessionId);
             const newDirName = rawCaptureSessionDirectory(allocatedId);
@@ -355,6 +387,15 @@ export class AntigravityAgentProvider {
                   const newFile = join(newDir, 'raw.ndjson');
                   const content = await readFile(oldFile, 'utf8');
                   await appendFile(newFile, content, 'utf8');
+
+                  // Write updated session.json for allocatedId
+                  const sessionMetadataPath = join(newDir, 'session.json');
+                  const metadata = JSON.stringify({
+                    provider: 'antigravity',
+                    providerSessionId: allocatedId,
+                  }, null, 2);
+                  await writeFile(sessionMetadataPath, metadata, 'utf8');
+
                   await rm(join(this.#rawCaptureDir, oldDirName), { recursive: true, force: true });
                 }
               } catch (err) {
@@ -362,6 +403,9 @@ export class AntigravityAgentProvider {
               }
             });
             this.#sessionWriteQueues.set(allocatedId, migrationQueue);
+            this.#logCapturePathOnce(allocatedId);
+          } else if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId) {
+            this.#logCapturePathOnce(allocatedId);
           }
         }
         if (!isSessionEstablished && allocatedId) {
@@ -479,7 +523,6 @@ export class AntigravityAgentProvider {
         }
 
         if (eventType === 'init' || eventType === 'conversation_started') {
-          if (sessId) await confirmSession(sessId);
           return;
         }
 
@@ -693,6 +736,7 @@ export class AntigravityAgentProvider {
             turnId,
             stream: 'stdout',
             line,
+            suppressConsoleLog: isProvisional && !isSessionEstablished,
           });
           if (!isDone && !isResolved) {
             processingQueue = processingQueue.then(() => {
@@ -718,6 +762,7 @@ export class AntigravityAgentProvider {
             turnId,
             stream: 'stderr',
             line,
+            suppressConsoleLog: isProvisional && !isSessionEstablished,
           });
         }
         console.warn(`[antigravity] [stderr] ${text.trim()}`);
@@ -752,6 +797,7 @@ export class AntigravityAgentProvider {
             turnId,
             stream: 'stdout',
             line: lineBuffer,
+            suppressConsoleLog: isProvisional && !isSessionEstablished,
           });
         }
 
@@ -763,8 +809,14 @@ export class AntigravityAgentProvider {
             turnId,
             stream: 'stderr',
             line: stderrLineBuffer,
+            suppressConsoleLog: isProvisional && !isSessionEstablished,
           });
           stderrLineBuffer = '';
+        }
+
+        // If turn ended without establishing session, ensure any unlogged provisional capture is logged
+        if (isProvisional && !isSessionEstablished) {
+          this.#logCapturePathOnce(effectiveSessionId);
         }
 
         if (isResolved) {

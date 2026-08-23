@@ -253,33 +253,67 @@ test('Cancel Turn: Successful cancel transitions to idle, clears activeTurnId, a
   assert.equal(terminalTurnIds.has('turn-789'), true);
 });
 
-test('Cancel Turn: Race where terminal SSE arrives before cancel response completes', () => {
+test('Cancel Turn: Race where turn.failed SSE arrives before late HTTP 409 response', () => {
   let activity = 'running';
-  let activeTurnId = 'turn-race';
+  let activeTurnId = 'turn-race-409';
   const terminalTurnIds = new Set();
 
-  // 1. SSE turn.failed/cancelled arrives first, transitioning runtime to idle
-  terminalTurnIds.add('turn-race');
+  // 1. SSE turn.failed arrives first
+  terminalTurnIds.add('turn-race-409');
   activity = 'idle';
   activeTurnId = null;
 
-  assert.equal(activity, 'idle');
-  assert.equal(activeTurnId, null);
-  assert.equal(terminalTurnIds.has('turn-race'), true);
-
-  // 2. Late HTTP cancel response arrives
+  // 2. Late HTTP 409 response arrives
   const lateResult = applyCancelTurnResponse({
-    turnId: 'turn-race',
-    response: { ok: true, status: 200 },
-    errorData: null,
-    currentActiveTurnId: activeTurnId, // already null
-    currentActivity: activity, // already idle
+    turnId: 'turn-race-409',
+    response: { ok: false, status: 409 },
+    errorData: { error: { message: 'Cannot cancel finished turn' } },
+    currentActiveTurnId: activeTurnId,
+    currentActivity: activity,
     terminalTurnIds,
   });
 
-  assert.equal(lateResult.nextActivity, 'idle');
-  assert.equal(lateResult.nextActiveTurnId, null, 'activeTurnId was not corrupted');
-  assert.equal(terminalTurnIds.has('turn-race'), true);
+  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
+  assert.equal(lateResult.nextActiveTurnId, null);
+  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
+  assert.equal(terminalTurnIds.has('turn-race-409'), true);
+});
+
+test('Cancel Turn: Race where turn.completed SSE arrives before late HTTP 500 response', () => {
+  let activity = 'running';
+  let activeTurnId = 'turn-race-500';
+  const terminalTurnIds = new Set();
+
+  // 1. SSE turn.completed arrives first
+  terminalTurnIds.add('turn-race-500');
+  activity = 'idle';
+  activeTurnId = null;
+
+  // 2. Late HTTP 500 response arrives
+  const lateResult = applyCancelTurnResponse({
+    turnId: 'turn-race-500',
+    response: { ok: false, status: 500 },
+    errorData: { error: { message: 'Internal server error' } },
+    currentActiveTurnId: activeTurnId,
+    currentActivity: activity,
+    terminalTurnIds,
+  });
+
+  assert.equal(lateResult.nextActivity, 'idle', 'Activity must remain idle');
+  assert.equal(lateResult.nextActiveTurnId, null);
+  assert.equal(lateResult.error, undefined, 'Must NOT return or surface an error for a stale cancel response');
+  assert.equal(terminalTurnIds.has('turn-race-500'), true);
+});
+
+test('Cancel Turn: Runtime catch suppresses error when turn becomes terminal before network error', () => {
+  const runtimeSource = readRuntimeSource();
+
+  // Verify that handleCancelTurn catch block inspects terminalTurnIds before calling onError
+  assert.match(
+    runtimeSource,
+    /if\s*\(\s*terminalTurnIdsRef\.current\.has\(turnId\)\s*\)\s*\{\s*return;\s*\}/,
+    'handleCancelTurn catch must suppress late network errors if turn is already terminal'
+  );
 });
 
 test('AiChatPage disables normal composer send when session is waitingForUser', () => {

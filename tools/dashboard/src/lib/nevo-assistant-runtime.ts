@@ -533,6 +533,17 @@ export function applyCancelTurnResponse({
   currentActivity,
   terminalTurnIds,
 }: ApplyCancelTurnResponseParams): ApplyCancelTurnResponseResult {
+  // If the turn already became terminal (e.g. terminal SSE arrived while cancel was in flight),
+  // suppress any stale cancel responses (HTTP 200, 409, 500, etc.) without surfacing errors
+  // or resurrecting/altering state.
+  if (terminalTurnIds.has(turnId)) {
+    return {
+      nextActivity: currentActivity,
+      nextActiveTurnId: currentActiveTurnId,
+      terminalTurnIds,
+    };
+  }
+
   if (!response.ok) {
     const message =
       errorData?.error?.message ||
@@ -881,6 +892,11 @@ export function useNevoAssistantRuntime({
       }
       setContentRevision((r) => r + 1);
     } catch (err) {
+      // If the turn already became terminal (e.g. via SSE) while fetch was in flight or rejected,
+      // suppress late errors so they don't produce confusing user-facing alerts.
+      if (terminalTurnIdsRef.current.has(turnId)) {
+        return;
+      }
       // On failed cancel DO NOT mutate terminalTurnIds, activity, activeTurnId, or pending turn ownership.
       // The turn remains running and cancellation remains retryable.
       onError?.(err instanceof Error ? err : new Error(String(err)));

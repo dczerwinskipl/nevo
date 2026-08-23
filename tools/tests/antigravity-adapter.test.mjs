@@ -945,6 +945,9 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
 
     const captureFile = provider.getRawCapturePath('conv-json-test');
     assert.ok(captureFile.startsWith(tmpDir), 'Capture file must reside within tmpDir');
+    // Verify direct correlation: safe ID maps directly to folder name
+    assert.equal(captureFile, join(tmpDir, 'conv-json-test', 'raw.ndjson'));
+
     const content = await readFile(captureFile, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -952,9 +955,16 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
     for (let i = 0; i < rawEvents.length; i++) {
       assert.equal(lines[i].stream, 'stdout');
       assert.equal(lines[i].turnId, turnId);
+      assert.equal(lines[i].providerSessionId, 'conv-json-test', 'Envelope must preserve providerSessionId');
       assert.ok(lines[i].capturedAt, 'capturedAt must be present');
       assert.deepEqual(lines[i].raw, rawEvents[i], 'raw payload must match exact provider object');
     }
+
+    // Verify session.json metadata
+    const metadataFile = join(tmpDir, 'conv-json-test', 'session.json');
+    const metadataContent = JSON.parse(await readFile(metadataFile, 'utf8'));
+    assert.equal(metadataContent.provider, 'antigravity');
+    assert.equal(metadataContent.providerSessionId, 'conv-json-test');
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -1248,9 +1258,21 @@ test('Antigravity raw capture: disabled by default and normal adapter turn does 
   }
 });
 
-test('Antigravity raw capture: rawCaptureSessionDirectory prevents path traversal, nested directories, and absolute paths', () => {
+test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preserves safe IDs and sanitizes dangerous IDs without collision', () => {
   const tmpBase = join('C:', 'test', 'raw_capture');
 
+  // 1. Safe IDs remain exactly unchanged
+  const safeIds = [
+    '468ea2f9-9d0f-43e0-960c-feff8cc2bf6a',
+    'conv-12345',
+    'SESSION_01_alpha-BETA',
+    '1234567890',
+  ];
+  for (const id of safeIds) {
+    assert.equal(rawCaptureSessionDirectory(id), id, `Safe ID '${id}' must return unchanged`);
+  }
+
+  // 2. Dangerous IDs are sanitized and hash-suffixed
   const dangerousIds = [
     '../outside',
     '../../etc/passwd',
@@ -1264,6 +1286,7 @@ test('Antigravity raw capture: rawCaptureSessionDirectory prevents path traversa
     'session-with-special!@#$%^&*()_+=~`[]{}|;:\'",.<>?',
   ];
 
+  const encodedSet = new Set();
   for (const id of dangerousIds) {
     const encodedDir = rawCaptureSessionDirectory(id);
     assert.doesNotMatch(encodedDir, /[/\\]/, `Encoded directory '${encodedDir}' must not contain slashes`);
@@ -1273,10 +1296,75 @@ test('Antigravity raw capture: rawCaptureSessionDirectory prevents path traversa
 
     const fullPath = join(tmpBase, encodedDir, 'raw.ndjson');
     assert.ok(fullPath.startsWith(tmpBase), `Resolved full path '${fullPath}' must stay strictly under tmpBase`);
+
+    // Collision resistance check
+    assert.ok(!encodedSet.has(encodedDir), `Encoded directory '${encodedDir}' must be unique across distinct IDs`);
+    encodedSet.add(encodedDir);
   }
 
-  // Normal ID remains recognizable with hash suffix
-  const normalEncoded = rawCaptureSessionDirectory('conv-12345');
-  assert.ok(normalEncoded.startsWith('conv-12345-'));
+  // Two different unsafe IDs that share prefix must produce distinct directory names
+  assert.notEqual(rawCaptureSessionDirectory('foo/bar'), rawCaptureSessionDirectory('foo\\bar'));
+});
+
+test('Antigravity raw capture: provisional new session migrates to allocated conversation_id, preserves all records and session.json, and logs only final path', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-provisional-'));
+  const originalLog = console.log;
+  const loggedLines = [];
+  console.log = (...args) => {
+    loggedLines.push(args.join(' '));
+    originalLog(...args);
+  };
+
+  try {
+    const stdoutLines = [
+      JSON.stringify({ type: 'init', conversation_id: 'allocated-agy-9876' }),
+      JSON.stringify({ event: 'step_update', thought: 'Planning task' }),
+      JSON.stringify({ event: 'result', response: 'New session task finished' }),
+    ];
+
+    const child = createMockProcess(stdoutLines);
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+
+    // Start turn with NO providerSessionId (provisional session)
+    const result = await provider.startTurn({
+      turnId: 'turn-provisional-1',
+      providerSessionId: null,
+      message: 'start new conversation',
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.providerSessionId, 'allocated-agy-9876');
+
+    await provider.flushRawCapture('allocated-agy-9876');
+
+    // 1. Verify logging: only the allocated session capture path was logged, not the provisional UUID
+    const rawCaptureLogs = loggedLines.filter(l => l.includes('Antigravity raw capture:'));
+    assert.equal(rawCaptureLogs.length, 1, 'Exactly one raw capture log must be emitted');
+    assert.ok(rawCaptureLogs[0].includes('allocated-agy-9876'), 'Logged path must be the final allocated session');
+
+    // 2. Verify files: final allocated directory exists and contains all lines
+    const finalDir = join(tmpDir, 'allocated-agy-9876');
+    const captureFile = join(finalDir, 'raw.ndjson');
+    const content = await readFile(captureFile, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(lines.length, 3, 'All 3 lines (including init) must be migrated to the allocated session file');
+    assert.equal(lines[0].raw.type, 'init');
+    assert.equal(lines[1].raw.event, 'step_update');
+    assert.equal(lines[2].raw.event, 'result');
+
+    // 3. Verify session.json metadata in final directory
+    const metadataFile = join(finalDir, 'session.json');
+    const metadata = JSON.parse(await readFile(metadataFile, 'utf8'));
+    assert.equal(metadata.provider, 'antigravity');
+    assert.equal(metadata.providerSessionId, 'allocated-agy-9876');
+  } finally {
+    console.log = originalLog;
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
 
