@@ -55,12 +55,30 @@ export interface TurnWork {
   hasFailures: boolean;
   items: WorkItem[];
   /**
+   * The single most-recently-started running tool call in this turn, or null if no
+   * action is currently running in this turn.
+   */
+  currentActivity: WorkItem | null;
+  /**
    * The turn's raw terminal error, present only when it ended via `turn.failed`
    * (owner-decisions.md D6/D9). Not yet classified into the Turn/Work Outcome
    * vocabulary (`successful | failed | cancelled/interrupted`) — that mapping from
    * `error.code` is Task 09's job, kept out of this projection per D9's own scope split.
    */
   turnError?: { code: string; message: string };
+}
+
+/**
+ * Determines the single most-recently-started running tool call in a list of items,
+ * or null if no item is currently running.
+ */
+export function currentRunningActivity(items: WorkItem[]): WorkItem | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (items[i].status === 'running') {
+      return items[i];
+    }
+  }
+  return null;
 }
 
 export interface ChatProjection {
@@ -170,20 +188,24 @@ export function projectChat(
   for (const [turnId, { anchorMessageId, items, turnError, isActiveTurn }] of turnWorkMap) {
     const lifecycle = computeWorkLifecycle(items, isActiveTurn);
     const hasFailures = computeHasFailures(items, turnError);
+    const currentActivity = currentRunningActivity(items);
     workByTurn.push({
       turnId,
       messageId: anchorMessageId,
       status: lifecycle === 'current' ? 'current' : (hasFailures ? 'failed' : 'completed'),
       hasFailures,
       items,
+      currentActivity,
       ...(turnError === undefined ? {} : { turnError }),
     });
   }
 
   let currentActivity: WorkItem | null = null;
-  for (const turn of workByTurn) {
-    const running = turn.items.find(item => item.status === 'running');
-    if (running) currentActivity = running;
+  for (let i = workByTurn.length - 1; i >= 0; i -= 1) {
+    if (workByTurn[i].currentActivity) {
+      currentActivity = workByTurn[i].currentActivity;
+      break;
+    }
   }
 
   let turnOutcome: ChatProjection['turnOutcome'] = null;

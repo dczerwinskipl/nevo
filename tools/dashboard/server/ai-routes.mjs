@@ -146,17 +146,39 @@ export async function handleAiRequest({
         if (body.providerSessionId) {
           const providerSessionId = decodedSessionId(body.providerSessionId);
           if (body.taskId && !TURN_PATTERN.test(body.taskId)) throw new AiValidationError('Invalid task ID.');
-          const binding = service.bindingService
-            ? await service.bindingService.bindSession({
+          if (body.taskIds !== undefined && (!Array.isArray(body.taskIds) || body.taskIds.some(taskId => typeof taskId !== 'string' || !TURN_PATTERN.test(taskId)))) {
+            throw new AiValidationError('Task IDs must be an array of stable IDs.');
+          }
+          const taskIds = Array.isArray(body.taskIds)
+            ? body.taskIds.filter(Boolean)
+            : (body.taskId ? [body.taskId] : []);
+          let binding;
+          if (service.bindingService) {
+            if (taskIds.length > 0) {
+              for (const tId of taskIds) {
+                binding = await service.bindingService.bindSession({
+                  provider,
+                  providerSessionId,
+                  specId: body.specId,
+                  taskId: tId,
+                  purpose: body.purpose,
+                  mode: body.mode,
+                });
+              }
+            } else {
+              binding = await service.bindingService.bindSession({
                 provider,
                 providerSessionId,
                 specId: body.specId,
                 taskId: body.taskId,
                 purpose: body.purpose,
                 mode: body.mode,
-              })
-            : { provider, providerSessionId, specId: body.specId, taskId: body.taskId, mode: body.mode };
-          sendJson(response, 201, { session: binding });
+              });
+            }
+          } else {
+            binding = { provider, providerSessionId, specId: body.specId, taskId: body.taskId, mode: body.mode };
+          }
+          sendJson(response, 201, { session: { ...binding, taskIds, taskId: body.taskId || (taskIds[0] || undefined) } });
           return true;
         }
 
@@ -317,9 +339,33 @@ export async function handleAiRequest({
         authorize(accessPolicy, 'read', request);
         const descriptor = service.registry?.get(provider)?.descriptor;
         const capabilities = descriptor?.capabilities || {};
-        const binding = service.bindingService
-          ? await service.bindingService.getBinding(provider, providerSessionId)
-          : await service.getSession(provider, providerSessionId);
+
+        let binding = null;
+        let taskIds = [];
+        let specId = undefined;
+
+        if (service.bindingService) {
+          const allBindings = await service.bindingService.listBindings({ provider, providerSessionId });
+          if (allBindings.length > 0) {
+            // Pick current spec deterministically by most recent lastSeenAt (owner-decisions.md D10 Option C)
+            const sorted = allBindings.slice().sort((a, b) => new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime());
+            const currentBinding = sorted[0];
+            specId = currentBinding.specId;
+            const specRows = allBindings.filter(b => b.specId === specId);
+            taskIds = Array.from(new Set(specRows.map(r => r.taskId).filter(Boolean)));
+            binding = {
+              ...currentBinding,
+              taskIds,
+            };
+          }
+        } else {
+          binding = await service.getSession(provider, providerSessionId);
+          if (binding) {
+            specId = binding.specId;
+            taskIds = binding.taskIds || (binding.taskId ? [binding.taskId] : []);
+          }
+        }
+
         const transcript = service.transcriptCache
           ? await service.transcriptCache.getTranscript(provider, providerSessionId)
           : await service.getTranscript(provider, providerSessionId);
@@ -335,8 +381,9 @@ export async function handleAiRequest({
           status,
           capabilities,
           mode: resolvedMode,
-          specId: binding?.specId,
+          specId: specId ?? binding?.specId,
           taskId: binding?.taskId,
+          taskIds,
           purpose: binding?.purpose,
           title: binding?.title || binding?.purpose || `${provider} session`,
           createdAt: binding?.createdAt || transcript?.createdAt || transcript?.updatedAt || new Date().toISOString(),

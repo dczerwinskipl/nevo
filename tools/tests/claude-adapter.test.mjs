@@ -691,6 +691,51 @@ test('Claude a tool still active when the turn itself ends resolves to failed, n
   assert.equal(toolsCompleted[0].status, 'failed');
 });
 
+// Finding 1 regression guard: input_json_delta must never emit illegal transient status strings
+// like 'streaming_input' that could corrupt AgentToolCall.status.
+test('Claude input_json_delta does not emit streaming_input status', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_delta_01', name: 'Bash', input: {} },
+    }),
+    JSON.stringify({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'input_json_delta', partial_json: '{"command": "echo hi"}' },
+    }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_delta_01', is_error: false, content: 'hi\n' }],
+      },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const toolsUpdated = [];
+  const toolsCompleted = [];
+  await provider.startTurn({
+    turnId: 'turn-input-delta',
+    providerSessionId: 'sess-input-delta',
+    message: 'Run echo',
+    emitToolUpdated: (tool) => toolsUpdated.push(tool),
+    emitToolCompleted: (tool) => toolsCompleted.push(tool),
+  });
+
+  for (const update of toolsUpdated) {
+    assert.notEqual(update.status, 'streaming_input', "must never emit status: 'streaming_input'");
+  }
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+});
+
 test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {
   const child = createHangingMockProcess();
   const provider = createClaudeAgentProvider({

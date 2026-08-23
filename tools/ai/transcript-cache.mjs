@@ -207,16 +207,22 @@ export class SessionTranscriptCacheService {
     }
     state.updatedAt = event.timestamp;
 
-    const getOrCreateAssistantMsg = (msgId = `message-${event.turnId}`) => {
-      let msg = state.messages.find(m => m.id === msgId);
-      if (!msg) {
-        // Correlate by the explicit turnId field (owner-decisions.md D7), not by
-        // parsing `id`'s naming convention.
+    const getOrCreateAssistantMsg = (explicitMsgId) => {
+      let msg = null;
+      if (explicitMsgId) {
+        // Explicit messageId takes priority — preserves distinct message identity within a turn.
+        // If the event carries an explicit messageId but it isn't in the list yet, create a new
+        // message with that ID (do NOT fall through to the turnId fallback, which would merge
+        // two distinct messages sharing only a turnId).
+        msg = state.messages.find(m => m.id === explicitMsgId);
+      } else if (event.turnId) {
+        // turnId fallback — for events that carry a turnId but no explicit messageId
+        // (e.g. tool events, or reasoning without an explicit messageId).
         msg = state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant');
       }
       if (!msg) {
         msg = {
-          id: msgId,
+          id: explicitMsgId || (event.turnId ? `message-${event.turnId}` : `msg-${randomUUID()}`),
           role: 'assistant',
           text: '',
           turnId: event.turnId,
@@ -237,7 +243,7 @@ export class SessionTranscriptCacheService {
         break;
       }
       case 'message.started': {
-        const msgId = event.messageId || `message-${event.turnId}`;
+        const msgId = event.messageId || (event.turnId ? `message-${event.turnId}` : `msg-${randomUUID()}`);
         let msg = state.messages.find(m => m.id === msgId);
         if (!msg) {
           msg = {
@@ -252,18 +258,20 @@ export class SessionTranscriptCacheService {
         break;
       }
       case 'text.delta': {
-        const msg = getOrCreateAssistantMsg(event.messageId || `message-${event.turnId}`);
+        const msg = getOrCreateAssistantMsg(event.messageId);
         const delta = event.text || '';
         msg.text += delta;
         break;
       }
       case 'reasoning.delta': {
-        const msg = getOrCreateAssistantMsg(event.messageId || `message-${event.turnId}`);
+        const msg = getOrCreateAssistantMsg(event.messageId);
         msg.reasoning = (msg.reasoning || '') + (event.text || '');
         break;
       }
       case 'tool.started': {
-        const msg = getOrCreateAssistantMsg(`message-${event.turnId}`);
+        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
+          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+          || getOrCreateAssistantMsg(event.messageId);
         if (!msg.toolCalls) msg.toolCalls = [];
         const existingTool = msg.toolCalls.find(t => t.id === event.toolId);
         if (!existingTool) {
@@ -277,39 +285,53 @@ export class SessionTranscriptCacheService {
         break;
       }
       case 'tool.updated': {
-        const msg = getOrCreateAssistantMsg(`message-${event.turnId}`);
+        const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
+          || (event.messageId && state.messages.find(m => m.id === event.messageId))
+          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+          || getOrCreateAssistantMsg(event.messageId);
         if (msg.toolCalls) {
           const tool = msg.toolCalls.find(t => t.id === event.toolId);
           if (tool) {
             if (event.output !== undefined) tool.output = event.output;
-            if (event.status) tool.status = event.status;
+            if (event.input !== undefined) tool.input = event.input;
+            if (event.status === 'running' || event.status === 'completed' || event.status === 'failed') {
+              tool.status = event.status;
+            }
           }
         }
         break;
       }
       case 'tool.completed': {
-        const msg = getOrCreateAssistantMsg(`message-${event.turnId}`);
+        const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
+          || (event.messageId && state.messages.find(m => m.id === event.messageId))
+          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+          || getOrCreateAssistantMsg(event.messageId);
         if (!msg.toolCalls) msg.toolCalls = [];
         let tool = msg.toolCalls.find(t => t.id === event.toolId);
+        const resolvedStatus = (event.status === 'completed' || event.status === 'failed') ? event.status : 'failed';
         if (!tool) {
-          tool = { id: event.toolId, name: event.toolName || 'tool', status: event.status };
+          tool = { id: event.toolId, name: event.toolName || 'tool', status: resolvedStatus };
           msg.toolCalls.push(tool);
         }
         if (event.output !== undefined) tool.output = event.output;
-        tool.status = event.status;
+        tool.status = resolvedStatus;
         if (typeof event.durationMs === 'number') tool.durationMs = event.durationMs;
         break;
       }
       case 'interaction.requested': {
         state.pendingInteraction = structuredClone(event.interaction);
-        const msg = getOrCreateAssistantMsg(`message-${event.turnId}`);
+        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
+          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+          || getOrCreateAssistantMsg(event.messageId);
         msg.interaction = structuredClone(event.interaction);
         break;
       }
       case 'interaction.resolved': {
         delete state.pendingInteraction;
-        const msg = getOrCreateAssistantMsg(`message-${event.turnId}`);
-        if (msg.interaction && msg.interaction.id === event.interactionId) {
+        const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
+          || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+          || state.messages.find(m => m.interaction && m.interaction.id === event.interactionId);
+        if (msg && msg.interaction && msg.interaction.id === event.interactionId) {
           if (event.response !== undefined) {
             msg.interaction.response = structuredClone(event.response);
           }
@@ -328,7 +350,9 @@ export class SessionTranscriptCacheService {
         if (event.error) {
           // Reload-safe home for the turn's terminal error.code (owner-decisions.md D6/D9)
           // so Task 09 can distinguish Turn/Work Outcome without needing backend access.
-          const msg = getOrCreateAssistantMsg();
+          const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
+            || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
+            || getOrCreateAssistantMsg(event.messageId);
           msg.turnError = { code: event.error.code, message: event.error.message };
         }
         break;

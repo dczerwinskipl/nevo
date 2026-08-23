@@ -125,12 +125,66 @@ tasks:
   - id: shared-session-details
     order: 6
     file: tasks/06-shared-session-details.md
-    status: draft
+    status: implemented
+    implementation:
+      baseline_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      review_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      changed_paths:
+        - tools/ai/service.mjs
+        - tools/dashboard/package-lock.json
+        - tools/dashboard/package.json
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/session-details/index.ts
+        - tools/dashboard/src/components/session-details/session-details.tsx
+        - tools/dashboard/src/components/ui/dialog.tsx
+        - tools/dashboard/src/components/ui/sheet.tsx
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/work-summary.test.mjs
+        - tools/dashboard/tests/work-turn-correlation.test.mjs
+      worktree_patch_fingerprint: 29b2638895613d704b7a098b88d98ee4bb11a0a3af7c96e71a3e710acbe8da1b
+    self_check:
+      fingerprint: 43f8451c59b4fee0fad01e715ceb355fa58433746e08f4e2f1581ab61b1212b4
+      revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      commands:
+        - command: node --test tools/tests/agent-binding.test.mjs
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
 
   - id: composer-interaction-redesign
     order: 7
     file: tasks/07-composer-interaction-redesign.md
-    status: draft
+    status: implemented
+    implementation:
+      baseline_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      review_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/composer/composer.tsx
+        - tools/dashboard/src/components/composer/index.ts
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/work-summary.test.mjs
+        - tools/dashboard/tests/work-turn-correlation.test.mjs
+      worktree_patch_fingerprint: 8c94073d7d91dedd3e32797b5b552b401b151b0d2388d60b0cb8d6828e00d7d5
+    self_check:
+      fingerprint: b330476115afaef857587b0d97fb4ef915a3b1c3bcd9cb1f5d3753db3882dc89
+      revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: streaming-and-scroll-behavior
     order: 8

@@ -46,7 +46,7 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
           <div className={cn(
             'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
             user
-              ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
+              ? 'border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
               : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
           )}>
             {message.reasoning && (

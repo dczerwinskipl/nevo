@@ -229,7 +229,14 @@ export function applyAgentEvent(
         const updated = [...prevMessages];
         const calls = (updated[targetIdx].toolCalls || []).map((tc) =>
           tc.id === event.toolId
-            ? { ...tc, input: event.input ?? tc.input, status: (event.status as any) || tc.status }
+            ? {
+                ...tc,
+                input: event.input ?? tc.input,
+                output: event.output ?? tc.output,
+                status: (event.status === 'completed' || event.status === 'failed' || event.status === 'running')
+                  ? event.status
+                  : tc.status,
+              }
             : tc
         );
         updated[targetIdx] = { ...updated[targetIdx], toolCalls: calls };

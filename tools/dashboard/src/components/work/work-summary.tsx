@@ -126,8 +126,11 @@ export function WorkSummary({ work }: WorkSummaryProps) {
   // memo on every streamed token.
   const toggleExpanded = useCallback(() => setExpanded(prev => !prev), []);
 
-  const currentItem = useMemo(() => work.items.find(item => item.status === 'running') ?? null, [work.items]);
-  const priorCount = useMemo(() => work.items.filter(item => item.status !== 'running').length, [work.items]);
+  const currentItem = work.currentActivity ?? null;
+  const priorCount = useMemo(
+    () => (currentItem ? work.items.filter(item => item.toolId !== currentItem.toolId).length : work.items.length),
+    [work.items, currentItem]
+  );
 
   if (work.status === 'current') {
     // An active turn may already contain a failed historical action (e.g. `Read

@@ -236,3 +236,24 @@ test('L: work-summary.tsx source contains TurnErrorRow that renders turnError fi
   assert.doesNotMatch(source, /session.limit/i, 'must not use string-matching heuristics');
   assert.doesNotMatch(source, /includes\s*\(/, 'must not classify error text with includes()');
 });
+
+test('Finding 3: visibleWorkItemsWhileRunning retains older running tools when multiple are running', () => {
+  const work = {
+    turnId: 'turn-1',
+    messageId: 'm1',
+    status: 'current',
+    currentActivity: item('t2', 'running'),
+    items: [item('t1', 'running'), item('t2', 'running')],
+  };
+
+  assert.deepEqual(visibleWorkItemsWhileRunning(work, false), []);
+  const expanded = visibleWorkItemsWhileRunning(work, true);
+  assert.equal(expanded.length, 1, 'older running tool t1 must remain inspectable in expanded list');
+  assert.equal(expanded[0].toolId, 't1');
+});
+
+test('Finding 3: WorkSummary does not independently rederive current activity with find', () => {
+  const source = readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  assert.match(source, /work\.currentActivity/, 'WorkSummary must consume work.currentActivity from projection');
+  assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'WorkSummary must not use find(status === running)');
+});

@@ -221,3 +221,23 @@ test('projectChat carries turnId onto conversation entries without merging disti
   assert.deepEqual(conversation.map(entry => entry.turnId), [undefined, 'turn-1', undefined, 'turn-2']);
   assert.deepEqual(conversation.map(entry => entry.text), ['first', 'first reply', 'second', 'second reply']);
 });
+
+test('projectChat selects the newest started running tool as currentActivity when multiple are running', () => {
+  const messages = [
+    userMsg('u1', 'run both'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: { path: 'first.ts' }, status: 'running' },
+        { id: 't2', name: 'Bash', input: { command: 'ls' }, status: 'running' },
+      ],
+    }),
+  ];
+
+  const { workByTurn, currentActivity } = projectChat(messages, { activeTurnId: 'turn-1' });
+  assert.equal(workByTurn.length, 1);
+  assert.equal(workByTurn[0].status, 'current');
+  assert.equal(workByTurn[0].currentActivity?.toolId, 't2', 'turn currentActivity must be the newest running tool t2');
+  assert.equal(currentActivity?.toolId, 't2', 'projection currentActivity must be the newest running tool t2');
+});

@@ -3,13 +3,17 @@ import type { NormalizedMessage } from '../../lib/types';
 
 /**
  * Which individual actions render as inspectable `AiToolView` cards while a turn is
- * still running. The running item itself is never included here — it has its own
- * dedicated current-activity line, so expanding never duplicates it. Pure and
- * independently testable per react-component-guidelines.md §6/§16.
+ * still running. Only the selected `currentActivity` is excluded from this list (since it
+ * has its own dedicated current-activity line), so expanding never duplicates the current item,
+ * while other/prior running actions remain inspectable. Pure and independently testable per
+ * react-component-guidelines.md §6/§16.
  */
 export function visibleWorkItemsWhileRunning(work: TurnWork, expanded: boolean): WorkItem[] {
   if (!expanded) return [];
-  return work.items.filter(item => item.status !== 'running');
+  const runningItems = work.items.filter(item => item.status === 'running');
+  const current = work.currentActivity ?? (runningItems.length > 0 ? runningItems[runningItems.length - 1] : null);
+  if (!current) return work.items;
+  return work.items.filter(item => item.toolId !== current.toolId);
 }
 
 /**

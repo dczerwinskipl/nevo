@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   CircleStop,
+  Info,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
@@ -17,6 +18,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
+import { SessionDetails } from '@/components/session-details';
+import { ChatComposer } from '@/components/composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import { ChatMessage } from '@/components/conversation/chat-message';
@@ -118,10 +129,18 @@ export function AiChatPage({
   onSwitchSession: (session: AiSession) => void;
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const [composer, setComposer] = useState('');
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
+
+  const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    const isInteractive = target?.closest('button, a, input, textarea, select, [role="button"], summary, details, [data-interactive="true"]');
+    if (!isInteractive && composerTextareaRef.current && document.activeElement === composerTextareaRef.current) {
+      composerTextareaRef.current.blur();
+    }
+  };
 
   const assistant = useNevoAssistantRuntime({
     provider,
@@ -135,9 +154,11 @@ export function AiChatPage({
     },
   });
 
+  const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
+
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
-  const linkedTasks = session?.taskId ? [session.taskId] : [];
+  const linkedTasks = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
 
   const workByTurnId = useMemo(() => {
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
@@ -184,7 +205,6 @@ export function AiChatPage({
     const trimmed = text.trim();
     if (!trimmed || assistant.isRunning || !isProviderAvailable) return;
     setSubmissionError(null);
-    setComposer('');
     await assistant.sendTurn(trimmed, { mode: currentMode });
   }, [assistant, isProviderAvailable, currentMode]);
 
@@ -236,36 +256,48 @@ export function AiChatPage({
                   (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}
               </p>
               {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
-              <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[10px]">
-                {(['ask', 'edit', 'agent'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setSelectedModeOverride(m)}
-                    className={cn(
-                      'rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-[9px] transition-colors',
-                      currentMode === m
-                        ? 'bg-[var(--accent)] text-[#111604]'
-                        : 'text-[var(--muted)] hover:text-[var(--foreground)]'
-                    )}
-                    title={
-                      m === 'ask'
-                        ? 'Tryb Ask (Plan) - tylko odczyt i analiza bez modyfikacji plików'
-                        : m === 'edit'
-                        ? 'Tryb Edit (Domyślny) - bezpieczna edycja kodu w workspace'
-                        : 'Tryb Agent (Auto) - pełna autonomia z pominięciem pytań o uprawnienia'
-                    }
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             {assistant.isRunning && assistant.capabilities?.cancelTurn && (
               <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
             )}
+            <Sheet open={isSessionDetailsOpen} onOpenChange={setIsSessionDetailsOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  aria-label="Szczegóły sesji"
+                  title="Szczegóły sesji"
+                >
+                  <Info className="size-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-full sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>Szczegóły sesji</SheetTitle>
+                  <SheetDescription>
+                    Kontekst wykonania i powiązania aktywnej sesji AI
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-4">
+                  <SessionDetails
+                    specTitle={change?.title}
+                    specId={session?.specId}
+                    tasks={linkedTasks}
+                    provider={provider}
+                    mode={currentMode}
+                    onDelete={() => {
+                      setIsSessionDetailsOpen(false);
+                      void handleDeleteSession();
+                    }}
+                    deleting={deleting}
+                    disabled={assistant.isRunning}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
             <Button
               variant="ghost"
               size="icon"
@@ -302,7 +334,11 @@ export function AiChatPage({
           </div>
         )}
 
-        <div ref={transcriptRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
+        <div
+          ref={transcriptRef}
+          onPointerDown={handleTranscriptPointerDown}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6"
+        >
           <div className="mx-auto max-w-4xl space-y-5">
             {assistant.loadError && !assistant.sessionDetails && (
               <div className="py-16 text-center">
@@ -336,25 +372,16 @@ export function AiChatPage({
               </div>
             )}
             {!assistant.isLoading && !assistant.loadError && !assistant.messages.length && !assistant.isRunning && (
-              <div className="py-16 text-center">
-                <Bot className="mx-auto size-7 text-[var(--accent)]" />
-                <h2 className="mt-4 text-base font-semibold">Nowa rozmowa ({provider})</h2>
-                <p className="mt-2 text-sm text-[var(--muted)]">Napisz wiadomość, aby rozpocząć pierwszy turn.</p>
+              <div className="py-20 text-center text-xs text-[var(--muted)]">
+                <p className="font-semibold text-[var(--foreground)]">Brak wiadomości w sesji</p>
+                <p className="mt-1">Wpisz pierwszą wiadomość, aby rozpocząć konwersację z agentem.</p>
               </div>
             )}
-            {assistant.messages.map(message => {
-              // Work is rendered exactly once per turn — at the anchor message
-              // (TurnWork.messageId). Other messages in the same turn render prose only.
+            {assistant.messages.map((message) => {
               const turnWork = message.turnId ? workByTurnId.get(message.turnId) : undefined;
               const work = turnWork?.messageId === message.id ? turnWork : undefined;
               return <ChatMessage key={message.id} message={message} work={work} />;
             })}
-            {assistant.isRunning && !assistant.pendingInteraction && (
-              <div className="flex items-center gap-2 text-xs text-[var(--muted)]" role="status">
-                <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />
-                {provider} generuje odpowiedź…
-              </div>
-            )}
             {assistant.pendingInteraction?.kind === 'permission' && (
               <PermissionPrompt
                 interaction={assistant.pendingInteraction as Extract<AiInteraction, { kind: 'permission' }>}
@@ -403,58 +430,19 @@ export function AiChatPage({
 
         <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
           <div className="mx-auto max-w-4xl">
-            <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); void submitMessage(composer); }}>
-              <label className="min-w-0 flex-1">
-                <span className="sr-only">Wiadomość</span>
-                <textarea
-                  rows={1}
-                  value={composer}
-                  onChange={event => setComposer(event.target.value)}
-                  onFocus={() => {
-                    window.scrollTo(0, 0);
-                    setTimeout(() => {
-                      transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-                    }, 100);
-                  }}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void submitMessage(composer);
-                    }
-                  }}
-                  disabled={session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)}
-                  placeholder={
-                    assistant.loadError
-                      ? ('kind' in assistant.loadError && (assistant.loadError as any).kind === 'not_found'
-                          ? 'Sesja nie została znaleziona...'
-                          : 'Serwer dashboardu jest niedostępny...')
-                      : !isProviderAvailable
-                      ? 'Provider CLI niedostępny (brak w PATH)'
-                      : session?.status === 'completed'
-                      ? 'Ta sesja jest tylko do odczytu'
-                      : assistant.isRunning
-                      ? 'Turn trwa…'
-                      : 'Napisz wiadomość…'
-                  }
-                  className="max-h-32 min-h-11 w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-                />
-              </label>
-              <Button
-                size="icon"
-                className="size-11 shrink-0"
-                type={assistant.isRunning ? 'button' : 'submit'}
-                onClick={assistant.isRunning ? () => void assistant.cancelTurn() : undefined}
-                disabled={
-                  assistant.isRunning
-                    ? !assistant.capabilities?.cancelTurn
-                    : !composer.trim() || session?.status === 'completed' || !isProviderAvailable || Boolean(assistant.loadError)
-                }
-                aria-label={assistant.isRunning ? 'Przerwij generowanie' : 'Wyślij wiadomość'}
-                title={assistant.isRunning ? 'Przerwij generowanie' : assistant.loadError ? assistant.loadError.message : 'Wyślij wiadomość'}
-              >
-                {assistant.isRunning ? <CircleStop className="size-4" /> : <Send className="size-4" />}
-              </Button>
-            </form>
+            <ChatComposer
+              key={sessionId}
+              textareaRef={composerTextareaRef}
+              currentMode={currentMode}
+              onModeChange={(m) => setSelectedModeOverride(m)}
+              onSend={(text) => submitMessage(text)}
+              onCancel={() => void assistant.cancelTurn()}
+              isRunning={assistant.isRunning}
+              canCancel={Boolean(assistant.capabilities?.cancelTurn)}
+              isProviderAvailable={isProviderAvailable}
+              disabled={session?.status === 'completed'}
+              loadError={assistant.loadError}
+            />
           </div>
         </footer>
       </div>

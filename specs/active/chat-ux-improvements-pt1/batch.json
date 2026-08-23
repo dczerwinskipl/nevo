@@ -1,0 +1,15 @@
+{
+  "change": "chat-ux-improvements-pt1",
+  "requestedTasks": [
+    "shared-session-details",
+    "composer-interaction-redesign"
+  ],
+  "orderedTasks": [
+    "shared-session-details",
+    "composer-interaction-redesign"
+  ],
+  "startRevision": "ed22c28fed14e4ae1a953df673a8d6c1d6868f90",
+  "reviewMode": "batch",
+  "checkpointPolicy": null,
+  "temporaryInconsistencies": []
+}

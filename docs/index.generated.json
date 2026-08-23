@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "generated": "2026-08-22T08:41:26.880Z",
+=======
+  "generated": "2026-08-23T10:19:41.969Z",
+>>>>>>> 303c596 (feat(chat-ux): implement shared session details and redesign composer interaction)
   "docs": [
     {
       "file": "docs/development/README.md",

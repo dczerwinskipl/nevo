@@ -340,7 +340,7 @@ export class ClaudeAgentProvider {
               }
             } else if (event.delta?.type === 'input_json_delta' && activeTool) {
               if (emitToolUpdated) {
-                emitToolUpdated({ toolId: activeTool.id, status: 'streaming_input' });
+                emitToolUpdated({ toolId: activeTool.id });
               }
             }
             break;
