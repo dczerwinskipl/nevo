@@ -11,11 +11,18 @@ import {
 } from './contracts.mjs';
 import { terminateChildProcess } from './process-termination.mjs';
 
+const WINDOWS_RESERVED_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]);
+
 /**
  * Encodes an arbitrary opaque providerSessionId into a safe single directory segment.
  * If providerSessionId is already a safe single filesystem segment (conservative chars,
- * reasonable length, not '.' or '..'), returns it directly. Otherwise, encodes it using
- * a collision-resistant SHA-256 digest suffix to prevent path traversal and collisions.
+ * reasonable length, not '.' or '..', and not a Windows reserved device name), returns
+ * it directly. Otherwise, encodes it using a collision-resistant SHA-256 digest suffix
+ * to prevent path traversal, device name collisions, and filesystem errors.
  */
 export function rawCaptureSessionDirectory(providerSessionId) {
   if (!providerSessionId || typeof providerSessionId !== 'string') {
@@ -24,7 +31,8 @@ export function rawCaptureSessionDirectory(providerSessionId) {
   const isSafeSegment = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
     && providerSessionId !== '.'
     && providerSessionId !== '..'
-    && providerSessionId.length <= 128;
+    && providerSessionId.length <= 128
+    && !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
 
   if (isSafeSegment) {
     return providerSessionId;
@@ -386,7 +394,21 @@ export class AntigravityAgentProvider {
                   if (!existsSync(newDir)) await mkdir(newDir, { recursive: true });
                   const newFile = join(newDir, 'raw.ndjson');
                   const content = await readFile(oldFile, 'utf8');
-                  await appendFile(newFile, content, 'utf8');
+                  const rewritten = content
+                    .trim()
+                    .split('\n')
+                    .filter(Boolean)
+                    .map(line => {
+                      try {
+                        const parsed = JSON.parse(line);
+                        parsed.providerSessionId = allocatedId;
+                        return JSON.stringify(parsed);
+                      } catch {
+                        return line;
+                      }
+                    })
+                    .join('\n') + '\n';
+                  await appendFile(newFile, rewritten, 'utf8');
 
                   // Write updated session.json for allocatedId
                   const sessionMetadataPath = join(newDir, 'session.json');
@@ -701,6 +723,19 @@ export class AntigravityAgentProvider {
                 cost: usageObj.cost,
               });
             }
+
+            const statusValue = payload?.status || raw.status;
+            const isErrorStatus = typeof statusValue === 'string'
+              ? (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED')
+              : Boolean(payload?.is_error || raw.is_error);
+
+            if (isErrorStatus) {
+              const rawErr = payload?.error ?? raw.error;
+              const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
+              failTurn(new AiError('AI_PROVIDER_ERROR', errorMessage));
+              break;
+            }
+
             isDone = true;
             if (pendingInteractionPromise) {
               pendingInteractionPromise.then(() => finishTurn()).catch(err => failTurn(err));

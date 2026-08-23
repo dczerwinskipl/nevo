@@ -623,3 +623,149 @@ test('Antigravity full path: tools -> result.response summary -> normalized even
   }
 });
 
+test('Antigravity full path: error result with empty response -> turn.failed, no turn.completed, no prose text', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-err-empty-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const lines = [
+      JSON.stringify({ type: 'init', conversation_id: 'sess-agy-err-empty' }),
+      JSON.stringify({
+        event: 'result',
+        result: {
+          status: 'ERROR',
+          response: '',
+          error: 'ContentOffset 22500 exceeds line range size 1792',
+        },
+      }),
+    ];
+
+    const antigravityAdapter = new AntigravityAgentProvider({
+      spawnProcess: () => createMockAgyProcess(lines),
+    });
+
+    const registry = createAiAdapterRegistry([antigravityAdapter]);
+    const runtime = createAiTurnRuntime({ registry, transcriptCache });
+
+    const collectedEvents = [];
+    const unsubscribe = runtime.subscribeToSession(
+      { provider: 'antigravity', providerSessionId: 'sess-agy-err-empty' },
+      { onEvent: (ev) => collectedEvents.push(ev) }
+    );
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'antigravity',
+      providerSessionId: 'sess-agy-err-empty',
+      message: 'View file with invalid offset',
+    });
+
+    // Wait until turn reaches terminal failed state
+    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'failed', 'turn failed');
+    await transcriptCache.flush('antigravity', 'sess-agy-err-empty');
+    unsubscribe();
+
+    // 1. Verify normalized events: no text.delta, no turn.completed, exactly one turn.failed
+    const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
+    assert.equal(textEvents.length, 0, 'must not emit text.delta for empty error response');
+    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    assert.equal(turnCompletedEvents.length, 0, 'must not emit turn.completed');
+    const turnFailedEvents = collectedEvents.filter(e => e.type === 'turn.failed');
+    assert.equal(turnFailedEvents.length, 1, 'turn.failed emitted');
+    assert.equal(turnFailedEvents[0].error.message, 'ContentOffset 22500 exceeds line range size 1792');
+
+    // 2. Verify snapshot
+    const snap = runtime.getSnapshot(turnId);
+    assert.equal(snap.status, 'failed');
+    assert.ok(snap.completedAt);
+
+    // 3. Verify transcript cache on disk and reload
+    const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-empty');
+    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    if (assistantMsg) {
+      assert.equal(assistantMsg.text, '', 'assistant message must not contain placeholder prose');
+      assert.deepEqual(assistantMsg.turnError, {
+        code: 'AI_PROVIDER_ERROR',
+        message: 'ContentOffset 22500 exceeds line range size 1792',
+      });
+    }
+
+    runtime.shutdown();
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('Antigravity full path: error result with non-empty response -> text.delta emitted, turn.failed, prose preserved', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-err-prose-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const lines = [
+      JSON.stringify({ type: 'init', conversation_id: 'sess-agy-err-prose' }),
+      JSON.stringify({
+        event: 'result',
+        result: {
+          status: 'ERROR',
+          response: 'Częściowa odpowiedź asystenta przed awarią',
+          error: 'Process crashed mid-execution',
+        },
+      }),
+    ];
+
+    const antigravityAdapter = new AntigravityAgentProvider({
+      spawnProcess: () => createMockAgyProcess(lines),
+    });
+
+    const registry = createAiAdapterRegistry([antigravityAdapter]);
+    const runtime = createAiTurnRuntime({ registry, transcriptCache });
+
+    const collectedEvents = [];
+    const unsubscribe = runtime.subscribeToSession(
+      { provider: 'antigravity', providerSessionId: 'sess-agy-err-prose' },
+      { onEvent: (ev) => collectedEvents.push(ev) }
+    );
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'antigravity',
+      providerSessionId: 'sess-agy-err-prose',
+      message: 'Run partial task',
+    });
+
+    // Wait until turn reaches terminal failed state
+    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'failed', 'turn failed');
+    await transcriptCache.flush('antigravity', 'sess-agy-err-prose');
+    unsubscribe();
+
+    // 1. Verify normalized events: text.delta emitted, turn.failed emitted, no turn.completed
+    const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
+    assert.equal(textEvents.length, 1, 'text.delta emitted');
+    assert.equal(textEvents[0].text, 'Częściowa odpowiedź asystenta przed awarią');
+    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    assert.equal(turnCompletedEvents.length, 0, 'must not emit turn.completed');
+    const turnFailedEvents = collectedEvents.filter(e => e.type === 'turn.failed');
+    assert.equal(turnFailedEvents.length, 1, 'turn.failed emitted');
+    assert.equal(turnFailedEvents[0].error.message, 'Process crashed mid-execution');
+
+    // 2. Verify snapshot
+    const snap = runtime.getSnapshot(turnId);
+    assert.equal(snap.status, 'failed');
+
+    // 3. Verify transcript cache on disk and reload
+    const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-err-prose');
+    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    assert.ok(assistantMsg);
+    assert.equal(assistantMsg.text, 'Częściowa odpowiedź asystenta przed awarią');
+    assert.deepEqual(assistantMsg.turnError, {
+      code: 'AI_PROVIDER_ERROR',
+      message: 'Process crashed mid-execution',
+    });
+
+    runtime.shutdown();
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+

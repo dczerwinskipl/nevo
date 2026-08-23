@@ -525,6 +525,13 @@ export interface ApplyCancelTurnResponseResult {
   error?: Error;
 }
 
+export function shouldSurfaceCancelError(
+  turnId: string,
+  terminalTurnIds: Set<string>
+): boolean {
+  return !terminalTurnIds.has(turnId);
+}
+
 export function applyCancelTurnResponse({
   turnId,
   response,
@@ -536,7 +543,7 @@ export function applyCancelTurnResponse({
   // If the turn already became terminal (e.g. terminal SSE arrived while cancel was in flight),
   // suppress any stale cancel responses (HTTP 200, 409, 500, etc.) without surfacing errors
   // or resurrecting/altering state.
-  if (terminalTurnIds.has(turnId)) {
+  if (!shouldSurfaceCancelError(turnId, terminalTurnIds)) {
     return {
       nextActivity: currentActivity,
       nextActiveTurnId: currentActiveTurnId,
@@ -894,7 +901,7 @@ export function useNevoAssistantRuntime({
     } catch (err) {
       // If the turn already became terminal (e.g. via SSE) while fetch was in flight or rejected,
       // suppress late errors so they don't produce confusing user-facing alerts.
-      if (terminalTurnIdsRef.current.has(turnId)) {
+      if (!shouldSurfaceCancelError(turnId, terminalTurnIdsRef.current)) {
         return;
       }
       // On failed cancel DO NOT mutate terminalTurnIds, activity, activeTurnId, or pending turn ownership.

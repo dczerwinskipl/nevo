@@ -1272,7 +1272,7 @@ test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preser
     assert.equal(rawCaptureSessionDirectory(id), id, `Safe ID '${id}' must return unchanged`);
   }
 
-  // 2. Dangerous IDs are sanitized and hash-suffixed
+  // 2. Dangerous IDs and Windows reserved device names are sanitized and hash-suffixed
   const dangerousIds = [
     '../outside',
     '../../etc/passwd',
@@ -1284,11 +1284,18 @@ test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preser
     '..',
     '.',
     'session-with-special!@#$%^&*()_+=~`[]{}|;:\'",.<>?',
+    // Windows reserved device names
+    'NUL',
+    'nul',
+    'CON',
+    'COM1',
+    'LPT9',
   ];
 
   const encodedSet = new Set();
   for (const id of dangerousIds) {
     const encodedDir = rawCaptureSessionDirectory(id);
+    assert.notEqual(encodedDir, id, `Dangerous / reserved ID '${id}' must not return raw unchanged name`);
     assert.doesNotMatch(encodedDir, /[/\\]/, `Encoded directory '${encodedDir}' must not contain slashes`);
     assert.ok(!encodedDir.includes('..'), `Encoded directory '${encodedDir}' must not contain '..'`);
     assert.ok(!encodedDir.includes(':'), `Encoded directory '${encodedDir}' must not contain ':'`);
@@ -1304,6 +1311,7 @@ test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preser
 
   // Two different unsafe IDs that share prefix must produce distinct directory names
   assert.notEqual(rawCaptureSessionDirectory('foo/bar'), rawCaptureSessionDirectory('foo\\bar'));
+  assert.notEqual(rawCaptureSessionDirectory('NUL'), rawCaptureSessionDirectory('CON'));
 });
 
 test('Antigravity raw capture: provisional new session migrates to allocated conversation_id, preserves all records and session.json, and logs only final path', async () => {
@@ -1353,7 +1361,16 @@ test('Antigravity raw capture: provisional new session migrates to allocated con
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
     assert.equal(lines.length, 3, 'All 3 lines (including init) must be migrated to the allocated session file');
-    assert.equal(lines[0].raw.type, 'init');
+    // Ensure every record has the canonical allocated providerSessionId in the envelope
+    for (let i = 0; i < lines.length; i++) {
+      assert.equal(
+        lines[i].providerSessionId,
+        'allocated-agy-9876',
+        `Record ${i} must have canonical providerSessionId after migration`
+      );
+    }
+    // Ensure the raw provider payload was NOT altered or corrupted
+    assert.deepEqual(lines[0].raw, { type: 'init', conversation_id: 'allocated-agy-9876' });
     assert.equal(lines[1].raw.event, 'step_update');
     assert.equal(lines[2].raw.event, 'result');
 
@@ -1367,4 +1384,239 @@ test('Antigravity raw capture: provisional new session migrates to allocated con
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Antigravity error result: event "result" + status "ERROR" + empty response fails turn with error message and emits no empty prose', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-err-empty' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'ContentOffset 22500 exceeds line range size 1792',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-err-empty',
+        providerSessionId: 'conv-err-empty',
+        message: 'View file',
+        emitTextDelta: (t) => textDeltas.push(t),
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'ContentOffset 22500 exceeds line range size 1792');
+      return true;
+    }
+  );
+
+  assert.equal(textDeltas.length, 0, 'must not emit any text delta for empty response on error');
+});
+
+test('Antigravity error result: event "result" + status "ERROR" + non-empty response preserves text and fails turn', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-err-response' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Częściowa odpowiedź przed błędem',
+        error: 'Tool crashed',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-err-response',
+        providerSessionId: 'conv-err-response',
+        message: 'Do work',
+        emitTextDelta: (t) => textDeltas.push(t),
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Tool crashed');
+      return true;
+    }
+  );
+
+  assert.deepEqual(textDeltas, ['Częściowa odpowiedź przed błędem'], 'must preserve and emit non-empty response text before failing');
+});
+
+test('Antigravity error result: event "result" + status "ERROR" preserves usage metrics before failing', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-err-usage' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'Rate limit hit',
+        usage: {
+          input_tokens: 350,
+          output_tokens: 42,
+          cost: 0.005,
+        },
+      },
+    }),
+  ];
+
+  const usages = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-err-usage',
+        providerSessionId: 'conv-err-usage',
+        message: 'Do work',
+        emitUsageUpdated: (u) => usages.push(u),
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Rate limit hit');
+      return true;
+    }
+  );
+
+  assert.equal(usages.length, 1);
+  assert.equal(usages[0].tokensIn, 350);
+  assert.equal(usages[0].tokensOut, 42);
+  assert.equal(usages[0].cost, 0.005);
+});
+
+test('Antigravity successful result: event "result" + status "SUCCESS" completes turn normally', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-success-status' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS',
+        response: 'Wszystko wykonane pomyślnie.',
+        usage: {
+          tokensIn: 100,
+          tokensOut: 50,
+        },
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const usages = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-success-status',
+    providerSessionId: 'conv-success-status',
+    message: 'Do task',
+    emitTextDelta: (t) => textDeltas.push(t),
+    emitUsageUpdated: (u) => usages.push(u),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(textDeltas, ['Wszystko wykonane pomyślnie.']);
+  assert.equal(usages.length, 1);
+  assert.equal(usages[0].tokensIn, 100);
+  assert.equal(usages[0].tokensOut, 50);
+});
+
+test('Antigravity deduplicates already streamed text even on error result', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-err-streamed' }),
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Wystreamowany tekst' } }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: 'Wystreamowany tekst',
+        error: 'Błąd po wygenerowaniu tekstu',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-err-streamed',
+        providerSessionId: 'conv-err-streamed',
+        message: 'Stream and fail',
+        emitTextDelta: (t) => textDeltas.push(t),
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Błąd po wygenerowaniu tekstu');
+      return true;
+    }
+  );
+
+  assert.deepEqual(textDeltas, ['Wystreamowany tekst'], 'must not duplicate text that was already streamed');
+});
+
+test('Antigravity error result: still-active tool call is resolved to failed', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-err-tool' }),
+    JSON.stringify({ type: 'tool.started', toolId: 't-unfin', toolName: 'Bash', input: { command: 'npm test' } }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'Execution failed',
+      },
+    }),
+  ];
+
+  const toolsCompleted = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-err-tool',
+        providerSessionId: 'conv-err-tool',
+        message: 'Run tool and fail',
+        emitToolCompleted: (t) => toolsCompleted.push(t),
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Execution failed');
+      return true;
+    }
+  );
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 't-unfin');
+  assert.equal(toolsCompleted[0].status, 'failed');
+});
+
 

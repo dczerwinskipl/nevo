@@ -8,6 +8,7 @@ import {
   eventModifiesTranscriptContent,
   applyAgentEvent,
   applyCancelTurnResponse,
+  shouldSurfaceCancelError,
 } from '../src/lib/nevo-assistant-runtime.ts';
 
 function readRuntimeSource() {
@@ -305,14 +306,23 @@ test('Cancel Turn: Race where turn.completed SSE arrives before late HTTP 500 re
   assert.equal(terminalTurnIds.has('turn-race-500'), true);
 });
 
-test('Cancel Turn: Runtime catch suppresses error when turn becomes terminal before network error', () => {
-  const runtimeSource = readRuntimeSource();
+test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network errors after terminal SSE', () => {
+  const terminalTurnIds = new Set();
+  const turnId = 'turn-network-race';
 
-  // Verify that handleCancelTurn catch block inspects terminalTurnIds before calling onError
-  assert.match(
-    runtimeSource,
-    /if\s*\(\s*terminalTurnIdsRef\.current\.has\(turnId\)\s*\)\s*\{\s*return;\s*\}/,
-    'handleCancelTurn catch must suppress late network errors if turn is already terminal'
+  // Scenario 1: fetch rejects while turn is still running -> error must be surfaced
+  assert.equal(
+    shouldSurfaceCancelError(turnId, terminalTurnIds),
+    true,
+    'Error must be surfaced while turn is still active/running'
+  );
+
+  // Scenario 2: terminal SSE arrives before fetch rejects -> error must be suppressed
+  terminalTurnIds.add(turnId);
+  assert.equal(
+    shouldSurfaceCancelError(turnId, terminalTurnIds),
+    false,
+    'Late error must be suppressed when turn is already terminal'
   );
 });
 
