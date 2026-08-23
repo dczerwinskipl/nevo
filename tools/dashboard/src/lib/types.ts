@@ -343,7 +343,7 @@ export interface OperationSnapshot {
   events: OperationEvent[];
 }
 
-export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser' | 'completed' | 'failed';
+export type AiSessionStatus = 'idle' | 'running' | 'waitingForUser';
 
 export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
 

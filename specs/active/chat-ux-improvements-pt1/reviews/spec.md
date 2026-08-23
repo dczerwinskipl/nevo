@@ -13,11 +13,14 @@ task_fingerprints:
   conversation-message-presentation: 580b88b7f0443d5e4fa3ce3c37107452b7ba9771699d90dfa07ada90dace3f77
   shared-session-details: 43f8451c59b4fee0fad01e715ceb355fa58433746e08f4e2f1581ab61b1212b4
   composer-interaction-redesign: b330476115afaef857587b0d97fb4ef915a3b1c3bcd9cb1f5d3753db3882dc89
+  mobile-header-simplification: c30a1287d49f6bb04951f42f4f8417fff6cc7dcda3bbea79a3daad35c04502a5
+  streaming-and-scroll-behavior: 73df1132956f65d10253a08b7f55871fbaf5b0b90280ffce25b328401f75a554
+  session-states-integration: a00660c56f2380b8fb87f6242db075e2fd84c77302a7706afa8f9d54824ef1e4
 ---
 
-# Review: chat-ux-improvements-pt1 (shared-session-details, composer-interaction-redesign)
+# Review: chat-ux-improvements-pt1 (mobile-header-simplification, streaming-and-scroll-behavior, session-states-integration)
 
-Scope: `shared-session-details` (task 06), `composer-interaction-redesign` (task 07).
+Scope: `mobile-header-simplification` (task 05), `streaming-and-scroll-behavior` (task 08), `session-states-integration` (task 09).
 
 ## Verdict
 

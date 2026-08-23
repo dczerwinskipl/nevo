@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   Bot,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -43,7 +42,6 @@ export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
 function statusLabel(status: AiSession['status']) {
   if (status === 'running') return 'W toku';
   if (status === 'waitingForUser') return 'Czeka na Ciebie';
-  if (status === 'completed') return 'Zakończona';
   return 'Bezczynna';
 }
 
@@ -113,11 +111,7 @@ export function AiSessionRow({
       )}
     >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
-        {session.status === 'completed' ? (
-          <CheckCircle2 className="size-4" />
-        ) : (
-          <MessagesSquare className="size-4" />
-        )}
+        <MessagesSquare className="size-4" />
       </div>
       <div className="min-w-0 flex-1 pr-6">
         <div className="flex items-start justify-between gap-2">
@@ -231,33 +225,19 @@ export function AiSessionList({
     );
   const sorted = sortSessionsByRecency(sessions);
   const visible = limit && !showAll ? sorted.slice(0, limit) : sorted;
-  const current = visible.filter((session) => session.status !== 'completed');
-  const completed = visible.filter((session) => session.status === 'completed');
   return (
     <div className="space-y-5">
-      {[
-        { label: 'Aktualne', values: current },
-        { label: 'Zakończone', values: completed },
-      ].map((group) =>
-        group.values.length ? (
-          <div key={group.label}>
-            <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">
-              {group.label}
-            </p>
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-2 lg:grid-cols-2">
-              {group.values.map((session) => (
-                <AiSessionRow
-                  key={`${session.provider}:${session.providerSessionId || session.sessionId}`}
-                  session={session}
-                  tasks={tasks}
-                  onOpen={onOpen}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null
-      )}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2 lg:grid-cols-2">
+        {visible.map((session) => (
+          <AiSessionRow
+            key={`${session.provider}:${session.providerSessionId || session.sessionId}`}
+            session={session}
+            tasks={tasks}
+            onOpen={onOpen}
+            onDelete={handleDelete}
+          />
+        ))}
+      </div>
       {limit && sorted.length > limit && (
         <div className="pt-1">
           <Button

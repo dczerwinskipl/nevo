@@ -117,10 +117,30 @@ tasks:
   - id: mobile-header-simplification
     order: 5
     file: tasks/05-mobile-header-simplification.md
-    status: draft
+    status: implemented
     depends_on:
       - shared-session-details
       - composer-interaction-redesign
+    implementation:
+      baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/chat-header/chat-header.tsx
+        - tools/dashboard/src/components/chat-header/index.ts
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
+      worktree_patch_fingerprint: 3f982ffdd12349cfd02d999933d704a715e24281b0e316a74af9a4c65544e628
+    self_check:
+      fingerprint: c30a1287d49f6bb04951f42f4f8417fff6cc7dcda3bbea79a3daad35c04502a5
+      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: shared-session-details
     order: 6
@@ -128,8 +148,9 @@ tasks:
     status: verified
     implementation:
       baseline_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
-      review_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
       changed_paths:
+        - tools/ai/binding-service.mjs
         - tools/ai/service.mjs
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
@@ -139,15 +160,21 @@ tasks:
         - tools/dashboard/src/components/session-details/session-details.tsx
         - tools/dashboard/src/components/ui/dialog.tsx
         - tools/dashboard/src/components/ui/sheet.tsx
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
         - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/chat-message-layout.test.mjs
         - tools/dashboard/tests/chat-projection.test.mjs
         - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/session-details.test.mjs
         - tools/dashboard/tests/work-summary.test.mjs
         - tools/dashboard/tests/work-turn-correlation.test.mjs
-      worktree_patch_fingerprint: 29b2638895613d704b7a098b88d98ee4bb11a0a3af7c96e71a3e710acbe8da1b
+        - tools/tests/agent-binding.test.mjs
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: 43f8451c59b4fee0fad01e715ceb355fa58433746e08f4e2f1581ab61b1212b4
-      revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
+      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
       commands:
         - command: node --test tools/tests/agent-binding.test.mjs
           exit_code: 0
@@ -189,17 +216,56 @@ tasks:
   - id: streaming-and-scroll-behavior
     order: 8
     file: tasks/08-streaming-and-scroll-behavior.md
-    status: draft
+    status: implemented
     depends_on:
       - semantic-chat-presentation-model
       - per-turn-work-presentation
+    implementation:
+      baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/lib/use-scroll-follow.ts
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
+      worktree_patch_fingerprint: 3f982ffdd12349cfd02d999933d704a715e24281b0e316a74af9a4c65544e628
+    self_check:
+      fingerprint: 73df1132956f65d10253a08b7f55871fbaf5b0b90280ffce25b328401f75a554
+      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: session-states-integration
     order: 9
     file: tasks/09-session-states-integration.md
-    status: draft
+    status: implemented
     depends_on:
       - semantic-chat-presentation-model
+    implementation:
+      baseline_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      review_revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/lib/types.ts
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
+      worktree_patch_fingerprint: 5589f081813d69f323cc04fa7d04147f3eab770ee541d8a95382ab4171366602
+    self_check:
+      fingerprint: a00660c56f2380b8fb87f6242db075e2fd84c77302a7706afa8f9d54824ef1e4
+      revision: 67959a1bedfa756bb0cd7fa4eabf4e59b7e1551a
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: responsive-accessibility-regression-validation
     order: 10

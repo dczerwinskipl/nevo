@@ -1,31 +1,23 @@
 import {
   AlertTriangle,
   ArrowLeft,
-  Bot,
-  Check,
   ChevronDown,
-  CircleStop,
-  Info,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
-  Send,
-  ShieldAlert,
-  Trash2,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from '@/components/ui/sheet';
+import { ChatHeader } from '@/components/chat-header';
 import { SessionDetails } from '@/components/session-details';
 import { ChatComposer } from '@/components/composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
@@ -39,6 +31,7 @@ import {
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { projectChat } from '@/lib/chat-projection';
+import { useScrollFollow } from '@/lib/use-scroll-follow';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -130,7 +123,6 @@ export function AiChatPage({
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const transcriptRef = useRef<HTMLDivElement>(null);
   const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
 
@@ -154,6 +146,22 @@ export function AiChatPage({
     },
   });
 
+  const {
+    containerRef: transcriptRef,
+    isFollowing,
+    hasUnseenContent,
+    scrollToBottom,
+  } = useScrollFollow({
+    contentSignal: [
+      assistant.messages.length,
+      assistant.messages[assistant.messages.length - 1]?.text,
+      assistant.messages[assistant.messages.length - 1]?.toolCalls?.length,
+      assistant.pendingInteraction?.id,
+      submissionError,
+      assistant.activeTurnId,
+    ],
+  });
+
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
 
   const session = assistant.sessionDetails;
@@ -174,14 +182,10 @@ export function AiChatPage({
   }, [provider, sessionId]);
 
   useEffect(() => {
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' });
-  }, [assistant.messages, assistant.pendingInteraction, submissionError]);
-
-  useEffect(() => {
     if (!chatViewport.keyboardOpen) return;
     window.scrollTo(0, 0);
-    transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-  }, [chatViewport.height, chatViewport.keyboardOpen]);
+    scrollToBottom('auto');
+  }, [chatViewport.height, chatViewport.keyboardOpen, scrollToBottom]);
 
   const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
   const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
@@ -239,86 +243,58 @@ export function AiChatPage({
     );
   }
 
+  const headerTitle =
+    session?.title?.trim() ||
+    (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
+      ? session.purpose.trim()
+      : '') ||
+    (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
+    (session?.purpose?.trim() ? session.purpose.trim() : '') ||
+    (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`);
+
   const header = (
-    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label={backLabel} title={backLabel}><ArrowLeft className="size-4" /></Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-semibold text-[var(--foreground)]">
-                {session?.title?.trim() ||
-                  (session?.purpose?.trim() && session.purpose !== 'attached' && session.purpose !== 'interactive'
-                    ? session.purpose.trim()
-                    : '') ||
-                  (session?.taskId ? `Zadanie: ${session.taskId}` : '') ||
-                  (session?.purpose?.trim() ? session.purpose.trim() : '') ||
-                  (session ? `Sesja ${session.providerSessionId.slice(0, 12)}` : `${provider} sesja`)}
-              </p>
-              {session && <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">{assistant.isRunning ? 'running' : session.status}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {assistant.isRunning && assistant.capabilities?.cancelTurn && (
-              <Button variant="secondary" size="sm" onClick={() => void assistant.cancelTurn()}><CircleStop className="mr-1.5 size-3.5" />Przerwij</Button>
-            )}
-            <Sheet open={isSessionDetailsOpen} onOpenChange={setIsSessionDetailsOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0 text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                  aria-label="Szczegóły sesji"
-                  title="Szczegóły sesji"
-                >
-                  <Info className="size-4" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-md">
-                <SheetHeader>
-                  <SheetTitle>Szczegóły sesji</SheetTitle>
-                  <SheetDescription>
-                    Kontekst wykonania i powiązania aktywnej sesji AI
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="mt-4">
-                  <SessionDetails
-                    specTitle={change?.title}
-                    specId={session?.specId}
-                    tasks={linkedTasks}
-                    provider={provider}
-                    mode={currentMode}
-                    onDelete={() => {
-                      setIsSessionDetailsOpen(false);
-                      void handleDeleteSession();
-                    }}
-                    deleting={deleting}
-                    disabled={assistant.isRunning}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 text-[var(--muted)] hover:bg-red-500/15 hover:text-red-400"
-              onClick={() => void handleDeleteSession()}
-              disabled={deleting || assistant.isRunning}
-              title="Usuń sesję z dysku"
-            >
-              {deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            </Button>
-          </div>
-        </div>
-        <p className="mt-1 truncate text-[10px] text-[var(--muted)]"><span className="text-[var(--muted-strong)]">{change?.title || session?.specId || 'Specyfikacja'}</span> · {session ? (linkedTasks.length ? linkedTasks.join(' · ') : 'cała specyfikacja') : 'sesja'} · {provider}</p>
-      </div>
-    </header>
+    <ChatHeader
+      title={headerTitle}
+      status={session ? (assistant.isRunning ? 'running' : session.status) : undefined}
+      onBack={onBack}
+      backLabel={backLabel}
+      onOpenDetails={() => setIsSessionDetailsOpen(true)}
+      isRunning={assistant.isRunning}
+      canCancel={Boolean(assistant.capabilities?.cancelTurn)}
+      onCancel={() => void assistant.cancelTurn()}
+    />
   );
 
   return (
     <AssistantRuntimeProvider runtime={assistant.runtime}>
       <div className={shellClassName} style={shellStyle}>
         {header}
+
+        <Sheet open={isSessionDetailsOpen} onOpenChange={setIsSessionDetailsOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle>Szczegóły sesji</SheetTitle>
+              <SheetDescription>
+                Kontekst wykonania i powiązania aktywnej sesji AI
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-4">
+              <SessionDetails
+                specTitle={change?.title}
+                specId={session?.specId}
+                tasks={linkedTasks}
+                provider={provider}
+                mode={currentMode}
+                onDelete={() => {
+                  setIsSessionDetailsOpen(false);
+                  void handleDeleteSession();
+                }}
+                deleting={deleting}
+                disabled={assistant.isRunning}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {!isProviderAvailable && providerInfo && (
           <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
@@ -337,7 +313,7 @@ export function AiChatPage({
         <div
           ref={transcriptRef}
           onPointerDown={handleTranscriptPointerDown}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6"
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6"
         >
           <div className="mx-auto max-w-4xl space-y-5">
             {assistant.loadError && !assistant.sessionDetails && (
@@ -425,6 +401,19 @@ export function AiChatPage({
                 </button>
               </div>
             )}
+            {hasUnseenContent && !isFollowing && (
+              <div className="sticky bottom-3 z-20 flex justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToBottom('smooth')}
+                  className="gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-raised)]/95 px-3.5 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-lg backdrop-blur-sm transition-all hover:bg-[var(--surface-hover)]"
+                >
+                  <ChevronDown className="size-3.5" />
+                  Nowe wiadomości
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -440,7 +429,6 @@ export function AiChatPage({
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn)}
               isProviderAvailable={isProviderAvailable}
-              disabled={session?.status === 'completed'}
               loadError={assistant.loadError}
             />
           </div>
