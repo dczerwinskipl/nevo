@@ -915,6 +915,59 @@ test('Antigravity bounded graceful termination terminates child process if it re
   assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination');
 });
 
+test('Antigravity bounded graceful termination terminates child process if it remains alive indefinitely after terminal ERROR result', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    child.exitCode = 1;
+    setImmediate(() => child.emit('close', 1));
+    return true;
+  };
+
+  let capturedOperation = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 30,
+    forceGraceMs: 30,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-hanging-error',
+    providerSessionId: 'sess-hanging-error',
+    message: 'trigger error',
+    setOperation: (op) => { capturedOperation = op; },
+  });
+
+  child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'sess-hanging-error' })}\n`);
+  child.stdout.push(`${JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', error: 'Provider terminal failure' } })}\n`);
+
+  // 1. Assert: startTurn rejects promptly with AI_PROVIDER_ERROR
+  await assert.rejects(
+    turnPromise,
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Provider terminal failure');
+      return true;
+    }
+  );
+
+  // 2. Assert: child is still owned and postResultTimer is active
+  assert.ok(capturedOperation, 'operation must remain tracked after terminal ERROR result');
+  assert.equal(capturedOperation.isResolved, true);
+  assert.ok(capturedOperation.postResultTimer, 'postResultTimer must be scheduled on terminal ERROR');
+
+  // 3. Wait for post-result timeout to fire
+  await new Promise(resolve => setTimeout(resolve, 80));
+
+  assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination for hanging ERROR process');
+});
+
 test('Antigravity raw capture: known JSON events persist exact payload with envelope metadata and turnId', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-json-'));
   try {
@@ -1378,6 +1431,23 @@ test('Antigravity raw capture: case collision simulation prevents cross-session 
   }
 });
 
+test('Antigravity raw capture: in-memory reservation prevents case collision before filesystem materialization', () => {
+  const tmpBase = join('C:', 'test', 'raw_capture');
+  const provider = createAntigravityAgentProvider({
+    rawCaptureEnabled: true,
+    rawCaptureDir: tmpBase,
+  });
+
+  // Resolve 'SessionABC' first (in-memory reservation only, nothing written to disk yet)
+  const path1 = provider.getRawCapturePath('SessionABC');
+  assert.equal(path1, join(tmpBase, 'SessionABC', 'raw.ndjson'));
+
+  // Resolve 'sessionabc' (case variant) within the same provider before any disk write
+  const path2 = provider.getRawCapturePath('sessionabc');
+  assert.notEqual(path2, path1, 'In-memory case variant must not receive colliding directory assignment');
+  assert.match(path2, /sessionabc-[a-f0-9]{16}/, 'Second variant must receive hashed fallback');
+});
+
 test('Antigravity raw capture: provisional new session migrates to allocated conversation_id, preserves all records and session.json, and logs only final path', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-provisional-'));
   const originalLog = console.log;
@@ -1665,6 +1735,153 @@ test('Antigravity error result: still-active tool call is resolved to failed', a
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].toolId, 't-unfin');
   assert.equal(toolsCompleted[0].status, 'failed');
+});
+
+test('Antigravity terminal status & is_error matrix: status "FAILED" with empty response fails turn', async () => {
+  // B. status: "FAILED"
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-matrix-failed' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'FAILED',
+        response: '',
+        error: 'Execution failed completely',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-matrix-failed',
+        providerSessionId: 'conv-matrix-failed',
+        message: 'test',
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Execution failed completely');
+      return true;
+    }
+  );
+});
+
+test('Antigravity terminal status & is_error matrix: is_error true without status fails turn', async () => {
+  // C. is_error: true with no status
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-matrix-iserr' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        is_error: true,
+        response: '',
+        error: 'Flagged as error without status string',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-matrix-iserr',
+        providerSessionId: 'conv-matrix-iserr',
+        message: 'test',
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Flagged as error without status string');
+      return true;
+    }
+  );
+});
+
+test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error true fails turn', async () => {
+  // D. status: "SUCCESS" + is_error: true (is_error takes independent precedence)
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-matrix-succ-err' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS',
+        is_error: true,
+        response: '',
+        error: 'Conflicting status but explicit is_error true',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-matrix-succ-err',
+        providerSessionId: 'conv-matrix-succ-err',
+        message: 'test',
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Conflicting status but explicit is_error true');
+      return true;
+    }
+  );
+});
+
+test('Antigravity terminal status & is_error matrix: type "done" with top-level is_error true fails turn', async () => {
+  // E. envelope type: "done" + top-level raw.is_error: true
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-matrix-done-err' }),
+    JSON.stringify({
+      type: 'done',
+      is_error: true,
+      error: { message: 'Done envelope failed' },
+      response: '',
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-matrix-done-err',
+        providerSessionId: 'conv-matrix-done-err',
+        message: 'test',
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Done envelope failed');
+      return true;
+    }
+  );
+});
+
+test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error false completes turn', async () => {
+  // F. status: "SUCCESS" + is_error: false
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-matrix-succ-ok' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'SUCCESS',
+        is_error: false,
+        response: 'Success response',
+      },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+  const result = await provider.startTurn({
+    turnId: 'turn-matrix-succ-ok',
+    providerSessionId: 'conv-matrix-succ-ok',
+    message: 'test',
+  });
+
+  assert.equal(result.status, 'completed');
 });
 
 

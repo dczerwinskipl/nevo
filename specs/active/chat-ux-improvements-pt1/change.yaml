@@ -314,7 +314,7 @@ tasks:
       - semantic-chat-presentation-model
     self_check:
       fingerprint: 66d13832f38eef4449a610e9653ff9b4e7396be040661a109b4588ac29b19b66
-      revision: 7394ef5b81f309c2322b87a6523413802c5e626c
+      revision: 01275445fecd84f5a5defb25fc21c7e6ef4e6dfa
       commands:
         - command: node --test tools/tests/antigravity-adapter.test.mjs
             tools/tests/ai-turn-runtime.test.mjs

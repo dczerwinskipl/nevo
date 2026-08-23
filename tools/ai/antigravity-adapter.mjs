@@ -187,7 +187,26 @@ export class AntigravityAgentProvider {
     if (!sessionId) return null;
     let dirName = this.#sessionDirMap.get(sessionId);
     if (!dirName) {
-      dirName = rawCaptureSessionDirectory(sessionId, this.#rawCaptureDir);
+      // Check for in-memory case-insensitive collision against existing reservations
+      const lowerSession = sessionId.toLowerCase();
+      let hasInMemoryCaseCollision = false;
+      for (const [existingId, existingDir] of this.#sessionDirMap.entries()) {
+        if (existingId !== sessionId && existingDir.toLowerCase() === lowerSession) {
+          hasInMemoryCaseCollision = true;
+          break;
+        }
+      }
+
+      if (hasInMemoryCaseCollision) {
+        const safePrefix = sessionId
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .slice(0, 32)
+          .replace(/^_+|_+$/g, '') || 'session';
+        const hash = createHash('sha256').update(sessionId, 'utf8').digest('hex').slice(0, 16);
+        dirName = `${safePrefix}-${hash}`;
+      } else {
+        dirName = rawCaptureSessionDirectory(sessionId, this.#rawCaptureDir);
+      }
       this.#sessionDirMap.set(sessionId, dirName);
     }
     return dirName;
@@ -498,18 +517,24 @@ export class AntigravityAgentProvider {
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
       }
 
-      const finishTurn = () => {
+      const settleAuthoritativeTerminal = ({ outcome = 'completed', error = null } = {}) => {
         if (isResolved) return;
         isResolved = true;
         isDone = true;
         operation.isResolved = true;
         operation.isDone = true;
-        resolve({
-          turnId,
-          providerSessionId: currentSessionId || effectiveSessionId,
-          status: 'completed',
-        });
-        // Initiate bounded graceful termination if child process has not exited yet
+
+        if (outcome === 'failed') {
+          reject(error || new AiError('AI_PROVIDER_ERROR', 'Antigravity turn failed.'));
+        } else {
+          resolve({
+            turnId,
+            providerSessionId: currentSessionId || effectiveSessionId,
+            status: 'completed',
+          });
+        }
+
+        // Retain process ownership and initiate bounded graceful termination if child process has not exited yet
         if (child && !child.killed && child.exitCode === null) {
           operation.postResultTimer = setTimeout(() => {
             if (child && child.exitCode === null) {
@@ -520,6 +545,14 @@ export class AntigravityAgentProvider {
             }
           }, this.#cancelGraceMs);
         }
+      };
+
+      const finishTurn = () => {
+        settleAuthoritativeTerminal({ outcome: 'completed' });
+      };
+
+      const failAuthoritativeTerminal = (err) => {
+        settleAuthoritativeTerminal({ outcome: 'failed', error: err });
       };
 
       const failTurn = (err) => {
@@ -762,14 +795,15 @@ export class AntigravityAgentProvider {
             }
 
             const statusValue = payload?.status || raw.status;
-            const isErrorStatus = typeof statusValue === 'string'
-              ? (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED')
-              : Boolean(payload?.is_error || raw.is_error);
+            const statusIndicatesError = typeof statusValue === 'string'
+              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED');
+            const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
+            const isTerminalError = statusIndicatesError || explicitErrorFlag;
 
-            if (isErrorStatus && !accumulatedText && !finalText) {
+            if (isTerminalError && !accumulatedText && !finalText) {
               const rawErr = payload?.error ?? raw.error;
               const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
-              failTurn(new AiError('AI_PROVIDER_ERROR', errorMessage));
+              failAuthoritativeTerminal(new AiError('AI_PROVIDER_ERROR', errorMessage));
               break;
             }
 
