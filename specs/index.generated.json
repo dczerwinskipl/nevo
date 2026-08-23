@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-23T16:06:35.320Z",
+  "generated": "2026-08-23T17:05:24.146Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -649,13 +649,13 @@
           "id": "composer-alignment",
           "order": 2,
           "file": "tasks/02-composer-alignment.md",
-          "status": "abandoned"
+          "status": "draft"
         },
         {
           "id": "mode-switcher-touch-target",
           "order": 3,
           "file": "tasks/03-mode-switcher-touch-target.md",
-          "status": "abandoned"
+          "status": "draft"
         },
         {
           "id": "mode-description-tooltip",

@@ -152,7 +152,7 @@ export class AntigravityAgentProvider {
         capturedAt,
         stream,
         ...(turnId ? { turnId } : {}),
-        rawText: trimmed,
+        rawText: line,
       };
     }
 
@@ -660,12 +660,10 @@ export class AntigravityAgentProvider {
       let stderrLineBuffer = '';
 
       child.stdout?.on('data', chunk => {
-        if (isDone || isResolved) return;
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
-          if (isDone || isResolved) break;
           const sessIdForCapture = currentSessionId || effectiveSessionId;
           this.#recordRawEvent({
             sessionId: sessIdForCapture,
@@ -673,12 +671,14 @@ export class AntigravityAgentProvider {
             stream: 'stdout',
             line,
           });
-          processingQueue = processingQueue.then(() => {
-            if (isDone || isResolved) return;
-            return processLine(line);
-          }).catch(err => {
-            failTurn(err);
-          });
+          if (!isDone && !isResolved) {
+            processingQueue = processingQueue.then(() => {
+              if (isDone || isResolved) return;
+              return processLine(line);
+            }).catch(err => {
+              failTurn(err);
+            });
+          }
         }
       });
 
@@ -721,6 +721,29 @@ export class AntigravityAgentProvider {
           operation.postResultTimer = null;
         }
 
+        // Always flush residual stdout lineBuffer to raw capture on process close
+        if (lineBuffer) {
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stdout',
+            line: lineBuffer,
+          });
+        }
+
+        // Always flush residual stderrLineBuffer to raw capture on process close
+        if (stderrLineBuffer) {
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stderr',
+            line: stderrLineBuffer,
+          });
+          stderrLineBuffer = '';
+        }
+
         if (isResolved) {
           this.#activeOperations.delete(turnId);
           return;
@@ -732,30 +755,12 @@ export class AntigravityAgentProvider {
           return failTurn(e);
         }
 
-        if (!isResolved && lineBuffer.trim()) {
-          const sessIdForCapture = currentSessionId || effectiveSessionId;
-          this.#recordRawEvent({
-            sessionId: sessIdForCapture,
-            turnId,
-            stream: 'stdout',
-            line: lineBuffer,
-          });
+        if (!isResolved && lineBuffer && lineBuffer.trim()) {
           try {
             await processLine(lineBuffer);
           } catch (e) {
             return failTurn(e);
           }
-        }
-
-        if (stderrLineBuffer.trim()) {
-          const sessIdForCapture = currentSessionId || effectiveSessionId;
-          this.#recordRawEvent({
-            sessionId: sessIdForCapture,
-            turnId,
-            stream: 'stderr',
-            line: stderrLineBuffer,
-          });
-          stderrLineBuffer = '';
         }
 
         if (isResolved) {

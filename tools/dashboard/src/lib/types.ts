@@ -390,7 +390,7 @@ export interface NormalizedMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
   reasoning?: string;
-  /** Optional timeline preserving chronological order of commentary, tools, and interactions. */
+  /** Schema placeholder for future provider-neutral timeline interleaved segments. Currently unmapped pending real provider capture analysis. */
   activityTimeline?: AssistantTurnItem[];
   /**
    * The turn this message belongs to (owner-decisions.md D7). Assistant messages are

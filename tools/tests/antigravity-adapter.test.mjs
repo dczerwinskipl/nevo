@@ -1131,3 +1131,77 @@ test('Antigravity raw capture: strictly preserves chronological ordering across 
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Antigravity raw capture: captures trailing events, raw text, and unclosed partial line after result without leaking to semantic stream', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-post-result-'));
+  try {
+    const child = new EventEmitter();
+    child.stdin = new Writable({ write(chunk, enc, cb) { cb(); } });
+    child.stdout = new Readable({ read() {} });
+    child.stderr = new Readable({ read() {} });
+    child.kill = () => { child.killed = true; };
+
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: tmpDir,
+    });
+
+    const semanticDeltas = [];
+    const turnPromise = provider.startTurn({
+      turnId: 'turn-post-result',
+      providerSessionId: 'conv-post-result',
+      message: 'test post result capture',
+      emitTextDelta: (delta) => semanticDeltas.push(delta),
+    });
+
+    // 1. Initial conversation and tool events
+    child.stdout.push(JSON.stringify({ type: 'init', conversation_id: 'conv-post-result' }) + '\n');
+    child.stdout.push(JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'ACTIVE' }) + '\n');
+    child.stdout.push(JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'read_file', state: 'DONE' }) + '\n');
+
+    // 2. Authoritative result event
+    child.stdout.push(JSON.stringify({ event: 'result', response: 'Authoritative completion' }) + '\n');
+
+    const result = await turnPromise;
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(semanticDeltas, ['Authoritative completion']);
+
+    // 3. Trailing events emitted by provider after semantic turn completion
+    child.stdout.push(JSON.stringify({ event: 'trailing_event', payload: 'metrics_flush' }) + '\n');
+    child.stdout.push('   [raw unformatted trailing diagnostics]   \n');
+    // 4. Partial final line without trailing newline
+    child.stdout.push('PARTIAL_LINE_WITHOUT_NEWLINE');
+
+    // 5. Child process closes
+    child.stdout.push(null);
+    child.stderr.push(null);
+    child.emit('close', 0);
+
+    // Ensure raw capture queue flushes
+    await provider.flushRawCapture('conv-post-result');
+
+    // Verify raw.ndjson content
+    const captureFile = join(tmpDir, 'conv-post-result', 'raw.ndjson');
+    const rawContent = await readFile(captureFile, 'utf8');
+    const rawLines = rawContent.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(rawLines.length, 7, 'All 7 items must be captured in raw.ndjson');
+    assert.equal(rawLines[0].raw.type, 'init');
+    assert.equal(rawLines[1].raw.event, 'step_update');
+    assert.equal(rawLines[2].raw.event, 'step_update');
+    assert.equal(rawLines[3].raw.event, 'result');
+    // Trailing JSON event
+    assert.equal(rawLines[4].raw.event, 'trailing_event');
+    assert.equal(rawLines[4].raw.payload, 'metrics_flush');
+    // Trailing non-JSON exact raw text (untrimmed)
+    assert.equal(rawLines[5].rawText, '   [raw unformatted trailing diagnostics]   ');
+    // Partial line flushed on close
+    assert.equal(rawLines[6].rawText, 'PARTIAL_LINE_WITHOUT_NEWLINE');
+
+    // Verify that NO trailing deltas leaked to the semantic stream
+    assert.deepEqual(semanticDeltas, ['Authoritative completion']);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+

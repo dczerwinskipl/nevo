@@ -563,12 +563,18 @@ export class AgentSessionBindingService {
     }
 
     const all = await this.#loadForSpec();
-    const target = all.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
-    if (!target) return;
-    const specId = target.specId;
-    const specBindings = await this.#loadForSpec(specId);
-    const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
-    await this.#persistForSpec(specId, filtered);
+    const matchingSpecs = new Set(
+      all
+        .filter(b => b.provider === provider && b.providerSessionId === providerSessionId)
+        .map(b => b.specId)
+        .filter(Boolean)
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = await this.#loadForSpec(specId);
+      const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      await this.#persistForSpec(specId, filtered);
+    }
   }
 
   unbindSessionSync(provider, providerSessionId) {
@@ -585,12 +591,18 @@ export class AgentSessionBindingService {
     }
 
     const all = this.#loadForSpecSync();
-    const target = all.find(b => b.provider === provider && b.providerSessionId === providerSessionId);
-    if (!target) return;
-    const specId = target.specId;
-    const specBindings = this.#loadForSpecSync(specId);
-    const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
-    this.#persistForSpecSync(specId, filtered);
+    const matchingSpecs = new Set(
+      all
+        .filter(b => b.provider === provider && b.providerSessionId === providerSessionId)
+        .map(b => b.specId)
+        .filter(Boolean)
+    );
+
+    for (const specId of matchingSpecs) {
+      const specBindings = this.#loadForSpecSync(specId);
+      const filtered = specBindings.filter(b => !(b.provider === provider && b.providerSessionId === providerSessionId));
+      this.#persistForSpecSync(specId, filtered);
+    }
   }
 }
 

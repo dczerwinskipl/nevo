@@ -789,7 +789,7 @@ export function useNevoAssistantRuntime({
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
     try {
-      await fetch(
+      const res = await fetch(
         `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns/${encodeURIComponent(turnId)}/cancel`,
         {
           method: 'POST',
@@ -800,13 +800,25 @@ export function useNevoAssistantRuntime({
           body: JSON.stringify({}),
         }
       );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
+      }
+
       terminalTurnIdsRef.current.add(turnId);
+      // Race-safety check: If terminal SSE arrived before this POST response completed,
+      // activity was already transitioned to idle and activeTurnId cleared.
+      if (activeTurnIdRef.current === turnId && activityRef.current === 'running') {
+        setActivity('idle');
+        activityRef.current = 'idle';
+        setActiveTurnId(null);
+        activeTurnIdRef.current = null;
+      }
       setContentRevision((r) => r + 1);
-      setActivity('idle');
-      activityRef.current = 'idle';
-      setActiveTurnId(null);
-      activeTurnIdRef.current = null;
     } catch (err) {
+      // On failed cancel DO NOT mutate terminalTurnIds, activity, activeTurnId, or pending turn ownership.
+      // The turn remains running and cancellation remains retryable.
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   }, [provider, providerSessionId, loadedIdentity, onError]);

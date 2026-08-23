@@ -74,7 +74,7 @@ test('Task 08 / Regression 40553af: Programmatic follow-to-bottom does NOT store
   // Programmatic scroll executes
   state = handleProgrammaticScroll(state, targetScrollTop);
   assert.equal(state.lastScrollTop, 2300);
-  assert.equal(state.isProgrammaticScroll, true);
+  assert.equal(state.isProgrammaticScroll, false, 'Auto programmatic scroll does not hold a programmatic lock');
 
   // DOM scroll event reports scrollTop = 2300
   state = handleScrollEvent(state, { scrollTop: 2300, scrollHeight: 3000, clientHeight: 700 }, 80);
@@ -82,7 +82,7 @@ test('Task 08 / Regression 40553af: Programmatic follow-to-bottom does NOT store
   // Must remain following=true, unseen=false
   assert.equal(state.isFollowing, true, 'Following remains true after programmatic scroll to bottom');
   assert.equal(state.hasUnseenContent, false, 'Unseen content remains false');
-  assert.equal(state.isProgrammaticScroll, false, 'Programmatic lock released on reaching bottom');
+  assert.equal(state.isProgrammaticScroll, false, 'Programmatic lock remains false');
 });
 
 test('Task 08: Continuous streaming maintains follow without flipping isFollowing or creating false unseen state', () => {
@@ -199,4 +199,41 @@ test('Task 08: AiChatPage uses assistant.contentRevision and renders new-content
   assert.match(chatSource, /hasUnseenContent && !isFollowing/);
   assert.match(chatSource, /Nowe wiadomości/);
   assert.match(chatSource, /scrollToBottom\('smooth'\)/);
+});
+
+test('Task 08: No-op auto scroll when already at bottom leaves non-programmatic state and user upward scroll immediately pauses follow', () => {
+  // 1. Initial state: already at bottom (scrollTop=2300, scrollHeight=3000, clientHeight=700)
+  let state = {
+    isFollowing: true,
+    hasUnseenContent: false,
+    isProgrammaticScroll: false,
+    lastScrollTop: 2300,
+  };
+
+  // 2. Content revision arrives (no height change, or height stays 3000 so targetScrollTop is still 2300)
+  const arrival = handleContentArrival(state);
+  assert.equal(arrival.shouldScrollToBottom, true);
+
+  const targetScrollTop = calculateMaxScrollTop({ scrollHeight: 3000, clientHeight: 700 });
+  assert.equal(targetScrollTop, 2300);
+
+  // Auto programmatic scroll executes without smooth animation (isSmooth=false)
+  state = handleProgrammaticScroll(arrival.state, targetScrollTop, false);
+  assert.equal(state.isProgrammaticScroll, false, 'Continuous auto-scroll must NOT hold a programmatic lock');
+  assert.equal(state.lastScrollTop, 2300);
+
+  // 3. NO browser scroll event occurs because scrollTop did not change
+
+  // 4. User scrolls upward (e.g. via keyboard ArrowUp/PageUp or scrollbar drag to scrollTop=2100)
+  // Distance from bottom is 3000 - 2100 - 700 = 200px (> threshold 80px)
+  state = handleScrollEvent(state, { scrollTop: 2100, scrollHeight: 3000, clientHeight: 700 }, 80);
+
+  // 5. Expected: follow is paused (isFollowing=false) without being blocked by a stale programmatic lock
+  assert.equal(state.isFollowing, false, 'User upward scroll must immediately pause follow');
+  assert.equal(state.lastScrollTop, 2100);
+
+  // 6. Next content revision flags unseen content badge and does not move viewport
+  const nextArrival = handleContentArrival(state);
+  assert.equal(nextArrival.shouldScrollToBottom, false);
+  assert.equal(nextArrival.state.hasUnseenContent, true);
 });

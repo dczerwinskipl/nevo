@@ -176,6 +176,133 @@ test('Issue 2 & Race Safety: Terminal SSE before POST response never leaves stal
   assert.equal(activeTurnId, null, 'Turn 2 does not inherit stale turn-1 ID');
 });
 
+test('Cancel Turn: HTTP 500 error preserves running state and activeTurnId, surfaces error, and remains retryable', () => {
+  let activity = 'running';
+  let activeTurnId = 'turn-123';
+  const terminalTurnIds = new Set();
+  let surfacedError = null;
+
+  function onCancelResponse(turnId, res, errData = null) {
+    try {
+      if (!res.ok) {
+        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
+      }
+      terminalTurnIds.add(turnId);
+      if (activeTurnId === turnId && activity === 'running') {
+        activity = 'idle';
+        activeTurnId = null;
+      }
+    } catch (err) {
+      surfacedError = err;
+    }
+  }
+
+  // Cancel fails with HTTP 500
+  onCancelResponse('turn-123', { ok: false, status: 500 }, { error: { message: 'Internal server error while interrupting provider' } });
+
+  assert.equal(activity, 'running', 'Activity must remain running on HTTP 500');
+  assert.equal(activeTurnId, 'turn-123', 'activeTurnId must remain intact for retry');
+  assert.equal(terminalTurnIds.has('turn-123'), false, 'turnId must NOT be added to terminalTurnIds');
+  assert.ok(surfacedError instanceof Error);
+  assert.match(surfacedError.message, /Internal server error/);
+
+  // Subsequent retry with success transitions to idle
+  onCancelResponse('turn-123', { ok: true, status: 200 });
+  assert.equal(activity, 'idle');
+  assert.equal(activeTurnId, null);
+  assert.equal(terminalTurnIds.has('turn-123'), true);
+});
+
+test('Cancel Turn: HTTP 409 conflict error preserves running state and surfaces error', () => {
+  let activity = 'running';
+  let activeTurnId = 'turn-456';
+  const terminalTurnIds = new Set();
+  let surfacedError = null;
+
+  function onCancelResponse(turnId, res, errData = null) {
+    try {
+      if (!res.ok) {
+        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
+      }
+      terminalTurnIds.add(turnId);
+      if (activeTurnId === turnId && activity === 'running') {
+        activity = 'idle';
+        activeTurnId = null;
+      }
+    } catch (err) {
+      surfacedError = err;
+    }
+  }
+
+  onCancelResponse('turn-456', { ok: false, status: 409 }, { error: { message: 'Turn is in uncancelable state' } });
+
+  assert.equal(activity, 'running');
+  assert.equal(activeTurnId, 'turn-456');
+  assert.equal(terminalTurnIds.has('turn-456'), false);
+  assert.ok(surfacedError instanceof Error);
+  assert.match(surfacedError.message, /Turn is in uncancelable state/);
+});
+
+test('Cancel Turn: Successful cancel transitions to idle, clears activeTurnId, and updates terminalTurnIds', () => {
+  let activity = 'running';
+  let activeTurnId = 'turn-789';
+  const terminalTurnIds = new Set();
+  let contentRevision = 0;
+
+  function onCancelResponse(turnId, res) {
+    if (!res.ok) throw new Error('Failed');
+    terminalTurnIds.add(turnId);
+    if (activeTurnId === turnId && activity === 'running') {
+      activity = 'idle';
+      activeTurnId = null;
+    }
+    contentRevision++;
+  }
+
+  onCancelResponse('turn-789', { ok: true, status: 200 });
+
+  assert.equal(activity, 'idle');
+  assert.equal(activeTurnId, null);
+  assert.equal(terminalTurnIds.has('turn-789'), true);
+  assert.equal(contentRevision, 1);
+});
+
+test('Cancel Turn: Race where terminal SSE arrives before cancel response completes', () => {
+  let activity = 'running';
+  let activeTurnId = 'turn-race';
+  const terminalTurnIds = new Set();
+  let contentRevision = 0;
+
+  function onSseTurnCancelled(turnId) {
+    terminalTurnIds.add(turnId);
+    activity = 'idle';
+    activeTurnId = null;
+    contentRevision++;
+  }
+
+  function onCancelResponse(turnId, res) {
+    if (!res.ok) throw new Error('Failed');
+    terminalTurnIds.add(turnId);
+    if (activeTurnId === turnId && activity === 'running') {
+      activity = 'idle';
+      activeTurnId = null;
+    }
+    contentRevision++;
+  }
+
+  // 1. SSE turn.failed/cancelled arrives first
+  onSseTurnCancelled('turn-race');
+  assert.equal(activity, 'idle');
+  assert.equal(activeTurnId, null);
+  assert.equal(terminalTurnIds.has('turn-race'), true);
+
+  // 2. HTTP cancel response arrives late
+  onCancelResponse('turn-race', { ok: true, status: 200 });
+  assert.equal(activity, 'idle');
+  assert.equal(activeTurnId, null, 'activeTurnId was not corrupted');
+  assert.equal(terminalTurnIds.has('turn-race'), true);
+});
+
 test('AiChatPage disables normal composer send when session is waitingForUser', () => {
   const chatSource = readAiChatSource();
 

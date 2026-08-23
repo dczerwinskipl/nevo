@@ -240,6 +240,11 @@ and cannot be fixed by UI projection alone:
   tasks rather than reinventing chat-local equivalents — coordinated as a
   pre-implementation preflight, not left to Task 11 alone (`owner-decisions.md` D8;
   see "Overlap preflight" below).
+- `activityTimeline` is a schema/projection placeholder only and does not represent
+  an active mapping of interleaved commentary in this change. Interleaved commentary
+  rendering requires real provider capture analysis and will be implemented in a dedicated
+  future change. Current rendering presents aggregated Work via `TurnWork`/`WorkSummary`
+  and final response prose.
 - D5, D6, and D10 are all decided (`owner-decisions.md`) — Task 01 and Task 06 are no
   longer gated on an open decision; implement the recorded directives directly.
 

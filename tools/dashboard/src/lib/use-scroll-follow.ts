@@ -34,12 +34,13 @@ export function createInitialScrollControllerState(initialScrollTop = 0): Scroll
 export function handleProgrammaticScroll(
   state: ScrollControllerState,
   targetScrollTop: number,
+  isSmooth = false,
 ): ScrollControllerState {
   return {
     ...state,
     isFollowing: true,
     hasUnseenContent: false,
-    isProgrammaticScroll: true,
+    isProgrammaticScroll: isSmooth,
     lastScrollTop: targetScrollTop,
   };
 }
@@ -232,16 +233,26 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       }
     };
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp' || e.key === 'Home') {
+        const nextState = handleUserUpwardGesture(stateRef.current);
+        stateRef.current = nextState;
+        setState(nextState);
+      }
+    };
+
     el.addEventListener('scroll', handleScroll, { passive: true });
     el.addEventListener('wheel', handleWheel, { passive: true });
     el.addEventListener('touchstart', handleTouchStart, { passive: true });
     el.addEventListener('touchmove', handleTouchMove, { passive: true });
+    el.addEventListener('keydown', handleKeyDown);
 
     return () => {
       el.removeEventListener('scroll', handleScroll);
       el.removeEventListener('wheel', handleWheel);
       el.removeEventListener('touchstart', handleTouchStart);
       el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleScroll]);
 
@@ -252,7 +263,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       initialMountRef.current = false;
       if (el) {
         const targetScrollTop = calculateMaxScrollTop(el);
-        const nextState = handleProgrammaticScroll(stateRef.current, targetScrollTop);
+        const nextState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
         stateRef.current = nextState;
         setState(nextState);
         el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
@@ -263,7 +274,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     const { state: nextState, shouldScrollToBottom } = handleContentArrival(stateRef.current);
     if (shouldScrollToBottom && el) {
       const targetScrollTop = calculateMaxScrollTop(el);
-      const progState = handleProgrammaticScroll(nextState, targetScrollTop);
+      const progState = handleProgrammaticScroll(nextState, targetScrollTop, false);
       stateRef.current = progState;
       setState(progState);
       el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });

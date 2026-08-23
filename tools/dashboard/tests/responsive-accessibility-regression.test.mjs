@@ -138,6 +138,29 @@ test('AC10: Role and status distinctions are not color-only', () => {
   assert.match(toolViewSource, /LoaderCircle/);
 });
 
+test('AC11: Keyboard focus management, tab order, and keydown handlers are structured for desktop keyboard navigation', () => {
+  const buttonSource = readSource('components/ui/button.tsx');
+  const composerSource = readSource('components/composer/composer.tsx');
+  const headerSource = readSource('components/chat-header/chat-header.tsx');
+  const toolViewSource = readSource('components/ai-tool-view.tsx');
+  const reasoningViewSource = readSource('components/ai-reasoning-view.tsx');
+  const workSummarySource = readSource('components/work/work-summary.tsx');
+  const scrollFollowSource = readSource('lib/use-scroll-follow.ts');
+
+  // Interactive buttons have focus-visible rings defined
+  assert.match(buttonSource, /focus-visible:ring-2/);
+  assert.match(headerSource, /<Button/);
+
+  // Expand/collapse controls use native semantic button types
+  assert.match(composerSource, /type="button"/);
+  assert.match(toolViewSource, /type="button"/);
+  assert.match(reasoningViewSource, /type="button"/);
+  assert.match(workSummarySource, /type="button"/);
+
+  // Scroll follow handles PageUp and Home keys for keyboard history navigation
+  assert.match(scrollFollowSource, /e\.key === 'PageUp' \|\| e\.key === 'Home'/);
+});
+
 test('AC13: Regression checks for all NFR-7 critical paths', () => {
   const composerSource = readSource('components/composer/composer.tsx');
   const aiChatSource = readSource('components/ai-chat.tsx');

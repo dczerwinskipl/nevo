@@ -433,3 +433,132 @@ test('Finding 2: deterministic tie-breaker for equal lastSeenAt records does not
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Multi-spec session deletion: unbindSession removes session identity from ALL spec binding files (async & sync)', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-multi-spec-unbind-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specA = '33333333-3333-4333-8333-333333333333';
+    const specB = '44444444-4444-4444-8444-444444444444';
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // 1. Bind same provider session to spec A and spec B
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-spec-1',
+      specId: specA,
+      taskId: 'task-a1',
+    });
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-spec-1',
+      specId: specB,
+      taskId: 'task-b1',
+    });
+
+    // Verify both specs hold bindings for this session
+    assert.equal((await service.listBindings({ specId: specA })).length, 1);
+    assert.equal((await service.listBindings({ specId: specB })).length, 1);
+    assert.ok(await service.resolveCurrentBinding('claude', 'sess-multi-spec-1'));
+
+    // 2. Unbind session globally
+    await service.unbindSession('claude', 'sess-multi-spec-1');
+
+    // 3. Verify ALL spec binding files are cleaned up
+    assert.equal((await service.listBindings({ specId: specA })).length, 0, 'Spec A bindings must be empty');
+    assert.equal((await service.listBindings({ specId: specB })).length, 0, 'Spec B bindings must be empty');
+    assert.equal(await service.resolveCurrentBinding('claude', 'sess-multi-spec-1'), null, 'Resolved current binding must be null');
+
+    // 4. Test synchronous variant (unbindSessionSync)
+    service.bindSessionSync({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-spec-2',
+      specId: specA,
+      taskId: 'task-a2',
+    });
+    service.bindSessionSync({
+      provider: 'claude',
+      providerSessionId: 'sess-multi-spec-2',
+      specId: specB,
+      taskId: 'task-b2',
+    });
+
+    assert.equal(service.listBindingsSync({ specId: specA }).length, 1);
+    assert.equal(service.listBindingsSync({ specId: specB }).length, 1);
+
+    service.unbindSessionSync('claude', 'sess-multi-spec-2');
+
+    assert.equal(service.listBindingsSync({ specId: specA }).length, 0);
+    assert.equal(service.listBindingsSync({ specId: specB }).length, 0);
+    assert.equal(service.resolveCurrentBindingSync('claude', 'sess-multi-spec-2'), null);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi-spec bindings and transcript globally', async () => {
+  const { handleAiRequest } = await import('../../tools/dashboard/server/ai-routes.mjs');
+  const { AiSessionService } = await import('../../tools/ai/service.mjs');
+  const { SessionTranscriptCacheService } = await import('../../tools/ai/transcript-cache.mjs');
+  const { createAiAdapterRegistry } = await import('../../tools/ai/registry.mjs');
+
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-http-delete-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const transcriptsDir = join(tmpDir, 'transcripts');
+    const specA = '55555555-5555-4555-8555-555555555555';
+    const specB = '66666666-6666-4666-8666-666666666666';
+    const bindingService = createAgentSessionBindingService({ storageDir });
+    const transcriptCache = new SessionTranscriptCacheService({ baseDir: transcriptsDir });
+    const registry = createAiAdapterRegistry();
+    registry.register({
+      descriptor: { id: 'claude', label: 'Claude', title: 'Claude', defaultMode: 'edit', capabilities: {} },
+      startTurn: async () => ({}),
+      cancelTurn: async () => ({}),
+    });
+
+    const aiService = new AiSessionService({ registry, bindingService, transcriptCache });
+
+    // 1. Bind to multiple specs
+    await bindingService.bindSession({ provider: 'claude', providerSessionId: 'sess-http-del', specId: specA, taskId: 't1' });
+    await bindingService.bindSession({ provider: 'claude', providerSessionId: 'sess-http-del', specId: specB, taskId: 't2' });
+    transcriptCache.recordUserMessage('claude', 'sess-http-del', { text: 'Hello' });
+    await transcriptCache.flush('claude', 'sess-http-del');
+
+    // 2. Dispatch DELETE request
+    let responseStatus = 0;
+    let responseJson = null;
+
+    const handled = await handleAiRequest({
+      request: {
+        headers: {
+          'x-nevo-dashboard-action': '1',
+          host: 'localhost:3000',
+        },
+      },
+      response: {},
+      method: 'DELETE',
+      url: new URL('http://localhost:3000/api/agent-sessions/claude/sess-http-del'),
+      service: aiService,
+      accessPolicy: () => true,
+      sendJson: (_res, status, data) => {
+        responseStatus = status;
+        responseJson = data;
+      },
+      readJsonBody: async () => ({}),
+    });
+
+    assert.equal(handled, true);
+    assert.equal(responseStatus, 200);
+    assert.deepEqual(responseJson, { unbind: true, deleted: true });
+
+    // 3. Verify global cleanup
+    assert.equal((await bindingService.listBindings({ specId: specA })).length, 0);
+    assert.equal((await bindingService.listBindings({ specId: specB })).length, 0);
+    assert.equal(await bindingService.resolveCurrentBinding('claude', 'sess-http-del'), null);
+    assert.equal((await transcriptCache.listPersistedSessions()).length, 0);
+    assert.equal(existsSync(join(transcriptsDir, 'claude', 'sess-http-del.json')), false);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
