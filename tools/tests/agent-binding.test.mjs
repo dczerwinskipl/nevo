@@ -336,3 +336,100 @@ test('AgentSessionBindingService persists session mode preference and maintains 
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Finding 2: cross-spec session mode update targets only newest spec and does not promote older spec', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-cross-spec-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specA = 'd9d40a17-cb1b-4cb5-b562-36f9bc75b726';
+    const specB = '70609aaf-bb62-40bf-a25e-bec65c583495';
+    const service = createAgentSessionBindingService({ storageDir });
+
+    // 1. Bind to older spec A
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-cross-spec',
+      specId: specA,
+      taskId: '01-task',
+      mode: 'edit',
+      createdAt: '2026-08-20T10:00:00.000Z',
+      lastSeenAt: '2026-08-20T10:00:00.000Z',
+    });
+
+    // 2. Bind to newer spec B
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-cross-spec',
+      specId: specB,
+      taskId: '02-task',
+      mode: 'edit',
+      createdAt: '2026-08-22T10:00:00.000Z',
+      lastSeenAt: '2026-08-22T10:00:00.000Z',
+    });
+
+    // 3. Current binding must be spec B
+    const currentBefore = await service.resolveCurrentBinding('claude', 'sess-cross-spec');
+    assert.equal(currentBefore.specId, specB);
+
+    // 4. Update session mode to 'agent'
+    const updated = await service.updateSessionMode('claude', 'sess-cross-spec', 'agent');
+    assert.equal(updated.specId, specB);
+    assert.equal(updated.mode, 'agent');
+
+    // 5. Verify spec A on disk was NOT modified (mode is still 'edit', lastSeenAt still 2026-08-20)
+    const specABindings = await service.listBindings({ specId: specA });
+    assert.equal(specABindings.length, 1);
+    assert.equal(specABindings[0].mode, 'edit');
+    assert.equal(specABindings[0].lastSeenAt, '2026-08-20T10:00:00.000Z');
+
+    // 6. Verify spec B on disk WAS modified (mode is 'agent', lastSeenAt updated)
+    const specBBindings = await service.listBindings({ specId: specB });
+    assert.equal(specBBindings.length, 1);
+    assert.equal(specBBindings[0].mode, 'agent');
+    assert.notEqual(specBBindings[0].lastSeenAt, '2026-08-22T10:00:00.000Z');
+
+    // 7. Subsequent resolveCurrentBinding still returns spec B
+    const currentAfter = await service.resolveCurrentBinding('claude', 'sess-cross-spec');
+    assert.equal(currentAfter.specId, specB);
+    assert.equal(currentAfter.mode, 'agent');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Finding 2: deterministic tie-breaker for equal lastSeenAt records does not depend on file listing order', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-tie-breaker-test-'));
+  try {
+    const storageDir = join(tmpDir, 'sessions');
+    const specAlpha = '11111111-1111-4111-8111-111111111111';
+    const specBeta = '22222222-2222-4222-8222-222222222222';
+    const service = createAgentSessionBindingService({ storageDir });
+
+    const fixedTime = '2026-08-23T12:00:00.000Z';
+
+    // Bind both with identical lastSeenAt and createdAt
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-tie',
+      specId: specBeta,
+      createdAt: fixedTime,
+      lastSeenAt: fixedTime,
+    });
+    await service.bindSession({
+      provider: 'claude',
+      providerSessionId: 'sess-tie',
+      specId: specAlpha,
+      createdAt: fixedTime,
+      lastSeenAt: fixedTime,
+    });
+
+    // Stable tie-breaker must pick specAlpha (alphabetically lowest specId)
+    const current = await service.resolveCurrentBinding('claude', 'sess-tie');
+    assert.equal(current.specId, specAlpha);
+
+    const currentSync = service.resolveCurrentBindingSync('claude', 'sess-tie');
+    assert.equal(currentSync.specId, specAlpha);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

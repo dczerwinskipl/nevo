@@ -340,31 +340,9 @@ export async function handleAiRequest({
         const descriptor = service.registry?.get(provider)?.descriptor;
         const capabilities = descriptor?.capabilities || {};
 
-        let binding = null;
-        let taskIds = [];
-        let specId = undefined;
-
-        if (service.bindingService) {
-          const allBindings = await service.bindingService.listBindings({ provider, providerSessionId });
-          if (allBindings.length > 0) {
-            // Pick current spec deterministically by most recent lastSeenAt (owner-decisions.md D10 Option C)
-            const sorted = allBindings.slice().sort((a, b) => new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime());
-            const currentBinding = sorted[0];
-            specId = currentBinding.specId;
-            const specRows = allBindings.filter(b => b.specId === specId);
-            taskIds = Array.from(new Set(specRows.map(r => r.taskId).filter(Boolean)));
-            binding = {
-              ...currentBinding,
-              taskIds,
-            };
-          }
-        } else {
-          binding = await service.getSession(provider, providerSessionId);
-          if (binding) {
-            specId = binding.specId;
-            taskIds = binding.taskIds || (binding.taskId ? [binding.taskId] : []);
-          }
-        }
+        const binding = await service.getSession(provider, providerSessionId);
+        const taskIds = binding?.taskIds || (binding?.taskId ? [binding.taskId] : []);
+        const specId = binding?.specId;
 
         const transcript = service.transcriptCache
           ? await service.transcriptCache.getTranscript(provider, providerSessionId)

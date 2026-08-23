@@ -27,7 +27,7 @@ export const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  'fixed z-50 gap-4 bg-[var(--surface-raised)] p-5 sm:p-6 shadow-2xl transition ease-in-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out overflow-y-auto',
+  'fixed z-50 gap-4 bg-[var(--surface-raised)] p-5 sm:p-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] sm:pt-6 sm:pb-6 sm:pl-6 sm:pr-6 shadow-2xl transition ease-in-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out overflow-y-auto',
   {
     variants: {
       side: {
@@ -66,7 +66,7 @@ export const SheetContent = React.forwardRef<
         {children}
         {!hideClose && (
           <DialogPrimitive.Close
-            className="absolute right-4 top-4 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] sm:right-4 sm:top-4 rounded-lg p-1.5 text-[var(--muted)] opacity-70 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
             aria-label="Zamknij"
           >
             <X className="size-4" />

@@ -3,6 +3,7 @@ import {
   validateAgentIdentity,
   validateAgentExecutionMode,
 } from './contracts.mjs';
+import { compareBindingRecency } from './binding-service.mjs';
 
 export class AiSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
@@ -112,7 +113,7 @@ export class AiSessionService {
       if (filters.taskId && !rows.some(r => r.taskId === filters.taskId)) {
         continue;
       }
-      const sortedRows = rows.slice().sort((a, b) => new Date(b.lastSeenAt || 0).getTime() - new Date(a.lastSeenAt || 0).getTime());
+      const sortedRows = rows.slice().sort(compareBindingRecency);
       const representative = sortedRows[0];
       const taskIds = Array.from(new Set(rows.map(r => r.taskId).filter(Boolean)));
 
@@ -188,7 +189,16 @@ export class AiSessionService {
   async getSession(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.bindingService) {
-      return this.bindingService.getBinding(provider, providerSessionId);
+      if (typeof this.bindingService.resolveCurrentBinding === 'function') {
+        return this.bindingService.resolveCurrentBinding(provider, providerSessionId);
+      }
+      if (typeof this.bindingService.getBinding === 'function') {
+        return this.bindingService.getBinding(provider, providerSessionId);
+      }
+      if (typeof this.bindingService.listBindings === 'function') {
+        const list = await this.bindingService.listBindings({ provider, providerSessionId });
+        return list?.find(b => b.provider === provider && b.providerSessionId === providerSessionId) || null;
+      }
     }
     return null;
   }
@@ -232,8 +242,8 @@ export class AiSessionService {
 
     let resolvedMode;
     let existingBinding = null;
-    if (providerSessionId && typeof this.bindingService?.getBinding === 'function') {
-      existingBinding = await this.bindingService.getBinding(provider, providerSessionId);
+    if (providerSessionId) {
+      existingBinding = await this.getSession(provider, providerSessionId);
     }
     const descriptor = this.registry.get(provider).descriptor;
 

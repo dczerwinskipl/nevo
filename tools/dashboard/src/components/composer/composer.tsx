@@ -1,8 +1,11 @@
-import { useState, useRef, type KeyboardEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
 import { Send, CircleStop } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AgentExecutionMode } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { getComposerLayoutState } from './composer-sizing';
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 export interface ChatComposerProps {
   onSend: (text: string) => void | Promise<void>;
@@ -51,6 +54,25 @@ export function ChatComposer({
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
 
+  const adjustHeight = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    if (!isFocused) {
+      el.style.height = '';
+      return;
+    }
+
+    // Reset height temporarily to correctly compute scrollHeight when deleting or pasting text
+    el.style.height = 'auto';
+    const newHeight = el.scrollHeight;
+    el.style.height = `${newHeight}px`;
+  }, [isFocused, textareaRef]);
+
+  useIsomorphicLayoutEffect(() => {
+    adjustHeight();
+  }, [draft, isFocused, adjustHeight]);
+
   const isDisabled = disabled || !isProviderAvailable || Boolean(loadError);
 
   const defaultPlaceholder = loadError
@@ -77,6 +99,8 @@ export function ChatComposer({
     onSend(trimmed);
   };
 
+  const layoutState = getComposerLayoutState({ isFocused, draft });
+
   return (
     <div
       className={cn(
@@ -93,17 +117,18 @@ export function ChatComposer({
             ref={textareaRef}
             rows={1}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+            }}
+            onInput={adjustHeight}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             onKeyDown={handleKeyDown}
             disabled={isDisabled}
             placeholder={placeholder || defaultPlaceholder}
             className={cn(
-              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base sm:text-sm outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 transition-all duration-200',
-              isFocused || draft.includes('\n') || draft.length > 80
-                ? 'min-h-24 max-h-[40vh] overflow-y-auto'
-                : 'min-h-11 max-h-12 overflow-hidden'
+              'w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base sm:text-sm outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 transition-all duration-150',
+              layoutState.className
             )}
           />
         </label>

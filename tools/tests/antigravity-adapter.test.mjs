@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import {
   AntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
+  extractFinalResponse,
 } from '../ai/antigravity-adapter.mjs';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { CapabilityNotSupportedError } from '../ai/contracts.mjs';
@@ -764,4 +765,144 @@ test('Antigravity preserves final assistant response even when an earlier tool i
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].status, 'failed', 'tool remains failed');
   assert.deepEqual(textDeltas, ['Plik nie istnieje, ale znalazłem plik zastępczy.'], 'final assistant message must be preserved');
+});
+
+test('extractFinalResponse supports only proven provider shapes and rejects arbitrary property guesses', () => {
+  // Proven shapes
+  assert.equal(extractFinalResponse({ result: 'plain string result' }), 'plain string result');
+  assert.equal(extractFinalResponse({ type: 'done', result: 'done result' }), 'done result');
+  assert.equal(extractFinalResponse({ event: 'result', result: { response: 'object result response' } }), 'object result response');
+  assert.equal(extractFinalResponse({ response: 'direct response' }), 'direct response');
+
+  // Unproven / generic metadata fields that must NOT be treated as assistant prose
+  assert.equal(extractFinalResponse({ result: { text: 'some text' } }), null);
+  assert.equal(extractFinalResponse({ result: { content: 'some content' } }), null);
+  assert.equal(extractFinalResponse({ result: { message: 'some message' } }), null);
+  assert.equal(extractFinalResponse({ result: { summary: 'some summary' } }), null);
+  assert.equal(extractFinalResponse({ text: 'top level text' }), null);
+  assert.equal(extractFinalResponse({ content: 'top level content' }), null);
+  assert.equal(extractFinalResponse({ message: 'top level message' }), null);
+  assert.equal(extractFinalResponse({ summary: 'top level summary' }), null);
+  assert.equal(extractFinalResponse({ step_update: { response: 'step update' } }), null);
+  assert.equal(extractFinalResponse({ result: { other: 123 } }), null);
+  assert.equal(extractFinalResponse(null), null);
+  assert.equal(extractFinalResponse('not an object'), null);
+});
+
+test('Antigravity lifecycle: authoritative terminal result resolves immediately, strictly cuts off trailing events, retains process ownership until exit, and prevents duplicate completion', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    child.killed = true;
+    return true;
+  };
+
+  let capturedOperation = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+  });
+
+  const textDeltas = [];
+  const toolsStarted = [];
+  const reasonings = [];
+  const usages = [];
+
+  const startPromise = provider.startTurn({
+    turnId: 'turn-cutoff-test',
+    providerSessionId: 'sess-cutoff',
+    message: 'run test',
+    emitTextDelta: (t) => textDeltas.push(t),
+    emitToolStarted: (t) => toolsStarted.push(t),
+    emitReasoningDelta: (r) => reasonings.push(r),
+    emitUsageUpdated: (u) => usages.push(u),
+    setOperation: (op) => { capturedOperation = op; },
+  });
+
+  // 1. Child emits init
+  child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'sess-cutoff' })}\n`);
+
+  // 2. Child emits authoritative result
+  child.stdout.push(`${JSON.stringify({ event: 'result', result: { response: 'done' } })}\n`);
+
+  // Allow microtasks to resolve turn
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // Assert: startTurn resolves immediately at result
+  let resolved = false;
+  startPromise.then(() => { resolved = true; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(resolved, true, 'startTurn must resolve immediately upon result');
+  assert.deepEqual(textDeltas, ['done'], '"done" must be emitted exactly once');
+
+  // Assert: child is still alive and remains tracked under deterministic cleanup ownership
+  assert.ok(capturedOperation, 'operation was tracked');
+  assert.equal(capturedOperation.child, child);
+  assert.equal(capturedOperation.isResolved, true);
+
+  // 3. Child emits trailing stdout events while still alive
+  child.stdout.push(`${JSON.stringify({ type: 'text.delta', delta: 'trailing text after done' })}\n`);
+  child.stdout.push(`${JSON.stringify({ type: 'tool.started', toolId: 'tool-trailing', toolName: 'Bash', input: { cmd: 'ls' } })}\n`);
+  child.stdout.push(`${JSON.stringify({ type: 'reasoning.delta', reasoning: 'trailing thought' })}\n`);
+  child.stdout.push(`${JSON.stringify({ type: 'usage', tokensIn: 500, tokensOut: 500 })}\n`);
+
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // Assert: no text, tool, usage, or reasoning events emitted after result
+  assert.deepEqual(textDeltas, ['done'], 'trailing text delta must be ignored after result');
+  assert.deepEqual(toolsStarted, [], 'trailing tool must be ignored after result');
+  assert.deepEqual(reasonings, [], 'trailing reasoning must be ignored after result');
+  assert.deepEqual(usages, [], 'trailing usage must be ignored after result');
+
+  // 4. Child emits close
+  child.exitCode = 0;
+  child.emit('close', 0);
+
+  const turnResult = await startPromise;
+  assert.equal(turnResult.status, 'completed');
+  assert.equal(textDeltas.length, 1);
+});
+
+test('Antigravity bounded graceful termination terminates child process if it remains alive indefinitely after result', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    child.exitCode = 0;
+    setImmediate(() => child.emit('close', 0));
+    return true;
+  };
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 30,
+    forceGraceMs: 30,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-hanging-child',
+    providerSessionId: 'sess-hanging',
+    message: 'hello',
+  });
+
+  child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'sess-hanging' })}\n`);
+  child.stdout.push(`${JSON.stringify({ event: 'result', result: { response: 'done' } })}\n`);
+
+  const result = await turnPromise;
+  assert.equal(result.status, 'completed');
+
+  // Wait for post-result timeout to fire
+  await new Promise(resolve => setTimeout(resolve, 80));
+
+  assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination');
 });

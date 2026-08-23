@@ -59,28 +59,16 @@ export function defaultProbeAntigravityExecutable(executable) {
 }
 
 export function extractFinalResponse(raw) {
-  if (!raw) return null;
-  // 1. Direct string in raw.result
+  if (!raw || typeof raw !== 'object') return null;
+  // 1. Direct string in raw.result (e.g. { type: 'done', result: '...' } or { event: 'result', result: '...' })
   if (typeof raw.result === 'string') return raw.result;
-  // 2. Object in raw.result (e.g. { response: '...', text: '...', content: '...', message: '...', summary: '...' })
-  if (raw.result && typeof raw.result === 'object') {
-    if (typeof raw.result.response === 'string') return raw.result.response;
-    if (typeof raw.result.text === 'string') return raw.result.text;
-    if (typeof raw.result.content === 'string') return raw.result.content;
-    if (typeof raw.result.message === 'string') return raw.result.message;
-    if (typeof raw.result.summary === 'string') return raw.result.summary;
+  // 2. Object in raw.result with response property (e.g. { event: 'result', result: { response: '...' } })
+  if (raw.result && typeof raw.result === 'object' && typeof raw.result.response === 'string') {
+    return raw.result.response;
   }
-  // 3. Direct response / text / content / message / summary on raw
-  if (typeof raw.response === 'string') return raw.response;
-  if (typeof raw.text === 'string') return raw.text;
-  if (typeof raw.content === 'string') return raw.content;
-  if (typeof raw.message === 'string') return raw.message;
-  if (typeof raw.summary === 'string') return raw.summary;
-  // 4. Object in raw.step_update (if step_update had final response)
-  if (raw.step_update && typeof raw.step_update === 'object') {
-    if (typeof raw.step_update.response === 'string') return raw.step_update.response;
-    if (typeof raw.step_update.text === 'string') return raw.step_update.text;
-    if (typeof raw.step_update.content === 'string') return raw.step_update.content;
+  // 3. Direct response property on raw (e.g. { type: 'done', response: '...' })
+  if (typeof raw.response === 'string') {
+    return raw.response;
   }
   return null;
 }
@@ -243,6 +231,9 @@ export class AntigravityAgentProvider {
         providerSessionId: effectiveSessionId,
         cancelled: false,
         child: null,
+        isResolved: false,
+        isDone: false,
+        postResultTimer: null,
       };
 
       if (setOperation) setOperation(operation);
@@ -288,31 +279,51 @@ export class AntigravityAgentProvider {
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
       }
 
-      const cleanup = () => {
-        this.#activeOperations.delete(turnId);
-      };
-
       const finishTurn = () => {
         if (isResolved) return;
         isResolved = true;
-        cleanup();
+        isDone = true;
+        operation.isResolved = true;
+        operation.isDone = true;
         resolve({
           turnId,
           providerSessionId: currentSessionId || effectiveSessionId,
           status: 'completed',
         });
+        // Initiate bounded graceful termination if child process has not exited yet
+        if (child && !child.killed && child.exitCode === null) {
+          operation.postResultTimer = setTimeout(() => {
+            if (child && child.exitCode === null) {
+              terminateChildProcess(child, {
+                graceMs: this.#cancelGraceMs,
+                forceGraceMs: this.#forceGraceMs,
+              }).catch(() => {});
+            }
+          }, this.#cancelGraceMs);
+        }
       };
 
       const failTurn = (err) => {
         if (isResolved) return;
         isResolved = true;
-        cleanup();
+        isDone = true;
+        operation.isResolved = true;
+        operation.isDone = true;
+        if (operation.postResultTimer) {
+          clearTimeout(operation.postResultTimer);
+          operation.postResultTimer = null;
+        }
+        this.#activeOperations.delete(turnId);
         reject(err);
       };
 
       if (signal) {
         signal.addEventListener('abort', () => {
           operation.cancelled = true;
+          if (operation.postResultTimer) {
+            clearTimeout(operation.postResultTimer);
+            operation.postResultTimer = null;
+          }
           if (child) {
             terminateChildProcess(child, {
               graceMs: this.#cancelGraceMs,
@@ -323,6 +334,9 @@ export class AntigravityAgentProvider {
       }
 
       const processLine = async (line) => {
+        if (isDone || isResolved) {
+          return;
+        }
         const trimmed = line.trim();
         if (!trimmed) return;
 
@@ -331,7 +345,9 @@ export class AntigravityAgentProvider {
           raw = JSON.parse(trimmed);
         } catch {
           // Fallback to plain streaming text if not JSON
-          sendTextDelta(trimmed + '\n');
+          if (!isDone && !isResolved) {
+            sendTextDelta(trimmed + '\n');
+          }
           return;
         }
 
@@ -550,11 +566,16 @@ export class AntigravityAgentProvider {
       let stderrBuffer = '';
 
       child.stdout?.on('data', chunk => {
+        if (isDone || isResolved) return;
         lineBuffer += chunk.toString();
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
-          processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
+          if (isDone || isResolved) break;
+          processingQueue = processingQueue.then(() => {
+            if (isDone || isResolved) return;
+            return processLine(line);
+          }).catch(err => {
             failTurn(err);
           });
         }
@@ -567,7 +588,14 @@ export class AntigravityAgentProvider {
       });
 
       child.on('error', err => {
-        if (isResolved) return;
+        if (operation.postResultTimer) {
+          clearTimeout(operation.postResultTimer);
+          operation.postResultTimer = null;
+        }
+        if (isResolved) {
+          this.#activeOperations.delete(turnId);
+          return;
+        }
         const msg = err.code === 'ENOENT'
           ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
           : `Antigravity process error: ${err.message}`;
@@ -575,18 +603,32 @@ export class AntigravityAgentProvider {
       });
 
       child.on('close', async exitCode => {
+        if (operation.postResultTimer) {
+          clearTimeout(operation.postResultTimer);
+          operation.postResultTimer = null;
+        }
+
+        if (isResolved) {
+          this.#activeOperations.delete(turnId);
+          return;
+        }
+
         try {
           await processingQueue;
         } catch (e) {
           return failTurn(e);
         }
 
-        if (lineBuffer.trim()) {
-          try { await processLine(lineBuffer); } catch (e) { return failTurn(e); }
+        if (!isResolved && lineBuffer.trim()) {
+          try {
+            await processLine(lineBuffer);
+          } catch (e) {
+            return failTurn(e);
+          }
         }
 
         if (isResolved) {
-          cleanup();
+          this.#activeOperations.delete(turnId);
           return;
         }
 
@@ -623,6 +665,7 @@ export class AntigravityAgentProvider {
         }
 
         finishTurn();
+        this.#activeOperations.delete(turnId);
       });
 
       // Send prompt / message to child stdin
@@ -637,8 +680,7 @@ export class AntigravityAgentProvider {
         child.stdin.write(payload + '\n');
         child.stdin.end();
       } catch (err) {
-        cleanup();
-        reject(new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, { cause: err }));
+        failTurn(new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, { cause: err }));
       }
     });
   }
@@ -647,6 +689,10 @@ export class AntigravityAgentProvider {
     const operation = passedOp || (turnId ? this.#activeOperations.get(turnId) : null);
     if (operation) {
       operation.cancelled = true;
+      if (operation.postResultTimer) {
+        clearTimeout(operation.postResultTimer);
+        operation.postResultTimer = null;
+      }
       const child = operation.child;
       if (child) {
         try {

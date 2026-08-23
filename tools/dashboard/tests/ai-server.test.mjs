@@ -744,3 +744,69 @@ test('AC9: Cross-spec session binding isolation (D10) never produces merged task
   }
 });
 
+test('Finding 2: PATCH session mode updates only the current spec rows and does not switch current spec', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
+  const storageDir = join(tmpDir, 'sessions');
+  const { service } = createStack({ storageDir });
+  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const specA = '11111111-1111-4111-8111-111111111111';
+    const specB = '22222222-2222-4222-8222-222222222222';
+    const sharedSessionId = 'sess-patch-mode-test';
+
+    // Spec A older
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specA,
+      taskId: 'task-a1',
+      mode: 'edit',
+      createdAt: '2026-08-20T10:00:00.000Z',
+      lastSeenAt: '2026-08-20T10:00:00.000Z',
+    });
+
+    // Spec B newer
+    await service.bindingService.bindSession({
+      provider: 'mock',
+      providerSessionId: sharedSessionId,
+      specId: specB,
+      taskId: 'task-b1',
+      mode: 'edit',
+      createdAt: '2026-08-22T10:00:00.000Z',
+      lastSeenAt: '2026-08-22T10:00:00.000Z',
+    });
+
+    // GET resolves to Spec B
+    const getRes1 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes1.status, 200);
+    const session1 = (await getRes1.json()).session;
+    assert.equal(session1.specId, specB);
+    assert.equal(session1.mode, 'edit');
+
+    // PATCH mode to 'agent'
+    const patchRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`, {
+      ...control({ mode: 'agent' }),
+      method: 'PATCH',
+    });
+    assert.equal(patchRes.status, 200);
+
+    // Verify Spec A remains untouched
+    const specABindings = await service.bindingService.listBindings({ specId: specA });
+    assert.equal(specABindings[0].mode, 'edit');
+    assert.equal(specABindings[0].lastSeenAt, '2026-08-20T10:00:00.000Z');
+
+    // Subsequent GET still returns Spec B with mode 'agent'
+    const getRes2 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sharedSessionId)}`);
+    assert.equal(getRes2.status, 200);
+    const session2 = (await getRes2.json()).session;
+    assert.equal(session2.specId, specB);
+    assert.equal(session2.mode, 'agent');
+  } finally {
+    await closeServer(server);
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+
