@@ -116,6 +116,16 @@ unphased message is the legacy final answer only when no explicit final answer e
 Unknown non-null or conflicting phases fail closed. This mapping does not alter Codex
 reasoning-effort configuration.
 
+Codex terminal notifications are status-first. An authoritative `interrupted` turn maps
+to cancellation/interruption and a `failed` turn maps to provider failure even when the
+app-server omits `item/completed` for activity that was still active. Any unfinished
+normalized tool is closed as failed so it cannot remain running in the UI. For an
+authoritative successful turn, unfinished tool/action outcomes and the final assistant
+answer remain protocol errors; unfinished reasoning, input, or commentary activity alone
+does not invalidate the successful turn. Legacy unphased agent messages keep the
+deterministic rule above: the last candidate must complete authoritatively before it can
+be used as the final answer.
+
 Execution modes use schema-verified Codex fields:
 
 - `ask` uses a read-only sandbox with no approval prompts, preserving non-mutating

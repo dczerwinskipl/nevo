@@ -85,22 +85,27 @@ tasks:
       - codex-app-server-client
     implementation:
       baseline_revision: 7252eedfd1fe19a2538c9b892b7797f045d7066a
-      review_revision: 5692fb4301f9ea33671b0ef8c289621083590f4d
+      review_revision: a6358caa70983953e87503c9dcfecfaac11a5dc1
       changed_paths:
         - docs/development/ai-sessions.md
         - tools/ai/codex-adapter.mjs
         - tools/dashboard/server/ai-services.mjs
         - tools/dashboard/tests/ai-contract-drift.test.mjs
         - tools/dashboard/tests/ai-server.test.mjs
+        - tools/lib/fs.mjs
         - tools/tests/codex-adapter.test.mjs
-      worktree_patch_fingerprint: null
+        - tools/tests/fs-safety.test.mjs
+      worktree_patch_fingerprint: ae4af6fb4138c90f7057f8615495d7abc31b4e32f092f7cc9b98690e03cba5b2
     self_check:
-      fingerprint: ccd68c0891c4e208584690005d150165bd256799502cc5fc7319d142fa54625c
-      revision: 5692fb4301f9ea33671b0ef8c289621083590f4d
+      fingerprint: 57df3053807f68c598379c6306f2e3b580704a422b39c7e740965a932e0e5e02
+      revision: a6358caa70983953e87503c9dcfecfaac11a5dc1
       commands:
         - command: node --test tools/tests/codex-app-server-client.test.mjs
             tools/tests/codex-schema-compat.test.mjs
             tools/tests/codex-adapter.test.mjs
+          exit_code: 0
+        - command: node --test tools/tests/fs-safety.test.mjs
+            tools/tests/finalize.test.mjs
           exit_code: 0
         - command: node --test tools/tests/*.test.mjs
           exit_code: 0

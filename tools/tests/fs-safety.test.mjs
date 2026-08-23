@@ -2,9 +2,19 @@
 // Run: node --test tools/tests/
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { resolveWithinBase } from '../lib/fs.mjs';
+import { moveDir, resolveWithinBase } from '../lib/fs.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 
 describe('resolveWithinBase', () => {
@@ -47,5 +57,94 @@ describe('resolveWithinBase', () => {
       assert.match(err.message, /\.\.\/\.\.\/etc\/passwd/);
       return true;
     });
+  });
+});
+
+function moveFixture(t) {
+  const root = mkdtempSync(join(tmpdir(), 'nevo-move-dir-'));
+  const source = join(root, 'active', 'change');
+  const destination = join(root, 'archive', 'change');
+  mkdirSync(source, { recursive: true });
+  mkdirSync(join(root, 'archive'), { recursive: true });
+  writeFileSync(join(source, 'change.yaml'), 'status: implemented\n');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return { root, source, destination };
+}
+
+function recoverableRename(code, source, destination) {
+  return (from, to) => {
+    if (from === source && to === destination) {
+      const error = new Error(`simulated ${code}`);
+      error.code = code;
+      throw error;
+    }
+    renameSync(from, to);
+  };
+}
+
+describe('moveDir', () => {
+  test('uses atomic rename as the normal path', t => {
+    const { source, destination } = moveFixture(t);
+    let calls = 0;
+
+    moveDir(source, destination, { renameSync(from, to) { calls += 1; renameSync(from, to); } });
+
+    assert.equal(calls, 1);
+    assert.equal(existsSync(source), false);
+    assert.equal(readFileSync(join(destination, 'change.yaml'), 'utf8'), 'status: implemented\n');
+  });
+
+  for (const code of ['EPERM', 'EXDEV']) {
+    test(`falls back through a staged copy for ${code}`, t => {
+      const { source, destination } = moveFixture(t);
+
+      moveDir(source, destination, { renameSync: recoverableRename(code, source, destination) });
+
+      assert.equal(existsSync(source), false);
+      assert.equal(readFileSync(join(destination, 'change.yaml'), 'utf8'), 'status: implemented\n');
+    });
+  }
+
+  test('source cleanup failure leaves no completed archive and remains retryable', t => {
+    const { root, source, destination } = moveFixture(t);
+    const temporaryPath = join(root, 'archive', '.change-staged');
+    const cleanupFailure = new Error('simulated source cleanup failure');
+    cleanupFailure.code = 'EACCES';
+
+    assert.throws(() => moveDir(source, destination, {
+      renameSync: recoverableRename('EPERM', source, destination),
+      temporaryPath,
+      rmSync(path, options) {
+        if (path === source) throw cleanupFailure;
+        rmSync(path, options);
+      },
+    }), error => error.code === 'ARCHIVE_SOURCE_CLEANUP_FAILED' && error.cause === cleanupFailure);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(destination), false);
+    assert.equal(existsSync(temporaryPath), false);
+
+    moveDir(source, destination);
+    assert.equal(existsSync(source), false);
+    assert.equal(existsSync(destination), true);
+  });
+
+  test('fails closed when the final destination already exists', t => {
+    const { source, destination } = moveFixture(t);
+    mkdirSync(destination, { recursive: true });
+    writeFileSync(join(destination, 'existing.txt'), 'authoritative');
+
+    assert.throws(() => moveDir(source, destination), error => error.code === 'EEXIST');
+    assert.equal(existsSync(source), true);
+    assert.equal(readFileSync(join(destination, 'existing.txt'), 'utf8'), 'authoritative');
+  });
+
+  test('does not swallow unrelated rename failures', t => {
+    const { source, destination } = moveFixture(t);
+    const failure = new Error('simulated I/O failure');
+    failure.code = 'EIO';
+
+    assert.throws(() => moveDir(source, destination, { renameSync() { throw failure; } }), error => error === failure);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(destination), false);
   });
 });

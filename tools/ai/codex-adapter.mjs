@@ -618,25 +618,18 @@ export class CodexAgentProvider {
     if (requireString(turn.id, 'completed turn id') !== operation.codexTurnId) {
       throw protocolError('Codex turn/completed identity does not match the active turn.');
     }
-    const unfinished = [...operation.items.values()].filter(item => !item.terminal);
-    for (const item of unfinished.filter(item => TOOL_TYPES.has(item.type))) {
+    const status = requireString(turn.status, 'completed turn status');
+    if (!['completed', 'failed', 'interrupted'].includes(status)) {
+      throw protocolError(`Codex turn/completed reported unknown status '${status}'.`);
+    }
+
+    const unfinished = [...operation.items.entries()].filter(([, item]) => !item.terminal);
+    for (const [, item] of unfinished.filter(([, item]) => TOOL_TYPES.has(item.type))) {
       item.terminal = true;
       operation.emitToolCompleted?.({ toolId: item.publicId, output: 'No authoritative Codex tool outcome.', status: 'failed' });
     }
-    if (unfinished.length > 0) {
-      this.#rejectOperation(operation, protocolError('Codex turn completed with an item lacking authoritative completion.'));
-      return;
-    }
-    if (turn.status === 'completed') {
-      if (operation.providerError) {
-        this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }));
-      } else {
-        this.#publishTerminalUnphasedMessages(operation);
-        this.#resolveOperation(operation);
-      }
-      return;
-    }
-    if (turn.status === 'interrupted') {
+
+    if (status === 'interrupted') {
       this.#rejectOperation(operation, new AiError(
         operation.cancelRequested ? 'AI_TURN_CANCELLED' : 'AI_TURN_INTERRUPTED',
         operation.cancelRequested ? 'Codex turn was cancelled.' : 'Codex turn was interrupted.',
@@ -644,7 +637,45 @@ export class CodexAgentProvider {
       ));
       return;
     }
-    this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', turn.error?.message || 'Codex turn failed.', { status: 502 }));
+    if (status === 'failed') {
+      this.#rejectOperation(operation, new AiError(
+        'AI_PROVIDER_ERROR',
+        turn.error?.message || operation.providerError?.message || 'Codex turn failed.',
+        { status: 502 },
+      ));
+      return;
+    }
+    if (operation.providerError) {
+      this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }));
+      return;
+    }
+
+    const agentMessages = [...operation.items.entries()].filter(([, item]) => item.type === 'agentMessage');
+    const lastAgentMessageId = agentMessages.at(-1)?.[0];
+    const unsafe = unfinished.find(([privateId, item]) => (
+      TOOL_TYPES.has(item.type)
+      || (item.type === 'agentMessage' && item.phase === 'final_answer')
+      || (item.type === 'agentMessage' && !item.phase && privateId === lastAgentMessageId)
+    ));
+    if (unsafe) {
+      const [privateId, item] = unsafe;
+      const phase = item.type === 'agentMessage' ? (item.phase ?? null) : undefined;
+      const phaseLabel = phase ? ` (${phase})` : '';
+      this.#rejectOperation(operation, protocolError(
+        `Codex completed turn '${operation.codexTurnId}' with unfinished ${item.type}${phaseLabel} item '${privateId}'.`,
+        {
+          codexTurnId: operation.codexTurnId,
+          turnStatus: status,
+          itemId: privateId,
+          itemType: item.type,
+          ...(item.type === 'agentMessage' ? { agentMessagePhase: phase } : {}),
+        },
+      ));
+      return;
+    }
+
+    this.#publishTerminalUnphasedMessages(operation);
+    this.#resolveOperation(operation);
   }
 
   #beginAgentMessage(operation, state, phase) {

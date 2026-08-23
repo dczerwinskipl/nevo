@@ -417,24 +417,68 @@ test('uses a deterministic legacy fallback when agentMessage phase is absent', a
   assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
 });
 
-for (const [type, startedItem, delta] of [
-  ['agentMessage', { text: '' }, ['item/agentMessage/delta', { itemId: 'unfinished-item', delta: 'partial' }]],
-  ['reasoning', { summary: [], content: [] }, ['item/reasoning/summaryTextDelta', { itemId: 'unfinished-item', summaryIndex: 0, delta: 'partial' }]],
+test('fails closed with diagnostic details when a successful turn has an unfinished final answer', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean);
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    item: { id: 'private-final', type: 'agentMessage', text: '', phase: 'final_answer' },
+  });
+  await client.emitNotification('item/agentMessage/delta', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-final', delta: 'partial',
+  });
+  await completeTurn(client);
+  await assert.rejects(turn.promise, error => {
+    assert.equal(error.code, 'AI_PROVIDER_PROTOCOL_ERROR');
+    assert.match(error.message, /private-final/);
+    assert.deepEqual(error.details, {
+      codexTurnId: 'codex-turn-1',
+      turnStatus: 'completed',
+      itemId: 'private-final',
+      itemType: 'agentMessage',
+      agentMessagePhase: 'final_answer',
+    });
+    return true;
+  });
+});
+
+test('fails closed when the final legacy agent message lacks authoritative completion', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean);
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    item: { id: 'legacy-final', type: 'agentMessage', text: '' },
+  });
+  await completeTurn(client);
+  await assert.rejects(turn.promise, error => (
+    error.code === 'AI_PROVIDER_PROTOCOL_ERROR'
+    && error.details?.itemId === 'legacy-final'
+    && error.details?.agentMessagePhase === null
+  ));
+});
+
+for (const [label, item, deltaMethod, delta] of [
+  ['reasoning', { id: 'informational', type: 'reasoning', summary: [], content: [] }, 'item/reasoning/summaryTextDelta', { summaryIndex: 0, delta: 'partial' }],
+  ['commentary', { id: 'informational', type: 'agentMessage', text: '', phase: 'commentary' }, 'item/agentMessage/delta', { delta: 'partial' }],
 ]) {
-  test(`fails closed when a started ${type} item lacks authoritative item/completed`, async () => {
+  test(`successful turn tolerates unfinished ${label} activity`, async () => {
     const client = standardClient();
     const provider = createCodexAgentProvider({ client });
     const turn = directTurn(provider, { providerSessionId: 'thread-1' });
     await waitFor(() => turn.operation, Boolean);
     await client.emitNotification('item/started', {
-      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
-      item: { id: 'unfinished-item', type, ...startedItem },
+      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1, item,
     });
-    await client.emitNotification(delta[0], {
-      threadId: 'thread-1', turnId: 'codex-turn-1', ...delta[1],
+    await client.emitNotification(deltaMethod, {
+      threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'informational', ...delta,
     });
     await completeTurn(client);
-    await assert.rejects(turn.promise, error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+    await turn.promise;
+    assert.equal(turn.emitted.events.some(event => event.type === 'turn.failed'), false);
   });
 }
 
@@ -718,7 +762,12 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
     item: { id: 'tool', type: 'fileChange', changes: [], status: 'inProgress' },
   });
   await completeTurn(unfinishedClient);
-  await assert.rejects(unfinished.promise, error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  await assert.rejects(unfinished.promise, error => (
+    error.code === 'AI_PROVIDER_PROTOCOL_ERROR'
+    && error.details?.itemId === 'tool'
+    && error.details?.itemType === 'fileChange'
+    && error.details?.turnStatus === 'completed'
+  ));
   assert.equal(unfinished.emitted.completed[0].status, 'failed');
 
   const failedClient = standardClient();
@@ -735,6 +784,37 @@ test('failed/interrupted turns, unfinished tools, client failure, and disposal n
   await Promise.all([disposedProvider.dispose(), disposedProvider.dispose()]);
   await assert.rejects(disposed.promise, error => error.code === 'AI_PROVIDER_DISPOSED');
   assert.equal(disposedClient.disposals, 1);
+});
+
+for (const status of ['interrupted', 'failed']) {
+  test(`${status} turn keeps its authoritative terminal result with an unfinished dynamic tool`, async () => {
+    const client = standardClient();
+    const provider = createCodexAgentProvider({ client });
+    const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+    await waitFor(() => turn.operation, Boolean);
+    await client.emitNotification('item/started', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+      item: { id: 'unfinished-dynamic', type: 'dynamicToolCall', tool: 'host-command', arguments: {}, status: 'inProgress' },
+    });
+    await completeTurn(client, 'thread-1', 'codex-turn-1', status);
+    await assert.rejects(turn.promise, error => error.code === (status === 'interrupted' ? 'AI_TURN_INTERRUPTED' : 'AI_PROVIDER_ERROR'));
+    assert.equal(turn.emitted.completed[0].status, 'failed');
+  });
+}
+
+test('requested cancellation stays cancelled with an unfinished tool', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean);
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    item: { id: 'unfinished-command', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'inProgress' },
+  });
+  await provider.cancelTurn({ operation: turn.operation });
+  await completeTurn(client, 'thread-1', 'codex-turn-1', 'interrupted');
+  await assert.rejects(turn.promise, error => error.code === 'AI_TURN_CANCELLED');
+  assert.equal(turn.emitted.completed[0].status, 'failed');
 });
 
 test('default dashboard service registers Codex without starting a live app-server', async () => {

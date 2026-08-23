@@ -37,8 +37,10 @@ semantic_references:
     - codex-app-server-client
 allowed_paths:
   - tools/ai/codex-adapter.mjs
+  - tools/lib/fs.mjs
   - tools/dashboard/server/ai-services.mjs
   - tools/tests/codex-adapter.test.mjs
+  - tools/tests/fs-safety.test.mjs
   - tools/tests/fixtures/codex-adapter/**
   - tools/dashboard/tests/ai-server.test.mjs
   - tools/dashboard/tests/ai-contract-drift.test.mjs
@@ -116,8 +118,12 @@ contracts, register it in the default dashboard service, and document its behavi
 - `cancelTurn` uses `turn/interrupt` for running and waiting turns and tolerates the
   already-terminal race only when the final notification proves it.
 - Normalize failed/interrupted/completed turn status exactly once. Provider/client
-  failure, invalid consumed payload, failed resume, disposal, or an active item lacking
-  an authoritative success outcome must never emit success.
+  failure, invalid consumed payload, failed resume, disposal, or a successful turn with
+  an unfinished tool/final-answer item must never emit success. Provider-declared failed
+  and interrupted turns remain authoritative even when informational items omit completion.
+- Keep rename as the spec archive fast path, with a staged copy/remove fallback only for
+  recoverable cross-device/Windows filesystem errors. Never expose the final archive while
+  the active source still exists, overwrite an archive conflict, or reorder finalization.
 - Register the adapter with Claude, Antigravity, and mock in `ai-services.mjs`; update
   `docs/development/ai-sessions.md`. Do not change chat visuals or existing providers.
 
@@ -147,13 +153,17 @@ contracts, register it in the default dashboard service, and document its behavi
    cancelled/interrupted Nevo terminal event, and leaves no pending interaction/request.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
 7. Initialization failure, unexpected exit, malformed/invalid consumed messages,
-   unknown response correlation, failed resume, provider error, interrupted turn, and
-   disposal with active work all fail closed and never emit `turn.completed`.
+   unknown response correlation, failed resume, provider error, interrupted turn, unsafe
+   successful-turn lifecycle gaps, and disposal with active work all fail closed with the
+   correct provider/runtime terminal classification.
    `automated: node --test tools/tests/codex-adapter.test.mjs tools/tests/codex-app-server-client.test.mjs`
-8. The full tooling/provider/browser tests and dashboard build pass without live Codex
+8. Spec archival uses atomic rename normally, safely falls back for `EPERM`/`EXDEV`,
+   fails closed on cleanup/conflicts/unrelated errors, and remains retryable.
+   `automated: node --test tools/tests/fs-safety.test.mjs tools/tests/finalize.test.mjs`
+9. The full tooling/provider/browser tests and dashboard build pass without live Codex
    calls or credentials.
    `automated: node --test tools/tests/*.test.mjs`
-9. Maintainer documentation describes architecture, capabilities, schema refresh,
+10. Maintainer documentation describes architecture, capabilities, schema refresh,
    process ownership, limitations, and offline/strict verification.
    `automated: node tools/docs.mjs check`
 
@@ -161,6 +171,7 @@ contracts, register it in the default dashboard service, and document its behavi
 
 ```text
 node --test tools/tests/codex-app-server-client.test.mjs tools/tests/codex-schema-compat.test.mjs tools/tests/codex-adapter.test.mjs
+node --test tools/tests/fs-safety.test.mjs tools/tests/finalize.test.mjs
 node --test tools/tests/*.test.mjs
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
