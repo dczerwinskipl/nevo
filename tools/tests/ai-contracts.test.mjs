@@ -25,6 +25,8 @@ const capabilities = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 test('validateAgentIdentity enforces canonical pair (provider, providerSessionId)', () => {
@@ -93,6 +95,7 @@ test('required events validate all normalized schemas and reject provider reques
     { ...base, type: 'turn.started' },
     { ...base, type: 'message.started', messageId: 'msg-1', role: 'assistant' },
     { ...base, type: 'text.delta', text: 'hello' },
+    { ...base, type: 'progress.delta', progressId: 'progress-1', text: 'checking files' },
     { ...base, type: 'reasoning.delta', text: 'thinking about code' },
     { ...base, type: 'tool.started', toolId: 'tool-1', toolName: 'Shell', input: { command: 'npm test' } },
     { ...base, type: 'tool.updated', toolId: 'tool-1', output: 'running...', status: 'running' },
@@ -107,14 +110,28 @@ test('required events validate all normalized schemas and reject provider reques
   ]) assert.equal(validateAgentEvent(event).type, event.type);
 
   assert.throws(() => validateAiEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', output: 'success' }), { name: 'AiValidationError' }, 'tool.completed must require a terminal status');
+  assert.throws(() => validateAiEvent({ ...base, type: 'progress.delta', text: 'missing correlation' }), { name: 'AiValidationError' });
   assert.throws(() => validateAiEvent({ ...base, type: 'tool.completed', toolId: 'tool-1', status: 'running' }), { name: 'AiValidationError' }, 'tool.completed status must be completed or failed, not running');
 
   assert.throws(() => validateAiEvent({ ...base, type: 'turn.started', providerRequestId: 'secret' }), { name: 'AiValidationError' });
   assert.throws(() => validateAiEvent({ ...base, type: 'interaction.requested', interaction: { id: 'i', kind: 'permission', toolName: 'x', input: { rawPayload: {} } } }), { name: 'AiValidationError' });
 
   const question = validateAiEvent({ ...base, type: 'interaction.requested', interaction: { id: 'int-2', kind: 'question', questions: [{ id: 'q-1', question: 'Same?' }, { id: 'q-2', question: 'Same?' }] } }).interaction;
+  assert.equal(question.resumePolicy, 'restart');
   assert.deepEqual(validateInteractionResponse(question, { answers: [{ questionId: 'q-1', value: 'A' }, { questionId: 'q-2', value: 'B' }] }).answers.map(item => item.questionId), ['q-1', 'q-2']);
   assert.throws(() => validateInteractionResponse(question, { answers: [{ questionId: 'Same?', value: 'A' }, { questionId: 'q-2', value: 'B' }] }));
+
+  const liveInteraction = validateAiEvent({
+    ...base,
+    type: 'interaction.requested',
+    interaction: { id: 'int-live', kind: 'permission', resumePolicy: 'live-operation', toolName: 'Shell' },
+  }).interaction;
+  assert.equal(liveInteraction.resumePolicy, 'live-operation');
+  assert.throws(() => validateAiEvent({
+    ...base,
+    type: 'interaction.requested',
+    interaction: { id: 'int-invalid', kind: 'permission', resumePolicy: 'provider-specific', toolName: 'Shell' },
+  }), { name: 'AiValidationError' });
 
   const confirmation = { id: 'int-3', kind: 'confirmation', title: 'Confirm', message: 'Sure?' };
   assert.deepEqual(validateInteractionResponse(confirmation, { confirmed: true }), { confirmed: true, decision: 'confirm' });
@@ -192,6 +209,47 @@ test('AiSessionService uses binding service for listings and transcript cache fo
 
   const messages = await service.listMessages('claude', 'sess-1');
   assert.deepEqual(messages, [{ role: 'user', text: 'hi' }]);
+});
+
+test('AiSessionService binds a provider-created session identity only after creation succeeds', async () => {
+  const bindings = [];
+  const bindingService = {
+    async bindSession(binding) {
+      bindings.push(binding);
+      return binding;
+    },
+  };
+  const adapter = {
+    descriptor: { id: 'owned', label: 'Owned', capabilities },
+    async createSession({ mode, purpose }) {
+      assert.equal(mode, 'edit');
+      assert.equal(purpose, 'task:task-1');
+      return { providerSessionId: 'provider-thread-1' };
+    },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const registry = createAiAdapterRegistry([adapter]);
+  const service = createAiSessionService({ registry, bindingService });
+
+  const session = await service.createSession('owned', { specId: 'spec-1', taskId: 'task-1' });
+  assert.equal(session.providerSessionId, 'provider-thread-1');
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].providerSessionId, 'provider-thread-1');
+
+  let failedBindingCalled = false;
+  const failingAdapter = {
+    descriptor: { id: 'failing-owned', label: 'Failing owned', capabilities },
+    async createSession() { throw new Error('provider creation failed'); },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const failingService = createAiSessionService({
+    registry: createAiAdapterRegistry([failingAdapter]),
+    bindingService: { async bindSession() { failedBindingCalled = true; } },
+  });
+  await assert.rejects(() => failingService.createSession('failing-owned', { specId: 'spec-1' }), /provider creation failed/);
+  assert.equal(failedBindingCalled, false);
 });
 
 test('integration: new chat -> first prompt -> provider identity created and bound -> second prompt resumes', async () => {

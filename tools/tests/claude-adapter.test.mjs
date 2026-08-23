@@ -735,7 +735,6 @@ test('Claude input_json_delta does not emit streaming_input status', async () =>
   assert.equal(toolsCompleted.length, 1);
   assert.equal(toolsCompleted[0].status, 'completed');
 });
-
 test('cancelTurn stops at SIGINT when the process responds within the grace period', async () => {
   const child = createHangingMockProcess();
   const provider = createClaudeAgentProvider({

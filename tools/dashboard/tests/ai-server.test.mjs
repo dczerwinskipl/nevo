@@ -12,6 +12,7 @@ import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
+import { createDefaultDashboardAiService } from '../server/ai-services.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -177,6 +178,20 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.ok(policyCalls.includes('control'));
   } finally {
     await closeServer(server);
+  }
+});
+
+test('default dashboard AI service registers Codex alongside existing providers', async () => {
+  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }) });
+  try {
+    assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
+    const descriptor = service.registry.get('codex').descriptor;
+    assert.equal(descriptor.label, 'OpenAI Codex');
+    assert.equal(descriptor.capabilities.resumeSession, true);
+    assert.equal(descriptor.capabilities.steerTurn, false);
+    assert.equal(descriptor.capabilities.planUpdates, false);
+  } finally {
+    await service.shutdown();
   }
 });
 

@@ -13,6 +13,7 @@ summary: >
 related:
   - development.local-setup
   - development.architecture-overview
+  - development.codex-app-server-research
   - adr.0007-provider-neutral-ai-sessions
 ---
 
@@ -63,6 +64,11 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
   seeded demonstration sessions are recreated deterministically.
 - Only one non-terminal turn may be active for a provider/session pair. Retried starts
   with the same idempotency key return that turn; other starts conflict.
+- Every pending interaction declares a neutral `resumePolicy`. `restart` means a fresh
+  provider invocation can reconstruct the continuation; `live-operation` means the
+  interaction is answerable only while its original provider operation remains alive.
+  Boot reconciliation and graceful shutdown interrupt stale `live-operation` turns and
+  clear their pending interaction, while `restart` interactions remain resumable.
 - A future local registry may store correlation evidence under `/.nevo-ai-local/`.
   That directory is local operator state, ignored by Git, and is not provider history.
 
@@ -84,6 +90,82 @@ The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-f
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
 - `diagnostic raw capture`: exact raw stdout and stderr lines are recorded before any adapter processing to `.nevo-ai-local/antigravity_raw/<providerSessionId>/raw.ndjson` for protocol analysis. File write failures are completely isolated from turn execution. To clear diagnostic recordings, remove `.nevo-ai-local/antigravity_raw`.
 
+### OpenAI Codex integration
+
+The Codex adapter uses one lazily started, persistent
+`codex app-server --listen stdio://` process per dashboard AI service. A narrow JSONL
+client owns initialization, request correlation, server requests, failure fan-out, and
+bounded disposal. The provider adapter keeps Codex thread, turn, item, and protocol
+request IDs private and exposes only the existing provider-neutral runtime contracts.
+
+Codex `thread.id` is the sole `providerSessionId`. New sessions call `thread/start`;
+recorded sessions are loaded once per app-server process with `thread/resume`, and a
+failed resume never creates replacement history. The adapter supports resumable
+sessions, cancellation, interactive command/file/permission requests, user questions,
+tool lifecycle, readable reasoning, and token usage. `steerTurn` and `planUpdates` are
+reported as `false` in the first implementation and have no hidden HTTP or transcript
+behavior.
+
+Codex output retains its protocol meaning. An `agentMessage` with
+`phase: final_answer` becomes normal assistant transcript text; `phase: commentary`
+becomes the neutral ordered `progress.delta` activity event and is not projected into
+the conversation; reasoning items remain the separate `reasoning.delta`/reasoning view.
+Agent-message deltas carry no phase, so the adapter routes them through private item
+correlation. Phase is optional: a later authoritative completed item may supply it;
+otherwise superseded completed messages become progress and the final remaining
+unphased message is the legacy final answer only when no explicit final answer exists.
+Unknown non-null or conflicting phases fail closed. This mapping does not alter Codex
+reasoning-effort configuration.
+
+Codex terminal notifications are status-first. An authoritative `interrupted` turn maps
+to cancellation/interruption and a `failed` turn maps to provider failure even when the
+app-server omits `item/completed` for activity that was still active. Any unfinished
+normalized tool is closed as failed so it cannot remain running in the UI. For an
+authoritative successful turn, unfinished tool/action outcomes and the final assistant
+answer remain protocol errors; unfinished reasoning, input, or commentary activity alone
+does not invalidate the successful turn. Legacy unphased agent messages keep the
+deterministic rule above: the last candidate must complete authoritatively before it can
+be used as the final answer.
+
+Execution modes use schema-verified Codex fields:
+
+- `ask` uses a read-only sandbox with no approval prompts, preserving non-mutating
+  analysis.
+- `edit` uses workspace-write with interactive safeguards.
+- `agent` uses workspace-write with `on-request` approval at thread/resume and turn
+  level. Normal repository work stays sandboxed; operations blocked by the Windows
+  sandbox, including host tool access or protected Git metadata, can request explicit
+  user approval and then continue the same live turn. The restricted network default
+  remains unchanged.
+
+Execution mode and permission policy remain partially coupled in this first adapter.
+FU-002 records the later provider-neutral split between ASK/EDIT/AGENT intent and
+read-only/workspace-with-escalation/full-access policy, including possible allow-once
+versus remembered session rules. No remembered approval rule is implemented here.
+
+The client opts into the experimental API so it can receive the required
+`item/tool/requestUserInput` interaction; the adapter consumes no unrelated
+experimental methods. Approval grants are turn-scoped; Nevo does not expose or select
+Codex session-scoped grants. Provider-global notifications are accepted outside turns
+and ignored unless the adapter consumes them. Codex approvals and questions use
+`resumePolicy: live-operation` because their private app-server request correlation
+cannot be reconstructed after the owning process or connection disappears.
+
+The compact compatibility inventory is stored in
+`tools/ai/codex-protocol-baseline.json`; the full generated schema is never committed.
+Refresh the inventory only after inspecting a selected Codex version, then verify it:
+
+```bash
+node tools/ai/verify-codex-schema.mjs --strict
+```
+
+The verifier generates schemas under the OS temporary directory, compares every
+consumed method/type plus the optional `agentMessage.phase` enum, removes the bundle,
+and reports the exact Codex version. Without
+Codex installed, the non-strict command reports a clear skip. Version-specific runtime
+evidence and the distinction between observation and contract remain in
+[Codex app-server protocol research](codex-app-server-research.md).
+
 ## Verify the integration
 
 Run the tooling, server/browser contract, production build, generated-index, and
@@ -93,6 +175,7 @@ ignore-rule checks:
 node --test tools/tests/*.test.mjs
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
+node tools/ai/verify-codex-schema.mjs
 node tools/specs.mjs check
 node tools/docs.mjs check
 git check-ignore .nevo-ai-local/probe

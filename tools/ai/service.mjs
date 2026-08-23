@@ -299,6 +299,10 @@ export class AiSessionService {
   async cancelTurn(turnId, options = {}) {
     return this.turnRuntime.cancelTurn(turnId, options);
   }
+
+  shutdown() {
+    return this.turnRuntime?.shutdown?.();
+  }
 }
 
 export function createAiSessionService(options) {

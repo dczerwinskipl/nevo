@@ -21,6 +21,7 @@ export const SUPPORTED_AGENT_EVENT_TYPES = [
   'turn.started',
   'message.started',
   'text.delta',
+  'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
@@ -193,6 +194,11 @@ export function applyAgentEvent(
         },
       ];
     }
+
+    case 'progress.delta':
+      // Progress is intentionally not projected into the main assistant transcript.
+      // Dedicated activity surfaces can consume the normalized event stream directly.
+      return prevMessages;
 
     case 'tool.started': {
       const toolCall = {

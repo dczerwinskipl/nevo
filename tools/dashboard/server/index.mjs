@@ -572,7 +572,7 @@ export function createDashboardServer({
 
   server.on('close', () => {
     eventHub.close?.();
-    resolvedAiService?.turnRuntime?.shutdown?.();
+    void (resolvedAiService?.shutdown?.() ?? resolvedAiService?.turnRuntime?.shutdown?.());
     operationRuntime.shutdown?.();
   });
   return server;

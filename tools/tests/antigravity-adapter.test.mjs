@@ -1883,5 +1883,3 @@ test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error
 
   assert.equal(result.status, 'completed');
 });
-
-
