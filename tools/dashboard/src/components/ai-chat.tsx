@@ -20,6 +20,7 @@ import {
 import { ChatHeader } from '@/components/chat-header';
 import { SessionDetails } from '@/components/session-details';
 import { ChatComposer } from '@/components/composer';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
 import { ChatMessage } from '@/components/conversation/chat-message';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
@@ -164,11 +165,6 @@ export function AiChatPage({
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
   const linkedTasks = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
-
-  const workByTurnId = useMemo(() => {
-    const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
-    return new Map(projection.workByTurn.map(work => [work.turnId, work]));
-  }, [assistant.messages, assistant.activeTurnId]);
 
   const workByTurnId = useMemo(() => {
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
