@@ -9,6 +9,7 @@ import {
   applyAgentEvent,
   applyCancelTurnResponse,
   shouldSurfaceCancelError,
+  shouldSurfaceTurnError,
 } from '../src/lib/nevo-assistant-runtime.ts';
 
 function readRuntimeSource() {
@@ -335,4 +336,38 @@ test('AiChatPage disables normal composer send when session is waitingForUser', 
   // ChatComposer has disabled and placeholder configured for waitingForUser
   assert.match(chatSource, /disabled=\{assistant\.activity !== 'idle' && !assistant\.isRunning\}/);
   assert.match(chatSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+});
+
+test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {
+  // A. Explicit user cancellation (Stop button) -> no onError toast
+  assert.equal(
+    shouldSurfaceTurnError({ code: 'AI_TURN_CANCELLED', message: 'The turn was cancelled.' }),
+    false,
+    'AI_TURN_CANCELLED must NOT surface as an error toast to the user'
+  );
+
+  // B. Real provider failure -> onError called
+  assert.equal(
+    shouldSurfaceTurnError({ code: 'AI_PROVIDER_ERROR', message: 'Model overloaded' }),
+    true,
+    'AI_PROVIDER_ERROR must surface to user'
+  );
+
+  // C. Turn timeout -> onError called
+  assert.equal(
+    shouldSurfaceTurnError({ code: 'AI_TURN_TIMEOUT', message: 'Turn timed out after 300000ms' }),
+    true,
+    'AI_TURN_TIMEOUT must surface to user'
+  );
+
+  // D. Turn interrupted or protocol error -> onError called
+  assert.equal(
+    shouldSurfaceTurnError({ code: 'AI_TURN_INTERRUPTED', message: 'Interrupted unexpectedly' }),
+    true,
+    'AI_TURN_INTERRUPTED must surface to user'
+  );
+
+  // E. Null / undefined error -> no error
+  assert.equal(shouldSurfaceTurnError(null), false);
+  assert.equal(shouldSurfaceTurnError(undefined), false);
 });

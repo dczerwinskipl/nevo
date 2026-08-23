@@ -19,23 +19,49 @@ const WINDOWS_RESERVED_NAMES = new Set([
 
 /**
  * Encodes an arbitrary opaque providerSessionId into a safe single directory segment.
- * If providerSessionId is already a safe single filesystem segment (conservative chars,
- * reasonable length, not '.' or '..', and not a Windows reserved device name), returns
- * it directly. Otherwise, encodes it using a collision-resistant SHA-256 digest suffix
- * to prevent path traversal, device name collisions, and filesystem errors.
+ * If providerSessionId is a safe single filesystem segment (conservative chars,
+ * reasonable length, not '.' or '..', and not a Windows reserved device name), checks
+ * for case-insensitive collisions against existing directories. If safe and uncollided,
+ * returns it directly. Otherwise, encodes it using a collision-resistant SHA-256 digest
+ * suffix to prevent path traversal, device name collisions, and case collisions.
  */
-export function rawCaptureSessionDirectory(providerSessionId) {
+export function rawCaptureSessionDirectory(providerSessionId, rawCaptureDir = null) {
   if (!providerSessionId || typeof providerSessionId !== 'string') {
     throw new TypeError('providerSessionId must be a non-empty string');
   }
-  const isSafeSegment = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
+  const isSafeCandidate = /^[a-zA-Z0-9_-]+$/.test(providerSessionId)
     && providerSessionId !== '.'
     && providerSessionId !== '..'
     && providerSessionId.length <= 128
     && !WINDOWS_RESERVED_NAMES.has(providerSessionId.toLowerCase());
 
-  if (isSafeSegment) {
-    return providerSessionId;
+  if (isSafeCandidate) {
+    if (!rawCaptureDir) {
+      return providerSessionId;
+    }
+    const candidateDir = join(rawCaptureDir, providerSessionId);
+    if (!existsSync(candidateDir)) {
+      return providerSessionId;
+    }
+    // Candidate exists on disk (could be existing session or case collision on Windows/macOS)
+    const metaPath = join(candidateDir, 'session.json');
+    if (existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+        if (meta.providerSessionId === providerSessionId) {
+          // Exact case-sensitive match belongs to the same session
+          return providerSessionId;
+        }
+      } catch {
+        // Corrupted metadata, fall back to hash
+      }
+    } else {
+      const rawPath = join(candidateDir, 'raw.ndjson');
+      if (!existsSync(rawPath)) {
+        return providerSessionId;
+      }
+    }
+    // If directory exists on disk for a different session or different case-variant, fall back to hash
   }
 
   const safePrefix = providerSessionId
@@ -125,6 +151,7 @@ export class AntigravityAgentProvider {
   #rawCaptureEnabled;
   #loggedCaptureSessions = new Set();
   #sessionWriteQueues = new Map();
+  #sessionDirMap = new Map();
 
   constructor({
     executable = 'agy',
@@ -156,9 +183,19 @@ export class AntigravityAgentProvider {
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
   }
 
+  #resolveSessionDirName(sessionId) {
+    if (!sessionId) return null;
+    let dirName = this.#sessionDirMap.get(sessionId);
+    if (!dirName) {
+      dirName = rawCaptureSessionDirectory(sessionId, this.#rawCaptureDir);
+      this.#sessionDirMap.set(sessionId, dirName);
+    }
+    return dirName;
+  }
+
   getRawCapturePath(sessionId) {
     if (!sessionId || !this.#rawCaptureDir) return null;
-    const sessionDir = rawCaptureSessionDirectory(sessionId);
+    const sessionDir = this.#resolveSessionDirName(sessionId);
     return join(this.#rawCaptureDir, sessionDir, 'raw.ndjson');
   }
 
@@ -172,7 +209,7 @@ export class AntigravityAgentProvider {
     if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId) return;
     if (!this.#loggedCaptureSessions.has(sessionId)) {
       this.#loggedCaptureSessions.add(sessionId);
-      const sessionDirName = rawCaptureSessionDirectory(sessionId);
+      const sessionDirName = this.#resolveSessionDirName(sessionId);
       const filePath = join(this.#rawCaptureDir, sessionDirName, 'raw.ndjson');
       console.log(`[ai] Antigravity raw capture: ${filePath}`);
     }
@@ -206,7 +243,7 @@ export class AntigravityAgentProvider {
       };
     }
 
-    const sessionDirName = rawCaptureSessionDirectory(sessionId);
+    const sessionDirName = this.#resolveSessionDirName(sessionId);
     const sessionDir = join(this.#rawCaptureDir, sessionDirName);
     const filePath = join(sessionDir, 'raw.ndjson');
 
@@ -383,8 +420,8 @@ export class AntigravityAgentProvider {
           if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId !== effectiveSessionId && !isRawCaptureMigrated) {
             isRawCaptureMigrated = true;
             // Migrate any raw records already written under effectiveSessionId to allocatedId
-            const oldDirName = rawCaptureSessionDirectory(effectiveSessionId);
-            const newDirName = rawCaptureSessionDirectory(allocatedId);
+            const oldDirName = this.#resolveSessionDirName(effectiveSessionId);
+            const newDirName = this.#resolveSessionDirName(allocatedId);
             const oldQueue = this.#sessionWriteQueues.get(effectiveSessionId) || Promise.resolve();
             const migrationQueue = oldQueue.then(async () => {
               try {

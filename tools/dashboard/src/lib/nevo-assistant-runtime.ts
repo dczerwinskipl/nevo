@@ -532,6 +532,15 @@ export function shouldSurfaceCancelError(
   return !terminalTurnIds.has(turnId);
 }
 
+export function shouldSurfaceTurnError(
+  error?: { code?: string; message?: string } | null
+): boolean {
+  if (!error) return false;
+  // Explicit cancellation by user (Stop) is an intentional termination, not an unexpected error toast
+  if (error.code === 'AI_TURN_CANCELLED') return false;
+  return true;
+}
+
 export function applyCancelTurnResponse({
   turnId,
   response,
@@ -778,7 +787,7 @@ export function useNevoAssistantRuntime({
           setActiveTurnId(null);
           activeTurnIdRef.current = null;
           setPendingInteraction(null);
-          if (event.error) {
+          if (event.error && shouldSurfaceTurnError(event.error)) {
             onErrorRef.current?.(new Error(event.error.message));
           }
           break;

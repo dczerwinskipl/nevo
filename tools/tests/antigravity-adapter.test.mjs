@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   AntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
@@ -1312,6 +1312,70 @@ test('Antigravity raw capture: rawCaptureSessionDirectory hybrid strategy preser
   // Two different unsafe IDs that share prefix must produce distinct directory names
   assert.notEqual(rawCaptureSessionDirectory('foo/bar'), rawCaptureSessionDirectory('foo\\bar'));
   assert.notEqual(rawCaptureSessionDirectory('NUL'), rawCaptureSessionDirectory('CON'));
+});
+
+test('Antigravity raw capture: case collision simulation prevents cross-session pollution on case-insensitive filesystems', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-case-collision-'));
+  try {
+    // 1. Session 1: 'SessionABC' writes first
+    const child1 = createMockProcess([
+      JSON.stringify({ type: 'init', conversation_id: 'SessionABC' }),
+      JSON.stringify({ event: 'result', response: 'Session 1 response' }),
+    ]);
+    const provider1 = createAntigravityAgentProvider({
+      spawnProcess: () => child1,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    await provider1.startTurn({
+      turnId: 'turn-case-1',
+      providerSessionId: 'SessionABC',
+      message: 'msg 1',
+    });
+    await provider1.flushRawCapture('SessionABC');
+
+    const path1 = provider1.getRawCapturePath('SessionABC');
+    assert.equal(path1, join(tmpDir, 'SessionABC', 'raw.ndjson'));
+    const meta1 = JSON.parse(await readFile(join(tmpDir, 'SessionABC', 'session.json'), 'utf8'));
+    assert.equal(meta1.providerSessionId, 'SessionABC');
+
+    // 2. Session 2: 'sessionabc' (case variant) writes next
+    const child2 = createMockProcess([
+      JSON.stringify({ type: 'init', conversation_id: 'sessionabc' }),
+      JSON.stringify({ event: 'result', response: 'Session 2 response' }),
+    ]);
+    const provider2 = createAntigravityAgentProvider({
+      spawnProcess: () => child2,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    await provider2.startTurn({
+      turnId: 'turn-case-2',
+      providerSessionId: 'sessionabc',
+      message: 'msg 2',
+    });
+    await provider2.flushRawCapture('sessionabc');
+
+    const path2 = provider2.getRawCapturePath('sessionabc');
+    // On case-insensitive filesystems (Windows), path2 must NOT be tmpDir/SessionABC/raw.ndjson
+    assert.notEqual(path2, path1, 'Case variant session must not reuse or overwrite first session capture');
+
+    // Verify content isolation
+    const content1 = await readFile(path1, 'utf8');
+    const lines1 = content1.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    assert.equal(lines1.length, 2, 'Session 1 capture must contain only its own 2 records');
+    assert.equal(lines1[0].providerSessionId, 'SessionABC');
+
+    const content2 = await readFile(path2, 'utf8');
+    const lines2 = content2.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+    assert.equal(lines2.length, 2, 'Session 2 capture must contain only its own 2 records');
+    assert.equal(lines2[0].providerSessionId, 'sessionabc');
+
+    const meta2 = JSON.parse(await readFile(join(dirname(path2), 'session.json'), 'utf8'));
+    assert.equal(meta2.providerSessionId, 'sessionabc');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test('Antigravity raw capture: provisional new session migrates to allocated conversation_id, preserves all records and session.json, and logs only final path', async () => {

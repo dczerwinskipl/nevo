@@ -282,7 +282,7 @@ tasks:
       - session-states-integration
     self_check:
       fingerprint: 1f31d4465d601e677c3ec253997ee735df010c198de3ff3b0d87005c3951c3e9
-      revision: c93e63165654203cc4b2841cf38c5ccd579943b3
+      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -300,7 +300,7 @@ tasks:
       - responsive-accessibility-regression-validation
     self_check:
       fingerprint: fa3d069369dceb7955e20795cde203f1ba37113b175ccd72e37be7038b79a032
-      revision: c93e63165654203cc4b2841cf38c5ccd579943b3
+      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
       commands:
         - command: node tools/specs.mjs validate
           exit_code: 0
@@ -314,7 +314,7 @@ tasks:
       - semantic-chat-presentation-model
     self_check:
       fingerprint: aa88e2ee6300e575066d3b32a4b2fc4dec35606de44ed4fd608de9b4c870fa0f
-      revision: c93e63165654203cc4b2841cf38c5ccd579943b3
+      revision: b7c5f9229a95f00e39f2c136a4e83198b7dff65f
       commands:
         - command: node --test tools/tests/antigravity-adapter.test.mjs
             tools/tests/ai-turn-runtime.test.mjs
