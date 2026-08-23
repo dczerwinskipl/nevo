@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-23T08:45:55.831Z",
+  "generated": "2026-08-23T08:47:15.967Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -496,7 +496,7 @@
           "id": "codex-provider-adapter-and-registration",
           "order": 3,
           "file": "tasks/03-codex-provider-adapter-and-registration.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "provider-neutral-persistent-turn-contracts",
             "codex-app-server-client"
