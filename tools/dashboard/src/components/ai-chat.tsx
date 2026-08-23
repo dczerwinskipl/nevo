@@ -11,7 +11,6 @@ import {
   Send,
   ShieldAlert,
   Trash2,
-  User,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -20,18 +19,15 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from '@/lib/nevo-assistant-runtime';
-import { AiReasoningView } from '@/components/ai-reasoning-view';
-import { MarkdownContent } from '@/components/markdown-content';
+import { ChatMessage } from '@/components/conversation/chat-message';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
-import { WorkSummary } from '@/components/work/work-summary';
-import { hasVisibleProse, shouldRenderChatMessage } from '@/components/work/work-visibility';
 import {
   useAiProviders,
   useCreateAiSession,
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
-import { projectChat, type TurnWork } from '@/lib/chat-projection';
+import { projectChat } from '@/lib/chat-projection';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -39,60 +35,8 @@ import type {
   AiQuestionInteraction,
   AiSession,
   DashboardChange,
-  NormalizedMessage,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
-function ChatMessage({ message, work, isStreaming = false }: { message: NormalizedMessage; work?: TurnWork; isStreaming?: boolean }) {
-  const user = message.role === 'user';
-  const hasProse = hasVisibleProse(message);
-
-  // Nothing to show yet (no prose, no Work) — e.g. the brief moment a turn has started
-  // but no content has streamed in — render nothing rather than an empty bubble/circle;
-  // the transcript's own "isRunning" indicator already covers this loading state.
-  if (!shouldRenderChatMessage(message, Boolean(work))) return null;
-
-  return (
-    <div className={cn('flex gap-3', user && 'justify-end')}>
-      {!user && (
-        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
-          <Bot className="size-4" />
-        </div>
-      )}
-      <div className={cn('min-w-0 space-y-1.5', user ? 'flex max-w-[min(88%,820px)] flex-col items-end' : 'flex-1')}>
-        {/* Work is a flat transcript row, never nested inside the prose card below —
-            a turn with no prose renders Work directly with no card around it at all. */}
-        {work && <WorkSummary work={work} />}
-        {hasProse && (
-          <div className={cn(
-            'max-w-[min(88%,820px)] rounded-2xl px-4 py-3 text-sm leading-6',
-            user
-              ? 'border border-[#2e3746] bg-[#161c24] text-[var(--foreground)]'
-              : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
-          )}>
-            {message.reasoning && (
-              <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
-            )}
-            {message.text && (
-              user ? (
-                <div className="whitespace-pre-wrap font-normal text-[var(--foreground)]">{message.text}</div>
-              ) : (
-                <MarkdownContent markdown={message.text} className="text-[var(--foreground)]" />
-              )
-            )}
-          </div>
-        )}
-      </div>
-      {user && (
-        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]">
-          <User className="size-4" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 
 function useChatVisualViewport() {
   const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({

@@ -58,9 +58,11 @@ tasks:
   - id: conversation-message-presentation
     order: 2
     file: tasks/02-conversation-message-presentation.md
-    status: approved
+    status: implemented
     depends_on:
       - semantic-chat-presentation-model
+    implementation:
+      baseline_revision: c0b81b05e207578d7c082ca3642d013b0412a9d0
 
   - id: per-turn-work-presentation
     order: 3
