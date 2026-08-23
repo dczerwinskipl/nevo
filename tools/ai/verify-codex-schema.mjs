@@ -22,6 +22,41 @@ function requireMethods(actual, required, category, errors) {
   }
 }
 
+function resolveLocalRef(root, ref) {
+  if (typeof ref !== 'string' || !ref.startsWith('#/')) return null;
+  return ref.slice(2).split('/').reduce((value, segment) => value?.[segment.replaceAll('~1', '/').replaceAll('~0', '~')], root);
+}
+
+function stringEnumValues(node, root, seen = new Set()) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return new Set();
+  seen.add(node);
+  const values = new Set((node.enum ?? []).filter(value => typeof value === 'string'));
+  const referenced = resolveLocalRef(root, node.$ref);
+  if (referenced) for (const value of stringEnumValues(referenced, root, seen)) values.add(value);
+  for (const key of ['oneOf', 'anyOf', 'allOf']) {
+    for (const entry of node[key] ?? []) {
+      for (const value of stringEnumValues(entry, root, seen)) values.add(value);
+    }
+  }
+  return values;
+}
+
+function findTaggedVariants(schema, tag, value) {
+  const matches = [];
+  const visited = new Set();
+  function visit(node) {
+    if (!node || typeof node !== 'object' || visited.has(node)) return;
+    visited.add(node);
+    if (node.properties?.[tag] && stringEnumValues(node.properties[tag], schema).has(value)) matches.push(node);
+    for (const child of Object.values(node)) {
+      if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  }
+  visit(schema);
+  return matches;
+}
+
 export async function verifyGeneratedSchemaDirectory(schemaRoot, baseline) {
   const errors = [];
   const [clientRequests, clientNotifications, serverNotifications, serverRequests] = await Promise.all([
@@ -49,6 +84,34 @@ export async function verifyGeneratedSchemaDirectory(schemaRoot, baseline) {
     for (const property of requiredProperties) {
       if (!actualRequired.has(property)) {
         errors.push(`type '${relativePath}' no longer requires '${property}'`);
+      }
+    }
+  }
+
+
+  for (const [relativePath, variants] of Object.entries(baseline.taggedVariants ?? {})) {
+    let schema;
+    try {
+      schema = await readJson(join(schemaRoot, ...relativePath.split('/')));
+    } catch (error) {
+      errors.push(`tagged-variant schema '${relativePath}' is missing or unreadable: ${error.message}`);
+      continue;
+    }
+    for (const variant of variants) {
+      const matches = findTaggedVariants(schema, variant.tag, variant.value);
+      if (matches.length === 0) {
+        errors.push(`type '${relativePath}' no longer contains ${variant.tag}='${variant.value}'`);
+        continue;
+      }
+      for (const [property, expectedValues] of Object.entries(variant.optionalPropertyEnums ?? {})) {
+        const compatible = matches.some(match => {
+          if (!match.properties?.[property] || match.required?.includes(property)) return false;
+          const actual = stringEnumValues(match.properties[property], schema);
+          return expectedValues.every(value => actual.has(value));
+        });
+        if (!compatible) {
+          errors.push(`type '${relativePath}' ${variant.tag}='${variant.value}' no longer has optional '${property}' with values ${expectedValues.join(', ')}`);
+        }
       }
     }
   }

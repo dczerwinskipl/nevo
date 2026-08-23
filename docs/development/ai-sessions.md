@@ -64,6 +64,11 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
   seeded demonstration sessions are recreated deterministically.
 - Only one non-terminal turn may be active for a provider/session pair. Retried starts
   with the same idempotency key return that turn; other starts conflict.
+- Every pending interaction declares a neutral `resumePolicy`. `restart` means a fresh
+  provider invocation can reconstruct the continuation; `live-operation` means the
+  interaction is answerable only while its original provider operation remains alive.
+  Boot reconciliation and graceful shutdown interrupt stale `live-operation` turns and
+  clear their pending interaction, while `restart` interactions remain resumable.
 - A future local registry may store correlation evidence under `/.nevo-ai-local/`.
   That directory is local operator state, ignored by Git, and is not provider history.
 
@@ -100,19 +105,40 @@ tool lifecycle, readable reasoning, and token usage. `steerTurn` and `planUpdate
 reported as `false` in the first implementation and have no hidden HTTP or transcript
 behavior.
 
+Codex output retains its protocol meaning. An `agentMessage` with
+`phase: final_answer` becomes normal assistant transcript text; `phase: commentary`
+becomes the neutral ordered `progress.delta` activity event and is not projected into
+the conversation; reasoning items remain the separate `reasoning.delta`/reasoning view.
+Agent-message deltas carry no phase, so the adapter routes them through private item
+correlation. Phase is optional: a later authoritative completed item may supply it;
+otherwise superseded completed messages become progress and the final remaining
+unphased message is the legacy final answer only when no explicit final answer exists.
+Unknown non-null or conflicting phases fail closed. This mapping does not alter Codex
+reasoning-effort configuration.
+
 Execution modes use schema-verified Codex fields:
 
 - `ask` uses a read-only sandbox with no approval prompts, preserving non-mutating
   analysis.
 - `edit` uses workspace-write with interactive safeguards.
-- `agent` uses workspace-write without prompts, preserving autonomous execution while
-  retaining the workspace boundary and restricted network default.
+- `agent` uses workspace-write with `on-request` approval at thread/resume and turn
+  level. Normal repository work stays sandboxed; operations blocked by the Windows
+  sandbox, including host tool access or protected Git metadata, can request explicit
+  user approval and then continue the same live turn. The restricted network default
+  remains unchanged.
+
+Execution mode and permission policy remain partially coupled in this first adapter.
+FU-002 records the later provider-neutral split between ASK/EDIT/AGENT intent and
+read-only/workspace-with-escalation/full-access policy, including possible allow-once
+versus remembered session rules. No remembered approval rule is implemented here.
 
 The client opts into the experimental API so it can receive the required
 `item/tool/requestUserInput` interaction; the adapter consumes no unrelated
 experimental methods. Approval grants are turn-scoped; Nevo does not expose or select
 Codex session-scoped grants. Provider-global notifications are accepted outside turns
-and ignored unless the adapter consumes them.
+and ignored unless the adapter consumes them. Codex approvals and questions use
+`resumePolicy: live-operation` because their private app-server request correlation
+cannot be reconstructed after the owning process or connection disappears.
 
 The compact compatibility inventory is stored in
 `tools/ai/codex-protocol-baseline.json`; the full generated schema is never committed.
@@ -123,7 +149,8 @@ node tools/ai/verify-codex-schema.mjs --strict
 ```
 
 The verifier generates schemas under the OS temporary directory, compares every
-consumed method/type, removes the bundle, and reports the exact Codex version. Without
+consumed method/type plus the optional `agentMessage.phase` enum, removes the bundle,
+and reports the exact Codex version. Without
 Codex installed, the non-strict command reports a clear skip. Version-specific runtime
 evidence and the distinction between observation and contract remain in
 [Codex app-server protocol research](codex-app-server-research.md).

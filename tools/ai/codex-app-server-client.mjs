@@ -483,10 +483,18 @@ export class CodexAppServerClient {
       reject,
     });
 
-    for (const handler of this.#serverRequestSubscribers) {
-      const result = await handler(request);
-      if (result !== undefined && !answered) respond(result);
-      if (answered) break;
+    try {
+      for (const handler of this.#serverRequestSubscribers) {
+        const result = await handler(request);
+        if (result !== undefined && !answered) respond(result);
+        if (answered) break;
+      }
+    } catch (error) {
+      if (!answered) {
+        answered = true;
+        this.#writeServerError(envelope.id, -32603, 'Codex server request handler failed.');
+      }
+      throw error;
     }
     if (!answered) {
       this.#writeServerError(envelope.id, -32603, 'Codex server request handler did not answer.');

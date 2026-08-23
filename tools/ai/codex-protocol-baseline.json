@@ -69,6 +69,26 @@
     "ToolRequestUserInputParams.json": ["isBlocking", "itemId", "questions", "threadId", "turnId"],
     "ToolRequestUserInputResponse.json": ["answers"]
   },
+  "taggedVariants": {
+    "v2/ItemStartedNotification.json": [
+      {
+        "tag": "type",
+        "value": "agentMessage",
+        "optionalPropertyEnums": {
+          "phase": ["commentary", "final_answer"]
+        }
+      }
+    ],
+    "v2/ItemCompletedNotification.json": [
+      {
+        "tag": "type",
+        "value": "agentMessage",
+        "optionalPropertyEnums": {
+          "phase": ["commentary", "final_answer"]
+        }
+      }
+    ]
+  },
   "envelope": {
     "outgoingJsonrpc": "omitted",
     "incomingJsonrpc20": "tolerated"

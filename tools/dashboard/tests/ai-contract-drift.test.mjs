@@ -83,7 +83,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       'turnId', 'provider', 'providerSessionId', 'status', 'startedAt',
       'lastEventId', 'pendingInteraction', 'events',
     ]);
-    exactKeys(permissionTurn.pendingInteraction, ['id', 'kind', 'toolName', 'input', 'details']);
+    exactKeys(permissionTurn.pendingInteraction, ['id', 'kind', 'resumePolicy', 'toolName', 'input', 'details']);
     assert.equal(typeof permissionTurn.events[0].id, 'number');
     assert.equal(typeof permissionTurn.events[0].seq, 'number');
     assert.equal('providerRequestId' in permissionTurn.pendingInteraction, false);
@@ -99,7 +99,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       control({ provider: 'mock', specId, taskId: 'contract-task', message: 'question contract' }),
     )).json();
     const questionTurn = await waitForTurn(baseUrl, questionStart.turnId, turn => turn.pendingInteraction);
-    exactKeys(questionTurn.pendingInteraction, ['id', 'kind', 'questions']);
+    exactKeys(questionTurn.pendingInteraction, ['id', 'kind', 'resumePolicy', 'questions']);
     exactKeys(questionTurn.pendingInteraction.questions[0], [
       'id', 'question', 'header', 'options', 'multiSelect',
     ]);

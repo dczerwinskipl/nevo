@@ -28,8 +28,18 @@ async function createCompatibleSchemaFixture(root, baseline) {
     ...baseline.observedProviderGlobalNotifications,
   ]));
   await writeJson(join(root, 'ServerRequest.json'), methodSchema(baseline.methods.serverRequests));
-  for (const [relativePath, required] of Object.entries(baseline.types)) {
-    await writeJson(join(root, ...relativePath.split('/')), { required });
+  const paths = new Set([...Object.keys(baseline.types), ...Object.keys(baseline.taggedVariants ?? {})]);
+  for (const relativePath of paths) {
+    const required = baseline.types[relativePath] ?? [];
+    const definitions = {};
+    for (const [index, variant] of (baseline.taggedVariants?.[relativePath] ?? []).entries()) {
+      const properties = { [variant.tag]: { enum: [variant.value] } };
+      for (const [property, values] of Object.entries(variant.optionalPropertyEnums ?? {})) {
+        properties[property] = { anyOf: [{ enum: values }, { type: 'null' }] };
+      }
+      definitions[`Variant${index}`] = { properties, required: [variant.tag], type: 'object' };
+    }
+    await writeJson(join(root, ...relativePath.split('/')), { required, definitions });
   }
 }
 
@@ -40,6 +50,14 @@ test('compact baseline describes exact implementation-time version and envelope 
   assert.equal(baseline.envelope.outgoingJsonrpc, 'omitted');
   assert.equal(baseline.envelope.incomingJsonrpc20, 'tolerated');
   assert.ok(baseline.methods.clientRequests.includes('thread/start'));
+  assert.deepEqual(
+    baseline.methods.serverRequests.filter(method => method.includes('requestApproval')),
+    [
+      'item/commandExecution/requestApproval',
+      'item/fileChange/requestApproval',
+      'item/permissions/requestApproval',
+    ],
+  );
   assert.ok(baseline.methods.serverRequests.includes('item/tool/requestUserInput'));
 });
 
@@ -70,6 +88,31 @@ test('schema-directory verifier reports missing methods and required fields', as
   }
 });
 
+test('schema-directory verifier requires optional agentMessage phase semantics', async () => {
+  const baseline = JSON.parse(await readFile(BASELINE_PATH, 'utf8'));
+  const root = await mkdtemp(join(tmpdir(), 'nevo-codex-schema-phase-test-'));
+  try {
+    await createCompatibleSchemaFixture(root, baseline);
+    await writeJson(join(root, 'v2', 'ItemStartedNotification.json'), {
+      required: baseline.types['v2/ItemStartedNotification.json'],
+      definitions: {
+        AgentMessage: {
+          properties: {
+            type: { enum: ['agentMessage'] },
+            phase: { enum: ['commentary'] },
+          },
+          required: ['type', 'phase'],
+        },
+      },
+    });
+    const result = await verifyGeneratedSchemaDirectory(root, baseline);
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some(error => error.includes("optional 'phase'") && error.includes('final_answer')));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('default verifier clearly skips an absent Codex executable while strict mode fails', async () => {
   const executable = `definitely-missing-codex-${Date.now()}`;
   const result = await verifyCodexSchema({ executable });
@@ -78,4 +121,3 @@ test('default verifier clearly skips an absent Codex executable while strict mod
   assert.match(result.reason, /not found/i);
   await assert.rejects(verifyCodexSchema({ executable, strict: true }), /not found/i);
 });
-

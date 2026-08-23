@@ -62,6 +62,16 @@ observed stream then included:
 The user-message item lifecycle precedes assistant output. It is not assistant text, a
 tool lifecycle, or evidence that the turn completed.
 
+### Generated assistant-output shape
+
+The generated 0.149.0 item schema represents `agentMessage.phase` as optional, with
+wire values `commentary` and `final_answer`. The agent-message delta notification carries
+`itemId` and `delta`, not phase, so phase-aware consumers must correlate deltas to the
+started/completed item. Reasoning remains a separate item with summary/content and
+separate summary/raw-text delta notifications. These generated shapes agree with the
+official app-server documentation; the compact verifier baseline locks the consumed
+optional phase semantics.
+
 ### Provider-global notifications
 
 The process emitted well-formed notifications outside an active turn, including:

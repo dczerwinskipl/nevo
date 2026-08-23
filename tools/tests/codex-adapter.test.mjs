@@ -119,7 +119,7 @@ function standardClient({ threadId = 'thread-1', turnId = 'codex-turn-1', overri
 
 function directTurn(provider, values = {}) {
   const emitted = {
-    text: [], reasoning: [], started: [], updated: [], completed: [], usage: [], events: [], interactions: [],
+    text: [], progress: [], reasoning: [], started: [], updated: [], completed: [], usage: [], events: [], interactions: [], timeline: [],
   };
   let operation;
   const promise = provider.startTurn({
@@ -129,16 +129,30 @@ function directTurn(provider, values = {}) {
     mode: values.mode ?? 'edit',
     setProviderSessionId: values.setProviderSessionId,
     setOperation: value => { operation = value; },
-    emitTextDelta: (text, messageId) => emitted.text.push({ text, messageId }),
-    emitReasoningDelta: (text, messageId) => emitted.reasoning.push({ text, messageId }),
+    emitTextDelta: (text, messageId) => {
+      emitted.text.push({ text, messageId });
+      emitted.timeline.push({ type: 'text.delta', text, id: messageId });
+    },
+    emitProgressDelta: (text, progressId) => {
+      emitted.progress.push({ text, progressId });
+      emitted.timeline.push({ type: 'progress.delta', text, id: progressId });
+    },
+    emitReasoningDelta: (text, messageId) => {
+      emitted.reasoning.push({ text, messageId });
+      emitted.timeline.push({ type: 'reasoning.delta', text, id: messageId });
+    },
     emitToolStarted: value => emitted.started.push(value),
     emitToolUpdated: value => emitted.updated.push(value),
     emitToolCompleted: value => emitted.completed.push(value),
     emitUsageUpdated: value => emitted.usage.push(value),
-    emitEvent: (type, value) => emitted.events.push({ type, ...value }),
-    requestInteraction: value => {
+    emitEvent: (type, value) => {
+      emitted.events.push({ type, ...value });
+      emitted.timeline.push({ type, ...value });
+    },
+    requestInteraction: (value, options = {}) => {
       const interaction = {
         ...value,
+        resumePolicy: options.resumePolicy ?? 'restart',
         id: `interaction-${emitted.interactions.length + 1}`,
         ...(value.questions ? {
           questions: value.questions.map((question, index) => ({ ...question, id: `neutral-question-${index + 1}` })),
@@ -182,7 +196,7 @@ test('createSession binds only authoritative thread.id and maps safe mode settin
   for (const [mode, approvalPolicy, sandbox] of [
     ['ask', 'never', 'read-only'],
     ['edit', 'on-request', 'workspace-write'],
-    ['agent', 'never', 'workspace-write'],
+    ['agent', 'on-request', 'workspace-write'],
   ]) {
     const client = standardClient({ threadId: `thread-${mode}` });
     const provider = createCodexAgentProvider({ client });
@@ -275,14 +289,14 @@ test('maps input, assistant, reasoning, tools, usage, and authoritative completi
   });
   await client.emitNotification('item/started', {
     threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 3,
-    item: { id: 'private-message', type: 'agentMessage', text: '' },
+    item: { id: 'private-message', type: 'agentMessage', text: '', phase: 'final_answer' },
   });
   await client.emitNotification('item/agentMessage/delta', {
     threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-message', delta: 'Hello ',
   });
   await client.emitNotification('item/completed', {
     threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 4,
-    item: { id: 'private-message', type: 'agentMessage', text: 'Hello world' },
+    item: { id: 'private-message', type: 'agentMessage', text: 'Hello world', phase: 'final_answer' },
   });
   await client.emitNotification('item/started', {
     threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 5,
@@ -291,12 +305,16 @@ test('maps input, assistant, reasoning, tools, usage, and authoritative completi
   await client.emitNotification('item/reasoning/summaryTextDelta', {
     threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'private-reasoning', summaryIndex: 0, delta: 'Thinking',
   });
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 6,
+    item: { id: 'private-reasoning', type: 'reasoning', summary: ['Thinking'], content: [] },
+  });
   await client.emitNotification('item/started', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 6,
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 7,
     item: { id: 'private-tool', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'inProgress' },
   });
   await client.emitNotification('item/completed', {
-    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 7,
+    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 8,
     item: { id: 'private-tool', type: 'commandExecution', command: 'npm test', cwd: 'D:\\repo', commandActions: [], status: 'completed', aggregatedOutput: 'ok', exitCode: 0, durationMs: 12 },
   });
   await client.emitNotification('thread/tokenUsage/updated', {
@@ -307,6 +325,7 @@ test('maps input, assistant, reasoning, tools, usage, and authoritative completi
   await turn.promise;
 
   assert.deepEqual(turn.emitted.text.map(value => value.text), ['Hello ', 'world']);
+  assert.deepEqual(turn.emitted.progress, []);
   assert.deepEqual(turn.emitted.reasoning.map(value => value.text), ['Thinking']);
   assert.equal(turn.emitted.started.length, 1);
   assert.equal(turn.emitted.completed[0].status, 'completed');
@@ -315,6 +334,109 @@ test('maps input, assistant, reasoning, tools, usage, and authoritative completi
   assert.equal(JSON.stringify(turn.emitted).includes('private-message'), false);
   assert.equal(JSON.stringify(turn.emitted).includes('private-tool'), false);
 });
+
+test('maps commentary and reasoning separately and preserves final_answer after reasoning-heavy output', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean);
+
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+    item: { id: 'commentary', type: 'agentMessage', text: '', phase: 'commentary' },
+  });
+  await client.emitNotification('item/agentMessage/delta', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'commentary', delta: "I'll inspect...",
+  });
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 2,
+    item: { id: 'commentary', type: 'agentMessage', text: "I'll inspect...", phase: 'commentary' },
+  });
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 3,
+    item: { id: 'reasoning', type: 'reasoning', summary: [], content: [] },
+  });
+  await client.emitNotification('item/reasoning/summaryTextDelta', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'reasoning', summaryIndex: 0, delta: 'Deep analysis',
+  });
+  await client.emitNotification('item/reasoning/textDelta', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'reasoning', contentIndex: 0, delta: ' continues',
+  });
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 4,
+    item: { id: 'reasoning', type: 'reasoning', summary: ['Deep analysis'], content: [' continues'] },
+  });
+  await client.emitNotification('item/started', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 5,
+    item: { id: 'final', type: 'agentMessage', text: '' },
+  });
+  await client.emitNotification('item/agentMessage/delta', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'final', delta: 'Done',
+  });
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 6,
+    item: { id: 'final', type: 'agentMessage', text: 'Done.', phase: 'final_answer' },
+  });
+  await completeTurn(client);
+  await turn.promise;
+
+  assert.deepEqual(turn.emitted.progress.map(value => value.text), ["I'll inspect..."]);
+  assert.deepEqual(turn.emitted.reasoning.map(value => value.text), ['Deep analysis', ' continues']);
+  assert.deepEqual(turn.emitted.text.map(value => value.text), ['Done.']);
+  assert.deepEqual(
+    turn.emitted.timeline.filter(event => ['progress.delta', 'reasoning.delta', 'text.delta'].includes(event.type)).map(event => event.type),
+    ['progress.delta', 'reasoning.delta', 'reasoning.delta', 'text.delta'],
+  );
+  assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
+});
+
+test('uses a deterministic legacy fallback when agentMessage phase is absent', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+  const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+  await waitFor(() => turn.operation, Boolean);
+
+  for (const [id, text, startedAtMs] of [['legacy-progress', 'Checking', 1], ['legacy-final', 'Finished', 3]]) {
+    await client.emitNotification('item/started', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs,
+      item: { id, type: 'agentMessage', text: '' },
+    });
+    await client.emitNotification('item/agentMessage/delta', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', itemId: id, delta: text,
+    });
+    await client.emitNotification('item/completed', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: startedAtMs + 1,
+      item: { id, type: 'agentMessage', text },
+    });
+  }
+  await completeTurn(client);
+  await turn.promise;
+
+  assert.deepEqual(turn.emitted.progress.map(value => value.text), ['Checking']);
+  assert.deepEqual(turn.emitted.text.map(value => value.text), ['Finished']);
+  assert.equal(turn.emitted.events.filter(event => event.type === 'message.started').length, 1);
+});
+
+for (const [type, startedItem, delta] of [
+  ['agentMessage', { text: '' }, ['item/agentMessage/delta', { itemId: 'unfinished-item', delta: 'partial' }]],
+  ['reasoning', { summary: [], content: [] }, ['item/reasoning/summaryTextDelta', { itemId: 'unfinished-item', summaryIndex: 0, delta: 'partial' }]],
+]) {
+  test(`fails closed when a started ${type} item lacks authoritative item/completed`, async () => {
+    const client = standardClient();
+    const provider = createCodexAgentProvider({ client });
+    const turn = directTurn(provider, { providerSessionId: 'thread-1' });
+    await waitFor(() => turn.operation, Boolean);
+    await client.emitNotification('item/started', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+      item: { id: 'unfinished-item', type, ...startedItem },
+    });
+    await client.emitNotification(delta[0], {
+      threadId: 'thread-1', turnId: 'codex-turn-1', ...delta[1],
+    });
+    await completeTurn(client);
+    await assert.rejects(turn.promise, error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  });
+}
 
 test('ignores unrelated correlated events and fails closed on conflicting final assistant text', async () => {
   const client = standardClient();
@@ -450,6 +572,7 @@ test('runtime integration keeps a persistent Codex interaction waiting until rea
     threadId: 'thread-1', turnId: 'codex-turn-1', itemId: 'item', startedAtMs: 1, reason: 'edit',
   });
   const waiting = await waitFor(() => runtime.getSnapshot(started.turnId), value => value.pendingInteraction, 'runtime interaction');
+  assert.equal(waiting.pendingInteraction.resumePolicy, 'live-operation');
   await runtime.resolveInteraction(started.turnId, waiting.pendingInteraction.id, { decision: 'allow' });
   await server.completion;
   await tick();
@@ -459,6 +582,122 @@ test('runtime integration keeps a persistent Codex interaction waiting until rea
   assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
   await runtime.shutdown();
 });
+
+for (const scenario of [
+  {
+    label: 'host Node/npm/Codex tooling',
+    command: 'node --version && npm --version && codex --version',
+    decision: 'allow',
+    providerDecision: 'accept',
+    itemStatus: 'completed',
+  },
+  {
+    label: 'Git metadata workflow',
+    command: 'git add -u && git commit -m "test"',
+    decision: 'allow',
+    providerDecision: 'accept',
+    itemStatus: 'completed',
+  },
+  {
+    label: 'denied host command',
+    command: 'npm test',
+    decision: 'deny',
+    providerDecision: 'decline',
+    itemStatus: 'declined',
+  },
+]) {
+  test(`AGENT ${scenario.label} uses on-request and completes the live approval roundtrip`, async () => {
+    const client = standardClient();
+    const provider = createCodexAgentProvider({ client });
+    const registry = createAiAdapterRegistry([provider]);
+    const runtime = createAiTurnRuntime({ registry, idleTimeoutMs: 0 });
+    const started = await runtime.startTurn({
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      mode: 'agent',
+      message: `Run ${scenario.label}`,
+    });
+    await waitFor(() => client.calls, calls => calls.some(call => call.method === 'turn/start'), 'AGENT turn/start');
+
+    const resume = client.calls.find(call => call.method === 'thread/resume');
+    assert.equal(resume.params.approvalPolicy, 'on-request');
+    assert.equal(resume.params.sandbox, 'workspace-write');
+    const turnStart = client.calls.find(call => call.method === 'turn/start');
+    assert.equal(turnStart.params.approvalPolicy, 'on-request');
+    assert.deepEqual(turnStart.params.sandboxPolicy, {
+      type: 'workspaceWrite', writableRoots: [process.cwd()], networkAccess: false,
+    });
+
+    await client.emitNotification('item/started', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', startedAtMs: 1,
+      item: {
+        id: 'private-command',
+        type: 'commandExecution',
+        command: scenario.command,
+        cwd: process.cwd(),
+        commandActions: [],
+        status: 'inProgress',
+      },
+    });
+    const server = client.emitServerRequest('item/commandExecution/requestApproval', {
+      threadId: 'thread-1',
+      turnId: 'codex-turn-1',
+      itemId: 'private-command',
+      startedAtMs: 1,
+      command: scenario.command,
+      cwd: process.cwd(),
+      reason: `Workspace sandbox blocked ${scenario.label}`,
+    }, `private-${scenario.decision}-request`);
+
+    const waiting = await waitFor(
+      () => runtime.getSnapshot(started.turnId),
+      snapshot => snapshot.pendingInteraction,
+      'AGENT approval interaction',
+    );
+    assert.equal(waiting.status, 'waitingForUser');
+    assert.equal(waiting.pendingInteraction.kind, 'permission');
+    assert.equal(waiting.pendingInteraction.resumePolicy, 'live-operation');
+    assert.equal(JSON.stringify(waiting.pendingInteraction).includes('private-command'), false);
+    assert.equal(JSON.stringify(waiting.pendingInteraction).includes(`private-${scenario.decision}-request`), false);
+
+    await runtime.resolveInteraction(
+      started.turnId,
+      waiting.pendingInteraction.id,
+      { decision: scenario.decision },
+    );
+    await server.completion;
+    assert.deepEqual(server.response, {
+      id: `private-${scenario.decision}-request`,
+      result: { decision: scenario.providerDecision },
+    });
+    assert.equal(runtime.getSnapshot(started.turnId).status, 'running');
+
+    await client.emitNotification('item/completed', {
+      threadId: 'thread-1', turnId: 'codex-turn-1', completedAtMs: 2,
+      item: {
+        id: 'private-command',
+        type: 'commandExecution',
+        command: scenario.command,
+        cwd: process.cwd(),
+        commandActions: [],
+        status: scenario.itemStatus,
+        aggregatedOutput: scenario.decision === 'allow' ? 'continued' : '',
+        ...(scenario.decision === 'allow' ? { exitCode: 0 } : {}),
+      },
+    });
+    await completeTurn(client);
+    const completed = await waitFor(
+      () => runtime.getSnapshot(started.turnId),
+      snapshot => snapshot.status === 'completed',
+      'AGENT completion after approval',
+    );
+    assert.equal(completed.pendingInteraction, null);
+    assert.equal(completed.events.filter(event => event.type === 'interaction.requested').length, 1);
+    assert.equal(completed.events.filter(event => event.type === 'interaction.resolved').length, 1);
+    assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
+    await runtime.shutdown();
+  });
+}
 
 test('failed/interrupted turns, unfinished tools, client failure, and disposal never become success', async () => {
   for (const status of ['failed', 'interrupted']) {

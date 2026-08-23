@@ -30,6 +30,7 @@ export const AGENT_EVENT_TYPES = Object.freeze([
   'turn.started',
   'message.started',
   'text.delta',
+  'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
@@ -44,6 +45,7 @@ export const AGENT_EVENT_TYPES = Object.freeze([
 export const AI_EVENT_TYPES = AGENT_EVENT_TYPES;
 
 export const TOOL_TERMINAL_STATUSES = Object.freeze(['completed', 'failed']);
+export const INTERACTION_RESUME_POLICIES = Object.freeze(['restart', 'live-operation']);
 
 const EVENT_TYPE_SET = new Set(AGENT_EVENT_TYPES);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -210,7 +212,14 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
   }
   rejectProviderFields(value, 'interaction');
   const id = value.id ?? (assignIds ? `interaction-${idFactory()}` : undefined);
-  const base = { id: requiredString(id, 'interaction.id'), kind: value.kind };
+  const resumePolicy = value.resumePolicy ?? 'restart';
+  if (!INTERACTION_RESUME_POLICIES.includes(resumePolicy)) {
+    throw new AiValidationError(
+      `Interaction 'resumePolicy' must be one of ${INTERACTION_RESUME_POLICIES.join(', ')}.`,
+      { field: 'interaction.resumePolicy' },
+    );
+  }
+  const base = { id: requiredString(id, 'interaction.id'), kind: value.kind, resumePolicy };
 
   switch (value.kind) {
     case 'permission': {
@@ -357,6 +366,13 @@ export function validateAgentEvent(value) {
         ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
       };
     }
+
+    case 'progress.delta':
+      return {
+        ...base,
+        progressId: requiredString(value.progressId, 'progressId'),
+        text: requiredString(value.text, 'text', { opaque: true, max: 50_000 }),
+      };
 
     case 'reasoning.delta':
       return {

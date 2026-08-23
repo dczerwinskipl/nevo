@@ -30,7 +30,7 @@ context:
   optional:
     - docs/development/testing-strategy.md
 semantic_references:
-  decisions: [D1, D2, D3, D4, D6, D7, D8]
+  decisions: [D1, D2, D3, D4, D6, D7, D8, D9]
   constraints: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12]
   dependency_contracts:
     - provider-neutral-persistent-turn-contracts
@@ -85,17 +85,21 @@ contracts, register it in the default dashboard service, and document its behavi
   failed resume with a new thread.
 - Map modes through fields/enums proven by the generated schema. `ask` is non-mutating
   and plan-oriented, `edit` permits workspace edits with interactive safeguards, and
-  `agent` preserves the existing autonomous intent. If the installed schema cannot
-  satisfy one safely, stop for a compatibility decision.
+  `agent` preserves autonomous workspace execution with `on-request` escalation at
+  thread/resume and turn level. Do not make AGENT unrestricted, weaken ASK, or prevent
+  explicitly requested host-tool/Git workflows from entering native approval. If the
+  installed schema cannot satisfy one safely, stop for a compatibility decision.
 - After `turn/start`, correlate the returned/provider-notified Codex turn ID with the
   Nevo turn private operation. Handle notifications only when thread and turn match;
   ignore unrelated well-formed events from other concurrently loaded threads and
   provider-global notifications that carry no active-turn correlation.
 - Treat `item/started` and `item/completed` for the input user message as input lifecycle
   only. They must not emit assistant text/tool events or complete the Nevo turn.
-- For agent messages, accumulate deltas by item ID and treat
-  `item/completed` as authoritative. Emit only new text not already emitted; never
-  duplicate the final body. Use final item status/data for tool completion.
+- For agent messages, retain the optional generated-schema phase by item ID.
+  `final_answer` emits normal assistant text, `commentary` emits neutral progress, and
+  missing phase follows D10's deterministic buffered fallback. Treat `item/completed`
+  as authoritative, emit only text not already emitted, and never duplicate the final
+  body. Use final item status/data for tool completion.
 - Map command execution, file changes, MCP/dynamic tool items that occur in normal Codex
   turns to normalized tool lifecycle events. Unknown item types are ignored unless they
   are required to determine an active consumed item's outcome; never fabricate an event.
@@ -126,8 +130,8 @@ contracts, register it in the default dashboard service, and document its behavi
 2. New blank sessions and atomic first turns bind only the returned `thread.id`; existing
    sessions resume deterministically, and failed resume never starts replacement history.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
-3. Normal and multi-turn fixtures map assistant deltas/final item, reasoning, tools,
-   usage, and completion in deterministic order without duplicate text or fabricated
+3. Normal and multi-turn fixtures map final-answer, commentary/progress, reasoning,
+   tools, usage, and completion in deterministic order without duplicate text or fabricated
    tool success; the preceding user-message item lifecycle and provider-global
    notifications produce no assistant/tool/terminal event.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
@@ -135,17 +139,21 @@ contracts, register it in the default dashboard service, and document its behavi
    same turn, expose only neutral IDs/data, answer the original server request once, and
    continue until real completion.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
-5. Cancellation while executing and waiting sends `turn/interrupt`, produces one
+5. AGENT configuration uses workspace-write plus on-request approval. Integration-style
+   fake app-server cases cover allow and deny for sandbox-blocked host tooling and Git
+   metadata workflows, answer the exact request, and continue the same turn.
+   `automated: node --test tools/tests/codex-adapter.test.mjs`
+6. Cancellation while executing and waiting sends `turn/interrupt`, produces one
    cancelled/interrupted Nevo terminal event, and leaves no pending interaction/request.
    `automated: node --test tools/tests/codex-adapter.test.mjs`
-6. Initialization failure, unexpected exit, malformed/invalid consumed messages,
+7. Initialization failure, unexpected exit, malformed/invalid consumed messages,
    unknown response correlation, failed resume, provider error, interrupted turn, and
    disposal with active work all fail closed and never emit `turn.completed`.
    `automated: node --test tools/tests/codex-adapter.test.mjs tools/tests/codex-app-server-client.test.mjs`
-7. The full tooling/provider/browser tests and dashboard build pass without live Codex
+8. The full tooling/provider/browser tests and dashboard build pass without live Codex
    calls or credentials.
    `automated: node --test tools/tests/*.test.mjs`
-8. Maintainer documentation describes architecture, capabilities, schema refresh,
+9. Maintainer documentation describes architecture, capabilities, schema refresh,
    process ownership, limitations, and offline/strict verification.
    `automated: node tools/docs.mjs check`
 
@@ -165,7 +173,7 @@ node tools/docs.mjs check
 
 Update `docs/development/ai-sessions.md` in the same implementation branch. Do not add a
 new ADR unless implementation discovers a durable decision not already covered by
-ADR-0007 and D1-D8; that would require owner approval first.
+ADR-0007 and D1-D11; that would require owner approval first.
 
 ## Out of scope
 

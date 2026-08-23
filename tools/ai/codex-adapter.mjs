@@ -25,6 +25,7 @@ export const CODEX_DESCRIPTOR = Object.freeze({
 });
 
 const TOOL_TYPES = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall']);
+const AGENT_MESSAGE_PHASES = new Set(['commentary', 'final_answer']);
 
 function protocolError(message, details) {
   return new AiError('AI_PROVIDER_PROTOCOL_ERROR', message, { status: 502, details });
@@ -44,6 +45,14 @@ function requireString(value, label) {
   return value;
 }
 
+function optionalAgentMessagePhase(value, label) {
+  if (value == null) return null;
+  if (typeof value !== 'string' || !AGENT_MESSAGE_PHASES.has(value)) {
+    throw protocolError(`Codex ${label} has unsupported phase '${String(value)}'.`);
+  }
+  return value;
+}
+
 function modeSettings(mode, cwd) {
   switch (validateAgentExecutionMode(mode)) {
     case 'ask':
@@ -53,9 +62,9 @@ function modeSettings(mode, cwd) {
       };
     case 'agent':
       return {
-        thread: { approvalPolicy: 'never', sandbox: 'workspace-write' },
+        thread: { approvalPolicy: 'on-request', sandbox: 'workspace-write' },
         turn: {
-          approvalPolicy: 'never',
+          approvalPolicy: 'on-request',
           sandboxPolicy: { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: false },
         },
       };
@@ -223,6 +232,7 @@ export class CodexAgentProvider {
     setOperation,
     emitTextDelta,
     emitDelta,
+    emitProgressDelta,
     emitReasoningDelta,
     emitToolStarted,
     emitToolUpdated,
@@ -253,6 +263,7 @@ export class CodexAgentProvider {
       turnId,
       threadId,
       emitTextDelta: emitTextDelta ?? emitDelta,
+      emitProgressDelta,
       emitReasoningDelta,
       emitToolStarted,
       emitToolUpdated,
@@ -488,14 +499,30 @@ export class CodexAgentProvider {
     const type = requireString(item.type, 'item type');
     if (operation.items.has(id)) throw protocolError(`Codex item '${id}' started more than once.`);
 
+    if (type === 'userMessage' || type === 'agentMessage' || type === 'reasoning' || TOOL_TYPES.has(type)) {
+      this.#publishSupersededUnphasedMessages(operation);
+    }
+
     if (type === 'userMessage') {
       operation.items.set(id, { type, terminal: false });
       return;
     }
     if (type === 'agentMessage') {
       const publicId = `message-${operation.turnId}-${++operation.itemCounter}`;
-      operation.items.set(id, { type, publicId, emittedText: '', terminal: false });
-      operation.emitEvent?.('message.started', { messageId: publicId, role: 'assistant' });
+      const phase = optionalAgentMessagePhase(item.phase, 'started agent message');
+      const state = {
+        type,
+        publicId,
+        progressId: `progress-${operation.turnId}-${operation.itemCounter}`,
+        phase,
+        streamedText: '',
+        finalText: null,
+        publishedAs: null,
+        superseded: false,
+        terminal: false,
+      };
+      operation.items.set(id, state);
+      if (phase) this.#beginAgentMessage(operation, state, phase);
       return;
     }
     if (type === 'reasoning') {
@@ -523,8 +550,9 @@ export class CodexAgentProvider {
       throw protocolError('Codex agent-message delta does not match an active agent message item.');
     }
     const delta = requireString(params.delta, 'agent message delta');
-    item.emittedText += delta;
-    operation.emitTextDelta?.(delta, item.publicId);
+    item.streamedText += delta;
+    if (item.publishedAs === 'final_answer') operation.emitTextDelta?.(delta, item.publicId);
+    if (item.publishedAs === 'commentary') operation.emitProgressDelta?.(delta, item.progressId);
   }
 
   #reasoningDelta(operation, params) {
@@ -546,13 +574,23 @@ export class CodexAgentProvider {
 
     if (state.type === 'agentMessage') {
       const finalText = requireString(finalItem.text, 'completed agent message text');
-      if (!finalText.startsWith(state.emittedText)) {
+      if (!finalText.startsWith(state.streamedText)) {
         throw protocolError('Codex final agent message conflicts with its emitted deltas.');
       }
-      const suffix = finalText.slice(state.emittedText.length);
-      if (suffix) {
-        state.emittedText = finalText;
-        operation.emitTextDelta?.(suffix, state.publicId);
+      const completedPhase = optionalAgentMessagePhase(finalItem.phase, 'completed agent message');
+      if (state.phase && completedPhase && state.phase !== completedPhase) {
+        throw protocolError('Codex agent message changed phase at completion.');
+      }
+      state.phase ??= completedPhase;
+      state.finalText = finalText;
+      const wasPublished = Boolean(state.publishedAs);
+      if (state.phase && !wasPublished) this.#beginAgentMessage(operation, state, state.phase);
+      if (!state.phase && state.superseded && !state.publishedAs) {
+        this.#beginAgentMessage(operation, state, 'commentary');
+      }
+      if (wasPublished) {
+        const suffix = finalText.slice(state.streamedText.length);
+        if (suffix) this.#emitAgentMessageText(operation, state, suffix);
       }
       return;
     }
@@ -580,19 +618,20 @@ export class CodexAgentProvider {
     if (requireString(turn.id, 'completed turn id') !== operation.codexTurnId) {
       throw protocolError('Codex turn/completed identity does not match the active turn.');
     }
-    const unfinished = [...operation.items.values()].filter(item => TOOL_TYPES.has(item.type) && !item.terminal);
-    for (const item of unfinished) {
+    const unfinished = [...operation.items.values()].filter(item => !item.terminal);
+    for (const item of unfinished.filter(item => TOOL_TYPES.has(item.type))) {
       item.terminal = true;
       operation.emitToolCompleted?.({ toolId: item.publicId, output: 'No authoritative Codex tool outcome.', status: 'failed' });
     }
     if (unfinished.length > 0) {
-      this.#rejectOperation(operation, protocolError('Codex turn completed with an unfinished tool item.'));
+      this.#rejectOperation(operation, protocolError('Codex turn completed with an item lacking authoritative completion.'));
       return;
     }
     if (turn.status === 'completed') {
       if (operation.providerError) {
         this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', 'Codex reported a terminal provider error.', { status: 502 }));
       } else {
+        this.#publishTerminalUnphasedMessages(operation);
         this.#resolveOperation(operation);
       }
       return;
@@ -606,6 +645,46 @@ export class CodexAgentProvider {
       return;
     }
     this.#rejectOperation(operation, new AiError('AI_PROVIDER_ERROR', turn.error?.message || 'Codex turn failed.', { status: 502 }));
+  }
+
+  #beginAgentMessage(operation, state, phase) {
+    if (state.publishedAs && state.publishedAs !== phase) {
+      throw protocolError('Codex agent message cannot be published under two phases.');
+    }
+    if (state.publishedAs) return;
+    state.publishedAs = phase;
+    if (phase === 'final_answer') {
+      operation.emitEvent?.('message.started', { messageId: state.publicId, role: 'assistant' });
+    }
+    const text = state.finalText ?? state.streamedText;
+    if (text) this.#emitAgentMessageText(operation, state, text);
+  }
+
+  #emitAgentMessageText(operation, state, text) {
+    if (state.publishedAs === 'final_answer') operation.emitTextDelta?.(text, state.publicId);
+    else operation.emitProgressDelta?.(text, state.progressId);
+  }
+
+  #publishSupersededUnphasedMessages(operation) {
+    for (const state of operation.items.values()) {
+      if (state.type === 'agentMessage' && !state.phase && !state.publishedAs) {
+        state.superseded = true;
+        if (state.terminal) this.#beginAgentMessage(operation, state, 'commentary');
+      }
+    }
+  }
+
+  #publishTerminalUnphasedMessages(operation) {
+    const pending = [...operation.items.values()].filter(state => (
+      state.type === 'agentMessage' && state.terminal && !state.phase && !state.publishedAs
+    ));
+    const hasFinalAnswer = [...operation.items.values()].some(state => (
+      state.type === 'agentMessage' && state.publishedAs === 'final_answer'
+    ));
+    for (let index = 0; index < pending.length; index += 1) {
+      const isLegacyFinal = !hasFinalAnswer && index === pending.length - 1;
+      this.#beginAgentMessage(operation, pending[index], isLegacyFinal ? 'final_answer' : 'commentary');
+    }
   }
 
   async #handleServerRequest(request) {
@@ -644,7 +723,7 @@ export class CodexAgentProvider {
       return;
     }
 
-    const interaction = await operation.requestInteraction(neutral);
+    const interaction = await operation.requestInteraction(neutral, { resumePolicy: 'live-operation' });
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     const correlation = {

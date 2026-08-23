@@ -403,6 +403,7 @@ export interface NormalizedMessage {
   interaction?: {
     id: string;
     kind: string;
+    resumePolicy: 'restart' | 'live-operation';
     payload?: unknown;
     toolName?: string;
     input?: unknown;
@@ -458,6 +459,7 @@ export interface AiMessage {
 export interface AiPermissionInteraction {
   id: string;
   kind: 'permission';
+  resumePolicy: 'restart' | 'live-operation';
   toolName: string;
   input?: Record<string, unknown>;
   details?: string;
@@ -474,12 +476,14 @@ export interface AiQuestion {
 export interface AiQuestionInteraction {
   id: string;
   kind: 'question';
+  resumePolicy: 'restart' | 'live-operation';
   questions: AiQuestion[];
 }
 
 export type AiInteraction = AiPermissionInteraction | AiQuestionInteraction | {
   id: string;
   kind: string;
+  resumePolicy: 'restart' | 'live-operation';
   payload?: unknown;
   [key: string]: unknown;
 };
@@ -491,6 +495,7 @@ export interface AgentEvent {
   turnId?: string;
   timestamp: string;
   messageId?: string;
+  progressId?: string;
   text?: string;
   delta?: string;
   toolId?: string;

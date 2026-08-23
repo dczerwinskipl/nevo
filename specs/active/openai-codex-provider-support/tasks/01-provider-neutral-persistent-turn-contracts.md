@@ -26,7 +26,7 @@ context:
   optional:
     - docs/development/testing-strategy.md
 semantic_references:
-  decisions: [D2, D3, D7, D8]
+  decisions: [D2, D3, D7, D8, D9]
   constraints: [C2, C3, C4, C5, C6, C7, C8, C10]
 allowed_paths:
   - tools/ai/contracts.mjs
@@ -79,6 +79,9 @@ Claude, Antigravity, mock, HTTP/SSE, transcript, and frontend behavior compatibl
 - Add optional idempotent adapter disposal and make runtime/service/server shutdown
   begin it exactly once after active turns are failed/aborted. Keep shutdown bounded and
   testable without a real process.
+- Add `progress.delta` with a neutral `progressId` and text. It is validated, ordered
+  turn activity, but must not be projected into ordinary assistant transcript text. Do
+  not expose provider phase or item identifiers.
 - Do not add Codex-specific fields, route names, IDs, or payloads to shared contracts.
 
 ## Acceptance criteria
@@ -101,6 +104,9 @@ Claude, Antigravity, mock, HTTP/SSE, transcript, and frontend behavior compatibl
    `automated: node --test tools/tests/ai-turn-runtime.test.mjs`
 6. The dashboard production TypeScript build accepts the additive capability type.
    `automated: npm --prefix tools/dashboard run build`
+7. `progress.delta` remains ordered in the neutral event stream and never becomes normal
+   assistant transcript text in runtime or dashboard projection tests.
+   `automated: node --test tools/tests/ai-contracts.test.mjs tools/tests/ai-turn-runtime.test.mjs`
 
 ## Verification
 

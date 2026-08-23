@@ -40,16 +40,16 @@
 - **Date:** 2026-08-22
 - **Affected artifacts:** `areas/codex-adapter.md`, task 03
 
-## D5: Expose steering and plans without redesigning the chat UI
+## D5: Superseded steering and plan-update proposal
 
 - **Question:** Should supported Codex steering and plan updates remain hidden because the current neutral contract lacks them?
 - **Options considered:** omit both capabilities | encode them as unrelated text/tool events | add small neutral capability, service, event, and transport contracts
-- **Decision:** Add `steerTurn` and `planUpdates` to the capability model, a provider-neutral active-turn steering operation, and a normalized `plan.updated` event. Transport and persist the normalized data, but do not add a new visual component or change composer behavior in this change.
-- **Rationale:** The owner explicitly asked the spec to validate capabilities such as steering and plan updates and to avoid fabricating provider events.
-- **Consequences:** Codex may declare both capabilities true after tests prove the mappings; existing providers declare them false. A later UX change can consume the neutral contracts without changing Codex integration.
+- **Decision:** Superseded by D8. The initial integration adds only the `steerTurn` and `planUpdates` discovery flags, reports both as false, and does not add steering execution or normalized plan-update events.
+- **Rationale:** Post-research scoping showed that either operation crosses substantially more neutral runtime, transport, transcript, and frontend surface than the persistent Codex lifecycle requires.
+- **Consequences:** No steering route/operation or `plan.updated` event belongs to this change. FU-001 owns any later provider-neutral design and implementation.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `areas/provider-neutral-runtime.md`, tasks 01 and 03
-- **Supersession:** Kept for the audit trail; D8 is authoritative for initial implementation scope.
+- **Supersession:** Kept only as the audit trail for the option considered before D8; its original implementation direction is not current scope.
 
 ## D6: Validate against generated Codex schemas without vendoring the full protocol
 
@@ -80,3 +80,33 @@
 - **Consequences:** Provider-created identity, persistent interaction continuation, waiting cancellation, disposal, thread/turn execution, approvals/questions, normalized messages/tools/reasoning/usage, and completion/failure remain mandatory. `turn/steer` and plan notifications are outside the consumed protocol inventory for the first adapter; well-formed occurrences are ignored. Follow-up FU-001 owns future neutral design and implementation.
 - **Date:** 2026-08-22
 - **Affected artifacts:** `overview.md`, `areas/provider-neutral-runtime.md`, `areas/app-server-client.md`, `areas/codex-adapter.md`, tasks 01-03, `follow-ups.yaml`
+
+## D9: Distinguish restart-resumable interactions from live-operation interactions
+
+- **Question:** How should the neutral runtime persist and reconcile interactions when some providers can reconstruct a continuation after restart while a persistent connection provider cannot reconstruct an outstanding server request?
+- **Options considered:** treat every pending interaction as restart-resumable | add provider-specific restart branches | add one neutral interaction resume policy
+- **Decision:** Every normalized interaction carries `resumePolicy: restart | live-operation`. `restart` is the compatibility default for deferred providers whose continuation can be reconstructed by a fresh invocation. `live-operation` requires the original in-memory provider operation and connection.
+- **Rationale:** Codex server requests are correlated to a single live app-server request/response function. Persisting the normalized prompt is useful for browser reconnects, but neither `thread/resume` nor a fresh adapter reconstructs that outstanding request.
+- **Consequences:** Codex approvals/questions use `live-operation`. Browser reconnects within the owning process continue to work. Boot reconciliation and graceful shutdown terminalize stale live-operation turns and remove their pending interaction before the adapter disappears; restart-resumable deferred interactions retain their existing reconstruction path. No Codex request ID or wire payload enters neutral persistence or browser contracts.
+- **Date:** 2026-08-23
+- **Affected artifacts:** `areas/provider-neutral-runtime.md`, `areas/codex-adapter.md`, tasks 01 and 03, `docs/development/ai-sessions.md`, `docs/decisions/ADR-0007-provider-neutral-ai-sessions.md`
+
+## D10: Preserve final-answer, commentary, and reasoning semantics
+
+- **Question:** How should Codex assistant output phases map into Nevo without presenting execution narration or reasoning as the final chat response?
+- **Options considered:** flatten every `agentMessage` into assistant text | treat commentary as reasoning | add one neutral progress event while preserving the existing final-text and reasoning channels
+- **Decision:** `agentMessage.phase=final_answer` maps to `message.started` plus `text.delta`; `phase=commentary` maps to the additive provider-neutral `progress.delta`; reasoning items remain `reasoning.delta`. No commentary or reasoning text is concatenated into final assistant text.
+- **Rationale:** The Codex 0.149.0 generated contract and official app-server protocol expose optional `agentMessage.phase` values `commentary` and `final_answer`, while agent-message delta notifications carry only `itemId` and `delta`. The adapter must therefore retain phase on the private item correlation and route each delta through the matching neutral channel.
+- **Consequences:** When phase is absent, the adapter buffers that message until classification is safe. A completed unphased message superseded by later consumed work becomes progress; if no explicit final answer exists, the last remaining completed unphased message becomes the legacy final-answer fallback. An unsupported non-null phase or conflicting started/completed phases fails closed. `progress.delta` is ordered neutral turn activity and is deliberately not projected into the main assistant transcript. The schema verifier locks the optional phase enum without vendoring the generated bundle. Reasoning effort remains provider/model configuration and is not lowered by this mapping.
+- **Date:** 2026-08-23
+- **Affected artifacts:** `overview.md`, `areas/provider-neutral-runtime.md`, `areas/codex-adapter.md`, tasks 01 and 03, `docs/development/ai-sessions.md`, `tools/ai/codex-protocol-baseline.json`
+
+## D11: Keep AGENT workspace-sandboxed but escalation-capable
+
+- **Question:** How should the initial Codex AGENT mode run repository implementation workflows when Windows workspace sandboxing blocks required host tools or Git metadata?
+- **Options considered:** keep `workspace-write` with `approvalPolicy: never` | default AGENT to unrestricted access without prompts | keep `workspace-write` and allow native approval requests on escalation
+- **Decision:** AGENT uses the generated 0.149.0 policy fields `approvalPolicy: on-request` at thread/resume and turn level, legacy thread `sandbox: workspace-write`, and turn `sandboxPolicy.type: workspaceWrite`. ASK remains read-only/never; EDIT remains workspace-write/on-request.
+- **Rationale:** `never` prevents Codex from emitting the approval request needed when the Windows sandbox blocks host-installed Node/npm/Codex binaries or protected `.git` metadata. Default unrestricted access would remove the human security gate. The selected policy preserves normal autonomous workspace work and exposes only blocked operations through the existing live permission interaction.
+- **Consequences:** Command, file-change, and permission-subset approval requests retain private app-server correlation and `resumePolicy: live-operation`. Allow/deny answers go to the original request and the same turn continues according to Codex behavior. Current explicitly requested Git add/commit/push workflows are not categorically rejected; they may proceed after native approval. FU-002 owns a later provider-neutral separation of execution mode from permission policy and remembered/session approval rules.
+- **Date:** 2026-08-23
+- **Affected artifacts:** `overview.md`, `areas/codex-adapter.md`, task 03, `follow-ups.yaml`, `docs/development/ai-sessions.md`

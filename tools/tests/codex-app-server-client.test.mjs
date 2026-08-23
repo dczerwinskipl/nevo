@@ -218,6 +218,65 @@ test('dispatches server requests through a single-use response path', async () =
   assert.deepEqual(response, { id: 77, result: { decision: 'accept' } });
 });
 
+test('a server-request handler throw before answering sends one safe error and fails all work closed', async () => {
+  let pendingId;
+  const child = createFakeProcess({
+    onEnvelope(envelope, process) {
+      respondToInitialize(envelope, process);
+      if (envelope.method === 'turn/start') pendingId = envelope.id;
+    },
+  });
+  const client = clientWithProcess(child);
+  client.onServerRequest(() => {
+    throw new Error('private handler detail');
+  });
+  const pending = client.request('turn/start', { threadId: 't', input: [] });
+  const waiter = client.waitForNotification(() => false);
+  await tick();
+
+  child.send({ id: 'approval-handler-failed', method: 'item/fileChange/requestApproval', params: {} });
+
+  const outcomes = await Promise.allSettled([pending, waiter]);
+  assert.ok(outcomes.every(outcome => outcome.status === 'rejected'));
+  assert.ok(outcomes.every(outcome => outcome.reason.code === 'AI_PROVIDER_PROTOCOL_ERROR'));
+  const responses = child.received.filter(message => message.id === 'approval-handler-failed');
+  assert.deepEqual(responses, [{
+    id: 'approval-handler-failed',
+    error: { code: -32603, message: 'Codex server request handler failed.' },
+  }]);
+  assert.equal(JSON.stringify(responses).includes('private handler detail'), false);
+  assert.ok(pendingId);
+  child.send({ id: pendingId, result: { late: true } });
+  await tick();
+  assert.equal(client.pendingRequestCount, 0);
+  assert.equal(client.activeWaiterCount, 0);
+  await assert.rejects(client.request('thread/start', {}), error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+});
+
+test('a server-request handler throw after answering does not send a second response and still fails closed', async () => {
+  const child = createFakeProcess({
+    onEnvelope(envelope, process) {
+      respondToInitialize(envelope, process);
+    },
+  });
+  const client = clientWithProcess(child);
+  client.onServerRequest(request => {
+    request.respond({ decision: 'accept' });
+    throw new Error('unexpected post-response failure');
+  });
+  await client.initialize();
+  const pending = client.request('turn/start', { threadId: 't', input: [] });
+
+  child.send({ id: 'approval-answered-then-failed', method: 'item/commandExecution/requestApproval', params: {} });
+
+  await assert.rejects(pending, error => error.code === 'AI_PROVIDER_PROTOCOL_ERROR');
+  assert.deepEqual(
+    child.received.filter(message => message.id === 'approval-answered-then-failed'),
+    [{ id: 'approval-answered-then-failed', result: { decision: 'accept' } }],
+  );
+  assert.equal(client.pendingRequestCount, 0);
+});
+
 test('a second server-request response is protocol corruption and rejects active work', async () => {
   let pendingId;
   const child = createFakeProcess({

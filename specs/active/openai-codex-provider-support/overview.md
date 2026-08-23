@@ -156,7 +156,7 @@ validating the neutral abstraction.
 ## Owner decisions
 
 The owner's instructions resolve the architecture and scope gates. See
-`owner-decisions.md` D1-D8. No new package, external dependency, persistence owner,
+`owner-decisions.md` D1-D9. No new package, external dependency, persistence owner,
 transaction behavior, or .NET public API is introduced.
 
 ## Proposed architecture
@@ -194,8 +194,9 @@ closes stdin, and terminates the process within a bounded path.
 | existing session after restart/unload | `thread/resume(threadId)`, then `turn/start` |
 | start user turn | `turn/start` with text input and mode-derived stable settings |
 | cancel running or waiting turn | `turn/interrupt`; terminal Nevo outcome is cancellation/interruption, never success |
-| assistant stream | `item/agentMessage/delta`, reconciled with authoritative final `agentMessage` item |
-| reasoning | readable summary deltas and raw reasoning only when actually emitted/allowed |
+| final assistant answer | `agentMessage.phase=final_answer` -> `message.started` / `text.delta`, reconciled with authoritative completed item |
+| commentary/progress | `agentMessage.phase=commentary` -> neutral `progress.delta`; never normal assistant transcript text |
+| reasoning | reasoning summary/raw deltas -> `reasoning.delta`; never normal assistant transcript text |
 | tool/action | `item/started`, relevant deltas, and authoritative `item/completed` using Codex item ID privately mapped to neutral tool ID |
 | usage | `thread/tokenUsage/updated` -> normalized `usage.updated` using fields verified from generated schema |
 | completion/failure | `turn/completed.status`; preceding `error` details are normalized to safe `AiError` codes |
@@ -207,11 +208,17 @@ lifecycle only, not assistant/tool output or terminal completion. Well-formed
 provider-global notifications such as `remoteControl/status/changed`,
 `mcpServer/startupStatus/updated`, and `skills/changed` may arrive without an active turn
 and are ignored unless a future, explicitly supported feature consumes them.
+Agent-message phase is optional in the generated protocol. The adapter uses a completed
+item's phase when start omitted it; if phase remains absent, superseded messages become
+progress and the final remaining completed unphased message is the compatibility final
+only when no explicit final answer exists. Unknown non-null or conflicting phases fail
+closed because routing them to the main conversation would be ambiguous.
 
 Nevo execution modes retain their existing meanings. The implementation derives exact
 wire enums/fields from the generated schema: `ask` must be non-mutating and
 plan-oriented, `edit` allows workspace changes with interactive safeguards, and
-`agent` keeps the current autonomous/no-prompt intent. If the current stable schema
+`agent` keeps autonomous workspace execution while using on-request approval when the
+workspace sandbox blocks required host-level work. If the current stable schema
 cannot express one of these without a material semantic compromise, implementation
 stops for an owner compatibility decision rather than silently selecting a weaker
 mode.
@@ -221,6 +228,9 @@ mode.
 - Optional adapter `createSession` returns a provider-owned ID before binding.
 - Interaction response can report that the original provider turn continues; runtime
   waits for the real terminal notification rather than synthesizing completion.
+- Normalized interactions declare whether a fresh provider invocation can reconstruct
+  them after restart or whether they require the original live provider operation.
+  Reconciliation and graceful shutdown interrupt stale live-operation interactions.
 - Waiting-turn cancellation calls provider cancellation when a live private operation
   exists.
 - Registry/runtime shutdown invokes optional idempotent adapter disposal.
@@ -244,7 +254,8 @@ mode.
 2. New and resumed Codex sessions use `thread.id` as the only provider session identity,
    and multiple turns resume deterministically.
 3. Normal streamed turns preserve deterministic event order and authoritative terminal
-   outcomes for messages, reasoning, tools, usage, success, interruption, and failure
+   outcomes for final messages, commentary/progress, reasoning, tools, usage, success,
+   interruption, and failure
    without leaking provider-private fields; the input user-message item lifecycle is
    not misclassified as assistant/tool output or turn completion.
 4. Command/file approvals and user-input requests pause the same Nevo turn, correlate by
@@ -288,6 +299,8 @@ ADR-0007 remains current and does not need superseding.
   app-server transports, thread browsing/import/archive/fork/review, apps/plugins/MCP
   administration, and arbitrary app-server methods.
 - Session-scoped approval grants or provider-specific approval buttons.
+- A provider-neutral permission-policy abstraction separate from ASK/EDIT/AGENT, or
+  remembered/session approval rules; FU-002 owns that follow-up.
 - A new visual plan/TODO component or steering composer UX.
 - Provider-neutral steering execution or normalized plan-update events; the first Codex
   adapter advertises both capabilities as false and `follow-ups.yaml` records the
