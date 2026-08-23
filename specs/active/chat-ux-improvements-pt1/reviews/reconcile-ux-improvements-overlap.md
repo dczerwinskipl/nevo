@@ -10,12 +10,12 @@ verdict: pass
 
 ## Verdict
 
-`pass` — classification, overview documentation, and non-destructive analysis complete. Abandon transitions for moot tasks (`composer-alignment`, `mode-switcher-touch-target`) presented for explicit owner confirmation.
+`pass` — classification, overview documentation, and non-destructive reconciliation complete. Moot tasks (`composer-alignment`, `mode-switcher-touch-target`) confirmed abandoned by owner.
 
 ## Checklist
 
-- [x] Acceptance criteria (AC1, AC2, AC4–AC7): 6/6 verified
-- [ ] Explicit interactive owner confirmation for AC3: pending owner confirmation before writing `status: abandoned`
+- [x] Acceptance criteria (AC1–AC7): 7/7 verified
+- [x] Explicit interactive owner confirmation for AC3: confirmed and applied
 
 ## Verification
 
@@ -30,7 +30,7 @@ Touched paths (`specs/active/chat-ux-improvements-pt1/overview.md`, `specs/activ
 
 - [x] AC1: Classified all `ux-improvements-version-1` tasks against shipped implementation.
 - [x] AC2: Shared token/status dependencies documented in `overview.md`.
-- [ ] AC3: Abandonment proposal for moot tasks (`composer-alignment`, `mode-switcher-touch-target`) prepared and pending owner confirmation.
+- [x] AC3: Abandonment of moot tasks (`composer-alignment`, `mode-switcher-touch-target`) confirmed by owner and recorded in `ux-improvements-version-1/change.yaml`.
 - [x] AC4: No other task fields or independent tasks modified in `ux-improvements-version-1/change.yaml`.
 - [x] AC5: All 18 independent tasks remain in their current active states.
 - [x] AC6: No duplicate semantic color system introduced.
