@@ -82,6 +82,7 @@ Claude Code (version >= 2.1.89) is integrated through non-interactive process in
 The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
 - `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
+- `diagnostic raw capture`: exact raw stdout and stderr lines are recorded before any adapter processing to `.nevo-ai-local/antigravity_raw/<providerSessionId>/raw.ndjson` for protocol analysis. File write failures are completely isolated from turn execution. To clear diagnostic recordings, remove `.nevo-ai-local/antigravity_raw`.
 
 ## Verify the integration
 

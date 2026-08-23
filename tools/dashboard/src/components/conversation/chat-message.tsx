@@ -49,6 +49,16 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
               ? 'w-fit max-w-[min(88%,820px)] border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--foreground)]'
               : 'w-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]'
           )}>
+            {message.activityTimeline?.map(item => {
+              if (item.type === 'commentary' && item.text) {
+                return (
+                  <div key={item.id} className="text-sm text-[var(--foreground-muted)] mb-2 last:mb-0">
+                    <MarkdownContent markdown={item.text} className="text-[var(--foreground)]" />
+                  </div>
+                );
+              }
+              return null;
+            })}
             {message.reasoning && (
               <AiReasoningView reasoning={message.reasoning} isStreaming={isStreaming && !message.text} />
             )}

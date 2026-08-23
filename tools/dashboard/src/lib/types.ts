@@ -380,11 +380,18 @@ export interface AgentToolCall {
   durationMs?: number;
 }
 
+export type AssistantTurnItem =
+  | { id: string; type: 'commentary'; text: string; timestamp?: string }
+  | { id: string; type: 'tool'; toolCall: AgentToolCall }
+  | { id: string; type: 'interaction'; interaction: NonNullable<NormalizedMessage['interaction']> };
+
 export interface NormalizedMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
   reasoning?: string;
+  /** Optional timeline preserving chronological order of commentary, tools, and interactions. */
+  activityTimeline?: AssistantTurnItem[];
   /**
    * The turn this message belongs to (owner-decisions.md D7). Assistant messages are
    * created one-per-turn and always carry it; explicit rather than recoverable only by

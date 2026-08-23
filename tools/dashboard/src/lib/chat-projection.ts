@@ -1,4 +1,4 @@
-import type { AgentToolCall, NormalizedMessage } from './types';
+import type { AgentToolCall, AssistantTurnItem, NormalizedMessage } from './types';
 
 /**
  * A single conversational entry (user/assistant/system text). One-to-one with a
@@ -10,6 +10,7 @@ export interface ConversationEntry {
   role: 'user' | 'assistant' | 'system';
   text: string;
   reasoning?: string;
+  activityTimeline?: AssistantTurnItem[];
   turnId?: string;
   createdAt: string;
 }
@@ -139,6 +140,7 @@ export function projectChat(
     role: message.role,
     text: message.text,
     ...(message.reasoning === undefined ? {} : { reasoning: message.reasoning }),
+    ...(message.activityTimeline === undefined ? {} : { activityTimeline: message.activityTimeline }),
     ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
     createdAt: message.createdAt,
   }));

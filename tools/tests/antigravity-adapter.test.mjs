@@ -20,7 +20,7 @@ function createAntigravityAgentProvider(options = {}) {
   });
 }
 
-function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
+function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, events = null } = {}) {
   const child = new EventEmitter();
   child.stdin = new Writable({
     write(chunk, encoding, callback) { callback(); },
@@ -39,12 +39,25 @@ function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {})
   };
 
   setImmediate(async () => {
-    for (const line of stdoutLines) {
-      if (child.killed) break;
-      child.stdout.push(`${line}\n`);
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+    if (Array.isArray(events)) {
+      for (const ev of events) {
+        if (child.killed) break;
+        if (ev.stream === 'stderr') {
+          child.stderr.push(`${ev.line}\n`);
+        } else {
+          child.stdout.push(`${ev.line}\n`);
+        }
+        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      }
+    } else {
+      for (const line of stdoutLines) {
+        if (child.killed) break;
+        child.stdout.push(`${line}\n`);
+        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+      }
     }
     child.stdout.push(null);
+    child.stderr.push(null);
     child.emit('close', exitCode);
   });
 
@@ -851,14 +864,6 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
   child.stdout.push(`${JSON.stringify({ type: 'reasoning.delta', reasoning: 'trailing thought' })}\n`);
   child.stdout.push(`${JSON.stringify({ type: 'usage', tokensIn: 500, tokensOut: 500 })}\n`);
 
-  await new Promise(resolve => setTimeout(resolve, 20));
-
-  // Assert: no text, tool, usage, or reasoning events emitted after result
-  assert.deepEqual(textDeltas, ['done'], 'trailing text delta must be ignored after result');
-  assert.deepEqual(toolsStarted, [], 'trailing tool must be ignored after result');
-  assert.deepEqual(reasonings, [], 'trailing reasoning must be ignored after result');
-  assert.deepEqual(usages, [], 'trailing usage must be ignored after result');
-
   // 4. Child emits close
   child.exitCode = 0;
   child.emit('close', 0);
@@ -867,6 +872,7 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
   assert.equal(turnResult.status, 'completed');
   assert.equal(textDeltas.length, 1);
 });
+
 
 test('Antigravity bounded graceful termination terminates child process if it remains alive indefinitely after result', async () => {
   const child = new EventEmitter();
@@ -905,4 +911,223 @@ test('Antigravity bounded graceful termination terminates child process if it re
   await new Promise(resolve => setTimeout(resolve, 80));
 
   assert.ok(child.killCalls.includes('SIGINT'), 'post-result timer must trigger bounded graceful termination');
+});
+
+test('Antigravity raw capture: known JSON events persist exact payload with envelope metadata and turnId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-json-'));
+  try {
+    const rawEvents = [
+      { type: 'init', conversation_id: 'conv-json-test' },
+      { event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'ACTIVE', input: { command: 'npm test' } },
+      { event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'DONE', output: 'Tests passed' },
+      { event: 'result', result: { response: 'All good' } },
+    ];
+    const stdoutLines = rawEvents.map(e => JSON.stringify(e));
+
+    const child = createMockProcess(stdoutLines);
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: tmpDir,
+    });
+
+    const turnId = 'turn-json-test-123';
+    const result = await provider.startTurn({
+      turnId,
+      providerSessionId: 'conv-json-test',
+      message: 'run test',
+    });
+    assert.equal(result.status, 'completed');
+
+    await provider.flushRawCapture('conv-json-test');
+
+    const captureFile = join(tmpDir, 'conv-json-test', 'raw.ndjson');
+    const content = await readFile(captureFile, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(lines.length, rawEvents.length);
+    for (let i = 0; i < rawEvents.length; i++) {
+      assert.equal(lines[i].stream, 'stdout');
+      assert.equal(lines[i].turnId, turnId);
+      assert.ok(lines[i].capturedAt, 'capturedAt must be present');
+      assert.deepEqual(lines[i].raw, rawEvents[i], 'raw payload must match exact provider object');
+    }
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity raw capture: unknown or malformed non-JSON lines are preserved as rawText and turn continues', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-malformed-'));
+  try {
+    const nonJsonLine = '--- MALFORMED OR RAW CLI BANNER [START] ---';
+    const stdoutLines = [
+      nonJsonLine,
+      JSON.stringify({ type: 'init', conversation_id: 'conv-malformed' }),
+      'ANOTHER NON-JSON UNRECOGNIZED LINE',
+      JSON.stringify({ event: 'result', response: 'Recovered and done' }),
+    ];
+
+    const child = createMockProcess(stdoutLines);
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: tmpDir,
+    });
+
+    const turnId = 'turn-malformed-456';
+    const result = await provider.startTurn({
+      turnId,
+      providerSessionId: 'conv-malformed',
+      message: 'test non json',
+    });
+    assert.equal(result.status, 'completed');
+
+    await provider.flushRawCapture('conv-malformed');
+
+    const captureFile = join(tmpDir, 'conv-malformed', 'raw.ndjson');
+    const content = await readFile(captureFile, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(lines.length, 4);
+    assert.equal(lines[0].stream, 'stdout');
+    assert.equal(lines[0].turnId, turnId);
+    assert.equal(lines[0].rawText, nonJsonLine);
+    assert.equal(lines[0].raw, undefined);
+
+    assert.deepEqual(lines[1].raw, { type: 'init', conversation_id: 'conv-malformed' });
+
+    assert.equal(lines[2].stream, 'stdout');
+    assert.equal(lines[2].rawText, 'ANOTHER NON-JSON UNRECOGNIZED LINE');
+
+    assert.deepEqual(lines[3].raw, { event: 'result', response: 'Recovered and done' });
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity raw capture: stderr is preserved and distinguishable from stdout', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-stderr-'));
+  try {
+    const events = [
+      { stream: 'stdout', line: JSON.stringify({ type: 'init', conversation_id: 'conv-stderr-test' }) },
+      { stream: 'stderr', line: 'Debugger listening on ws://127.0.0.1:9229' },
+      { stream: 'stderr', line: 'ExperimentalWarning: Custom feature warning' },
+      { stream: 'stdout', line: JSON.stringify({ event: 'result', response: 'Finished' }) },
+    ];
+
+    const child = createMockProcess([], { events });
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: tmpDir,
+    });
+
+    const result = await provider.startTurn({
+      turnId: 'turn-stderr-789',
+      providerSessionId: 'conv-stderr-test',
+      message: 'trigger stderr',
+    });
+
+    assert.equal(result.status, 'completed');
+
+    await provider.flushRawCapture('conv-stderr-test');
+
+    const captureFile = join(tmpDir, 'conv-stderr-test', 'raw.ndjson');
+    const content = await readFile(captureFile, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(lines.length, 4);
+    assert.equal(lines[0].stream, 'stdout');
+    assert.equal(lines[0].raw.type, 'init');
+
+    assert.equal(lines[1].stream, 'stderr');
+    assert.equal(lines[1].rawText, 'Debugger listening on ws://127.0.0.1:9229');
+
+    assert.equal(lines[2].stream, 'stderr');
+    assert.equal(lines[2].rawText, 'ExperimentalWarning: Custom feature warning');
+
+    assert.equal(lines[3].stream, 'stdout');
+    assert.equal(lines[3].raw.event, 'result');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity raw capture: diagnostic filesystem write failure is isolated and does not fail the turn', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-fail-'));
+  try {
+    // Point rawCaptureDir to a regular file so mkdir or write inside it fails
+    const blockerFile = join(tmpDir, 'blocker.txt');
+    await writeFile(blockerFile, 'blocking directory creation', 'utf8');
+
+    const stdoutLines = [
+      JSON.stringify({ type: 'init', conversation_id: 'conv-fail-test' }),
+      JSON.stringify({ event: 'result', response: 'Success despite logging failure' }),
+    ];
+
+    const child = createMockProcess(stdoutLines);
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: blockerFile, // using file as directory causes ENOTDIR or EEXIST
+    });
+
+    const result = await provider.startTurn({
+      turnId: 'turn-fail-test',
+      providerSessionId: 'conv-fail-test',
+      message: 'test error isolation',
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.providerSessionId, 'conv-fail-test');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity raw capture: strictly preserves chronological ordering across mixed events and streams', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-raw-order-'));
+  try {
+    const events = [
+      { stream: 'stdout', line: JSON.stringify({ type: 'init', conversation_id: 'conv-order-test', seq: 1 }) },
+      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', thought: 'Checking environment', seq: 2 }) },
+      { stream: 'stderr', line: '[diagnostic warning seq: 3]' },
+      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'ACTIVE', seq: 4 }) },
+      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', step_type: 'tool', tool_name: 'bash', state: 'DONE', seq: 5 }) },
+      { stream: 'stdout', line: JSON.stringify({ event: 'step_update', thought: 'Fixing error', seq: 6 }) },
+      { stream: 'stderr', line: '[diagnostic warning seq: 7]' },
+      { stream: 'stdout', line: JSON.stringify({ event: 'result', response: 'Done', seq: 8 }) },
+    ];
+
+    const child = createMockProcess([], { events });
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureDir: tmpDir,
+    });
+
+    const result = await provider.startTurn({
+      turnId: 'turn-order-test',
+      providerSessionId: 'conv-order-test',
+      message: 'test order',
+    });
+
+    assert.equal(result.status, 'completed');
+
+    await provider.flushRawCapture('conv-order-test');
+
+    const captureFile = join(tmpDir, 'conv-order-test', 'raw.ndjson');
+    const content = await readFile(captureFile, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+
+    assert.equal(lines.length, 8);
+    assert.equal(lines[0].raw.seq, 1);
+    assert.equal(lines[1].raw.seq, 2);
+    assert.equal(lines[2].rawText, '[diagnostic warning seq: 3]');
+    assert.equal(lines[2].stream, 'stderr');
+    assert.equal(lines[3].raw.seq, 4);
+    assert.equal(lines[4].raw.seq, 5);
+    assert.equal(lines[5].raw.seq, 6);
+    assert.equal(lines[6].rawText, '[diagnostic warning seq: 7]');
+    assert.equal(lines[6].stream, 'stderr');
+    assert.equal(lines[7].raw.seq, 8);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });

@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { mkdir, appendFile, readFile, rm } from 'node:fs/promises';
+import { join, dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   AiError,
@@ -85,6 +86,10 @@ export class AntigravityAgentProvider {
   #cancelGraceMs;
   #forceGraceMs;
   #probeExecutable;
+  #rawCaptureDir;
+  #rawCaptureEnabled;
+  #loggedCaptureSessions = new Set();
+  #sessionWriteQueues = new Map();
 
   constructor({
     executable = 'agy',
@@ -95,6 +100,8 @@ export class AntigravityAgentProvider {
     probeExecutable,
     materializedSessions,
     mappingFilePath = null,
+    rawCaptureDir = null,
+    rawCaptureEnabled = true,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
@@ -103,11 +110,77 @@ export class AntigravityAgentProvider {
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
+    this.#rawCaptureDir = rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw');
+    this.#rawCaptureEnabled = rawCaptureEnabled !== false;
     if (Array.isArray(materializedSessions)) {
       this.#materializedSessions = new Set(materializedSessions);
     }
     this.#loadSessionAliases();
     this.descriptor = ANTIGRAVITY_DESCRIPTOR;
+  }
+
+  getRawCapturePath(sessionId) {
+    if (!sessionId) return null;
+    return join(this.#rawCaptureDir, sessionId, 'raw.ndjson');
+  }
+
+  async flushRawCapture(sessionId) {
+    if (!sessionId) return;
+    const queue = this.#sessionWriteQueues.get(sessionId);
+    if (queue) await queue;
+  }
+
+  #recordRawEvent({ sessionId, turnId, stream, line }) {
+    if (!this.#rawCaptureEnabled || !sessionId || typeof line !== 'string') {
+      return;
+    }
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    const capturedAt = new Date().toISOString();
+    let record;
+    try {
+      const parsed = JSON.parse(trimmed);
+      record = {
+        capturedAt,
+        stream,
+        ...(turnId ? { turnId } : {}),
+        raw: parsed,
+      };
+    } catch {
+      record = {
+        capturedAt,
+        stream,
+        ...(turnId ? { turnId } : {}),
+        rawText: trimmed,
+      };
+    }
+
+    const sessionDir = join(this.#rawCaptureDir, sessionId);
+    const filePath = join(sessionDir, 'raw.ndjson');
+
+    if (!this.#loggedCaptureSessions.has(sessionId)) {
+      this.#loggedCaptureSessions.add(sessionId);
+      console.log(`[ai] Antigravity raw capture: ${filePath}`);
+    }
+
+    const ndjsonLine = JSON.stringify(record) + '\n';
+    let queue = this.#sessionWriteQueues.get(sessionId) || Promise.resolve();
+    queue = queue
+      .then(async () => {
+        try {
+          if (!existsSync(sessionDir)) {
+            await mkdir(sessionDir, { recursive: true });
+          }
+          await appendFile(filePath, ndjsonLine, 'utf8');
+        } catch (err) {
+          console.warn(`[antigravity] [raw-capture] Failed to append raw event for session ${sessionId}: ${err?.message || err}`);
+        }
+      })
+      .catch(err => {
+        console.warn(`[antigravity] [raw-capture] Unexpected error in raw capture queue: ${err?.message || err}`);
+      });
+    this.#sessionWriteQueues.set(sessionId, queue);
   }
 
   #loadSessionAliases() {
@@ -246,6 +319,26 @@ export class AntigravityAgentProvider {
           this.#saveSessionAlias(effectiveSessionId, allocatedId);
           if (providerSessionId) {
             this.#saveSessionAlias(providerSessionId, allocatedId);
+          }
+          if (this.#rawCaptureEnabled && allocatedId !== effectiveSessionId) {
+            // Migrate any raw records already written under effectiveSessionId to allocatedId
+            const oldQueue = this.#sessionWriteQueues.get(effectiveSessionId) || Promise.resolve();
+            const migrationQueue = oldQueue.then(async () => {
+              try {
+                const oldFile = join(this.#rawCaptureDir, effectiveSessionId, 'raw.ndjson');
+                if (existsSync(oldFile)) {
+                  const newDir = join(this.#rawCaptureDir, allocatedId);
+                  if (!existsSync(newDir)) await mkdir(newDir, { recursive: true });
+                  const newFile = join(newDir, 'raw.ndjson');
+                  const content = await readFile(oldFile, 'utf8');
+                  await appendFile(newFile, content, 'utf8');
+                  await rm(join(this.#rawCaptureDir, effectiveSessionId), { recursive: true, force: true });
+                }
+              } catch (err) {
+                console.warn(`[antigravity] [raw-capture] Failed to migrate initial session capture: ${err?.message || err}`);
+              }
+            });
+            this.#sessionWriteQueues.set(allocatedId, migrationQueue);
           }
         }
         if (!isSessionEstablished && allocatedId) {
@@ -564,6 +657,7 @@ export class AntigravityAgentProvider {
       let processingQueue = Promise.resolve();
 
       let stderrBuffer = '';
+      let stderrLineBuffer = '';
 
       child.stdout?.on('data', chunk => {
         if (isDone || isResolved) return;
@@ -572,6 +666,13 @@ export class AntigravityAgentProvider {
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
           if (isDone || isResolved) break;
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stdout',
+            line,
+          });
           processingQueue = processingQueue.then(() => {
             if (isDone || isResolved) return;
             return processLine(line);
@@ -584,6 +685,18 @@ export class AntigravityAgentProvider {
       child.stderr?.on('data', chunk => {
         const text = chunk.toString();
         stderrBuffer += text;
+        stderrLineBuffer += text;
+        const lines = stderrLineBuffer.split('\n');
+        stderrLineBuffer = lines.pop() || '';
+        for (const line of lines) {
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stderr',
+            line,
+          });
+        }
         console.warn(`[antigravity] [stderr] ${text.trim()}`);
       });
 
@@ -620,11 +733,29 @@ export class AntigravityAgentProvider {
         }
 
         if (!isResolved && lineBuffer.trim()) {
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stdout',
+            line: lineBuffer,
+          });
           try {
             await processLine(lineBuffer);
           } catch (e) {
             return failTurn(e);
           }
+        }
+
+        if (stderrLineBuffer.trim()) {
+          const sessIdForCapture = currentSessionId || effectiveSessionId;
+          this.#recordRawEvent({
+            sessionId: sessIdForCapture,
+            turnId,
+            stream: 'stderr',
+            line: stderrLineBuffer,
+          });
+          stderrLineBuffer = '';
         }
 
         if (isResolved) {

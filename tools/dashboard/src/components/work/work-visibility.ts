@@ -30,9 +30,9 @@ export function visibleWorkItemsWhenTerminal(work: TurnWork, expanded: boolean):
   return work.items;
 }
 
-/** Whether a message has any visible prose (assistant text or reasoning) to render. */
-export function hasVisibleProse(message: Pick<NormalizedMessage, 'text' | 'reasoning'>): boolean {
-  return Boolean(message.text) || Boolean(message.reasoning);
+/** Whether a message has any visible prose (assistant text, reasoning, or timeline commentary) to render. */
+export function hasVisibleProse(message: Pick<NormalizedMessage, 'text' | 'reasoning' | 'activityTimeline'>): boolean {
+  return Boolean(message.text) || Boolean(message.reasoning) || (message.activityTimeline?.some(item => item.type === 'commentary' && Boolean(item.text)) ?? false);
 }
 
 /**
@@ -42,7 +42,7 @@ export function hasVisibleProse(message: Pick<NormalizedMessage, 'text' | 'reaso
  * bubble/placeholder (Finding 5/8, follow-up review of PR #35).
  */
 export function shouldRenderChatMessage(
-  message: Pick<NormalizedMessage, 'role' | 'text' | 'reasoning'>,
+  message: Pick<NormalizedMessage, 'role' | 'text' | 'reasoning' | 'activityTimeline'>,
   hasWork: boolean,
 ): boolean {
   if (message.role !== 'assistant') return true;
