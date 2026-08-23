@@ -31,6 +31,28 @@ export interface WorkItem {
   durationMs?: number;
 }
 
+export type PresentationSeverity = 'normal' | 'warning' | 'error';
+
+export function isGenuineTurnError(turnError?: { code: string; message: string } | null): boolean {
+  if (!turnError || !turnError.code) return false;
+  // Explicit user cancellation is an intentional lifecycle termination, not an application/turn error
+  if (turnError.code === 'AI_TURN_CANCELLED') return false;
+  return true;
+}
+
+export function computePresentationSeverity(
+  items: WorkItem[],
+  turnError?: { code: string; message: string } | null,
+): PresentationSeverity {
+  if (isGenuineTurnError(turnError)) {
+    return 'error';
+  }
+  if (items.some(item => item.status === 'failed')) {
+    return 'warning';
+  }
+  return 'normal';
+}
+
 export interface TurnWork {
   turnId: string;
   messageId: string;
@@ -41,17 +63,16 @@ export interface TurnWork {
    * legitimately contain a failed historical action (e.g. `Read failed`, `Bash
    * completed`, `Edit running`) and must stay `'current'` while it does. Only once the
    * turn itself is terminal does this fall through to `'failed'`/`'completed'`,
-   * determined by `hasFailures`. This is a deliberately narrow, three-value status
-   * field, not a larger state-machine abstraction — see `hasFailures` for the
-   * orthogonal "does this Work need attention" signal.
+   * determined by genuine turn-level failure (isGenuineTurnError).
    */
   status: WorkGroupStatus;
   /**
-   * Whether any individual action in this turn — at any point, including while the
-   * turn is still `'current'` — ended `'failed'`, or the turn itself carries a
-   * `turnError`. Independent of `status`'s lifecycle meaning: a `'current'` turn can
-   * have `hasFailures: true` (an earlier action failed, but the turn is still running)
-   * just as validly as a terminal one.
+   * Presentation severity: 'error' if genuine turn failure, 'warning' if individual tool
+   * failed, 'normal' otherwise. Centralized source of truth for UI severity styling.
+   */
+  severity: PresentationSeverity;
+  /**
+   * Whether this Work group requires user attention (severity !== 'normal').
    */
   hasFailures: boolean;
   items: WorkItem[];
@@ -109,7 +130,7 @@ function computeWorkLifecycle(items: WorkItem[], isActiveTurn: boolean): 'curren
 }
 
 function computeHasFailures(items: WorkItem[], turnError: { code: string; message: string } | undefined): boolean {
-  return Boolean(turnError) || items.some(item => item.status === 'failed');
+  return computePresentationSeverity(items, turnError) !== 'normal';
 }
 
 /**
@@ -189,12 +210,16 @@ export function projectChat(
   const workByTurn: TurnWork[] = [];
   for (const [turnId, { anchorMessageId, items, turnError, isActiveTurn }] of turnWorkMap) {
     const lifecycle = computeWorkLifecycle(items, isActiveTurn);
-    const hasFailures = computeHasFailures(items, turnError);
+    const severity = computePresentationSeverity(items, turnError);
+    const hasFailures = severity !== 'normal';
     const currentActivity = currentRunningActivity(items);
     workByTurn.push({
       turnId,
       messageId: anchorMessageId,
-      status: lifecycle === 'current' ? 'current' : (hasFailures ? 'failed' : 'completed'),
+      status: lifecycle === 'current'
+        ? 'current'
+        : (isGenuineTurnError(turnError) ? 'failed' : 'completed'),
+      severity,
       hasFailures,
       items,
       currentActivity,

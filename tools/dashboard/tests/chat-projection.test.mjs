@@ -59,7 +59,7 @@ test('projectChat marks a turn current while its active tool is still running, a
   assert.equal(currentActivity?.toolId, 't2');
 });
 
-test('projectChat flags a turn with any failed tool call, even once the turn itself is no longer active', () => {
+test('projectChat flags a turn with any failed tool call with severity warning and hasFailures true', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({
@@ -73,7 +73,9 @@ test('projectChat flags a turn with any failed tool call, even once the turn its
   ];
 
   const { workByTurn } = projectChat(messages, { activeTurnId: null });
-  assert.equal(workByTurn[0].status, 'failed');
+  assert.equal(workByTurn[0].status, 'completed', 'turn completed its execution');
+  assert.equal(workByTurn[0].severity, 'warning', 'tool failure is a warning, not a turn error');
+  assert.equal(workByTurn[0].hasFailures, true);
 });
 
 test('projectChat surfaces a turn that failed with no tool calls at all via turnError, not silently dropped', () => {
@@ -169,9 +171,9 @@ test('A: an active turn with a mix of completed, failed, and running actions sta
   assert.equal(currentActivity?.toolId, 't3', 'the running action remains current activity');
 });
 
-// Required coverage C (follow-up review): a terminal turn with a failure surfaces
-// hasFailures/status: 'failed', independent of the lifecycle question above.
-test('C: a terminal turn with a failed action reports status failed and hasFailures true', () => {
+// Required coverage C (follow-up review): a terminal turn with a failed action reports
+// status completed (the turn completed), severity warning, and hasFailures true.
+test('C: a terminal turn with a failed action reports status completed, severity warning, and hasFailures true', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({
@@ -185,8 +187,152 @@ test('C: a terminal turn with a failed action reports status failed and hasFailu
   ];
 
   const { workByTurn } = projectChat(messages, { activeTurnId: null });
-  assert.equal(workByTurn[0].status, 'failed');
+  assert.equal(workByTurn[0].status, 'completed', 'turn completed its execution');
+  assert.equal(workByTurn[0].severity, 'warning', 'tool failure is a warning, not an error');
   assert.equal(workByTurn[0].hasFailures, true);
+});
+
+// ── Presentation severity test matrix (Product correction: tool failure = warning, turn failure = error) ───
+
+test('Severity matrix 1: turn completed + 0 failed tools -> severity normal', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'completed' },
+        { id: 't2', name: 'Bash', input: {}, status: 'completed' },
+      ],
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'completed');
+  assert.equal(workByTurn[0].severity, 'normal');
+  assert.equal(workByTurn[0].hasFailures, false);
+});
+
+test('Severity matrix 2: turn completed + 1 failed tool -> severity warning', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'failed' },
+        { id: 't2', name: 'Bash', input: {}, status: 'completed' },
+      ],
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'completed');
+  assert.equal(workByTurn[0].severity, 'warning');
+  assert.equal(workByTurn[0].hasFailures, true);
+});
+
+test('Severity matrix 3: turn completed + several failed tools -> severity warning', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'failed' },
+        { id: 't2', name: 'Grep', input: {}, status: 'failed' },
+        { id: 't3', name: 'Bash', input: {}, status: 'completed' },
+      ],
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'completed');
+  assert.equal(workByTurn[0].severity, 'warning');
+  assert.equal(workByTurn[0].hasFailures, true);
+});
+
+test('Severity matrix 4: turn.failed AI_PROVIDER_ERROR + 0 failed tools -> severity error', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'completed' },
+      ],
+      turnError: { code: 'AI_PROVIDER_ERROR', message: 'Model service unavailable' },
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'failed');
+  assert.equal(workByTurn[0].severity, 'error');
+  assert.equal(workByTurn[0].hasFailures, true);
+});
+
+test('Severity matrix 5: turn.failed AI_PROVIDER_ERROR + failed tool exists too -> severity error', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'failed' },
+      ],
+      turnError: { code: 'AI_PROVIDER_ERROR', message: 'Process crashed' },
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'failed');
+  assert.equal(workByTurn[0].severity, 'error');
+  assert.equal(workByTurn[0].hasFailures, true);
+});
+
+test('Severity matrix 6: AI_TURN_CANCELLED -> non-error (severity normal)', () => {
+  const messages = [
+    userMsg('u1', 'go'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      toolCalls: [
+        { id: 't1', name: 'Read', input: {}, status: 'completed' },
+      ],
+      turnError: { code: 'AI_TURN_CANCELLED', message: 'Turn was cancelled by user' },
+    }),
+  ];
+  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn[0].status, 'completed');
+  assert.equal(workByTurn[0].severity, 'normal', 'cancellation must not be treated as error');
+  assert.equal(workByTurn[0].hasFailures, false);
+});
+
+test('Severity matrix 7: stale Antigravity ERROR compatibility case + valid response + tool failure -> turn completed, Work warning, NOT error', () => {
+  // TURN N: tool fails and recovers
+  // TURN N+1: completed response emitted, turn ends normally
+  const messages = [
+    userMsg('u1', 'first turn'),
+    assistantMsg({
+      id: 'm1',
+      turnId: 'turn-1',
+      text: 'First answer',
+      toolCalls: [
+        { id: 't1', name: 'Edit', input: {}, status: 'failed' },
+        { id: 't2', name: 'Edit', input: {}, status: 'completed' },
+      ],
+    }),
+    userMsg('u2', 'second turn (asking question)'),
+    assistantMsg({
+      id: 'm2',
+      turnId: 'turn-2',
+      text: 'Second answer explaining error cleanly',
+      // No turnError attached because non-empty response completed successfully
+    }),
+  ];
+  const { workByTurn, conversation } = projectChat(messages, { activeTurnId: null });
+  assert.equal(workByTurn.length, 1, 'Only turn-1 had tool calls');
+  assert.equal(workByTurn[0].turnId, 'turn-1');
+  assert.equal(workByTurn[0].status, 'completed');
+  assert.equal(workByTurn[0].severity, 'warning', 'turn-1 has warning because of failed edit tool');
+  
+  // Turn 2 is completely clean
+  assert.equal(conversation.find(c => c.id === 'm2')?.text, 'Second answer explaining error cleanly');
 });
 
 // Required coverage H (follow-up review): one turn with both tool activity and
