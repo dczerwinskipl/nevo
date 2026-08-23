@@ -30,6 +30,7 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
         className="flex w-full items-center justify-between px-3 py-2 text-left font-medium hover:bg-white/4"
       >
         <div className="flex items-center gap-2 min-w-0">

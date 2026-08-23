@@ -346,17 +346,30 @@ event-projection pipeline above, and it makes no change to `bindSession`/
 
 Decided *before* Tasks 02-09 begin implementation, not deferred entirely to Task 11:
 
-- **Dependency/reuse — coordinate, don't duplicate:** `task-session-linking` (Task 06),
-  `mode-description-tooltip` (Task 07), `shared-status-label-component` (Task 09).
+- **Dependency/reuse — coordinate, don't duplicate:** `design-tokens` (reused across components),
+  `task-session-linking` (Task 06), `mode-description-tooltip` (Task 07),
+  `shared-status-label-component` (Task 09).
 - **Do not start independently while pt1 is in flight — pt1 replaces this surface:**
   `composer-alignment` (Task 07), `mode-switcher-touch-target` (Task 05/07), the
   header instance of `delete-session-touch-target` (Task 06).
 - **Independent:** `dedupe-recent-sessions` and every other
   `ux-improvements-version-1` task outside the open chat view.
 
-Task 11 verifies, after implementation, that reality still matches this preflight and
-performs the actual `abandoned` status transitions (this preflight itself does not
-write to `ux-improvements-version-1`'s manifest — see D8 and Task 11).
+## Reconciled overlap post-implementation (Task 11)
+
+Verified against the shipped implementation of Tasks 01–10:
+
+- **Abandoned in `ux-improvements-version-1` (superseded by this change):**
+  - `composer-alignment`: `ChatComposer` completely redesigns the composer layout, eliminating the previous form layout misalignment.
+  - `mode-switcher-touch-target`: Mode switcher relocated out of header into `ChatComposer` with accessible sizing and touch targets.
+- **Dependency / Shared reuse:**
+  - `design-tokens`: Tokens (`--border`, `--surface`, `--accent`, etc.) reused consistently.
+  - `shared-status-label-component`: Task 09 narrowed `AiSessionStatus` to live values (`idle`, `running`, `waitingForUser`).
+  - `mode-description-tooltip`: Consumed by `ChatComposer` mode metadata.
+  - `task-session-linking`: Header session details displays linked tasks dynamically; sidebar/spec-detail linkage remains active in `ux-improvements-version-1`.
+  - `delete-session-touch-target`: Header instance replaced by SessionDetails drawer; sidebar instance remains active in `ux-improvements-version-1`.
+- **Independent:**
+  - `dedupe-recent-sessions` and all remaining tasks outside the open chat surface (`mock-provider-config-order`, `task-checklist-visual-hierarchy`, `archive-search-shared-state`, `consolidate-documentation-tabs`, `move-connectivity-indicator`, `task-modal-clipped-by-sidebar`, `flatten-review-card-nesting`, `mobile-collapse-empty-columns`, `label-commit-hash`, `mock-provider-accessible-name`, `standardize-h2-scale`, `escape-key-closes-all-modals`).
 
 ## Areas
 

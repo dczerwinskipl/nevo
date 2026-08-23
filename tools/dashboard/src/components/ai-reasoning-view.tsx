@@ -22,6 +22,7 @@ export function AiReasoningView({
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
         className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-[var(--muted)] hover:text-[var(--foreground)]"
       >
         <span className="flex items-center gap-2">

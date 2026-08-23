@@ -44,12 +44,12 @@ tasks:
   - id: composer-alignment
     order: 2
     file: tasks/02-composer-alignment.md
-    status: draft
+    status: abandoned
 
   - id: mode-switcher-touch-target
     order: 3
     file: tasks/03-mode-switcher-touch-target.md
-    status: draft
+    status: abandoned
 
   - id: mode-description-tooltip
     order: 4
