@@ -58,7 +58,7 @@ tasks:
   - id: conversation-message-presentation
     order: 2
     file: tasks/02-conversation-message-presentation.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
     implementation:
@@ -67,7 +67,7 @@ tasks:
   - id: per-turn-work-presentation
     order: 3
     file: tasks/03-per-turn-work-presentation.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
     implementation:
@@ -92,7 +92,7 @@ tasks:
   - id: tool-activity-normalization-and-details
     order: 4
     file: tasks/04-tool-activity-normalization-and-details.md
-    status: implemented
+    status: verified
     depends_on:
       - semantic-chat-presentation-model
       - per-turn-work-presentation
@@ -125,7 +125,7 @@ tasks:
   - id: shared-session-details
     order: 6
     file: tasks/06-shared-session-details.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
       review_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
@@ -162,7 +162,7 @@ tasks:
   - id: composer-interaction-redesign
     order: 7
     file: tasks/07-composer-interaction-redesign.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
       review_revision: ed22c28fed14e4ae1a953df673a8d6c1d6868f90
