@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-23T08:41:33.342Z",
+  "generated": "2026-08-23T08:41:40.695Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -458,7 +458,7 @@
           "id": "codex-app-server-client",
           "order": 2,
           "file": "tasks/02-codex-app-server-client.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "86ec1c7f01b63453b7e2f7ca6a53aef6295bda8e",
             "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
