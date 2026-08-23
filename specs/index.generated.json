@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-22T12:01:03.907Z",
+  "generated": "2026-08-23T08:41:33.342Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
@@ -411,7 +411,7 @@
           "id": "provider-neutral-persistent-turn-contracts",
           "order": 1,
           "file": "tasks/01-provider-neutral-persistent-turn-contracts.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "5f46ca0f6cee280cea05760e610522554d06a016",
             "review_revision": "7252eedfd1fe19a2538c9b892b7797f045d7066a",
