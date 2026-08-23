@@ -58,6 +58,33 @@ export function defaultProbeAntigravityExecutable(executable) {
   }
 }
 
+export function extractFinalResponse(raw) {
+  if (!raw) return null;
+  // 1. Direct string in raw.result
+  if (typeof raw.result === 'string') return raw.result;
+  // 2. Object in raw.result (e.g. { response: '...', text: '...', content: '...', message: '...', summary: '...' })
+  if (raw.result && typeof raw.result === 'object') {
+    if (typeof raw.result.response === 'string') return raw.result.response;
+    if (typeof raw.result.text === 'string') return raw.result.text;
+    if (typeof raw.result.content === 'string') return raw.result.content;
+    if (typeof raw.result.message === 'string') return raw.result.message;
+    if (typeof raw.result.summary === 'string') return raw.result.summary;
+  }
+  // 3. Direct response / text / content / message / summary on raw
+  if (typeof raw.response === 'string') return raw.response;
+  if (typeof raw.text === 'string') return raw.text;
+  if (typeof raw.content === 'string') return raw.content;
+  if (typeof raw.message === 'string') return raw.message;
+  if (typeof raw.summary === 'string') return raw.summary;
+  // 4. Object in raw.step_update (if step_update had final response)
+  if (raw.step_update && typeof raw.step_update === 'object') {
+    if (typeof raw.step_update.response === 'string') return raw.step_update.response;
+    if (typeof raw.step_update.text === 'string') return raw.step_update.text;
+    if (typeof raw.step_update.content === 'string') return raw.step_update.content;
+  }
+  return null;
+}
+
 export class AntigravityAgentProvider {
   #executable;
   #cwd;
@@ -172,9 +199,11 @@ export class AntigravityAgentProvider {
 
     const effectiveSessionId = providerSessionId || randomUUID();
     let isSessionEstablished = false;
+    let accumulatedText = '';
 
     const sendTextDelta = (chunk) => {
       if (!chunk) return;
+      accumulatedText += chunk;
       if (emitTextDelta) emitTextDelta(chunk);
       else if (emitDelta) emitDelta(chunk);
     };
@@ -183,6 +212,7 @@ export class AntigravityAgentProvider {
       let activeTool = null;
       let lineBuffer = '';
       let isDone = false;
+      let isResolved = false;
       let pendingInteractionPromise = null;
 
       const args = [
@@ -260,6 +290,24 @@ export class AntigravityAgentProvider {
 
       const cleanup = () => {
         this.#activeOperations.delete(turnId);
+      };
+
+      const finishTurn = () => {
+        if (isResolved) return;
+        isResolved = true;
+        cleanup();
+        resolve({
+          turnId,
+          providerSessionId: currentSessionId || effectiveSessionId,
+          status: 'completed',
+        });
+      };
+
+      const failTurn = (err) => {
+        if (isResolved) return;
+        isResolved = true;
+        cleanup();
+        reject(err);
       };
 
       if (signal) {
@@ -458,8 +506,17 @@ export class AntigravityAgentProvider {
               }
               activeTool = null;
             }
-            if (raw.result && typeof raw.result === 'string') {
-              sendTextDelta(raw.result);
+            const finalText = extractFinalResponse(raw);
+            if (finalText) {
+              if (!accumulatedText) {
+                sendTextDelta(finalText);
+              } else if (finalText === accumulatedText) {
+                // Already fully streamed, do not duplicate
+              } else if (finalText.startsWith(accumulatedText)) {
+                sendTextDelta(finalText.slice(accumulatedText.length));
+              } else if (!accumulatedText.endsWith(finalText) && !accumulatedText.includes(finalText)) {
+                sendTextDelta(finalText);
+              }
             }
             const usageObj = payload?.usage || raw.usage;
             if (usageObj && emitUsageUpdated) {
@@ -470,12 +527,16 @@ export class AntigravityAgentProvider {
               });
             }
             isDone = true;
+            if (pendingInteractionPromise) {
+              pendingInteractionPromise.then(() => finishTurn()).catch(err => failTurn(err));
+            } else {
+              finishTurn();
+            }
             break;
           }
 
           case 'error': {
-            cleanup();
-            reject(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
+            failTurn(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
             break;
           }
 
@@ -494,8 +555,7 @@ export class AntigravityAgentProvider {
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
           processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
-            cleanup();
-            reject(err);
+            failTurn(err);
           });
         }
       });
@@ -507,25 +567,27 @@ export class AntigravityAgentProvider {
       });
 
       child.on('error', err => {
-        cleanup();
+        if (isResolved) return;
         const msg = err.code === 'ENOENT'
           ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
           : `Antigravity process error: ${err.message}`;
-        reject(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
+        failTurn(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
       });
 
       child.on('close', async exitCode => {
         try {
           await processingQueue;
         } catch (e) {
-          cleanup();
-          return reject(e);
+          return failTurn(e);
         }
 
-        cleanup();
-
         if (lineBuffer.trim()) {
-          try { await processLine(lineBuffer); } catch (e) { return reject(e); }
+          try { await processLine(lineBuffer); } catch (e) { return failTurn(e); }
+        }
+
+        if (isResolved) {
+          cleanup();
+          return;
         }
 
         // Evaluate cancellation/exit-outcome before determining what happened to a
@@ -544,27 +606,23 @@ export class AntigravityAgentProvider {
         }
 
         if (wasCancelled) {
-          return reject(new AiError('AI_TURN_CANCELLED', 'Antigravity turn was cancelled.', { status: 409 }));
+          return failTurn(new AiError('AI_TURN_CANCELLED', 'Antigravity turn was cancelled.', { status: 409 }));
         }
 
         if (pendingInteractionPromise) {
           try {
             await pendingInteractionPromise;
           } catch (e) {
-            return reject(e);
+            return failTurn(e);
           }
         }
 
         if (hadNonZeroExit) {
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
-          return reject(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
+          return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }
 
-        resolve({
-          turnId,
-          providerSessionId: currentSessionId || effectiveSessionId,
-          status: 'completed',
-        });
+        finishTurn();
       });
 
       // Send prompt / message to child stdin

@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "generated": "2026-08-22T08:41:26.881Z",
-=======
-  "generated": "2026-08-23T10:19:41.971Z",
->>>>>>> 303c596 (feat(chat-ux): implement shared session details and redesign composer interaction)
+  "generated": "2026-08-23T11:16:02.024Z",
   "rules": [
     {
       "rule_id": "CIM-01",

@@ -593,3 +593,175 @@ test('Antigravity cancellation resolves a still-active tool call to failed only 
   assert.equal(toolsCompleted[0].toolId, 'tool-cancel');
   assert.equal(toolsCompleted[0].status, 'failed');
 });
+
+// ── Regression tests: Antigravity terminal result extraction & lifecycle ──────────
+
+// Requirement 1 & 2: Final assistant prose from result.response without preceding text_delta.
+test('Antigravity extracts final assistant response from result.response without earlier text streaming', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-final-resp' }),
+    JSON.stringify({ type: 'tool.started', toolId: 't1', toolName: 'Read', input: { path: 'file.ts' } }),
+    JSON.stringify({ type: 'tool.completed', toolId: 't1', output: 'file contents' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        response: 'Final summary after tools completed.',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const toolsCompleted = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-final-resp',
+    providerSessionId: 'conv-final-resp',
+    message: 'Read file and summarize',
+    emitTextDelta: (t) => textDeltas.push(t),
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.deepEqual(textDeltas, ['Final summary after tools completed.'], 'final prose must be emitted exactly once');
+});
+
+// Requirement 3: Avoid duplicate final prose when streaming text matches terminal result.
+test('Antigravity deduplicates final prose when both text_delta and result.response carry the same text', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-dedup' }),
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Final summary prose' } }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        response: 'Final summary prose',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-dedup',
+    providerSessionId: 'conv-dedup',
+    message: 'Summarize',
+    emitTextDelta: (t) => textDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(textDeltas, ['Final summary prose'], 'must not emit duplicate prose');
+});
+
+// Requirement 3: Partial streaming followed by complete final response emits only suffix.
+test('Antigravity handles partial streaming prefix followed by complete final response without duplication', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-partial' }),
+    JSON.stringify({ event: 'step_update', step_update: { text_delta: 'Podsumowując: ' } }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        response: 'Podsumowując: wszystko wykonane pomyślnie.',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-partial',
+    providerSessionId: 'conv-partial',
+    message: 'Summarize',
+    emitTextDelta: (t) => textDeltas.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(textDeltas.join(''), 'Podsumowując: wszystko wykonane pomyślnie.');
+  assert.deepEqual(textDeltas, ['Podsumowując: ', 'wszystko wykonane pomyślnie.']);
+});
+
+// Requirement 4: Terminal provider event resolves startTurn immediately, not waiting for child close.
+test('Antigravity turn completes immediately upon authoritative result event even if child process close is delayed', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killCalls = [];
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+  });
+
+  const textDeltas = [];
+  const startPromise = provider.startTurn({
+    turnId: 'turn-early-resolve',
+    providerSessionId: 'sess-early-resolve',
+    message: 'hello',
+    emitTextDelta: (t) => textDeltas.push(t),
+  });
+
+  // Feed stdout lines
+  child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'sess-early-resolve' })}\n`);
+  child.stdout.push(`${JSON.stringify({ event: 'result', result: { response: 'Turn finished immediately' } })}\n`);
+
+  // Allow microtasks/promises to process
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // startPromise must resolve NOW without child emitting 'close'
+  let resolved = false;
+  startPromise.then(() => { resolved = true; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(resolved, true, 'startTurn must resolve upon authoritative result event without waiting for process close');
+  assert.deepEqual(textDeltas, ['Turn finished immediately']);
+
+  // Emitting close later must not throw or cause duplicate completion
+  child.exitCode = 0;
+  child.emit('close', 0);
+  const turnResult = await startPromise;
+  assert.equal(turnResult.status, 'completed');
+});
+
+// Requirement 5: A failed tool does not suppress final assistant response.
+test('Antigravity preserves final assistant response even when an earlier tool in the turn failed', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-tool-fail' }),
+    JSON.stringify({ type: 'tool.started', toolId: 't1', toolName: 'Read', input: { path: 'missing.ts' } }),
+    JSON.stringify({ type: 'tool.completed', toolId: 't1', status: 'failed', output: 'File not found' }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        response: 'Plik nie istnieje, ale znalazłem plik zastępczy.',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const toolsCompleted = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-tool-fail',
+    providerSessionId: 'conv-tool-fail',
+    message: 'Read file',
+    emitTextDelta: (t) => textDeltas.push(t),
+    emitToolCompleted: (t) => toolsCompleted.push(t),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'failed', 'tool remains failed');
+  assert.deepEqual(textDeltas, ['Plik nie istnieje, ale znalazłem plik zastępczy.'], 'final assistant message must be preserved');
+});

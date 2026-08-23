@@ -2,11 +2,7 @@
 
 # Documentation index
 
-<<<<<<< HEAD
-_Generated: 2026-08-22T08:41:26.880Z_
-=======
-_Generated: 2026-08-23T10:19:41.969Z_
->>>>>>> 303c596 (feat(chat-ux): implement shared session details and redesign composer interaction)
+_Generated: 2026-08-23T11:16:02.022Z_
 
 ## Hub
 

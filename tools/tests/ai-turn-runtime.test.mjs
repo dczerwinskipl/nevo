@@ -4,9 +4,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { Readable, Writable } from 'node:stream';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../ai/transcript-cache.mjs';
+import { AntigravityAgentProvider } from '../ai/antigravity-adapter.mjs';
 
 
 const capabilities = Object.freeze({
@@ -521,6 +524,99 @@ test('boot reconciliation leaves a waitingForUser session (pendingInteraction) u
     assert.deepEqual(transcript.pendingInteraction, pending.pendingInteraction);
     assert.ok(transcript.activeTurn);
     fresh.runtime.shutdown();
+  } finally {
+    await new Promise(r => setTimeout(r, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+function createMockAgyProcess(stdoutLines = [], { exitCode = 0, delayMs = 5 } = {}) {
+  const child = new EventEmitter();
+  child.stdin = new Writable({ write(chunk, encoding, cb) { cb(); } });
+  child.stdout = new Readable({ read() {} });
+  child.stderr = new Readable({ read() {} });
+  child.kill = (signal) => {
+    child.killed = true;
+    child.killSignal = signal;
+    setImmediate(() => child.emit('close', 0));
+  };
+  setImmediate(async () => {
+    for (const line of stdoutLines) {
+      if (child.killed) break;
+      child.stdout.push(`${line}\n`);
+      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+    }
+    child.stdout.push(null);
+    child.emit('close', exitCode);
+  });
+  return child;
+}
+
+test('Antigravity full path: tools -> result.response summary -> normalized events -> cache persistence & reload', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-full-path-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const lines = [
+      JSON.stringify({ type: 'init', conversation_id: 'sess-agy-full' }),
+      JSON.stringify({ type: 'tool.started', toolId: 't1', toolName: 'Read', input: { path: 'a.ts' } }),
+      JSON.stringify({ type: 'tool.completed', toolId: 't1', status: 'completed', output: 'content of a.ts' }),
+      JSON.stringify({ type: 'tool.started', toolId: 't2', toolName: 'Bash', input: { command: 'npm test' } }),
+      JSON.stringify({ type: 'tool.completed', toolId: 't2', status: 'completed', output: 'tests passed' }),
+      JSON.stringify({
+        event: 'result',
+        result: {
+          response: 'Podsumowując, wszystkie testy przeszły pomyślnie.',
+        },
+      }),
+    ];
+
+    const antigravityAdapter = new AntigravityAgentProvider({
+      spawnProcess: () => createMockAgyProcess(lines),
+    });
+
+    const registry = createAiAdapterRegistry([antigravityAdapter]);
+    const runtime = createAiTurnRuntime({ registry, transcriptCache });
+
+    const collectedEvents = [];
+    const unsubscribe = runtime.subscribeToSession(
+      { provider: 'antigravity', providerSessionId: 'sess-agy-full' },
+      { onEvent: (ev) => collectedEvents.push(ev) }
+    );
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'antigravity',
+      providerSessionId: 'sess-agy-full',
+      message: 'Run tests and summarize',
+    });
+
+    // Wait until turn reaches terminal state
+    await waitFor(() => runtime.getSnapshot(turnId), snap => snap && snap.status === 'completed', 'turn completed');
+    await transcriptCache.flush('antigravity', 'sess-agy-full');
+    unsubscribe();
+
+    // 1. Verify normalized events
+    const textEvents = collectedEvents.filter(e => e.type === 'text.delta');
+    assert.equal(textEvents.length, 1, 'exactly one text.delta event');
+    assert.equal(textEvents[0].text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
+    const turnCompletedEvents = collectedEvents.filter(e => e.type === 'turn.completed');
+    assert.equal(turnCompletedEvents.length, 1, 'turn.completed emitted');
+
+    // 2. Verify runtime state has left running
+    const snap = runtime.getSnapshot(turnId);
+    assert.equal(snap.status, 'completed', 'turn snapshot is completed');
+    assert.ok(snap.completedAt, 'turn must have completedAt timestamp');
+
+    // 3. Verify transcript cache on disk and reload
+    const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const transcript = await reloadedCache.getTranscript('antigravity', 'sess-agy-full');
+    const assistantMsg = transcript.messages.find(m => m.role === 'assistant');
+    assert.ok(assistantMsg, 'assistant message exists in transcript');
+    assert.equal(assistantMsg.text, 'Podsumowując, wszystkie testy przeszły pomyślnie.');
+    assert.equal(assistantMsg.toolCalls.length, 2);
+    assert.equal(assistantMsg.toolCalls[0].status, 'completed');
+    assert.equal(assistantMsg.toolCalls[1].status, 'completed');
+
+    runtime.shutdown();
   } finally {
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

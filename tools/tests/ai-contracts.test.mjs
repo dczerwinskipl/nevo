@@ -163,6 +163,8 @@ test('AiSessionService uses binding service for listings and transcript cache fo
     provider: 'claude',
     providerSessionId: 'sess-1',
     specId: 'spec-123',
+    taskId: undefined,
+    taskIds: [],
     lastActivityAt: '2026-08-18T10:00:00.000Z',
     status: 'idle',
     activeTurn: null,

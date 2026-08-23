@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "generated": "2026-08-23T09:56:54.821Z",
-=======
-  "generated": "2026-08-23T10:50:22.815Z",
->>>>>>> 303c596 (feat(chat-ux): implement shared session details and redesign composer interaction)
+  "generated": "2026-08-23T11:16:01.819Z",
   "changes": [
     {
       "id": "chat-ux-improvements-pt1",
