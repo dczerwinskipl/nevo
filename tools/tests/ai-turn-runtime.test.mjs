@@ -18,6 +18,8 @@ const capabilities = Object.freeze({
   toolCalls: true,
   reasoning: true,
   usage: true,
+  steerTurn: false,
+  planUpdates: false,
 });
 
 function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = {}) {
@@ -25,9 +27,10 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
   let starts = 0;
   let cancels = 0;
   let continuations = 0;
+  let releasePersistentTurn;
   const adapter = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, signal }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitProgressDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
       if (!providerSessionId && setProviderSessionId) {
         setProviderSessionId('sess-auto-allocated');
       }
@@ -51,6 +54,8 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
         emitToolCompleted({ toolId: 't1', output: ['file.txt'], durationMs: 40, status: 'completed' });
         emitUsageUpdated({ tokensIn: 50, tokensOut: 20 });
+      } else if (message === 'progress-only') {
+        emitProgressDelta('checking...', 'progress-1');
       } else if (message === 'lingering-tool') {
         // owner-decisions.md D6, required scenario 17: a turn reaching normal
         // turn.completed while a different tool call in the same turn is still
@@ -65,6 +70,15 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         throw new Error('adapter failure mid-tool');
       } else if (message === 'hang') {
         await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      } else if (message === 'persistent-interaction') {
+        requestInteraction(
+          { kind: 'permission', toolName: 'PersistentShell', input: { command: 'npm test' } },
+          { resumePolicy: 'live-operation' },
+        );
+        await new Promise((resolve, reject) => {
+          releasePersistentTurn = resolve;
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
       } else if (message === 'slow-drip') {
         for (let i = 0; i < 4; i += 1) {
           await new Promise(resolve => setTimeout(resolve, 15));
@@ -81,6 +95,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         emitDelta(response.answers.map(a => a.value).join(','));
       }
       emitDelta('two');
+      if (interaction?.toolName === 'PersistentShell') return { continuesTurn: true };
     },
     async cancelTurn() { cancels += 1; },
   };
@@ -101,6 +116,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
     get starts() { return starts; },
     get cancels() { return cancels; },
     get continuations() { return continuations; },
+    releasePersistentTurn() { releasePersistentTurn?.(); },
   };
 }
 
@@ -122,6 +138,34 @@ test('turns stream ordered deltas (text.delta) and complete with terminal snapsh
   assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4]);
   assert.equal(snapshot.providerSessionId, 's1');
   assert.equal(snapshot.sessionId, undefined);
+});
+
+test('progress.delta remains ordered provider-neutral activity and never becomes assistant transcript text', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-progress-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture = createFixture({ transcriptCache });
+    const { turnId } = await fixture.runtime.startTurn({
+      provider: 'fake', providerSessionId: 'progress-session', message: 'progress-only',
+    });
+    const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed');
+    assert.deepEqual(snapshot.events.map(event => event.type), [
+      'turn.started', 'text.delta', 'progress.delta', 'text.delta', 'turn.completed',
+    ]);
+    const progress = snapshot.events.find(event => event.type === 'progress.delta');
+    assert.equal(progress.id, 3);
+    assert.equal(progress.seq, 3);
+    assert.equal(progress.turnId, turnId);
+    assert.equal(progress.progressId, 'progress-1');
+    assert.equal(progress.text, 'checking...');
+    const transcript = await transcriptCache.getTranscript('fake', 'progress-session');
+    const assistantText = transcript.messages.filter(message => message.role === 'assistant').map(message => message.text).join('');
+    assert.equal(assistantText, 'one two');
+    assert.equal(assistantText.includes('checking'), false);
+  } finally {
+    await new Promise(resolve => setTimeout(resolve, 25));
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
 });
 
 test('runtime rejects legacy sessionId and enforces canonical providerSessionId', async () => {
@@ -156,6 +200,26 @@ test('permission and question interactions pause, resolve by stable IDs, and con
   assert.equal(fixture.continuations, 2);
 });
 
+test('a persistent provider interaction continues until the original turn lifecycle completes', async () => {
+  const fixture = createFixture();
+  const turn = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'persistent-session',
+    message: 'persistent-interaction',
+  });
+  const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.pendingInteraction, 'persistent interaction');
+  await fixture.runtime.resolveInteraction(turn.turnId, pending.pendingInteraction.id, { decision: 'allow' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const continuing = fixture.runtime.getSnapshot(turn.turnId);
+  assert.equal(continuing.status, 'running');
+  assert.equal(continuing.events.some(event => event.type === 'turn.completed'), false);
+
+  fixture.releasePersistentTurn();
+  const completed = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), value => value.status === 'completed', 'provider completion');
+  assert.equal(completed.events.filter(event => event.type === 'turn.completed').length, 1);
+});
+
 test('duplicate, unknown, and cross-turn responses cannot resolve another request', async () => {
   const fixture = createFixture();
   const first = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'first', message: 'permission' });
@@ -173,6 +237,7 @@ test('reconstitutes pending interaction from transcript cache across runtime res
   const turn = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'restart-session', message: 'permission' });
   const pending = await waitFor(() => fixture.runtime.getSnapshot(turn.turnId), v => v.pendingInteraction, 'pending before restart');
   assert.equal(pending.status, 'waitingForUser');
+  assert.equal(pending.pendingInteraction.resumePolicy, 'restart');
 
   // Shutdown first runtime without destroying transcriptCache
   fixture.runtime.shutdown();
@@ -272,6 +337,22 @@ test('cancellation while in waitingForUser transitions to failed without process
   assert.equal(fixture.cancels, 0); // No child process was live to kill
 });
 
+test('cancellation while waiting invokes provider cancellation when a live operation remains', async () => {
+  const fixture = createFixture();
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'persistent-cancel',
+    message: 'persistent-interaction',
+  });
+  await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'waitingForUser');
+
+  const snapshot = await fixture.runtime.cancelTurn(turnId);
+  assert.equal(fixture.cancels, 1);
+  assert.equal(snapshot.status, 'failed');
+  assert.equal(snapshot.pendingInteraction, null);
+  assert.equal(snapshot.events.filter(event => event.type === 'turn.failed').length, 1);
+});
+
 test('explicit cancellation of running turn is capability-aware and produces one terminal event', async () => {
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 'cancel', message: 'hang' });
@@ -294,6 +375,46 @@ test('shutdown interrupts active turns without losing session identity', async (
   assert.equal(snapshot.sessionId, undefined);
   assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_INTERRUPTED');
   assert.equal(fixture.cancels, 0);
+});
+
+test('graceful shutdown terminalizes a live-operation interaction before adapter disposal', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-live-shutdown-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fixture = createFixture({ transcriptCache });
+    const { turnId } = await fixture.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'live-shutdown',
+      message: 'persistent-interaction',
+    });
+    const waiting = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    assert.equal(waiting.pendingInteraction.resumePolicy, 'live-operation');
+
+    await fixture.runtime.shutdown();
+
+    const snapshot = fixture.runtime.getSnapshot(turnId);
+    assert.equal(snapshot.status, 'failed');
+    assert.equal(snapshot.pendingInteraction, null);
+    assert.equal(snapshot.events.at(-1).error.code, 'AI_TURN_INTERRUPTED');
+    const transcript = await transcriptCache.getTranscript('fake', 'live-shutdown');
+    assert.equal(transcript.activeTurn, undefined);
+    assert.equal(transcript.pendingInteraction, undefined);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('shutdown disposes persistent adapters exactly once', async () => {
+  let disposals = 0;
+  const adapter = {
+    descriptor: { id: 'disposable', label: 'Disposable', capabilities },
+    async startTurn() {},
+    async cancelTurn() {},
+    async dispose() { disposals += 1; },
+  };
+  const runtime = createAiTurnRuntime({ registry: createAiAdapterRegistry([adapter]), idleTimeoutMs: 0 });
+  await Promise.all([runtime.shutdown(), runtime.shutdown()]);
+  assert.equal(disposals, 1);
 });
 
 test('single-active-turn invariant rejects duplicates and honors a matching idempotency retry', async () => {
@@ -504,6 +625,72 @@ test('boot reconciliation finalizes an orphaned persisted activeTurn as AI_TURN_
   }
 });
 
+test('a stale live-operation interaction is not reconstructed and fails with interruption instead of AI_NOT_FOUND', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-live-restart-test-'));
+  let original;
+  try {
+    const originalCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    original = createFixture({ transcriptCache: originalCache });
+    const { turnId } = await original.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'live-restart',
+      message: 'persistent-interaction',
+    });
+    const pending = await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    await originalCache.flush('fake', 'live-restart');
+
+    const restartedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const restarted = createFixture({ transcriptCache: restartedCache });
+    await assert.rejects(
+      () => restarted.runtime.resolveInteraction(
+        turnId,
+        pending.pendingInteraction.id,
+        { decision: 'allow' },
+        { provider: 'fake', providerSessionId: 'live-restart' },
+      ),
+      error => error.code === 'AI_TURN_INTERRUPTED',
+    );
+    assert.equal(restarted.continuations, 0);
+    const transcript = await restartedCache.getTranscript('fake', 'live-restart');
+    assert.equal(transcript.activeTurn, undefined);
+    assert.equal(transcript.pendingInteraction, undefined);
+    await restarted.runtime.shutdown();
+  } finally {
+    await original?.runtime.shutdown();
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test('boot reconciliation interrupts a stale live-operation interaction', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reconcile-live-test-'));
+  let original;
+  try {
+    const originalCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    original = createFixture({ transcriptCache: originalCache });
+    const { turnId } = await original.runtime.startTurn({
+      provider: 'fake',
+      providerSessionId: 'live-pending-session',
+      message: 'persistent-interaction',
+    });
+    await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'live interaction');
+    await originalCache.flush('fake', 'live-pending-session');
+
+    const restartedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const fresh = createFixture({ transcriptCache: restartedCache });
+    const { reconciledCount } = await fresh.runtime.reconcileOrphanedTurns();
+    assert.equal(reconciledCount, 1);
+
+    const transcript = await restartedCache.getTranscript('fake', 'live-pending-session');
+    assert.equal(transcript.activeTurn, undefined);
+    assert.equal(transcript.pendingInteraction, undefined);
+    assert.equal(transcript.messages.at(-1).text, 'Interrupted by server restart.');
+    await fresh.runtime.shutdown();
+  } finally {
+    await original?.runtime.shutdown();
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
 test('boot reconciliation leaves a waitingForUser session (pendingInteraction) untouched', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-reconcile-pending-test-'));
   try {
@@ -511,6 +698,7 @@ test('boot reconciliation leaves a waitingForUser session (pendingInteraction) u
     const original = createFixture({ transcriptCache });
     const { turnId } = await original.runtime.startTurn({ provider: 'fake', providerSessionId: 'pending-session', message: 'permission' });
     const pending = await waitFor(() => original.runtime.getSnapshot(turnId), value => value.pendingInteraction, 'pending interaction');
+    assert.equal(pending.pendingInteraction.resumePolicy, 'restart');
     await transcriptCache.flush('fake', 'pending-session');
 
     const fresh = createFixture({ transcriptCache });

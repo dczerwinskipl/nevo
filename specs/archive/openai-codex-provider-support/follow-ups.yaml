@@ -1,0 +1,27 @@
+follow_ups:
+  - id: FU-001
+    source_task: codex-provider-adapter-and-registration
+    kind: capability
+    severity: non-blocking
+    reason: >
+      The first Codex adapter intentionally declares steerTurn and planUpdates false.
+      A future change may design and implement provider-neutral active-turn steering
+      plus normalized plan-update events across registry/runtime/service, HTTP,
+      transcript, and frontend contracts after the core persistent provider ships.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: FU-002
+    source_task: codex-provider-adapter-and-registration
+    kind: architecture
+    severity: non-blocking
+    reason: >
+      Execution intent (ASK, EDIT, AGENT) and host permission policy are currently
+      partially coupled inside provider adapters. A future change should define a
+      provider-neutral permission policy such as read-only, workspace plus on-request
+      escalation, or full access, then map it independently into each provider. That
+      design may also consider allow-once, allow-matching-command-for-session, and deny
+      decisions without persisting provider request IDs or making live requests restartable.
+    resolver_task: null
+    status: open
+    resolution: null

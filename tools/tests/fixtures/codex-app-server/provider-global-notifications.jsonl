@@ -1,0 +1,3 @@
+{"method":"remoteControl/status/changed","params":{"status":"disconnected"}}
+{"method":"mcpServer/startupStatus/updated","params":{"name":"example","status":"ready"}}
+{"method":"skills/changed","params":{}}

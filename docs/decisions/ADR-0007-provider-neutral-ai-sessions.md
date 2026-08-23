@@ -35,9 +35,15 @@ an explicit access boundary and restart semantics.
 - Provider-private request/event identifiers and raw payloads stay behind the adapter.
   The neutral runtime assigns stable interaction and question IDs used for all browser
   responses.
+- Provider commentary/progress uses the neutral ordered `progress.delta` activity
+  event and is not projected into ordinary assistant transcript text. Final assistant
+  text and reasoning remain distinct `text.delta` and `reasoning.delta` channels.
 - The browser uses HTTP for reads and controls and Server-Sent Events for ordered,
   replayable live-turn events. A snapshot makes pending interactions recoverable after
-  a browser disconnect or server restart.
+  a browser disconnect. Each interaction declares whether a fresh provider invocation
+  can reconstruct it after server restart or whether it requires the original live
+  provider operation; stale live-operation interactions are interrupted during boot
+  reconciliation.
 - The runtime enforces one active non-terminal turn per provider/session pair, with
   idempotent retry correlation, bounded replay/turn retention, explicit cancellation,
   and provider-safe public failures.
@@ -82,8 +88,9 @@ provider-private data, and confuse correlation metadata with authoritative histo
   credentials or external network access.
 - Browser/server tests lock neutral field and event names while adapters evolve independently.
 - Stable spec/task correlation survives file moves and display-name changes.
-- A dashboard restart safely recovers transcript snapshots and pending interactions from
-  the local transcript cache.
+- A dashboard restart safely recovers transcript snapshots and reconstructable pending
+  interactions from the local transcript cache, while terminalizing interactions whose
+  original live provider operation no longer exists.
 - The UI adapts seamlessly to provider capabilities (disabling unsupported permissions or features).
 - Trusted-network deployments must treat every VPN member as authorized until an
   identity-aware policy replaces the current seam.

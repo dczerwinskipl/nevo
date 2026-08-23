@@ -149,10 +149,12 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
   messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'Hello ' });
   messages = applyAgentEvent(messages, { id: 2, seq: 2, type: 'text.delta', turnId: '1', messageId: 'msg-1', text: 'World' });
   messages = applyAgentEvent(messages, { id: 3, seq: 3, type: 'reasoning.delta', turnId: '1', messageId: 'msg-1', text: 'Deep thought' });
-  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'tool.started', turnId: '1', toolId: 'tool-a', toolName: 'test_tool', input: { a: 1 } });
-  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true }, status: 'completed' });
+  messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'progress.delta', turnId: '1', progressId: 'progress-1', text: 'Checking files' });
+  messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'tool.started', turnId: '1', toolId: 'tool-a', toolName: 'test_tool', input: { a: 1 } });
+  messages = applyAgentEvent(messages, { id: 6, seq: 6, type: 'tool.completed', turnId: '1', toolId: 'tool-a', output: { success: true }, status: 'completed' });
 
   assert.equal(messages[0].text, 'Hello World');
+  assert.equal(messages[0].text.includes('Checking files'), false);
   assert.equal(messages[0].reasoning, 'Deep thought');
   assert.equal(messages[0].toolCalls?.length, 1);
   assert.equal(messages[0].toolCalls[0].status, 'completed');
