@@ -23,7 +23,12 @@ test('AC1 & AC2: Enter key does not submit message; submission uses explicit sen
   assert.match(source, /onClick=\{handleSend\}/);
 });
 
-import { getComposerLayoutState, COMPOSER_COMPACT_CLASSES, COMPOSER_EDIT_BASE_CLASSES } from '../src/components/composer/composer-sizing.ts';
+import {
+  getComposerLayoutState,
+  adjustComposerTextareaElement,
+  COMPOSER_COMPACT_CLASSES,
+  COMPOSER_EDIT_CLASSES,
+} from '../src/components/composer/composer-sizing.ts';
 
 test('Finding 1: Composer remains strictly compact while unfocused regardless of draft length or newlines', () => {
   const multiLineDraft = Array.from({ length: 25 }, (_, i) => `Line ${i + 1} of long draft text`).join('\n');
@@ -31,9 +36,6 @@ test('Finding 1: Composer remains strictly compact while unfocused regardless of
   // Unfocused with 25-line draft
   const unfocusedState = getComposerLayoutState({
     isFocused: false,
-    draft: multiLineDraft,
-    scrollHeight: 600,
-    maxHeightPx: 250,
   });
 
   assert.equal(unfocusedState.isCompact, true, 'Unfocused state must be compact');
@@ -42,47 +44,61 @@ test('Finding 1: Composer remains strictly compact while unfocused regardless of
   assert.equal(unfocusedState.className, COMPOSER_COMPACT_CLASSES);
 });
 
-test('Finding 1: Focused composer enters edit state and auto-grows with content up to maxHeight cap', () => {
-  const shortDraft = 'Line 1\nLine 2';
-  const maxHeightPx = 240;
+test('Finding 1: adjustComposerTextareaElement proves full 2 -> 10 -> 30 lines -> delete -> blur -> refocus lifecycle', () => {
+  // Mock textarea DOM element with mutable style and scrollHeight
+  const mockTextarea = {
+    scrollHeight: 0,
+    style: {
+      height: '',
+    },
+  };
 
-  // 1. Short draft within max height
-  const shortState = getComposerLayoutState({
-    isFocused: true,
-    draft: shortDraft,
-    scrollHeight: 64,
-    maxHeightPx,
-  });
+  let isFocused = false;
 
-  assert.equal(shortState.isCompact, false);
-  assert.equal(shortState.isExpanded, true);
-  assert.equal(shortState.computedHeightPx, 64, 'Height follows content naturally');
-  assert.equal(shortState.overflow, 'hidden', 'No internal scroll while below max height');
+  // 1. Initial unfocused state
+  let res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '');
+  assert.equal(res.isCompact, true);
+  assert.equal(res.overflowY, 'hidden');
 
-  // 2. 20+ line draft exceeding max height
-  const longDraft = Array.from({ length: 20 }, (_, i) => `Line ${i + 1}`).join('\n');
-  const longState = getComposerLayoutState({
-    isFocused: true,
-    draft: longDraft,
-    scrollHeight: 520,
-    maxHeightPx,
-  });
+  // 2. Focus and enter 2 lines (scrollHeight = 60px)
+  isFocused = true;
+  mockTextarea.scrollHeight = 60;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '60px', '2 lines grows naturally to 60px');
+  assert.equal(res.overflowY, 'auto');
+  assert.equal(res.isCompact, false);
 
-  assert.equal(longState.isCompact, false);
-  assert.equal(longState.isExpanded, true);
-  assert.equal(longState.computedHeightPx, maxHeightPx, 'Height is capped at viewport-relative max');
-  assert.equal(longState.overflow, 'auto', 'Internal vertical scroll enabled when exceeding max');
-  assert.ok(longState.className.includes('overflow-y-auto'));
+  // 3. Grow to 10 lines (scrollHeight = 240px)
+  mockTextarea.scrollHeight = 240;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '240px', '10 lines grows naturally to 240px');
+  assert.equal(res.overflowY, 'auto');
 
-  // 3. Shrinking as lines are deleted
-  const shrunkState = getComposerLayoutState({
-    isFocused: true,
-    draft: 'Line 1\nLine 2\nLine 3',
-    scrollHeight: 88,
-    maxHeightPx,
-  });
-  assert.equal(shrunkState.computedHeightPx, 88, 'Height shrinks when content is deleted');
-  assert.equal(shrunkState.overflow, 'hidden');
+  // 4. Grow to 30 lines exceeding max height (scrollHeight = 650px)
+  mockTextarea.scrollHeight = 650;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '650px', '30 lines sets full content height for CSS max-h-[40vh] clipping');
+  assert.equal(res.overflowY, 'auto', 'Must enable internal vertical scroll so caret and lower lines remain reachable');
+
+  // 5. Delete back to 3 lines (scrollHeight = 75px) -> must shrink naturally
+  mockTextarea.scrollHeight = 75;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '75px', 'Deleting text shrinks textarea back down to 75px');
+  assert.equal(res.overflowY, 'auto');
+
+  // 6. Blur back to compact state
+  isFocused = false;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '', 'Blur resets inline height');
+  assert.equal(res.isCompact, true);
+  assert.equal(res.overflowY, 'hidden');
+
+  // 7. Re-focus restores expanded height
+  isFocused = true;
+  res = adjustComposerTextareaElement(mockTextarea, isFocused);
+  assert.equal(mockTextarea.style.height, '75px', 'Re-focus restores 75px height');
+  assert.equal(res.overflowY, 'auto');
 });
 
 test('Finding 1: Full focus -> 20-line edit -> blur -> re-focus cycle preserves draft without mutation', () => {
@@ -91,18 +107,20 @@ test('Finding 1: Full focus -> 20-line edit -> blur -> re-focus cycle preserves 
 
   // Step 1: Focus composer
   isFocused = true;
-  let state = getComposerLayoutState({ isFocused, draft, scrollHeight: 40, maxHeightPx: 250 });
+  let state = getComposerLayoutState({ isFocused });
   assert.equal(state.isExpanded, true);
+  assert.equal(state.overflow, 'auto');
+  assert.equal(state.className, COMPOSER_EDIT_CLASSES);
 
   // Step 2: Type 20+ lines
   draft = Array.from({ length: 22 }, (_, i) => `Zadanie ${i + 1}: zaimplementuj feature`).join('\n');
-  state = getComposerLayoutState({ isFocused, draft, scrollHeight: 550, maxHeightPx: 250 });
+  state = getComposerLayoutState({ isFocused });
   assert.equal(state.isExpanded, true);
   assert.equal(state.overflow, 'auto');
 
   // Step 3: Tap transcript -> blur -> compact layout
   isFocused = false;
-  state = getComposerLayoutState({ isFocused, draft, scrollHeight: 550, maxHeightPx: 250 });
+  state = getComposerLayoutState({ isFocused });
   assert.equal(state.isCompact, true);
   assert.equal(state.overflow, 'hidden');
   assert.equal(state.className, COMPOSER_COMPACT_CLASSES);
@@ -110,10 +128,9 @@ test('Finding 1: Full focus -> 20-line edit -> blur -> re-focus cycle preserves 
 
   // Step 4: Re-focus composer -> expanded layout restored
   isFocused = true;
-  state = getComposerLayoutState({ isFocused, draft, scrollHeight: 550, maxHeightPx: 250 });
+  state = getComposerLayoutState({ isFocused });
   assert.equal(state.isExpanded, true);
   assert.equal(state.overflow, 'auto');
-  assert.equal(state.computedHeightPx, 250);
 });
 
 test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface without breaking interactive controls', () => {

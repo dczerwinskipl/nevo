@@ -3,7 +3,7 @@ import { Send, CircleStop } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AgentExecutionMode } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { getComposerLayoutState } from './composer-sizing';
+import { getComposerLayoutState, adjustComposerTextareaElement } from './composer-sizing';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
@@ -55,18 +55,7 @@ export function ChatComposer({
   const textareaRef = externalTextareaRef || internalTextareaRef;
 
   const adjustHeight = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-
-    if (!isFocused) {
-      el.style.height = '';
-      return;
-    }
-
-    // Reset height temporarily to correctly compute scrollHeight when deleting or pasting text
-    el.style.height = 'auto';
-    const newHeight = el.scrollHeight;
-    el.style.height = `${newHeight}px`;
+    adjustComposerTextareaElement(textareaRef.current, isFocused);
   }, [isFocused, textareaRef]);
 
   useIsomorphicLayoutEffect(() => {
@@ -99,7 +88,7 @@ export function ChatComposer({
     onSend(trimmed);
   };
 
-  const layoutState = getComposerLayoutState({ isFocused, draft });
+  const layoutState = getComposerLayoutState({ isFocused });
 
   return (
     <div
