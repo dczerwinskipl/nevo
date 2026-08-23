@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleStop, Info } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export interface ChatHeaderProps {
@@ -7,9 +7,6 @@ export interface ChatHeaderProps {
   onBack: () => void;
   backLabel: string;
   onOpenDetails: () => void;
-  isRunning?: boolean;
-  canCancel?: boolean;
-  onCancel?: () => void;
 }
 
 export function ChatHeader({
@@ -18,9 +15,6 @@ export function ChatHeader({
   onBack,
   backLabel,
   onOpenDetails,
-  isRunning = false,
-  canCancel = false,
-  onCancel,
 }: ChatHeaderProps) {
   return (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
@@ -48,12 +42,6 @@ export function ChatHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isRunning && canCancel && onCancel && (
-            <Button variant="secondary" size="sm" onClick={onCancel} className="text-xs">
-              <CircleStop className="mr-1.5 size-3.5" />
-              Przerwij
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="icon"

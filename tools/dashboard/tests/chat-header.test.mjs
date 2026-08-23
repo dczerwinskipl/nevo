@@ -11,7 +11,7 @@ function readAiChatSource() {
   return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
-test('Task 05: ChatHeader component contains only essentials (back, title, compact status, details, cancel)', () => {
+test('Task 05 / Issue 4: ChatHeader component contains only essentials (back, title, compact status, details)', () => {
   const source = readChatHeaderSource();
 
   // Navigation (back button)
@@ -28,10 +28,10 @@ test('Task 05: ChatHeader component contains only essentials (back, title, compa
   assert.match(source, /onClick=\{onOpenDetails\}/);
   assert.match(source, /Info/);
 
-  // Cancel/stop button when running
-  assert.match(source, /isRunning && canCancel/);
-  assert.match(source, /CircleStop/);
-  assert.match(source, /Przerwij/);
+  // Stop/Cancel is NOT in the header — primary cancel affordance lives in ChatComposer
+  assert.doesNotMatch(source, /CircleStop/);
+  assert.doesNotMatch(source, /Przerwij/);
+  assert.doesNotMatch(source, /onCancel/);
 });
 
 test('Task 05: ChatHeader does NOT include removed controls (mode switcher, delete, dead UI, metadata subtitle)', () => {

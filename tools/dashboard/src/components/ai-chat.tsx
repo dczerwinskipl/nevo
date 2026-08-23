@@ -31,7 +31,7 @@ import {
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { projectChat } from '@/lib/chat-projection';
-import { useScrollFollow } from '@/lib/use-scroll-follow';
+import { useScrollFollow, computeTranscriptContentKey } from '@/lib/use-scroll-follow';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -146,20 +146,18 @@ export function AiChatPage({
     },
   });
 
+  const transcriptContentKey = useMemo(
+    () => computeTranscriptContentKey(assistant.messages, assistant.pendingInteraction?.id, submissionError),
+    [assistant.messages, assistant.pendingInteraction?.id, submissionError]
+  );
+
   const {
     containerRef: transcriptRef,
     isFollowing,
     hasUnseenContent,
     scrollToBottom,
   } = useScrollFollow({
-    contentSignal: [
-      assistant.messages.length,
-      assistant.messages[assistant.messages.length - 1]?.text,
-      assistant.messages[assistant.messages.length - 1]?.toolCalls?.length,
-      assistant.pendingInteraction?.id,
-      submissionError,
-      assistant.activeTurnId,
-    ],
+    contentKey: transcriptContentKey,
   });
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
@@ -255,13 +253,10 @@ export function AiChatPage({
   const header = (
     <ChatHeader
       title={headerTitle}
-      status={session ? (assistant.isRunning ? 'running' : session.status) : undefined}
+      status={session ? assistant.activity : undefined}
       onBack={onBack}
       backLabel={backLabel}
       onOpenDetails={() => setIsSessionDetailsOpen(true)}
-      isRunning={assistant.isRunning}
-      canCancel={Boolean(assistant.capabilities?.cancelTurn)}
-      onCancel={() => void assistant.cancelTurn()}
     />
   );
 
@@ -427,7 +422,7 @@ export function AiChatPage({
               onSend={(text) => submitMessage(text)}
               onCancel={() => void assistant.cancelTurn()}
               isRunning={assistant.isRunning}
-              canCancel={Boolean(assistant.capabilities?.cancelTurn)}
+              canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
               isProviderAvailable={isProviderAvailable}
               loadError={assistant.loadError}
             />

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { calculateDistanceFromBottom, isScrolledNearBottom } from '../src/lib/use-scroll-follow.ts';
+import { calculateDistanceFromBottom, isScrolledNearBottom, computeTranscriptContentKey } from '../src/lib/use-scroll-follow.ts';
 
 function readAiChatSource() {
   return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
@@ -11,6 +11,86 @@ function readAiChatSource() {
 function readUseScrollFollowSource() {
   return readFileSync(fileURLToPath(new URL('../src/lib/use-scroll-follow.ts', import.meta.url)), 'utf8');
 }
+
+test('Task 08 / Issue 3: computeTranscriptContentKey produces stable keys for unrelated rerenders and reacts to real content', () => {
+  const initialMessages = [
+    {
+      id: 'm1',
+      role: 'user',
+      text: 'Hello',
+      createdAt: '2026-08-23T12:00:00.000Z',
+    },
+  ];
+
+  const key1 = computeTranscriptContentKey(initialMessages, null, null);
+  assert.ok(typeof key1 === 'string' && key1.length > 0);
+
+  // Unrelated rerenders (same messages, same interaction, same error) yield identical key
+  const key1Clone = computeTranscriptContentKey(initialMessages, null, null);
+  assert.equal(key1Clone, key1, 'Identical message state produces exact same key');
+
+  // Adding a new assistant message changes the key
+  const messagesWithAssistant = [
+    ...initialMessages,
+    {
+      id: 'm2',
+      role: 'assistant',
+      text: 'Hi there',
+      createdAt: '2026-08-23T12:00:01.000Z',
+    },
+  ];
+  const key2 = computeTranscriptContentKey(messagesWithAssistant, null, null);
+  assert.notEqual(key2, key1, 'New message changes content key');
+
+  // Streaming text delta into assistant message changes key
+  const messagesStreamed = [
+    initialMessages[0],
+    {
+      id: 'm2',
+      role: 'assistant',
+      text: 'Hi there, how can I help?',
+      createdAt: '2026-08-23T12:00:01.000Z',
+    },
+  ];
+  const key3 = computeTranscriptContentKey(messagesStreamed, null, null);
+  assert.notEqual(key3, key2, 'Streaming text delta changes content key');
+
+  // Adding a tool call changes key
+  const messagesWithTool = [
+    initialMessages[0],
+    {
+      id: 'm2',
+      role: 'assistant',
+      text: 'Hi there, how can I help?',
+      toolCalls: [{ id: 'tc1', name: 'read_file', input: {}, status: 'running' }],
+      createdAt: '2026-08-23T12:00:01.000Z',
+    },
+  ];
+  const key4 = computeTranscriptContentKey(messagesWithTool, null, null);
+  assert.notEqual(key4, key3, 'Tool call addition changes content key');
+
+  // Updating tool call status changes key
+  const messagesWithToolCompleted = [
+    initialMessages[0],
+    {
+      id: 'm2',
+      role: 'assistant',
+      text: 'Hi there, how can I help?',
+      toolCalls: [{ id: 'tc1', name: 'read_file', input: {}, status: 'completed', durationMs: 150 }],
+      createdAt: '2026-08-23T12:00:01.000Z',
+    },
+  ];
+  const key5 = computeTranscriptContentKey(messagesWithToolCompleted, null, null);
+  assert.notEqual(key5, key4, 'Tool call completion changes content key');
+
+  // Pending interaction changes key
+  const key6 = computeTranscriptContentKey(messagesWithToolCompleted, 'interaction-1', null);
+  assert.notEqual(key6, key5, 'Pending interaction requested changes content key');
+
+  // Submission error changes key
+  const key7 = computeTranscriptContentKey(messagesWithToolCompleted, null, 'Network failure');
+  assert.notEqual(key7, key5, 'Submission error changes content key');
+});
 
 test('Task 08: calculateDistanceFromBottom accurately calculates scroll distance from bottom', () => {
   // Exactly at bottom
@@ -64,14 +144,16 @@ test('Task 08: useScrollFollow manages following, paused, and unseen content sta
   assert.match(source, /setIsFollowing\(true\)/);
 });
 
-test('Task 08: AiChatPage has NO unconditional per-event scroll and renders new-content affordance', () => {
+test('Task 08 / Issue 3: AiChatPage uses stable memoized contentKey and renders new-content affordance', () => {
   const chatSource = readAiChatSource();
 
-  // Uses useScrollFollow
+  // Uses useScrollFollow with contentKey
   assert.match(chatSource, /useScrollFollow/);
+  assert.match(chatSource, /contentKey:\s*transcriptContentKey/);
+  assert.match(chatSource, /computeTranscriptContentKey/);
 
-  // No unconditional useEffect with transcriptRef.current?.scrollTo on every message
-  assert.doesNotMatch(chatSource, /useEffect\(\(\) => \{\s*transcriptRef\.current\?\.scrollTo/);
+  // No inline array recreation in useScrollFollow call
+  assert.doesNotMatch(chatSource, /contentSignal:\s*\[/);
 
   // Renders new content affordance when paused with unseen content
   assert.match(chatSource, /hasUnseenContent && !isFollowing/);

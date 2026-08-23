@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { NormalizedMessage } from './types';
 
 export function calculateDistanceFromBottom(el: { scrollHeight: number; scrollTop: number; clientHeight: number }): number {
   return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
@@ -11,6 +12,30 @@ export function isScrolledNearBottom(
   return calculateDistanceFromBottom(el) <= threshold;
 }
 
+/**
+ * Computes a stable primitive string key representing transcript content changes.
+ * Unrelated component rerenders (focus, Sheet opening, status change) produce identical keys,
+ * preventing spurious scroll movement or false "Nowe wiadomości" badges.
+ */
+export function computeTranscriptContentKey(
+  messages: NormalizedMessage[] = [],
+  pendingInteractionId?: string | null,
+  submissionError?: string | null,
+): string {
+  if (messages.length === 0 && !pendingInteractionId && !submissionError) {
+    return 'empty';
+  }
+  const lastMsg = messages[messages.length - 1];
+  let lastMsgSig = '';
+  if (lastMsg) {
+    const toolCallSig = lastMsg.toolCalls
+      ? lastMsg.toolCalls.map((tc) => `${tc.id}:${tc.status}:${tc.durationMs ?? 0}`).join(',')
+      : '';
+    lastMsgSig = `${lastMsg.id}:${lastMsg.text.length}:${lastMsg.reasoning?.length ?? 0}:${toolCallSig}:${lastMsg.turnError?.code ?? ''}`;
+  }
+  return `${messages.length}|${lastMsgSig}|${pendingInteractionId ?? ''}|${submissionError ?? ''}`;
+}
+
 export interface UseScrollFollowOptions {
   /**
    * Distance from bottom in pixels within which the user is considered "at bottom".
@@ -18,8 +43,12 @@ export interface UseScrollFollowOptions {
    */
   threshold?: number;
   /**
-   * Dependencies that trigger follow scroll when user is at the bottom,
-   * or flag unseen content when user is scrolled up.
+   * Primitive content revision or key. When this changes, follow-scroll triggers
+   * if near bottom, or sets unseen content flag if scrolled up.
+   */
+  contentKey?: string | number;
+  /**
+   * @deprecated Use contentKey with a stable primitive string/number instead.
    */
   contentSignal?: unknown;
 }
@@ -33,7 +62,8 @@ export interface UseScrollFollowResult {
 }
 
 export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScrollFollowResult {
-  const { threshold = 80, contentSignal } = options;
+  const { threshold = 80, contentKey, contentSignal } = options;
+  const effectiveKey = contentKey !== undefined ? contentKey : contentSignal;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFollowing, setIsFollowing] = useState(true);
   const [hasUnseenContent, setHasUnseenContent] = useState(false);
@@ -96,7 +126,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     } else {
       setHasUnseenContent(true);
     }
-  }, [contentSignal, scrollToBottom]);
+  }, [effectiveKey, scrollToBottom]);
 
   return {
     containerRef,

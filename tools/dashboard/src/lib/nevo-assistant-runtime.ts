@@ -6,6 +6,7 @@ import type {
   AgentExecutionMode,
   AgentSessionSnapshot,
   AiInteraction,
+  AiSessionStatus,
   NormalizedMessage,
 } from './types';
 
@@ -465,7 +466,7 @@ export function useNevoAssistantRuntime({
   const [pendingInteraction, setPendingInteraction] = useState<AiInteraction | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [activity, setActivity] = useState<AiSessionStatus>('idle');
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -480,8 +481,13 @@ export function useNevoAssistantRuntime({
 
   const lastSeqRef = useRef<number>(0);
 
+  const activityRef = useRef<AiSessionStatus>('idle');
+  activityRef.current = activity;
+
   const activeTurnIdRef = useRef<string | null>(null);
   activeTurnIdRef.current = activeTurnId;
+
+  const terminalTurnIdsRef = useRef<Set<string>>(new Set());
 
   // Identity match check: only expose state if it belongs to the current provider + providerSessionId
   const isSnapshotLoaded = Boolean(currentIdentity && loadedIdentity === currentIdentity);
@@ -520,12 +526,21 @@ export function useNevoAssistantRuntime({
         setLastEventSeq(seq);
         lastSeqRef.current = seq;
 
+        // Authoritative activity resolution from snapshot (supports reload while waitingForUser, running, or idle)
+        const snapshotActivity: AiSessionStatus =
+          snapshot.status === 'running' || snapshot.status === 'waitingForUser' || snapshot.status === 'idle'
+            ? snapshot.status
+            : (snapshot.pendingInteraction ? 'waitingForUser' : (snapshot.activeTurn ? 'running' : 'idle'));
+
+        setActivity(snapshotActivity);
+        activityRef.current = snapshotActivity;
+
         if (snapshot.activeTurn) {
           setActiveTurnId(snapshot.activeTurn.turnId);
-          setIsRunning(true);
+          activeTurnIdRef.current = snapshot.activeTurn.turnId;
         } else {
           setActiveTurnId(null);
-          setIsRunning(false);
+          activeTurnIdRef.current = null;
         }
 
         setLoadedIdentity(identity);
@@ -541,7 +556,9 @@ export function useNevoAssistantRuntime({
           setPendingInteraction(null);
           setCapabilities(null);
           setActiveTurnId(null);
-          setIsRunning(false);
+          activeTurnIdRef.current = null;
+          setActivity('idle');
+          activityRef.current = 'idle';
           setLastEventSeq(0);
           lastSeqRef.current = 0;
 
@@ -587,30 +604,46 @@ export function useNevoAssistantRuntime({
 
       switch (event.type) {
         case 'turn.started':
-          setIsRunning(true);
-          if (event.turnId) setActiveTurnId(event.turnId);
+          setActivity('running');
+          activityRef.current = 'running';
+          if (event.turnId) {
+            setActiveTurnId(event.turnId);
+            activeTurnIdRef.current = event.turnId;
+          }
           break;
 
         case 'interaction.requested':
           setPendingInteraction(event.interaction || null);
-          setIsRunning(false);
+          setActivity('waitingForUser');
+          activityRef.current = 'waitingForUser';
           break;
 
         case 'interaction.resolved':
           setPendingInteraction(null);
-          setIsRunning(true);
+          setActivity('running');
+          activityRef.current = 'running';
           break;
 
         case 'turn.completed':
-          setIsRunning(false);
+          if (event.turnId) {
+            terminalTurnIdsRef.current.add(event.turnId);
+          }
+          setActivity('idle');
+          activityRef.current = 'idle';
           setActiveTurnId(null);
+          activeTurnIdRef.current = null;
           setPendingInteraction(null);
           onTurnCompletedRef.current?.();
           break;
 
         case 'turn.failed':
-          setIsRunning(false);
+          if (event.turnId) {
+            terminalTurnIdsRef.current.add(event.turnId);
+          }
+          setActivity('idle');
+          activityRef.current = 'idle';
           setActiveTurnId(null);
+          activeTurnIdRef.current = null;
           setPendingInteraction(null);
           if (event.error) {
             onErrorRef.current?.(new Error(event.error.message));
@@ -630,7 +663,7 @@ export function useNevoAssistantRuntime({
   // 3. Send Turn
   const handleSendTurn = useCallback(
     async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!messageText.trim() || isRunning || !provider || !providerSessionId) return;
+      if (!messageText.trim() || activityRef.current === 'running' || !provider || !providerSessionId) return;
       if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
       const idempotencyKey = createTurnIdempotencyKey();
@@ -642,7 +675,10 @@ export function useNevoAssistantRuntime({
       };
 
       setMessages((prev) => [...prev, userMessage]);
-      setIsRunning(true);
+      setActivity('running');
+      activityRef.current = 'running';
+      setActiveTurnId(null);
+      activeTurnIdRef.current = null;
 
       try {
         const res = await fetch(
@@ -667,19 +703,29 @@ export function useNevoAssistantRuntime({
         }
 
         const data = await res.json();
-        setActiveTurnId(data.turnId);
+        const returnedTurnId = data.turnId;
+
+        // Race-safety check: If terminal SSE arrived before this POST response completed,
+        // or the activity is no longer running, do not overwrite the cleared activeTurnId.
+        if (returnedTurnId && !terminalTurnIdsRef.current.has(returnedTurnId) && activityRef.current === 'running') {
+          setActiveTurnId(returnedTurnId);
+          activeTurnIdRef.current = returnedTurnId;
+        }
       } catch (err) {
-        setIsRunning(false);
+        setActivity('idle');
+        activityRef.current = 'idle';
+        setActiveTurnId(null);
+        activeTurnIdRef.current = null;
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [provider, providerSessionId, isRunning, loadedIdentity, onError]
+    [provider, providerSessionId, loadedIdentity, onError]
   );
 
   // 4. Cancel Turn
   const handleCancelTurn = useCallback(async () => {
     const turnId = activeTurnIdRef.current;
-    if (!turnId || !provider || !providerSessionId) return;
+    if (!turnId || activityRef.current !== 'running' || !provider || !providerSessionId) return;
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
     try {
@@ -694,8 +740,11 @@ export function useNevoAssistantRuntime({
           body: JSON.stringify({}),
         }
       );
-      setIsRunning(false);
+      terminalTurnIdsRef.current.add(turnId);
+      setActivity('idle');
+      activityRef.current = 'idle';
       setActiveTurnId(null);
+      activeTurnIdRef.current = null;
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
@@ -724,7 +773,8 @@ export function useNevoAssistantRuntime({
           throw new Error(errData?.error?.message || `Failed to respond to interaction (${res.status})`);
         }
         setPendingInteraction(null);
-        setIsRunning(true);
+        setActivity('running');
+        activityRef.current = 'running';
       } catch (err) {
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
@@ -735,9 +785,12 @@ export function useNevoAssistantRuntime({
   const exposedMessages = isSnapshotLoaded ? messages : [];
   const exposedPendingInteraction = isSnapshotLoaded ? pendingInteraction : null;
   const exposedCapabilities = isSnapshotLoaded ? capabilities : null;
-  const exposedSessionDetails = isSnapshotLoaded ? sessionDetails : null;
-  const exposedIsRunning = isSnapshotLoaded ? isRunning : false;
+  const exposedActivity: AiSessionStatus = isSnapshotLoaded ? activity : 'idle';
+  const exposedIsRunning = isSnapshotLoaded ? (activity === 'running') : false;
   const exposedActiveTurnId = isSnapshotLoaded ? activeTurnId : null;
+  const exposedSessionDetails = isSnapshotLoaded && sessionDetails
+    ? { ...sessionDetails, status: exposedActivity }
+    : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
 
@@ -777,6 +830,7 @@ export function useNevoAssistantRuntime({
     pendingInteraction: exposedPendingInteraction,
     capabilities: exposedCapabilities,
     sessionDetails: exposedSessionDetails,
+    activity: exposedActivity,
     isRunning: exposedIsRunning,
     activeTurnId: exposedActiveTurnId,
     isLoading: exposedIsLoading,
