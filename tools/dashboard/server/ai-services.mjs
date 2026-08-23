@@ -24,6 +24,8 @@ export function createDefaultDashboardAiService({ dataLoader } = {}) {
   const antigravityAdapter = new AntigravityAgentProvider({
     cwd: REPO_ROOT,
     mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
+    rawCaptureEnabled: true,
+    rawCaptureDir: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity_raw'),
   });
   const registry = createAiAdapterRegistry([claudeAdapter, antigravityAdapter, mockAdapter]);
   const transcriptCache = createTranscriptCacheService();

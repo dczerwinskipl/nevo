@@ -2,7 +2,7 @@ import { spawn, execSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { mkdir, appendFile, readFile, rm } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import {
   AiError,
   AiValidationError,
@@ -10,6 +10,23 @@ import {
   validateAgentExecutionMode,
 } from './contracts.mjs';
 import { terminateChildProcess } from './process-termination.mjs';
+
+/**
+ * Encodes an arbitrary opaque providerSessionId into a safe single directory segment.
+ * Ensures the resulting name never contains path separators, never escapes rawCaptureDir,
+ * and maintains collision resistance via a SHA-256 digest suffix.
+ */
+export function rawCaptureSessionDirectory(providerSessionId) {
+  if (!providerSessionId || typeof providerSessionId !== 'string') {
+    throw new TypeError('providerSessionId must be a non-empty string');
+  }
+  const safePrefix = providerSessionId
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 32)
+    .replace(/^_+|_+$/g, '') || 'session';
+  const hash = createHash('sha256').update(providerSessionId, 'utf8').digest('hex').slice(0, 16);
+  return `${safePrefix}-${hash}`;
+}
 
 export const ANTIGRAVITY_CAPABILITIES = Object.freeze({
   interactivePermissions: false,
@@ -101,7 +118,7 @@ export class AntigravityAgentProvider {
     materializedSessions,
     mappingFilePath = null,
     rawCaptureDir = null,
-    rawCaptureEnabled = true,
+    rawCaptureEnabled = false,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
@@ -110,8 +127,10 @@ export class AntigravityAgentProvider {
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
-    this.#rawCaptureDir = rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw');
-    this.#rawCaptureEnabled = rawCaptureEnabled !== false;
+    this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
+    this.#rawCaptureDir = this.#rawCaptureEnabled
+      ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw'))
+      : (rawCaptureDir ? resolve(rawCaptureDir) : null);
     if (Array.isArray(materializedSessions)) {
       this.#materializedSessions = new Set(materializedSessions);
     }
@@ -120,8 +139,9 @@ export class AntigravityAgentProvider {
   }
 
   getRawCapturePath(sessionId) {
-    if (!sessionId) return null;
-    return join(this.#rawCaptureDir, sessionId, 'raw.ndjson');
+    if (!sessionId || !this.#rawCaptureDir) return null;
+    const sessionDir = rawCaptureSessionDirectory(sessionId);
+    return join(this.#rawCaptureDir, sessionDir, 'raw.ndjson');
   }
 
   async flushRawCapture(sessionId) {
@@ -131,7 +151,7 @@ export class AntigravityAgentProvider {
   }
 
   #recordRawEvent({ sessionId, turnId, stream, line }) {
-    if (!this.#rawCaptureEnabled || !sessionId || typeof line !== 'string') {
+    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId || typeof line !== 'string') {
       return;
     }
     const trimmed = line.trim();
@@ -156,7 +176,8 @@ export class AntigravityAgentProvider {
       };
     }
 
-    const sessionDir = join(this.#rawCaptureDir, sessionId);
+    const sessionDirName = rawCaptureSessionDirectory(sessionId);
+    const sessionDir = join(this.#rawCaptureDir, sessionDirName);
     const filePath = join(sessionDir, 'raw.ndjson');
 
     if (!this.#loggedCaptureSessions.has(sessionId)) {
@@ -320,19 +341,21 @@ export class AntigravityAgentProvider {
           if (providerSessionId) {
             this.#saveSessionAlias(providerSessionId, allocatedId);
           }
-          if (this.#rawCaptureEnabled && allocatedId !== effectiveSessionId) {
+          if (this.#rawCaptureEnabled && this.#rawCaptureDir && allocatedId !== effectiveSessionId) {
             // Migrate any raw records already written under effectiveSessionId to allocatedId
+            const oldDirName = rawCaptureSessionDirectory(effectiveSessionId);
+            const newDirName = rawCaptureSessionDirectory(allocatedId);
             const oldQueue = this.#sessionWriteQueues.get(effectiveSessionId) || Promise.resolve();
             const migrationQueue = oldQueue.then(async () => {
               try {
-                const oldFile = join(this.#rawCaptureDir, effectiveSessionId, 'raw.ndjson');
+                const oldFile = join(this.#rawCaptureDir, oldDirName, 'raw.ndjson');
                 if (existsSync(oldFile)) {
-                  const newDir = join(this.#rawCaptureDir, allocatedId);
+                  const newDir = join(this.#rawCaptureDir, newDirName);
                   if (!existsSync(newDir)) await mkdir(newDir, { recursive: true });
                   const newFile = join(newDir, 'raw.ndjson');
                   const content = await readFile(oldFile, 'utf8');
                   await appendFile(newFile, content, 'utf8');
-                  await rm(join(this.#rawCaptureDir, effectiveSessionId), { recursive: true, force: true });
+                  await rm(join(this.#rawCaptureDir, oldDirName), { recursive: true, force: true });
                 }
               } catch (err) {
                 console.warn(`[antigravity] [raw-capture] Failed to migrate initial session capture: ${err?.message || err}`);

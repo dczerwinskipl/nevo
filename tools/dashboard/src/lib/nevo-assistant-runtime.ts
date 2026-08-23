@@ -509,6 +509,62 @@ export async function fetchAgentSessionSnapshot(
   return data.session as AgentSessionSnapshot;
 }
 
+export interface ApplyCancelTurnResponseParams {
+  turnId: string;
+  response: { ok: boolean; status?: number };
+  errorData?: { error?: { message?: string }; message?: string } | null;
+  currentActiveTurnId: string | null;
+  currentActivity: 'idle' | 'running' | 'waitingForUser';
+  terminalTurnIds: Set<string>;
+}
+
+export interface ApplyCancelTurnResponseResult {
+  nextActivity: 'idle' | 'running' | 'waitingForUser';
+  nextActiveTurnId: string | null;
+  terminalTurnIds: Set<string>;
+  error?: Error;
+}
+
+export function applyCancelTurnResponse({
+  turnId,
+  response,
+  errorData,
+  currentActiveTurnId,
+  currentActivity,
+  terminalTurnIds,
+}: ApplyCancelTurnResponseParams): ApplyCancelTurnResponseResult {
+  if (!response.ok) {
+    const message =
+      errorData?.error?.message ||
+      errorData?.message ||
+      `Failed to cancel turn (${response.status || 'unknown'})`;
+    return {
+      nextActivity: currentActivity,
+      nextActiveTurnId: currentActiveTurnId,
+      terminalTurnIds,
+      error: new Error(message),
+    };
+  }
+
+  terminalTurnIds.add(turnId);
+
+  // Race-safety check: If terminal SSE arrived before this POST response completed,
+  // currentActiveTurnId was already cleared / transitioned to idle.
+  if (currentActiveTurnId === turnId && currentActivity === 'running') {
+    return {
+      nextActivity: 'idle',
+      nextActiveTurnId: null,
+      terminalTurnIds,
+    };
+  }
+
+  return {
+    nextActivity: currentActivity,
+    nextActiveTurnId: currentActiveTurnId,
+    terminalTurnIds,
+  };
+}
+
 export function useNevoAssistantRuntime({
   provider,
   providerSessionId,
@@ -801,19 +857,27 @@ export function useNevoAssistantRuntime({
         }
       );
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
+      const errData = !res.ok ? await res.json().catch(() => ({})) : null;
+      const result = applyCancelTurnResponse({
+        turnId,
+        response: res,
+        errorData: errData,
+        currentActiveTurnId: activeTurnIdRef.current,
+        currentActivity: activityRef.current,
+        terminalTurnIds: terminalTurnIdsRef.current,
+      });
+
+      if (result.error) {
+        throw result.error;
       }
 
-      terminalTurnIdsRef.current.add(turnId);
-      // Race-safety check: If terminal SSE arrived before this POST response completed,
-      // activity was already transitioned to idle and activeTurnId cleared.
-      if (activeTurnIdRef.current === turnId && activityRef.current === 'running') {
-        setActivity('idle');
-        activityRef.current = 'idle';
-        setActiveTurnId(null);
-        activeTurnIdRef.current = null;
+      if (result.nextActivity !== activityRef.current) {
+        setActivity(result.nextActivity);
+        activityRef.current = result.nextActivity;
+      }
+      if (result.nextActiveTurnId !== activeTurnIdRef.current) {
+        setActiveTurnId(result.nextActiveTurnId);
+        activeTurnIdRef.current = result.nextActiveTurnId;
       }
       setContentRevision((r) => r + 1);
     } catch (err) {

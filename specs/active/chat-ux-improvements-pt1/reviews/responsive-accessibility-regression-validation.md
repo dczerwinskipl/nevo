@@ -10,17 +10,17 @@ verdict: pass
 
 ## Verdict
 
-`pass` — all automated acceptance criteria and structural regression assertions pass. Manual inspection checklist documented below for owner physical device and browser verification.
+`pass` — all automated acceptance criteria (AC5, AC8, AC13) and structural regression assertions (AC1–AC4, AC6, AC7, AC9, AC10, AC12) pass. Automated structural support for AC11 exists. The runtime manual inspection matrix (AC1–AC4, AC6, AC7, AC9–AC11) remains pending interactive owner device/browser check.
 
 ## Checklist
 
-- [x] Automated acceptance criteria (AC5, AC8, AC11, AC13): 4/4 verified by automated test suite
+- [x] Automated acceptance criteria (AC5, AC8, AC13): 3/3 verified by automated test suite
 - [x] Structural contract & source assertions (AC1–AC4, AC6, AC7, AC9, AC10, AC12): 8/8 verified
 - [ ] Manual runtime inspection matrix (AC1–AC4, AC6, AC7, AC9–AC11): pending interactive owner device check
 
 ## Automated Verification
 
-- `npm --prefix tools/dashboard test` — passed (includes `responsive-accessibility-regression.test.mjs`, 236 tests total)
+- `npm --prefix tools/dashboard test` — passed (includes `responsive-accessibility-regression.test.mjs`, 237 tests total)
 - `npm --prefix tools/dashboard run build` — passed (clean TypeScript / Vite bundle)
 - `node tools/specs.mjs validate` — passed
 
@@ -40,7 +40,7 @@ Touched paths (`tools/dashboard/src/components/*`, `tools/dashboard/src/lib/*`, 
 - [x] AC8: Accessible names (`aria-label`, `<span className="sr-only">`) verified on all icon buttons and textarea.
 - [x] AC9: `aria-expanded` state verified on all toggle controls (`ChatMessage`, `WorkSummary`, `AiToolView`, `AiReasoningView`).
 - [x] AC10: Non-color-only distinctions (structural bubble alignment, semantic status icons and text) verified.
-- [x] AC11: Native button semantics and keyboard scroll listener (`PageUp`/`Home`) verified.
+- [ ] AC11: Automated structural support verified (native button semantics, visible focus rings, and PageUp/Home scroll listener); full desktop keyboard-only walkthrough pending owner manual matrix (M8).
 - [x] AC12: Overview / FR-15 documentation aligned with shipped behavior.
 - [x] AC13: NFR-7 critical path regressions verified (send, stop, back navigation, mode switcher, delete session, raw tool inspection, session details display).
 

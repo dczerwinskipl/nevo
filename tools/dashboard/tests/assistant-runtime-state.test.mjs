@@ -7,6 +7,7 @@ import {
   canStartTurn,
   eventModifiesTranscriptContent,
   applyAgentEvent,
+  applyCancelTurnResponse,
 } from '../src/lib/nevo-assistant-runtime.ts';
 
 function readRuntimeSource() {
@@ -180,36 +181,35 @@ test('Cancel Turn: HTTP 500 error preserves running state and activeTurnId, surf
   let activity = 'running';
   let activeTurnId = 'turn-123';
   const terminalTurnIds = new Set();
-  let surfacedError = null;
 
-  function onCancelResponse(turnId, res, errData = null) {
-    try {
-      if (!res.ok) {
-        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
-      }
-      terminalTurnIds.add(turnId);
-      if (activeTurnId === turnId && activity === 'running') {
-        activity = 'idle';
-        activeTurnId = null;
-      }
-    } catch (err) {
-      surfacedError = err;
-    }
-  }
+  // 1. Cancel fails with HTTP 500
+  const failResult = applyCancelTurnResponse({
+    turnId: 'turn-123',
+    response: { ok: false, status: 500 },
+    errorData: { error: { message: 'Internal server error while interrupting provider' } },
+    currentActiveTurnId: activeTurnId,
+    currentActivity: activity,
+    terminalTurnIds,
+  });
 
-  // Cancel fails with HTTP 500
-  onCancelResponse('turn-123', { ok: false, status: 500 }, { error: { message: 'Internal server error while interrupting provider' } });
-
-  assert.equal(activity, 'running', 'Activity must remain running on HTTP 500');
-  assert.equal(activeTurnId, 'turn-123', 'activeTurnId must remain intact for retry');
+  assert.equal(failResult.nextActivity, 'running', 'Activity must remain running on HTTP 500');
+  assert.equal(failResult.nextActiveTurnId, 'turn-123', 'activeTurnId must remain intact for retry');
   assert.equal(terminalTurnIds.has('turn-123'), false, 'turnId must NOT be added to terminalTurnIds');
-  assert.ok(surfacedError instanceof Error);
-  assert.match(surfacedError.message, /Internal server error/);
+  assert.ok(failResult.error instanceof Error);
+  assert.match(failResult.error.message, /Internal server error/);
 
-  // Subsequent retry with success transitions to idle
-  onCancelResponse('turn-123', { ok: true, status: 200 });
-  assert.equal(activity, 'idle');
-  assert.equal(activeTurnId, null);
+  // 2. Subsequent retry with success transitions to idle
+  const retryResult = applyCancelTurnResponse({
+    turnId: 'turn-123',
+    response: { ok: true, status: 200 },
+    errorData: null,
+    currentActiveTurnId: failResult.nextActiveTurnId,
+    currentActivity: failResult.nextActivity,
+    terminalTurnIds,
+  });
+
+  assert.equal(retryResult.nextActivity, 'idle');
+  assert.equal(retryResult.nextActiveTurnId, null);
   assert.equal(terminalTurnIds.has('turn-123'), true);
 });
 
@@ -217,89 +217,68 @@ test('Cancel Turn: HTTP 409 conflict error preserves running state and surfaces 
   let activity = 'running';
   let activeTurnId = 'turn-456';
   const terminalTurnIds = new Set();
-  let surfacedError = null;
 
-  function onCancelResponse(turnId, res, errData = null) {
-    try {
-      if (!res.ok) {
-        throw new Error(errData?.error?.message || errData?.message || `Failed to cancel turn (${res.status})`);
-      }
-      terminalTurnIds.add(turnId);
-      if (activeTurnId === turnId && activity === 'running') {
-        activity = 'idle';
-        activeTurnId = null;
-      }
-    } catch (err) {
-      surfacedError = err;
-    }
-  }
+  const conflictResult = applyCancelTurnResponse({
+    turnId: 'turn-456',
+    response: { ok: false, status: 409 },
+    errorData: { error: { message: 'Turn is in uncancelable state' } },
+    currentActiveTurnId: activeTurnId,
+    currentActivity: activity,
+    terminalTurnIds,
+  });
 
-  onCancelResponse('turn-456', { ok: false, status: 409 }, { error: { message: 'Turn is in uncancelable state' } });
-
-  assert.equal(activity, 'running');
-  assert.equal(activeTurnId, 'turn-456');
+  assert.equal(conflictResult.nextActivity, 'running');
+  assert.equal(conflictResult.nextActiveTurnId, 'turn-456');
   assert.equal(terminalTurnIds.has('turn-456'), false);
-  assert.ok(surfacedError instanceof Error);
-  assert.match(surfacedError.message, /Turn is in uncancelable state/);
+  assert.ok(conflictResult.error instanceof Error);
+  assert.match(conflictResult.error.message, /Turn is in uncancelable state/);
 });
 
 test('Cancel Turn: Successful cancel transitions to idle, clears activeTurnId, and updates terminalTurnIds', () => {
   let activity = 'running';
   let activeTurnId = 'turn-789';
   const terminalTurnIds = new Set();
-  let contentRevision = 0;
 
-  function onCancelResponse(turnId, res) {
-    if (!res.ok) throw new Error('Failed');
-    terminalTurnIds.add(turnId);
-    if (activeTurnId === turnId && activity === 'running') {
-      activity = 'idle';
-      activeTurnId = null;
-    }
-    contentRevision++;
-  }
+  const successResult = applyCancelTurnResponse({
+    turnId: 'turn-789',
+    response: { ok: true, status: 200 },
+    errorData: null,
+    currentActiveTurnId: activeTurnId,
+    currentActivity: activity,
+    terminalTurnIds,
+  });
 
-  onCancelResponse('turn-789', { ok: true, status: 200 });
-
-  assert.equal(activity, 'idle');
-  assert.equal(activeTurnId, null);
+  assert.equal(successResult.nextActivity, 'idle');
+  assert.equal(successResult.nextActiveTurnId, null);
   assert.equal(terminalTurnIds.has('turn-789'), true);
-  assert.equal(contentRevision, 1);
 });
 
 test('Cancel Turn: Race where terminal SSE arrives before cancel response completes', () => {
   let activity = 'running';
   let activeTurnId = 'turn-race';
   const terminalTurnIds = new Set();
-  let contentRevision = 0;
 
-  function onSseTurnCancelled(turnId) {
-    terminalTurnIds.add(turnId);
-    activity = 'idle';
-    activeTurnId = null;
-    contentRevision++;
-  }
+  // 1. SSE turn.failed/cancelled arrives first, transitioning runtime to idle
+  terminalTurnIds.add('turn-race');
+  activity = 'idle';
+  activeTurnId = null;
 
-  function onCancelResponse(turnId, res) {
-    if (!res.ok) throw new Error('Failed');
-    terminalTurnIds.add(turnId);
-    if (activeTurnId === turnId && activity === 'running') {
-      activity = 'idle';
-      activeTurnId = null;
-    }
-    contentRevision++;
-  }
-
-  // 1. SSE turn.failed/cancelled arrives first
-  onSseTurnCancelled('turn-race');
   assert.equal(activity, 'idle');
   assert.equal(activeTurnId, null);
   assert.equal(terminalTurnIds.has('turn-race'), true);
 
-  // 2. HTTP cancel response arrives late
-  onCancelResponse('turn-race', { ok: true, status: 200 });
-  assert.equal(activity, 'idle');
-  assert.equal(activeTurnId, null, 'activeTurnId was not corrupted');
+  // 2. Late HTTP cancel response arrives
+  const lateResult = applyCancelTurnResponse({
+    turnId: 'turn-race',
+    response: { ok: true, status: 200 },
+    errorData: null,
+    currentActiveTurnId: activeTurnId, // already null
+    currentActivity: activity, // already idle
+    terminalTurnIds,
+  });
+
+  assert.equal(lateResult.nextActivity, 'idle');
+  assert.equal(lateResult.nextActiveTurnId, null, 'activeTurnId was not corrupted');
   assert.equal(terminalTurnIds.has('turn-race'), true);
 });
 

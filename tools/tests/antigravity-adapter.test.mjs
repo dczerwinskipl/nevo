@@ -9,6 +9,7 @@ import {
   AntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
   extractFinalResponse,
+  rawCaptureSessionDirectory,
 } from '../ai/antigravity-adapter.mjs';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { CapabilityNotSupportedError } from '../ai/contracts.mjs';
@@ -16,6 +17,7 @@ import { CapabilityNotSupportedError } from '../ai/contracts.mjs';
 function createAntigravityAgentProvider(options = {}) {
   return new AntigravityAgentProvider({
     mappingFilePath: null,
+    rawCaptureEnabled: false,
     ...options,
   });
 }
@@ -927,6 +929,7 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
     const child = createMockProcess(stdoutLines);
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
     });
 
@@ -940,7 +943,8 @@ test('Antigravity raw capture: known JSON events persist exact payload with enve
 
     await provider.flushRawCapture('conv-json-test');
 
-    const captureFile = join(tmpDir, 'conv-json-test', 'raw.ndjson');
+    const captureFile = provider.getRawCapturePath('conv-json-test');
+    assert.ok(captureFile.startsWith(tmpDir), 'Capture file must reside within tmpDir');
     const content = await readFile(captureFile, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -970,6 +974,7 @@ test('Antigravity raw capture: unknown or malformed non-JSON lines are preserved
     const child = createMockProcess(stdoutLines);
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
     });
 
@@ -983,7 +988,7 @@ test('Antigravity raw capture: unknown or malformed non-JSON lines are preserved
 
     await provider.flushRawCapture('conv-malformed');
 
-    const captureFile = join(tmpDir, 'conv-malformed', 'raw.ndjson');
+    const captureFile = provider.getRawCapturePath('conv-malformed');
     const content = await readFile(captureFile, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -1017,6 +1022,7 @@ test('Antigravity raw capture: stderr is preserved and distinguishable from stdo
     const child = createMockProcess([], { events });
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
     });
 
@@ -1030,7 +1036,7 @@ test('Antigravity raw capture: stderr is preserved and distinguishable from stdo
 
     await provider.flushRawCapture('conv-stderr-test');
 
-    const captureFile = join(tmpDir, 'conv-stderr-test', 'raw.ndjson');
+    const captureFile = provider.getRawCapturePath('conv-stderr-test');
     const content = await readFile(captureFile, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -1066,6 +1072,7 @@ test('Antigravity raw capture: diagnostic filesystem write failure is isolated a
     const child = createMockProcess(stdoutLines);
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: blockerFile, // using file as directory causes ENOTDIR or EEXIST
     });
 
@@ -1099,6 +1106,7 @@ test('Antigravity raw capture: strictly preserves chronological ordering across 
     const child = createMockProcess([], { events });
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
     });
 
@@ -1112,7 +1120,7 @@ test('Antigravity raw capture: strictly preserves chronological ordering across 
 
     await provider.flushRawCapture('conv-order-test');
 
-    const captureFile = join(tmpDir, 'conv-order-test', 'raw.ndjson');
+    const captureFile = provider.getRawCapturePath('conv-order-test');
     const content = await readFile(captureFile, 'utf8');
     const lines = content.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -1143,6 +1151,7 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
 
     const provider = createAntigravityAgentProvider({
       spawnProcess: () => child,
+      rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
     });
 
@@ -1181,7 +1190,7 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
     await provider.flushRawCapture('conv-post-result');
 
     // Verify raw.ndjson content
-    const captureFile = join(tmpDir, 'conv-post-result', 'raw.ndjson');
+    const captureFile = provider.getRawCapturePath('conv-post-result');
     const rawContent = await readFile(captureFile, 'utf8');
     const rawLines = rawContent.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
 
@@ -1203,5 +1212,71 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('Antigravity raw capture: disabled by default and normal adapter turn does not touch .nevo-ai-local/antigravity_raw', async () => {
+  const { existsSync, readdirSync } = await import('node:fs');
+  const realCaptureDir = join(process.cwd(), '.nevo-ai-local', 'antigravity_raw');
+  const beforeDirs = existsSync(realCaptureDir) ? new Set(readdirSync(realCaptureDir)) : new Set();
+
+  const child = createMockProcess([
+    JSON.stringify({ type: 'init', conversation_id: 'default-no-capture-session' }),
+    JSON.stringify({ event: 'result', response: 'Done without capture' }),
+  ]);
+
+  // Provider instantiated with default options (rawCaptureEnabled=false)
+  const provider = new AntigravityAgentProvider({
+    mappingFilePath: null,
+    spawnProcess: () => child,
+  });
+
+  assert.equal(provider.getRawCapturePath('default-no-capture-session'), null);
+
+  const result = await provider.startTurn({
+    turnId: 'turn-no-capture',
+    providerSessionId: 'default-no-capture-session',
+    message: 'hello',
+  });
+  assert.equal(result.status, 'completed');
+
+  await provider.flushRawCapture('default-no-capture-session');
+
+  const afterDirs = existsSync(realCaptureDir) ? new Set(readdirSync(realCaptureDir)) : new Set();
+  // Ensure no new directories were created
+  for (const d of afterDirs) {
+    assert.ok(beforeDirs.has(d), `New directory '${d}' must NOT appear in real .nevo-ai-local/antigravity_raw`);
+  }
+});
+
+test('Antigravity raw capture: rawCaptureSessionDirectory prevents path traversal, nested directories, and absolute paths', () => {
+  const tmpBase = join('C:', 'test', 'raw_capture');
+
+  const dangerousIds = [
+    '../outside',
+    '../../etc/passwd',
+    'foo/bar',
+    'foo\\bar',
+    'C:\\Windows\\System32',
+    '/usr/local/bin',
+    '...',
+    '..',
+    '.',
+    'session-with-special!@#$%^&*()_+=~`[]{}|;:\'",.<>?',
+  ];
+
+  for (const id of dangerousIds) {
+    const encodedDir = rawCaptureSessionDirectory(id);
+    assert.doesNotMatch(encodedDir, /[/\\]/, `Encoded directory '${encodedDir}' must not contain slashes`);
+    assert.ok(!encodedDir.includes('..'), `Encoded directory '${encodedDir}' must not contain '..'`);
+    assert.ok(!encodedDir.includes(':'), `Encoded directory '${encodedDir}' must not contain ':'`);
+    assert.match(encodedDir, /^[a-zA-Z0-9_-]+$/, `Encoded directory '${encodedDir}' must use only safe chars`);
+
+    const fullPath = join(tmpBase, encodedDir, 'raw.ndjson');
+    assert.ok(fullPath.startsWith(tmpBase), `Resolved full path '${fullPath}' must stay strictly under tmpBase`);
+  }
+
+  // Normal ID remains recognizable with hash suffix
+  const normalEncoded = rawCaptureSessionDirectory('conv-12345');
+  assert.ok(normalEncoded.startsWith('conv-12345-'));
 });
 
