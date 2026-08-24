@@ -35,6 +35,7 @@ import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
 import { projectChat } from '@/lib/chat-projection';
 import { useScrollFollow } from '@/lib/use-scroll-follow';
+import { useInitialDispatch } from '@/lib/use-initial-dispatch';
 import { TaskDialog } from '@/components/task-dialog';
 import type {
   AgentExecutionMode,
@@ -128,7 +129,6 @@ export function AiChatPage({
   onSwitchSession: (session: AiSession) => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const chatViewport = useChatVisualViewport();
 
@@ -140,19 +140,40 @@ export function AiChatPage({
     }
   };
 
+  const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
+  const providersQuery = useAiProviders();
+  const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
+  const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
+  const providerUnavailableReason = providerInfo
+    ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
+    : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
+
   const assistant = useNevoAssistantRuntime({
     provider,
     providerSessionId: sessionId,
     onTurnCompleted: () => {
       onTurnChange(null);
-      setSubmissionError(null);
-    },
-    onError: (err) => {
-      setSubmissionError(err.message);
     },
   });
 
-  const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${submissionError ?? ''}`;
+  const session = assistant.sessionDetails;
+  const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
+
+  const {
+    displayError,
+    canRetryInitial,
+    handleRetryInitial,
+    handleDismissError,
+    setSubmissionError,
+  } = useInitialDispatch({
+    provider,
+    sessionId,
+    assistant,
+    isProviderAvailable,
+    currentMode,
+  });
+
+  const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${displayError ?? ''}`;
 
   const {
     containerRef: transcriptRef,
@@ -166,7 +187,6 @@ export function AiChatPage({
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
-  const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
 
   const handleInspectTask = useCallback((target: TaskNavigationTarget | string) => {
@@ -203,17 +223,11 @@ export function AiChatPage({
   }, [assistant.activeTurnId, onTurnChange]);
 
   useEffect(() => {
-    setSubmissionError(null);
-  }, [provider, sessionId]);
-
-  useEffect(() => {
     if (!chatViewport.keyboardOpen || !isFollowing) return;
     window.scrollTo(0, 0);
     scrollToBottom('auto');
   }, [chatViewport.height, chatViewport.keyboardOpen, isFollowing, scrollToBottom]);
 
-  const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
-  const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
   const { deleteSession, deleting } = useDeleteAiSession();
 
   const handleDeleteSession = async () => {
@@ -226,16 +240,9 @@ export function AiChatPage({
     }
   };
 
-  const providersQuery = useAiProviders();
-  const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
-  const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
-  const providerUnavailableReason = providerInfo
-    ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
-    : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
-
-  const submitMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || !assistant.canStartTurn || !isProviderAvailable) return;
+  const handleComposerSubmit = useCallback(async (promptText: string) => {
+    const trimmed = promptText.trim();
+    if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
     setSubmissionError(null);
     scrollToBottom('auto');
     try {
@@ -243,53 +250,8 @@ export function AiChatPage({
     } catch (err) {
       setSubmissionError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
-
-  const sessionKey = `${provider}:${sessionId}`;
-  const activeSessionKeyRef = useRef(sessionKey);
-  activeSessionKeyRef.current = sessionKey;
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const [retryTrigger, setRetryTrigger] = useState(0);
-
-  const handleRetryInitialDispatch = useCallback(() => {
-    const retried = pendingDispatchStore.retryPending(provider, sessionId);
-    if (retried) {
-      setSubmissionError(null);
-      setRetryTrigger((c) => c + 1);
-    }
-  }, [provider, sessionId]);
-
-  useEffect(() => {
-    if (!isProviderAvailable || !assistant.isReady) return;
-    const pending = pendingDispatchStore.getPending(provider, sessionId);
-    if (!pending || pending.status !== 'pending') return;
-
-    pendingDispatchStore.markInFlight(provider, sessionId);
-    setSubmissionError(null);
-
-    (async () => {
-      try {
-        await assistant.sendTurn(pending.prompt, {
-          mode: currentMode,
-          idempotencyKey: pending.idempotencyKey,
-        });
-        pendingDispatchStore.clearPending(provider, sessionId);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        pendingDispatchStore.markFailed(provider, sessionId, errorMsg);
-        if (isMountedRef.current && activeSessionKeyRef.current === sessionKey) {
-          setSubmissionError(errorMsg);
-        }
-      }
-    })();
-  }, [assistant.isReady, assistant.sendTurn, currentMode, isProviderAvailable, provider, sessionId, sessionKey, retryTrigger]);
+  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom, setSubmissionError]);
+  const submitMessage = handleComposerSubmit;
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height
@@ -427,33 +389,33 @@ export function AiChatPage({
                 onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
               />
             )}
-            {submissionError && (
+            {displayError && (
               <div className={cn(
                 'flex items-start gap-3 rounded-xl p-3.5 text-xs',
-                submissionError.toLowerCase().includes('cancelled')
+                displayError.toLowerCase().includes('cancelled')
                   ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
                   : 'border border-red-500/30 bg-red-500/10 text-red-200'
               )}>
                 <AlertTriangle className={cn(
                   'mt-0.5 size-4 shrink-0',
-                  submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
+                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
                 )} />
                 <div className="min-w-0 flex-1">
                   <p className={cn(
                     'font-semibold',
-                    submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
+                    displayError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
                   )}>
-                    {submissionError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
+                    {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{submissionError}</p>
+                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{displayError}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {pendingDispatchStore.getPending(provider, sessionId)?.status === 'failed' && (
+                  {canRetryInitial && (
                     <Button
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={handleRetryInitialDispatch}
+                      onClick={handleRetryInitial}
                       className="h-7 gap-1.5 px-2.5 text-xs font-medium"
                     >
                       <RefreshCw className="size-3" />
@@ -462,7 +424,7 @@ export function AiChatPage({
                   )}
                   <button
                     type="button"
-                    onClick={() => setSubmissionError(null)}
+                    onClick={handleDismissError}
                     className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
                   >
                     Zamknij
@@ -493,7 +455,7 @@ export function AiChatPage({
               textareaRef={composerTextareaRef}
               currentMode={currentMode}
               onModeChange={(m) => setSelectedModeOverride(m)}
-              onSend={(text) => submitMessage(text)}
+              onSend={(text) => handleComposerSubmit(text)}
               onCancel={() => void assistant.cancelTurn()}
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}

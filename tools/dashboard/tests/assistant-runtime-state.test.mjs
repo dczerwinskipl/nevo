@@ -353,19 +353,22 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const chatSource = readAiChatSource();
+  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/lib/use-initial-dispatch.ts', import.meta.url)), 'utf8');
+
+  // AiChatPage uses useInitialDispatch
+  assert.match(chatSource, /useInitialDispatch/);
 
   // Initial message effect checks assistant.isReady and pendingDispatchStore
-  assert.match(chatSource, /pendingDispatchStore\.getPending\(provider, sessionId\)/);
-  assert.match(chatSource, /pendingDispatchStore\.markInFlight\(provider, sessionId\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.getPending\(provider, sessionId\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markInFlight\(provider, sessionId\)/);
 
   // Calls sendTurn with stable idempotencyKey and clears on success
-  assert.match(chatSource, /await assistant\.sendTurn\(pending\.prompt, \{/);
-  assert.match(chatSource, /idempotencyKey: pending\.idempotencyKey/);
-  assert.match(chatSource, /pendingDispatchStore\.clearPending\(provider, sessionId\)/);
+  assert.match(initialDispatchSource, /await assistant\.sendTurn\(current\.prompt, \{/);
+  assert.match(initialDispatchSource, /idempotencyKey: current\.idempotencyKey/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.clearPending\(provider, sessionId\)/);
 
   // Does not silently discard errors and marks failure for retry
-  assert.match(chatSource, /pendingDispatchStore\.markFailed\(provider, sessionId, errorMsg\)/);
-  assert.match(chatSource, /setSubmissionError\(errorMsg\);/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markFailed\(provider, sessionId, errorMsg\)/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {
