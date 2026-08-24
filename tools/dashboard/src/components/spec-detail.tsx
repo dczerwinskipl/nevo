@@ -487,7 +487,7 @@ export function SpecDetail({
   const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestQuery = useSpecificationManifest(change, true);
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
-  const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: change.source === 'active' && Boolean(change.specId) });
+  const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) });
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
 
   const visibleTabs = useMemo<SpecTabItem[]>(() => {

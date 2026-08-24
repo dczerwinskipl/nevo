@@ -327,3 +327,30 @@ test('11. Session switching: Switching sessions inside same spec uses replace to
   await router.load();
   assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/antigravity/sess-b', 'Forward restores session B');
 });
+
+test('12. Fallback routing: Archived spec accessed via /specs/active/... or active spec via /specs/archive/... resolves fallback without 404', () => {
+  const routerSource = readSource('router.tsx');
+
+  // SpecDetail fallback routing logic
+  assert.ok(routerSource.includes('const fallbackSpec = useMemo('), 'SpecDetail defines fallbackSpec lookup');
+  assert.ok(routerSource.includes('oppositeSource'), 'SpecDetail uses alternate source for fallback');
+  assert.ok(routerSource.includes('effectiveSpec'), 'SpecDetail renders effectiveSpec');
+
+  // SpecChat fallback routing logic
+  assert.ok(routerSource.includes('effectiveSource = effectiveSpec?.source || source'), 'SpecChat derives effectiveSource from effectiveSpec');
+});
+
+test('13. Archived spec sessions: spec-detail and task-dialog enable useAiSessions for archived specs with specId', () => {
+  const specDetailSource = readSource('components/spec-detail.tsx');
+  const taskDialogSource = readSource('components/task-dialog.tsx');
+
+  assert.ok(
+    specDetailSource.includes("useAiSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
+    'SpecDetail must not restrict useAiSessions to change.source === active'
+  );
+  assert.ok(
+    taskDialogSource.includes("enabled: Boolean(change.specId)"),
+    'TaskDialog must not restrict useAiSessions to change.source === active'
+  );
+});
+

@@ -1,6 +1,22 @@
 {
-  "generated": "2026-08-24T19:41:55.505Z",
+  "generated": "2026-08-24T19:55:36.094Z",
   "changes": [
+    {
+      "id": "fix-finalize-step",
+      "specId": "e5e13ade-94e4-483c-8cbb-a99eca539fcc",
+      "title": "Fix finalize step",
+      "status": "approved",
+      "priority": 10,
+      "created": "2026-08-24",
+      "tasks": [
+        {
+          "id": "finalize-routing-and-sessions",
+          "order": 1,
+          "file": "tasks/01-finalize-routing-and-sessions.md",
+          "status": "verified"
+        }
+      ]
+    },
     {
       "id": "ai-adapters-hardening",
       "specId": "1dfdbdb5-db41-422b-963f-defd1ec6a1e4",

@@ -1,0 +1,14 @@
+# Specification manifest for fix-finalize-step
+id: fix-finalize-step
+title: "Fix finalize step"
+type: small
+status: approved
+priority: 10
+created: 2026-08-24
+tasks:
+  - id: finalize-routing-and-sessions
+    order: 1
+    file: tasks/01-finalize-routing-and-sessions.md
+    status: verified
+spec_id: e5e13ade-94e4-483c-8cbb-a99eca539fcc
+

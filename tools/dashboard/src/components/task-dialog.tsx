@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
 import type {
   DashboardChange,
@@ -45,7 +45,7 @@ export function TaskDialog({
 
   const sessionsQuery = useAiSessions({
     specId: change.specId || undefined,
-    enabled: change.source === 'active' && Boolean(change.specId),
+    enabled: Boolean(change.specId),
   });
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const actionGate = taskId && actionsQuery.data?.tasks ? actionsQuery.data.tasks[taskId] ?? null : null;

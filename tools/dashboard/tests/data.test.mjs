@@ -344,3 +344,49 @@ test('manifest and document loading support declarative configurable sections (r
     sample.cleanup();
   }
 });
+
+test('transparently falls back to alternate directory when change is moved between active and archive', async () => {
+  const sample = fixture();
+  try {
+    // 1. Manifest fallback: requesting active for an archived change returns the manifest with source: 'archive'
+    const archivedManifestViaActive = await loadSpecificationManifest({
+      source: 'active',
+      slug: 'old-change',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.ok(archivedManifestViaActive);
+    assert.equal(archivedManifestViaActive.slug, 'old-change');
+    assert.equal(archivedManifestViaActive.source, 'archive');
+
+    // 2. Document fallback: requesting active for an archived document resolves successfully
+    const archivedDocViaActive = await loadSpecificationDocument({
+      source: 'active',
+      slug: 'old-change',
+      docId: 'overview',
+      ...sample,
+      repoRoot: sample.root,
+    });
+    assert.ok(archivedDocViaActive);
+    assert.equal(archivedDocViaActive.available, true);
+    assert.equal(archivedDocViaActive.markdown, '# Old change\n\nAn archived item.');
+
+    // 3. Task statuses fallback: requesting active for archived task statuses resolves successfully
+    const archivedStatusesViaActive = loadTaskStatuses({
+      source: 'active',
+      slug: 'old-change',
+      ...sample,
+    });
+    assert.ok(archivedStatusesViaActive);
+    assert.equal(archivedStatusesViaActive.slug, 'old-change');
+    assert.equal(archivedStatusesViaActive.source, 'archive');
+
+    // 4. Truly missing change returns null
+    assert.equal(await loadSpecificationManifest({ source: 'active', slug: 'non-existent', ...sample }), null);
+    assert.equal(await loadSpecificationDocument({ source: 'active', slug: 'non-existent', docId: 'overview', ...sample }), null);
+    assert.equal(loadTaskStatuses({ source: 'active', slug: 'non-existent', ...sample }), null);
+  } finally {
+    sample.cleanup();
+  }
+});
+

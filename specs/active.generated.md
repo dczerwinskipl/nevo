@@ -4,5 +4,6 @@
 
 | ID | Title | Status | Priority | Created |
 |---|---|---|---|---|
+| `fix-finalize-step` | Fix finalize step | approved | 10 | 2026-08-24 |
 | `ai-adapters-hardening` | AI adapters hardening | draft | 10 | 2026-08-24 |
 | `deterministic-workflow-foundation` | Deterministic workflow foundation | draft | 10 | 2026-08-18 |

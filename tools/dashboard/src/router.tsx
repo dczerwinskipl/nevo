@@ -6,7 +6,7 @@ import {
   useMatches,
   useRouter,
 } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Menu, Radio } from 'lucide-react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
@@ -256,6 +256,26 @@ function SpecDetailRouteComponent() {
     return collection.find((c) => c.slug === slug) ?? null;
   }, [data, source, slug]);
 
+  const fallbackSpec = useMemo(() => {
+    if (!data || selected) return null;
+    const oppositeSource = source === 'active' ? 'archive' : 'active';
+    const oppositeCollection = source === 'active' ? data.archive : data.active;
+    const match = oppositeCollection.find((c) => c.slug === slug);
+    return match ? { change: match, oppositeSource } : null;
+  }, [data, selected, source, slug]);
+
+  useEffect(() => {
+    if (fallbackSpec) {
+      navigate({
+        to: '/specs/$source/$slug',
+        params: { source: fallbackSpec.oppositeSource, slug },
+        replace: true,
+      });
+    }
+  }, [fallbackSpec, navigate, slug]);
+
+  const effectiveSpec = selected || fallbackSpec?.change || null;
+
   if (loading && !data) return <LoadingScreen />;
   if (error && !data) {
     return (
@@ -272,7 +292,7 @@ function SpecDetailRouteComponent() {
     );
   }
 
-  if (data && !selected) {
+  if (data && !effectiveSpec) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
@@ -287,26 +307,26 @@ function SpecDetailRouteComponent() {
     );
   }
 
-  if (!selected) {
+  if (!effectiveSpec) {
     return <LoadingScreen />;
   }
 
   return (
     <>
       <SpecDetail
-        change={selected}
+        change={effectiveSpec}
         onOpenSession={(session) => {
           navigate({
             to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
             params: {
-              source: selected.source,
-              slug: selected.slug,
+              source: effectiveSpec.source,
+              slug: effectiveSpec.slug,
               provider: session.provider,
               providerSessionId: session.providerSessionId,
             },
           });
         }}
-        onCreateSession={() => setCreateChange(selected)}
+        onCreateSession={() => setCreateChange(effectiveSpec)}
         onNavigateMode={(m) => navigate({ to: m === 'archive' ? '/archive' : '/' })}
       />
       {createChange && (
@@ -314,6 +334,7 @@ function SpecDetailRouteComponent() {
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
+            const targetChange = createChange;
             setCreateChange(null);
             if (initialMessage) {
               pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialMessage);
@@ -321,8 +342,8 @@ function SpecDetailRouteComponent() {
             navigate({
               to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
               params: {
-                source: selected.source,
-                slug: selected.slug,
+                source: targetChange.source,
+                slug: targetChange.slug,
                 provider: session.provider,
                 providerSessionId: session.providerSessionId,
               },
@@ -351,7 +372,33 @@ function SpecChatRouteComponent() {
     return collection.find((c) => c.slug === slug) ?? null;
   }, [data, source, slug]);
 
-  const specId = selectedSpec?.specId ?? null;
+  const fallbackSpec = useMemo(() => {
+    if (!data || selectedSpec) return null;
+    const oppositeSource = source === 'active' ? 'archive' : 'active';
+    const oppositeCollection = source === 'active' ? data.archive : data.active;
+    const match = oppositeCollection.find((c) => c.slug === slug);
+    return match ? { change: match, oppositeSource } : null;
+  }, [data, selectedSpec, source, slug]);
+
+  useEffect(() => {
+    if (fallbackSpec) {
+      navigate({
+        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        params: {
+          source: fallbackSpec.oppositeSource,
+          slug,
+          provider,
+          providerSessionId,
+        },
+        replace: true,
+      });
+    }
+  }, [fallbackSpec, navigate, provider, providerSessionId, slug]);
+
+  const effectiveSpec = selectedSpec || fallbackSpec?.change || null;
+  const effectiveSource = effectiveSpec?.source || source;
+
+  const specId = effectiveSpec?.specId ?? null;
   const sessionsQuery = useAiSessions({
     specId: specId || undefined,
     enabled: Boolean(specId),
@@ -371,18 +418,18 @@ function SpecChatRouteComponent() {
     } else {
       navigate({
         to: '/specs/$source/$slug',
-        params: { source, slug },
+        params: { source: effectiveSource, slug },
         replace: true,
       });
     }
-  }, [navigate, router, slug, source]);
+  }, [navigate, router, slug, effectiveSource]);
 
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
       navigate({
         to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
         params: {
-          source,
+          source: effectiveSource,
           slug,
           provider: targetSession.provider,
           providerSessionId: targetSession.providerSessionId,
@@ -390,7 +437,7 @@ function SpecChatRouteComponent() {
         replace: true,
       });
     },
-    [navigate, slug, source]
+    [navigate, slug, effectiveSource]
   );
 
   if (dataLoading && !data) return <LoadingScreen />;
@@ -402,8 +449,8 @@ function SpecChatRouteComponent() {
     );
   }
 
-  // Spec Not Found
-  if (data && !selectedSpec) {
+  // Spec Not Found in either collection
+  if (data && !effectiveSpec) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
@@ -454,7 +501,7 @@ function SpecChatRouteComponent() {
         <StatusCard
           variant="info"
           title="Sesja nie znaleziona"
-          description={`Nie znaleziono sesji '${providerSessionId}' (${provider}) w specyfikacji '${selectedSpec?.title || slug}'.`}
+          description={`Nie znaleziono sesji '${providerSessionId}' (${provider}) w specyfikacji '${effectiveSpec?.title || slug}'.`}
           onRetry={handleBack}
           retryLabel="Wróć do specyfikacji"
           className="w-full text-left"
@@ -463,14 +510,14 @@ function SpecChatRouteComponent() {
     );
   }
 
-  if (!selectedSpec || !session) {
+  if (!effectiveSpec || !session) {
     return <LoadingScreen />;
   }
 
   return (
     <AiChatPage
       key={`${session.provider}:${session.providerSessionId}`}
-      spec={selectedSpec}
+      spec={effectiveSpec}
       session={session}
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"

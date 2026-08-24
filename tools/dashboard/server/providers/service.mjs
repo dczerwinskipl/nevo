@@ -62,16 +62,29 @@ export async function loadSpecificationPullRequests({
   root = REPOSITORY_ROOT,
   registry,
 } = {}) {
-  const baseDir = sourceDirectory(source, activeDir, archiveDir);
+  let baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
-  const change = loadChange(slug, baseDir);
+  let actualSource = source;
+  let change = loadChange(slug, baseDir);
+  if (!change) {
+    const fallbackSource = source === 'active' ? 'archive' : 'active';
+    const fallbackBaseDir = sourceDirectory(fallbackSource, activeDir, archiveDir);
+    if (fallbackBaseDir) {
+      const fallbackChange = loadChange(slug, fallbackBaseDir);
+      if (fallbackChange) {
+        change = fallbackChange;
+        baseDir = fallbackBaseDir;
+        actualSource = fallbackSource;
+      }
+    }
+  }
   if (!change) return null;
 
   const references = change.pull_requests || [];
   return {
     id: change.id || change._slug,
     slug: change._slug,
-    source,
+    source: actualSource,
     pullRequests: references.length
       ? await resolvePullRequestReferences(references, { root, registry: registry || defaultRegistry })
       : [],
@@ -84,9 +97,16 @@ function findPullRequestReference(change, number) {
 }
 
 function resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir }) {
-  const baseDir = sourceDirectory(source, activeDir, archiveDir);
+  let baseDir = sourceDirectory(source, activeDir, archiveDir);
   if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
-  const change = loadChange(slug, baseDir);
+  let change = loadChange(slug, baseDir);
+  if (!change) {
+    const fallbackSource = source === 'active' ? 'archive' : 'active';
+    const fallbackBaseDir = sourceDirectory(fallbackSource, activeDir, archiveDir);
+    if (fallbackBaseDir) {
+      change = loadChange(slug, fallbackBaseDir);
+    }
+  }
   if (!change) return null;
   const reference = findPullRequestReference(change, number);
   if (!reference) return null;
