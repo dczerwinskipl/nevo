@@ -4,17 +4,14 @@ import {
   LayoutDashboard,
   Plus,
   Search,
-  MessagesSquare,
   X,
 } from 'lucide-react';
 
-import type { AiSession, DashboardChange } from '@/lib/types';
+import type { DashboardChange } from '@/lib/types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
-import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
-import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { Link } from '@tanstack/react-router';
 
 export type DashboardMode = 'active' | 'archive';
@@ -26,13 +23,6 @@ interface AppSidebarProps {
   changes: DashboardChange[];
   selectedSlug: string | null;
   onSelect?: (change: DashboardChange) => void;
-  sessions: AiSession[];
-  sessionsLoading: boolean;
-  sessionsError: string | null;
-  sessionNavigationError?: string | null;
-  onDismissSessionNavigationError?: () => void;
-  onSessionsRetry: () => void;
-  onOpenSession: (session: AiSession) => void;
   onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -108,13 +98,6 @@ export function AppSidebar({
   changes,
   selectedSlug,
   onSelect,
-  sessions,
-  sessionsLoading,
-  sessionsError,
-  sessionNavigationError,
-  onDismissSessionNavigationError,
-  onSessionsRetry,
-  onOpenSession,
   onOpenCreateSpec,
   search,
   onSearchChange,
@@ -122,80 +105,103 @@ export function AppSidebar({
   onClose,
 }: AppSidebarProps) {
   const visible = changes;
-  const activeSpecIds = new Set(active.map(change => change.specId).filter(Boolean));
-  const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
 
   return (
     <>
       <button
         aria-label="Zamknij menu"
         type="button"
-        onClick={onClose}
         className={cn(
           'fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity lg:hidden',
-          open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
+        onClick={onClose}
       />
       <aside
-        aria-label="Nawigacja specyfikacji"
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-[min(90vw,370px)] flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_94%,transparent)] shadow-[30px_0_80px_rgba(0,0,0,.28)] backdrop-blur-xl transition-transform duration-300 lg:translate-x-0 lg:shadow-none',
+          'fixed inset-y-0 left-0 z-40 flex w-[370px] flex-col border-r border-[var(--border)] bg-[var(--background)] transition-transform duration-200 lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="border-b border-[var(--border)] px-5 pb-4 pt-5">
-          <div className="flex items-center justify-between">
+        <div className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4 sm:px-6">
+          <Link
+            to="/"
+            onClick={onClose}
+            className="flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
+            title="Przejdź do listy specyfikacji"
+          >
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[#101505]">
+              N
+            </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">NEvo Flow</p>
-              <p className="mt-1 text-base font-semibold text-[var(--foreground)]">Specyfikacje</p>
+              <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
+              <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">Specification console</p>
             </div>
-            <div className="flex items-center gap-1.5">
-              {onOpenCreateSpec && (
-                <Button
-                  size="sm"
-                  onClick={onOpenCreateSpec}
-                  aria-label="Nowa specyfikacja"
-                >
-                  <Plus className="mr-1.5 size-3.5" />
-                  Nowa specyfikacja
-                </Button>
-              )}
-              <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose} aria-label="Zamknij menu">
-                <X className="size-4" />
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={onClose}
+            aria-label="Zamknij menu boczne"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <div className="border-b border-[var(--border)] p-4 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-[var(--foreground)]">Specyfikacje</p>
+              <p className="text-[11px] text-[var(--muted)]">Baza zmian i zadań</p>
+            </div>
+            {onOpenCreateSpec && (
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  onOpenCreateSpec();
+                  onClose();
+                }}
+              >
+                <Plus className="size-3.5" /> Nowa
               </Button>
-            </div>
+            )}
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-[var(--surface)] p-1">
             <Link
               to="/"
-              onClick={() => {
-                onSearchChange('');
-                onClose();
-              }}
+              onClick={onClose}
               className={cn(
-                'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
-                mode === 'active' ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+                mode === 'active'
+                  ? 'bg-[var(--surface-raised)] text-[var(--foreground)] shadow-xs font-semibold'
+                  : 'text-[var(--muted)] hover:text-[var(--foreground)]',
               )}
             >
               <LayoutDashboard className="size-3.5" />
-              Aktualne
-              <Badge className="border-0 bg-white/6 px-1.5 py-0 text-[9px]">{active.length}</Badge>
+              <span>W toku</span>
+              <Badge className="px-1.5 py-0 text-[10px]">
+                {active.length}
+              </Badge>
             </Link>
             <Link
               to="/archive"
-              onClick={() => {
-                onSearchChange('');
-                onClose();
-              }}
+              onClick={onClose}
               className={cn(
-                'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
-                mode === 'archive' ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
+                'flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+                mode === 'archive'
+                  ? 'bg-[var(--surface-raised)] text-[var(--foreground)] shadow-xs font-semibold'
+                  : 'text-[var(--muted)] hover:text-[var(--foreground)]',
               )}
             >
               <Archive className="size-3.5" />
-              Archiwum
-              <Badge className="border-0 bg-white/6 px-1.5 py-0 text-[9px]">{archive.length}</Badge>
+              <span>Archiwum</span>
+              <Badge className="px-1.5 py-0 text-[10px]">
+                {archive.length}
+              </Badge>
             </Link>
           </div>
 
@@ -212,59 +218,6 @@ export function AppSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          {mode === 'active' && (
-            <section className="mb-4 border-b border-[var(--border)] px-2 pb-4" aria-label="Ostatnie sesje AI">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]"><MessagesSquare className="size-3" />Ostatnie sesje</span>
-                {sessionsError && (
-                  <RetryButton
-                    size="icon"
-                    onClick={onSessionsRetry}
-                    label="Ponów pobieranie sesji"
-                  />
-                )}
-              </div>
-              {sessionNavigationError && (
-                <div className="mb-2">
-                  <StatusCard
-                    variant="warning"
-                    size="sm"
-                    title="Błąd otwierania sesji"
-                    description={sessionNavigationError}
-                    onRetry={onDismissSessionNavigationError}
-                    retryLabel="Zamknij"
-                  />
-                </div>
-              )}
-              {sessionsLoading ? <p className="py-2 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
-                : sessionsError ? (
-                  <div className="my-1">
-                    <StatusCard
-                      variant="warning"
-                      size="sm"
-                      title="Nie udało się wczytać sesji"
-                      description={sessionsError}
-                      onRetry={onSessionsRetry}
-                    />
-                  </div>
-                )
-                : recentSessions.length ? (
-                  <div className="space-y-1.5">
-                    {recentSessions.map(session => (
-                      <AiSessionRow
-                        key={`${session.provider}:${session.providerSessionId || session.sessionId}`}
-                        session={session}
-                        onOpen={onOpenSession}
-                        compact
-                        showSubtitle={false}
-                        showDelete={false}
-                      />
-                    ))}
-                  </div>
-                )
-                : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
-            </section>
-          )}
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
               {mode === 'active' ? 'W toku' : 'Zakończone'}

@@ -109,24 +109,23 @@ function useChatVisualViewport() {
 }
 
 export function AiChatPage({
-  provider,
-  sessionId,
-  changes,
+  spec,
+  session,
   onBack,
-  backLabel,
+  backLabel = 'Wróć do specyfikacji',
   onSwitchSession,
-  onOpenTask,
 }: {
-  provider: string;
-  sessionId: string;
-  changes: DashboardChange[];
+  spec: DashboardChange;
+  session: AiSession;
   onBack: () => void;
-  backLabel: string;
+  backLabel?: string;
   onSwitchSession: (session: AiSession) => void;
-  onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const chatViewport = useChatVisualViewport();
+
+  const provider = session.provider;
+  const sessionId = session.providerSessionId || session.sessionId;
 
   const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
@@ -157,8 +156,8 @@ export function AiChatPage({
     },
   });
 
-  const session = assistant.sessionDetails;
-  const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
+  const sessionDetails = assistant.sessionDetails || session;
+  const currentMode: AgentExecutionMode = selectedModeOverride ?? sessionDetails?.mode ?? session?.mode ?? 'edit';
 
   const initialDispatch = useInitialDispatch({
     provider,
@@ -221,20 +220,20 @@ export function AiChatPage({
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
   const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
-  const change = changes.find(item => item.specId === session?.specId) ?? null;
+  const change = spec;
 
   const handleInspectTask = useCallback((target: TaskNavigationTarget | string) => {
     const taskId = typeof target === 'string' ? target : target.taskId;
-    const targetSlug = typeof target === 'string' ? null : target.specSlug;
-    setIsSessionDetailsOpen(false);
-    if (!targetSlug || targetSlug === change?.slug) {
+    const task = change?.tasks?.find((t) => t.id === taskId);
+    if (task) {
+      setIsSessionDetailsOpen(false);
       setInspectedTaskId(taskId);
-      return;
     }
-    onOpenTask?.(target);
-  }, [change, onOpenTask]);
+  }, [change?.tasks]);
 
-  const rawTaskIds = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
+  const rawTaskIds = sessionDetails?.taskIds && sessionDetails.taskIds.length > 0
+    ? sessionDetails.taskIds
+    : (sessionDetails?.taskId ? [sessionDetails.taskId] : []);
   const sessionTaskItems = useMemo(() => {
     if (!rawTaskIds.length) return [];
     return rawTaskIds.map((taskId) => {
@@ -242,10 +241,10 @@ export function AiChatPage({
       return {
         id: taskId,
         title: matchedTask?.title || taskId,
-        isClickable: Boolean(change && matchedTask),
+        isClickable: Boolean(matchedTask),
       };
     });
-  }, [rawTaskIds, change]);
+  }, [rawTaskIds, change?.tasks]);
 
   const workByTurnId = useMemo(() => {
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });

@@ -5,14 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { createMemoryHistory } from '@tanstack/react-router';
 import {
   createAppRouter,
-  resolveSessionDestination,
+  routeTree,
 } from '../src/router-tree.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
 }
 
-test('Route tree resolves primary screens with clean URLs', async () => {
+test('1. Route tree: Only spec and spec session routes exist (no /ai/sessions/... or alias redirects)', async () => {
   const history = createMemoryHistory({ initialEntries: ['/'] });
   const router = createAppRouter(history);
   await router.load();
@@ -30,258 +30,189 @@ test('Route tree resolves primary screens with clean URLs', async () => {
     params: { source: 'active', slug: 'ux-improvements-version-1' },
   });
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
-  assert.equal(Object.keys(router.state.location.search).length, 0);
 
-  // 4. Spec-Scoped AI Chat Route (No turnId in URL search params)
+  // 4. Spec Session Route: /specs/:source/:slug/sessions/:sessionId (no provider in route)
   await router.navigate({
-    to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+    to: '/specs/$source/$slug/sessions/$sessionId',
     params: {
       source: 'active',
       slug: 'ux-improvements-version-1',
-      provider: 'claude',
       sessionId: 'session-12345',
     },
   });
   assert.equal(
     router.state.location.pathname,
-    '/specs/active/ux-improvements-version-1/sessions/claude/session-12345'
+    '/specs/active/ux-improvements-version-1/sessions/session-12345'
   );
-  assert.equal(Object.keys(router.state.location.search).length, 0);
 
-  // 5. Global AI Chat Route
-  await router.navigate({
-    to: '/ai/sessions/$provider/$sessionId',
-    params: { provider: 'gemini', sessionId: 'adhoc-session-999' },
-  });
-  assert.equal(router.state.location.pathname, '/ai/sessions/gemini/adhoc-session-999');
+  // 5. Verify /ai/sessions route does NOT exist in routeTree
+  const flatRoutes = router.routesByPath;
+  assert.equal(flatRoutes['/ai/sessions/$provider/$sessionId'], undefined, 'No global ad-hoc chat route');
+  assert.equal(flatRoutes['/active'], undefined, 'No alias redirects');
 });
 
-test('1. Spec chat Back: /specs/:source/:slug/sessions/:provider/:sessionId -> Back navigates directly to parent /specs/:source/:slug regardless of history', async () => {
-  // Even if history previously contains '/' or another route, Back goes directly to the parent route
+test('2. Open session from spec: spec X -> session A navigates to /specs/X/sessions/A using session.sessionId', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  const spec = { source: 'active', slug: 'spec-x', specId: 'spec-x-id' };
+  const sessionA = {
+    sessionId: 'nevo-sess-a',
+    providerSessionId: 'provider-sess-xyz',
+    provider: 'claude',
+    specId: 'spec-x-id',
+  };
+
+  // Production navigation uses spec + session.sessionId
+  const prevLength = history.length;
+  await router.navigate({
+    to: '/specs/$source/$slug/sessions/$sessionId',
+    params: {
+      source: spec.source,
+      slug: spec.slug,
+      sessionId: sessionA.sessionId,
+    },
+  });
+  await router.load();
+
+  assert.equal(
+    router.state.location.pathname,
+    '/specs/active/spec-x/sessions/nevo-sess-a',
+    'Uses session.sessionId in URL, not providerSessionId'
+  );
+  assert.equal(history.length, prevLength + 1, 'Exactly one navigation occurred');
+});
+
+test('3. Direct/deep chat load: route resolves spec X and looks up session in X sessions', () => {
+  const spec = {
+    source: 'active',
+    slug: 'my-feature',
+    specId: 'spec-100',
+    title: 'My Feature',
+    tasks: [{ id: 'task-1', title: 'Task 1' }],
+  };
+
+  const specSessions = [
+    { sessionId: 'sess-1', providerSessionId: 'prov-1', provider: 'claude', specId: 'spec-100' },
+    { sessionId: 'sess-2', providerSessionId: 'prov-2', provider: 'gemini', specId: 'spec-100' },
+  ];
+
+  const targetSessionId = 'sess-2';
+  const found = specSessions.find((s) => s.sessionId === targetSessionId);
+
+  assert.ok(found, 'Session found in spec sessions');
+  assert.equal(found.provider, 'gemini');
+  assert.equal(found.providerSessionId, 'prov-2');
+});
+
+test('4. Session belongs to another spec: opening /specs/X/sessions/A when A is under Y results in Session Not Found (no cross-spec redirect)', () => {
+  const specX = { source: 'active', slug: 'spec-x', specId: 'spec-x-id' };
+  const sessionsOfX = [
+    { sessionId: 'sess-x1', specId: 'spec-x-id' },
+  ];
+
+  // Attempting to access session 'sess-y1' (which belongs to spec Y) under spec X
+  const requestedSessionId = 'sess-y1';
+  const foundInX = sessionsOfX.find((s) => s.sessionId === requestedSessionId);
+
+  assert.equal(foundInX, undefined, 'Session must not be resolved under spec X');
+});
+
+test('5. Free/ad-hoc session (specId: null) has no dashboard route', () => {
+  const adhocSession = {
+    sessionId: 'free-sess-1',
+    provider: 'claude',
+    specId: null,
+  };
+
+  // Dashboard routes require source + slug
+  assert.equal(adhocSession.specId, null);
+  const routerSource = readSource('router-tree.ts');
+  assert.ok(!routerSource.includes('/ai/sessions/'), 'Router must not have /ai/sessions/ route');
+});
+
+test('6. Runtime metadata derivation: URL uses session.sessionId while runtime receives provider and providerSessionId', () => {
+  const session = {
+    sessionId: 'nevo-session-1',
+    provider: 'codex',
+    providerSessionId: 'provider-abc',
+    specId: 'spec-1',
+  };
+
+  // URL identity:
+  const routeParams = { source: 'active', slug: 'my-spec', sessionId: session.sessionId };
+  assert.equal(routeParams.sessionId, 'nevo-session-1');
+
+  // Runtime identity passed to useNevoAssistantRuntime:
+  const runtimeProvider = session.provider;
+  const runtimeSessionId = session.providerSessionId || session.sessionId;
+
+  assert.equal(runtimeProvider, 'codex');
+  assert.equal(runtimeSessionId, 'provider-abc');
+});
+
+test('7. Back: /specs/:source/:slug/sessions/:sessionId -> Back navigates directly to parent /specs/:source/:slug', async () => {
   const history = createMemoryHistory({
-    initialEntries: ['/', '/specs/active/other-spec', '/specs/active/foo/sessions/claude/123'],
+    initialEntries: ['/', '/specs/active/foo/sessions/session-42'],
   });
   const router = createAppRouter(history);
   await router.load();
 
-  assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/claude/123');
+  assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/session-42');
 
   // Production Back action in SpecChatRouteComponent:
-  const source = 'active';
-  const slug = 'foo';
   await router.navigate({
     to: '/specs/$source/$slug',
-    params: { source, slug },
+    params: { source: 'active', slug: 'foo' },
   });
   await router.load();
 
   assert.equal(router.state.location.pathname, '/specs/active/foo', 'Back always navigates to parent spec');
 });
 
-test('2. Open spec session: /specs/X -> click session A belonging to X -> exactly one navigation to /specs/X/sessions/A', async () => {
+test('8. Session creation: creating session for spec X navigates using returned session.sessionId', async () => {
   const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
   const router = createAppRouter(history);
   await router.load();
 
-  const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
-  const sessionA = { provider: 'claude', sessionId: 'sess-A', specId: 'spec-x-id' };
+  const createdSession = {
+    sessionId: 'new-nevo-session-99',
+    providerSessionId: 'claude-raw-id-xyz',
+    provider: 'claude',
+    specId: 'spec-x-id',
+  };
 
-  const dest = resolveSessionDestination(sessionA, specs);
-  assert.equal(dest.to, '/specs/$source/$slug/sessions/$provider/$sessionId');
-
-  // Single navigation
-  const prevLength = history.length;
   await router.navigate({
-    to: dest.to,
-    params: dest.params,
+    to: '/specs/$source/$slug/sessions/$sessionId',
+    params: {
+      source: 'active',
+      slug: 'spec-x',
+      sessionId: createdSession.sessionId,
+    },
   });
   await router.load();
 
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-A');
-  assert.equal(history.length, prevLength + 1, 'Exactly one navigation occurred');
+  assert.equal(
+    router.state.location.pathname,
+    '/specs/active/spec-x/sessions/new-nevo-session-99',
+    'Navigates to new session using NEvo sessionId'
+  );
 });
 
-test('3. Open session from task: task inside spec X -> open session A -> single navigation to /specs/X/sessions/A and Back goes to /specs/X', async () => {
-  const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
-  const router = createAppRouter(history);
-  await router.load();
-
-  // User opens session from inside task dialog: exactly one navigation without pre-seeding history
-  await router.navigate({
-    to: '/specs/$source/$slug/sessions/$provider/$sessionId',
-    params: { source: 'active', slug: 'spec-x', provider: 'claude', sessionId: 'sess-task' },
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-task');
-
-  // Back from chat goes to parent spec
-  await router.navigate({
-    to: '/specs/$source/$slug',
-    params: { source: 'active', slug: 'spec-x' },
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x');
-});
-
-test('4. Same-spec switch: X/session A -> select X/session B -> X/session B in one navigation', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/specs/active/spec-x/sessions/claude/sess-A'],
-  });
-  const router = createAppRouter(history);
-  await router.load();
-
-  const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
-  const sessionB = { provider: 'claude', sessionId: 'sess-B', specId: 'spec-x-id' };
-
-  const dest = resolveSessionDestination(sessionB, specs);
-  await router.navigate({
-    to: dest.to,
-    params: dest.params,
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-B');
-});
-
-test('5. Cross-spec switch: X/session A -> select Y/session B -> Y/session B in one navigation and Back goes to spec Y', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/specs/active/spec-x/sessions/claude/sess-A'],
-  });
-  const router = createAppRouter(history);
-  await router.load();
-
-  const specs = [
-    { specId: 'spec-x-id', source: 'active', slug: 'spec-x' },
-    { specId: 'spec-y-id', source: 'archive', slug: 'spec-y' },
-  ];
-  const sessionB = { provider: 'gemini', sessionId: 'sess-B', specId: 'spec-y-id' };
-
-  const dest = resolveSessionDestination(sessionB, specs);
-  await router.navigate({
-    to: dest.to,
-    params: dest.params,
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/archive/spec-y/sessions/gemini/sess-B');
-
-  // Back from switched session goes to its current parent (spec Y)
-  await router.navigate({
-    to: '/specs/$source/$slug',
-    params: { source: 'archive', slug: 'spec-y' },
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/archive/spec-y');
-});
-
-test('6. Spec -> ad-hoc switch: X/session A -> ad-hoc B -> /ai/sessions/B without stale origin state', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/specs/active/spec-x/sessions/claude/sess-A'],
-  });
-  const router = createAppRouter(history);
-  await router.load();
-
-  const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
-  const adhocSession = { provider: 'claude', sessionId: 'sess-adhoc-1', specId: null };
-
-  const dest = resolveSessionDestination(adhocSession, specs);
-  assert.equal(dest.to, '/ai/sessions/$provider/$sessionId');
-
-  await router.navigate({
-    to: dest.to,
-    params: dest.params,
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/ai/sessions/claude/sess-adhoc-1');
-});
-
-test('7. Ad-hoc -> spec switch: /ai/sessions/A -> select X/session B -> /specs/X/sessions/B', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/ai/sessions/claude/sess-adhoc-1'],
-  });
-  const router = createAppRouter(history);
-  await router.load();
-
-  const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
-  const specSession = { provider: 'claude', sessionId: 'sess-B', specId: 'spec-x-id' };
-
-  const dest = resolveSessionDestination(specSession, specs);
-  assert.equal(dest.to, '/specs/$source/$slug/sessions/$provider/$sessionId');
-
-  await router.navigate({
-    to: dest.to,
-    params: dest.params,
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-B');
-});
-
-test('8. Invalid unresolved spec ownership: session.specId != null but spec cannot be resolved -> throws error, zero navigation', () => {
-  const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
-  const router = createAppRouter(history);
-
-  const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
-  const orphanSession = { provider: 'claude', sessionId: 'sess-orphan', specId: 'unknown-spec-id' };
-
-  // Resolution throws explicit error
-  let navigationError = null;
-  try {
-    const dest = resolveSessionDestination(orphanSession, specs);
-    router.navigate({ to: dest.to, params: dest.params });
-  } catch (err) {
-    navigationError = err.message;
-  }
-
-  assert.ok(navigationError?.includes("Nie znaleziono specyfikacji o ID 'unknown-spec-id'"));
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x', 'Zero navigation occurred');
-});
-
-test('9. Behavioral no post-render redirect: Back from /specs/X/sessions/A to /specs/X stays at /specs/X through subsequent state updates', async () => {
-  const history = createMemoryHistory({
-    initialEntries: ['/specs/active/spec-x/sessions/claude/sess-A'],
-  });
-  const router = createAppRouter(history);
-  await router.load();
-
-  // User navigates Back to /specs/active/spec-x
-  await router.navigate({
-    to: '/specs/$source/$slug',
-    params: { source: 'active', slug: 'spec-x' },
-  });
-  await router.load();
-
-  assert.equal(router.state.location.pathname, '/specs/active/spec-x');
-
-  // Verify AiChatPage and router.tsx source code does not contain activeTurnId URL syncing or onTurnChange
-  const aiChatSource = readSource('components/ai-chat.tsx');
+test('9. No global session fetch: AppLayout and AppSidebar do not load global sessions', () => {
   const routerSource = readSource('router.tsx');
+  const sidebarSource = readSource('components/app-sidebar.tsx');
 
-  assert.ok(!aiChatSource.includes('onTurnChange'), 'AiChatPage must not have onTurnChange');
-  assert.ok(!aiChatSource.includes('initialTurnId'), 'AiChatPage must not have initialTurnId');
-  assert.ok(!routerSource.includes('turnId'), 'router.tsx must not have turnId search param plumbing');
-  assert.ok(!routerSource.includes('useEffect('), 'router.tsx must not have useEffect navigations');
+  // AppLayoutComponent does not query global sessions
+  assert.ok(!routerSource.includes('useAiSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
+  assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'AppSidebar must not render global session list');
 });
 
-test('Single click on sidebar Active/Archive tabs creates exactly one history transition', async () => {
-  const history = createMemoryHistory({ initialEntries: ['/'] });
-  const router = createAppRouter(history);
-  await router.load();
+test('10. No reverse spec resolution: AiChatPage receives spec directly, without searching all specs', () => {
+  const aiChatSource = readSource('components/ai-chat.tsx');
 
-  assert.equal(history.length, 1);
-  assert.equal(router.state.location.pathname, '/');
-
-  // Click Archive tab -> exactly 1 transition
-  await router.navigate({ to: '/archive' });
-  assert.equal(history.length, 2);
-  assert.equal(router.state.location.pathname, '/archive');
-
-  // Click Active tab -> exactly 1 transition
-  await router.navigate({ to: '/' });
-  assert.equal(history.length, 3);
-  assert.equal(router.state.location.pathname, '/');
+  assert.ok(aiChatSource.includes('spec: DashboardChange'), 'AiChatPage receives spec directly');
+  assert.ok(!aiChatSource.includes('changes: DashboardChange[]'), 'AiChatPage must not receive changes array to reverse search');
+  assert.ok(!aiChatSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
 });

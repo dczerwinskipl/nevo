@@ -6,7 +6,7 @@ import {
   useMatches,
 } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
-import { AlertCircle, Menu, Radio } from 'lucide-react';
+import { Menu, Radio } from 'lucide-react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
-import type { AiSession, DashboardChange, TaskNavigationTarget } from '@/lib/types';
+import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
   rootRoute,
@@ -26,10 +26,8 @@ import {
   indexRoute,
   archiveRoute,
   specRoute,
-  chatRoute,
   specChatRoute,
   createAppRouter,
-  resolveSessionDestination,
 } from './router-tree';
 
 export function LoadingScreen() {
@@ -53,10 +51,8 @@ function AppLayoutComponent() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sessionNavigationError, setSessionNavigationError] = useState<string | null>(null);
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
-  const globalSessions = useAiSessions({ enabled: Boolean(data) });
   const navigate = useNavigate();
   const location = useLocation();
   const matches = useMatches();
@@ -139,23 +135,6 @@ function AppLayoutComponent() {
         </div>
       </header>
 
-      {sessionNavigationError && (
-        <div className="sticky top-16 z-40 flex items-center justify-between border-b border-amber-500/30 bg-amber-950/90 px-4 py-3 text-sm text-amber-200 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="size-4 shrink-0 text-amber-400" />
-            <span>{sessionNavigationError}</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-amber-300 hover:text-white"
-            onClick={() => setSessionNavigationError(null)}
-          >
-            Zamknij
-          </Button>
-        </div>
-      )}
-
       <main>
         {loading && !data ? (
           <LoadingScreen />
@@ -182,26 +161,6 @@ function AppLayoutComponent() {
           archive={data.archive}
           changes={filteredChanges}
           selectedSlug={selectedSlug}
-          sessions={globalSessions.sessions}
-          sessionsLoading={globalSessions.loading}
-          sessionsError={globalSessions.error}
-          sessionNavigationError={sessionNavigationError}
-          onDismissSessionNavigationError={() => setSessionNavigationError(null)}
-          onSessionsRetry={() => void globalSessions.refresh()}
-          onOpenSession={(session) => {
-            const allSpecs = [...(data.active ?? []), ...(data.archive ?? [])];
-            try {
-              const dest = resolveSessionDestination(session, allSpecs);
-              setSessionNavigationError(null);
-              navigate({
-                to: dest.to,
-                params: dest.params,
-              });
-              setSidebarOpen(false);
-            } catch (err) {
-              setSessionNavigationError(err instanceof Error ? err.message : String(err));
-            }
-          }}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
           onSearchChange={setSearch}
@@ -221,12 +180,11 @@ function AppLayoutComponent() {
                 pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialPrompt);
               }
               navigate({
-                to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+                to: '/specs/$source/$slug/sessions/$sessionId',
                 params: {
                   source: 'active',
                   slug: spec.slug,
-                  provider: session.provider,
-                  sessionId: effectiveSessionId,
+                  sessionId: session.sessionId,
                 },
               });
             } else {
@@ -251,12 +209,11 @@ function AppLayoutComponent() {
               pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
             }
             navigate({
-              to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+              to: '/specs/$source/$slug/sessions/$sessionId',
               params: {
                 source: targetChange.source,
                 slug: targetChange.slug,
-                provider: session.provider,
-                sessionId: effectiveSessionId,
+                sessionId: session.sessionId,
               },
             });
           }}
@@ -338,14 +295,12 @@ function SpecDetailRouteComponent() {
       <SpecDetail
         change={selected}
         onOpenSession={(session) => {
-          const effectiveSessionId = session.providerSessionId || session.sessionId;
           navigate({
-            to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+            to: '/specs/$source/$slug/sessions/$sessionId',
             params: {
               source: selected.source,
               slug: selected.slug,
-              provider: session.provider,
-              sessionId: effectiveSessionId,
+              sessionId: session.sessionId,
             },
           });
         }}
@@ -363,12 +318,11 @@ function SpecDetailRouteComponent() {
               pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
             }
             navigate({
-              to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+              to: '/specs/$source/$slug/sessions/$sessionId',
               params: {
                 source: selected.source,
                 slug: selected.slug,
-                provider: session.provider,
-                sessionId: effectiveSessionId,
+                sessionId: session.sessionId,
               },
             });
           }}
@@ -378,23 +332,31 @@ function SpecDetailRouteComponent() {
   );
 }
 
-// 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:provider/:sessionId)
+// 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:sessionId)
 function SpecChatRouteComponent() {
   const params = specChatRoute.useParams();
-
-  const { data, loading, error, refresh } = useDashboardData();
-  const navigate = useNavigate();
-
   const source = params.source as 'active' | 'archive';
   const slug = params.slug;
-  const provider = params.provider;
   const sessionId = params.sessionId;
+
+  const { data, loading: dataLoading, error: dataError } = useDashboardData();
+  const navigate = useNavigate();
 
   const selectedSpec = useMemo(() => {
     if (!data) return null;
     const collection = source === 'active' ? data.active : data.archive;
     return collection.find((c) => c.slug === slug) ?? null;
   }, [data, source, slug]);
+
+  const specId = selectedSpec?.specId ?? null;
+  const sessionsQuery = useAiSessions({
+    specId: specId || undefined,
+    enabled: Boolean(specId),
+  });
+
+  const session = useMemo(() => {
+    return sessionsQuery.sessions.find((s) => s.sessionId === sessionId) ?? null;
+  }, [sessionsQuery.sessions, sessionId]);
 
   const handleBack = useCallback(() => {
     navigate({
@@ -405,51 +367,31 @@ function SpecChatRouteComponent() {
 
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
-      const allSpecs = [...(data?.active ?? []), ...(data?.archive ?? [])];
-      const dest = resolveSessionDestination(targetSession, allSpecs);
       navigate({
-        to: dest.to,
-        params: dest.params,
+        to: '/specs/$source/$slug/sessions/$sessionId',
+        params: { source, slug, sessionId: targetSession.sessionId },
       });
     },
-    [data, navigate]
+    [navigate, slug, source]
   );
 
-  const handleOpenTask = useCallback(
-    (target: TaskNavigationTarget | string, explicitSlug?: string | null) => {
-      const taskId = typeof target === 'string' ? target : target.taskId;
-      const targetSlug = typeof target === 'string' ? (explicitSlug || slug) : (target.specSlug || explicitSlug || slug);
-
-      if (data) {
-        const change =
-          [...data.active, ...data.archive].find((item) => item.slug === targetSlug) ||
-          (taskId ? [...data.active, ...data.archive].find((c) => c.tasks.some((t) => t.id === taskId)) : null);
-        if (change) {
-          navigate({
-            to: '/specs/$source/$slug',
-            params: { source: change.source, slug: change.slug },
-          });
-          return;
-        }
-      }
-      navigate({ to: '/' });
-    },
-    [data, navigate, slug]
-  );
-
-  if (loading && !data) return <LoadingScreen />;
-  if (error && !data) {
+  if (dataLoading && !data) return <LoadingScreen />;
+  if (dataError && !data) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>
+      <div className="flex min-h-screen items-center justify-center text-sm text-red-200">
+        {dataError}
+      </div>
     );
   }
+
+  // Spec Not Found
   if (data && !selectedSpec) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
           variant="info"
           title="Specyfikacja nie znaleziona"
-          description={`Nie znaleziono specyfikacji '${slug}'.`}
+          description={`Nie znaleziono specyfikacji '${slug}' w sekcji ${source === 'active' ? 'aktywnych' : 'archiwum'}.`}
           onRetry={() => navigate({ to: source === 'active' ? '/' : '/archive' })}
           retryLabel={source === 'active' ? 'Wróć do listy specyfikacji' : 'Wróć do archiwum'}
           className="w-full text-left"
@@ -458,95 +400,36 @@ function SpecChatRouteComponent() {
     );
   }
 
-  return (
-    <AiChatPage
-      key={`${provider}:${sessionId}`}
-      provider={provider}
-      sessionId={sessionId}
-      onBack={handleBack}
-      backLabel="Wróć do specyfikacji"
-      onSwitchSession={handleSwitchSession}
-      onOpenTask={handleOpenTask}
-      changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
-    />
-  );
-}
+  if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
 
-// 6. Global/Ad-hoc Chat Route Component (/ai/sessions/:provider/:sessionId)
-function GlobalChatRouteComponent() {
-  const params = chatRoute.useParams();
-
-  const { data, loading, error } = useDashboardData();
-  const navigate = useNavigate();
-
-  const provider = params.provider;
-  const sessionId = params.sessionId;
-
-  const handleBack = useCallback(() => {
-    navigate({ to: '/' });
-  }, [navigate]);
-
-  const handleSwitchSession = useCallback(
-    (targetSession: AiSession) => {
-      const allSpecs = [...(data?.active ?? []), ...(data?.archive ?? [])];
-      const dest = resolveSessionDestination(targetSession, allSpecs);
-      navigate({
-        to: dest.to,
-        params: dest.params,
-      });
-    },
-    [data, navigate]
-  );
-
-  const handleOpenTask = useCallback(
-    (target: TaskNavigationTarget | string, explicitSlug?: string | null) => {
-      const taskId = typeof target === 'string' ? target : target.taskId;
-      const targetSlug = typeof target === 'string' ? explicitSlug : (target.specSlug || explicitSlug);
-
-      if (targetSlug && data) {
-        const change =
-          data.active.find((item) => item.slug === targetSlug) ||
-          data.archive.find((item) => item.slug === targetSlug);
-        if (change) {
-          navigate({
-            to: '/specs/$source/$slug',
-            params: { source: change.source, slug: change.slug },
-          });
-          return;
-        }
-      }
-      if (data && taskId) {
-        const foundChange = [...data.active, ...data.archive].find((c) => c.tasks.some((t) => t.id === taskId));
-        if (foundChange) {
-          navigate({
-            to: '/specs/$source/$slug',
-            params: { source: foundChange.source, slug: foundChange.slug },
-          });
-          return;
-        }
-      }
-      navigate({ to: '/' });
-    },
-    [data, navigate]
-  );
-
-  if (loading && !data) return <LoadingScreen />;
-  if (error && !data) {
+  // Session Not Found in this spec
+  if (sessionsQuery.data && !session) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>
+      <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+        <StatusCard
+          variant="info"
+          title="Sesja nie znaleziona"
+          description={`Nie znaleziono sesji '${sessionId}' w specyfikacji '${selectedSpec?.title || slug}'.`}
+          onRetry={handleBack}
+          retryLabel="Wróć do specyfikacji"
+          className="w-full text-left"
+        />
+      </div>
     );
+  }
+
+  if (!selectedSpec || !session) {
+    return <LoadingScreen />;
   }
 
   return (
     <AiChatPage
-      key={`${provider}:${sessionId}`}
-      provider={provider}
-      sessionId={sessionId}
+      key={session.sessionId}
+      spec={selectedSpec}
+      session={session}
       onBack={handleBack}
-      backLabel="Wróć do listy"
+      backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
-      onOpenTask={handleOpenTask}
-      changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
     />
   );
 }
@@ -557,7 +440,6 @@ appLayoutRoute.update({ component: AppLayoutComponent });
 indexRoute.update({ component: ActiveDashboardComponent });
 archiveRoute.update({ component: ArchiveDashboardComponent });
 specRoute.update({ component: SpecDetailRouteComponent });
-chatRoute.update({ component: GlobalChatRouteComponent });
 specChatRoute.update({ component: SpecChatRouteComponent });
 
 export const router = createAppRouter();
