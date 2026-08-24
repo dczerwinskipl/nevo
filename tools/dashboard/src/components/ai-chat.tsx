@@ -307,6 +307,7 @@ export function AiChatPage({
     <ChatHeader
       title={headerTitle}
       status={session ? assistant.activity : undefined}
+      live={assistant.live}
       onBack={onBack}
       backLabel={backLabel}
       onOpenDetails={() => setIsSessionDetailsOpen(true)}

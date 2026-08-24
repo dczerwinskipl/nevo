@@ -1,9 +1,11 @@
-import { ArrowLeft, Info } from 'lucide-react';
+import { ArrowLeft, Info, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 export interface ChatHeaderProps {
   title: string;
   status?: string;
+  live?: boolean;
   onBack: () => void;
   backLabel: string;
   onOpenDetails: () => void;
@@ -12,6 +14,7 @@ export interface ChatHeaderProps {
 export function ChatHeader({
   title,
   status,
+  live,
   onBack,
   backLabel,
   onOpenDetails,
@@ -42,6 +45,25 @@ export function ChatHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {live !== undefined && (
+            <div
+              role="status"
+              tabIndex={0}
+              aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
+              title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
+              className="flex size-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default"
+            >
+              <span className="relative flex size-3.5 items-center justify-center">
+                <Radio className={cn('size-3.5', live ? 'text-[var(--accent)]' : 'text-amber-400')} />
+                <span
+                  className={cn(
+                    'absolute -top-0.5 -right-0.5 size-1.5 rounded-full',
+                    live ? 'bg-[var(--accent)]' : 'bg-amber-400 animate-ping'
+                  )}
+                />
+              </span>
+            </div>
+          )}
           <Button
             variant="ghost"
             size="icon"

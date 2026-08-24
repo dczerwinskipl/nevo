@@ -619,6 +619,7 @@ export function useNevoAssistantRuntime({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
+  const [live, setLive] = useState<boolean>(true);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -737,8 +738,16 @@ export function useNevoAssistantRuntime({
 
     let active = true;
 
+    eventSource.onopen = () => {
+      if (active) setLive(true);
+    };
+    eventSource.onerror = () => {
+      if (active) setLive(false);
+    };
+
     const handleAgentEvent = (event: AgentEvent) => {
       if (!active) return;
+      setLive(true);
       const seq = event.seq ?? event.id ?? 0;
       if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
@@ -985,6 +994,7 @@ export function useNevoAssistantRuntime({
     ? { ...sessionDetails, status: exposedActivity }
     : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
+  const exposedLive = isSnapshotLoaded && !exposedLoadError ? live : false;
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
   const exposedCanStartTurn = exposedIsReady;
@@ -1030,6 +1040,7 @@ export function useNevoAssistantRuntime({
     activeTurnId: exposedActiveTurnId,
     contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
+    live: exposedLive,
     isReady: exposedIsReady,
     canStartTurn: exposedCanStartTurn,
     isSnapshotLoaded,
