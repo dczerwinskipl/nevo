@@ -9,6 +9,7 @@ export interface SessionDetailsProps {
   provider: string;
   mode?: AgentExecutionMode;
   onDelete: () => void;
+  onOpenTask?: (taskId: string) => void;
   deleting?: boolean;
   disabled?: boolean;
 }
@@ -20,6 +21,7 @@ export function SessionDetails({
   provider,
   mode = 'edit',
   onDelete,
+  onOpenTask,
   deleting = false,
   disabled = false,
 }: SessionDetailsProps) {
@@ -57,13 +59,25 @@ export function SessionDetails({
           {tasks.length > 0 ? (
             <div className="space-y-1.5 pt-1">
               {tasks.map((task) => (
-                <div
-                  key={task}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
-                >
-                  <span className="size-1.5 rounded-full bg-[var(--accent)]" />
-                  <span className="truncate">{task}</span>
-                </div>
+                onOpenTask ? (
+                  <button
+                    type="button"
+                    key={task}
+                    onClick={() => onOpenTask(task)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] text-left transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] cursor-pointer"
+                  >
+                    <span className="size-1.5 rounded-full bg-[var(--accent)] shrink-0" />
+                    <span className="truncate">{task}</span>
+                  </button>
+                ) : (
+                  <div
+                    key={task}
+                    className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
+                  >
+                    <span className="size-1.5 rounded-full bg-[var(--accent)] shrink-0" />
+                    <span className="truncate">{task}</span>
+                  </div>
+                )
               ))}
             </div>
           ) : (

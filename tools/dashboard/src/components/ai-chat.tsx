@@ -112,6 +112,7 @@ export function AiChatPage({
   onBack,
   backLabel,
   onSwitchSession,
+  onOpenTask,
 }: {
   provider: string;
   sessionId: string;
@@ -123,6 +124,7 @@ export function AiChatPage({
   onBack: () => void;
   backLabel: string;
   onSwitchSession: (session: AiSession) => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -280,6 +282,10 @@ export function AiChatPage({
                 tasks={linkedTasks}
                 provider={provider}
                 mode={currentMode}
+                onOpenTask={(taskId) => {
+                  setIsSessionDetailsOpen(false);
+                  onOpenTask?.(taskId);
+                }}
                 onDelete={() => {
                   setIsSessionDetailsOpen(false);
                   void handleDeleteSession();

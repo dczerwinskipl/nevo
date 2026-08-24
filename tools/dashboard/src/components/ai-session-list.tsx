@@ -73,13 +73,19 @@ export function AiSessionRow({
   tasks,
   onOpen,
   onDelete,
+  onOpenTask,
   compact = false,
+  showSubtitle = true,
+  showDelete = true,
 }: {
   session: AiSession;
   tasks: DashboardTask[];
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
+  onOpenTask?: (taskId: string) => void;
   compact?: boolean;
+  showSubtitle?: boolean;
+  showDelete?: boolean;
 }) {
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === session.provider);
@@ -91,7 +97,6 @@ export function AiSessionRow({
     : session.taskId
     ? [session.taskId]
     : [];
-  const linked = taskList.map((taskId) => tasks.find((task) => task.id === taskId)?.title || taskId);
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
 
   return (
@@ -141,11 +146,41 @@ export function AiSessionRow({
             </span>
           )}
         </div>
-        <p className="mt-2 line-clamp-1 text-[10px] text-[var(--muted)]">
-          {linked.length ? linked.join(' · ') : 'Kontekst całej specyfikacji'}
-        </p>
+        {showSubtitle && (
+          <div className="mt-2 text-[10px] text-[var(--muted)]">
+            {taskList.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {taskList.map((taskId, index) => {
+                  const matchedTask = tasks.find((t) => t.id === taskId);
+                  const label = matchedTask?.title || taskId;
+                  return (
+                    <span key={taskId} className="inline-flex items-center">
+                      {index > 0 && <span className="mr-1 text-[var(--muted)]">·</span>}
+                      {onOpenTask && matchedTask ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTask(taskId);
+                          }}
+                          className="truncate text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--accent)] hover:underline"
+                        >
+                          {label}
+                        </button>
+                      ) : (
+                        <span className="truncate">{label}</span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="line-clamp-1">Kontekst całej specyfikacji</p>
+            )}
+          </div>
+        )}
       </div>
-      {onDelete && (
+      {showDelete && onDelete && (
         <button
           type="button"
           title="Usuń sesję z dysku"
@@ -161,7 +196,7 @@ export function AiSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-2.5 top-2.5 flex size-6 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>
@@ -178,6 +213,7 @@ export function AiSessionList({
   onRetry,
   onOpen,
   onDelete,
+  onOpenTask,
   emptyLabel = 'Brak sesji w tym kontekście.',
   limit,
 }: {
@@ -188,6 +224,7 @@ export function AiSessionList({
   onRetry: () => void;
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
+  onOpenTask?: (taskId: string) => void;
   emptyLabel?: string;
   limit?: number;
 }) {
@@ -235,6 +272,7 @@ export function AiSessionList({
             tasks={tasks}
             onOpen={onOpen}
             onDelete={handleDelete}
+            onOpenTask={onOpenTask}
           />
         ))}
       </div>

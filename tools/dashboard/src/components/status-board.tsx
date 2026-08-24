@@ -55,20 +55,43 @@ function TaskCard({
       }}
       aria-label={`Otwórz szczegóły zadania: ${task.title}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
           #{String(task.order ?? '—').padStart(2, '0')}
         </span>
-        {isDone ? (
-          <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
-        ) : task.blockedBy.length ? (
-          <LockKeyhole className="size-3.5 text-[var(--muted)]" />
-        ) : (
-          <CircleDashed className="size-3.5 text-[var(--muted)]" />
-        )}
+        <div className="flex items-center gap-1.5">
+          {hasAction && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-5 px-2 text-[10px] font-semibold text-[var(--accent)] border border-[var(--accent)]/40 hover:bg-[var(--accent)]/15"
+              onClick={e => {
+                e.stopPropagation();
+                onAction?.(task, actionGate.action);
+              }}
+            >
+              {actionGate.action === 'approve' ? (
+                <>
+                  <Play className="mr-1 size-2.5" /> Zatwierdź
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
+                </>
+              )}
+            </Button>
+          )}
+          {isDone ? (
+            <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
+          ) : task.blockedBy.length ? (
+            <LockKeyhole className="size-3.5 text-[var(--muted)]" />
+          ) : (
+            <CircleDashed className="size-3.5 text-[var(--muted)]" />
+          )}
+        </div>
       </div>
-      <h3 className="mt-3 text-[13px] font-semibold leading-5 text-[var(--foreground)]">{task.title}</h3>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      <h3 className="mt-2.5 text-[13px] font-semibold leading-5 text-[var(--foreground)]">{task.title}</h3>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <Badge className={cn('border-0 px-2 py-0.5 text-[9px]', tone.tint)}>{formatStatus(task.status)}</Badge>
         {task.dependsOn.length > 0 && (
           <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
@@ -77,30 +100,6 @@ function TaskCard({
           </span>
         )}
       </div>
-
-      {hasAction && (
-        <div className="mt-3 border-t border-[var(--border)] pt-2.5">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 w-full gap-1.5 text-xs font-semibold text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10"
-            onClick={e => {
-              e.stopPropagation();
-              onAction?.(task, actionGate.action);
-            }}
-          >
-            {actionGate.action === 'approve' ? (
-              <>
-                <Play className="size-3" /> Zatwierdź zadanie
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="size-3" /> Zaakceptuj
-              </>
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -135,33 +134,29 @@ export function StatusBoard({
           const actionableTasks = lane.tasks.filter(task => actions?.[task.id]?.enabled);
           const firstAction = actionableTasks.length > 0 ? actions?.[actionableTasks[0].id]?.action : null;
           return (
-            <div key={lane.id} className="min-w-0">
+            <div key={lane.id} className={cn('min-w-0', lane.tasks.length === 0 ? 'order-last sm:order-none' : 'order-first sm:order-none')}>
               <div className="mb-2 flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
                   <span className={cn('size-1.5 rounded-full', tone.dot)} />
                   <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
                 </div>
-                <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
+                <div className="flex items-center gap-1.5">
+                  {actionableTasks.length > 1 && firstAction && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 px-1.5 text-[10px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10"
+                      onClick={() => onBatchAction?.(actionableTasks, firstAction)}
+                    >
+                      {firstAction === 'approve'
+                        ? `Zatwierdź (${actionableTasks.length})`
+                        : `Zaakceptuj (${actionableTasks.length})`}
+                    </Button>
+                  )}
+                  <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
+                </div>
               </div>
-              <div className={cn('min-h-[88px] space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint)}>
-                {actionableTasks.length > 1 && firstAction && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-8 w-full gap-1.5 text-xs font-semibold text-[var(--accent)] border border-[var(--accent)]/40 bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 shadow-xs"
-                    onClick={() => onBatchAction?.(actionableTasks, firstAction)}
-                  >
-                    {firstAction === 'approve' ? (
-                      <>
-                        <Play className="size-3" /> Zatwierdź wszystkie ({actionableTasks.length})
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="size-3" /> Zaakceptuj wszystkie ({actionableTasks.length})
-                      </>
-                    )}
-                  </Button>
-                )}
+              <div className={cn('space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint, lane.tasks.length === 0 ? 'hidden sm:block min-h-0' : 'min-h-[88px]')}>
                 {lane.tasks.map(task => (
                   <TaskCard
                     key={task.id}

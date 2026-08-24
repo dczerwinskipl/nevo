@@ -57,6 +57,13 @@ export default function App() {
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
+  const filteredChanges = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('pl');
+    return source.filter(change =>
+      !query || change.title.toLocaleLowerCase('pl').includes(query) || change.slug.includes(query),
+    );
+  }, [source, search]);
+
   const selected = useMemo(
     () => source.find(change => change.slug === selectedSlug) ?? null,
     [source, selectedSlug],
@@ -144,6 +151,20 @@ export default function App() {
     setPendingInitialMessage(null);
   }, []);
 
+  const handleOpenTask = useCallback((taskId: string, specSlug?: string) => {
+    if (specSlug) {
+      const change = data?.active.find(item => item.slug === specSlug)
+        || data?.archive.find(item => item.slug === specSlug);
+      if (change) {
+        setMode(change.source);
+        setSelectedSlug(change.slug);
+      }
+    }
+    leaveChat();
+    setChatOriginTaskId(taskId);
+    setSidebarOpen(false);
+  }, [data, leaveChat]);
+
   if (sessionRoute) {
     if (loading && !data) return <LoadingScreen />;
     if (error && !data) return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
@@ -159,6 +180,7 @@ export default function App() {
         onBack={leaveChat}
         backLabel={chatOriginTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}
         onSwitchSession={session => openSession(session, null, chatOriginTaskId, true)}
+        onOpenTask={handleOpenTask}
         changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
       />
     );
@@ -178,9 +200,13 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[10px] text-[var(--muted)] sm:flex">
+          <div
+            className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[10px] text-[var(--muted)]"
+            title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
+          >
+            <span className={cn('size-1.5 rounded-full', live ? 'bg-[var(--accent)]' : 'bg-amber-300 animate-pulse')} />
             <Radio className={cn('size-3', live ? 'text-[var(--accent)]' : 'text-amber-300')} />
-            {live ? 'Pliki połączone' : 'Ponowne łączenie'}
+            <span className="hidden sm:inline">{live ? 'SSE: Połączono' : 'SSE: Rozłączono'}</span>
           </div>
           <RetryButton size="icon" onClick={() => void refresh()} loading={refreshing} label="Odśwież dashboard" />
         </div>
@@ -203,7 +229,7 @@ export default function App() {
         ) : selected ? (
           <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
         ) : (
-          <ListOverview mode={mode} changes={source} onSelect={selectChange} />
+          <ListOverview mode={mode} changes={filteredChanges} onSelect={selectChange} />
         )}
       </main>
 
@@ -213,6 +239,7 @@ export default function App() {
           onModeChange={changeMode}
           active={data.active}
           archive={data.archive}
+          changes={filteredChanges}
           selectedSlug={selectedSlug}
           onSelect={selectChange}
           sessions={globalSessions.sessions}
@@ -221,6 +248,7 @@ export default function App() {
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={session => openSession(session, null, null)}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
+          onOpenTask={handleOpenTask}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}

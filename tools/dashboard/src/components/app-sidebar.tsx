@@ -24,6 +24,7 @@ interface AppSidebarProps {
   onModeChange: (mode: DashboardMode) => void;
   active: DashboardChange[];
   archive: DashboardChange[];
+  changes: DashboardChange[];
   selectedSlug: string | null;
   onSelect: (change: DashboardChange) => void;
   sessions: AiSession[];
@@ -36,6 +37,7 @@ interface AppSidebarProps {
   onSearchChange: (value: string) => void;
   open: boolean;
   onClose: () => void;
+  onOpenTask?: (taskId: string, specSlug?: string) => void;
 }
 
 function SpecNavigationItem({
@@ -103,6 +105,7 @@ export function AppSidebar({
   onModeChange,
   active,
   archive,
+  changes,
   selectedSlug,
   onSelect,
   sessions,
@@ -115,12 +118,9 @@ export function AppSidebar({
   onSearchChange,
   open,
   onClose,
+  onOpenTask,
 }: AppSidebarProps) {
-  const source = mode === 'active' ? active : archive;
-  const query = search.trim().toLocaleLowerCase('pl');
-  const visible = source.filter(change =>
-    !query || change.title.toLocaleLowerCase('pl').includes(query) || change.slug.includes(query),
-  );
+  const visible = changes;
   const activeSpecIds = new Set(active.map(change => change.specId).filter(Boolean));
   const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
   const activeTasks = active.flatMap(change => change.tasks);
@@ -238,7 +238,24 @@ export function AppSidebar({
                     />
                   </div>
                 )
-                : recentSessions.length ? <div className="space-y-1.5">{recentSessions.map(session => <AiSessionRow key={`${session.provider}:${session.sessionId}`} session={session} tasks={activeTasks} onOpen={onOpenSession} onDelete={handleDeleteSession} compact />)}</div>
+                : recentSessions.length ? (
+                  <div className="space-y-1.5">
+                    {recentSessions.map(session => {
+                      const spec = active.find(a => a.specId === session.specId) || archive.find(a => a.specId === session.specId);
+                      return (
+                        <AiSessionRow
+                          key={`${session.provider}:${session.sessionId}`}
+                          session={session}
+                          tasks={activeTasks}
+                          onOpen={onOpenSession}
+                          compact
+                          showSubtitle={false}
+                          showDelete={false}
+                        />
+                      );
+                    })}
+                  </div>
+                )
                 : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}
             </section>
           )}

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { AI_MODES } from '@/lib/ai-mode-meta';
 import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
 
 export interface AiSessionCreateModalProps {
@@ -19,11 +20,7 @@ export function AiSessionCreateModal({
 }: AiSessionCreateModalProps) {
   const providers = useAiProviders();
   const createSession = useCreateAiSession();
-  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort((a, b) => {
-    if (a.id === 'mock') return 1;
-    if (b.id === 'mock') return -1;
-    return 0;
-  });
+  const enabledProviders = providers.data?.providers.filter((p) => p.enabled) ?? [];
 
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
@@ -161,15 +158,11 @@ export function AiSessionCreateModal({
             <div className="mt-4">
               <label className="block text-xs font-semibold">Tryb wykonania</label>
               <div className="mt-2 grid grid-cols-3 gap-2">
-                {[
-                  { id: 'ask', label: 'Ask (Plan)', desc: 'Tylko analiza i planowanie' },
-                  { id: 'edit', label: 'Edit (Domyślny)', desc: 'Bezpieczna edycja kodu' },
-                  { id: 'agent', label: 'Agent (Auto)', desc: 'Pełna autonomia' },
-                ].map((item) => (
+                {AI_MODES.map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setMode(item.id as AgentExecutionMode)}
+                    onClick={() => setMode(item.id)}
                     className={`flex flex-col items-start rounded-xl border p-2.5 text-left transition-all ${
                       mode === item.id
                         ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
@@ -177,7 +170,7 @@ export function AiSessionCreateModal({
                     }`}
                   >
                     <span className="text-xs font-semibold text-[var(--foreground)]">{item.label}</span>
-                    <span className="mt-0.5 text-[10px] text-[var(--muted)]">{item.desc}</span>
+                    <span className="mt-0.5 text-[10px] text-[var(--muted)]">{item.description}</span>
                   </button>
                 ))}
               </div>
@@ -217,8 +210,8 @@ export function AiSessionCreateModal({
                           }
                           className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
                         />
-                        <span className="font-mono text-[11px] text-[var(--muted-strong)]">{task.id}</span>
-                        <span className="truncate text-[var(--foreground)]">{task.title}</span>
+                        <span className="font-mono text-[10px] text-[var(--muted)]">{task.id}</span>
+                        <span className="truncate font-medium text-[var(--foreground)]">{task.title}</span>
                       </label>
                     );
                   })}

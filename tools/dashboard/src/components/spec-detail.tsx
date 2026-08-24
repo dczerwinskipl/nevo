@@ -22,6 +22,7 @@ import {
   Scale,
   Workflow,
   X,
+  ChevronRight,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +32,7 @@ import type {
   DashboardTask,
   AiSession,
   OperationSnapshot,
+  SpecificationManifest,
   SpecificationManifestSection,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
@@ -55,8 +57,6 @@ import {
   invalidateDashboardQueries,
 } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
-import { DocumentSectionPanel } from '@/components/document-section-panel';
-import { DirectorySectionPanel } from '@/components/directory-section-panel';
 
 const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
 
@@ -141,6 +141,221 @@ function EmptyDocument({ title, detail }: { title: string; detail: string }) {
   );
 }
 
+interface DocItem {
+  id: string;
+  docId: string;
+  title: string;
+  path?: string | null;
+  sectionId: string;
+  sectionLabel: string;
+  icon?: string;
+}
+
+interface DocGroup {
+  id: string;
+  label: string;
+  icon?: string;
+  items: DocItem[];
+}
+
+function DocumentationPanel({
+  change,
+  manifest,
+  enabled,
+}: {
+  change: DashboardChange;
+  manifest: SpecificationManifest | null | undefined;
+  enabled: boolean;
+}) {
+  const groups = useMemo<DocGroup[]>(() => {
+    if (!manifest) return [];
+    const result: DocGroup[] = [];
+
+    if (manifest.sections && manifest.sections.length > 0) {
+      for (const section of manifest.sections) {
+        if (!section.available) continue;
+        if (section.type === 'document' && section.document) {
+          result.push({
+            id: section.id,
+            label: section.label,
+            icon: section.icon,
+            items: [
+              {
+                id: section.document.id || section.id,
+                docId: section.document.docId || (section.id === 'specification' ? 'overview' : section.id),
+                title: section.document.title || section.label,
+                path: section.document.path,
+                sectionId: section.id,
+                sectionLabel: section.label,
+                icon: section.icon,
+              },
+            ],
+          });
+        } else if (section.type === 'directory' && section.documents?.length > 0) {
+          result.push({
+            id: section.id,
+            label: section.label,
+            icon: section.icon,
+            items: section.documents.map((doc) => ({
+              id: doc.id,
+              docId: doc.docId,
+              title: doc.title,
+              path: doc.path,
+              sectionId: section.id,
+              sectionLabel: section.label,
+              icon: section.icon,
+            })),
+          });
+        }
+      }
+    } else {
+      if (manifest.overview?.available) {
+        result.push({
+          id: 'specification',
+          label: 'Specyfikacja',
+          icon: 'BookOpenText',
+          items: [
+            {
+              id: 'overview',
+              docId: 'overview',
+              title: manifest.overview.title || 'Specyfikacja',
+              path: manifest.overview.path || 'overview.md',
+              sectionId: 'specification',
+              sectionLabel: 'Specyfikacja',
+              icon: 'BookOpenText',
+            },
+          ],
+        });
+      }
+      if (manifest.areas && manifest.areas.length > 0) {
+        result.push({
+          id: 'areas',
+          label: 'Obszary',
+          icon: 'Boxes',
+          items: manifest.areas.map((area) => ({
+            id: area.id,
+            docId: area.docId,
+            title: area.title,
+            path: area.path,
+            sectionId: 'areas',
+            sectionLabel: 'Obszary',
+            icon: 'Boxes',
+          })),
+        });
+      }
+    }
+
+    return result;
+  }, [manifest]);
+
+  const allDocs = useMemo<DocItem[]>(() => {
+    return groups.flatMap((group) => group.items);
+  }, [groups]);
+
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(() => allDocs[0]?.docId ?? null);
+
+  useEffect(() => {
+    if (allDocs.length > 0 && (!selectedDocId || !allDocs.some((d) => d.docId === selectedDocId))) {
+      setSelectedDocId(allDocs[0].docId);
+    }
+  }, [allDocs, selectedDocId]);
+
+  const selectedDoc = allDocs.find((d) => d.docId === selectedDocId) || allDocs[0] || null;
+
+  const documentQuery = useSpecificationDocument(
+    change,
+    selectedDoc?.docId ?? null,
+    enabled && Boolean(selectedDoc),
+  );
+
+  if (!allDocs.length) {
+    return (
+      <EmptyDocument
+        title="Brak dokumentacji"
+        detail="Ta specyfikacja nie zawiera jeszcze dodatkowych dokumentów."
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[280px_1fr] items-start">
+      <nav aria-label="Spis dokumentów specyfikacji" className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+        {groups.map((group) => {
+          const GroupIcon = resolveTabIcon(group.icon, group.items.length > 1 ? 'directory' : 'document');
+          return (
+            <div key={group.id} className="space-y-1">
+              <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                <GroupIcon className="size-3.5 text-[var(--accent)]" />
+                <span>{group.label}</span>
+                {group.items.length > 1 && (
+                  <span className="ml-auto text-[10px] text-[var(--muted)] tabular-nums">
+                    {group.items.length}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-0.5 pl-2">
+                {group.items.map((doc) => {
+                  const isSelected = selectedDoc?.docId === doc.docId;
+                  return (
+                    <button
+                      key={doc.docId}
+                      type="button"
+                      onClick={() => setSelectedDocId(doc.docId)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors',
+                        isSelected
+                          ? 'bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] font-semibold text-[var(--foreground)] border border-[color-mix(in_srgb,var(--accent)_30%,transparent)]'
+                          : 'text-[var(--muted-strong)] hover:bg-white/5 hover:text-[var(--foreground)]'
+                      )}
+                    >
+                      <span className="truncate">{doc.title}</span>
+                      {isSelected && <ChevronRight className="size-3 text-[var(--accent)] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </nav>
+
+      <div className="min-w-0">
+        {documentQuery.loading ? (
+          <ContentLoading />
+        ) : documentQuery.error ? (
+          <ContentError message={documentQuery.error} onRetry={() => void documentQuery.refresh()} />
+        ) : selectedDoc && documentQuery.data?.available ? (
+          <Card className="overflow-hidden">
+            <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
+                  {selectedDoc.sectionLabel}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)] sm:text-xl">
+                  {selectedDoc.title}
+                </h2>
+              </div>
+              {selectedDoc.path && (
+                <span className="font-mono text-[10px] text-[var(--muted)]">
+                  {selectedDoc.path}
+                </span>
+              )}
+            </div>
+            <article className="px-5 py-7 sm:px-8 sm:py-9">
+              <MarkdownContent markdown={documentQuery.data.markdown ?? ''} />
+            </article>
+          </Card>
+        ) : (
+          <EmptyDocument
+            title="Brak treści dokumentu"
+            detail="Wybrany dokument nie jest obecnie dostępny w plikach specyfikacji."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TaskDialog({
   task,
   document: taskDocument,
@@ -214,7 +429,7 @@ function TaskDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
       onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}
     >
       <div
@@ -293,6 +508,7 @@ function OverviewPanel({
   onDirectTaskAction,
   onBatchTaskAction,
   onCreateSession,
+  onOpenTask,
 }: {
   change: DashboardChange;
   onTaskSelect: (task: DashboardTask, trigger: HTMLElement) => void;
@@ -306,12 +522,13 @@ function OverviewPanel({
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
+  onOpenTask?: (taskId: string) => void;
 }) {
   return (
     <>
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
         <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
-        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
+        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
       </section>
       {actions}
       <section aria-label="Podsumowanie specyfikacji" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -409,24 +626,18 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
       { id: 'overview', label: 'Przegląd', icon: LayoutDashboard },
     ];
 
-    if (manifestQuery.data?.sections && manifestQuery.data.sections.length > 0) {
-      for (const section of manifestQuery.data.sections) {
-        if (section.available) {
-          tabs.push({
-            id: section.id,
-            label: section.label,
-            icon: resolveTabIcon(section.icon, section.type),
-            section,
-          });
-        }
-      }
-    } else if (manifestQuery.data) {
-      if (manifestQuery.data.overview?.available) {
-        tabs.push({ id: 'specification', label: 'Specyfikacja', icon: BookOpenText });
-      }
-      if (manifestQuery.data.areas && manifestQuery.data.areas.length > 0) {
-        tabs.push({ id: 'areas', label: 'Obszary', icon: Boxes });
-      }
+    const hasDocs = Boolean(
+      (manifestQuery.data?.sections && manifestQuery.data.sections.some(s => s.available)) ||
+      manifestQuery.data?.overview?.available ||
+      (manifestQuery.data?.areas && manifestQuery.data.areas.length > 0)
+    );
+
+    if (hasDocs) {
+      tabs.push({
+        id: 'docs',
+        label: 'Dokumentacja',
+        icon: BookOpenText,
+      });
     }
 
     tabs.push({ id: 'changes', label: 'Zmiany', icon: GitPullRequest });
@@ -675,6 +886,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
             taskActions={actionsQuery.data?.tasks}
             onDirectTaskAction={executeDirectTaskAction}
             onBatchTaskAction={executeBatchTaskAction}
+            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
             actions={
               change.source === 'active' ? (
                 <div className="mb-9 max-w-xl">
@@ -696,58 +908,20 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
           />
         </div>
 
-        {visibleTabs.filter(t => t.id !== 'overview' && t.id !== 'changes').map(tab => {
-          if (!visitedTabs.has(tab.id)) return null;
-          const section = tab.section;
-          return (
-            <div
-              key={tab.id}
-              id={`spec-panel-${tab.id}`}
-              role="tabpanel"
-              aria-labelledby={`spec-tab-${tab.id}`}
-              className={cn(activeTab !== tab.id && 'hidden')}
-            >
-              {section ? (
-                section.type === 'directory' ? (
-                  <DirectorySectionPanel
-                    change={change}
-                    section={section}
-                    enabled={visitedTabs.has(tab.id)}
-                  />
-                ) : (
-                  <DocumentSectionPanel
-                    change={change}
-                    docId={section.document?.docId || (section.id === 'specification' ? 'overview' : section.id)}
-                    fallbackPath={section.document?.path}
-                    fallbackTitle={section.label}
-                    enabled={visitedTabs.has(tab.id)}
-                  />
-                )
-              ) : tab.id === 'specification' ? (
-                <DocumentSectionPanel
-                  change={change}
-                  docId="overview"
-                  fallbackPath={manifestQuery.data?.overview?.path || 'overview.md'}
-                  fallbackTitle="Specyfikacja"
-                  enabled={visitedTabs.has(tab.id)}
-                />
-              ) : tab.id === 'areas' ? (
-                <DirectorySectionPanel
-                  change={change}
-                  section={{
-                    id: 'areas',
-                    type: 'directory',
-                    label: 'Obszary',
-                    singularLabel: 'Obszar',
-                    available: (manifestQuery.data?.areas?.length ?? 0) > 0,
-                    documents: manifestQuery.data?.areas || [],
-                  }}
-                  enabled={visitedTabs.has(tab.id)}
-                />
-              ) : null}
-            </div>
-          );
-        })}
+        {visitedTabs.has('docs') && (
+          <div
+            id="spec-panel-docs"
+            role="tabpanel"
+            aria-labelledby="spec-tab-docs"
+            className={cn(activeTab !== 'docs' && 'hidden')}
+          >
+            <DocumentationPanel
+              change={change}
+              manifest={manifestQuery.data}
+              enabled={visitedTabs.has('docs')}
+            />
+          </div>
+        )}
 
         {visitedTabs.has('changes') && (
           <div
