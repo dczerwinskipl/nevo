@@ -47,6 +47,8 @@ import type {
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
+import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
+
 function useChatVisualViewport() {
   const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({
     height: null,
@@ -110,8 +112,6 @@ export function AiChatPage({
   sessionId,
   changes,
   initialTurnId,
-  initialMessage,
-  onInitialMessageConsumed,
   onTurnChange,
   onBack,
   backLabel,
@@ -122,8 +122,6 @@ export function AiChatPage({
   sessionId: string;
   changes: DashboardChange[];
   initialTurnId: string | null;
-  initialMessage: string | null;
-  onInitialMessageConsumed: () => void;
   onTurnChange: (turnId: string | null) => void;
   onBack: () => void;
   backLabel: string;
@@ -132,7 +130,6 @@ export function AiChatPage({
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
 
   const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -259,35 +256,30 @@ export function AiChatPage({
     };
   }, []);
 
-  const inFlightDispatchesRef = useRef(new Set<string>());
-  const completedDispatchesRef = useRef(new Set<string>());
-  const dispatchKey = `${sessionKey}::${initialMessage}`;
-
   useEffect(() => {
-    if (!initialMessage || !isProviderAvailable) return;
-    if (completedDispatchesRef.current.has(dispatchKey)) return;
-    if (inFlightDispatchesRef.current.has(dispatchKey)) return;
-    if (!assistant.isReady) return;
+    if (!isProviderAvailable || !assistant.isReady) return;
+    const pending = pendingDispatchStore.getPending(provider, sessionId);
+    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
 
-    inFlightDispatchesRef.current.add(dispatchKey);
+    pendingDispatchStore.markInFlight(provider, sessionId);
     setSubmissionError(null);
 
     (async () => {
       try {
-        await assistant.sendTurn(initialMessage, { mode: currentMode });
-        completedDispatchesRef.current.add(dispatchKey);
-        inFlightDispatchesRef.current.delete(dispatchKey);
-        if (isMountedRef.current && activeSessionKeyRef.current === sessionKey) {
-          onInitialMessageConsumed();
-        }
+        await assistant.sendTurn(pending.prompt, {
+          mode: currentMode,
+          idempotencyKey: pending.idempotencyKey,
+        });
+        pendingDispatchStore.clearPending(provider, sessionId);
       } catch (err) {
-        inFlightDispatchesRef.current.delete(dispatchKey);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        pendingDispatchStore.markFailed(provider, sessionId, errorMsg);
         if (isMountedRef.current && activeSessionKeyRef.current === sessionKey) {
-          setSubmissionError(err instanceof Error ? err.message : String(err));
+          setSubmissionError(errorMsg);
         }
       }
     })();
-  }, [initialMessage, assistant.isReady, isProviderAvailable, assistant.sendTurn, currentMode, onInitialMessageConsumed, sessionKey, dispatchKey]);
+  }, [assistant.isReady, assistant.sendTurn, currentMode, isProviderAvailable, provider, sessionId, sessionKey]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height

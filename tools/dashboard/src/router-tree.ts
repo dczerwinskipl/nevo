@@ -1,18 +1,14 @@
-﻿import {
+import {
   createRootRoute,
   createRoute,
   createRouter,
   redirect,
 } from '@tanstack/react-router';
 
-export interface SpecSearch {
-  taskId?: string;
-}
+export interface SpecSearch {}
 
 export interface ChatSearch {
   turnId?: string;
-  originTaskId?: string;
-  initialPrompt?: string;
 }
 
 export const rootRoute = createRootRoute();
@@ -35,9 +31,7 @@ export const archiveRoute = createRoute({
 export const specRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/specs/$source/$slug',
-  validateSearch: (search: Record<string, unknown>): SpecSearch => ({
-    taskId: typeof search.taskId === 'string' ? search.taskId : undefined,
-  }),
+  validateSearch: (): SpecSearch => ({}),
 });
 
 export const activeAliasRoute = createRoute({
@@ -72,8 +66,6 @@ export const chatRoute = createRoute({
   path: '/ai/sessions/$provider/$sessionId',
   validateSearch: (search: Record<string, unknown>): ChatSearch => ({
     turnId: typeof search.turnId === 'string' ? search.turnId : undefined,
-    originTaskId: typeof search.originTaskId === 'string' ? search.originTaskId : undefined,
-    initialPrompt: typeof search.initialPrompt === 'string' ? search.initialPrompt : undefined,
   }),
 });
 

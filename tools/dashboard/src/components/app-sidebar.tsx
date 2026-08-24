@@ -21,7 +21,6 @@ export type DashboardMode = 'active' | 'archive';
 
 interface AppSidebarProps {
   mode: DashboardMode;
-  onModeChange?: (mode: DashboardMode) => void;
   active: DashboardChange[];
   archive: DashboardChange[];
   changes: DashboardChange[];
@@ -102,7 +101,6 @@ function SpecNavigationItem({
 
 export function AppSidebar({
   mode,
-  onModeChange,
   active,
   archive,
   changes,
@@ -168,7 +166,7 @@ export function AppSidebar({
             <Link
               to="/"
               onClick={() => {
-                onModeChange?.('active');
+                onSearchChange('');
                 onClose();
               }}
               className={cn(
@@ -183,7 +181,7 @@ export function AppSidebar({
             <Link
               to="/archive"
               onClick={() => {
-                onModeChange?.('archive');
+                onSearchChange('');
                 onClose();
               }}
               className={cn(

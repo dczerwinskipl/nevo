@@ -97,8 +97,7 @@ export function handleScrollEvent(
   const currentScrollTop = metrics.scrollTop;
   const distanceFromBottom = calculateDistanceFromBottom(metrics);
   const isNearBottom = distanceFromBottom <= threshold;
-  const isScrollingUp = currentScrollTop < state.lastScrollTop;
-  const isScrollingDown = currentScrollTop > state.lastScrollTop;
+  const isScrollingUp = currentScrollTop < state.lastScrollTop - 2;
 
   if (state.isProgrammaticScroll) {
     if (isNearBottom) {
@@ -126,8 +125,17 @@ export function handleScrollEvent(
     };
   }
 
-  // User scrolling down and reaching bottom threshold re-attaches follow
-  if (isNearBottom && (isScrollingDown || state.isFollowing)) {
+  // If currently following and user did not scroll up: maintain follow
+  if (state.isFollowing) {
+    return {
+      ...state,
+      isFollowing: true,
+      lastScrollTop: currentScrollTop,
+    };
+  }
+
+  // If detached: reaching the bottom threshold re-attaches follow
+  if (isNearBottom) {
     return {
       ...state,
       isFollowing: true,
@@ -137,16 +145,9 @@ export function handleScrollEvent(
     };
   }
 
-  if (!isNearBottom) {
-    return {
-      ...state,
-      isFollowing: false,
-      lastScrollTop: currentScrollTop,
-    };
-  }
-
   return {
     ...state,
+    isFollowing: false,
     lastScrollTop: currentScrollTop,
   };
 }
@@ -285,8 +286,17 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       }
     }
 
+    let mutationObserver: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined') {
+      mutationObserver = new MutationObserver(() => {
+        snapToBottomIfFollowing();
+      });
+      mutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
+    }
+
     return () => {
       resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
     };
   }, []);
 

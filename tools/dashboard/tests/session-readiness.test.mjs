@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { pendingDispatchStore } from '../src/lib/pending-dispatch-store.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
@@ -43,316 +44,188 @@ class EffectHarness {
   }
 }
 
-test('Finding 1 (Behavioral): Initial prompt dispatches once, survives ready->running transition, and completes on success', async () => {
-  let initialMessage = 'Implement feature X';
-  let isProviderAvailable = true;
-  let isReady = false;
-  let activity = 'idle';
-  let consumedCalls = 0;
-  let submissionError = null;
-  let sendTurnCalls = [];
+test('Finding 1 (Store): Pending dispatch store creates and preserves stable idempotency key', () => {
+  pendingDispatchStore.clearAll();
 
-  const inFlightDispatches = new Set();
-  const completedDispatches = new Set();
-  let sessionKey = 'claude:sess-1';
-  let activeSessionKey = sessionKey;
-  let isMounted = true;
+  const record1 = pendingDispatchStore.setPending('claude', 'sess-100', 'Initial message for task');
+  assert.ok(record1.idempotencyKey.startsWith('turn_'));
+  assert.equal(record1.prompt, 'Initial message for task');
+  assert.equal(record1.status, 'pending');
 
-  // Mock sendTurn that asynchronously transitions runtime to 'running' then resolves
-  let resolveSend;
-  const sendTurnPromise = new Promise((resolve) => {
-    resolveSend = resolve;
-  });
+  // Re-setting same pending prompt preserves the same idempotency key
+  const record2 = pendingDispatchStore.setPending('claude', 'sess-100', 'Initial message for task');
+  assert.equal(record2.idempotencyKey, record1.idempotencyKey, 'Must reuse stable idempotency key');
 
-  const mockSendTurn = (text, opts) => {
-    sendTurnCalls.push({ text, opts });
-    // Expected immediate state transition in assistant runtime:
-    activity = 'running';
-    isReady = false;
-    // Re-render harness to simulate React re-render when runtime state changes
-    harness.run();
-    return sendTurnPromise;
-  };
+  // Mark in-flight
+  pendingDispatchStore.markInFlight('claude', 'sess-100');
+  assert.equal(pendingDispatchStore.getPending('claude', 'sess-100')?.status, 'in-flight');
 
-  const effectFn = () => {
-    const dispatchKey = `${sessionKey}::${initialMessage}`;
-    if (!initialMessage || !isProviderAvailable) return;
-    if (completedDispatches.has(dispatchKey)) return;
-    if (inFlightDispatches.has(dispatchKey)) return;
-    if (!isReady) return;
+  // Mark failed preserves same key for retry
+  pendingDispatchStore.markFailed('claude', 'sess-100', 'Network error');
+  const failed = pendingDispatchStore.getPending('claude', 'sess-100');
+  assert.equal(failed?.status, 'failed');
+  assert.equal(failed?.error, 'Network error');
+  assert.equal(failed?.idempotencyKey, record1.idempotencyKey);
 
-    inFlightDispatches.add(dispatchKey);
-    submissionError = null;
-
-    (async () => {
-      try {
-        await mockSendTurn(initialMessage, { mode: 'agent' });
-        completedDispatches.add(dispatchKey);
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === sessionKey) {
-          consumedCalls++;
-        }
-      } catch (err) {
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === sessionKey) {
-          submissionError = err instanceof Error ? err.message : String(err);
-        }
-      }
-    })();
-  };
-
-  const harness = new EffectHarness(effectFn, () => [
-    initialMessage,
-    isReady,
-    isProviderAvailable,
-    sessionKey,
-    `${sessionKey}::${initialMessage}`,
-  ]);
-
-  // 1. Initial mount while snapshot is loading (isReady = false)
-  harness.run();
-  assert.equal(sendTurnCalls.length, 0, 'Must not dispatch while snapshot is loading');
-  assert.equal(consumedCalls, 0);
-
-  // 2. Snapshot loads: session becomes ready (isReady = true)
-  isReady = true;
-  harness.run();
-
-  // sendTurn was invoked and immediately set activity = 'running' -> isReady = false -> re-rendered
-  assert.equal(sendTurnCalls.length, 1, 'Initial prompt dispatch begins exactly once');
-  assert.equal(sendTurnCalls[0].text, 'Implement feature X');
-  assert.equal(isReady, false, 'Runtime transitioned to running during in-flight dispatch');
-
-  // In the old implementation, the re-render with isReady=false ran cleanup and set active=false.
-  // Verify with our fix:
-  resolveSend({ ok: true });
-  await Promise.resolve();
-  await Promise.resolve(); // allow microtasks to flush
-
-  assert.equal(consumedCalls, 1, 'onInitialMessageConsumed MUST be invoked upon successful completion');
-  assert.equal(submissionError, null);
-  assert.equal(inFlightDispatches.size, 0);
-  assert.equal(completedDispatches.has('claude:sess-1::Implement feature X'), true);
-
-  // 3. Re-run / next renders: exactly-once guard ensures no duplicate dispatch
-  isReady = true;
-  activity = 'idle';
-  harness.run();
-  assert.equal(sendTurnCalls.length, 1, 'Must never send a second turn for the same prompt');
+  // Clear completed
+  pendingDispatchStore.clearPending('claude', 'sess-100');
+  assert.equal(pendingDispatchStore.getPending('claude', 'sess-100'), null);
 });
 
-test('Finding 1 (Behavioral): POST failure surfaces error and allows retry without dropping message', async () => {
-  const initialMessage = 'Implement feature Y';
-  const isProviderAvailable = true;
-  let isReady = true;
-  let consumedCalls = 0;
-  let submissionError = null;
-  const sendTurnCalls = [];
+test('Finding 1 (Behavioral): A dispatch starts -> unmount/navigate to B -> A POST succeeds -> remount A -> no second turn', async () => {
+  pendingDispatchStore.clearAll();
 
-  const inFlightDispatches = new Set();
-  const completedDispatches = new Set();
-  const sessionKey = 'claude:sess-2';
-  const activeSessionKey = sessionKey;
-  const isMounted = true;
+  const provider = 'claude';
+  const sessionIdA = 'session-A';
+  const sessionIdB = 'session-B';
+  const promptA = 'Prompt for session A';
 
-  let rejectSend;
-  const sendTurnPromise = new Promise((_, reject) => {
-    rejectSend = reject;
-  });
+  pendingDispatchStore.setPending(provider, sessionIdA, promptA);
 
-  const mockSendTurn = (text, opts) => {
-    sendTurnCalls.push({ text, opts });
-    return sendTurnPromise;
-  };
-
-  const effectFn = () => {
-    const dispatchKey = `${sessionKey}::${initialMessage}`;
-    if (!initialMessage || !isProviderAvailable) return;
-    if (completedDispatches.has(dispatchKey)) return;
-    if (inFlightDispatches.has(dispatchKey)) return;
-    if (!isReady) return;
-
-    inFlightDispatches.add(dispatchKey);
-    submissionError = null;
-
-    (async () => {
-      try {
-        await mockSendTurn(initialMessage, { mode: 'agent' });
-        completedDispatches.add(dispatchKey);
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === sessionKey) {
-          consumedCalls++;
-        }
-      } catch (err) {
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === sessionKey) {
-          submissionError = err instanceof Error ? err.message : String(err);
-        }
-      }
-    })();
-  };
-
-  const harness = new EffectHarness(effectFn, () => [
-    initialMessage,
-    isReady,
-    isProviderAvailable,
-    sessionKey,
-  ]);
-
-  harness.run();
-  assert.equal(sendTurnCalls.length, 1);
-
-  // Simulate network / server failure
-  rejectSend(new Error('Network timeout during sendTurn'));
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(consumedCalls, 0, 'onInitialMessageConsumed must NOT be called on failure');
-  assert.equal(submissionError, 'Network timeout during sendTurn');
-  assert.equal(inFlightDispatches.size, 0, 'In-flight lock must be freed so user can retry');
-  assert.equal(completedDispatches.size, 0, 'Failed dispatch must NOT be marked completed');
-});
-
-test('Finding 1 (Behavioral): Switching sessions during in-flight send does not mutate new session route state', async () => {
-  let initialMessage = 'Prompt for session A';
-  const isProviderAvailable = true;
-  let isReady = true;
-  let consumedCalls = 0;
-  let submissionError = null;
-
-  const inFlightDispatches = new Set();
-  const completedDispatches = new Set();
-  let sessionKey = 'claude:sess-A';
-  let activeSessionKey = 'claude:sess-A';
-  const isMounted = true;
-
+  const turnsDispatchedA = [];
   let resolveSendA;
   const sendTurnPromiseA = new Promise((resolve) => {
     resolveSendA = resolve;
   });
 
-  const effectFn = () => {
-    const scopedSessionKey = sessionKey;
-    const dispatchKey = `${scopedSessionKey}::${initialMessage}`;
-    if (!initialMessage || !isProviderAvailable) return;
-    if (completedDispatches.has(dispatchKey)) return;
-    if (inFlightDispatches.has(dispatchKey)) return;
-    if (!isReady) return;
+  const mockSendTurnA = async (text, opts) => {
+    turnsDispatchedA.push({ text, opts });
+    return sendTurnPromiseA;
+  };
 
-    inFlightDispatches.add(dispatchKey);
+  // Mount Session A
+  let isReadyA = true;
+  let submissionErrorA = null;
+
+  const effectFnA = () => {
+    if (!isReadyA) return;
+    const pending = pendingDispatchStore.getPending(provider, sessionIdA);
+    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
+
+    pendingDispatchStore.markInFlight(provider, sessionIdA);
+    submissionErrorA = null;
+
+    (async () => {
+      try {
+        await mockSendTurnA(pending.prompt, {
+          mode: 'agent',
+          idempotencyKey: pending.idempotencyKey,
+        });
+        pendingDispatchStore.clearPending(provider, sessionIdA);
+      } catch (err) {
+        pendingDispatchStore.markFailed(provider, sessionIdA, err.message);
+      }
+    })();
+  };
+
+  const harnessA = new EffectHarness(effectFnA, () => [isReadyA]);
+  harnessA.run();
+
+  // 1. Dispatch A started
+  assert.equal(turnsDispatchedA.length, 1);
+  const keyA = turnsDispatchedA[0].opts.idempotencyKey;
+  assert.ok(keyA.startsWith('turn_'));
+
+  // 2. User switches to session B (Session A unmounts while POST is in flight)
+  harnessA.unmount();
+
+  // 3. POST for session A completes while A is unmounted
+  resolveSendA({ ok: true });
+  await new Promise((r) => setTimeout(r, 10));
+
+  // Session A's pending dispatch is cleared from store
+  assert.equal(pendingDispatchStore.getPending(provider, sessionIdA), null);
+
+  // 4. User navigates back to Session A (Session A mounts again)
+  const remountHarnessA = new EffectHarness(effectFnA, () => [isReadyA]);
+  remountHarnessA.run();
+
+  // No second turn is ever dispatched!
+  assert.equal(turnsDispatchedA.length, 1, 'Must NOT create a second logical turn upon remount');
+});
+
+test('Finding 1 (Behavioral): Failure + retry reuses the exact same logical submission idempotency key', async () => {
+  pendingDispatchStore.clearAll();
+
+  const provider = 'claude';
+  const sessionId = 'session-retry';
+  const prompt = 'Prompt needing retry';
+
+  pendingDispatchStore.setPending(provider, sessionId, prompt);
+
+  const dispatchedKeys = [];
+  let shouldFail = true;
+  let isReady = true;
+  let submissionError = null;
+
+  const mockSendTurn = async (text, opts) => {
+    dispatchedKeys.push(opts.idempotencyKey);
+    if (shouldFail) {
+      throw new Error('500 Internal Server Error');
+    }
+    return { ok: true };
+  };
+
+  const effectFn = () => {
+    if (!isReady) return;
+    const pending = pendingDispatchStore.getPending(provider, sessionId);
+    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
+
+    pendingDispatchStore.markInFlight(provider, sessionId);
     submissionError = null;
 
     (async () => {
       try {
-        await sendTurnPromiseA;
-        completedDispatches.add(dispatchKey);
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === scopedSessionKey) {
-          consumedCalls++;
-        }
+        await mockSendTurn(pending.prompt, {
+          mode: 'agent',
+          idempotencyKey: pending.idempotencyKey,
+        });
+        pendingDispatchStore.clearPending(provider, sessionId);
       } catch (err) {
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === scopedSessionKey) {
-          submissionError = err instanceof Error ? err.message : String(err);
-        }
+        pendingDispatchStore.markFailed(provider, sessionId, err.message);
+        submissionError = err.message;
       }
     })();
   };
 
-  const harness = new EffectHarness(effectFn, () => [
-    initialMessage,
-    isReady,
-    isProviderAvailable,
-    sessionKey,
-  ]);
+  const harness = new EffectHarness(effectFn, () => [isReady, shouldFail]);
 
+  // Attempt 1: fails
   harness.run();
-
-  // User immediately switches to session B (which has no initialMessage) before session A's turn finishes
-  sessionKey = 'claude:sess-B';
-  activeSessionKey = 'claude:sess-B';
-  initialMessage = null;
-  harness.run();
-
-  // Now session A's response arrives
-  resolveSendA({ ok: true });
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(consumedCalls, 0, 'Late completion from session A must NOT mutate session B state');
+  assert.equal(dispatchedKeys.length, 1);
+  assert.equal(submissionError, '500 Internal Server Error');
+  const failedRecord = pendingDispatchStore.getPending(provider, sessionId);
+  assert.equal(failedRecord?.status, 'failed');
+
+  // Attempt 2: user retries (e.g. status reset to pending or retry triggered)
+  shouldFail = false;
+  failedRecord.status = 'pending';
+  harness.run();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(dispatchedKeys.length, 2);
+  assert.equal(dispatchedKeys[0], dispatchedKeys[1], 'Retry MUST reuse the identical idempotency key');
+  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared upon success');
 });
 
-test('Finding 1 (Behavioral): React StrictMode double effect execution does not duplicate turn dispatch', async () => {
-  const initialMessage = 'Prompt under StrictMode';
-  const isProviderAvailable = true;
-  let isReady = true;
-  let consumedCalls = 0;
-  const sendTurnCalls = [];
+test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
+  const routerTreeSource = readSource('router-tree.ts');
+  const routerSource = readSource('router.tsx');
+  const aiChatSource = readSource('components/ai-chat.tsx');
 
-  const inFlightDispatches = new Set();
-  const completedDispatches = new Set();
-  const sessionKey = 'claude:sess-strict';
-  const activeSessionKey = sessionKey;
-  let isMounted = true;
+  // router-tree.ts does not declare initialPrompt in ChatSearch
+  assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
-  let resolveSend;
-  const sendTurnPromise = new Promise((resolve) => {
-    resolveSend = resolve;
-  });
+  // router.tsx uses pendingDispatchStore and does not pass initialPrompt in search
+  assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
+  assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
 
-  const mockSendTurn = (text) => {
-    sendTurnCalls.push(text);
-    return sendTurnPromise;
-  };
-
-  const effectFn = () => {
-    const dispatchKey = `${sessionKey}::${initialMessage}`;
-    if (!initialMessage || !isProviderAvailable) return;
-    if (completedDispatches.has(dispatchKey)) return;
-    if (inFlightDispatches.has(dispatchKey)) return;
-    if (!isReady) return;
-
-    inFlightDispatches.add(dispatchKey);
-
-    (async () => {
-      try {
-        await mockSendTurn(initialMessage);
-        completedDispatches.add(dispatchKey);
-        inFlightDispatches.delete(dispatchKey);
-        if (isMounted && activeSessionKey === sessionKey) {
-          consumedCalls++;
-        }
-      } catch {
-        inFlightDispatches.delete(dispatchKey);
-      }
-    })();
-
-    // Cleanup simulation
-    return () => {
-      // Unmount cleanup does NOT destroy the session in-flight lock
-    };
-  };
-
-  const harness = new EffectHarness(effectFn, () => [
-    initialMessage,
-    isReady,
-    isProviderAvailable,
-    sessionKey,
-  ]);
-
-  // StrictMode mount 1
-  harness.run();
-  assert.equal(sendTurnCalls.length, 1);
-
-  // StrictMode simulated immediate unmount and remount 2
-  harness.unmount();
-  harness.run();
-
-  assert.equal(sendTurnCalls.length, 1, 'StrictMode remount must NOT trigger duplicate turn dispatch');
-
-  resolveSend({ ok: true });
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(consumedCalls, 1, 'Exactly one consumption on success');
+  // ai-chat.tsx uses pendingDispatchStore
+  assert.ok(aiChatSource.includes('pendingDispatchStore.getPending'));
+  assert.ok(aiChatSource.includes('pendingDispatchStore.markInFlight'));
+  assert.ok(aiChatSource.includes('pendingDispatchStore.clearPending'));
 });

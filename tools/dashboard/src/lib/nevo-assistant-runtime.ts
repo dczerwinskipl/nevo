@@ -810,7 +810,7 @@ export function useNevoAssistantRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
+    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
       const trimmed = messageText ? messageText.trim() : '';
       if (!trimmed) {
         throw new Error('Cannot start turn with an empty message.');
@@ -828,7 +828,7 @@ export function useNevoAssistantRuntime({
         throw new Error(`Cannot start turn while session is ${activityRef.current}.`);
       }
 
-      const idempotencyKey = createTurnIdempotencyKey();
+      const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
       const userMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',

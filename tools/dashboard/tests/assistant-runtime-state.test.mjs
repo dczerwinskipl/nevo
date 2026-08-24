@@ -354,18 +354,18 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const chatSource = readAiChatSource();
 
-  // Initial message effect checks assistant.isReady and dispatch tracking
-  assert.match(chatSource, /if \(!assistant\.isReady\) return;/);
-  assert.match(chatSource, /inFlightDispatchesRef\.current\.has\(dispatchKey\)/);
-  assert.match(chatSource, /completedDispatchesRef\.current\.has\(dispatchKey\)/);
+  // Initial message effect checks assistant.isReady and pendingDispatchStore
+  assert.match(chatSource, /pendingDispatchStore\.getPending\(provider, sessionId\)/);
+  assert.match(chatSource, /pendingDispatchStore\.markInFlight\(provider, sessionId\)/);
 
-  // Calls onInitialMessageConsumed ONLY on successful completion
-  assert.match(chatSource, /await assistant\.sendTurn\(initialMessage, \{ mode: currentMode \}\);/);
-  assert.match(chatSource, /onInitialMessageConsumed\(\);/);
+  // Calls sendTurn with stable idempotencyKey and clears on success
+  assert.match(chatSource, /await assistant\.sendTurn\(pending\.prompt, \{/);
+  assert.match(chatSource, /idempotencyKey: pending\.idempotencyKey/);
+  assert.match(chatSource, /pendingDispatchStore\.clearPending\(provider, sessionId\)/);
 
-  // Does not silently discard errors and clears in-flight lock for retry
-  assert.match(chatSource, /setSubmissionError\(err instanceof Error \? err\.message : String\(err\)\);/);
-  assert.match(chatSource, /inFlightDispatchesRef\.current\.delete\(dispatchKey\);/);
+  // Does not silently discard errors and marks failure for retry
+  assert.match(chatSource, /pendingDispatchStore\.markFailed\(provider, sessionId, errorMsg\)/);
+  assert.match(chatSource, /setSubmissionError\(errorMsg\);/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {

@@ -1,4 +1,4 @@
-import {
+﻿import {
   Outlet,
   Link,
   useNavigate,
@@ -19,6 +19,7 @@ import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
+import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
 import type { AiSession, DashboardChange, TaskNavigationTarget } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
@@ -29,9 +30,16 @@ import {
   specRoute,
   chatRoute,
   createAppRouter,
-  type SpecSearch,
   type ChatSearch,
 } from './router-tree';
+
+export interface NavigationHistoryState {
+  origin?: 'dashboard' | 'spec' | 'task';
+  originSpecSlug?: string;
+  originSpecSource?: 'active' | 'archive';
+  originTaskId?: string;
+  restoreTaskId?: string;
+}
 
 export function LoadingScreen() {
   return (
@@ -161,10 +169,6 @@ function AppLayoutComponent() {
       {data && (
         <AppSidebar
           mode={mode}
-          onModeChange={(m) => {
-            navigate({ to: m === 'archive' ? '/archive' : '/' });
-            setSearch('');
-          }}
           active={data.active}
           archive={data.archive}
           changes={filteredChanges}
@@ -178,6 +182,7 @@ function AppLayoutComponent() {
             navigate({
               to: '/ai/sessions/$provider/$sessionId',
               params: { provider: session.provider, sessionId: effectiveSessionId },
+              state: (prev: any) => ({ ...prev, origin: 'dashboard' }),
             });
             setSidebarOpen(false);
           }}
@@ -196,10 +201,18 @@ function AppLayoutComponent() {
             setCreateSpecOpen(false);
             if (session) {
               const effectiveSessionId = session.providerSessionId || session.sessionId;
+              if (initialPrompt) {
+                pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialPrompt);
+              }
               navigate({
                 to: '/ai/sessions/$provider/$sessionId',
                 params: { provider: session.provider, sessionId: effectiveSessionId },
-                search: initialPrompt ? { initialPrompt } : {},
+                state: (prev: any) => ({
+                  ...prev,
+                  origin: 'spec',
+                  originSpecSlug: spec.slug,
+                  originSpecSource: 'active',
+                }),
               });
             } else {
               navigate({
@@ -216,12 +229,21 @@ function AppLayoutComponent() {
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
-            setCreateChange(null);
             const effectiveSessionId = session.providerSessionId || session.sessionId;
+            const targetChange = createChange;
+            setCreateChange(null);
+            if (initialMessage) {
+              pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
+            }
             navigate({
               to: '/ai/sessions/$provider/$sessionId',
               params: { provider: session.provider, sessionId: effectiveSessionId },
-              search: initialMessage ? { initialPrompt: initialMessage } : {},
+              state: (prev: any) => ({
+                ...prev,
+                origin: 'spec',
+                originSpecSlug: targetChange.slug,
+                originSpecSource: targetChange.source,
+              }),
             });
           }}
         />
@@ -249,9 +271,12 @@ function ArchiveDashboardComponent() {
 // 4. Spec Detail Component
 function SpecDetailRouteComponent() {
   const params = specRoute.useParams();
-  const search = specRoute.useSearch() as SpecSearch;
   const source = params.source as 'active' | 'archive';
   const slug = params.slug;
+  const location = useLocation();
+  const historyState = location.state as NavigationHistoryState | undefined;
+  const initialTaskId = historyState?.restoreTaskId || null;
+
   const { data } = useDashboardData();
   const navigate = useNavigate();
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
@@ -288,21 +313,28 @@ function SpecDetailRouteComponent() {
     <>
       <SpecDetail
         change={selected}
-        initialTaskId={search.taskId || null}
-        onTaskSelect={(taskId) => {
-          navigate({
-            to: '/specs/$source/$slug',
-            params: { source, slug },
-            search: { taskId: taskId || undefined },
-            replace: true,
-          });
-        }}
+        initialTaskId={initialTaskId}
         onOpenSession={(session, taskId) => {
           const effectiveSessionId = session.providerSessionId || session.sessionId;
+          // Store restoreTaskId on current spec history entry so Back from chat restores the dialog
+          if (taskId) {
+            navigate({
+              to: '/specs/$source/$slug',
+              params: { source, slug },
+              state: (prev: any) => ({ ...prev, restoreTaskId: taskId }),
+              replace: true,
+            });
+          }
           navigate({
             to: '/ai/sessions/$provider/$sessionId',
             params: { provider: session.provider, sessionId: effectiveSessionId },
-            search: taskId ? { originTaskId: taskId } : {},
+            state: (prev: any) => ({
+              ...prev,
+              origin: taskId ? 'task' : 'spec',
+              originTaskId: taskId,
+              originSpecSlug: selected.slug,
+              originSpecSource: selected.source,
+            }),
           });
         }}
         onCreateSession={() => setCreateChange(selected)}
@@ -313,12 +345,20 @@ function SpecDetailRouteComponent() {
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
-            setCreateChange(null);
             const effectiveSessionId = session.providerSessionId || session.sessionId;
+            setCreateChange(null);
+            if (initialMessage) {
+              pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
+            }
             navigate({
               to: '/ai/sessions/$provider/$sessionId',
               params: { provider: session.provider, sessionId: effectiveSessionId },
-              search: initialMessage ? { initialPrompt: initialMessage } : {},
+              state: (prev: any) => ({
+                ...prev,
+                origin: 'spec',
+                originSpecSlug: selected.slug,
+                originSpecSource: selected.source,
+              }),
             });
           }}
         />
@@ -331,6 +371,9 @@ function SpecDetailRouteComponent() {
 function ChatRouteComponent() {
   const params = chatRoute.useParams();
   const search = chatRoute.useSearch() as ChatSearch;
+  const location = useLocation();
+  const historyState = location.state as NavigationHistoryState | undefined;
+
   const { data, loading, error } = useDashboardData();
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
   const navigate = useNavigate();
@@ -339,7 +382,9 @@ function ChatRouteComponent() {
   const provider = params.provider;
   const sessionId = params.sessionId;
   const initialTurnId = search.turnId || null;
-  const originTaskId = search.originTaskId || null;
+
+  const origin = historyState?.origin;
+  const originTaskId = historyState?.originTaskId;
 
   const associatedChange = useMemo(() => {
     if (!data) return null;
@@ -361,8 +406,14 @@ function ChatRouteComponent() {
       );
       if (found) return found;
     }
+    if (historyState?.originSpecSlug) {
+      const found = [...data.active, ...data.archive].find((c) =>
+        c.slug === historyState.originSpecSlug
+      );
+      if (found) return found;
+    }
     return null;
-  }, [data, globalSessions.sessions, originTaskId, provider, sessionId]);
+  }, [data, globalSessions.sessions, historyState?.originSpecSlug, originTaskId, provider, sessionId]);
 
   const handleBack = useCallback(() => {
     if (router.history.canGoBack()) {
@@ -370,31 +421,28 @@ function ChatRouteComponent() {
       return;
     }
 
+    // Deterministic fallback for direct deep links without in-app history
     if (associatedChange) {
       navigate({
         to: '/specs/$source/$slug',
         params: { source: associatedChange.source, slug: associatedChange.slug },
-        search: originTaskId ? { taskId: originTaskId } : {},
       });
       return;
     }
     navigate({ to: '/' });
-  }, [associatedChange, navigate, originTaskId, router.history]);
+  }, [associatedChange, navigate, router.history]);
 
   const handleTurnChange = useCallback(
     (turnId: string | null) => {
       navigate({
         to: '/ai/sessions/$provider/$sessionId',
         params: { provider, sessionId },
-        search: {
-          turnId: turnId || undefined,
-          originTaskId: originTaskId || undefined,
-          initialPrompt: search.initialPrompt || undefined,
-        },
+        search: { turnId: turnId || undefined },
+        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
         replace: true,
       });
     },
-    [navigate, originTaskId, provider, search.initialPrompt, sessionId]
+    [historyState, navigate, provider, sessionId]
   );
 
   const handleSwitchSession = useCallback(
@@ -402,12 +450,12 @@ function ChatRouteComponent() {
       const effectiveSessionId = session.providerSessionId || session.sessionId;
       navigate({
         to: '/ai/sessions/$provider/$sessionId',
-        params: { provider: session.provider, sessionId: effectiveSessionId },
-        search: originTaskId ? { originTaskId } : {},
+        params: { provider, sessionId },
+        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
         replace: true,
       });
     },
-    [navigate, originTaskId]
+    [historyState, navigate, sessionId]
   );
 
   const handleOpenTask = useCallback(
@@ -423,7 +471,7 @@ function ChatRouteComponent() {
           navigate({
             to: '/specs/$source/$slug',
             params: { source: change.source, slug: change.slug },
-            search: { taskId },
+            state: (prev: any) => ({ ...prev, restoreTaskId: taskId }),
           });
           return;
         }
@@ -434,7 +482,7 @@ function ChatRouteComponent() {
           navigate({
             to: '/specs/$source/$slug',
             params: { source: foundChange.source, slug: foundChange.slug },
-            search: { taskId },
+            state: (prev: any) => ({ ...prev, restoreTaskId: taskId }),
           });
           return;
         }
@@ -445,10 +493,12 @@ function ChatRouteComponent() {
   );
 
   const backLabel = useMemo(() => {
-    if (originTaskId) return 'Wróć do taska';
+    if (origin === 'task') return 'Wróć do taska';
+    if (origin === 'spec') return 'Wróć do specyfikacji';
+    if (origin === 'dashboard') return 'Wróć do listy';
     if (associatedChange) return 'Wróć do specyfikacji';
     return 'Wróć do listy';
-  }, [associatedChange, originTaskId]);
+  }, [associatedChange, origin]);
 
   if (loading && !data) return <LoadingScreen />;
   if (error && !data) {
@@ -461,18 +511,6 @@ function ChatRouteComponent() {
       provider={provider}
       sessionId={sessionId}
       initialTurnId={initialTurnId}
-      initialMessage={search.initialPrompt || null}
-      onInitialMessageConsumed={() => {
-        navigate({
-          to: '/ai/sessions/$provider/$sessionId',
-          params: { provider, sessionId },
-          search: {
-            turnId: initialTurnId || undefined,
-            originTaskId: originTaskId || undefined,
-          },
-          replace: true,
-        });
-      }}
       onTurnChange={handleTurnChange}
       onBack={handleBack}
       backLabel={backLabel}
