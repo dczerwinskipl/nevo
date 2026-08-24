@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Bot,
+  CheckSquare,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -151,24 +152,27 @@ export function AiSessionRow({
         {showSubtitle && (
           <div className="mt-2 text-[10px] text-[var(--muted)]">
             {taskList.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1">
-                {taskList.map((taskId, index) => {
+              <div className="flex flex-wrap items-center gap-1.5">
+                {taskList.map((taskId) => {
                   const matchedTask = tasks.find((t) => t.id === taskId);
                   const label = matchedTask?.title || taskId;
-                  return (
-                    <span key={taskId} className="inline-flex items-center">
-                      {index > 0 && <span className="mr-1 text-[var(--muted)]">·</span>}
-                      {onOpenTask && matchedTask ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenTask({ taskId })}
-                          className="truncate text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded"
-                        >
-                          {label}
-                        </button>
-                      ) : (
-                        <span className="truncate">{label}</span>
-                      )}
+                  return onOpenTask && matchedTask ? (
+                    <button
+                      key={taskId}
+                      type="button"
+                      onClick={() => onOpenTask({ taskId })}
+                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] cursor-pointer"
+                      title={`Otwórz szczegóły zadania: ${label}`}
+                    >
+                      <CheckSquare className="size-2.5 shrink-0 text-[var(--info)]" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ) : (
+                    <span
+                      key={taskId}
+                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-transparent bg-white/4 px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+                    >
+                      <span className="truncate">{label}</span>
                     </span>
                   );
                 })}

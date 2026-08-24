@@ -27,7 +27,7 @@ test('Item 1 (Task 04): ChatComposer uses canonical AI_MODES metadata with no du
   assert.ok(aiModeMetaSource.includes("id: 'agent'"));
 });
 
-test('Item 2A & 2B (Task 07): AiSessionRow uses non-interactive card, semantic sibling buttons, and inert stale tasks', () => {
+test('Item 2A & 2B (Task 07 / Item 9A): AiSessionRow uses non-interactive card, semantic sibling buttons, and interactive task chips', () => {
   const sessionListSource = readSource('components/ai-session-list.tsx');
 
   // Outer container is a non-interactive div without role=button or tabIndex=0
@@ -36,8 +36,10 @@ test('Item 2A & 2B (Task 07): AiSessionRow uses non-interactive card, semantic s
   // Primary open session button exists as its own control
   assert.ok(sessionListSource.includes('onClick={() => onOpen(session)}'));
 
-  // Task links are sibling buttons and stale tasks render as non-clickable span
+  // Task links are styled as interactive chips with CheckSquare icon and hover/focus states
   assert.ok(sessionListSource.includes('onOpenTask && matchedTask ? ('));
+  assert.ok(sessionListSource.includes('<CheckSquare'));
+  assert.ok(sessionListSource.includes('cursor-pointer'));
   assert.ok(sessionListSource.includes('<span className="truncate">{label}</span>'));
 
   // Delete button is a dedicated button
@@ -65,22 +67,30 @@ test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks agains
   assert.ok(aiChatSource.includes('tasks={sessionTaskItems}'));
 });
 
-test('Item 2C & 2D (Task 07): App.tsx handleOpenTask and SpecDetail TaskDialog support full task collection and navigation', () => {
-  const appSource = readSource('App.tsx');
+test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecDetail and AiChatPage without leaveChat()', () => {
+  const taskDialogSource = readSource('components/task-dialog.tsx');
   const specDetailSource = readSource('components/spec-detail.tsx');
+  const aiChatSource = readSource('components/ai-chat.tsx');
 
-  // App.tsx handles TaskNavigationTarget object or positional params and selects spec by specSlug
-  assert.ok(appSource.includes('const handleOpenTask = useCallback((target: TaskNavigationTarget | string'));
-  assert.ok(appSource.includes('setSelectedSlug(change.slug);'));
-  assert.ok(appSource.includes('setChatOriginTaskId(taskId);'));
+  // TaskDialog is a reusable component in components/task-dialog.tsx
+  assert.ok(taskDialogSource.includes('export function TaskDialog('));
+  assert.ok(taskDialogSource.includes('export interface TaskDialogProps'));
+  assert.ok(taskDialogSource.includes('useSpecificationDocument('));
+  assert.ok(taskDialogSource.includes('useSpecificationActions('));
+  assert.ok(taskDialogSource.includes('useAiSessions('));
 
-  // TaskDialog in spec-detail.tsx receives full tasks collection and onOpenTask handler
-  assert.ok(specDetailSource.includes('tasks={tasks.length > 0 ? tasks : [task]}'));
-  assert.ok(specDetailSource.includes('tasks={change.tasks}'));
-  assert.ok(specDetailSource.includes('setSelectedTaskId(nextTaskId);'));
+  // SpecDetail imports and mounts TaskDialog
+  assert.ok(specDetailSource.includes("import { TaskDialog } from '@/components/task-dialog';"));
+  assert.ok(specDetailSource.includes('<TaskDialog'));
+  assert.ok(specDetailSource.includes('taskId={selectedTask.id}'));
 
-  // SpecDetail syncs initialTaskId state on navigation
-  assert.ok(specDetailSource.includes('setSelectedTaskId(initialTaskId);'));
+  // AiChatPage imports and mounts TaskDialog locally as an overlay without calling leaveChat()
+  assert.ok(aiChatSource.includes("import { TaskDialog } from '@/components/task-dialog';"));
+  assert.ok(aiChatSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'));
+  assert.ok(aiChatSource.includes('setInspectedTaskId(taskId);'));
+  assert.ok(aiChatSource.includes('<TaskDialog'));
+  assert.ok(aiChatSource.includes('taskId={inspectedTaskId}'));
+  assert.ok(aiChatSource.includes('onClose={() => setInspectedTaskId(null)}'));
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary header chrome', () => {

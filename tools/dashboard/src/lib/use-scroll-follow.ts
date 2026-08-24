@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function calculateMaxScrollTop(el: { scrollHeight: number; clientHeight: number }): number {
   return Math.max(0, el.scrollHeight - el.clientHeight);
@@ -98,6 +98,7 @@ export function handleScrollEvent(
   const distanceFromBottom = calculateDistanceFromBottom(metrics);
   const isNearBottom = distanceFromBottom <= threshold;
   const isScrollingUp = currentScrollTop < state.lastScrollTop;
+  const isScrollingDown = currentScrollTop > state.lastScrollTop;
 
   if (state.isProgrammaticScroll) {
     if (isNearBottom) {
@@ -116,8 +117,8 @@ export function handleScrollEvent(
     };
   }
 
-  // Any user scroll upward away from bottom immediately pauses follow
-  if (isScrollingUp && !isNearBottom) {
+  // Any user upward scroll immediately pauses follow, regardless of threshold
+  if (isScrollingUp) {
     return {
       ...state,
       isFollowing: false,
@@ -125,8 +126,8 @@ export function handleScrollEvent(
     };
   }
 
-  // User scrolling down and reaching bottom threshold
-  if (isNearBottom && !isScrollingUp) {
+  // User scrolling down and reaching bottom threshold re-attaches follow
+  if (isNearBottom && (isScrollingDown || state.isFollowing)) {
     return {
       ...state,
       isFollowing: true,
@@ -225,7 +226,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
 
     const handleTouchMove = (e: TouchEvent) => {
       const currentY = e.touches[0]?.clientY ?? 0;
-      if (currentY > touchStartYRef.current + 10) {
+      if (currentY > touchStartYRef.current + 5) {
         // Finger dragging DOWN means viewport scrolling UP into history -> pause follow immediately
         const nextState = handleUserUpwardGesture(stateRef.current);
         stateRef.current = nextState;
@@ -234,7 +235,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'PageUp' || e.key === 'Home') {
+      if (e.key === 'PageUp' || e.key === 'Home' || e.key === 'ArrowUp') {
         const nextState = handleUserUpwardGesture(stateRef.current);
         stateRef.current = nextState;
         setState(nextState);
@@ -271,7 +272,17 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       return;
     }
 
-    const { state: nextState, shouldScrollToBottom } = handleContentArrival(stateRef.current);
+    // Physical sanity check on the DOM element:
+    // If the DOM is physically not near bottom and we're not in programmatic scroll, force detached
+    let currentState = stateRef.current;
+    if (el && !currentState.isProgrammaticScroll && !isScrolledNearBottom(el, threshold)) {
+      currentState = {
+        ...currentState,
+        isFollowing: false,
+      };
+    }
+
+    const { state: nextState, shouldScrollToBottom } = handleContentArrival(currentState);
     if (shouldScrollToBottom && el) {
       const targetScrollTop = calculateMaxScrollTop(el);
       const progState = handleProgrammaticScroll(nextState, targetScrollTop, false);
@@ -282,7 +293,7 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       stateRef.current = nextState;
       setState(nextState);
     }
-  }, [effectiveKey]);
+  }, [effectiveKey, threshold]);
 
   return {
     containerRef,

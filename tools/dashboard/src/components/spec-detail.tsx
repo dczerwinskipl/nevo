@@ -46,6 +46,7 @@ import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
 import { MarkdownContent } from '@/components/markdown-content';
 import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
+import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
@@ -357,148 +358,6 @@ function DocumentationPanel({
   );
 }
 
-function TaskDialog({
-  task,
-  tasks = [],
-  document: taskDocument,
-  loading,
-  error,
-  actionGate,
-  actionLoading,
-  actionExecuting,
-  actionError,
-  onRetry,
-  onAction,
-  sessions,
-  sessionsLoading,
-  sessionsError,
-  onSessionsRetry,
-  onOpenSession,
-  onOpenTask,
-  onClose,
-}: {
-  task: DashboardTask;
-  tasks?: DashboardTask[];
-  document: SpecificationTaskDocument | null;
-  loading: boolean;
-  error: string | null;
-  actionGate: SpecificationTaskActionGate | null;
-  actionLoading: boolean;
-  actionExecuting: boolean;
-  actionError: string | null;
-  onRetry: () => void;
-  onAction: () => void;
-  sessions: AiSession[];
-  sessionsLoading: boolean;
-  sessionsError: string | null;
-  onSessionsRetry: () => void;
-  onOpenSession: (session: AiSession) => void;
-  onOpenTask?: (target: TaskNavigationTarget | string) => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ));
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
-      onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="task-dialog-title"
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-7">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge>{formatStatus(task.status)}</Badge>
-              <span className="text-[10px] text-[var(--muted)]">#{String(task.order ?? '—').padStart(2, '0')}</span>
-            </div>
-            <h2 id="task-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{task.title}</h2>
-            {task.file && <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{task.file}</p>}
-          </div>
-          <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij szczegóły zadania">
-            <X className="size-4" />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-7 sm:py-7">
-          <div className="mb-7 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted-strong)]">
-              Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
-            </span>
-            {task.blockedBy.length > 0 && (
-              <span className="rounded-md border border-amber-300/20 bg-amber-300/8 px-2.5 py-1 text-amber-200">
-                Blokowane przez: {task.blockedBy.join(', ')}
-              </span>
-            )}
-          </div>
-
-          <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-            <div className="mb-3 flex items-center gap-2"><MessagesSquare className="size-4 text-[var(--accent)]" /><h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3></div>
-            <AiSessionList sessions={sessions} tasks={tasks.length > 0 ? tasks : [task]} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} emptyLabel="To zadanie nie ma jeszcze powiązanych sesji." />
-          </section>
-
-          {loading ? (
-            <div className="flex items-center gap-3 py-12 text-sm text-[var(--muted)]" role="status">
-              <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
-            </div>
-          ) : error ? (
-            <ContentError message={error} onRetry={onRetry} />
-          ) : taskDocument?.available ? (
-            <MarkdownContent markdown={taskDocument.markdown} />
-          ) : (
-            <EmptyDocument title="Brak treści zadania" detail="Plik zadania nie jest obecnie dostępny w specyfikacji." />
-          )}
-        </div>
-        <TaskActionFooter
-          gate={actionGate}
-          loading={actionLoading}
-          executing={actionExecuting}
-          error={actionError}
-          onExecute={onAction}
-        />
-      </div>
-    </div>
-  );
-}
-
 function OverviewPanel({
   change,
   onTaskSelect,
@@ -622,14 +481,9 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestQuery = useSpecificationManifest(change, true);
-  const taskDocId = selectedTaskId ? `task:${selectedTaskId}` : null;
-  const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(selectedTaskId));
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: change.source === 'active' && Boolean(change.specId) });
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
-  const selectedTaskDocument = (selectedTaskId ? taskDocumentQuery.data as SpecificationTaskDocument | null : null);
-  const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
-  const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
 
   const visibleTabs = useMemo<SpecTabItem[]>(() => {
     const tabs: SpecTabItem[] = [
@@ -710,24 +564,6 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const handleOperationTerminal = useCallback(async () => {
     await invalidateDashboardQueries(queryClient);
   }, [queryClient]);
-
-  const executeTaskAction = useCallback(async () => {
-    if (!selectedTaskAction || !selectedTask) return;
-    try {
-      const taskId = selectedTask.id;
-      const actionName = selectedTaskAction.action;
-      const res = await actionsQuery.execute({ action: actionName, taskId });
-      closeTask();
-      if (res?.operationId) {
-        updateActiveOperation(
-          res.operationId,
-          actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
-        );
-      }
-    } catch {
-      // The mutation exposes its sanitized error in the dialog footer.
-    }
-  }, [actionsQuery, closeTask, selectedTask, selectedTaskAction, updateActiveOperation]);
 
   const executeDirectTaskAction = useCallback(async (task: DashboardTask, actionName: SpecificationOwnerAction) => {
     try {
@@ -952,27 +788,14 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
       {selectedTask && (
         <TaskDialog
-          task={selectedTask}
-          tasks={change.tasks}
-          document={selectedTaskDocument}
-          loading={taskDocumentQuery.loading}
-          error={taskDocumentQuery.error}
-          actionGate={selectedTaskAction}
-          actionLoading={Boolean(selectedTaskHasOwnerAction && actionsQuery.loading)}
-          actionExecuting={actionsQuery.executing}
-          actionError={actionsQuery.executionError}
-          onRetry={() => void taskDocumentQuery.refresh()}
-          onAction={() => void executeTaskAction()}
-          sessions={sessionsQuery.sessions.filter(session => (session.taskIds && session.taskIds.includes(selectedTask.id)) || session.taskId === selectedTask.id)}
-          sessionsLoading={sessionsQuery.loading}
-          sessionsError={sessionsQuery.error}
-          onSessionsRetry={() => void sessionsQuery.refresh()}
-          onOpenSession={session => onOpenSession(session, selectedTask.id)}
+          change={change}
+          taskId={selectedTask.id}
+          onOpenSession={(session, taskId) => onOpenSession(session, taskId ?? selectedTask.id)}
           onOpenTask={(target) => {
             const nextTaskId = typeof target === 'string' ? target : target.taskId;
-            closeTask();
             setSelectedTaskId(nextTaskId);
           }}
+          onOperationStarted={updateActiveOperation}
           onClose={closeTask}
         />
       )}

@@ -35,6 +35,7 @@ import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
 import { projectChat } from '@/lib/chat-projection';
 import { useScrollFollow } from '@/lib/use-scroll-follow';
+import { TaskDialog } from '@/components/task-dialog';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -45,7 +46,6 @@ import type {
   TaskNavigationTarget,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
 
 function useChatVisualViewport() {
   const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({
@@ -128,7 +128,7 @@ export function AiChatPage({
   onBack: () => void;
   backLabel: string;
   onSwitchSession: (session: AiSession) => void;
-  onOpenTask?: (target: TaskNavigationTarget) => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,9 +167,22 @@ export function AiChatPage({
   });
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
+  const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
+
+  const handleInspectTask = useCallback((target: TaskNavigationTarget | string) => {
+    const taskId = typeof target === 'string' ? target : target.taskId;
+    const targetSlug = typeof target === 'string' ? null : target.specSlug;
+    setIsSessionDetailsOpen(false);
+    if (!targetSlug || targetSlug === change?.slug) {
+      setInspectedTaskId(taskId);
+      return;
+    }
+    onOpenTask?.(target);
+  }, [change, onOpenTask]);
+
   const rawTaskIds = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
   const sessionTaskItems = useMemo(() => {
     if (!rawTaskIds.length) return [];
@@ -232,34 +245,18 @@ export function AiChatPage({
 
   useEffect(() => {
     if (!initialMessage || initialSent.current) return;
-    if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) return;
     initialSent.current = true;
-    void submitMessage(initialMessage).finally(onInitialMessageConsumed);
-  }, [initialMessage, onInitialMessageConsumed, submitMessage, assistant.isLoading, assistant.sessionDetails, assistant.loadError]);
+    onInitialMessageConsumed();
+    void submitMessage(initialMessage);
+  }, [initialMessage, onInitialMessageConsumed, submitMessage]);
 
-  const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
-
-  if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) {
-    return (
-      <div className={shellClassName} style={shellStyle}>
-        <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
-            <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label={backLabel} title={backLabel}>
-              <ArrowLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-[var(--muted)]">Ładowanie sesji...</span>
-          </div>
-        </header>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <LoaderCircle className="size-8 animate-spin text-[var(--accent)]" />
-            <p className="text-sm font-medium text-[var(--muted)]">Wczytywanie historii i stanu rozmowy...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const shellStyle = chatViewport.height
+    ? {
+        height: `${chatViewport.height}px`,
+        transform: `translateY(${chatViewport.offsetTop}px)`,
+      }
+    : undefined;
 
   const headerTitle =
     session?.title?.trim() ||
@@ -301,10 +298,7 @@ export function AiChatPage({
                 tasks={sessionTaskItems}
                 provider={provider}
                 mode={currentMode}
-                onOpenTask={(target) => {
-                  setIsSessionDetailsOpen(false);
-                  onOpenTask?.(target);
-                }}
+                onOpenTask={handleInspectTask}
                 onDelete={() => {
                   setIsSessionDetailsOpen(false);
                   void handleDeleteSession();
@@ -455,6 +449,22 @@ export function AiChatPage({
             />
           </div>
         </footer>
+
+        {inspectedTaskId && change && (
+          <TaskDialog
+            change={change}
+            taskId={inspectedTaskId}
+            onOpenSession={(s) => {
+              setInspectedTaskId(null);
+              onSwitchSession(s);
+            }}
+            onOpenTask={(target) => {
+              const nextTaskId = typeof target === 'string' ? target : target.taskId;
+              setInspectedTaskId(nextTaskId);
+            }}
+            onClose={() => setInspectedTaskId(null)}
+          />
+        )}
       </div>
     </AssistantRuntimeProvider>
   );

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAiAdapterRegistry } from '../ai/registry.mjs';
 import { createAiTurnRuntime } from '../ai/turn-runtime.mjs';
 import {
@@ -818,7 +821,14 @@ test('requested cancellation stays cancelled with an unfinished tool', async () 
 });
 
 test('default dashboard service registers Codex without starting a live app-server', async () => {
-  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }) });
-  assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
-  await service.shutdown();
+  const configDir = await mkdtemp(join(tmpdir(), 'nevo-codex-test-'));
+  const adapterConfigPath = join(configDir, 'ai-adapters.yaml');
+  await writeFile(adapterConfigPath, 'version: 1\nadapters:\n  claude:\n    enabled: true\n  antigravity:\n    enabled: true\n  codex:\n    enabled: true\n  mock:\n    enabled: true\n', 'utf8');
+  try {
+    const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }), adapterConfigPath });
+    assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
+    await service.shutdown();
+  } finally {
+    await rm(configDir, { recursive: true, force: true });
+  }
 });
