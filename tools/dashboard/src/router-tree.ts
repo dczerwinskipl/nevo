@@ -31,7 +31,7 @@ export const specRoute = createRoute({
 
 export const specChatRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/specs/$source/$slug/sessions/$sessionId',
+  path: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
 });
 
 export const routeTree = rootRoute.addChildren([

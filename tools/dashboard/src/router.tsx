@@ -17,7 +17,6 @@ import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
-import { aiSessionRouteId, matchesAiSessionRouteId } from '@/lib/ai-session-identity';
 import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
 import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -52,10 +51,8 @@ function AppLayoutComponent() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sessionNavigationError, setSessionNavigationError] = useState<string | null>(null);
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
-  const globalSessions = useAiSessions({ enabled: Boolean(data) });
   const navigate = useNavigate();
   const location = useLocation();
   const matches = useMatches();
@@ -164,31 +161,6 @@ function AppLayoutComponent() {
           archive={data.archive}
           changes={filteredChanges}
           selectedSlug={selectedSlug}
-          sessions={globalSessions.sessions}
-          sessionsLoading={globalSessions.loading}
-          sessionsError={globalSessions.error}
-          sessionNavigationError={sessionNavigationError}
-          onDismissSessionNavigationError={() => setSessionNavigationError(null)}
-          onSessionsRetry={() => void globalSessions.refresh()}
-          onOpenSession={(session) => {
-            const targetSpec = [...data.active, ...data.archive].find(
-              (change) => change.specId === session.specId
-            );
-            if (!targetSpec) {
-              setSessionNavigationError('Nie znaleziono specyfikacji powiązanej z tą sesją.');
-              return;
-            }
-            setSessionNavigationError(null);
-            navigate({
-              to: '/specs/$source/$slug/sessions/$sessionId',
-              params: {
-                source: targetSpec.source,
-                slug: targetSpec.slug,
-                sessionId: aiSessionRouteId(session),
-              },
-            });
-            setSidebarOpen(false);
-          }}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
           onSearchChange={setSearch}
@@ -203,16 +175,16 @@ function AppLayoutComponent() {
           onCreated={(spec, session, initialPrompt) => {
             setCreateSpecOpen(false);
             if (session) {
-              const effectiveSessionId = session.providerSessionId || session.sessionId;
               if (initialPrompt) {
-                pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialPrompt);
+                pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialPrompt);
               }
               navigate({
-                to: '/specs/$source/$slug/sessions/$sessionId',
+                to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
                 params: {
                   source: 'active',
                   slug: spec.slug,
-                  sessionId: aiSessionRouteId(session),
+                  provider: session.provider,
+                  providerSessionId: session.providerSessionId,
                 },
               });
             } else {
@@ -230,18 +202,18 @@ function AppLayoutComponent() {
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
-            const effectiveSessionId = session.providerSessionId || session.sessionId;
             const targetChange = createChange;
             setCreateChange(null);
             if (initialMessage) {
-              pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
+              pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialMessage);
             }
             navigate({
-              to: '/specs/$source/$slug/sessions/$sessionId',
+              to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
               params: {
                 source: targetChange.source,
                 slug: targetChange.slug,
-                sessionId: aiSessionRouteId(session),
+                provider: session.provider,
+                providerSessionId: session.providerSessionId,
               },
             });
           }}
@@ -324,11 +296,12 @@ function SpecDetailRouteComponent() {
         change={selected}
         onOpenSession={(session) => {
           navigate({
-            to: '/specs/$source/$slug/sessions/$sessionId',
+            to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
             params: {
               source: selected.source,
               slug: selected.slug,
-              sessionId: aiSessionRouteId(session),
+              provider: session.provider,
+              providerSessionId: session.providerSessionId,
             },
           });
         }}
@@ -340,17 +313,17 @@ function SpecDetailRouteComponent() {
           change={createChange}
           onClose={() => setCreateChange(null)}
           onCreated={(session, initialMessage) => {
-            const effectiveSessionId = session.providerSessionId || session.sessionId;
             setCreateChange(null);
             if (initialMessage) {
-              pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
+              pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialMessage);
             }
             navigate({
-              to: '/specs/$source/$slug/sessions/$sessionId',
+              to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
               params: {
                 source: selected.source,
                 slug: selected.slug,
-                sessionId: aiSessionRouteId(session),
+                provider: session.provider,
+                providerSessionId: session.providerSessionId,
               },
             });
           }}
@@ -360,12 +333,13 @@ function SpecDetailRouteComponent() {
   );
 }
 
-// 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:sessionId)
+// 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:provider/:providerSessionId)
 function SpecChatRouteComponent() {
   const params = specChatRoute.useParams();
   const source = params.source as 'active' | 'archive';
   const slug = params.slug;
-  const sessionId = params.sessionId;
+  const provider = params.provider;
+  const providerSessionId = params.providerSessionId;
 
   const { data, loading: dataLoading, error: dataError } = useDashboardData();
   const navigate = useNavigate();
@@ -383,8 +357,10 @@ function SpecChatRouteComponent() {
   });
 
   const session = useMemo(() => {
-    return sessionsQuery.sessions.find((s) => matchesAiSessionRouteId(s, sessionId)) ?? null;
-  }, [sessionsQuery.sessions, sessionId]);
+    return sessionsQuery.sessions.find(
+      (s) => s.provider === provider && s.providerSessionId === providerSessionId
+    ) ?? null;
+  }, [sessionsQuery.sessions, provider, providerSessionId]);
 
   const handleBack = useCallback(() => {
     navigate({
@@ -396,8 +372,13 @@ function SpecChatRouteComponent() {
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
       navigate({
-        to: '/specs/$source/$slug/sessions/$sessionId',
-        params: { source, slug, sessionId: aiSessionRouteId(targetSession) },
+        to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+        params: {
+          source,
+          slug,
+          provider: targetSession.provider,
+          providerSessionId: targetSession.providerSessionId,
+        },
       });
     },
     [navigate, slug, source]
@@ -437,7 +418,7 @@ function SpecChatRouteComponent() {
         <StatusCard
           variant="info"
           title="Sesja nie znaleziona"
-          description={`Nie znaleziono sesji '${sessionId}' w specyfikacji '${selectedSpec?.title || slug}'.`}
+          description={`Nie znaleziono sesji '${providerSessionId}' (${provider}) w specyfikacji '${selectedSpec?.title || slug}'.`}
           onRetry={handleBack}
           retryLabel="Wróć do specyfikacji"
           className="w-full text-left"
@@ -452,7 +433,7 @@ function SpecChatRouteComponent() {
 
   return (
     <AiChatPage
-      key={aiSessionRouteId(session)}
+      key={`${session.provider}:${session.providerSessionId}`}
       spec={selectedSpec}
       session={session}
       onBack={handleBack}

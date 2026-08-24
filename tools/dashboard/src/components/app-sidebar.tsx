@@ -2,19 +2,16 @@ import {
   Archive,
   FileText,
   LayoutDashboard,
-  MessagesSquare,
   Plus,
   Search,
   X,
 } from 'lucide-react';
 
-import type { AiSession, DashboardChange } from '@/lib/types';
+import type { DashboardChange } from '@/lib/types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
-import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
-import { RetryButton, StatusCard } from '@/components/ui/status-card';
 import { Link } from '@tanstack/react-router';
 
 export type DashboardMode = 'active' | 'archive';
@@ -26,13 +23,6 @@ interface AppSidebarProps {
   changes: DashboardChange[];
   selectedSlug: string | null;
   onSelect?: (change: DashboardChange) => void;
-  sessions: AiSession[];
-  sessionsLoading: boolean;
-  sessionsError: string | null;
-  sessionNavigationError?: string | null;
-  onDismissSessionNavigationError?: () => void;
-  onSessionsRetry: () => void;
-  onOpenSession: (session: AiSession) => void;
   onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -108,13 +98,6 @@ export function AppSidebar({
   changes,
   selectedSlug,
   onSelect,
-  sessions,
-  sessionsLoading,
-  sessionsError,
-  sessionNavigationError,
-  onDismissSessionNavigationError,
-  onSessionsRetry,
-  onOpenSession,
   onOpenCreateSpec,
   search,
   onSearchChange,
@@ -122,10 +105,6 @@ export function AppSidebar({
   onClose,
 }: AppSidebarProps) {
   const visible = changes;
-  const activeSpecIds = new Set(active.map((change) => change.specId).filter(Boolean));
-  const recentSessions = sortSessionsByRecency(
-    sessions.filter((session) => activeSpecIds.has(session.specId))
-  ).slice(0, 5);
 
   return (
     <>
@@ -239,59 +218,6 @@ export function AppSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          {mode === 'active' && (
-            <section className="mb-4 border-b border-[var(--border)] px-2 pb-4" aria-label="Ostatnie sesje AI">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
-                  <MessagesSquare className="size-3" />
-                  Ostatnie sesje
-                </span>
-                {sessionsError && (
-                  <RetryButton size="icon" onClick={onSessionsRetry} label="Ponów pobieranie sesji" />
-                )}
-              </div>
-              {sessionNavigationError && (
-                <div className="mb-2">
-                  <StatusCard
-                    variant="warning"
-                    size="sm"
-                    title="Nie udało się otworzyć sesji"
-                    description={sessionNavigationError}
-                    onRetry={onDismissSessionNavigationError}
-                    retryLabel="Zamknij"
-                  />
-                </div>
-              )}
-              {sessionsLoading ? (
-                <p className="py-2 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
-              ) : sessionsError ? (
-                <div className="my-1">
-                  <StatusCard
-                    variant="warning"
-                    size="sm"
-                    title="Nie udało się wczytać sesji"
-                    description={sessionsError}
-                    onRetry={onSessionsRetry}
-                  />
-                </div>
-              ) : recentSessions.length > 0 ? (
-                <div className="space-y-1.5">
-                  {recentSessions.map((session) => (
-                    <AiSessionRow
-                      key={`${session.provider}:${session.sessionId || session.providerSessionId}`}
-                      session={session}
-                      onOpen={onOpenSession}
-                      compact
-                      showSubtitle={false}
-                      showDelete={false}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>
-              )}
-            </section>
-          )}
           <div className="mb-2 flex items-center justify-between px-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">
               {mode === 'active' ? 'W toku' : 'Zakończone'}

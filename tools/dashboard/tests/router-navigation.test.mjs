@@ -7,10 +7,6 @@ import {
   createAppRouter,
   routeTree,
 } from '../src/router-tree.ts';
-import {
-  aiSessionRouteId,
-  matchesAiSessionRouteId,
-} from '../src/lib/ai-session-identity.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
@@ -35,18 +31,19 @@ test('1. Route tree: Only spec and spec session routes exist (no /ai/sessions/..
   });
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
 
-  // 4. Spec Session Route: /specs/:source/:slug/sessions/:sessionId (no provider in route)
+  // 4. Spec Session Route: /specs/:source/:slug/sessions/:provider/:providerSessionId
   await router.navigate({
-    to: '/specs/$source/$slug/sessions/$sessionId',
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
     params: {
       source: 'active',
       slug: 'ux-improvements-version-1',
-      sessionId: 'session-12345',
+      provider: 'claude',
+      providerSessionId: 'session-12345',
     },
   });
   assert.equal(
     router.state.location.pathname,
-    '/specs/active/ux-improvements-version-1/sessions/session-12345'
+    '/specs/active/ux-improvements-version-1/sessions/claude/session-12345'
   );
 
   // 5. Verify /ai/sessions route does NOT exist in routeTree
@@ -55,39 +52,41 @@ test('1. Route tree: Only spec and spec session routes exist (no /ai/sessions/..
   assert.equal(flatRoutes['/active'], undefined, 'No alias redirects');
 });
 
-test('2. Open session from spec uses the provider session ID when a persisted binding has no sessionId alias', async () => {
+test('2. Open session from spec: spec X -> session A navigates to /specs/X/sessions/provider/providerSessionId', async () => {
   const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
   const router = createAppRouter(history);
   await router.load();
 
   const spec = { source: 'active', slug: 'spec-x', specId: 'spec-x-id' };
+  // Real API session payload shape from listSessions():
   const sessionA = {
-    providerSessionId: 'provider-sess-xyz',
     provider: 'claude',
+    providerSessionId: 'provider-sess-xyz',
     specId: 'spec-x-id',
+    taskIds: ['task-01'],
   };
 
-  const routeSessionId = aiSessionRouteId(sessionA);
   const prevLength = history.length;
   await router.navigate({
-    to: '/specs/$source/$slug/sessions/$sessionId',
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
     params: {
       source: spec.source,
       slug: spec.slug,
-      sessionId: routeSessionId,
+      provider: sessionA.provider,
+      providerSessionId: sessionA.providerSessionId,
     },
   });
   await router.load();
 
   assert.equal(
     router.state.location.pathname,
-    '/specs/active/spec-x/sessions/provider-sess-xyz',
-    'Persisted providerSessionId remains a valid route identity'
+    '/specs/active/spec-x/sessions/claude/provider-sess-xyz',
+    'Uses provider and providerSessionId in URL'
   );
   assert.equal(history.length, prevLength + 1, 'Exactly one navigation occurred');
 });
 
-test('3. Direct/deep chat load resolves bindings with or without a sessionId alias', () => {
+test('3. Direct/deep chat load: route resolves spec X and looks up session in X sessions', () => {
   const spec = {
     source: 'active',
     slug: 'my-feature',
@@ -96,36 +95,43 @@ test('3. Direct/deep chat load resolves bindings with or without a sessionId ali
     tasks: [{ id: 'task-1', title: 'Task 1' }],
   };
 
+  // Real API session payload shape
   const specSessions = [
-    { providerSessionId: 'prov-1', provider: 'claude', specId: 'spec-100' },
-    { sessionId: 'sess-2', providerSessionId: 'prov-2', provider: 'gemini', specId: 'spec-100' },
+    { provider: 'claude', providerSessionId: 'prov-1', specId: 'spec-100', taskIds: [] },
+    { provider: 'gemini', providerSessionId: 'prov-2', specId: 'spec-100', taskIds: [] },
   ];
 
-  const targetSessionId = 'prov-1';
-  const found = specSessions.find((s) => matchesAiSessionRouteId(s, targetSessionId));
+  const targetProvider = 'gemini';
+  const targetProviderSessionId = 'prov-2';
+  const found = specSessions.find(
+    (s) => s.provider === targetProvider && s.providerSessionId === targetProviderSessionId
+  );
 
   assert.ok(found, 'Session found in spec sessions');
-  assert.equal(found.provider, 'claude');
-  assert.equal(found.providerSessionId, 'prov-1');
+  assert.equal(found.provider, 'gemini');
+  assert.equal(found.providerSessionId, 'prov-2');
 });
 
 test('4. Session belongs to another spec: opening /specs/X/sessions/A when A is under Y results in Session Not Found (no cross-spec redirect)', () => {
   const specX = { source: 'active', slug: 'spec-x', specId: 'spec-x-id' };
   const sessionsOfX = [
-    { sessionId: 'sess-x1', specId: 'spec-x-id' },
+    { provider: 'claude', providerSessionId: 'sess-x1', specId: 'spec-x-id', taskIds: [] },
   ];
 
   // Attempting to access session 'sess-y1' (which belongs to spec Y) under spec X
-  const requestedSessionId = 'sess-y1';
-  const foundInX = sessionsOfX.find((s) => s.sessionId === requestedSessionId);
+  const requestedProvider = 'claude';
+  const requestedProviderSessionId = 'sess-y1';
+  const foundInX = sessionsOfX.find(
+    (s) => s.provider === requestedProvider && s.providerSessionId === requestedProviderSessionId
+  );
 
   assert.equal(foundInX, undefined, 'Session must not be resolved under spec X');
 });
 
 test('5. Free/ad-hoc session (specId: null) has no dashboard route', () => {
   const adhocSession = {
-    sessionId: 'free-sess-1',
     provider: 'claude',
+    providerSessionId: 'free-sess-1',
     specId: null,
   };
 
@@ -135,34 +141,14 @@ test('5. Free/ad-hoc session (specId: null) has no dashboard route', () => {
   assert.ok(!routerSource.includes('/ai/sessions/'), 'Router must not have /ai/sessions/ route');
 });
 
-test('6. Runtime metadata derivation: URL uses session.sessionId while runtime receives provider and providerSessionId', () => {
-  const session = {
-    sessionId: 'nevo-session-1',
-    provider: 'codex',
-    providerSessionId: 'provider-abc',
-    specId: 'spec-1',
-  };
-
-  // URL identity:
-  const routeParams = { source: 'active', slug: 'my-spec', sessionId: session.sessionId };
-  assert.equal(routeParams.sessionId, 'nevo-session-1');
-
-  // Runtime identity passed to useNevoAssistantRuntime:
-  const runtimeProvider = session.provider;
-  const runtimeSessionId = session.providerSessionId || session.sessionId;
-
-  assert.equal(runtimeProvider, 'codex');
-  assert.equal(runtimeSessionId, 'provider-abc');
-});
-
-test('7. Back: /specs/:source/:slug/sessions/:sessionId -> Back navigates directly to parent /specs/:source/:slug', async () => {
+test('6. Back: /specs/:source/:slug/sessions/:provider/:providerSessionId -> Back navigates directly to parent /specs/:source/:slug', async () => {
   const history = createMemoryHistory({
-    initialEntries: ['/', '/specs/active/foo/sessions/session-42'],
+    initialEntries: ['/', '/specs/active/foo/sessions/claude/session-42'],
   });
   const router = createAppRouter(history);
   await router.load();
 
-  assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/session-42');
+  assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/claude/session-42');
 
   // Production Back action in SpecChatRouteComponent:
   await router.navigate({
@@ -174,44 +160,47 @@ test('7. Back: /specs/:source/:slug/sessions/:sessionId -> Back navigates direct
   assert.equal(router.state.location.pathname, '/specs/active/foo', 'Back always navigates to parent spec');
 });
 
-test('8. Session creation navigates even when the response only contains providerSessionId', async () => {
+test('7. Session creation: creating session for spec X navigates using returned provider and providerSessionId', async () => {
   const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
   const router = createAppRouter(history);
   await router.load();
 
+  // Real createSession response shape
   const createdSession = {
-    providerSessionId: 'claude-raw-id-xyz',
     provider: 'claude',
+    providerSessionId: 'claude-raw-id-xyz',
     specId: 'spec-x-id',
+    taskIds: [],
   };
 
   await router.navigate({
-    to: '/specs/$source/$slug/sessions/$sessionId',
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
     params: {
       source: 'active',
       slug: 'spec-x',
-      sessionId: aiSessionRouteId(createdSession),
+      provider: createdSession.provider,
+      providerSessionId: createdSession.providerSessionId,
     },
   });
   await router.load();
 
   assert.equal(
     router.state.location.pathname,
-    '/specs/active/spec-x/sessions/claude-raw-id-xyz',
-    'Navigates to new session using its canonical available identity'
+    '/specs/active/spec-x/sessions/claude/claude-raw-id-xyz',
+    'Navigates to new session using provider and providerSessionId'
   );
 });
 
-test('9. AppLayout restores recent sessions without adding a global chat route', () => {
+test('8. No global session fetch: AppLayout and AppSidebar do not load global sessions', () => {
   const routerSource = readSource('router.tsx');
   const sidebarSource = readSource('components/app-sidebar.tsx');
 
-  assert.ok(routerSource.includes('useAiSessions({ enabled: Boolean(data) })'), 'AppLayout loads recent sessions');
-  assert.ok(sidebarSource.includes('Ostatnie sesje'), 'AppSidebar renders the recent-session list');
-  assert.ok(!routerSource.includes("to: '/ai/sessions/"), 'Recent sessions still navigate through spec-scoped routes');
+  // AppLayoutComponent does not query global sessions
+  assert.ok(!routerSource.includes('useAiSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
+  assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'AppSidebar must not render global session list');
 });
 
-test('10. No reverse spec resolution: AiChatPage receives spec directly, without searching all specs', () => {
+test('9. No reverse spec resolution: AiChatPage receives spec directly, without searching all specs', () => {
   const aiChatSource = readSource('components/ai-chat.tsx');
 
   assert.ok(aiChatSource.includes('spec: DashboardChange'), 'AiChatPage receives spec directly');
