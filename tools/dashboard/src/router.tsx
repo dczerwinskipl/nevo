@@ -478,18 +478,11 @@ function GlobalChatRouteComponent() {
   const search = chatRoute.useSearch() as ChatSearch;
 
   const { data, loading, error, refresh } = useDashboardData();
-  const globalSessions = useAiSessions({ enabled: Boolean(data) });
   const navigate = useNavigate();
 
   const provider = params.provider;
   const sessionId = params.sessionId;
   const initialTurnId = search.turnId || null;
-
-  const activeSession = useMemo(() => {
-    return globalSessions.sessions.find(
-      (s) => s.provider === provider && (s.providerSessionId === sessionId || s.sessionId === sessionId)
-    );
-  }, [globalSessions.sessions, provider, sessionId]);
 
   const handleBack = useCallback(() => {
     navigate({ to: '/' });
@@ -560,36 +553,6 @@ function GlobalChatRouteComponent() {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>
     );
-  }
-
-  // If a user opens /ai/sessions/... for a session that has a specId,
-  // surface an explicit warning/guidance card instead of performing a hidden redirect.
-  if (activeSession && activeSession.specId) {
-    const owningSpec = [...(data?.active ?? []), ...(data?.archive ?? [])].find((s) => s.specId === activeSession.specId);
-    if (owningSpec) {
-      return (
-        <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
-          <StatusCard
-            variant="warning"
-            title="Sesja powiązana ze specyfikacją"
-            description={`Ta sesja należy do specyfikacji '${owningSpec.title}'.`}
-            onRetry={() =>
-              navigate({
-                to: '/specs/$source/$slug/sessions/$provider/$sessionId',
-                params: {
-                  source: owningSpec.source,
-                  slug: owningSpec.slug,
-                  provider,
-                  sessionId,
-                },
-              })
-            }
-            retryLabel="Przejdź do sesji w specyfikacji"
-            className="w-full text-left"
-          />
-        </div>
-      );
-    }
   }
 
   return (

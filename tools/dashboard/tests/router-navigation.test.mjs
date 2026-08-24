@@ -6,8 +6,6 @@ import { createMemoryHistory, isRedirect } from '@tanstack/react-router';
 import {
   createAppRouter,
   activeAliasRoute,
-  specsArchiveAliasRoute,
-  specSlugAliasRoute,
   resolveSessionDestination,
 } from '../src/router-tree.ts';
 
@@ -60,7 +58,7 @@ test('Route tree resolves primary screens with clean URLs', async () => {
   assert.equal(router.state.location.pathname, '/ai/sessions/gemini/adhoc-session-999');
 });
 
-test('Redirect aliases route to canonical URLs', async () => {
+test('Redirect alias /active routes to root /', async () => {
   const history = createMemoryHistory({ initialEntries: ['/'] });
   const router = createAppRouter(history);
   await router.load();
@@ -74,29 +72,6 @@ test('Redirect aliases route to canonical URLs', async () => {
   } catch (err) {
     assert.equal(isRedirect(err), true);
     assert.equal(err.options.to, '/');
-  }
-
-  // Alias /specs/archive matches specsArchiveAliasRoute and triggers redirect to /archive
-  const archiveMatches = router.matchRoutes('/specs/archive');
-  assert.equal(archiveMatches[archiveMatches.length - 1]?.routeId, '/app-layout/specs/archive');
-  try {
-    await specsArchiveAliasRoute.options.beforeLoad({});
-    assert.fail('Should have thrown redirect');
-  } catch (err) {
-    assert.equal(isRedirect(err), true);
-    assert.equal(err.options.to, '/archive');
-  }
-
-  // Alias /specs/:slug matches specSlugAliasRoute and triggers redirect to /specs/active/:slug
-  const slugMatches = router.matchRoutes('/specs/ux-improvements-version-1');
-  assert.equal(slugMatches[slugMatches.length - 1]?.routeId, '/app-layout/specs/$slug');
-  try {
-    await specSlugAliasRoute.options.beforeLoad({ params: { slug: 'ux-improvements-version-1' } });
-    assert.fail('Should have thrown redirect');
-  } catch (err) {
-    assert.equal(isRedirect(err), true);
-    assert.equal(err.options.to, '/specs/$source/$slug');
-    assert.deepEqual(err.options.params, { source: 'active', slug: 'ux-improvements-version-1' });
   }
 });
 

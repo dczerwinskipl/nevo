@@ -85,30 +85,12 @@ export const specRoute = createRoute({
   validateSearch: (): SpecSearch => ({}),
 });
 
+// The single intentional redirect alias: /active -> /
 export const activeAliasRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/active',
   beforeLoad: () => {
     throw redirect({ to: '/' });
-  },
-});
-
-export const specsArchiveAliasRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/specs/archive',
-  beforeLoad: () => {
-    throw redirect({ to: '/archive' });
-  },
-});
-
-export const specSlugAliasRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/specs/$slug',
-  beforeLoad: ({ params }: { params: { slug: string } }) => {
-    throw redirect({
-      to: '/specs/$source/$slug',
-      params: { source: 'active', slug: params.slug },
-    });
   },
 });
 
@@ -134,8 +116,6 @@ export const routeTree = rootRoute.addChildren([
     archiveRoute,
     specRoute,
     activeAliasRoute,
-    specsArchiveAliasRoute,
-    specSlugAliasRoute,
   ]),
   chatRoute,
   specChatRoute,
