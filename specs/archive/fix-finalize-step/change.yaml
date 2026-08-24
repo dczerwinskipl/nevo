@@ -2,7 +2,7 @@
 id: fix-finalize-step
 title: "Fix finalize step"
 type: small
-status: approved
+status: archived
 priority: 10
 created: 2026-08-24
 tasks:
@@ -11,4 +11,3 @@ tasks:
     file: tasks/01-finalize-routing-and-sessions.md
     status: verified
 spec_id: e5e13ade-94e4-483c-8cbb-a99eca539fcc
-
