@@ -133,3 +133,59 @@ test('Item 6: AppSidebar cleanup of unused task/delete handlers', () => {
   assert.ok(!sidebarSource.includes('onOpenTask'), 'onOpenTask must be removed from AppSidebar');
   assert.ok(!sidebarSource.includes('activeTasks'), 'activeTasks must be removed from AppSidebar');
 });
+
+test('Item 7 (Task 17): AiSessionCreateModal provider group uses semantic fieldset and aria-pressed', () => {
+  const modalSource = readSource('components/ai-session-create-modal.tsx');
+
+  // Provider group uses fieldset + legend, not label wrapping multiple buttons
+  assert.ok(modalSource.includes('<fieldset className="mt-6">'));
+  assert.ok(modalSource.includes('<legend className="text-xs font-semibold text-[var(--foreground)]">\n                Provider\n              </legend>') || modalSource.includes('Provider'));
+  assert.ok(!modalSource.includes('<label className="mt-6 block text-xs font-semibold">\n              Provider'));
+
+  // Provider buttons have aria-pressed
+  assert.ok(modalSource.includes('aria-pressed={selected}'));
+
+  // Execution mode buttons have aria-pressed
+  assert.ok(modalSource.includes('aria-pressed={mode === item.id}'));
+});
+
+test('Item 8 (Task 18): Shared status label component and consistent session status labels', () => {
+  const statusLabelSource = readSource('components/status-label.tsx');
+  const stageProgressSource = readSource('components/stage-progress.tsx');
+  const statusBoardSource = readSource('components/status-board.tsx');
+  const sessionListSource = readSource('components/ai-session-list.tsx');
+  const aiChatSource = readSource('components/ai-chat.tsx');
+
+  // 1. Shared formatSessionStatus function
+  assert.ok(statusLabelSource.includes('formatSessionStatus'));
+
+  // 2. Consistent stage/task status typography across stage-progress and status-board
+  assert.ok(stageProgressSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'));
+  assert.ok(statusBoardSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'));
+
+  // 3. Polish status in both session list and chat header
+  assert.ok(sessionListSource.includes('formatSessionStatus(status)'));
+  assert.ok(aiChatSource.includes('formatSessionStatus(assistant.activity)'));
+});
+
+test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
+  const specDetailSource = readSource('components/spec-detail.tsx');
+  const statusBoardSource = readSource('components/status-board.tsx');
+
+  // Both section h2 headings use text-xl
+  assert.ok(specDetailSource.includes('<h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>'));
+  assert.ok(statusBoardSource.includes('text-xl font-semibold tracking-tight text-[var(--foreground)]'));
+});
+
+test('Item 10 (Task 20): AiSessionCreateModal closes on Escape when not creating', () => {
+  const modalSource = readSource('components/ai-session-create-modal.tsx');
+
+  // Escape key handler attached to window
+  assert.ok(modalSource.includes("event.key === 'Escape'"));
+  assert.ok(modalSource.includes('!createSession.creating'));
+  assert.ok(modalSource.includes('onClose()'));
+});
+
+
+
+

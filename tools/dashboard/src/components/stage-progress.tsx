@@ -53,7 +53,7 @@ export function StageProgress({
           {visibleStages.map(stage => (
             <div key={stage.id} className="flex min-w-0 items-center gap-2 text-[9px] text-[var(--muted)]">
               <span className={cn('size-1.5 shrink-0 rounded-full', stage.color)} />
-              <span className="truncate uppercase tracking-[0.08em]">{stage.label}</span>
+              <span className="truncate text-[10px] font-bold uppercase tracking-[0.1em]">{stage.label}</span>
               <span className="ml-auto tabular-nums text-[var(--muted-strong)]">{change.metrics.stageCounts[stage.id]}</span>
             </div>
           ))}

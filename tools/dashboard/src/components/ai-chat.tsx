@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ChatHeader } from '@/components/chat-header';
+import { formatSessionStatus } from '@/components/status-label';
 import { SessionDetails } from '@/components/session-details';
 import { ChatComposer } from '@/components/composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
@@ -306,7 +307,7 @@ export function AiChatPage({
   const header = (
     <ChatHeader
       title={headerTitle}
-      status={session ? assistant.activity : undefined}
+      status={session ? formatSessionStatus(assistant.activity) : undefined}
       live={assistant.live}
       onBack={onBack}
       backLabel={backLabel}

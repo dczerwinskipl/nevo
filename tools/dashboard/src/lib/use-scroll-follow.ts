@@ -22,6 +22,11 @@ export interface ScrollControllerState {
   lastScrollTop: number;
 }
 
+export interface VisibleScrollState {
+  isFollowing: boolean;
+  hasUnseenContent: boolean;
+}
+
 export function createInitialScrollControllerState(initialScrollTop = 0): ScrollControllerState {
   return {
     isFollowing: true,
@@ -182,29 +187,65 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
   const effectiveKey = contentKey !== undefined ? contentKey : contentSignal;
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [state, setState] = useState<ScrollControllerState>(createInitialScrollControllerState);
-  const stateRef = useRef<ScrollControllerState>(state);
-  stateRef.current = state;
+  // Expose minimal React state (isFollowing, hasUnseenContent) to avoid rendering on high-frequency scrolls
+  const [visibleState, setVisibleState] = useState<VisibleScrollState>({
+    isFollowing: true,
+    hasUnseenContent: false,
+  });
 
+  // Keep full controller internals in ref
+  const internalStateRef = useRef<ScrollControllerState>({
+    isFollowing: true,
+    hasUnseenContent: false,
+    isProgrammaticScroll: false,
+    lastScrollTop: 0,
+  });
+
+  const rafIdRef = useRef<number | null>(null);
   const touchStartYRef = useRef(0);
+
+  // Publish state to React ONLY when a visible boolean transitions
+  const publishStateIfNeeded = useCallback((nextState: ScrollControllerState) => {
+    const prev = internalStateRef.current;
+    internalStateRef.current = nextState;
+    if (prev.isFollowing !== nextState.isFollowing || prev.hasUnseenContent !== nextState.hasUnseenContent) {
+      setVisibleState({
+        isFollowing: nextState.isFollowing,
+        hasUnseenContent: nextState.hasUnseenContent,
+      });
+    }
+  }, []);
+
+  // Coalesced RAF bottom follow to avoid layout thrashing across ResizeObserver, MutationObserver, and content revisions
+  const scheduleSnapToBottom = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const el = containerRef.current;
+      if (!el || !internalStateRef.current.isFollowing) return;
+      const target = calculateMaxScrollTop(el);
+      if (el.scrollTop !== target) {
+        el.scrollTop = target;
+        internalStateRef.current.lastScrollTop = target;
+      }
+    });
+  }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = containerRef.current;
     if (!el) return;
     const targetScrollTop = calculateMaxScrollTop(el);
-    const updated = handleUserReturnToBottom(stateRef.current, targetScrollTop, behavior === 'smooth');
-    stateRef.current = updated.state;
-    setState(updated.state);
+    const updated = handleUserReturnToBottom(internalStateRef.current, targetScrollTop, behavior === 'smooth');
+    publishStateIfNeeded(updated.state);
     el.scrollTo({ top: el.scrollHeight, behavior });
-  }, []);
+  }, [publishStateIfNeeded]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const nextState = handleScrollEvent(stateRef.current, el, threshold);
-    stateRef.current = nextState;
-    setState(nextState);
-  }, [threshold]);
+    const nextState = handleScrollEvent(internalStateRef.current, el, threshold);
+    publishStateIfNeeded(nextState);
+  }, [publishStateIfNeeded, threshold]);
 
   // Attach scroll and user-gesture listeners to container
   useEffect(() => {
@@ -214,9 +255,8 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     const handleWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         // Explicit wheel scroll UP pauses follow immediately
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
@@ -228,17 +268,15 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       const currentY = e.touches[0]?.clientY ?? 0;
       if (currentY > touchStartYRef.current + 5) {
         // Finger dragging DOWN means viewport scrolling UP into history -> pause follow immediately
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'PageUp' || e.key === 'Home' || e.key === 'ArrowUp') {
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
@@ -255,30 +293,19 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       el.removeEventListener('touchmove', handleTouchMove);
       el.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleScroll]);
+  }, [handleScroll, publishStateIfNeeded]);
 
   // Keep viewport glued to bottom when DOM height expands (streaming, dynamic tools, markdown images)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const snapToBottomIfFollowing = () => {
-      if (stateRef.current.isFollowing && containerRef.current) {
-        const target = calculateMaxScrollTop(containerRef.current);
-        containerRef.current.scrollTop = target;
-        stateRef.current = {
-          ...stateRef.current,
-          lastScrollTop: target,
-        };
-      }
-    };
-
-    snapToBottomIfFollowing();
+    scheduleSnapToBottom();
 
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
-        snapToBottomIfFollowing();
+        scheduleSnapToBottom();
       });
       resizeObserver.observe(el);
       if (el.firstElementChild) {
@@ -289,44 +316,42 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     let mutationObserver: MutationObserver | null = null;
     if (typeof MutationObserver !== 'undefined') {
       mutationObserver = new MutationObserver(() => {
-        snapToBottomIfFollowing();
+        scheduleSnapToBottom();
       });
       mutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
     }
 
     return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
     };
-  }, []);
+  }, [scheduleSnapToBottom]);
 
   // React to semantic contentKey changes and message arrivals
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (stateRef.current.isFollowing) {
+    if (internalStateRef.current.isFollowing) {
       const targetScrollTop = calculateMaxScrollTop(el);
-      const progState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
-      stateRef.current = progState;
-      setState(progState);
+      const progState = handleProgrammaticScroll(internalStateRef.current, targetScrollTop, false);
+      publishStateIfNeeded(progState);
       el.scrollTop = targetScrollTop;
-      requestAnimationFrame(() => {
-        if (stateRef.current.isFollowing && containerRef.current) {
-          containerRef.current.scrollTop = calculateMaxScrollTop(containerRef.current);
-        }
-      });
+      scheduleSnapToBottom();
     } else {
-      const { state: nextState } = handleContentArrival(stateRef.current);
-      stateRef.current = nextState;
-      setState(nextState);
+      const { state: nextState } = handleContentArrival(internalStateRef.current);
+      publishStateIfNeeded(nextState);
     }
-  }, [effectiveKey]);
+  }, [effectiveKey, publishStateIfNeeded, scheduleSnapToBottom]);
 
   return {
     containerRef,
-    isFollowing: state.isFollowing,
-    hasUnseenContent: state.hasUnseenContent,
+    isFollowing: visibleState.isFollowing,
+    hasUnseenContent: visibleState.hasUnseenContent,
     scrollToBottom,
     handleScroll,
   };

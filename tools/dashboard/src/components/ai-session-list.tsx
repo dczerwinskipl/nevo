@@ -40,10 +40,10 @@ export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
   });
 }
 
-function statusLabel(status: AiSession['status']) {
-  if (status === 'running') return 'W toku';
-  if (status === 'waitingForUser') return 'Czeka na Ciebie';
-  return 'Bezczynna';
+import { formatSessionStatus } from '@/components/status-label';
+
+export function statusLabel(status: AiSession['status']) {
+  return formatSessionStatus(status);
 }
 
 export function ProviderBadge({ provider }: { provider: string }) {

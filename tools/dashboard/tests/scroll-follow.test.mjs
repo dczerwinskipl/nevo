@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -281,3 +281,40 @@ test('Task 08: AiChatPage uses assistant.contentRevision and renders new-content
   assert.match(chatSource, /Nowe wiadomości/);
   assert.match(chatSource, /scrollToBottom\('smooth'\)/);
 });
+
+test('Performance / Finding 3: Repeated scroll events while detached do not alter visible state flags', () => {
+  let state = createInitialScrollControllerState(2000);
+  // User scrolls up to detach
+  state = handleScrollEvent(state, { scrollTop: 1500, scrollHeight: 3000, clientHeight: 600 }, 80);
+  assert.equal(state.isFollowing, false);
+  assert.equal(state.hasUnseenContent, false);
+
+  const visibleBefore = { isFollowing: state.isFollowing, hasUnseenContent: state.hasUnseenContent };
+
+  // 100 subsequent scroll events while detached
+  for (let top = 1490; top >= 500; top -= 10) {
+    state = handleScrollEvent(state, { scrollTop: top, scrollHeight: 3000, clientHeight: 600 }, 80);
+    assert.equal(state.isFollowing, visibleBefore.isFollowing, 'isFollowing remains false across scrolling');
+    assert.equal(state.hasUnseenContent, visibleBefore.hasUnseenContent, 'hasUnseenContent remains unchanged');
+  }
+});
+
+test('Performance / Finding 3: Repeated content arrivals while unseen=true do not toggle or flip visible state flags', () => {
+  let state = createInitialScrollControllerState(1000);
+  state = handleScrollEvent(state, { scrollTop: 500, scrollHeight: 2000, clientHeight: 600 }, 80);
+  assert.equal(state.isFollowing, false);
+
+  // First arrival transitions unseen to true
+  const firstArrival = handleContentArrival(state);
+  assert.equal(firstArrival.state.hasUnseenContent, true);
+  state = firstArrival.state;
+
+  // 50 subsequent streamed chunks arriving while detached
+  for (let i = 0; i < 50; i++) {
+    const nextArrival = handleContentArrival(state);
+    assert.equal(nextArrival.state.hasUnseenContent, true, 'hasUnseenContent remains true without toggling');
+    assert.equal(nextArrival.state.isFollowing, false, 'isFollowing remains false without toggling');
+    state = nextArrival.state;
+  }
+});
+

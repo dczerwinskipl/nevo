@@ -115,3 +115,16 @@
 - **Date:** 2026-08-24
 - **Affected artifacts:** `.nevo-ai-local/ai-adapters.yaml`, `areas/ai-adapters.md`, task 21,
   dashboard adapter config/service/UI/tests, and `docs/development/ai-sessions.md`.
+
+## D6: Strictly spec-scoped AI sessions and removal of global/sidebar session navigation
+
+- **Question:** How should AI sessions be structured in dashboard routing and navigation hierarchy?
+- **Options considered:** (A) Keep global `/ai/sessions/...` ad-hoc session routes and global recent sessions list in `AppSidebar` alongside spec-scoped views | (B) Strictly spec-scoped AI sessions (`/specs/:source/:slug/sessions/:provider/:providerSessionId`), removing global/free-session routes, reverse session->spec resolution, and `AppSidebar` global sessions list
+- **Decision:** Implement Option B. AI sessions are strictly scoped to specifications (`/specs/:source/:slug/sessions/:provider/:providerSessionId`). Global/free-session flows, global `/ai/sessions/...` routes, reverse lookup from session to spec, and global recent-sessions in `AppSidebar` are completely removed from the dashboard architecture. Primary navigation is owned by TanStack Router.
+- **Rationale:** The dashboard does not support free/ad-hoc sessions. Sessions belong to specifications. Spec ownership is carried directly in the URL route and data flows strictly from Specification -> its sessions -> chat.
+- **Consequences:**
+  - Task 07: Many-to-many task/session navigation is preserved in spec/session contexts (`SpecDetail`'s "Ostatnie rozmowy", `TaskDialog`'s "Powiązane sesje", and `SessionDetails`). Requirements concerning `AppSidebar` session rows and `App.tsx` navigation ownership are superseded by D6 and TanStack Router.
+  - Task 09: Superseded by D6 — the global recent sessions section in `AppSidebar` was intentionally removed rather than retained with reduced density.
+- **Date:** 2026-08-24
+- **Affected artifacts:** `owner-decisions.md`, `tasks/07-task-session-linking.md`, `tasks/09-dedupe-recent-sessions.md`, `router.tsx`, `router-tree.ts`, `app-sidebar.tsx`.
+

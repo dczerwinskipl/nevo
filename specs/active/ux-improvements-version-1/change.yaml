@@ -120,7 +120,7 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
-      review_revision: d1030939cf509017d2cd418c46d3bca5df1e64fe
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-chat.tsx
@@ -128,10 +128,10 @@ tasks:
         - tools/dashboard/src/components/app-sidebar.tsx
         - tools/dashboard/src/components/session-details/session-details.tsx
         - tools/dashboard/src/components/spec-detail.tsx
-      worktree_patch_fingerprint: a53bb100f20cdc44b7fdb9f42eaa3b5e9a5d7857ca8368050f0cc7873339bbd2
+      worktree_patch_fingerprint: cabc6b0cc571d57185e25993fb9e7f51a3cd384bc69062bce0cbe961eb34394e
     self_check:
-      fingerprint: 3c236cc41b717dc771b9413f71429d39aa4d4046a694a37db8203fd5ba623b33
-      revision: d1030939cf509017d2cd418c46d3bca5df1e64fe
+      fingerprint: 025cc6c8d3e8818e57407b1510925136329ef4767f6e2c5673ba4857a22eae61
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -166,15 +166,15 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
-      review_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
       changed_paths:
         - tools/dashboard/src/components/ai-session-list.tsx
         - tools/dashboard/src/components/app-sidebar.tsx
         - tools/dashboard/src/components/spec-detail.tsx
-      worktree_patch_fingerprint: e7d13c1a21a8667a66e8a1d145add85aa06d218a16b3847cefc60063ff341953
+      worktree_patch_fingerprint: b2613615e6eaacc8b9862af63a30adf59b968bd3a67a600b994c4e2749a4163a
     self_check:
-      fingerprint: 28dca89fca193db0a987bb097d7120ff85c8fc34b67eef7387c4045463e73891
-      revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      fingerprint: e2986642c50dc7955dc1b72a751c0cd2a771b4315abb6c0d6797d8079cfe7036
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -329,22 +329,86 @@ tasks:
   - id: mock-provider-accessible-name
     order: 17
     file: tasks/17-mock-provider-accessible-name.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      changed_paths:
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+      worktree_patch_fingerprint: 1028d5a2fecb21e77af8787d68f2e439f8873ac1ba24211863755a2e1ece4ca0
+    self_check:
+      fingerprint: 2fa71d03062831eb1966b297fc52cedb501025044466b8bc2f949667960b16a5
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: shared-status-label-component
     order: 18
     file: tasks/18-shared-status-label-component.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/stage-progress.tsx
+        - tools/dashboard/src/components/status-board.tsx
+        - tools/dashboard/src/components/status-label.tsx
+      worktree_patch_fingerprint: 2377bef40b9419d6cb88b801122fa41a6e0237241274b9cb571b5464193814a1
+    self_check:
+      fingerprint: 542f3a51daeed02373cdd1eb07ca12e89e4b5994ad354bd5b7c30950cc87a11f
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: standardize-h2-scale
     order: 19
     file: tasks/19-standardize-h2-scale.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      changed_paths:
+        - tools/dashboard/src/components/spec-detail.tsx
+      worktree_patch_fingerprint: 38c25f6fe23d1b4e0ba35e4b26ccbac9c9a44f81c3e93c8d62ca59544024ec93
+    self_check:
+      fingerprint: 3ad66c57dab6493c65516a6e8a21b94f1038e6b6fc27205913de16f44588574e
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: escape-key-closes-all-modals
     order: 20
     file: tasks/20-escape-key-closes-all-modals.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      changed_paths:
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+      worktree_patch_fingerprint: 1028d5a2fecb21e77af8787d68f2e439f8873ac1ba24211863755a2e1ece4ca0
+    self_check:
+      fingerprint: a49b69e8083c2fe98c40acd5dc49ab6c78d4b9377e512967d9f31a684a2a72f7
+      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+      status: passed
 
   - id: antigravity-diagnostics-and-turn-lifecycle
     order: 21

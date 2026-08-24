@@ -95,7 +95,7 @@ function TaskCard({
         )}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <Badge className={cn('border-0 px-2 py-0.5 text-[9px]', tone.tint)}>{formatStatus(task.status)}</Badge>
+        <Badge className={cn('border-0 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em]', tone.tint)}>{formatStatus(task.status)}</Badge>
         {task.dependsOn.length > 0 && (
           <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
             <GitBranch className="size-3" />
@@ -141,7 +141,7 @@ export function StatusBoard({
               <div className="mb-2 flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
                   <span className={cn('size-1.5 rounded-full', tone.dot)} />
-                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{lane.shortLabel}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">{lane.shortLabel}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {actionableTasks.length > 1 && firstAction && (

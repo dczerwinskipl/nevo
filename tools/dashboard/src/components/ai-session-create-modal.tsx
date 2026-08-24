@@ -53,6 +53,17 @@ export function AiSessionCreateModal({
     }
   }, [availableProviders, enabledProviders, provider]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !createSession.creating) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [createSession.creating, onClose]);
+
   const selectedProviderObj = enabledProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
 
@@ -119,8 +130,10 @@ export function AiSessionCreateModal({
           </div>
         ) : (
           <>
-            <label className="mt-6 block text-xs font-semibold">
-              Provider
+            <fieldset className="mt-6">
+              <legend className="text-xs font-semibold text-[var(--foreground)]">
+                Provider
+              </legend>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {enabledProviders.map((p) => {
                   const selected = provider === p.id;
@@ -129,6 +142,7 @@ export function AiSessionCreateModal({
                     <button
                       key={p.id}
                       type="button"
+                      aria-pressed={selected}
                       onClick={() => setProvider(p.id)}
                       title={!isAvail ? (p.unavailableReason || 'Brak CLI w systemie') : undefined}
                       className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
@@ -154,15 +168,18 @@ export function AiSessionCreateModal({
                   );
                 })}
               </div>
-            </label>
+            </fieldset>
 
-            <div className="mt-4">
-              <label className="block text-xs font-semibold">Tryb wykonania</label>
+            <fieldset className="mt-4">
+              <legend className="text-xs font-semibold text-[var(--foreground)]">
+                Tryb wykonania
+              </legend>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {AI_MODES.map((item) => (
                   <button
                     key={item.id}
                     type="button"
+                    aria-pressed={mode === item.id}
                     onClick={() => setMode(item.id)}
                     className={`flex flex-col items-start rounded-xl border p-2.5 text-left transition-all ${
                       mode === item.id
@@ -175,7 +192,7 @@ export function AiSessionCreateModal({
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
 
             <label className="mt-4 block text-xs font-semibold">
               Tytuł <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>

@@ -4,6 +4,7 @@ import {
   useNavigate,
   useLocation,
   useMatches,
+  useRouter,
 } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Menu, Radio } from 'lucide-react';
@@ -362,12 +363,19 @@ function SpecChatRouteComponent() {
     ) ?? null;
   }, [sessionsQuery.sessions, provider, providerSessionId]);
 
+  const router = useRouter();
+
   const handleBack = useCallback(() => {
-    navigate({
-      to: '/specs/$source/$slug',
-      params: { source, slug },
-    });
-  }, [navigate, slug, source]);
+    if (router.history.canGoBack?.() || (router.history.length > 1 && typeof (router.history as any).canGoBack !== 'function')) {
+      router.history.back();
+    } else {
+      navigate({
+        to: '/specs/$source/$slug',
+        params: { source, slug },
+        replace: true,
+      });
+    }
+  }, [navigate, router, slug, source]);
 
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
@@ -410,6 +418,33 @@ function SpecChatRouteComponent() {
   }
 
   if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
+
+  // Sessions Query Error
+  if (sessionsQuery.error) {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+        <StatusCard
+          variant="error"
+          title="Nie udało się wczytać sesji specyfikacji"
+          description={sessionsQuery.error}
+          onRetry={() => void sessionsQuery.refresh()}
+          retryLabel="Spróbuj ponownie"
+          className="w-full text-left"
+        >
+          <div className="mt-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2 text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={handleBack}
+            >
+              Wróć do specyfikacji
+            </Button>
+          </div>
+        </StatusCard>
+      </div>
+    );
+  }
 
   // Session Not Found in this spec
   if (sessionsQuery.data && !session) {

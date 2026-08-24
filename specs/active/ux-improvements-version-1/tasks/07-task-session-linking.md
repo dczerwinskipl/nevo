@@ -56,19 +56,11 @@ The task → session direction already works: `TaskDialog` (`spec-detail.tsx:144
    links. Both a single `chatOriginTaskId`-based back-button and a joined text string are
    incompatible with a session that names more than one task.
 
-`AiSessionRow` (`ai-session-list.tsx:73-96`) is the one shared component both entry points
-render through: `SpecDetail` via `AiSessionList` (`spec-detail.tsx`'s "Ostatnie rozmowy" panel
-and `TaskDialog`'s "Powiązane sesje" list), and `AppSidebar`, which imports and calls
-`AiSessionRow` directly (`app-sidebar.tsx:16,241`). `AppSidebar` today has no way to navigate
-to a task at all — it only wires `onOpen` (open the session) and `onDelete`. For the sidebar's
-sessions to expose working related-task links too (required by AC 2 below — "regardless of how
-the session was opened" includes sessions opened from the sidebar), `AppSidebar` needs to gain
-and forward a task-navigation callback, sourced from `App.tsx`.
+`AiSessionRow` (`ai-session-list.tsx:73-96`) is the shared component rendered through `SpecDetail` via `AiSessionList` (`spec-detail.tsx`'s "Ostatnie rozmowy" panel and `TaskDialog`'s "Powiązane sesje" list).
 
-Fix both: derive the session → task relationship from `session.taskId`/`taskIds` at every
-entry point (not from navigation history), and make each task in that collection its own
-clickable link — not one link, not joined text — in every place `AiSessionRow` renders,
-including `AppSidebar`.
+Fix both: derive the session → task relationship from `session.taskId`/`taskIds` at every entry point (not from navigation history), and make each task in that collection its own clickable link — not one link, not joined text — in every place `AiSessionRow` renders.
+
+> **Note (Owner Decision D6):** Global sidebar session rows and `App.tsx` state-based navigation ownership have been superseded by TanStack Router and strictly spec-scoped AI sessions. Task-session linking operates within spec and session views.
 
 ## Implementation constraints
 
@@ -94,23 +86,10 @@ including `AppSidebar`.
   on the shared `AiSessionRow` (e.g. an `onOpenTask(taskId)`-shaped prop — the exact name is
   an implementation detail) — not routing/navigation logic embedded inside `AiSessionRow`
   itself. `AiSessionRow` renders the links; it does not decide how navigating to a task works.
-- `App.tsx` remains the owner of navigation between main views. The actual behavior behind the
-  callback (selecting the right spec if it isn't already the open one, then opening that
-  task's detail) is implemented in `App.tsx` (or delegated by it to `SpecDetail`'s existing
-  `selectedTaskId` mechanism) — not duplicated ad hoc in `AppSidebar` or `AiSessionRow`.
-- Do not introduce a global event bus, a shared mutable navigation singleton, or any direct
-  dependency from `AiSessionRow`/`ai-session-list.tsx` on the router/history API — navigation
-  stays a prop passed down from whichever ancestor owns it.
-- Do not duplicate `AiSessionRow`'s row implementation to give `AppSidebar` its own
-  navigation-capable variant — `AppSidebar` continues to use the one shared component, now
-  also passing it the navigation callback.
-- The task-navigation callback prop must be optional on `AiSessionRow`. Every current call
-  site either passes a working callback (and gets working related-task links), or — if a
-  caller genuinely has no sensible way to navigate to a task — knowingly omits the callback,
-  in which case `AiSessionRow` must not render related-task links for that caller (no broken
-  links, no dead click targets). Concretely: `SpecDetail`'s own usages and `AppSidebar` must
-  both pass a working callback, since both have a task to navigate to within this task's
-  scope.
+- Per Owner Decision D6, TanStack Router owns route-level navigation, while `SpecDetail` /
+  `AiSessionList` provide the `onOpenTask` callback to open the task details dialog within the spec view.
+- The task-navigation callback prop must be optional on `AiSessionRow`. Callers that supply
+  it get clickable task links.
 
 ## Acceptance criteria
 
@@ -122,11 +101,8 @@ including `AppSidebar`.
    specifically by opening a task-bound session from a task-agnostic entry point (e.g. the
    "Ostatnie rozmowy" list), not only via one of its tasks' "Powiązane sesje" list.
    `inspection: open a task-bound session from the Ostatnie rozmowy list (not from one of its tasks), confirm every related-task link is present and correct`
-3. A task-bound session rendered via `AppSidebar`'s `AiSessionRow` usage
-   (`app-sidebar.tsx:241`) also exposes working related-task link(s), using the navigation
-   callback `AppSidebar` now receives from `App.tsx` — the sidebar is one of the entry points
-   AC 2 requires, not an exception to it.
-   `inspection: with the sidebar open, find a task-bound session, confirm its related-task link(s) work and navigate correctly`
+3. Per Owner Decision D6, sessions rendered in spec views (`SpecDetail`'s "Ostatnie rozmowy" and `TaskDialog`'s "Powiązane sesje") expose working related-task links. Obsolete sidebar session rows have been removed.
+   `inspection: find a task-bound session in the spec sessions list, confirm its related-task link(s) work and navigate correctly`
 4. A session bound to **multiple** tasks (`taskIds.length > 1`) exposes a working link to each
    one — not just the first, not a single ambiguous link.
    `inspection: create or find a session with 2+ taskIds, confirm each resolves to its own working link`

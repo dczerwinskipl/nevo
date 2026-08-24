@@ -141,23 +141,76 @@ test('5. Free/ad-hoc session (specId: null) has no dashboard route', () => {
   assert.ok(!routerSource.includes('/ai/sessions/'), 'Router must not have /ai/sessions/ route');
 });
 
-test('6. Back: /specs/:source/:slug/sessions/:provider/:providerSessionId -> Back navigates directly to parent /specs/:source/:slug', async () => {
+test('6. Back semantics Scenario A: spec -> chat -> app Back (history.back) -> spec -> browser Forward -> chat', async () => {
   const history = createMemoryHistory({
-    initialEntries: ['/', '/specs/active/foo/sessions/claude/session-42'],
+    initialEntries: ['/specs/active/spec-foo'],
   });
   const router = createAppRouter(history);
   await router.load();
 
-  assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/claude/session-42');
+  // Navigate to chat
+  await router.navigate({
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+    params: { source: 'active', slug: 'spec-foo', provider: 'claude', providerSessionId: 'sess-1' },
+  });
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-foo/sessions/claude/sess-1');
+  assert.equal(router.history.canGoBack(), true);
 
-  // Production Back action in SpecChatRouteComponent:
+  // App Back triggers router.history.back()
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-foo', 'Back returns to spec');
+
+  // Browser forward triggers router.history.forward()
+  router.history.forward();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-foo/sessions/claude/sess-1', 'Forward returns to chat');
+});
+
+test('6b. Back semantics Scenario B: direct chat deep link -> app Back fallback (replace: true) -> spec -> browser Back cannot reopen discarded chat', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/specs/active/spec-bar/sessions/claude/sess-99'],
+  });
+  const router = createAppRouter(history);
+  await router.load();
+
+  assert.equal(router.state.location.pathname, '/specs/active/spec-bar/sessions/claude/sess-99');
+  assert.equal(router.history.canGoBack(), false, 'Direct deep link has no prior in-app history');
+
+  // Fallback with replace: true
   await router.navigate({
     to: '/specs/$source/$slug',
-    params: { source: 'active', slug: 'foo' },
+    params: { source: 'active', slug: 'spec-bar' },
+    replace: true,
   });
   await router.load();
 
-  assert.equal(router.state.location.pathname, '/specs/active/foo', 'Back always navigates to parent spec');
+  assert.equal(router.state.location.pathname, '/specs/active/spec-bar');
+  assert.equal(history.length, 1, 'History was replaced, not pushed');
+  assert.equal(router.history.canGoBack(), false, 'Browser Back cannot resurrect discarded chat');
+});
+
+test('6c. Back semantics Scenario C: preceding legitimate Nevo screen (/archive) -> chat -> Back follows real history to /archive', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/archive'],
+  });
+  const router = createAppRouter(history);
+  await router.load();
+
+  await router.navigate({
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+    params: { source: 'active', slug: 'spec-baz', provider: 'antigravity', providerSessionId: 'sess-abc' },
+  });
+  await router.load();
+
+  assert.equal(router.state.location.pathname, '/specs/active/spec-baz/sessions/antigravity/sess-abc');
+  assert.equal(router.history.canGoBack(), true);
+
+  // App Back triggers history.back()
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/archive', 'Back follows real history to preceding screen');
 });
 
 test('7. Session creation: creating session for spec X navigates using returned provider and providerSessionId', async () => {
@@ -206,4 +259,15 @@ test('9. No reverse spec resolution: AiChatPage receives spec directly, without 
   assert.ok(aiChatSource.includes('spec: DashboardChange'), 'AiChatPage receives spec directly');
   assert.ok(!aiChatSource.includes('changes: DashboardChange[]'), 'AiChatPage must not receive changes array to reverse search');
   assert.ok(!aiChatSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
+});
+
+test('10. SpecChatRouteComponent: Explicit handling of sessionsQuery.error with StatusCard, retry and back fallback', () => {
+  const routerSource = readSource('router.tsx');
+
+  // Must handle sessionsQuery.error explicitly before fallthrough to LoadingScreen
+  assert.ok(routerSource.includes('if (sessionsQuery.error) {'), 'Explicit sessionsQuery.error branch');
+  assert.ok(routerSource.includes('Nie udało się wczytać sesji specyfikacji'), 'Error card title present');
+  assert.ok(routerSource.includes('sessionsQuery.refresh()'), 'Retry calls sessionsQuery.refresh');
+  assert.ok(routerSource.includes('router.history.canGoBack?.()'), 'Safe in-app history back check');
+  assert.ok(routerSource.includes('replace: true'), 'Fallback uses replace semantics');
 });
