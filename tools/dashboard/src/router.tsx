@@ -1,4 +1,4 @@
-﻿import {
+import {
   Outlet,
   Link,
   useNavigate,
@@ -450,12 +450,12 @@ function ChatRouteComponent() {
       const effectiveSessionId = session.providerSessionId || session.sessionId;
       navigate({
         to: '/ai/sessions/$provider/$sessionId',
-        params: { provider, sessionId },
+        params: { provider: session.provider, sessionId: effectiveSessionId },
         state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
         replace: true,
       });
     },
-    [historyState, navigate, sessionId]
+    [historyState, navigate]
   );
 
   const handleOpenTask = useCallback(

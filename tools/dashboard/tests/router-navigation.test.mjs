@@ -104,7 +104,7 @@ test('Finding 2 (TanStack Router): Task -> Chat -> Back preserves clean URLs and
   await router.navigate({
     to: '/specs/$source/$slug',
     params: { source: 'active', slug: 'ux-improvements-version-1' },
-    state: { restoreTaskId: '08-chat-follow-scroll' },
+    state: (prev) => ({ ...prev, restoreTaskId: '08-chat-follow-scroll' }),
     replace: true,
   });
 
@@ -112,12 +112,13 @@ test('Finding 2 (TanStack Router): Task -> Chat -> Back preserves clean URLs and
   await router.navigate({
     to: '/ai/sessions/$provider/$sessionId',
     params: { provider: 'claude', sessionId: 'sess-task-1' },
-    state: {
+    state: (prev) => ({
+      ...prev,
       origin: 'task',
       originTaskId: '08-chat-follow-scroll',
       originSpecSlug: 'ux-improvements-version-1',
       originSpecSource: 'active',
-    },
+    }),
   });
   assert.equal(router.state.location.pathname, '/ai/sessions/claude/sess-task-1');
   assert.equal(Object.keys(router.state.location.search).length, 0, 'Chat URL must not have originTaskId in search');
@@ -130,6 +131,43 @@ test('Finding 2 (TanStack Router): Task -> Chat -> Back preserves clean URLs and
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
   assert.equal(Object.keys(router.state.location.search).length, 0, 'Spec URL must remain clean on Back');
   assert.equal(router.state.location.state?.restoreTaskId, '08-chat-follow-scroll', 'Restores task via history state');
+});
+
+test('Finding 1 (Session Switching Regression): Active session A -> switch to session B -> route and state become session B', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/ai/sessions/claude/session-A'],
+  });
+  const router = createAppRouter(history);
+  await router.load();
+
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/session-A');
+
+  // Target session B with distinct provider and resolved effective session id
+  const targetSessionB = {
+    provider: 'gemini',
+    sessionId: 'session-B-internal-id',
+    providerSessionId: 'session-B-provider-id',
+  };
+
+  const effectiveSessionId = targetSessionB.providerSessionId || targetSessionB.sessionId;
+  await router.navigate({
+    to: '/ai/sessions/$provider/$sessionId',
+    params: { provider: targetSessionB.provider, sessionId: effectiveSessionId },
+    replace: true,
+  });
+
+  assert.equal(router.state.location.pathname, '/ai/sessions/gemini/session-B-provider-id');
+  const match = router.state.matches.find((m) => m.routeId === '/ai/sessions/$provider/$sessionId');
+  assert.equal(match?.params.provider, 'gemini');
+  assert.equal(match?.params.sessionId, 'session-B-provider-id');
+
+  // Verify router.tsx production source uses target session values, not active route closure
+  const routerSource = readSource('router.tsx');
+  assert.match(
+    routerSource,
+    /params:\s*\{\s*provider:\s*session\.provider,\s*sessionId:\s*effectiveSessionId\s*\}/,
+    'handleSwitchSession must navigate to selected session.provider and effectiveSessionId'
+  );
 });
 
 test('Finding 3 (TanStack Router): Direct deep link with canGoBack=false executes deterministic fallback', async () => {

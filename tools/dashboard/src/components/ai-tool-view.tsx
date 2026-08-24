@@ -26,12 +26,12 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
   };
 
   return (
-    <div className="my-2 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-xs shadow-xs">
+    <div className="my-2 w-full min-w-0 max-w-full rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-xs shadow-xs">
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-medium hover:bg-white/4"
+        className="flex w-full min-w-0 max-w-full items-center justify-between px-3 py-2 text-left font-medium hover:bg-white/4"
       >
         <div className="flex items-center gap-2 min-w-0">
           <Wrench className="size-3.5 shrink-0 text-[var(--accent)]" />
@@ -55,31 +55,31 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--border)] px-3 py-2 space-y-2">
-          <div>
+        <div className="border-t border-[var(--border)] px-3 py-2 space-y-2 min-w-0 max-w-full">
+          <div className="min-w-0 max-w-full">
             <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
               <Wrench className="size-3" /> Tool
             </p>
-            <p className="mt-1 font-mono text-[10px] text-[var(--muted-strong)]">{toolCall.name}</p>
+            <p className="mt-1 font-mono text-[10px] text-[var(--muted-strong)] break-words">{toolCall.name}</p>
           </div>
 
           {toolCall.input != null && (
-            <div>
+            <div className="min-w-0 max-w-full">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1">
                 <Code2 className="size-3" /> Wejście
               </p>
-              <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)]">
+              <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)] max-w-full whitespace-pre">
                 {formatPayload(toolCall.input)}
               </pre>
             </div>
           )}
 
           {toolCall.output != null && (
-            <div>
+            <div className="min-w-0 max-w-full">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1">
                 <Code2 className="size-3" /> Wynik
               </p>
-              <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)]">
+              <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-[var(--border)] bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-[var(--foreground)] max-w-full whitespace-pre">
                 {formatPayload(toolCall.output)}
               </pre>
             </div>

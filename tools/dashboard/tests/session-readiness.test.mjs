@@ -8,6 +8,17 @@ function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
 }
 
+// In-memory sessionStorage polyfill for Node test environment
+if (typeof globalThis.sessionStorage === 'undefined') {
+  const storageMap = new Map();
+  globalThis.sessionStorage = {
+    getItem: (key) => storageMap.get(key) ?? null,
+    setItem: (key, val) => storageMap.set(key, String(val)),
+    removeItem: (key) => storageMap.delete(key),
+    clear: () => storageMap.clear(),
+  };
+}
+
 // Minimal React-like lifecycle harness to test the initial prompt effect behaviorally
 class EffectHarness {
   constructor(effectFn, depsFn) {
@@ -72,7 +83,7 @@ test('Finding 1 (Store): Pending dispatch store creates and preserves stable ide
   assert.equal(pendingDispatchStore.getPending('claude', 'sess-100'), null);
 });
 
-test('Finding 1 (Behavioral): A dispatch starts -> unmount/navigate to B -> A POST succeeds -> remount A -> no second turn', async () => {
+test('Finding 1 & 2 (Behavioral): A dispatch starts -> unmount/navigate to B -> A POST succeeds -> remount A -> no second turn', async () => {
   pendingDispatchStore.clearAll();
 
   const provider = 'claude';
@@ -144,7 +155,7 @@ test('Finding 1 (Behavioral): A dispatch starts -> unmount/navigate to B -> A PO
   assert.equal(turnsDispatchedA.length, 1, 'Must NOT create a second logical turn upon remount');
 });
 
-test('Finding 1 (Behavioral): Failure + retry reuses the exact same logical submission idempotency key', async () => {
+test('Finding 2a (Behavioral): Failed initial dispatch -> production retryPending() -> successful dispatch with same idempotency key', async () => {
   pendingDispatchStore.clearAll();
 
   const provider = 'claude';
@@ -153,13 +164,14 @@ test('Finding 1 (Behavioral): Failure + retry reuses the exact same logical subm
 
   pendingDispatchStore.setPending(provider, sessionId, prompt);
 
-  const dispatchedKeys = [];
+  const dispatchedTurns = [];
   let shouldFail = true;
   let isReady = true;
   let submissionError = null;
+  let retryTrigger = 0;
 
   const mockSendTurn = async (text, opts) => {
-    dispatchedKeys.push(opts.idempotencyKey);
+    dispatchedTurns.push({ text, opts });
     if (shouldFail) {
       throw new Error('500 Internal Server Error');
     }
@@ -188,28 +200,92 @@ test('Finding 1 (Behavioral): Failure + retry reuses the exact same logical subm
     })();
   };
 
-  const harness = new EffectHarness(effectFn, () => [isReady, shouldFail]);
+  const harness = new EffectHarness(effectFn, () => [isReady, retryTrigger]);
 
   // Attempt 1: fails
   harness.run();
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(dispatchedKeys.length, 1);
+  assert.equal(dispatchedTurns.length, 1);
   assert.equal(submissionError, '500 Internal Server Error');
   const failedRecord = pendingDispatchStore.getPending(provider, sessionId);
   assert.equal(failedRecord?.status, 'failed');
 
-  // Attempt 2: user retries (e.g. status reset to pending or retry triggered)
+  // Attempt 2: user clicks "Ponów próbę" in UI, invoking production retryPending()
   shouldFail = false;
-  failedRecord.status = 'pending';
+  const retriedRecord = pendingDispatchStore.retryPending(provider, sessionId);
+  assert.equal(retriedRecord?.status, 'pending');
+  assert.equal(retriedRecord?.idempotencyKey, dispatchedTurns[0].opts.idempotencyKey, 'Must preserve stable idempotency key');
+
+  // Trigger retry in component lifecycle
+  retryTrigger++;
   harness.run();
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(dispatchedKeys.length, 2);
-  assert.equal(dispatchedKeys[0], dispatchedKeys[1], 'Retry MUST reuse the identical idempotency key');
+  assert.equal(dispatchedTurns.length, 2);
+  assert.equal(dispatchedTurns[0].opts.idempotencyKey, dispatchedTurns[1].opts.idempotencyKey, 'Retry MUST reuse the identical idempotency key');
   assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared upon success');
+});
+
+test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -> recovers to pending and dispatches exactly once', async () => {
+  pendingDispatchStore.clearAll();
+
+  const provider = 'claude';
+  const sessionId = 'session-crash-recovery';
+  const prompt = 'Prompt interrupted by page reload';
+
+  // 1. Initial page set pending and marked in-flight before crash
+  const record = pendingDispatchStore.setPending(provider, sessionId, prompt);
+  pendingDispatchStore.markInFlight(provider, sessionId);
+  assert.equal(record.status, 'in-flight');
+
+  // 2. Simulate page reload / new JS runtime by clearing memoryStore while leaving sessionStorage
+  pendingDispatchStore.clearAll();
+
+  // 3. New runtime loads pending dispatch for session
+  const recovered = pendingDispatchStore.getPending(provider, sessionId);
+  assert.ok(recovered, 'Must recover persisted dispatch');
+  assert.equal(recovered?.status, 'pending', 'Must safely transition persisted in-flight state to pending upon new runtime initialization');
+  assert.equal(recovered?.idempotencyKey, record.idempotencyKey, 'Must preserve original idempotency key');
+
+  // 4. New runtime dispatch lifecycle runs
+  const dispatched = [];
+  const mockSendTurn = async (text, opts) => {
+    dispatched.push({ text, opts });
+    return { ok: true };
+  };
+
+  let isReady = true;
+  const effectFn = () => {
+    if (!isReady) return;
+    const pending = pendingDispatchStore.getPending(provider, sessionId);
+    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
+
+    pendingDispatchStore.markInFlight(provider, sessionId);
+
+    (async () => {
+      try {
+        await mockSendTurn(pending.prompt, {
+          mode: 'agent',
+          idempotencyKey: pending.idempotencyKey,
+        });
+        pendingDispatchStore.clearPending(provider, sessionId);
+      } catch (err) {
+        pendingDispatchStore.markFailed(provider, sessionId, err.message);
+      }
+    })();
+  };
+
+  const harness = new EffectHarness(effectFn, () => [isReady]);
+  harness.run();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(dispatched.length, 1, 'Exactly one logical dispatch after recovery');
+  assert.equal(dispatched[0].opts.idempotencyKey, record.idempotencyKey);
+  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared after successful recovery');
 });
 
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
@@ -224,8 +300,24 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
   assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
 
-  // ai-chat.tsx uses pendingDispatchStore
+  // ai-chat.tsx uses pendingDispatchStore and retryPending
   assert.ok(aiChatSource.includes('pendingDispatchStore.getPending'));
   assert.ok(aiChatSource.includes('pendingDispatchStore.markInFlight'));
+  assert.ok(aiChatSource.includes('pendingDispatchStore.retryPending'));
   assert.ok(aiChatSource.includes('pendingDispatchStore.clearPending'));
+});
+
+test('Finding 3: Tool card layout and pre blocks are constrained to chat width and support horizontal scroll', () => {
+  const toolViewSource = readSource('components/ai-tool-view.tsx');
+  const workSummarySource = readSource('components/work/work-summary.tsx');
+  const chatMessageSource = readSource('components/conversation/chat-message.tsx');
+
+  // AiToolView is constrained with min-w-0 max-w-full and pre blocks use overflow-auto whitespace-pre
+  assert.ok(toolViewSource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(toolViewSource.includes('overflow-auto'));
+  assert.ok(toolViewSource.includes('whitespace-pre'));
+
+  // WorkSummary and ChatMessage containers allow flex shrinking with min-w-0 max-w-full
+  assert.ok(workSummarySource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(chatMessageSource.includes('w-full min-w-0 max-w-full'));
 });

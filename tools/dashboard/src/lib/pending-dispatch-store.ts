@@ -1,4 +1,4 @@
-﻿export interface PendingInitialDispatch {
+export interface PendingInitialDispatch {
   sessionKey: string; // `${provider}:${sessionId}`
   prompt: string;
   idempotencyKey: string;
@@ -76,6 +76,13 @@ export const pendingDispatchStore = {
     if (!record) {
       const fromDisk = loadFromStorage(sessionKey);
       if (fromDisk) {
+        // If a previous runtime persisted 'in-flight' and the page was reloaded/crashed,
+        // recover it to 'pending' so it can safely be dispatched/retried.
+        if (fromDisk.status === 'in-flight') {
+          fromDisk.status = 'pending';
+          fromDisk.error = null;
+          saveToStorage(fromDisk);
+        }
         memoryStore.set(sessionKey, fromDisk);
         record = fromDisk;
       }
@@ -104,6 +111,18 @@ export const pendingDispatchStore = {
       return record;
     }
     return null;
+  },
+
+  retryPending(provider: string, sessionId: string): PendingInitialDispatch | null {
+    const record = this.getPending(provider, sessionId);
+    if (record && (record.status === 'failed' || record.status === 'in-flight')) {
+      record.status = 'pending';
+      record.error = null;
+      memoryStore.set(record.sessionKey, record);
+      saveToStorage(record);
+      return record;
+    }
+    return record ?? null;
   },
 
   clearPending(provider: string, sessionId: string): void {

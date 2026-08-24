@@ -256,6 +256,16 @@ export function AiChatPage({
     };
   }, []);
 
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
+  const handleRetryInitialDispatch = useCallback(() => {
+    const retried = pendingDispatchStore.retryPending(provider, sessionId);
+    if (retried) {
+      setSubmissionError(null);
+      setRetryTrigger((c) => c + 1);
+    }
+  }, [provider, sessionId]);
+
   useEffect(() => {
     if (!isProviderAvailable || !assistant.isReady) return;
     const pending = pendingDispatchStore.getPending(provider, sessionId);
@@ -279,7 +289,7 @@ export function AiChatPage({
         }
       }
     })();
-  }, [assistant.isReady, assistant.sendTurn, currentMode, isProviderAvailable, provider, sessionId, sessionKey]);
+  }, [assistant.isReady, assistant.sendTurn, currentMode, isProviderAvailable, provider, sessionId, sessionKey, retryTrigger]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height
@@ -437,13 +447,27 @@ export function AiChatPage({
                   </p>
                   <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{submissionError}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSubmissionError(null)}
-                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
-                >
-                  Zamknij
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {pendingDispatchStore.getPending(provider, sessionId)?.status === 'failed' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleRetryInitialDispatch}
+                      className="h-7 gap-1.5 px-2.5 text-xs font-medium"
+                    >
+                      <RefreshCw className="size-3" />
+                      Ponów próbę
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionError(null)}
+                    className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
+                  >
+                    Zamknij
+                  </button>
+                </div>
               </div>
             )}
             {hasUnseenContent && !isFollowing && (

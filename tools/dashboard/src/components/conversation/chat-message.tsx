@@ -41,7 +41,11 @@ export function ChatMessage({ message, work, isStreaming = false }: ChatMessageP
       <div className={cn('w-full min-w-0 space-y-1.5 flex flex-col', user ? 'items-end' : 'items-start')}>
         {/* Work is a flat transcript row, never nested inside the prose card below —
             a turn with no prose renders Work directly with no card around it at all. */}
-        {work && <WorkSummary work={work} />}
+        {work && (
+          <div className="w-full min-w-0 max-w-full">
+            <WorkSummary work={work} />
+          </div>
+        )}
         {hasProse && (
           <div className={cn(
             'rounded-2xl px-4 py-3 text-sm leading-6',
