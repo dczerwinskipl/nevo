@@ -1,7 +1,7 @@
-import { AlertTriangle, Menu, Radio, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Menu, Radio } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
+import { AppSidebar } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
 import { AiChatPage } from '@/components/ai-chat';
@@ -12,6 +12,12 @@ import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
 import type { AiSession, DashboardChange, TaskNavigationTarget } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import {
+  type AppRoute,
+  type DashboardMode,
+  formatRoute,
+  parseRoute,
+} from '@/lib/router';
 
 function LoadingScreen() {
   return (
@@ -27,34 +33,58 @@ function LoadingScreen() {
   );
 }
 
-interface SessionRoute { provider: string; sessionId: string; turnId: string | null }
-
-function sessionRouteFromLocation(): SessionRoute | null {
-  const match = window.location.pathname.match(/^\/ai\/sessions\/([^/]+)\/([^/]+)$/);
-  if (!match) return null;
-  try {
-    return {
-      provider: decodeURIComponent(match[1]),
-      sessionId: decodeURIComponent(match[2]),
-      turnId: new URLSearchParams(window.location.search).get('turnId'),
-    };
-  } catch {
-    return null;
-  }
-}
-
 export default function App() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
-  const [mode, setMode] = useState<DashboardMode>('active');
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [route, setRoute] = useState<AppRoute>(() =>
+    parseRoute(window.location.pathname, window.location.search)
+  );
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sessionRoute, setSessionRoute] = useState<SessionRoute | null>(() => sessionRouteFromLocation());
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
-  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() => (typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null));
+  const [chatOriginTaskId, setChatOriginTaskId] = useState<string | null>(() =>
+    typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null
+  );
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
+
+  const navigate = useCallback((nextRoute: AppRoute, options: { replace?: boolean; originTaskId?: string | null } = {}) => {
+    const path = formatRoute(nextRoute);
+    const nextOrigin = options.originTaskId !== undefined
+      ? options.originTaskId
+      : (nextRoute.type === 'chat' ? chatOriginTaskId : null);
+    const historyState = {
+      nevoRoute: nextRoute,
+      originTaskId: nextOrigin,
+    };
+    if (options.replace) {
+      window.history.replaceState(historyState, '', path);
+    } else {
+      window.history.pushState(historyState, '', path);
+    }
+    setRoute(nextRoute);
+    if (options.originTaskId !== undefined) {
+      setChatOriginTaskId(options.originTaskId);
+    }
+    setSidebarOpen(false);
+  }, [chatOriginTaskId]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextRoute = parseRoute(window.location.pathname, window.location.search);
+      setRoute(nextRoute);
+      setChatOriginTaskId(
+        typeof window.history.state?.originTaskId === 'string'
+          ? window.history.state.originTaskId
+          : null
+      );
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const mode: DashboardMode = route.type === 'spec' ? route.source : route.type === 'dashboard' ? route.mode : 'active';
+  const selectedSlug: string | null = route.type === 'spec' ? route.slug : null;
 
   const source = mode === 'active' ? data?.active ?? [] : data?.archive ?? [];
   const filteredChanges = useMemo(() => {
@@ -64,88 +94,79 @@ export default function App() {
     );
   }, [source, search]);
 
-  const selected = useMemo(
-    () => source.find(change => change.slug === selectedSlug) ?? null,
-    [source, selectedSlug],
-  );
+  const selected = useMemo(() => {
+    if (route.type !== 'spec' || !data) return null;
+    return (
+      (route.source === 'active' ? data.active : data.archive).find((c) => c.slug === route.slug) ??
+      (route.source === 'active' ? data.archive : data.active).find((c) => c.slug === route.slug) ??
+      null
+    );
+  }, [data, route]);
 
-  const activeSlugs = useMemo(() => new Set((data?.active ?? []).map(item => item.slug)), [data?.active]);
-  const archiveSlugs = useMemo(() => new Set((data?.archive ?? []).map(item => item.slug)), [data?.archive]);
-
+  // Reconcile spec route if source (active/archive) is mismatching
   useEffect(() => {
-    if (!data) return;
-    if (mode === 'active' && data.active.length === 1) {
-      setSelectedSlug(data.active[0].slug);
-      return;
+    if (!data || route.type !== 'spec') return;
+    const inActive = data.active.some((c) => c.slug === route.slug);
+    const inArchive = data.archive.some((c) => c.slug === route.slug);
+    if (route.source === 'active' && !inActive && inArchive) {
+      navigate({ type: 'spec', source: 'archive', slug: route.slug }, { replace: true });
+    } else if (route.source === 'archive' && !inArchive && inActive) {
+      navigate({ type: 'spec', source: 'active', slug: route.slug }, { replace: true });
     }
-    if (selectedSlug && !source.some(change => change.slug === selectedSlug)) setSelectedSlug(null);
-  }, [data, mode, selectedSlug, source]);
-
-  useEffect(() => {
-    if (!selectedSlug) return;
-    if (mode === 'active' && !activeSlugs.has(selectedSlug)) {
-      if (archiveSlugs.has(selectedSlug)) setMode('archive');
-      else setSelectedSlug(null);
-    } else if (mode === 'archive' && !archiveSlugs.has(selectedSlug)) {
-      if (activeSlugs.has(selectedSlug)) setMode('active');
-      else setSelectedSlug(null);
-    }
-  }, [activeSlugs, archiveSlugs, mode, selectedSlug]);
-
-  useEffect(() => {
-    const restoreRoute = () => {
-      setSessionRoute(sessionRouteFromLocation());
-      setChatOriginTaskId(typeof window.history.state?.originTaskId === 'string' ? window.history.state.originTaskId : null);
-    };
-    window.addEventListener('popstate', restoreRoute);
-    return () => window.removeEventListener('popstate', restoreRoute);
-  }, []);
+  }, [data, route, navigate]);
 
   const changeMode = (nextMode: DashboardMode) => {
-    setMode(nextMode);
-    setSelectedSlug(null);
+    navigate({ type: 'dashboard', mode: nextMode });
     setSearch('');
   };
 
   const selectChange = (change: DashboardChange) => {
-    setSelectedSlug(change.slug);
-    setSidebarOpen(false);
+    navigate({ type: 'spec', source: change.source, slug: change.slug });
   };
 
-  const openSession = (session: AiSession, initialMessage: string | null = null, originTaskId?: string | null, replaceHistory = false) => {
-    const change = data?.active.find(item => item.specId === session.specId)
-      || data?.archive.find(item => item.specId === session.specId);
-    if (change) {
-      setMode(change.source);
-      setSelectedSlug(change.slug);
-    }
+  const openSession = (
+    session: AiSession,
+    initialMessage: string | null = null,
+    originTaskId?: string | null,
+    replaceHistory = false
+  ) => {
     const effectiveSessionId = session.providerSessionId || session.sessionId;
-    const path = `/ai/sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(effectiveSessionId)}`;
-    const nextOriginTaskId = originTaskId === undefined ? (sessionRoute ? chatOriginTaskId : null) : originTaskId;
-    const historyState = { nevoSession: true, provider: session.provider, sessionId: effectiveSessionId, originTaskId: nextOriginTaskId };
-    if (replaceHistory) window.history.replaceState(historyState, '', path);
-    else window.history.pushState(historyState, '', path);
-    setSessionRoute({ provider: session.provider, sessionId: effectiveSessionId, turnId: null });
+    const nextOrigin = originTaskId === undefined ? (route.type === 'chat' ? chatOriginTaskId : null) : originTaskId;
+    navigate(
+      { type: 'chat', provider: session.provider, sessionId: effectiveSessionId, turnId: null },
+      { replace: replaceHistory, originTaskId: nextOrigin }
+    );
     setPendingInitialMessage(initialMessage);
-    setChatOriginTaskId(nextOriginTaskId);
-    setSidebarOpen(false);
   };
 
   const updateTurnRoute = useCallback((turnId: string | null) => {
-    setSessionRoute(prev => {
-      if (!prev || prev.turnId === turnId) return prev;
-      const path = `/ai/sessions/${encodeURIComponent(prev.provider)}/${encodeURIComponent(prev.sessionId)}`;
-      const next = turnId ? `${path}?turnId=${encodeURIComponent(turnId)}` : path;
-      window.history.replaceState({ ...window.history.state, nevoSession: true, turnId }, '', next);
-      return { ...prev, turnId };
+    setRoute((prev) => {
+      if (prev.type !== 'chat' || prev.turnId === turnId) return prev;
+      const nextRoute: AppRoute = { ...prev, turnId };
+      const path = formatRoute(nextRoute);
+      window.history.replaceState({ ...window.history.state, nevoRoute: nextRoute, turnId }, '', path);
+      return nextRoute;
     });
   }, []);
 
   const leaveChat = useCallback(() => {
-    window.history.pushState({}, '', '/');
-    setSessionRoute(null);
+    if (route.type === 'chat' && data) {
+      const activeSession = globalSessions.sessions.find(
+        (s) => s.provider === route.provider && (s.providerSessionId === route.sessionId || s.sessionId === route.sessionId)
+      );
+      const specId = activeSession?.specId;
+      const associatedChange = specId
+        ? (data.active.find((c) => c.specId === specId) || data.archive.find((c) => c.specId === specId))
+        : null;
+      if (associatedChange) {
+        navigate({ type: 'spec', source: associatedChange.source, slug: associatedChange.slug });
+        setPendingInitialMessage(null);
+        return;
+      }
+    }
+    navigate({ type: 'dashboard', mode: 'active' });
     setPendingInitialMessage(null);
-  }, []);
+  }, [data, globalSessions.sessions, navigate, route]);
 
   const handleInitialMessageConsumed = useCallback(() => {
     setPendingInitialMessage(null);
@@ -155,28 +176,32 @@ export default function App() {
     const taskId = typeof target === 'string' ? target : target.taskId;
     const specSlug = typeof target === 'string' ? explicitSlug : (target.specSlug || explicitSlug);
 
-    if (specSlug) {
-      const change = data?.active.find(item => item.slug === specSlug)
-        || data?.archive.find(item => item.slug === specSlug);
+    if (specSlug && data) {
+      const change = data.active.find(item => item.slug === specSlug) || data.archive.find(item => item.slug === specSlug);
       if (change) {
-        setMode(change.source);
-        setSelectedSlug(change.slug);
+        navigate({ type: 'spec', source: change.source, slug: change.slug }, { originTaskId: taskId });
+        return;
       }
     }
-    leaveChat();
-    setChatOriginTaskId(taskId);
-    setSidebarOpen(false);
-  }, [data, leaveChat]);
+    if (data && taskId) {
+      const foundChange = [...data.active, ...data.archive].find(c => c.tasks.some(t => t.id === taskId));
+      if (foundChange) {
+        navigate({ type: 'spec', source: foundChange.source, slug: foundChange.slug }, { originTaskId: taskId });
+        return;
+      }
+    }
+    navigate({ type: 'dashboard', mode: 'active' }, { originTaskId: taskId });
+  }, [data, navigate]);
 
-  if (sessionRoute) {
+  if (route.type === 'chat') {
     if (loading && !data) return <LoadingScreen />;
     if (error && !data) return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
     return (
       <AiChatPage
-        key={`${sessionRoute.provider}:${sessionRoute.sessionId}`}
-        provider={sessionRoute.provider}
-        sessionId={sessionRoute.sessionId}
-        initialTurnId={sessionRoute.turnId}
+        key={`${route.provider}:${route.sessionId}`}
+        provider={route.provider}
+        sessionId={route.sessionId}
+        initialTurnId={route.turnId}
         initialMessage={pendingInitialMessage}
         onInitialMessageConsumed={handleInitialMessageConsumed}
         onTurnChange={updateTurnRoute}
@@ -196,11 +221,18 @@ export default function App() {
           <Button variant="secondary" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="Otwórz menu specyfikacji">
             <Menu className="size-4" />
           </Button>
-          <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[#101505]">N</div>
-          <div>
-            <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
-            <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">Specification console</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => navigate({ type: 'dashboard', mode: 'active' })}
+            className="flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
+            title="Przejdź do listy specyfikacji"
+          >
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[#101505]">N</div>
+            <div>
+              <p className="text-xs font-semibold text-[var(--foreground)]">NEvo Flow</p>
+              <p className="text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">Specification console</p>
+            </div>
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <div
@@ -233,8 +265,24 @@ export default function App() {
               className="w-full text-left"
             />
           </div>
-        ) : selected ? (
-          <SpecDetail change={selected} initialTaskId={chatOriginTaskId} onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)} onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }} />
+        ) : route.type === 'spec' && selected ? (
+          <SpecDetail
+            change={selected}
+            initialTaskId={chatOriginTaskId}
+            onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)}
+            onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }}
+          />
+        ) : route.type === 'spec' && data && !selected ? (
+          <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+            <StatusCard
+              variant="info"
+              title="Specyfikacja nie znaleziona"
+              description={`Nie znaleziono specyfikacji '${route.slug}'.`}
+              onRetry={() => navigate({ type: 'dashboard', mode: 'active' })}
+              retryLabel="Wróć do listy specyfikacji"
+              className="w-full text-left"
+            />
+          </div>
         ) : (
           <ListOverview mode={mode} changes={filteredChanges} onSelect={selectChange} />
         )}
@@ -266,10 +314,10 @@ export default function App() {
           onClose={() => setCreateSpecOpen(false)}
           onCreated={(spec, session, initialPrompt) => {
             setCreateSpecOpen(false);
-            setMode('active');
-            setSelectedSlug(spec.slug);
             if (session) {
               openSession(session, initialPrompt, null);
+            } else {
+              navigate({ type: 'spec', source: 'active', slug: spec.slug });
             }
           }}
         />
