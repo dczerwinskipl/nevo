@@ -1,14 +1,14 @@
 ---
 review-of: spec
 change: ux-improvements-version-1
-generated: 2026-08-23
+generated: 2026-08-24
 verdict: ready-for-approval
 ready_for_approval: true
 implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: 58ede787706f894662050d8686a1a1507f1121b745f333e6815c5c47831bceb5
+spec_fingerprint: 364f424e2de51c69ad1c7dfca6d143ae3549eb72ef75002c6c42b3036e8edf64
 task_fingerprints:
   design-tokens: 8617a7f1e2c8cf3903b7d4a2e11494fcb7d31835d6e576f50eddc37ec6c84904
   composer-alignment: 7bdcb1c958cdb9144cd80c141a65b44c28794d81a2b0f7fed033ed8951562f06
@@ -30,12 +30,11 @@ task_fingerprints:
   shared-status-label-component: 542f3a51daeed02373cdd1eb07ca12e89e4b5994ad354bd5b7c30950cc87a11f
   standardize-h2-scale: 3ad66c57dab6493c65516a6e8a21b94f1038e6b6fc27205913de16f44588574e
   escape-key-closes-all-modals: a49b69e8083c2fe98c40acd5dc49ab6c78d4b9377e512967d9f31a684a2a72f7
+  antigravity-diagnostics-and-turn-lifecycle: 41193ea84d0729c98fa0883ced8db1c00ffee36b60dabfd7fbf4bfc57f3a7594
 ---
 
-# Review: ux-improvements-version-1
+# Review: ux-improvements-version-1 (scope: task 21)
 
-- [x] Gating validation: passed (`node tools/specs.mjs validate`)
-- [x] Non-gating repository check: passed (`node tools/specs.mjs check`)
 - [x] No unresolved required fix
 - [x] No unresolved owner decision
 - [x] No unresolved clarification request

@@ -1,0 +1,8 @@
+version: 1
+
+adapters:
+  antigravity:
+    diagnostics:
+      raw_responses:
+        enabled: true
+        directory: .nevo-ai-local/antigravity_raw

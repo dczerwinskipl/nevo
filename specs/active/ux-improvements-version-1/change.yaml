@@ -343,6 +343,13 @@ tasks:
     file: tasks/20-escape-key-closes-all-modals.md
     status: approved
 
+  - id: antigravity-diagnostics-and-turn-lifecycle
+    order: 21
+    file: tasks/21-antigravity-diagnostics-and-turn-lifecycle.md
+    status: implemented
+    implementation:
+      baseline_revision: ef7a1223ee7f84539c447ed9edc91da6396b4bf6
+
 spec_id: e016307e-bf62-4906-80bf-5296de377db6
 pull_requests:
   - provider: github

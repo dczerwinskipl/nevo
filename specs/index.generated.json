@@ -1,6 +1,15 @@
 {
-  "generated": "2026-08-24T06:55:05.845Z",
+  "generated": "2026-08-24T07:52:41.814Z",
   "changes": [
+    {
+      "id": "ai-adapters-hardening",
+      "specId": "1dfdbdb5-db41-422b-963f-defd1ec6a1e4",
+      "title": "AI adapters hardening",
+      "status": "draft",
+      "priority": 10,
+      "created": "2026-08-24",
+      "tasks": []
+    },
     {
       "id": "deterministic-workflow-foundation",
       "specId": "11c1c495-7548-44ac-a63a-d868dd1b7507",
@@ -656,6 +665,15 @@
           "order": 20,
           "file": "tasks/20-escape-key-closes-all-modals.md",
           "status": "approved"
+        },
+        {
+          "id": "antigravity-diagnostics-and-turn-lifecycle",
+          "order": 21,
+          "file": "tasks/21-antigravity-diagnostics-and-turn-lifecycle.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "ef7a1223ee7f84539c447ed9edc91da6396b4bf6"
+          }
         }
       ]
     },

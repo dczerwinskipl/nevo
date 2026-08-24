@@ -79,9 +79,11 @@ package outside `tools/dashboard` consumes it.
 
 - `tools/dashboard` is self-contained; no external consumers, no public API/package-boundary
   concern (`tools/dashboard/package.json:3`).
-- No server/backend changes in this spec except where a fix is purely label/format, not logic
-  (owner decision D1, `owner-decisions.md`) — verified for every task in scope: none require a
-  `tools/dashboard/server/**` or `src/**` (core NEvo library) change.
+- Tasks 1-20 retain the original no-server/backend constraint from owner decision D1.
+  Owner decision D4 adds one narrowly scoped exception for task 21: repository-level AI
+  adapter diagnostics configuration and Antigravity lifecycle hardening in the explicitly
+  allowed root, `tools/ai/**`, and `tools/dashboard/server/**` paths. Core `src/**` remains
+  out of scope.
 - No new npm dependencies — every fix is CSS, markup, or component-composition.
 - New color tokens follow the one existing derivation precedent already in the codebase
   (`status-board.tsx:21`'s `color-mix(in srgb, var(--accent) 25%, transparent)` pattern), not
@@ -117,11 +119,14 @@ shape already used for `deterministic-workflow-foundation`.
 
 ## Owner decisions
 
-See `owner-decisions.md`: D1 (scope), D2 (mock provider ordering), D3 (area/task grouping).
+See `owner-decisions.md`: D1 (original UX scope), D2 (mock provider ordering), D3
+(area/task grouping), D4 (Antigravity diagnostics and minimal lifecycle hardening).
 
 ## Proposed architecture
 
-No architectural change. 20 independent, mostly-frontend-only fixes, decomposed into 6 areas
+No architectural change to the public/provider-neutral contracts. 20 independent,
+mostly-frontend-only fixes are supplemented by one focused Antigravity adapter hardening
+task. The work is decomposed into 7 areas
 mirroring the ux-review report's own themes, with the color-token task sequenced first since
 several later tasks (mock-provider badge, task-board columns) reuse its tokens or an already-
 existing neutral token.
@@ -139,11 +144,13 @@ existing neutral token.
   touch-target findings are covered by their `chat-and-sessions` counterparts).
 - `areas/typography-and-consistency.md` — shared status-label component, H2 scale,
   Escape-key consistency (3 tasks).
+- `areas/ai-adapters.md` — configurable Antigravity raw diagnostics and minimal lifecycle
+  hardening using the existing neutral contracts (1 task).
 
 ## Change-wide acceptance criteria
 
-- No task's `allowed_paths` includes `src/**` (core NEvo library), `tools/dashboard/server/**`,
-  or `tests/NEvo.*/**`.
+- No task's `allowed_paths` includes `src/**` (core NEvo library) or `tests/NEvo.*/**`.
+  Only task 21 may include `tools/dashboard/server/**`.
 - `npm --prefix tools/dashboard test` and `npm --prefix tools/dashboard run build` pass after
   each task.
 - Every task's fix is traceable to the specific finding ID(s) it resolves.
@@ -178,3 +185,6 @@ None — no durable architectural decision, no existing ADR superseded.
 - The "choose which active spec" picker screen — a newer dashboard surface not covered by the
   original review and not covered by this spec at all.
 - Area/path-to-area configuration authoring — unrelated to this spec's UI-only concern.
+- New provider-neutral detached/unknown tool states, resumable provider operation handles,
+  polling, and a cross-provider lifecycle redesign — recorded for discovery in the separate
+  `ai-adapters-hardening` draft.

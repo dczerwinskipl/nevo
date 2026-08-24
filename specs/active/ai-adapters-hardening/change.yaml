@@ -1,0 +1,9 @@
+# Specification manifest for ai-adapters-hardening
+id: ai-adapters-hardening
+title: "AI adapters hardening"
+type: architectural
+status: draft
+priority: 10
+created: 2026-08-24
+tasks: []
+spec_id: 1dfdbdb5-db41-422b-963f-defd1ec6a1e4

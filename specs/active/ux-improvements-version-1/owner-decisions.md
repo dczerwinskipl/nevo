@@ -65,3 +65,29 @@
 - **Decision:** Confirmed as proposed, no changes.
 - **Date:** 2026-08-19
 - **Affected artifacts:** `change.yaml`, `areas/*.md`, `tasks/*.md`.
+
+## D4: Antigravity diagnostics and minimal lifecycle hardening
+
+- **Question:** Should the current change include only the minimal Antigravity hardening
+  needed to stop ambiguous failed-tool turns from repeatedly requiring manual continuation,
+  or should it also introduce new provider-neutral detached/unknown statuses, operation
+  handles, and polling contracts?
+- **Options considered:** (A) add repository-level adapter diagnostics configuration,
+  preserve raw session/turn correlation, classify authoritative provider errors correctly,
+  remove the misleading `executed` fallback, and close process/raw-write ownership gaps
+  using the existing neutral contracts | (B) additionally extend the provider-neutral
+  contracts and UI with detached/unknown states, resumable operation handles, and polling
+- **Decision:** Implement option A in this change. Keep option B out of this implementation
+  and record the wider contracts/behaviours/edge-cases problem in a separate draft
+  specification named `ai-adapters-hardening`.
+- **Rationale:** The minimal hardening directly fixes the current UX interruption without
+  prematurely choosing a cross-provider contract. The broader design needs a dedicated
+  hardening specification.
+- **Consequences:** The earlier frontend-only restriction is narrowed for task 21: its
+  explicitly listed root configuration, `tools/ai/**`, `tools/dashboard/server/**`, tests,
+  and AI-session documentation are in scope. No new neutral tool status, browser contract,
+  operation handle, polling mechanism, or provider-history persistence is introduced.
+- **Date:** 2026-08-24
+- **Affected artifacts:** `overview.md`, `areas/ai-adapters.md`,
+  `tasks/21-antigravity-diagnostics-and-turn-lifecycle.md`, `ai-adapters.yaml`, Antigravity
+  adapter/server wiring, focused tests, and `docs/development/ai-sessions.md`.

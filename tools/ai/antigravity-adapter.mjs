@@ -92,6 +92,10 @@ export const ANTIGRAVITY_DESCRIPTOR = Object.freeze({
   defaultMode: 'edit',
 });
 
+const UNKNOWN_TOOL_RESULT_OUTPUT = 'Antigravity did not report a terminal result for this tool.';
+const COMPLETED_TOOL_WITHOUT_OUTPUT = 'Antigravity completed the tool without returning output.';
+const FAILED_TOOL_WITHOUT_OUTPUT = 'Antigravity reported a tool failure without details.';
+
 function resolveAgyExecutable(name) {
   if (!name || name === 'agy') {
     if (process.platform === 'win32') {
@@ -149,6 +153,7 @@ export class AntigravityAgentProvider {
   #probeExecutable;
   #rawCaptureDir;
   #rawCaptureEnabled;
+  #rawFlushTimeoutMs;
   #loggedCaptureSessions = new Set();
   #sessionWriteQueues = new Map();
   #sessionDirMap = new Map();
@@ -164,6 +169,7 @@ export class AntigravityAgentProvider {
     mappingFilePath = null,
     rawCaptureDir = null,
     rawCaptureEnabled = false,
+    rawFlushTimeoutMs = 2_000,
   } = {}) {
     this.#executable = resolveAgyExecutable(executable);
     this.#cwd = cwd;
@@ -173,6 +179,9 @@ export class AntigravityAgentProvider {
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
+    this.#rawFlushTimeoutMs = Number.isFinite(rawFlushTimeoutMs) && rawFlushTimeoutMs >= 0
+      ? rawFlushTimeoutMs
+      : 2_000;
     this.#rawCaptureDir = this.#rawCaptureEnabled
       ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'antigravity_raw'))
       : (rawCaptureDir ? resolve(rawCaptureDir) : null);
@@ -222,6 +231,47 @@ export class AntigravityAgentProvider {
     if (!sessionId) return;
     const queue = this.#sessionWriteQueues.get(sessionId);
     if (queue) await queue;
+  }
+
+  async #awaitRawCaptureBoundary(queue, label) {
+    if (!queue) return;
+    if (this.#rawFlushTimeoutMs === 0) {
+      await queue;
+      return;
+    }
+
+    let timer;
+    let timedOut = false;
+    await Promise.race([
+      Promise.resolve(queue),
+      new Promise(resolveTimeout => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolveTimeout();
+        }, this.#rawFlushTimeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (timedOut) {
+      console.warn(`[antigravity] [raw-capture] Timed out after ${this.#rawFlushTimeoutMs}ms while flushing ${label}; queued writes continue in the background.`);
+    }
+  }
+
+  async #flushRawCaptureBounded(sessionId) {
+    if (!sessionId) return;
+    await this.#awaitRawCaptureBoundary(
+      this.#sessionWriteQueues.get(sessionId),
+      `session ${sessionId}`,
+    );
+  }
+
+  async #flushAllRawCapture() {
+    const firstQueues = [...this.#sessionWriteQueues.values()];
+    await this.#awaitRawCaptureBoundary(Promise.allSettled(firstQueues), 'all sessions');
+    const finalQueues = [...this.#sessionWriteQueues.values()];
+    if (finalQueues.length !== firstQueues.length || finalQueues.some((queue, index) => queue !== firstQueues[index])) {
+      await this.#awaitRawCaptureBoundary(Promise.allSettled(finalQueues), 'final session writes');
+    }
   }
 
   #logCapturePathOnce(sessionId) {
@@ -421,6 +471,7 @@ export class AntigravityAgentProvider {
         isResolved: false,
         isDone: false,
         postResultTimer: null,
+        terminationPromise: null,
       };
 
       if (setOperation) setOperation(operation);
@@ -517,12 +568,36 @@ export class AntigravityAgentProvider {
         return reject(new AiError('AI_PROVIDER_SPAWN_ERROR', msg, { cause: err }));
       }
 
-      const settleAuthoritativeTerminal = ({ outcome = 'completed', error = null } = {}) => {
+      const childMayBeAlive = () => child
+        && child.exitCode == null
+        && child.signalCode == null;
+
+      const terminateOwnedChild = () => {
+        if (!childMayBeAlive()) return operation.terminationPromise || Promise.resolve();
+        operation.terminationPromise ??= terminateChildProcess(child, {
+          graceMs: this.#cancelGraceMs,
+          forceGraceMs: this.#forceGraceMs,
+        }).catch(() => ({ terminated: false, signal: null }));
+        return operation.terminationPromise;
+      };
+
+      const scheduleOwnedChildTermination = (delayMs = this.#cancelGraceMs) => {
+        if (!childMayBeAlive() || operation.postResultTimer) return;
+        operation.postResultTimer = setTimeout(() => {
+          operation.postResultTimer = null;
+          void terminateOwnedChild();
+        }, delayMs);
+      };
+
+      const settleAuthoritativeTerminal = async ({ outcome = 'completed', error = null } = {}) => {
         if (isResolved) return;
         isResolved = true;
         isDone = true;
         operation.isResolved = true;
         operation.isDone = true;
+
+        scheduleOwnedChildTermination();
+        await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
 
         if (outcome === 'failed') {
           reject(error || new AiError('AI_PROVIDER_ERROR', 'Antigravity turn failed.'));
@@ -534,28 +609,15 @@ export class AntigravityAgentProvider {
           });
         }
 
-        // Retain process ownership and initiate bounded graceful termination if child process has not exited yet
-        if (child && !child.killed && child.exitCode === null) {
-          operation.postResultTimer = setTimeout(() => {
-            if (child && child.exitCode === null) {
-              terminateChildProcess(child, {
-                graceMs: this.#cancelGraceMs,
-                forceGraceMs: this.#forceGraceMs,
-              }).catch(() => {});
-            }
-          }, this.#cancelGraceMs);
-        }
+        // The operation stays owned until process close. The timer above already applies
+        // the existing bounded termination policy if Antigravity does not exit.
       };
 
-      const finishTurn = () => {
-        settleAuthoritativeTerminal({ outcome: 'completed' });
-      };
+      const finishTurn = () => settleAuthoritativeTerminal({ outcome: 'completed' });
 
-      const failAuthoritativeTerminal = (err) => {
-        settleAuthoritativeTerminal({ outcome: 'failed', error: err });
-      };
+      const failAuthoritativeTerminal = (err) => settleAuthoritativeTerminal({ outcome: 'failed', error: err });
 
-      const failTurn = (err) => {
+      const failTurn = async (err) => {
         if (isResolved) return;
         isResolved = true;
         isDone = true;
@@ -565,7 +627,8 @@ export class AntigravityAgentProvider {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
         }
-        this.#activeOperations.delete(turnId);
+        void terminateOwnedChild();
+        await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
         reject(err);
       };
 
@@ -577,10 +640,7 @@ export class AntigravityAgentProvider {
             operation.postResultTimer = null;
           }
           if (child) {
-            terminateChildProcess(child, {
-              graceMs: this.#cancelGraceMs,
-              forceGraceMs: this.#forceGraceMs,
-            }).catch(() => {});
+            void terminateOwnedChild();
           }
         }, { once: true });
       }
@@ -640,8 +700,10 @@ export class AntigravityAgentProvider {
                 });
               }
             } else if (payload.state === 'DONE' || payload.state === 'ERROR' || payload.state === 'COMPLETED') {
-              const output = payload.tool_info?.output || (payload.tool_info?.error ? payload.tool_info.error.message : payload.output || 'executed');
               const status = payload.state === 'ERROR' || payload.is_error ? 'failed' : 'completed';
+              const output = payload.tool_info?.output
+                || (payload.tool_info?.error ? payload.tool_info.error.message : payload.output)
+                || (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
               if (emitToolCompleted) {
                 emitToolCompleted({
                   toolId,
@@ -715,12 +777,16 @@ export class AntigravityAgentProvider {
           case 'tool.completed':
           case 'tool_use_result': {
             const toolId = raw.toolId || raw.tool_use_id || activeTool?.id;
-            const output = raw.output ?? raw.content ?? raw.result ?? 'executed';
+            const status = raw.is_error || raw.status === 'failed' ? 'failed' : 'completed';
+            const output = raw.output
+              ?? raw.content
+              ?? raw.result
+              ?? (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
             if (toolId && emitToolCompleted) {
               emitToolCompleted({
                 toolId,
                 output,
-                status: raw.is_error || raw.status === 'failed' ? 'failed' : 'completed',
+                status,
                 durationMs: raw.durationMs,
               });
             }
@@ -769,12 +835,13 @@ export class AntigravityAgentProvider {
               // own real terminal outcome is not evidence it succeeded (owner-decisions.md
               // D6) — resolves to 'failed', not 'completed'.
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
+                emitToolCompleted({ toolId: activeTool.id, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
               }
               activeTool = null;
             }
             const finalText = extractFinalResponse(raw);
-            if (finalText) {
+            const hasFinalResponse = typeof finalText === 'string' && finalText.trim().length > 0;
+            if (hasFinalResponse) {
               if (!accumulatedText) {
                 sendTextDelta(finalText);
               } else if (finalText === accumulatedText) {
@@ -800,10 +867,10 @@ export class AntigravityAgentProvider {
             const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
             const isTerminalError = statusIndicatesError || explicitErrorFlag;
 
-            if (isTerminalError && !accumulatedText && !finalText) {
+            if (isTerminalError && !hasFinalResponse) {
               const rawErr = payload?.error ?? raw.error;
               const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
-              failAuthoritativeTerminal(new AiError('AI_PROVIDER_ERROR', errorMessage));
+              await failAuthoritativeTerminal(new AiError('AI_PROVIDER_ERROR', errorMessage));
               break;
             }
 
@@ -811,13 +878,13 @@ export class AntigravityAgentProvider {
             if (pendingInteractionPromise) {
               pendingInteractionPromise.then(() => finishTurn()).catch(err => failTurn(err));
             } else {
-              finishTurn();
+              await finishTurn();
             }
             break;
           }
 
           case 'error': {
-            failTurn(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
+            await failTurn(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
             break;
           }
 
@@ -849,7 +916,7 @@ export class AntigravityAgentProvider {
               if (isDone || isResolved) return;
               return processLine(line);
             }).catch(err => {
-              failTurn(err);
+              void failTurn(err);
             });
           }
         }
@@ -874,11 +941,13 @@ export class AntigravityAgentProvider {
         console.warn(`[antigravity] [stderr] ${text.trim()}`);
       });
 
-      child.on('error', err => {
+      child.on('error', async err => {
         if (operation.postResultTimer) {
           clearTimeout(operation.postResultTimer);
           operation.postResultTimer = null;
         }
+        await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
+
         if (isResolved) {
           this.#activeOperations.delete(turnId);
           return;
@@ -886,7 +955,7 @@ export class AntigravityAgentProvider {
         const msg = err.code === 'ENOENT'
           ? `Antigravity CLI ('${this.#executable}') not found. Ensure Antigravity CLI ('agy') is installed and available in PATH.`
           : `Antigravity process error: ${err.message}`;
-        failTurn(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
+        await failTurn(new AiError('AI_PROVIDER_PROCESS_ERROR', msg, { cause: err }));
       });
 
       child.on('close', async exitCode => {
@@ -925,6 +994,8 @@ export class AntigravityAgentProvider {
           this.#logCapturePathOnce(effectiveSessionId);
         }
 
+        await this.#flushRawCaptureBounded(currentSessionId || effectiveSessionId);
+
         if (isResolved) {
           this.#activeOperations.delete(turnId);
           return;
@@ -959,7 +1030,7 @@ export class AntigravityAgentProvider {
 
         if (activeTool) {
           if (emitToolCompleted) {
-            emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
+            emitToolCompleted({ toolId: activeTool.id, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
           }
           activeTool = null;
         }
@@ -981,7 +1052,7 @@ export class AntigravityAgentProvider {
           return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }
 
-        finishTurn();
+        await finishTurn();
         this.#activeOperations.delete(turnId);
       });
 
@@ -997,7 +1068,7 @@ export class AntigravityAgentProvider {
         child.stdin.write(payload + '\n');
         child.stdin.end();
       } catch (err) {
-        failTurn(new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, { cause: err }));
+        void failTurn(new AiError('AI_PROVIDER_WRITE_ERROR', `Failed to write to Antigravity stdin: ${err.message}`, { cause: err }));
       }
     });
   }
@@ -1032,6 +1103,25 @@ export class AntigravityAgentProvider {
       }
     }
     return { cancelled: true };
+  }
+
+  async dispose() {
+    const operations = [...this.#activeOperations.values()];
+    await Promise.allSettled(operations.map(async operation => {
+      operation.cancelled = true;
+      if (operation.postResultTimer) {
+        clearTimeout(operation.postResultTimer);
+        operation.postResultTimer = null;
+      }
+      const child = operation.child;
+      if (!child) return;
+      operation.terminationPromise ??= terminateChildProcess(child, {
+        graceMs: this.#cancelGraceMs,
+        forceGraceMs: this.#forceGraceMs,
+      });
+      await operation.terminationPromise;
+    }));
+    await this.#flushAllRawCapture();
   }
 
   async respondInteraction(providerSessionId, interactionId, response) {
