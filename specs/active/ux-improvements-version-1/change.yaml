@@ -344,3 +344,8 @@ tasks:
     status: approved
 
 spec_id: e016307e-bf62-4906-80bf-5296de377db6
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 38
