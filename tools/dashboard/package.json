@@ -20,6 +20,7 @@
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-slot": "^1.3.3",
     "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-router": "^1.170.32",
     "@yornaath/batshit": "^0.14.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -30,7 +31,8 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "usehooks-ts": "^3.1.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

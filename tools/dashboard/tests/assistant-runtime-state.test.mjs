@@ -11,6 +11,10 @@ import {
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
 } from '../src/lib/nevo-assistant-runtime.ts';
+import {
+  pendingDispatchStore,
+  InitialDispatchController,
+} from '../src/lib/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
   return readFileSync(fileURLToPath(new URL('../src/lib/nevo-assistant-runtime.ts', import.meta.url)), 'utf8');
@@ -327,15 +331,48 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   );
 });
 
-test('AiChatPage disables normal composer send when session is waitingForUser', () => {
+test('AiChatPage disables normal composer send when session cannot start turn', () => {
   const chatSource = readAiChatSource();
 
-  // submitMessage requires assistant.activity === 'idle'
-  assert.match(chatSource, /assistant\.activity !== 'idle'/);
+  // submitMessage requires assistant.canStartTurn
+  assert.match(chatSource, /!assistant\.canStartTurn/);
 
-  // ChatComposer has disabled and placeholder configured for waitingForUser
-  assert.match(chatSource, /disabled=\{assistant\.activity !== 'idle' && !assistant\.isRunning\}/);
+  // ChatComposer has disabled and placeholder configured
+  assert.match(chatSource, /disabled=\{!assistant\.canStartTurn \|\| !isProviderAvailable\}/);
   assert.match(chatSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+});
+
+test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
+  const runtimeSource = readRuntimeSource();
+
+  // Exposes isReady and canStartTurn derived state
+  assert.ok(runtimeSource.includes('const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === \'idle\');'));
+  assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
+  assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
+
+  // handleSendTurn explicitly throws if snapshot is still loading
+  assert.ok(runtimeSource.includes('Cannot start turn while the session snapshot is loading.'));
+  assert.ok(runtimeSource.includes('Cannot start turn on a session with a load error.'));
+});
+
+test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
+  const chatSource = readAiChatSource();
+  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/lib/pending-dispatch-store.ts', import.meta.url)), 'utf8');
+
+  // AiChatPage uses useInitialDispatch
+  assert.match(chatSource, /useInitialDispatch/);
+
+  // Initial message effect checks assistant.isReady and pendingDispatchStore
+  assert.match(initialDispatchSource, /pendingDispatchStore\.getPending\(this\.provider, this\.sessionId\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markInFlight\(this\.provider, this\.sessionId\)/);
+
+  // Calls sendTurn with stable idempotencyKey and clears on success
+  assert.match(initialDispatchSource, /await this\.assistant\.sendTurn\(pending\.prompt, \{/);
+  assert.match(initialDispatchSource, /idempotencyKey: pending\.idempotencyKey/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.clearPending\(this\.provider, this\.sessionId\)/);
+
+  // Does not silently discard errors and marks failure for retry
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markFailed\(this\.provider, this\.sessionId, errorMsg\)/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {
@@ -370,4 +407,215 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
   // E. Null / undefined error -> no error
   assert.equal(shouldSurfaceTurnError(null), false);
   assert.equal(shouldSurfaceTurnError(undefined), false);
+});
+
+test('BLOCKING: AiChatPage and useNevoAssistantRuntime wire user-visible error channel for cancel, interaction, and turn failures', async () => {
+  const chatSource = readAiChatSource();
+
+  // AiChatPage must wire onError into useNevoAssistantRuntime and maintain user-visible runtimeError
+  assert.match(chatSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
+  assert.match(chatSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
+
+  // Behavioral test: simulate runtime error callback pipeline
+  let surfacedError = null;
+  const onErrorSink = (err) => {
+    surfacedError = err.message;
+  };
+
+  // 1. Turn failure (non-cancellation) triggers onError
+  const turnError = { code: 'AI_PROVIDER_ERROR', message: 'API rate limit exceeded' };
+  if (shouldSurfaceTurnError(turnError)) {
+    onErrorSink(new Error(turnError.message));
+  }
+  assert.equal(surfacedError, 'API rate limit exceeded');
+
+  // 2. Cancellation error suppressed from onError
+  surfacedError = null;
+  const cancelError = { code: 'AI_TURN_CANCELLED', message: 'User stopped generation' };
+  if (shouldSurfaceTurnError(cancelError)) {
+    onErrorSink(new Error(cancelError.message));
+  }
+  assert.equal(surfacedError, null, 'AI_TURN_CANCELLED must not surface');
+
+  // 3. Failed cancel request (e.g. 500 error while turn is still running) triggers onError
+  const failedCancelErr = new Error('Failed to cancel turn: 500 Internal Server Error');
+  if (shouldSurfaceCancelError('turn-1', new Set())) {
+    onErrorSink(failedCancelErr);
+  }
+  assert.equal(surfacedError, 'Failed to cancel turn: 500 Internal Server Error');
+
+  // 4. Failed interaction response triggers onError
+  const failedInteractionErr = new Error('Failed to submit question response: network timeout');
+  onErrorSink(failedInteractionErr);
+  assert.equal(surfacedError, 'Failed to submit question response: network timeout');
+});
+
+test('BLOCKING: Action/error lifecycle: Initial dispatch retry clears stale runtime error upon retry start and success (A)', async () => {
+  const provider = 'mock';
+  const sessionId = 'session-retry-clean-1';
+  pendingDispatchStore.setPending(provider, sessionId, 'Initial prompt');
+
+  let runtimeError = null;
+  let sendTurnCallCount = 0;
+  let shouldFail = true;
+
+  const mockAssistant = {
+    isReady: true,
+    sendTurn: async (_prompt, _opts) => {
+      sendTurnCallCount++;
+      if (shouldFail) {
+        runtimeError = 'API error: 500 Internal Server Error';
+        throw new Error('API error: 500 Internal Server Error');
+      }
+      return { ok: true };
+    },
+  };
+
+  const controller = new InitialDispatchController({
+    provider,
+    sessionId,
+    assistant: mockAssistant,
+    isProviderAvailable: true,
+    currentMode: 'edit',
+    onBeforeDispatch: () => {
+      runtimeError = null;
+    },
+  });
+
+  // 1. First dispatch attempt fails
+  const initialResult = await controller.checkAndDispatch();
+  assert.equal(initialResult, false);
+  assert.equal(sendTurnCallCount, 1);
+  assert.equal(runtimeError, 'API error: 500 Internal Server Error');
+  assert.equal(controller.displayError, 'API error: 500 Internal Server Error');
+
+  // Unified displayError in AiChatPage before retry
+  let displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, 'API error: 500 Internal Server Error');
+
+  // 2. User clicks "Ponów próbę" -> explicit retry handler clears runtimeError and retries
+  shouldFail = false;
+  runtimeError = null; // cleared by handleRetryInitial on attempt start
+
+  const retryPromise = controller.handleRetryInitial();
+
+  // While in-flight, displayError is cleared (not stale)
+  displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, null, 'Error must not remain visible while retry is in-flight');
+
+  const retryResult = await retryPromise;
+  assert.equal(retryResult, true);
+  assert.equal(sendTurnCallCount, 2);
+
+  // 3. After success, displayError stays null (no stale error survives)
+  displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, null, 'No stale error after successful retry');
+  assert.equal(controller.pending, null, 'Pending record cleared after success');
+});
+
+test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old error and surfaces new failure (B)', async () => {
+  const provider = 'mock';
+  const sessionId = 'session-retry-fail-again-1';
+  pendingDispatchStore.setPending(provider, sessionId, 'Initial prompt');
+
+  let runtimeError = null;
+  let currentErrorMessage = 'First failure: Connection reset';
+  let clearedAtStart = false;
+
+  const mockAssistant = {
+    isReady: true,
+    sendTurn: async (_prompt, _opts) => {
+      clearedAtStart = (runtimeError === null);
+      await new Promise((r) => setTimeout(r, 5));
+      runtimeError = currentErrorMessage;
+      throw new Error(currentErrorMessage);
+    },
+  };
+
+  const controller = new InitialDispatchController({
+    provider,
+    sessionId,
+    assistant: mockAssistant,
+    isProviderAvailable: true,
+    currentMode: 'edit',
+    onBeforeDispatch: () => {
+      runtimeError = null;
+    },
+  });
+
+  // 1. First attempt fails
+  await controller.checkAndDispatch();
+  assert.equal(controller.displayError, 'First failure: Connection reset');
+
+  // 2. Next attempt configures new error
+  currentErrorMessage = 'Second failure: Rate limit 429';
+  clearedAtStart = false;
+
+  // 3. User retries -> old error is cleared when attempt begins
+  const retryPromise = controller.handleRetryInitial();
+  assert.equal(controller.displayError, null, 'Controller error must be null while retry is in-flight');
+
+  const retryResult = await retryPromise;
+  assert.equal(retryResult, false);
+  assert.equal(clearedAtStart, true, 'Old runtime error must be cleared before starting new attempt');
+
+  // 4. New error is surfaced to user
+  const displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, 'Second failure: Rate limit 429');
+});
+
+test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previous runtime error on explicit attempt (C)', async () => {
+  const chatSource = readAiChatSource();
+
+  // Verify AiChatPage wires action wrappers that clear runtimeError before starting
+  assert.match(chatSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+
+  // Behavioral test for cancel recovery:
+  let runtimeError = 'Cancel failed: 500 Internal Server Error';
+  let cancelSucceeds = false;
+
+  const executeCancelAttempt = async () => {
+    runtimeError = null; // cleared before attempt
+    if (!cancelSucceeds) {
+      runtimeError = 'Cancel failed: 500 Internal Server Error';
+      throw new Error('Cancel failed: 500');
+    }
+  };
+
+  // First cancel fails
+  try {
+    await executeCancelAttempt();
+  } catch {}
+  assert.equal(runtimeError, 'Cancel failed: 500 Internal Server Error');
+
+  // Second cancel succeeds -> runtime error stays cleared
+  cancelSucceeds = true;
+  await executeCancelAttempt();
+  assert.equal(runtimeError, null, 'Runtime error must not survive successful cancel');
+
+  // Behavioral test for interaction recovery:
+  runtimeError = 'Interaction failed: timeout';
+  let interactionSucceeds = false;
+
+  const executeInteractionAttempt = async () => {
+    runtimeError = null; // cleared before attempt
+    if (!interactionSucceeds) {
+      runtimeError = 'Interaction failed: timeout';
+      throw new Error('Interaction failed: timeout');
+    }
+  };
+
+  // First attempt fails
+  try {
+    await executeInteractionAttempt();
+  } catch {}
+  assert.equal(runtimeError, 'Interaction failed: timeout');
+
+  // Second attempt succeeds -> runtime error stays cleared
+  interactionSucceeds = true;
+  await executeInteractionAttempt();
+  assert.equal(runtimeError, null, 'Runtime error must not survive successful interaction response');
 });

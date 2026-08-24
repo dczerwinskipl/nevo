@@ -120,7 +120,7 @@ export function DirectorySectionPanel({
 
   if (selectedDoc) {
     return (
-      <div>
+      <div className="w-full min-w-0 max-w-full">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <Button
             variant="ghost"
@@ -146,7 +146,7 @@ export function DirectorySectionPanel({
         ) : documentQuery.error ? (
           <ContentError message={documentQuery.error} onRetry={() => void documentQuery.refresh()} />
         ) : (
-          <Card className="overflow-hidden">
+          <Card className="w-full min-w-0 max-w-full overflow-hidden">
             <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
                 {section.singularLabel || section.label}
@@ -155,7 +155,7 @@ export function DirectorySectionPanel({
                 {selectedDoc.title}
               </h2>
             </div>
-            <article className="px-5 py-7 sm:px-8 sm:py-9">
+            <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
               <MarkdownContent markdown={documentQuery.data?.markdown ?? ''} />
             </article>
           </Card>

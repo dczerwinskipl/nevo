@@ -147,12 +147,12 @@ export function WorkSummary({ work }: WorkSummaryProps) {
     // independent, so `severity` is surfaced here even while still 'current'.
     const visibleItems = visibleWorkItemsWhileRunning(work, expanded);
     return (
-      <div className="my-1.5 space-y-1">
+      <div className="my-1.5 w-full min-w-0 max-w-full space-y-1">
         {priorCount > 0 && (
           <WorkCollapsedSummary count={priorCount} severity={work.severity} expanded={expanded} onToggle={toggleExpanded} />
         )}
         {visibleItems.length > 0 && (
-          <div className="space-y-1.5 pl-1">
+          <div className="w-full min-w-0 max-w-full space-y-1.5 pl-1">
             {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
           </div>
         )}
@@ -171,10 +171,10 @@ export function WorkSummary({ work }: WorkSummaryProps) {
   const visibleItems = visibleWorkItemsWhenTerminal(work, expanded);
 
   return (
-    <div className="my-1.5 space-y-1">
+    <div className="my-1.5 w-full min-w-0 max-w-full space-y-1">
       <WorkCollapsedSummary count={work.items.length} severity={work.severity} expanded={expanded} onToggle={toggleExpanded} />
       {visibleItems.length > 0 && (
-        <div className="space-y-1.5 pl-1">
+        <div className="w-full min-w-0 max-w-full space-y-1.5 pl-1">
           {visibleItems.map(item => <AiToolView key={item.toolId} toolCall={toToolCall(item)} />)}
         </div>
       )}

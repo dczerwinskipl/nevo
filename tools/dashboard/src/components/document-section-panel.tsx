@@ -77,11 +77,11 @@ export function DocumentSectionPanel({
   }
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="w-full min-w-0 max-w-full overflow-hidden">
       <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-3 text-[10px] text-[var(--muted)] sm:px-8">
         {documentQuery.data.path || fallbackPath || docId}
       </div>
-      <article className="px-5 py-7 sm:px-8 sm:py-9">
+      <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
         <MarkdownContent markdown={documentQuery.data.markdown} />
       </article>
     </Card>

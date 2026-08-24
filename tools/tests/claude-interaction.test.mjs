@@ -545,7 +545,7 @@ for (const mode of ['ask', 'edit', 'agent']) {
       assert.equal(capturedCalls.length, 3);
       assert.equal(capturedCalls[2].args[capturedCalls[2].args.indexOf('--permission-mode') + 1], expectedFlag);
     } finally {
-      await rm(tmpBase, { recursive: true, force: true });
+      await rm(tmpBase, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
   });
 }
@@ -668,7 +668,7 @@ for (const [turnMode, updatedSessionPref, expectedResumedFlag] of [
       assert.equal(capturedCalls.length, 2);
       assert.equal(capturedCalls[1].args[capturedCalls[1].args.indexOf('--permission-mode') + 1], expectedResumedFlag);
     } finally {
-      await rm(tmpBase, { recursive: true, force: true });
+      await rm(tmpBase, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
   });
 }

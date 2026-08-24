@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Bot,
+  CheckSquare,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -10,7 +11,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import type { AiSession, DashboardTask } from '@/lib/types';
+import type { AiSession, DashboardTask, TaskNavigationTarget } from '@/lib/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
@@ -39,10 +40,10 @@ export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
   });
 }
 
-function statusLabel(status: AiSession['status']) {
-  if (status === 'running') return 'W toku';
-  if (status === 'waitingForUser') return 'Czeka na Ciebie';
-  return 'Bezczynna';
+import { StatusLabel, formatSessionStatus } from '@/components/status-label';
+
+export function statusLabel(status: AiSession['status']) {
+  return formatSessionStatus(status);
 }
 
 export function ProviderBadge({ provider }: { provider: string }) {
@@ -70,16 +71,22 @@ export function ProviderBadge({ provider }: { provider: string }) {
 
 export function AiSessionRow({
   session,
-  tasks,
+  tasks = [],
   onOpen,
   onDelete,
+  onOpenTask,
   compact = false,
+  showSubtitle = true,
+  showDelete = true,
 }: {
   session: AiSession;
-  tasks: DashboardTask[];
+  tasks?: DashboardTask[];
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   compact?: boolean;
+  showSubtitle?: boolean;
+  showDelete?: boolean;
 }) {
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === session.provider);
@@ -91,42 +98,51 @@ export function AiSessionRow({
     : session.taskId
     ? [session.taskId]
     : [];
-  const linked = taskList.map((taskId) => tasks.find((task) => task.id === taskId)?.title || taskId);
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
+
+  const effectiveSessionId = session.providerSessionId || session.sessionId;
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(session)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (!target?.closest('button, a, input, textarea, select')) {
           onOpen(session);
         }
       }}
       className={cn(
-        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left outline-none transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-pointer',
+        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] cursor-pointer',
         compact ? 'p-3' : 'p-4'
       )}
     >
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
+      <button
+        type="button"
+        onClick={() => onOpen(session)}
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
+      >
         <MessagesSquare className="size-4" />
-      </div>
+      </button>
       <div className="min-w-0 flex-1 pr-6">
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-sm font-semibold text-[var(--foreground)]">{sessionTitle(session)}</p>
+        <button
+          type="button"
+          onClick={() => onOpen(session)}
+          className="flex w-full items-start justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
+        >
+          <p className="truncate text-sm font-semibold text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
+            {sessionTitle(session)}
+          </p>
           <span
             className={cn(
-              'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+              'shrink-0 rounded-full px-2 py-0.5',
               session.status === 'running' || session.status === 'waitingForUser'
                 ? 'bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
                 : 'bg-white/6 text-[var(--muted)]'
             )}
           >
-            {statusLabel(session.status)}
+            <StatusLabel kind="session" status={session.status} />
           </span>
-        </div>
+        </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
@@ -141,16 +157,46 @@ export function AiSessionRow({
             </span>
           )}
         </div>
-        <p className="mt-2 line-clamp-1 text-[10px] text-[var(--muted)]">
-          {linked.length ? linked.join(' · ') : 'Kontekst całej specyfikacji'}
-        </p>
+        {showSubtitle && (
+          <div className="mt-2 text-[10px] text-[var(--muted)]">
+            {taskList.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {taskList.map((taskId) => {
+                  const matchedTask = tasks.find((t) => t.id === taskId);
+                  const label = matchedTask?.title || taskId;
+                  return onOpenTask && matchedTask ? (
+                    <button
+                      key={taskId}
+                      type="button"
+                      onClick={() => onOpenTask({ taskId })}
+                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] cursor-pointer"
+                      title={`Otwórz szczegóły zadania: ${label}`}
+                    >
+                      <CheckSquare className="size-2.5 shrink-0 text-[var(--info)]" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ) : (
+                    <span
+                      key={taskId}
+                      className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-transparent bg-white/4 px-1.5 py-0.5 text-[10px] text-[var(--muted)]"
+                    >
+                      <span className="truncate">{label}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="line-clamp-1">Kontekst całej specyfikacji</p>
+            )}
+          </div>
+        )}
       </div>
-      {onDelete && (
+      {showDelete && onDelete && (
         <button
           type="button"
           title="Usuń sesję z dysku"
-          onClick={async (e) => {
-            e.stopPropagation();
+          aria-label="Usuń sesję z dysku"
+          onClick={async () => {
             if (isDeleting) return;
             if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
             setIsDeleting(true);
@@ -161,7 +207,7 @@ export function AiSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-2.5 top-2.5 flex size-6 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>
@@ -172,22 +218,24 @@ export function AiSessionRow({
 
 export function AiSessionList({
   sessions,
-  tasks,
+  tasks = [],
   loading,
   error,
   onRetry,
   onOpen,
   onDelete,
+  onOpenTask,
   emptyLabel = 'Brak sesji w tym kontekście.',
   limit,
 }: {
   sessions: AiSession[];
-  tasks: DashboardTask[];
+  tasks?: DashboardTask[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   emptyLabel?: string;
   limit?: number;
 }) {
@@ -235,6 +283,7 @@ export function AiSessionList({
             tasks={tasks}
             onOpen={onOpen}
             onDelete={handleDelete}
+            onOpenTask={onOpenTask}
           />
         ))}
       </div>

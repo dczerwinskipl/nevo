@@ -421,6 +421,11 @@ export interface NormalizedMessage {
   createdAt: string;
 }
 
+export interface TaskNavigationTarget {
+  taskId: string;
+  specSlug?: string | null;
+}
+
 export interface AiSession {
   provider: string;
   providerSessionId: string;

@@ -84,6 +84,11 @@ export class AiSessionService {
     }
     return {
       ...binding,
+      // The dashboard route contract exposes a provider-neutral `sessionId`.
+      // Until NEvo owns a separate durable session identifier, the provider
+      // session identifier is the canonical value and must be present on every
+      // session response, including bindings loaded from disk.
+      sessionId: providerSessionId,
       taskIds,
       taskId: primaryTaskId,
     };
@@ -119,6 +124,7 @@ export class AiSessionService {
 
       logicalSessions.push({
         ...representative,
+        sessionId: representative.providerSessionId,
         taskId: representative.taskId || (taskIds[0] || undefined),
         taskIds,
       });

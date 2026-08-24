@@ -37,8 +37,8 @@ test('Task 06: SessionDetails component exposes context, tasks, provider, mode, 
   assert.match(source, /specId/);
 
   // Displays associated tasks
-  assert.match(source, /tasks\.length/);
-  assert.match(source, /tasks\.map/);
+  assert.match(source, /normalizedTasks\.length/);
+  assert.match(source, /normalizedTasks\.map/);
 
   // Displays provider and mode
   assert.match(source, /provider/);

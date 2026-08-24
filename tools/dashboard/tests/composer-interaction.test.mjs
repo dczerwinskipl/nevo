@@ -11,24 +11,96 @@ function readAiChatSource() {
   return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
-test('AC1 & AC2: Enter key does not submit message; submission uses explicit send action', () => {
-  const source = readComposerSource();
-
-  // Enter must not call onSend / submit
-  assert.ok(!source.includes("event.key === 'Enter' && !event.shiftKey"), 'Enter key must not submit form');
-  assert.ok(!source.includes("submitMessage(composer)"), 'Inline form submit on Enter is removed');
-
-  // Explicit send handler exists
-  assert.match(source, /handleSend\s*=\s*\(\)\s*=>/);
-  assert.match(source, /onClick=\{handleSend\}/);
-});
-
 import {
   getComposerLayoutState,
   adjustComposerTextareaElement,
+  resolveComposerKeyAction,
   COMPOSER_COMPACT_CLASSES,
   COMPOSER_EDIT_CLASSES,
 } from '../src/components/composer/composer-sizing.ts';
+
+test('Composer interaction mode: usehooks-ts useMediaQuery determines prefersTouchInteraction without UA sniffing or viewport hacks', () => {
+  const source = readComposerSource();
+
+  // 1. Uses useMediaQuery from usehooks-ts
+  assert.ok(source.includes("import { useMediaQuery } from 'usehooks-ts'"), 'Must import useMediaQuery from usehooks-ts');
+  assert.ok(source.includes("useMediaQuery('(pointer: coarse) and (hover: none)')"), 'Must query primary input modality (coarse pointer and no hover)');
+
+  // 2. Named after interaction intent
+  assert.ok(source.includes('prefersTouchInteraction'), 'Must name signal prefersTouchInteraction');
+  assert.ok(source.includes('enterToSend'), 'Must name keyboard modality enterToSend');
+  assert.ok(source.includes('useComposerInputMode'), 'Must export useComposerInputMode hook');
+
+  // 3. Must NOT use banned UA/device sniffing or viewport width hacks
+  assert.ok(!source.includes('react-device-detect'), 'Must not use react-device-detect');
+  assert.ok(!source.includes('mobile-detect'), 'Must not use mobile-detect');
+  assert.ok(!source.includes('ua-parser-js'), 'Must not use ua-parser-js');
+  assert.ok(!source.includes('innerWidth'), 'Must not use window.innerWidth');
+  assert.ok(!source.includes('ontouchstart'), 'Must not use ontouchstart');
+  assert.ok(!source.includes('maxTouchPoints'), 'Must not use maxTouchPoints');
+  assert.ok(!source.includes('isMobile'), 'Must not use isMobile abstraction');
+});
+
+test('Behavioral: Keyboard action resolution across modalities, modifier keys, and IME composition', () => {
+  // Scenario 1: Fine pointer + hover (Desktop / keyboard-oriented, enterToSend = true)
+  // 1a. Enter sends
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: false, enterToSend: true }),
+    'send',
+    'Desktop Enter must trigger send'
+  );
+
+  // 1b. Shift+Enter creates newline
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: true, isComposing: false, enterToSend: true }),
+    'newline',
+    'Desktop Shift+Enter must insert newline'
+  );
+
+  // 1c. Non-Enter key does nothing
+  assert.equal(
+    resolveComposerKeyAction({ key: 'a', shiftKey: false, isComposing: false, enterToSend: true }),
+    'none',
+    'Non-Enter key must return none'
+  );
+
+  // Scenario 2: Coarse pointer + no hover (Touch-oriented, enterToSend = false)
+  // 2a. Enter creates newline
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: false, enterToSend: false }),
+    'newline',
+    'Touch Enter must insert newline'
+  );
+
+  // 2b. Shift+Enter creates newline
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: true, isComposing: false, enterToSend: false }),
+    'newline',
+    'Touch Shift+Enter must insert newline'
+  );
+
+  // Scenario 3: IME composition (Japanese, Chinese, etc.) must NEVER trigger send in either mode
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: true, enterToSend: true }),
+    'newline',
+    'Desktop Enter during IME composition must never send'
+  );
+
+  assert.equal(
+    resolveComposerKeyAction({ key: 'Enter', shiftKey: false, isComposing: true, enterToSend: false }),
+    'newline',
+    'Touch Enter during IME composition must never send'
+  );
+});
+
+test('Behavioral: Send button is explicit and accessible in both interaction modes', () => {
+  const source = readComposerSource();
+
+  // Send button exists and calls handleSend
+  assert.match(source, /handleSend\s*=\s*\(\)\s*=>/);
+  assert.match(source, /onClick=\{handleSend\}/);
+  assert.match(source, /aria-label="Wyślij wiadomość"/);
+});
 
 test('Finding 1: Composer remains strictly compact while unfocused regardless of draft length or newlines', () => {
   const multiLineDraft = Array.from({ length: 25 }, (_, i) => `Line ${i + 1} of long draft text`).join('\n');
@@ -149,13 +221,13 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
   const composerSource = readComposerSource();
   const aiChatSource = readAiChatSource();
 
-  // Composer contains mode switcher buttons (ask, edit, agent)
-  assert.match(composerSource, /\(\['ask', 'edit', 'agent'\] as const\)\.map/);
-  assert.match(composerSource, /onModeChange\(m\)/);
+  // Composer contains mode switcher buttons using canonical AI_MODES
+  assert.match(composerSource, /AI_MODES\.map/);
+  assert.match(composerSource, /onModeChange\(modeMeta\.id\)/);
 
   // Header in ai-chat.tsx does not contain the duplicate mode switcher
   const headerSection = aiChatSource.slice(aiChatSource.indexOf('const header = ('), aiChatSource.indexOf('return ('));
-  assert.ok(!headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
+  assert.ok(!headerSection.includes('AI_MODES.map') && !headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
 
   // No non-functional placeholder model/usage controls
   assert.ok(!composerSource.includes('select-model') && !composerSource.includes('usage-placeholder'));

@@ -1,14 +1,22 @@
 import { Trash2, LoaderCircle, FileText, CheckSquare, Cpu, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { AgentExecutionMode } from '@/lib/types';
+import type { AgentExecutionMode, TaskNavigationTarget } from '@/lib/types';
+
+export interface SessionTaskItem {
+  id: string;
+  title?: string;
+  isClickable?: boolean;
+}
 
 export interface SessionDetailsProps {
   specTitle?: string;
   specId?: string | null;
-  tasks?: string[];
+  specSlug?: string | null;
+  tasks?: (string | SessionTaskItem)[];
   provider: string;
   mode?: AgentExecutionMode;
   onDelete: () => void;
+  onOpenTask?: (target: TaskNavigationTarget) => void;
   deleting?: boolean;
   disabled?: boolean;
 }
@@ -16,13 +24,22 @@ export interface SessionDetailsProps {
 export function SessionDetails({
   specTitle,
   specId,
+  specSlug,
   tasks = [],
   provider,
   mode = 'edit',
   onDelete,
+  onOpenTask,
   deleting = false,
   disabled = false,
 }: SessionDetailsProps) {
+  const normalizedTasks: SessionTaskItem[] = tasks.map((t) => {
+    if (typeof t === 'string') {
+      return { id: t, title: t, isClickable: Boolean(onOpenTask) };
+    }
+    return t;
+  });
+
   return (
     <div className="flex flex-col space-y-6">
       {/* Context section */}
@@ -51,20 +68,34 @@ export function SessionDetails({
               <span>Powiązane zadania</span>
             </div>
             <span className="text-[11px] text-[var(--muted)] font-medium">
-              {tasks.length > 0 ? `${tasks.length} ${tasks.length === 1 ? 'zadanie' : 'zadań'}` : 'Cała specyfikacja'}
+              {normalizedTasks.length > 0 ? `${normalizedTasks.length} ${normalizedTasks.length === 1 ? 'zadanie' : 'zadań'}` : 'Cała specyfikacja'}
             </span>
           </div>
-          {tasks.length > 0 ? (
+          {normalizedTasks.length > 0 ? (
             <div className="space-y-1.5 pt-1">
-              {tasks.map((task) => (
-                <div
-                  key={task}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
-                >
-                  <span className="size-1.5 rounded-full bg-[var(--accent)]" />
-                  <span className="truncate">{task}</span>
-                </div>
-              ))}
+              {normalizedTasks.map((taskItem) => {
+                const label = taskItem.title || taskItem.id;
+                const canClick = Boolean(onOpenTask && taskItem.isClickable);
+                return canClick ? (
+                  <button
+                    type="button"
+                    key={taskItem.id}
+                    onClick={() => onOpenTask?.({ taskId: taskItem.id, specSlug })}
+                    className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] text-left transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-pointer"
+                  >
+                    <span className="size-1.5 rounded-full bg-[var(--accent)] shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                ) : (
+                  <div
+                    key={taskItem.id}
+                    className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted-strong)] opacity-85"
+                  >
+                    <span className="size-1.5 rounded-full bg-[var(--muted)] shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="text-xs text-[var(--muted)] italic pt-1">Sesja obejmuje całą specyfikację (brak powiązania z pojedynczym zadaniem).</p>

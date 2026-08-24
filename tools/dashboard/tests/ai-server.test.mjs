@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -112,6 +112,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     const filtered = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-a`);
     const bindings = (await filtered.json()).sessions;
     assert.ok(bindings.some(b => b.providerSessionId === providerSessionId && b.specId === specId));
+    assert.ok(bindings.some(b => b.sessionId === providerSessionId));
 
     // 4. Session details snapshot: GET /api/agent-sessions/:provider/:providerSessionId
     const sessionDetails = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
@@ -164,6 +165,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(createModalResponse.status, 201);
     const createModalBody = await createModalResponse.json();
     assert.ok(createModalBody.session.providerSessionId);
+    assert.equal(createModalBody.session.sessionId, createModalBody.session.providerSessionId);
     assert.equal(createModalBody.session.specId, specId);
     assert.equal(createModalBody.session.taskId, 'task-a');
 
@@ -181,10 +183,23 @@ test('Agent session routes expose the complete provider-neutral session and turn
   }
 });
 
-test('default dashboard AI service registers Codex alongside existing providers', async () => {
-  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }) });
+test('default dashboard AI service registers only adapters enabled in the local config', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-config-'));
+  const adapterConfigPath = join(configDir, 'ai-adapters.yaml');
+  await writeFile(adapterConfigPath, `version: 1
+adapters:
+  codex:
+    enabled: true
+  claude:
+    enabled: true
+  antigravity:
+    enabled: false
+  mock:
+    enabled: true
+`, 'utf8');
+  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }), adapterConfigPath });
   try {
-    assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
+    assert.deepEqual(service.registry.list(), ['codex', 'claude', 'mock']);
     const descriptor = service.registry.get('codex').descriptor;
     assert.equal(descriptor.label, 'OpenAI Codex');
     assert.equal(descriptor.capabilities.resumeSession, true);
@@ -192,6 +207,61 @@ test('default dashboard AI service registers Codex alongside existing providers'
     assert.equal(descriptor.capabilities.planUpdates, false);
   } finally {
     await service.shutdown();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('durable session history remains readable after its adapter is disabled', async () => {
+  const { service } = createStack();
+  const server = createDashboardServer({
+    aiService: service,
+    aiAccessPolicy: () => true,
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const created = await fetch(`${baseUrl}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskId: 'task-a',
+    }));
+    assert.equal(created.status, 201);
+    const session = (await created.json()).session;
+
+    service.registry.unregister('mock');
+
+    const history = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}`
+    );
+    assert.equal(history.status, 200);
+    const snapshot = (await history.json()).session;
+    assert.equal(snapshot.providerSessionId, session.providerSessionId);
+    assert.deepEqual(snapshot.capabilities, {});
+
+    const newTurn = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
+      control({ message: 'must remain blocked while the adapter is disabled' })
+    );
+    assert.equal(newTurn.status, 404);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('default dashboard AI service registers no adapters when the local config is absent', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-missing-config-'));
+  const service = createDefaultDashboardAiService({
+    dataLoader: () => ({ active: [] }),
+    adapterConfigPath: join(configDir, 'missing.yaml'),
+  });
+  try {
+    assert.deepEqual(service.registry.list(), []);
+    assert.deepEqual(service.listProviders(), []);
+  } finally {
+    await service.shutdown();
+    await rm(configDir, { recursive: true, force: true });
   }
 });
 

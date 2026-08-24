@@ -22,6 +22,11 @@ export interface ScrollControllerState {
   lastScrollTop: number;
 }
 
+export interface VisibleScrollState {
+  isFollowing: boolean;
+  hasUnseenContent: boolean;
+}
+
 export function createInitialScrollControllerState(initialScrollTop = 0): ScrollControllerState {
   return {
     isFollowing: true,
@@ -97,7 +102,7 @@ export function handleScrollEvent(
   const currentScrollTop = metrics.scrollTop;
   const distanceFromBottom = calculateDistanceFromBottom(metrics);
   const isNearBottom = distanceFromBottom <= threshold;
-  const isScrollingUp = currentScrollTop < state.lastScrollTop;
+  const isScrollingUp = currentScrollTop < state.lastScrollTop - 2;
 
   if (state.isProgrammaticScroll) {
     if (isNearBottom) {
@@ -116,8 +121,8 @@ export function handleScrollEvent(
     };
   }
 
-  // Any user scroll upward away from bottom immediately pauses follow
-  if (isScrollingUp && !isNearBottom) {
+  // Any user upward scroll immediately pauses follow, regardless of threshold
+  if (isScrollingUp) {
     return {
       ...state,
       isFollowing: false,
@@ -125,8 +130,17 @@ export function handleScrollEvent(
     };
   }
 
-  // User scrolling down and reaching bottom threshold
-  if (isNearBottom && !isScrollingUp) {
+  // If currently following and user did not scroll up: maintain follow
+  if (state.isFollowing) {
+    return {
+      ...state,
+      isFollowing: true,
+      lastScrollTop: currentScrollTop,
+    };
+  }
+
+  // If detached: reaching the bottom threshold re-attaches follow
+  if (isNearBottom) {
     return {
       ...state,
       isFollowing: true,
@@ -136,16 +150,9 @@ export function handleScrollEvent(
     };
   }
 
-  if (!isNearBottom) {
-    return {
-      ...state,
-      isFollowing: false,
-      lastScrollTop: currentScrollTop,
-    };
-  }
-
   return {
     ...state,
+    isFollowing: false,
     lastScrollTop: currentScrollTop,
   };
 }
@@ -180,30 +187,65 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
   const effectiveKey = contentKey !== undefined ? contentKey : contentSignal;
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [state, setState] = useState<ScrollControllerState>(createInitialScrollControllerState);
-  const stateRef = useRef<ScrollControllerState>(state);
-  stateRef.current = state;
+  // Expose minimal React state (isFollowing, hasUnseenContent) to avoid rendering on high-frequency scrolls
+  const [visibleState, setVisibleState] = useState<VisibleScrollState>({
+    isFollowing: true,
+    hasUnseenContent: false,
+  });
 
-  const initialMountRef = useRef(true);
+  // Keep full controller internals in ref
+  const internalStateRef = useRef<ScrollControllerState>({
+    isFollowing: true,
+    hasUnseenContent: false,
+    isProgrammaticScroll: false,
+    lastScrollTop: 0,
+  });
+
+  const rafIdRef = useRef<number | null>(null);
   const touchStartYRef = useRef(0);
+
+  // Publish state to React ONLY when a visible boolean transitions
+  const publishStateIfNeeded = useCallback((nextState: ScrollControllerState) => {
+    const prev = internalStateRef.current;
+    internalStateRef.current = nextState;
+    if (prev.isFollowing !== nextState.isFollowing || prev.hasUnseenContent !== nextState.hasUnseenContent) {
+      setVisibleState({
+        isFollowing: nextState.isFollowing,
+        hasUnseenContent: nextState.hasUnseenContent,
+      });
+    }
+  }, []);
+
+  // Coalesced RAF bottom follow to avoid layout thrashing across ResizeObserver, MutationObserver, and content revisions
+  const scheduleSnapToBottom = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const el = containerRef.current;
+      if (!el || !internalStateRef.current.isFollowing) return;
+      const target = calculateMaxScrollTop(el);
+      if (el.scrollTop !== target) {
+        el.scrollTop = target;
+        internalStateRef.current.lastScrollTop = target;
+      }
+    });
+  }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = containerRef.current;
     if (!el) return;
     const targetScrollTop = calculateMaxScrollTop(el);
-    const updated = handleUserReturnToBottom(stateRef.current, targetScrollTop, behavior === 'smooth');
-    stateRef.current = updated.state;
-    setState(updated.state);
+    const updated = handleUserReturnToBottom(internalStateRef.current, targetScrollTop, behavior === 'smooth');
+    publishStateIfNeeded(updated.state);
     el.scrollTo({ top: el.scrollHeight, behavior });
-  }, []);
+  }, [publishStateIfNeeded]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const nextState = handleScrollEvent(stateRef.current, el, threshold);
-    stateRef.current = nextState;
-    setState(nextState);
-  }, [threshold]);
+    const nextState = handleScrollEvent(internalStateRef.current, el, threshold);
+    publishStateIfNeeded(nextState);
+  }, [publishStateIfNeeded, threshold]);
 
   // Attach scroll and user-gesture listeners to container
   useEffect(() => {
@@ -213,9 +255,8 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     const handleWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         // Explicit wheel scroll UP pauses follow immediately
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
@@ -225,19 +266,17 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
 
     const handleTouchMove = (e: TouchEvent) => {
       const currentY = e.touches[0]?.clientY ?? 0;
-      if (currentY > touchStartYRef.current + 10) {
+      if (currentY > touchStartYRef.current + 5) {
         // Finger dragging DOWN means viewport scrolling UP into history -> pause follow immediately
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'PageUp' || e.key === 'Home') {
-        const nextState = handleUserUpwardGesture(stateRef.current);
-        stateRef.current = nextState;
-        setState(nextState);
+      if (e.key === 'PageUp' || e.key === 'Home' || e.key === 'ArrowUp') {
+        const nextState = handleUserUpwardGesture(internalStateRef.current);
+        publishStateIfNeeded(nextState);
       }
     };
 
@@ -254,40 +293,65 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       el.removeEventListener('touchmove', handleTouchMove);
       el.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleScroll]);
+  }, [handleScroll, publishStateIfNeeded]);
 
-  // React to semantic contentKey changes
+  // Keep viewport glued to bottom when DOM height expands (streaming, dynamic tools, markdown images)
   useEffect(() => {
     const el = containerRef.current;
-    if (initialMountRef.current) {
-      initialMountRef.current = false;
-      if (el) {
-        const targetScrollTop = calculateMaxScrollTop(el);
-        const nextState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
-        stateRef.current = nextState;
-        setState(nextState);
-        el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+    if (!el) return;
+
+    scheduleSnapToBottom();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleSnapToBottom();
+      });
+      resizeObserver.observe(el);
+      if (el.firstElementChild) {
+        resizeObserver.observe(el.firstElementChild);
       }
-      return;
     }
 
-    const { state: nextState, shouldScrollToBottom } = handleContentArrival(stateRef.current);
-    if (shouldScrollToBottom && el) {
-      const targetScrollTop = calculateMaxScrollTop(el);
-      const progState = handleProgrammaticScroll(nextState, targetScrollTop, false);
-      stateRef.current = progState;
-      setState(progState);
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-    } else {
-      stateRef.current = nextState;
-      setState(nextState);
+    let mutationObserver: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined') {
+      mutationObserver = new MutationObserver(() => {
+        scheduleSnapToBottom();
+      });
+      mutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
     }
-  }, [effectiveKey]);
+
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [scheduleSnapToBottom]);
+
+  // React to semantic contentKey changes and message arrivals
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (internalStateRef.current.isFollowing) {
+      const targetScrollTop = calculateMaxScrollTop(el);
+      const progState = handleProgrammaticScroll(internalStateRef.current, targetScrollTop, false);
+      publishStateIfNeeded(progState);
+      el.scrollTop = targetScrollTop;
+      scheduleSnapToBottom();
+    } else {
+      const { state: nextState } = handleContentArrival(internalStateRef.current);
+      publishStateIfNeeded(nextState);
+    }
+  }, [effectiveKey, publishStateIfNeeded, scheduleSnapToBottom]);
 
   return {
     containerRef,
-    isFollowing: state.isFollowing,
-    hasUnseenContent: state.hasUnseenContent,
+    isFollowing: visibleState.isFollowing,
+    hasUnseenContent: visibleState.hasUnseenContent,
     scrollToBottom,
     handleScroll,
   };

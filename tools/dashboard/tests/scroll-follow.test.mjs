@@ -62,8 +62,6 @@ test('Task 08: isScrolledNearBottom respects threshold for follow detection', ()
 });
 
 test('Task 08 / Regression 40553af: Programmatic follow-to-bottom does NOT store scrollHeight as lastScrollTop', () => {
-  // Scenario from user bug report:
-  // scrollHeight = 3000, clientHeight = 700, actual bottom scrollTop = 2300
   const el = { scrollHeight: 3000, clientHeight: 700 };
   const targetScrollTop = calculateMaxScrollTop(el);
   assert.equal(targetScrollTop, 2300, 'Target scrollTop is in the valid [0, maxScrollTop] coordinate system');
@@ -114,7 +112,6 @@ test('Task 08: Continuous streaming maintains follow without flipping isFollowin
 });
 
 test('Task 08: User upward scroll pauses follow, keeps viewport fixed, and sets unseen content flag', () => {
-  // Viewport at bottom (scrollTop=1700, scrollHeight=2200, clientHeight=500)
   let state = createInitialScrollControllerState(1700);
 
   // User initiates upward gesture / scroll
@@ -133,7 +130,6 @@ test('Task 08: User upward scroll pauses follow, keeps viewport fixed, and sets 
 });
 
 test('Task 08: Activating "Nowe wiadomości" returns to bottom and reliably restores auto-follow', () => {
-  // User is scrolled up with unseen content
   let state = {
     isFollowing: false,
     hasUnseenContent: true,
@@ -181,6 +177,91 @@ test('Task 08: Natural downward movement to bottom threshold resumes follow', ()
   assert.equal(state.hasUnseenContent, false, 'Unseen content cleared on reaching bottom');
 });
 
+test('Task 08: Upward scroll from inside threshold immediately detaches follow', () => {
+  // User is at bottom: scrollTop=2300, scrollHeight=3000, clientHeight=700 (distance=0)
+  let state = {
+    isFollowing: true,
+    hasUnseenContent: false,
+    isProgrammaticScroll: false,
+    lastScrollTop: 2300,
+  };
+
+  // User scrolls up by 30px to scrollTop=2270 (distanceFromBottom = 30px <= threshold 80px)
+  state = handleScrollEvent(state, { scrollTop: 2270, scrollHeight: 3000, clientHeight: 700 }, 80);
+  assert.equal(state.isFollowing, false, 'Upward scroll inside threshold MUST immediately detach follow');
+  assert.equal(state.lastScrollTop, 2270);
+
+  // When next token arrives, it must NOT scroll to bottom
+  const arrival = handleContentArrival(state);
+  assert.equal(arrival.shouldScrollToBottom, false, 'Must not pull viewport back to bottom');
+  assert.equal(arrival.state.hasUnseenContent, true, 'Flags unseen content');
+});
+
+test('Task 08 Regression: 8-step streaming lifecycle with upward scroll and resume', () => {
+  // Step 1: Start following at bottom
+  let scrollContainer = { scrollHeight: 2000, clientHeight: 600, scrollTop: 1400 };
+  let state = createInitialScrollControllerState(1400);
+  assert.equal(state.isFollowing, true);
+  assert.equal(state.hasUnseenContent, false);
+
+  // Step 2: Stream content arrives while at bottom -> follow scrolls to new bottom
+  scrollContainer.scrollHeight = 2500;
+  const streamStep1 = handleContentArrival(state);
+  assert.equal(streamStep1.shouldScrollToBottom, true);
+  const target1 = calculateMaxScrollTop(scrollContainer);
+  assert.equal(target1, 1900);
+  state = handleProgrammaticScroll(streamStep1.state, target1, false);
+  scrollContainer.scrollTop = 1900;
+  state = handleScrollEvent(state, scrollContainer);
+  assert.equal(state.isFollowing, true);
+  assert.equal(state.hasUnseenContent, false);
+
+  // Step 3: User scrolls far upward into conversation history (e.g. mouse wheel / touch drag)
+  state = handleUserUpwardGesture(state);
+  scrollContainer.scrollTop = 600; // far up, distance = 2500 - 600 - 600 = 1300px
+  state = handleScrollEvent(state, scrollContainer);
+  assert.equal(state.isFollowing, false, 'Follow is disabled after user scrolls up');
+
+  // Step 4: Emit multiple subsequent content revisions while detached
+  const revisions = [3000, 3600, 4200];
+  for (const newHeight of revisions) {
+    scrollContainer.scrollHeight = newHeight;
+    const arrival = handleContentArrival(state);
+    state = arrival.state;
+
+    // Step 5: Verify scroll position remains completely stable and follow remains disabled
+    assert.equal(arrival.shouldScrollToBottom, false, 'Must not scroll to bottom while detached');
+    assert.equal(scrollContainer.scrollTop, 600, 'User scroll position remains unchanged at 600');
+    assert.equal(state.isFollowing, false, 'Follow remains disabled');
+
+    // Step 6: Verify unseen-content indication appears
+    assert.equal(state.hasUnseenContent, true, 'Unseen content indicator is active');
+  }
+
+  // Step 7: Explicitly return to bottom (e.g. click "Nowe wiadomości")
+  const targetBottom = calculateMaxScrollTop(scrollContainer);
+  assert.equal(targetBottom, 3600); // 4200 - 600
+  const returnResult = handleUserReturnToBottom(state, targetBottom, true);
+  state = returnResult.state;
+  assert.equal(state.isFollowing, true);
+  assert.equal(state.hasUnseenContent, false);
+  scrollContainer.scrollTop = targetBottom;
+  state = handleScrollEvent(state, scrollContainer);
+  assert.equal(state.isFollowing, true);
+  assert.equal(state.isProgrammaticScroll, false);
+
+  // Step 8: Verify following resumes on subsequent streaming content
+  scrollContainer.scrollHeight = 4800;
+  const resumeArrival = handleContentArrival(state);
+  assert.equal(resumeArrival.shouldScrollToBottom, true, 'Following has resumed automatically');
+  const targetResume = calculateMaxScrollTop(scrollContainer);
+  state = handleProgrammaticScroll(resumeArrival.state, targetResume, false);
+  scrollContainer.scrollTop = targetResume;
+  state = handleScrollEvent(state, scrollContainer);
+  assert.equal(state.isFollowing, true);
+  assert.equal(state.hasUnseenContent, false);
+});
+
 test('Task 08: Production hook implementation uses calculateMaxScrollTop and unified state machine', () => {
   const source = readUseScrollFollowSource();
   assert.match(source, /calculateMaxScrollTop/);
@@ -201,39 +282,39 @@ test('Task 08: AiChatPage uses assistant.contentRevision and renders new-content
   assert.match(chatSource, /scrollToBottom\('smooth'\)/);
 });
 
-test('Task 08: No-op auto scroll when already at bottom leaves non-programmatic state and user upward scroll immediately pauses follow', () => {
-  // 1. Initial state: already at bottom (scrollTop=2300, scrollHeight=3000, clientHeight=700)
-  let state = {
-    isFollowing: true,
-    hasUnseenContent: false,
-    isProgrammaticScroll: false,
-    lastScrollTop: 2300,
-  };
+test('Performance / Finding 3: Repeated scroll events while detached do not alter visible state flags', () => {
+  let state = createInitialScrollControllerState(2000);
+  // User scrolls up to detach
+  state = handleScrollEvent(state, { scrollTop: 1500, scrollHeight: 3000, clientHeight: 600 }, 80);
+  assert.equal(state.isFollowing, false);
+  assert.equal(state.hasUnseenContent, false);
 
-  // 2. Content revision arrives (no height change, or height stays 3000 so targetScrollTop is still 2300)
-  const arrival = handleContentArrival(state);
-  assert.equal(arrival.shouldScrollToBottom, true);
+  const visibleBefore = { isFollowing: state.isFollowing, hasUnseenContent: state.hasUnseenContent };
 
-  const targetScrollTop = calculateMaxScrollTop({ scrollHeight: 3000, clientHeight: 700 });
-  assert.equal(targetScrollTop, 2300);
-
-  // Auto programmatic scroll executes without smooth animation (isSmooth=false)
-  state = handleProgrammaticScroll(arrival.state, targetScrollTop, false);
-  assert.equal(state.isProgrammaticScroll, false, 'Continuous auto-scroll must NOT hold a programmatic lock');
-  assert.equal(state.lastScrollTop, 2300);
-
-  // 3. NO browser scroll event occurs because scrollTop did not change
-
-  // 4. User scrolls upward (e.g. via keyboard ArrowUp/PageUp or scrollbar drag to scrollTop=2100)
-  // Distance from bottom is 3000 - 2100 - 700 = 200px (> threshold 80px)
-  state = handleScrollEvent(state, { scrollTop: 2100, scrollHeight: 3000, clientHeight: 700 }, 80);
-
-  // 5. Expected: follow is paused (isFollowing=false) without being blocked by a stale programmatic lock
-  assert.equal(state.isFollowing, false, 'User upward scroll must immediately pause follow');
-  assert.equal(state.lastScrollTop, 2100);
-
-  // 6. Next content revision flags unseen content badge and does not move viewport
-  const nextArrival = handleContentArrival(state);
-  assert.equal(nextArrival.shouldScrollToBottom, false);
-  assert.equal(nextArrival.state.hasUnseenContent, true);
+  // 100 subsequent scroll events while detached
+  for (let top = 1490; top >= 500; top -= 10) {
+    state = handleScrollEvent(state, { scrollTop: top, scrollHeight: 3000, clientHeight: 600 }, 80);
+    assert.equal(state.isFollowing, visibleBefore.isFollowing, 'isFollowing remains false across scrolling');
+    assert.equal(state.hasUnseenContent, visibleBefore.hasUnseenContent, 'hasUnseenContent remains unchanged');
+  }
 });
+
+test('Performance / Finding 3: Repeated content arrivals while unseen=true do not toggle or flip visible state flags', () => {
+  let state = createInitialScrollControllerState(1000);
+  state = handleScrollEvent(state, { scrollTop: 500, scrollHeight: 2000, clientHeight: 600 }, 80);
+  assert.equal(state.isFollowing, false);
+
+  // First arrival transitions unseen to true
+  const firstArrival = handleContentArrival(state);
+  assert.equal(firstArrival.state.hasUnseenContent, true);
+  state = firstArrival.state;
+
+  // 50 subsequent streamed chunks arriving while detached
+  for (let i = 0; i < 50; i++) {
+    const nextArrival = handleContentArrival(state);
+    assert.equal(nextArrival.state.hasUnseenContent, true, 'hasUnseenContent remains true without toggling');
+    assert.equal(nextArrival.state.isFollowing, false, 'isFollowing remains false without toggling');
+    state = nextArrival.state;
+  }
+});
+

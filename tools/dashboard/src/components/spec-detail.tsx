@@ -22,6 +22,7 @@ import {
   Scale,
   Workflow,
   X,
+  ChevronRight,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,10 +32,12 @@ import type {
   DashboardTask,
   AiSession,
   OperationSnapshot,
+  SpecificationManifest,
   SpecificationManifestSection,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
+  TaskNavigationTarget,
 } from '@/lib/types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +46,7 @@ import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
 import { MarkdownContent } from '@/components/markdown-content';
 import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
+import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
@@ -55,8 +59,7 @@ import {
   invalidateDashboardQueries,
 } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
-import { DocumentSectionPanel } from '@/components/document-section-panel';
-import { DirectorySectionPanel } from '@/components/directory-section-panel';
+import { Link } from '@tanstack/react-router';
 
 const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
 
@@ -141,140 +144,216 @@ function EmptyDocument({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function TaskDialog({
-  task,
-  document: taskDocument,
-  loading,
-  error,
-  actionGate,
-  actionLoading,
-  actionExecuting,
-  actionError,
-  onRetry,
-  onAction,
-  sessions,
-  sessionsLoading,
-  sessionsError,
-  onSessionsRetry,
-  onOpenSession,
-  onClose,
+interface DocItem {
+  id: string;
+  docId: string;
+  title: string;
+  path?: string | null;
+  sectionId: string;
+  sectionLabel: string;
+  icon?: string;
+}
+
+interface DocGroup {
+  id: string;
+  label: string;
+  icon?: string;
+  items: DocItem[];
+}
+
+function DocumentationPanel({
+  change,
+  manifest,
+  enabled,
 }: {
-  task: DashboardTask;
-  document: SpecificationTaskDocument | null;
-  loading: boolean;
-  error: string | null;
-  actionGate: SpecificationTaskActionGate | null;
-  actionLoading: boolean;
-  actionExecuting: boolean;
-  actionError: string | null;
-  onRetry: () => void;
-  onAction: () => void;
-  sessions: AiSession[];
-  sessionsLoading: boolean;
-  sessionsError: string | null;
-  onSessionsRetry: () => void;
-  onOpenSession: (session: AiSession) => void;
-  onClose: () => void;
+  change: DashboardChange;
+  manifest: SpecificationManifest | null | undefined;
+  enabled: boolean;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const groups = useMemo<DocGroup[]>(() => {
+    if (!manifest) return [];
+    const result: DocGroup[] = [];
+
+    if (manifest.sections && manifest.sections.length > 0) {
+      for (const section of manifest.sections) {
+        if (!section.available) continue;
+        if (section.type === 'document' && section.document) {
+          result.push({
+            id: section.id,
+            label: section.label,
+            icon: section.icon,
+            items: [
+              {
+                id: section.document.id || section.id,
+                docId: section.document.docId || (section.id === 'specification' ? 'overview' : section.id),
+                title: section.document.title || section.label,
+                path: section.document.path,
+                sectionId: section.id,
+                sectionLabel: section.label,
+                icon: section.icon,
+              },
+            ],
+          });
+        } else if (section.type === 'directory' && section.documents?.length > 0) {
+          result.push({
+            id: section.id,
+            label: section.label,
+            icon: section.icon,
+            items: section.documents.map((doc) => ({
+              id: doc.id,
+              docId: doc.docId,
+              title: doc.title,
+              path: doc.path,
+              sectionId: section.id,
+              sectionLabel: section.label,
+              icon: section.icon,
+            })),
+          });
+        }
+      }
+    } else {
+      if (manifest.overview?.available) {
+        result.push({
+          id: 'specification',
+          label: 'Specyfikacja',
+          icon: 'BookOpenText',
+          items: [
+            {
+              id: 'overview',
+              docId: 'overview',
+              title: manifest.overview.title || 'Specyfikacja',
+              path: manifest.overview.path || 'overview.md',
+              sectionId: 'specification',
+              sectionLabel: 'Specyfikacja',
+              icon: 'BookOpenText',
+            },
+          ],
+        });
+      }
+      if (manifest.areas && manifest.areas.length > 0) {
+        result.push({
+          id: 'areas',
+          label: 'Obszary',
+          icon: 'Boxes',
+          items: manifest.areas.map((area) => ({
+            id: area.id,
+            docId: area.docId,
+            title: area.title,
+            path: area.path,
+            sectionId: 'areas',
+            sectionLabel: 'Obszary',
+            icon: 'Boxes',
+          })),
+        });
+      }
+    }
+
+    return result;
+  }, [manifest]);
+
+  const allDocs = useMemo<DocItem[]>(() => {
+    return groups.flatMap((group) => group.items);
+  }, [groups]);
+
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(() => allDocs[0]?.docId ?? null);
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
+    if (allDocs.length > 0 && (!selectedDocId || !allDocs.some((d) => d.docId === selectedDocId))) {
+      setSelectedDocId(allDocs[0].docId);
+    }
+  }, [allDocs, selectedDocId]);
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ));
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onClose]);
+  const selectedDoc = allDocs.find((d) => d.docId === selectedDocId) || allDocs[0] || null;
+
+  const documentQuery = useSpecificationDocument(
+    change,
+    selectedDoc?.docId ?? null,
+    enabled && Boolean(selectedDoc),
+  );
+
+  if (!allDocs.length) {
+    return (
+      <EmptyDocument
+        title="Brak dokumentacji"
+        detail="Ta specyfikacja nie zawiera jeszcze dodatkowych dokumentów."
+      />
+    );
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
-      onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="task-dialog-title"
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl sm:rounded-2xl"
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-7">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge>{formatStatus(task.status)}</Badge>
-              <span className="text-[10px] text-[var(--muted)]">#{String(task.order ?? '—').padStart(2, '0')}</span>
+    <div className="grid w-full min-w-0 max-w-full items-start gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+      <nav aria-label="Spis dokumentów specyfikacji" className="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+        {groups.map((group) => {
+          const GroupIcon = resolveTabIcon(group.icon, group.items.length > 1 ? 'directory' : 'document');
+          return (
+            <div key={group.id} className="space-y-1">
+              <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                <GroupIcon className="size-3.5 text-[var(--accent)]" />
+                <span>{group.label}</span>
+                {group.items.length > 1 && (
+                  <span className="ml-auto text-[10px] text-[var(--muted)] tabular-nums">
+                    {group.items.length}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-0.5 pl-2">
+                {group.items.map((doc) => {
+                  const isSelected = selectedDoc?.docId === doc.docId;
+                  return (
+                    <button
+                      key={doc.docId}
+                      type="button"
+                      onClick={() => setSelectedDocId(doc.docId)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors',
+                        isSelected
+                          ? 'bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] font-semibold text-[var(--foreground)] border border-[color-mix(in_srgb,var(--accent)_30%,transparent)]'
+                          : 'text-[var(--muted-strong)] hover:bg-white/5 hover:text-[var(--foreground)]'
+                      )}
+                    >
+                      <span className="truncate">{doc.title}</span>
+                      {isSelected && <ChevronRight className="size-3 text-[var(--accent)] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <h2 id="task-dialog-title" className="mt-3 text-lg font-semibold text-[var(--foreground)] sm:text-xl">{task.title}</h2>
-            {task.file && <p className="mt-1 truncate text-[10px] text-[var(--muted)]">{task.file}</p>}
-          </div>
-          <Button ref={closeButtonRef} variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij szczegóły zadania">
-            <X className="size-4" />
-          </Button>
-        </div>
+          );
+        })}
+      </nav>
 
-        <div className="overflow-y-auto px-5 py-6 sm:px-7 sm:py-8">
-          <div className="mb-6 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">Status: {formatStatus(task.status)}</span>
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">
-              Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
-            </span>
-            {task.blockedBy.length > 0 && (
-              <span className="rounded-md border border-amber-300/20 bg-amber-300/8 px-2.5 py-1 text-amber-200">
-                Blokowane przez: {task.blockedBy.join(', ')}
-              </span>
-            )}
-          </div>
-
-          <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
-            <div className="mb-3 flex items-center gap-2"><MessagesSquare className="size-4 text-[var(--accent)]" /><h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3></div>
-            <AiSessionList sessions={sessions} tasks={[task]} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} emptyLabel="To zadanie nie ma jeszcze powiązanych sesji." />
-          </section>
-
-          {loading ? (
-            <div className="flex items-center gap-3 py-12 text-sm text-[var(--muted)]" role="status">
-              <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
+      <div className="w-full min-w-0 max-w-full">
+        {documentQuery.loading ? (
+          <ContentLoading />
+        ) : documentQuery.error ? (
+          <ContentError message={documentQuery.error} onRetry={() => void documentQuery.refresh()} />
+        ) : selectedDoc && documentQuery.data?.available ? (
+          <Card className="w-full max-w-full overflow-hidden">
+            <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
+                  {selectedDoc.sectionLabel}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)] sm:text-xl">
+                  {selectedDoc.title}
+                </h2>
+              </div>
+              {selectedDoc.path && (
+                <span className="max-w-full break-all font-mono text-[10px] text-[var(--muted)]">
+                  {selectedDoc.path}
+                </span>
+              )}
             </div>
-          ) : error ? (
-            <ContentError message={error} onRetry={onRetry} />
-          ) : taskDocument?.available ? (
-            <MarkdownContent markdown={taskDocument.markdown} />
-          ) : (
-            <EmptyDocument title="Brak treści zadania" detail="Plik zadania nie jest obecnie dostępny w specyfikacji." />
-          )}
-        </div>
-        <TaskActionFooter
-          gate={actionGate}
-          loading={actionLoading}
-          executing={actionExecuting}
-          error={actionError}
-          onExecute={onAction}
-        />
+            <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
+              <MarkdownContent markdown={documentQuery.data.markdown ?? ''} />
+            </article>
+          </Card>
+        ) : (
+          <EmptyDocument
+            title="Brak treści dokumentu"
+            detail="Wybrany dokument nie jest obecnie dostępny w plikach specyfikacji."
+          />
+        )}
       </div>
     </div>
   );
@@ -293,6 +372,7 @@ function OverviewPanel({
   onDirectTaskAction,
   onBatchTaskAction,
   onCreateSession,
+  onOpenTask,
 }: {
   change: DashboardChange;
   onTaskSelect: (task: DashboardTask, trigger: HTMLElement) => void;
@@ -306,12 +386,13 @@ function OverviewPanel({
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
   return (
     <>
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
-        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
-        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
+        <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
+        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
       </section>
       {actions}
       <section aria-label="Podsumowanie specyfikacji" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -374,10 +455,20 @@ function OverviewPanel({
   );
 }
 
-export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
+export function SpecDetail({
+  change,
+  onOpenSession,
+  onCreateSession,
+  onNavigateMode,
+}: {
+  change: DashboardChange;
+  onOpenSession: (session: AiSession) => void;
+  onCreateSession: () => void;
+  onNavigateMode?: (mode: 'active' | 'archive') => void;
+}) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
     try {
       return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -395,38 +486,27 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestQuery = useSpecificationManifest(change, true);
-  const taskDocId = selectedTaskId ? `task:${selectedTaskId}` : null;
-  const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(selectedTaskId));
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: change.source === 'active' && Boolean(change.specId) });
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
-  const selectedTaskDocument = (selectedTaskId ? taskDocumentQuery.data as SpecificationTaskDocument | null : null);
-  const selectedTaskAction = selectedTaskId ? actionsQuery.data?.tasks[selectedTaskId] ?? null : null;
-  const selectedTaskHasOwnerAction = selectedTask?.status === 'draft' || selectedTask?.status === 'implemented';
 
   const visibleTabs = useMemo<SpecTabItem[]>(() => {
     const tabs: SpecTabItem[] = [
       { id: 'overview', label: 'Przegląd', icon: LayoutDashboard },
     ];
 
-    if (manifestQuery.data?.sections && manifestQuery.data.sections.length > 0) {
-      for (const section of manifestQuery.data.sections) {
-        if (section.available) {
-          tabs.push({
-            id: section.id,
-            label: section.label,
-            icon: resolveTabIcon(section.icon, section.type),
-            section,
-          });
-        }
-      }
-    } else if (manifestQuery.data) {
-      if (manifestQuery.data.overview?.available) {
-        tabs.push({ id: 'specification', label: 'Specyfikacja', icon: BookOpenText });
-      }
-      if (manifestQuery.data.areas && manifestQuery.data.areas.length > 0) {
-        tabs.push({ id: 'areas', label: 'Obszary', icon: Boxes });
-      }
+    const hasDocs = Boolean(
+      (manifestQuery.data?.sections && manifestQuery.data.sections.some(s => s.available)) ||
+      manifestQuery.data?.overview?.available ||
+      (manifestQuery.data?.areas && manifestQuery.data.areas.length > 0)
+    );
+
+    if (hasDocs) {
+      tabs.push({
+        id: 'docs',
+        label: 'Dokumentacja',
+        icon: BookOpenText,
+      });
     }
 
     tabs.push({ id: 'changes', label: 'Zmiany', icon: GitPullRequest });
@@ -463,7 +543,6 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   useEffect(() => {
     setActiveTab('overview');
     setVisitedTabs(new Set(['overview']));
-    setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
     try {
       const savedOp = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -473,7 +552,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
     } catch {
       setActiveOperationId(null);
     }
-  }, [change.slug, initialTaskId]);
+  }, [change.slug]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLElement) => {
     taskTriggerRef.current = trigger;
@@ -489,24 +568,6 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const handleOperationTerminal = useCallback(async () => {
     await invalidateDashboardQueries(queryClient);
   }, [queryClient]);
-
-  const executeTaskAction = useCallback(async () => {
-    if (!selectedTaskAction || !selectedTask) return;
-    try {
-      const taskId = selectedTask.id;
-      const actionName = selectedTaskAction.action;
-      const res = await actionsQuery.execute({ action: actionName, taskId });
-      closeTask();
-      if (res?.operationId) {
-        updateActiveOperation(
-          res.operationId,
-          actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
-        );
-      }
-    } catch {
-      // The mutation exposes its sanitized error in the dialog footer.
-    }
-  }, [actionsQuery, closeTask, selectedTask, selectedTaskAction, updateActiveOperation]);
 
   const executeDirectTaskAction = useCallback(async (task: DashboardTask, actionName: SpecificationOwnerAction) => {
     try {
@@ -590,11 +651,23 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7 sm:px-7 lg:px-9">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-        <span>NEvo</span><span>/</span>
-        <span>{change.source === 'active' ? 'Aktualne' : 'Archiwum'}</span><span>/</span>
-        <span className="max-w-[240px] truncate text-[var(--foreground)]">{change.slug}</span>
-      </div>
+      <nav aria-label="Okruszki nawigacji" className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
+        <Link
+          to="/"
+          className="hover:text-[var(--foreground)] transition-colors"
+        >
+          NEvo
+        </Link>
+        <span>/</span>
+        <Link
+          to={change.source === 'archive' ? '/archive' : '/'}
+          className="hover:text-[var(--foreground)] transition-colors"
+        >
+          {change.source === 'active' ? 'Aktualne' : 'Archiwum'}
+        </Link>
+        <span>/</span>
+        <span className="max-w-[240px] truncate text-[var(--foreground)] font-medium">{change.slug}</span>
+      </nav>
 
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
         <div>
@@ -675,6 +748,10 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
             taskActions={actionsQuery.data?.tasks}
             onDirectTaskAction={executeDirectTaskAction}
             onBatchTaskAction={executeBatchTaskAction}
+            onOpenTask={(target) => {
+              const nextTaskId = typeof target === 'string' ? target : target.taskId;
+              setSelectedTaskId(nextTaskId);
+            }}
             actions={
               change.source === 'active' ? (
                 <div className="mb-9 max-w-xl">
@@ -696,58 +773,20 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
           />
         </div>
 
-        {visibleTabs.filter(t => t.id !== 'overview' && t.id !== 'changes').map(tab => {
-          if (!visitedTabs.has(tab.id)) return null;
-          const section = tab.section;
-          return (
-            <div
-              key={tab.id}
-              id={`spec-panel-${tab.id}`}
-              role="tabpanel"
-              aria-labelledby={`spec-tab-${tab.id}`}
-              className={cn(activeTab !== tab.id && 'hidden')}
-            >
-              {section ? (
-                section.type === 'directory' ? (
-                  <DirectorySectionPanel
-                    change={change}
-                    section={section}
-                    enabled={visitedTabs.has(tab.id)}
-                  />
-                ) : (
-                  <DocumentSectionPanel
-                    change={change}
-                    docId={section.document?.docId || (section.id === 'specification' ? 'overview' : section.id)}
-                    fallbackPath={section.document?.path}
-                    fallbackTitle={section.label}
-                    enabled={visitedTabs.has(tab.id)}
-                  />
-                )
-              ) : tab.id === 'specification' ? (
-                <DocumentSectionPanel
-                  change={change}
-                  docId="overview"
-                  fallbackPath={manifestQuery.data?.overview?.path || 'overview.md'}
-                  fallbackTitle="Specyfikacja"
-                  enabled={visitedTabs.has(tab.id)}
-                />
-              ) : tab.id === 'areas' ? (
-                <DirectorySectionPanel
-                  change={change}
-                  section={{
-                    id: 'areas',
-                    type: 'directory',
-                    label: 'Obszary',
-                    singularLabel: 'Obszar',
-                    available: (manifestQuery.data?.areas?.length ?? 0) > 0,
-                    documents: manifestQuery.data?.areas || [],
-                  }}
-                  enabled={visitedTabs.has(tab.id)}
-                />
-              ) : null}
-            </div>
-          );
-        })}
+        {visitedTabs.has('docs') && (
+          <div
+            id="spec-panel-docs"
+            role="tabpanel"
+            aria-labelledby="spec-tab-docs"
+            className={cn(activeTab !== 'docs' && 'hidden')}
+          >
+            <DocumentationPanel
+              change={change}
+              manifest={manifestQuery.data}
+              enabled={visitedTabs.has('docs')}
+            />
+          </div>
+        )}
 
         {visitedTabs.has('changes') && (
           <div
@@ -765,21 +804,14 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
       {selectedTask && (
         <TaskDialog
-          task={selectedTask}
-          document={selectedTaskDocument}
-          loading={taskDocumentQuery.loading}
-          error={taskDocumentQuery.error}
-          actionGate={selectedTaskAction}
-          actionLoading={Boolean(selectedTaskHasOwnerAction && actionsQuery.loading)}
-          actionExecuting={actionsQuery.executing}
-          actionError={actionsQuery.executionError}
-          onRetry={() => void taskDocumentQuery.refresh()}
-          onAction={() => void executeTaskAction()}
-          sessions={sessionsQuery.sessions.filter(session => (session.taskIds && session.taskIds.includes(selectedTask.id)) || session.taskId === selectedTask.id)}
-          sessionsLoading={sessionsQuery.loading}
-          sessionsError={sessionsQuery.error}
-          onSessionsRetry={() => void sessionsQuery.refresh()}
-          onOpenSession={session => onOpenSession(session, selectedTask.id)}
+          change={change}
+          taskId={selectedTask.id}
+          onOpenSession={onOpenSession}
+          onOpenTask={(target) => {
+            const nextTaskId = typeof target === 'string' ? target : target.taskId;
+            setSelectedTaskId(nextTaskId);
+          }}
+          onOperationStarted={updateActiveOperation}
           onClose={closeTask}
         />
       )}

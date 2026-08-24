@@ -619,6 +619,7 @@ export function useNevoAssistantRuntime({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
+  const [live, setLive] = useState<boolean>(true);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -737,8 +738,16 @@ export function useNevoAssistantRuntime({
 
     let active = true;
 
+    eventSource.onopen = () => {
+      if (active) setLive(true);
+    };
+    eventSource.onerror = () => {
+      if (active) setLive(false);
+    };
+
     const handleAgentEvent = (event: AgentEvent) => {
       if (!active) return;
+      setLive(true);
       const seq = event.seq ?? event.id ?? 0;
       if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
@@ -810,15 +819,29 @@ export function useNevoAssistantRuntime({
 
   // 3. Send Turn
   const handleSendTurn = useCallback(
-    async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!canStartTurn(activityRef.current, provider, providerSessionId, messageText)) return;
-      if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+    async (messageText: string, options?: { mode?: AgentExecutionMode; idempotencyKey?: string }) => {
+      const trimmed = messageText ? messageText.trim() : '';
+      if (!trimmed) {
+        throw new Error('Cannot start turn with an empty message.');
+      }
+      if (!provider || !providerSessionId) {
+        throw new Error('Cannot start turn without an active provider and session ID.');
+      }
+      if (!isSnapshotLoaded || loadedIdentity !== `${provider}:${providerSessionId}`) {
+        throw new Error('Cannot start turn while the session snapshot is loading.');
+      }
+      if (loadError) {
+        throw new Error('Cannot start turn on a session with a load error.');
+      }
+      if (activityRef.current !== 'idle') {
+        throw new Error(`Cannot start turn while session is ${activityRef.current}.`);
+      }
 
-      const idempotencyKey = createTurnIdempotencyKey();
+      const idempotencyKey = options?.idempotencyKey || createTurnIdempotencyKey();
       const userMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        text: messageText,
+        text: trimmed,
         createdAt: new Date().toISOString(),
       };
 
@@ -839,7 +862,7 @@ export function useNevoAssistantRuntime({
               'x-nevo-dashboard-action': '1',
             },
             body: JSON.stringify({
-              message: messageText,
+              message: trimmed,
               idempotencyKey,
               ...(options?.mode ? { mode: options.mode } : {}),
             }),
@@ -865,10 +888,12 @@ export function useNevoAssistantRuntime({
         activityRef.current = 'idle';
         setActiveTurnId(null);
         activeTurnIdRef.current = null;
-        onError?.(err instanceof Error ? err : new Error(String(err)));
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        onErrorRef.current?.(normalized);
+        throw normalized;
       }
     },
-    [provider, providerSessionId, loadedIdentity, onError]
+    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError]
   );
 
   // 4. Cancel Turn
@@ -969,7 +994,10 @@ export function useNevoAssistantRuntime({
     ? { ...sessionDetails, status: exposedActivity }
     : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
+  const exposedLive = isSnapshotLoaded && !exposedLoadError ? live : false;
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
+  const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
+  const exposedCanStartTurn = exposedIsReady;
 
   // 6. Convert NormalizedMessages to Assistant UI ThreadMessageLike
   const assistantMessages: ThreadMessageLike[] = useMemo(() => {
@@ -1012,6 +1040,10 @@ export function useNevoAssistantRuntime({
     activeTurnId: exposedActiveTurnId,
     contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
+    live: exposedLive,
+    isReady: exposedIsReady,
+    canStartTurn: exposedCanStartTurn,
+    isSnapshotLoaded,
     loadError: exposedLoadError,
     reload,
     sendTurn: handleSendTurn,

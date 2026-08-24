@@ -88,7 +88,47 @@ Claude Code (version >= 2.1.89) is integrated through non-interactive process in
 The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
 - `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
-- `diagnostic raw capture`: exact raw stdout and stderr lines are recorded before any adapter processing to `.nevo-ai-local/antigravity_raw/<providerSessionId>/raw.ndjson` for protocol analysis. File write failures are completely isolated from turn execution. To clear diagnostic recordings, remove `.nevo-ai-local/antigravity_raw`.
+- `diagnostic raw capture`: exact raw stdout and stderr lines can be recorded before any adapter
+  processing for protocol analysis.
+
+### Local AI adapter configuration
+
+AI adapter enablement is workstation-local. Configure the adapters that the dashboard may
+register in the ignored `.nevo-ai-local/ai-adapters.yaml` file:
+
+  ```yaml
+  version: 1
+  adapters:
+    claude:
+      enabled: true
+    antigravity:
+      enabled: true
+      diagnostics:
+        raw_responses:
+          enabled: true
+          directory: .nevo-ai-local/antigravity_raw
+    codex:
+      enabled: true
+    mock:
+      enabled: false
+  ```
+
+The file is the complete local allow-list: only entries present with `enabled: true` are
+registered, in file order. If the file is missing, empty, or contains no enabled entries, no AI
+adapter is registered. The dashboard's session-creation surfaces explain where to enable an
+adapter, while a previously recorded session whose adapter is no longer enabled remains
+visible but cannot start another turn. The configuration is read when the dashboard AI service
+starts, so restart the dashboard after editing it.
+
+Antigravity raw capture is independently opt-in and defaults to disabled. Its directory must
+be relative to and remain inside the repository. Each canonical provider session gets its own
+`<directory>/<providerSessionId>/raw.ndjson` and `session.json`; every turn-scoped envelope
+carries both the canonical `providerSessionId` and the Nevo `turnId`. Provisional records are
+migrated and rewritten when Antigravity allocates the canonical conversation ID. File write
+failures remain isolated from turn execution, while terminal/disposal boundaries flush queued
+writes on a bounded best-effort basis. Raw diagnostics can contain prompts, provider output,
+tool inputs, paths, and errors; treat the configured directory as sensitive local operator
+data. To clear the default recordings, remove `.nevo-ai-local/antigravity_raw`.
 
 ### OpenAI Codex integration
 

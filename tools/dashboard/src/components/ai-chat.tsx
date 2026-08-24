@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ChatHeader } from '@/components/chat-header';
+import { formatSessionStatus } from '@/components/status-label';
 import { SessionDetails } from '@/components/session-details';
 import { ChatComposer } from '@/components/composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
@@ -32,8 +33,11 @@ import {
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
 import { projectChat } from '@/lib/chat-projection';
 import { useScrollFollow } from '@/lib/use-scroll-follow';
+import { useInitialDispatch } from '@/lib/use-initial-dispatch';
+import { TaskDialog } from '@/components/task-dialog';
 import type {
   AgentExecutionMode,
   AiInteraction,
@@ -41,9 +45,11 @@ import type {
   AiQuestionInteraction,
   AiSession,
   DashboardChange,
+  TaskNavigationTarget,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
+import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
 
 function useChatVisualViewport() {
   const [viewport, setViewport] = useState<{ height: number | null; offsetTop: number; keyboardOpen: boolean }>({
@@ -63,18 +69,20 @@ function useChatVisualViewport() {
         const offsetTop = visualViewport ? Math.max(0, Math.round(visualViewport.offsetTop)) : 0;
         baselineHeight.current = Math.max(baselineHeight.current, height);
         const active = document.activeElement;
-        const textEntryFocused = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement;
-        const keyboardOpen = textEntryFocused && height < baselineHeight.current - 80;
-
-        if (textEntryFocused && window.scrollY !== 0) {
-          window.scrollTo(0, 0);
-        }
-
-        setViewport(previous => previous.height === height && previous.offsetTop === offsetTop && previous.keyboardOpen === keyboardOpen
-          ? previous
-          : { height, offsetTop, keyboardOpen });
+        const keyboard = Boolean(
+          active &&
+          (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.getAttribute('contenteditable') === 'true') &&
+          visualViewport &&
+          visualViewport.height < baselineHeight.current - 80
+        );
+        setViewport({
+          height: visualViewport ? Math.round(visualViewport.height) : null,
+          offsetTop,
+          keyboardOpen: keyboard,
+        });
       });
     };
+
     const resetBaseline = () => {
       baselineHeight.current = 0;
       measure();
@@ -102,32 +110,23 @@ function useChatVisualViewport() {
 }
 
 export function AiChatPage({
-  provider,
-  sessionId,
-  changes,
-  initialTurnId,
-  initialMessage,
-  onInitialMessageConsumed,
-  onTurnChange,
+  spec,
+  session,
   onBack,
-  backLabel,
+  backLabel = 'Wróć do specyfikacji',
   onSwitchSession,
 }: {
-  provider: string;
-  sessionId: string;
-  changes: DashboardChange[];
-  initialTurnId: string | null;
-  initialMessage: string | null;
-  onInitialMessageConsumed: () => void;
-  onTurnChange: (turnId: string | null) => void;
+  spec: DashboardChange;
+  session: AiSession;
   onBack: () => void;
-  backLabel: string;
+  backLabel?: string;
   onSwitchSession: (session: AiSession) => void;
 }) {
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const initialSent = useRef(false);
   const chatViewport = useChatVisualViewport();
+
+  const provider = session.provider;
+  const sessionId = session.providerSessionId || session.sessionId;
 
   const handleTranscriptPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
@@ -137,19 +136,78 @@ export function AiChatPage({
     }
   };
 
+  const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
+  const providersQuery = useAiProviders();
+  const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
+  const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
+  const providerUnavailableReason = providerInfo
+    ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
+    : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
+
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
   const assistant = useNevoAssistantRuntime({
     provider,
     providerSessionId: sessionId,
     onTurnCompleted: () => {
-      onTurnChange(null);
-      setSubmissionError(null);
+      setRuntimeError(null);
     },
     onError: (err) => {
-      setSubmissionError(err.message);
+      setRuntimeError(err.message);
     },
   });
 
-  const scrollContentKey = `${assistant.contentRevision}|${submissionError ?? ''}`;
+  const sessionDetails = assistant.sessionDetails || session;
+  const currentMode: AgentExecutionMode = selectedModeOverride ?? sessionDetails?.mode ?? session?.mode ?? 'edit';
+
+  const initialDispatch = useInitialDispatch({
+    provider,
+    sessionId,
+    assistant,
+    isProviderAvailable,
+    currentMode,
+    onBeforeDispatch: useCallback(() => {
+      setRuntimeError(null);
+    }, []),
+  });
+
+  const displayError = initialDispatch.displayError || runtimeError || null;
+  const canRetryInitial = initialDispatch.canRetryInitial;
+
+  const handleDismissError = useCallback(() => {
+    initialDispatch.handleDismissError();
+    setRuntimeError(null);
+  }, [initialDispatch]);
+
+  const handleRetryInitial = useCallback(async () => {
+    setRuntimeError(null);
+    return initialDispatch.handleRetryInitial();
+  }, [initialDispatch]);
+
+  const handleCancelTurn = useCallback(async () => {
+    setRuntimeError(null);
+    try {
+      await assistant.cancelTurn();
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.cancelTurn]);
+
+  const handleRespondInteraction = useCallback(async (interactionId: string, response: unknown) => {
+    setRuntimeError(null);
+    try {
+      await assistant.respondInteraction(interactionId, response);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.respondInteraction]);
+
+  const handleReload = useCallback(async () => {
+    setRuntimeError(null);
+    await assistant.reload();
+  }, [assistant.reload]);
+
+  const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${displayError ?? ''}`;
 
   const {
     containerRef: transcriptRef,
@@ -161,10 +219,33 @@ export function AiChatPage({
   });
 
   const [isSessionDetailsOpen, setIsSessionDetailsOpen] = useState(false);
+  const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);
 
-  const session = assistant.sessionDetails;
-  const change = changes.find(item => item.specId === session?.specId) ?? null;
-  const linkedTasks = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
+  const change = spec;
+
+  const handleInspectTask = useCallback((target: TaskNavigationTarget | string) => {
+    const taskId = typeof target === 'string' ? target : target.taskId;
+    const task = change?.tasks?.find((t) => t.id === taskId);
+    if (task) {
+      setIsSessionDetailsOpen(false);
+      setInspectedTaskId(taskId);
+    }
+  }, [change?.tasks]);
+
+  const rawTaskIds = sessionDetails?.taskIds && sessionDetails.taskIds.length > 0
+    ? sessionDetails.taskIds
+    : (sessionDetails?.taskId ? [sessionDetails.taskId] : []);
+  const sessionTaskItems = useMemo(() => {
+    if (!rawTaskIds.length) return [];
+    return rawTaskIds.map((taskId) => {
+      const matchedTask = change?.tasks?.find((t) => t.id === taskId);
+      return {
+        id: taskId,
+        title: matchedTask?.title || taskId,
+        isClickable: Boolean(matchedTask),
+      };
+    });
+  }, [rawTaskIds, change?.tasks]);
 
   const workByTurnId = useMemo(() => {
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
@@ -172,11 +253,7 @@ export function AiChatPage({
   }, [assistant.messages, assistant.activeTurnId]);
 
   useEffect(() => {
-    onTurnChange(assistant.activeTurnId);
-  }, [assistant.activeTurnId, onTurnChange]);
-
-  useEffect(() => {
-    setSubmissionError(null);
+    setRuntimeError(null);
   }, [provider, sessionId]);
 
   useEffect(() => {
@@ -185,8 +262,6 @@ export function AiChatPage({
     scrollToBottom('auto');
   }, [chatViewport.height, chatViewport.keyboardOpen, isFollowing, scrollToBottom]);
 
-  const [selectedModeOverride, setSelectedModeOverride] = useState<AgentExecutionMode | null>(null);
-  const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
   const { deleteSession, deleting } = useDeleteAiSession();
 
   const handleDeleteSession = async () => {
@@ -195,51 +270,30 @@ export function AiChatPage({
       await deleteSession({ provider, sessionId });
       onBack();
     } catch (err) {
-      setSubmissionError(err instanceof Error ? err.message : String(err));
+      setRuntimeError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const providersQuery = useAiProviders();
-  const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
-  const isProviderAvailable = providerInfo?.available !== false;
+  const handleComposerSubmit = useCallback(async (promptText: string) => {
+    const trimmed = promptText.trim();
+    if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
+    setRuntimeError(null);
+    scrollToBottom('auto');
+    try {
+      await assistant.sendTurn(trimmed, { mode: currentMode });
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
+  const submitMessage = handleComposerSubmit;
 
-  const submitMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || assistant.activity !== 'idle' || !isProviderAvailable) return;
-    setSubmissionError(null);
-    await assistant.sendTurn(trimmed, { mode: currentMode });
-  }, [assistant, isProviderAvailable, currentMode]);
-
-  useEffect(() => {
-    if (!initialMessage || initialSent.current) return;
-    if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) return;
-    initialSent.current = true;
-    void submitMessage(initialMessage).finally(onInitialMessageConsumed);
-  }, [initialMessage, onInitialMessageConsumed, submitMessage, assistant.isLoading, assistant.sessionDetails, assistant.loadError]);
-
-  const shellStyle = chatViewport.height == null ? undefined : { height: `${chatViewport.height}px`, top: `${chatViewport.offsetTop}px` };
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
-
-  if (assistant.isLoading && !assistant.sessionDetails && !assistant.loadError) {
-    return (
-      <div className={shellClassName} style={shellStyle}>
-        <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
-            <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onBack} aria-label={backLabel} title={backLabel}>
-              <ArrowLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-[var(--muted)]">Ładowanie sesji...</span>
-          </div>
-        </header>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <LoaderCircle className="size-8 animate-spin text-[var(--accent)]" />
-            <p className="text-sm font-medium text-[var(--muted)]">Wczytywanie historii i stanu rozmowy...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const shellStyle = chatViewport.height
+    ? {
+        height: `${chatViewport.height}px`,
+        transform: `translateY(${chatViewport.offsetTop}px)`,
+      }
+    : undefined;
 
   const headerTitle =
     session?.title?.trim() ||
@@ -253,7 +307,8 @@ export function AiChatPage({
   const header = (
     <ChatHeader
       title={headerTitle}
-      status={session ? assistant.activity : undefined}
+      status={session ? formatSessionStatus(assistant.activity) : undefined}
+      live={assistant.live}
       onBack={onBack}
       backLabel={backLabel}
       onOpenDetails={() => setIsSessionDetailsOpen(true)}
@@ -277,9 +332,11 @@ export function AiChatPage({
               <SessionDetails
                 specTitle={change?.title}
                 specId={session?.specId}
-                tasks={linkedTasks}
+                specSlug={change?.slug}
+                tasks={sessionTaskItems}
                 provider={provider}
                 mode={currentMode}
+                onOpenTask={handleInspectTask}
                 onDelete={() => {
                   setIsSessionDetailsOpen(false);
                   void handleDeleteSession();
@@ -291,14 +348,14 @@ export function AiChatPage({
           </SheetContent>
         </Sheet>
 
-        {!isProviderAvailable && providerInfo && (
+        {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
           <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
             <div className="mx-auto flex max-w-4xl items-start gap-2.5 text-xs text-amber-200">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">Provider {providerInfo.label} nie jest dostępny</p>
+                <p className="font-semibold">Provider {providerInfo?.label || provider} nie jest dostępny</p>
                 <p className="mt-0.5 text-[11px] text-amber-200/80">
-                  {providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.'}
+                  {providerUnavailableReason}
                 </p>
               </div>
             </div>
@@ -325,7 +382,7 @@ export function AiChatPage({
                   {assistant.loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-3">
-                  <Button variant="default" size="sm" onClick={() => void assistant.reload()}>
+                  <Button variant="default" size="sm" onClick={() => void handleReload()}>
                     <RefreshCw className="mr-1.5 size-3.5" />
                     Spróbuj ponownie
                   </Button>
@@ -357,43 +414,57 @@ export function AiChatPage({
               <PermissionPrompt
                 interaction={assistant.pendingInteraction as Extract<AiInteraction, { kind: 'permission' }>}
                 disabled={false}
-                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+                onResolve={response => void handleRespondInteraction(assistant.pendingInteraction!.id, response)}
               />
             )}
             {assistant.pendingInteraction?.kind === 'question' && (
               <QuestionPrompt
                 interaction={assistant.pendingInteraction as AiQuestionInteraction}
                 disabled={false}
-                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+                onResolve={response => void handleRespondInteraction(assistant.pendingInteraction!.id, response)}
               />
             )}
-            {submissionError && (
+            {displayError && (
               <div className={cn(
                 'flex items-start gap-3 rounded-xl p-3.5 text-xs',
-                submissionError.toLowerCase().includes('cancelled')
+                displayError.toLowerCase().includes('cancelled')
                   ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
                   : 'border border-red-500/30 bg-red-500/10 text-red-200'
               )}>
                 <AlertTriangle className={cn(
                   'mt-0.5 size-4 shrink-0',
-                  submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
+                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
                 )} />
                 <div className="min-w-0 flex-1">
                   <p className={cn(
                     'font-semibold',
-                    submissionError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
+                    displayError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
                   )}>
-                    {submissionError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
+                    {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
                   </p>
-                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{submissionError}</p>
+                  <p className="mt-1 whitespace-pre-wrap font-mono text-[11px] opacity-90">{displayError}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSubmissionError(null)}
-                  className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
-                >
-                  Zamknij
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {canRetryInitial && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleRetryInitial()}
+                      className="h-7 gap-1.5 px-2.5 text-xs font-medium"
+                    >
+                      <RefreshCw className="size-3" />
+                      Ponów próbę
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDismissError}
+                    className="rounded px-1.5 py-0.5 text-[10px] opacity-70 hover:opacity-100 hover:bg-white/10"
+                  >
+                    Zamknij
+                  </button>
+                </div>
               </div>
             )}
             {hasUnseenContent && !isFollowing && (
@@ -419,17 +490,37 @@ export function AiChatPage({
               textareaRef={composerTextareaRef}
               currentMode={currentMode}
               onModeChange={(m) => setSelectedModeOverride(m)}
-              onSend={(text) => submitMessage(text)}
-              onCancel={() => void assistant.cancelTurn()}
+              onSend={(text) => handleComposerSubmit(text)}
+              onCancel={() => void handleCancelTurn()}
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
               isProviderAvailable={isProviderAvailable}
-              disabled={assistant.activity !== 'idle' && !assistant.isRunning}
+              disabled={!assistant.canStartTurn || !isProviderAvailable}
               placeholder={assistant.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
               loadError={assistant.loadError}
             />
           </div>
         </footer>
+
+        {inspectedTaskId && change && (
+          <TaskDialog
+            change={change}
+            taskId={inspectedTaskId}
+            onOpenSession={(s) => {
+              try {
+                onSwitchSession(s);
+                setInspectedTaskId(null);
+              } catch (err) {
+                setRuntimeError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            onOpenTask={(target) => {
+              const nextTaskId = typeof target === 'string' ? target : target.taskId;
+              setInspectedTaskId(nextTaskId);
+            }}
+            onClose={() => setInspectedTaskId(null)}
+          />
+        )}
       </div>
     </AssistantRuntimeProvider>
   );

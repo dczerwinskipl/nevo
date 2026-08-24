@@ -61,11 +61,12 @@ describe('tools/specs.mjs CLI smoke tests', () => {
 
   test('fingerprint <real-change> --task <real-task> prints a 64-char hex digest and exits 0 (PR re-review packet 01)', (t) => {
     const list = run(SPECS_CLI, ['list']);
-    const changeMatch = list.stdout.match(/^\[[a-z-]+\] (\S+) —/m);
-    if (!changeMatch) { t.skip('no active change to fingerprint right now'); return; }
-    const taskMatch = list.stdout.match(/^\s+\d+\.\s+\[[a-z-]+\]\s+(\S+)/m);
-    if (!taskMatch) { t.skip('no task on the active change to fingerprint right now'); return; }
-    const r = run(SPECS_CLI, ['fingerprint', changeMatch[1], '--task', taskMatch[1]]);
+    const changeBlocks = list.stdout.split(/\n(?=\[[a-z-]+\] )/);
+    const withTasks = changeBlocks.find(b => /^\s+\d+\.\s+\[[a-z-]+\]\s+(\S+)/m.test(b));
+    if (!withTasks) { t.skip('no active change with tasks to fingerprint right now'); return; }
+    const changeSlug = withTasks.match(/^\[[a-z-]+\] (\S+) —/m)[1];
+    const taskSlug = withTasks.match(/^\s+\d+\.\s+\[[a-z-]+\]\s+(\S+)/m)[1];
+    const r = run(SPECS_CLI, ['fingerprint', changeSlug, '--task', taskSlug]);
     assert.equal(r.code, 0);
     assert.match(r.stdout.trim(), /^[0-9a-f]{64}$/);
   });

@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { AI_MODES } from '@/lib/ai-mode-meta';
+import { AI_ADAPTERS_ENABLE_MESSAGE } from '@/lib/ai-adapter-config';
 import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
 
 export interface AiSessionCreateModalProps {
@@ -19,11 +21,7 @@ export function AiSessionCreateModal({
 }: AiSessionCreateModalProps) {
   const providers = useAiProviders();
   const createSession = useCreateAiSession();
-  const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort((a, b) => {
-    if (a.id === 'mock') return 1;
-    if (b.id === 'mock') return -1;
-    return 0;
-  });
+  const enabledProviders = providers.data?.providers.filter((p) => p.enabled) ?? [];
 
   const availableProviders = enabledProviders.filter((p) => p.available !== false);
 
@@ -54,6 +52,17 @@ export function AiSessionCreateModal({
       }
     }
   }, [availableProviders, enabledProviders, provider]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !createSession.creating) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [createSession.creating, onClose]);
 
   const selectedProviderObj = enabledProviders.find((p) => p.id === provider);
   const isSelectedProviderAvailable = selectedProviderObj?.available !== false;
@@ -116,13 +125,15 @@ export function AiSessionCreateModal({
             Providerzy są niedostępni.
           </div>
         ) : !enabledProviders.length ? (
-          <div className="mt-6 rounded-xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted)]">
-            Brak aktywnych agentów / providerów.
+          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+            {AI_ADAPTERS_ENABLE_MESSAGE}
           </div>
         ) : (
           <>
-            <label className="mt-6 block text-xs font-semibold">
-              Provider
+            <fieldset className="mt-6">
+              <legend className="text-xs font-semibold text-[var(--foreground)]">
+                Provider
+              </legend>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {enabledProviders.map((p) => {
                   const selected = provider === p.id;
@@ -131,6 +142,7 @@ export function AiSessionCreateModal({
                     <button
                       key={p.id}
                       type="button"
+                      aria-pressed={selected}
                       onClick={() => setProvider(p.id)}
                       title={!isAvail ? (p.unavailableReason || 'Brak CLI w systemie') : undefined}
                       className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
@@ -156,20 +168,19 @@ export function AiSessionCreateModal({
                   );
                 })}
               </div>
-            </label>
+            </fieldset>
 
-            <div className="mt-4">
-              <label className="block text-xs font-semibold">Tryb wykonania</label>
+            <fieldset className="mt-4">
+              <legend className="text-xs font-semibold text-[var(--foreground)]">
+                Tryb wykonania
+              </legend>
               <div className="mt-2 grid grid-cols-3 gap-2">
-                {[
-                  { id: 'ask', label: 'Ask (Plan)', desc: 'Tylko analiza i planowanie' },
-                  { id: 'edit', label: 'Edit (Domyślny)', desc: 'Bezpieczna edycja kodu' },
-                  { id: 'agent', label: 'Agent (Auto)', desc: 'Pełna autonomia' },
-                ].map((item) => (
+                {AI_MODES.map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setMode(item.id as AgentExecutionMode)}
+                    aria-pressed={mode === item.id}
+                    onClick={() => setMode(item.id)}
                     className={`flex flex-col items-start rounded-xl border p-2.5 text-left transition-all ${
                       mode === item.id
                         ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
@@ -177,11 +188,11 @@ export function AiSessionCreateModal({
                     }`}
                   >
                     <span className="text-xs font-semibold text-[var(--foreground)]">{item.label}</span>
-                    <span className="mt-0.5 text-[10px] text-[var(--muted)]">{item.desc}</span>
+                    <span className="mt-0.5 text-[10px] text-[var(--muted)]">{item.description}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
 
             <label className="mt-4 block text-xs font-semibold">
               Tytuł <span className="font-normal text-[var(--muted)]">(opcjonalnie)</span>
@@ -217,8 +228,8 @@ export function AiSessionCreateModal({
                           }
                           className="rounded border-[var(--border)] text-[var(--accent)] focus:ring-0"
                         />
-                        <span className="font-mono text-[11px] text-[var(--muted-strong)]">{task.id}</span>
-                        <span className="truncate text-[var(--foreground)]">{task.title}</span>
+                        <span className="font-mono text-[10px] text-[var(--muted)]">{task.id}</span>
+                        <span className="truncate font-medium text-[var(--foreground)]">{task.title}</span>
                       </label>
                     );
                   })}

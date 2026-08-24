@@ -1556,6 +1556,180 @@ test('Antigravity error result: event "result" + status "ERROR" + empty response
   assert.equal(textDeltas.length, 0, 'must not emit any text delta for empty response on error');
 });
 
+test('Antigravity error result: streamed waiting text plus active run_command plus empty ERROR response fails the turn with an unknown tool result', async () => {
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-waiting-error' }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: { text_delta: 'Waiting for verification to complete' },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_type: 'tool',
+        toolId: 'run-command-1',
+        tool_name: 'run_command',
+        state: 'ACTIVE',
+        tool_info: { parameters: { command: 'npm test' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        response: '',
+        error: 'Verification operation ended without a terminal result',
+      },
+    }),
+  ];
+
+  const textDeltas = [];
+  const toolsCompleted = [];
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(lines),
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-waiting-error',
+      providerSessionId: 'conv-waiting-error',
+      message: 'Run verification',
+      emitTextDelta: delta => textDeltas.push(delta),
+      emitToolCompleted: tool => toolsCompleted.push(tool),
+    }),
+    err => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      assert.equal(err.message, 'Verification operation ended without a terminal result');
+      return true;
+    },
+  );
+
+  assert.deepEqual(textDeltas, ['Waiting for verification to complete']);
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].toolId, 'run-command-1');
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.match(toolsCompleted[0].output, /did not report a terminal result/i);
+  assert.notEqual(toolsCompleted[0].output, 'executed');
+});
+
+test('Antigravity raw capture: terminal settlement flushes canonical session and turn-correlated records without cross-session mixing', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-correlated-'));
+  try {
+    const sessions = [
+      { sessionId: 'canonical-session-a', turnId: 'nevo-turn-a', response: 'A done' },
+      { sessionId: 'canonical-session-b', turnId: 'nevo-turn-b', response: 'B done' },
+    ];
+    let spawnIndex = 0;
+    const provider = createAntigravityAgentProvider({
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+      spawnProcess: () => {
+        const session = sessions[spawnIndex++];
+        return createMockProcess([
+          JSON.stringify({ type: 'init', conversation_id: session.sessionId }),
+          JSON.stringify({ event: 'result', response: session.response }),
+        ]);
+      },
+    });
+
+    for (const session of sessions) {
+      const result = await provider.startTurn({
+        turnId: session.turnId,
+        providerSessionId: session.sessionId,
+        message: `Run ${session.turnId}`,
+      });
+      assert.equal(result.providerSessionId, session.sessionId);
+
+      // No explicit flushRawCapture call: terminal settlement is the durability boundary.
+      const capturePath = provider.getRawCapturePath(session.sessionId);
+      const records = (await readFile(capturePath, 'utf8'))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line));
+      assert.equal(records.length, 2);
+      assert.ok(records.every(record => record.providerSessionId === session.sessionId));
+      assert.ok(records.every(record => record.turnId === session.turnId));
+
+      const metadata = JSON.parse(await readFile(join(dirname(capturePath), 'session.json'), 'utf8'));
+      assert.equal(metadata.providerSessionId, session.sessionId);
+    }
+
+    const sessionARecords = (await readFile(provider.getRawCapturePath('canonical-session-a'), 'utf8'));
+    const sessionBRecords = (await readFile(provider.getRawCapturePath('canonical-session-b'), 'utf8'));
+    assert.doesNotMatch(sessionARecords, /canonical-session-b|nevo-turn-b/);
+    assert.doesNotMatch(sessionBRecords, /canonical-session-a|nevo-turn-a/);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity generic provider error retains process ownership and terminates the child with the bounded policy', async () => {
+  const child = createHangingMockProcess();
+  let operation = null;
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => child,
+    cancelGraceMs: 20,
+    forceGraceMs: 20,
+  });
+
+  const turnPromise = provider.startTurn({
+    turnId: 'turn-generic-provider-error',
+    providerSessionId: 'session-generic-provider-error',
+    message: 'Fail from an error event',
+    setOperation: value => { operation = value; },
+  });
+  child.stdout.push(`${JSON.stringify({ type: 'error', message: 'Provider stream failed' })}\n`);
+
+  await assert.rejects(turnPromise, err => {
+    assert.equal(err.code, 'AI_PROVIDER_ERROR');
+    assert.equal(err.message, 'Provider stream failed');
+    return true;
+  });
+  await new Promise(resolve => setTimeout(resolve, 30));
+
+  assert.ok(operation, 'operation remains owned until the child closes');
+  assert.equal(operation.isResolved, true);
+  assert.ok(child.killCalls.includes('SIGINT'));
+});
+
+test('Antigravity dispose terminates active operations and flushes their raw diagnostic queue', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-agy-dispose-'));
+  try {
+    const child = createHangingMockProcess();
+    const provider = createAntigravityAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+      cancelGraceMs: 20,
+      forceGraceMs: 20,
+    });
+    const registry = createAiAdapterRegistry([provider]);
+
+    const turnPromise = provider.startTurn({
+      turnId: 'turn-dispose-raw',
+      providerSessionId: 'session-dispose-raw',
+      message: 'Wait until shutdown',
+    });
+    child.stdout.push(`${JSON.stringify({ type: 'init', conversation_id: 'session-dispose-raw' })}\n`);
+
+    await registry.dispose();
+    await assert.rejects(turnPromise, err => err.code === 'AI_TURN_CANCELLED');
+
+    assert.ok(child.killCalls.includes('SIGINT'));
+    const records = (await readFile(provider.getRawCapturePath('session-dispose-raw'), 'utf8'))
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
+    assert.equal(records.length, 1);
+    assert.equal(records[0].providerSessionId, 'session-dispose-raw');
+    assert.equal(records[0].turnId, 'turn-dispose-raw');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('Antigravity error result: event "result" + status "ERROR" with non-empty response completes turn successfully with response text and avoids false-positive error', async () => {
   const lines = [
     JSON.stringify({ type: 'init', conversation_id: 'conv-err-response' }),

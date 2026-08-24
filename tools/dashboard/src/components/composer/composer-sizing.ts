@@ -71,3 +71,28 @@ export function adjustComposerTextareaElement(
   };
 }
 
+export interface ComposerKeyActionParams {
+  key: string;
+  shiftKey: boolean;
+  isComposing?: boolean;
+  enterToSend: boolean;
+}
+
+export type ComposerKeyAction = 'send' | 'newline' | 'none';
+
+/**
+ * Resolves keyboard action based on key state, IME composition, and modality (enterToSend).
+ */
+export function resolveComposerKeyAction({
+  key,
+  shiftKey,
+  isComposing = false,
+  enterToSend,
+}: ComposerKeyActionParams): ComposerKeyAction {
+  if (key !== 'Enter') return 'none';
+  if (shiftKey) return 'newline';
+  if (isComposing) return 'newline';
+  if (enterToSend) return 'send';
+  return 'newline';
+}
+

@@ -179,6 +179,7 @@ test('AiSessionService uses binding service for listings and transcript cache fo
   assert.deepEqual(sessions, [{
     provider: 'claude',
     providerSessionId: 'sess-1',
+    sessionId: 'sess-1',
     specId: 'spec-123',
     taskId: undefined,
     taskIds: [],

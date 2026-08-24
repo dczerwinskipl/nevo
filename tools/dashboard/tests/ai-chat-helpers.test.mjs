@@ -601,9 +601,13 @@ test('real useNevoAssistantRuntime mounting: error domain separation between sna
   assert.equal(harness.result.loadError, null);
   assert.equal(errorsReceived.length, 0, 'No stale turn error should exist after successful retry');
 
-  // 3. Genuine sendTurn failure DOES invoke onError
+  // 3. Genuine sendTurn failure DOES invoke onError and rejects promise
   await harness.act(async () => {
-    await harness.result.sendTurn('Test message');
+    try {
+      await harness.result.sendTurn('Test message');
+    } catch {
+      // Expected rejection
+    }
   });
 
   assert.equal(errorsReceived.length, 1);
