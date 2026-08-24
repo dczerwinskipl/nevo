@@ -2,7 +2,7 @@
 
 # Documentation index
 
-_Generated: 2026-08-24T19:42:14.084Z_
+_Generated: 2026-08-24T20:35:53.780Z_
 
 ## Hub
 
@@ -72,12 +72,13 @@ _Generated: 2026-08-24T19:42:14.084Z_
 | `development.local-setup` | [Local setup](development/local-setup.md) | current |  |
 | `development.message-context` | [Message context](development/message-context.md) | current |  |
 | `development.messaging-pipeline` | [Messaging pipeline](development/messaging-pipeline.md) | current |  |
+| `development.node-tooling-guidelines` | [Node tooling guidelines](development/node-tooling-guidelines.md) | current |  |
 | `development.orchestration` | [Orchestration](development/orchestration.md) | experimental |  |
 | `development.package-boundaries` | [Package boundaries](development/package-boundaries.md) | current |  |
 | `development.persistence-development` | [Adding a persistence mechanism](development/persistence-development.md) | current |  |
 | `development.processing-model` | [Processing model](development/processing-model.md) | current |  |
 | `development.pull-requests` | [Pull requests](development/pull-requests.md) | current |  |
-| `development.react-component-guidelines` | [React component guidelines](development/react-component-guidelines.md) | current |  |
+| `development.react-component-guidelines` | [React component and module guidelines](development/react-component-guidelines.md) | current |  |
 | `development.testing` | [Testing strategy](development/testing-strategy.md) | current |  |
 | `development.transaction-model` | [Transaction model](development/transaction-model.md) | current |  |
 | `development.transport-development` | [Adding a transport](development/transport-development.md) | current |  |

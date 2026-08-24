@@ -1,7 +1,7 @@
 ---
 id: development.react-component-guidelines
 type: development
-title: React component guidelines
+title: React component and module guidelines
 status: current
 read_when:
   - creating or restructuring React components
@@ -10,32 +10,27 @@ read_when:
   - extracting reusable components
   - changing styling or status/color presentation
   - refactoring large feature components
+  - reorganizing React files, hooks, view models, or feature modules
 summary: >
-  Preferred way to structure React UI code in Nevo: component sizing/composition, the
-  token -> primitive -> wrapper -> feature layering, state/effect/context boundaries,
-  memoization discipline, and the accessibility baseline. Always-read guidance for
-  frontend implementation and refactoring, not specific to any one change.
+  Preferred way to structure React UI code: component composition, module/file
+  boundaries, token -> primitive -> wrapper -> feature layering, state/effect/context
+  ownership, view-model boundaries, accessibility, testing, and pragmatic size smells.
+  Treat this as required guidance for frontend implementation and refactoring when
+  explicitly attached to a task.
 related:
   - development.coding-conventions
   - development.architecture-overview
 ---
 
-# React Component Guidelines
+# React Component and Module Guidelines
 
 ## Purpose
 
-This document defines the preferred way to structure React UI code in Nevo.
+This document defines the preferred way to structure React UI code.
 
-It should be treated as **always-read guidance for frontend implementation and refactoring**, especially when:
+The goal is not to maximize the number of components or files. The goal is to make UI code easy to understand, compose, test, change, and move between repositories without carrying accidental coupling.
 
-- creating or restructuring React components;
-- changing shared UI;
-- introducing dialogs, drawers, menus, tooltips or other interactive primitives;
-- extracting reusable components;
-- changing styling or status/color presentation;
-- refactoring large feature components.
-
-The goal is not to enforce arbitrary purity. The goal is to keep the UI easy to understand, compose, reuse, test and evolve.
+Use architectural responsibility as the primary reason to split code. File size is a review signal, not a design rule.
 
 ---
 
@@ -49,10 +44,11 @@ Good reasons to split a component:
 
 - it renders a distinct visual concept;
 - it owns a distinct interaction;
-- it can be reused;
-- it contains logic that obscures the parent component;
+- it owns state, effects, subscriptions, or browser lifecycle separate from its parent;
+- it can be tested meaningfully in isolation;
+- it contains logic that obscures the parent;
 - it changes for a different reason than the rest of the parent;
-- extracting it makes the main composition substantially easier to read.
+- extracting it makes the feature composition substantially easier to read.
 
 Do not split components solely to satisfy a line-count rule.
 
@@ -65,75 +61,185 @@ Prefer:
 <Composer />
 ```
 
-over one large component containing all layout, fetching, event projection, interaction state and markup.
+over one component containing layout, fetching, event projection, interaction state, effects, dialogs, and markup.
 
-A page or feature component should read primarily as **composition**, not as hundreds of lines of implementation detail.
-
----
+A page or feature component should read primarily as composition and orchestration.
 
 ## 1.2 Prefer composition over configuration-heavy components
 
-Prefer composing focused parts using `children`, slots or small subcomponents.
+Prefer composing focused parts through `children`, slots, or small subcomponents.
 
-Prefer:
+Avoid components that accumulate many unrelated booleans or variants to represent distinct concepts.
 
-```tsx
-<SessionDetails>
-  <SessionContext />
-  <SessionActions />
-</SessionDetails>
-```
+If independent flags materially change responsibility or structure, inspect whether the component should be split instead.
 
-over:
+## 1.3 Split by responsibility, not by architectural ceremony
 
-```tsx
-<SessionDetails
-  showProvider
-  showMode
-  showTasks
-  allowDelete
-  allowChangeSpec
-  compact={false}
-  mobileVariant="drawer"
-  desktopVariant="dialog"
-/>
-```
+Do not create `FooView`, `FooContainer`, `useFooModel`, `FooService`, and `Foo.types.ts` merely because such layers are possible.
 
-Avoid components that accumulate many booleans to represent unrelated layouts or responsibilities.
+Create a boundary when it makes ownership, testing, reuse, or change isolation clearer.
 
-If a component needs many independent flags, consider whether it should instead expose composable pieces.
+A 20-line file that adds no meaningful boundary is not automatically better than a 120-line cohesive module.
 
 ---
 
-# 2. UI architecture
+# 2. Component and file organization
 
-Use the following conceptual layers.
+## 2.1 Default: one primary concept per module
+
+A React module should normally have one primary exported concept.
+
+That concept may be:
+
+- a component;
+- a feature hook;
+- a projection/view-model function;
+- a context/provider;
+- a reusable UI primitive.
+
+This is a default, not a hard rule.
+
+A module may contain small private helpers and private components when they are implementation details of the primary concept.
+
+The purpose of this rule is to avoid files that become informal containers for several independently evolving features.
+
+## 2.2 When a helper component may stay in the same file
+
+A private component may stay beside its parent when most of the following are true:
+
+- it is small and easy to understand;
+- it is used only by that module;
+- it has no independent data fetching;
+- it has no meaningful side effects, subscriptions, timers, or browser lifecycle;
+- it has little or no independent interaction state;
+- it changes for the same reason as its parent;
+- extracting it would mostly add navigation between files without clarifying ownership.
+
+Typical examples:
+
+- a small metric row;
+- a local icon-and-label fragment;
+- a short empty-state fragment;
+- a tiny presentational item used only by its parent.
+
+Do not extract every JSX fragment into a component.
+
+## 2.3 When a component should get its own module
+
+A component is a strong candidate for its own module when one or more of these are meaningful:
+
+- it owns an interaction contract such as a dialog, menu, editor, composer, or expandable panel;
+- it owns hooks or effects;
+- it manages focus, keyboard, viewport, timers, subscriptions, or other lifecycle behavior;
+- it has a meaningful props contract that can be understood independently;
+- it contains substantial conditional rendering;
+- it is independently testable;
+- it is reusable;
+- it changes independently from the parent;
+- the parent becomes substantially easier to understand after extraction.
+
+Reuse is not required for extraction.
+
+A component used in only one feature can still deserve a separate module because it owns a separate responsibility.
+
+## 2.4 Avoid many unrelated component definitions in one large file
+
+Several tiny private render helpers are acceptable.
+
+Several stateful or independently behaving components in the same file are usually a smell.
+
+If a file contains a page, a dialog, a viewport hook, a complex panel, data projection, and command orchestration, the problem is not the line count. The file contains several architectural responsibilities.
+
+## 2.5 Feature directories
+
+Do not create a directory for every component by default.
+
+Start with a single module when a feature is small.
+
+Create a feature directory when the feature develops an internal structure, for example:
+
+```text
+chat/
+  ai-chat.tsx
+  conversation.tsx
+  session-dialog.tsx
+  use-chat-viewport.ts
+  chat-view-model.ts
+  chat-view-model.test.ts
+```
+
+A feature directory is justified when it groups several files that:
+
+- belong to the same product capability;
+- are not general-purpose shared UI;
+- collaborate closely;
+- would otherwise pollute a broad global folder.
+
+Prefer feature-local organization over global catch-all folders such as `hooks/`, `utils/`, or `models/` when code is used by only one feature.
+
+## 2.6 Promote code upward only when reuse is real
+
+Keep code feature-local until there is a real shared concept.
+
+Promote to shared UI or shared hooks when:
+
+- multiple features need the same semantic concept;
+- the API is stable enough to describe independently;
+- sharing removes duplication without creating a generic catch-all abstraction.
+
+Do not promote code solely because two implementations look visually similar.
+
+Reuse should follow semantic similarity, not visual coincidence.
+
+---
+
+# 3. File size is a smell, not a limit
+
+Do not enforce hard maximum LOC rules.
+
+Use file size to trigger architectural review.
+
+Practical review signals:
+
+- around **200 LOC for a single component**: inspect whether rendering, interaction, and data orchestration are still cohesive;
+- around **300 LOC for a React module**: inspect whether more than one meaningful responsibility has accumulated;
+- around **500 LOC or more**: treat the module as a strong architecture smell that requires explicit justification.
+
+These are intentionally approximate.
+
+A cohesive 350-line projection or specialized renderer may be acceptable.
+
+A 140-line component that mixes fetching, mutations, viewport listeners, timers, and conditional JSX may already need decomposition.
+
+Responsibility, lifecycle, and change boundaries take precedence over LOC.
+
+---
+
+# 4. UI architecture
+
+Use the following conceptual layering:
 
 ```text
 Design tokens
     ↓
 Behavior primitives
     ↓
-Nevo UI primitives
+Application-owned UI primitives
     ↓
 Reusable visual components
     ↓
 Feature components
     ↓
-Smart/container components and feature hooks
+Feature hooks / view models / orchestration
     ↓
 Pages / workspace composition
 ```
 
-The layers are guidelines, not mandatory directories, but dependencies should generally flow downward.
+These are dependency directions, not mandatory directories.
 
----
+## 4.1 Design tokens
 
-## 2.1 Design tokens
-
-Use shared semantic design tokens for known concepts.
-
-Examples:
+Use shared semantic tokens for known meanings such as:
 
 - success;
 - warning;
@@ -142,495 +248,259 @@ Examples:
 - muted text/background;
 - borders;
 - surface levels;
-- provider identity colors where intentionally part of the product system.
+- intentional provider identity colors.
 
-Do not introduce raw one-off colors inside feature components when an existing semantic token expresses the same meaning.
+Feature components should express meaning rather than recreate the palette.
 
-Avoid:
+Avoid raw one-off colors when an existing semantic token expresses the same concept.
 
-```tsx
-className="text-amber-500 bg-amber-950"
-```
+## 4.2 Behavior primitives
 
-when the meaning is actually `warning` and the design system already provides a warning treatment.
+Prefer proven accessible libraries for difficult interaction behavior.
 
-Feature components should express **meaning**, not recreate the palette.
-
-Raw colors are acceptable only when the color itself is the product data or when no semantic token exists and adding one is justified.
-
----
-
-## 2.2 Behavior primitives
-
-Prefer proven accessible libraries for difficult interaction behavior instead of repeatedly implementing it manually.
-
-For Nevo, the preferred direction is:
-
-- **Radix Primitives** for accessible interactive behavior;
-- existing Nevo/Tailwind design tokens and classes for appearance.
-
-Examples:
-
-- Dialog / modal → Radix Dialog;
-- Sheet / drawer → Nevo `Sheet` built on Radix Dialog;
-- destructive confirmation → Radix Alert Dialog;
-- dropdown menu → Radix Dropdown Menu;
-- tooltip → Radix Tooltip;
-- popover → Radix Popover;
-- collapsible/accordion → Radix Collapsible or Accordion when appropriate.
-
-Do not hand-roll focus trapping, Escape handling, portal behavior or keyboard navigation when a stable primitive already solves it.
-
----
-
-## 2.3 One interaction foundation
-
-Do not mix multiple general-purpose UI frameworks that compete for responsibility.
-
-For example, avoid combining:
-
-- Radix as one primitive system;
-- MUI as another component system;
-- Headless UI as a third;
-- custom modal/menu implementations alongside both.
-
-Technically these libraries can coexist, but doing so creates:
-
-- inconsistent accessibility behavior;
-- competing theme systems;
-- different interaction conventions;
-- duplicated abstractions;
-- unclear ownership of primitives;
-- larger dependency surface.
-
-The preferred Nevo model is:
+For the current frontend stack:
 
 ```text
 Radix = interaction/accessibility primitives
-Tailwind + Nevo tokens = styling
-Nevo wrappers = application-facing UI API
+Tailwind + application tokens = styling
+Application-owned wrappers = feature-facing UI API
 ```
 
-Specialized libraries are still fine when they solve a different problem, for example charts, editors or virtualization. The rule is against multiple competing **general UI primitive systems**, not against dependencies in general.
+Prefer existing wrappers for dialogs, sheets, menus, popovers, tooltips, and similar behavior.
+
+Do not hand-roll focus trapping, Escape handling, portals, keyboard navigation, or modal background behavior when an established primitive already solves it.
+
+## 4.3 One general interaction foundation
+
+Do not mix multiple general-purpose UI frameworks that compete for the same responsibility without an explicit technical decision.
+
+Focused libraries for editors, charts, virtualization, drag and drop, rich text, or data grids are fine when they solve a distinct problem.
 
 ---
 
-# 3. Nevo-owned UI primitives
+# 5. Visual and orchestration boundaries
 
-Feature code should normally consume Nevo-owned wrappers rather than importing Radix directly.
-
-Prefer:
-
-```tsx
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-} from "@/components/ui/sheet";
-```
-
-instead of:
-
-```tsx
-import * as Dialog from "@radix-ui/react-dialog";
-```
-
-throughout feature code.
-
-The wrapper owns:
-
-- Nevo styling;
-- semantic tokens;
-- spacing;
-- default accessibility behavior;
-- animations;
-- portal/z-index policy;
-- reusable variants.
-
-Example:
-
-```tsx
-<Sheet>
-  <SheetTrigger asChild>
-    <Button variant="ghost" aria-label="Session details">
-      <InfoIcon />
-    </Button>
-  </SheetTrigger>
-
-  <SheetContent side="right">
-    <SessionDetails />
-  </SheetContent>
-</Sheet>
-```
-
-Radix remains an implementation detail of the shared primitive.
-
-This keeps feature code independent from a specific library and prevents different features from configuring the same primitive differently.
-
----
-
-# 4. Reuse before creating
-
-Before creating a component or primitive:
-
-1. search for an existing shared primitive;
-2. search for an existing component representing the same visual concept;
-3. search for an existing semantic token/variant;
-4. extend the existing abstraction if the new requirement belongs to the same concept;
-5. create a new abstraction only when the concept is genuinely different.
-
-Do not duplicate:
-
-- status badges;
-- warning/success treatments;
-- modal shells;
-- empty/loading/error states;
-- icon buttons;
-- provider labels;
-- repeated card structures;
-- common form controls.
-
-At the same time, do not force unrelated concepts into one "universal" component solely to maximize reuse.
-
-Reuse should follow semantic similarity, not visual coincidence.
-
----
-
-# 5. Visual and smart components
-
-Prefer separating presentation from orchestration when a component becomes non-trivial.
-
-## 5.1 Visual/presentational component
+## 5.1 Visual components
 
 A visual component should mostly:
 
 - receive typed props;
 - render UI;
 - emit user intentions through callbacks;
-- contain local visual state when appropriate;
+- own local visual state where appropriate;
 - avoid knowing how data is fetched or persisted.
 
-Example:
-
-```tsx
-type SessionDetailsProps = {
-  spec?: SpecSummary;
-  tasks: TaskSummary[];
-  provider: string;
-  mode: AgentMode;
-  onDelete: () => void;
-};
-
-export function SessionDetails(props: SessionDetailsProps) {
-  return (
-    // presentation
-  );
-}
-```
-
----
-
-## 5.2 Smart/container component or hook
+## 5.2 Smart/container components and feature hooks
 
 A smart layer may:
 
 - fetch/query data;
 - call mutations;
-- translate domain/application state into view props;
 - coordinate navigation;
 - own side effects;
-- handle server errors;
-- compose several feature states.
+- translate application/domain state into view props;
+- compose several feature states;
+- handle server errors.
 
-Example:
+Do not force a visual/container split for trivial components.
 
-```tsx
-function SessionDetailsContainer({ sessionId }: Props) {
-  const session = useAgentSession(sessionId);
-  const deleteSession = useDeleteAgentSession();
+Separate these concerns when the combined component becomes harder to understand, test, or evolve.
 
-  return (
-    <SessionDetails
-      spec={session.spec}
-      tasks={session.tasks}
-      provider={session.provider}
-      mode={session.mode}
-      onDelete={() => deleteSession.mutate(sessionId)}
-    />
-  );
-}
-```
+## 5.3 Keep orchestration visible, not enormous
 
-This makes the visual component easy to:
+A page or feature entry component may legitimately coordinate several hooks and actions.
 
-- understand;
-- test;
-- reuse;
-- render in Storybook/test fixtures if introduced later.
+Its responsibility should be to make the feature flow understandable, not to contain the implementation of every subfeature.
+
+If the orchestration itself becomes complex, group related behavior into feature hooks or use-case-style functions rather than moving all code into one generic hook.
 
 ---
 
-## 5.3 Do not force the split for trivial components
+# 6. Hooks and browser lifecycle
 
-Avoid ceremonial wrappers.
+## 6.1 Extract hooks by behavior ownership
 
-This is fine:
+A hook is a good extraction candidate when it owns a coherent behavior such as:
 
-```tsx
-function StatusDot({ status }: Props) {
-  return <span className={statusClass(status)} />;
-}
-```
+- viewport/keyboard tracking;
+- event subscription;
+- polling;
+- timers;
+- drag/drop state;
+- session lifecycle;
+- coordinated mutations;
+- synchronization with an external system.
 
-Do not create `StatusDotContainer`, `useStatusDotModel` and `StatusDotView` without an actual reason.
+Keep feature-specific hooks beside the feature.
 
-Separate smart and visual concerns when complexity benefits from it.
+Move a hook to a shared location only when several independent features genuinely reuse the behavior.
+
+## 6.2 Do not use hooks as dumping grounds
+
+A 300-line `useFeature()` hook containing all queries, mutations, timers, projection, navigation, and UI state merely moves the giant component problem.
+
+Split hooks when they represent different lifecycles or responsibilities.
 
 ---
 
-# 6. Keep data transformation out of JSX
+# 7. View models and data transformation
 
-Do not make a rendering component understand a large raw event protocol.
-
-Avoid:
-
-```tsx
-events.map(event => {
-  if (event.type === "tool.started") ...
-  if (event.type === "tool.updated") ...
-  if (event.type === "assistant.message") ...
-  if (event.type === "turn.failed") ...
-});
-```
-
-spread throughout a large component.
+Keep significant data transformation out of JSX.
 
 Prefer:
 
 ```text
-raw events
-    ↓
-projection / view model
-    ↓
-small visual components
+raw events / API data
+        ↓
+projection / selector / view model
+        ↓
+visual components
 ```
 
-Example:
+Projection logic should normally be deterministic and independently testable.
 
-```ts
-const chat = projectChatEvents(events);
+Build view models close to the place where the source data is understood.
 
-return (
-  <Conversation>
-    {chat.turns.map(turn => (
-      <ChatTurn key={turn.id} turn={turn} />
-    ))}
-  </Conversation>
-);
-```
+Do not create view models ceremonially for trivial prop mapping.
 
-Projection logic should be deterministic and independently testable.
+## 7.1 View-model boundaries should follow change boundaries
+
+Group values that:
+
+- come from the same logical source;
+- change together;
+- are expected to invalidate together.
+
+Do not combine mostly-static metadata with high-frequency streaming state merely to reduce the number of props.
+
+A view model should be the smallest coherent update unit useful to the consumer.
 
 ---
 
-# 7. State ownership
+# 8. State ownership
 
-Keep state as close as practical to the component that owns the interaction.
+Keep state as close as practical to the component or feature that owns it.
 
 Prefer:
 
-- local component state for purely local visual state;
-- feature hooks for feature-level behavior;
-- existing query/cache solution for server state;
-- shared/global state only when multiple distant surfaces genuinely need the same client-side state.
+- local component state for local visual state;
+- feature hooks for feature behavior;
+- the existing query/cache layer for server state;
+- shared/global state only when distant surfaces genuinely need the same client-side state.
 
 Do not duplicate derived state.
 
-Avoid:
+Do not mirror query/props state into local state unless the local value intentionally represents a different lifecycle, such as an editable draft.
 
-```tsx
-const [completedCount, setCompletedCount] = useState(...);
-```
-
-when `completedCount` can be derived reliably from the current Work model.
-
-Prefer:
-
-```ts
-const completedCount = work.completed.length;
-```
+When several booleans model mutually exclusive states, prefer a discriminated state that prevents impossible combinations.
 
 ---
 
-# 8. Effects and side effects
+# 9. Effects and side effects
 
-Use effects for synchronizing React with external systems, not as a general event-processing mechanism.
+Use effects to synchronize React with external systems.
 
-Avoid large effects that:
+Do not use effects as a general event-processing or derived-state mechanism.
+
+Inspect effects that:
 
 - derive normal render state;
-- parse event streams;
-- coordinate several unrelated behaviors;
-- update multiple pieces of state in sequence.
+- parse large event streams;
+- coordinate unrelated behaviors;
+- update several state variables in sequence;
+- require complex dependency suppression.
 
-Prefer explicit functions, reducers, projection functions or feature hooks.
+Prefer explicit event handlers, reducers, projections, selectors, or focused feature hooks.
 
-If an effect needs a long explanatory comment to justify dependency behavior, inspect whether the responsibility belongs elsewhere.
+Do not routinely suppress `exhaustive-deps` to preserve an awkward design.
 
 ---
 
-# 9. Props and contracts
+# 10. Context and subscription boundaries
+
+Context should not become a high-frequency global event bus.
+
+Context boundaries should follow consumer and change boundaries.
+
+Avoid one broad context combining:
+
+- almost-static identity;
+- rarely-changing permissions;
+- frequent activity;
+- streaming text;
+- local input state.
+
+Prefer narrower contexts, local state, or selector-based subscriptions when update frequency differs materially.
+
+Do not split context mechanically into dozens of providers. Split when consumers or invalidation patterns are genuinely different.
+
+---
+
+# 11. Props and component contracts
 
 Prefer small, meaningful contracts.
 
-Pass domain/view concepts rather than a collection of unrelated primitives **when those values form one coherent unit and change together from the same underlying data**.
+Pass a coherent domain/view concept when its values belong together and change together.
 
-Prefer:
+Do not pass giant application objects merely to avoid defining props.
 
-```tsx
-<WorkSummary work={work} />
-```
+Do not construct giant view-model objects from unrelated inputs merely to make a component signature shorter.
 
-over:
-
-```tsx
-<WorkSummary
-  currentToolName={...}
-  currentToolStatus={...}
-  completedCount={...}
-  failedCount={...}
-  toolDescription={...}
-  output={...}
-/>
-```
-
-when those values are derived from the same Work state and normally change as one view-model snapshot.
-
-## 9.1 View-model boundaries should follow change boundaries
-
-Do not build one large view model from several unrelated inputs that have very different update frequencies only to make the component signature look cleaner.
-
-Example of a poor boundary:
-
-```ts
-const chatHeaderVm = {
-  sessionTitle,          // almost static
-  provider,              // almost static
-  mode,                  // changes occasionally
-  streamingTokenCount,   // changes constantly
-  currentActivity,       // changes often
-};
-```
-
-If that object is recreated on every streaming update, every consumer of `chatHeaderVm` sees a new reference even when most of the data it cares about did not change.
-
-That makes effective memoization harder and can cause unnecessary rendering.
-
-Prefer view models whose fields:
-
-- come from the same logical source or projection;
-- have similar change frequency;
-- are expected to invalidate together.
-
-If data changes at materially different rates, split the boundary.
-
-For example:
-
-```tsx
-<ChatHeader
-  session={sessionHeader}
-  status={sessionStatus}
-/>
-```
-
-or compose smaller children:
-
-```tsx
-<ChatHeader>
-  <SessionIdentity value={sessionIdentity} />
-  <SessionStatus value={sessionStatus} />
-</ChatHeader>
-```
-
-where `sessionIdentity` may remain referentially stable while `sessionStatus` updates during streaming.
-
-The goal is not to maximize the number of props. The goal is to define **cohesive update units**.
-
-## 9.2 Build view models close to their data source
-
-Prefer producing a view model from one source/projection/selectable state rather than assembling it inside a visual component from many independent props.
-
-Good:
-
-```ts
-const work = selectWorkViewModel(turnState);
-```
-
-then:
-
-```tsx
-<WorkSummary work={work} />
-```
-
-Less desirable:
-
-```tsx
-<WorkSummary
-  tool={tool}
-  status={status}
-  output={output}
-  errors={errors}
-/>
-```
-
-followed by reconstructing a `work` object inside the component.
-
-The view model should normally be created where its source data is understood, so:
-
-- normalization happens once;
-- memoization/selectors can work effectively;
-- visual components receive stable, coherent contracts;
-- presentation does not need to rebuild domain/view state on every render.
-
-However, do not pass giant application objects merely to avoid defining props.
-
-A visual component should receive the smallest **coherent and memoization-friendly** model it needs.
+Props should make ownership clear.
 
 ---
 
-# 10. Variants
+# 12. Variants and reusable components
 
-Use variants for genuine visual variants of the same concept.
+Use variants for genuine visual variants of the same semantic concept.
 
-Good:
+If variants begin to represent different product concepts or unrelated behavior, split the components.
 
-```tsx
-<Button variant="destructive" />
-<StatusLabel tone="warning" />
+Avoid premature abstractions such as:
+
+```text
+UniversalInfoPanel
+GenericTimelineItem
+FlexibleMetaBlock
 ```
 
-Poor:
+unless real consumers demonstrate that the generic concept exists.
 
-```tsx
-<Card
-  isChat
-  isTask
-  isCompact
-  isInteractive
-  useStrongBorder
-  showFooter
-/>
-```
-
-When variants begin representing different concepts, split the components.
+Build reusable semantics, not generic-looking names.
 
 ---
 
-# 11. Accessibility is part of the primitive
+# 13. Render purity and identity
 
-Accessibility should not be added at the end.
+React rendering must be pure.
 
-Shared primitives should own correct behavior where possible:
+Do not during render:
+
+- mutate external data;
+- sort mutable props in place;
+- create random identity;
+- write to external caches;
+- depend on the fact that rendering happened.
+
+Use stable domain identifiers for keys.
+
+Use `useId` for accessibility relationships, not list keys.
+
+Treat `key` as a component identity boundary. Use it deliberately when local state should reset for a different entity.
+
+## 13.1 Define component types statically
+
+Do not define stateful React component types inside another component.
+
+Small render helper functions are different, but a component with its own state, hooks, lifecycle, or visual responsibility should have stable module-level identity.
+
+---
+
+# 14. Accessibility
+
+Accessibility is part of the primitive, not an afterthought.
+
+Shared primitives should own behavior where possible:
 
 - focus management;
 - Escape handling;
@@ -640,39 +510,38 @@ Shared primitives should own correct behavior where possible:
 - focus restoration;
 - modal background behavior.
 
-Feature components still own semantic labels and correct content.
-
 Use semantic HTML before custom ARIA.
+
+Components used as primitive leaves or Radix `asChild` targets should correctly forward supported DOM props, events, `className`, `aria-*`, `data-*`, and refs according to the project React version.
 
 ---
 
-# 12. Responsive design
+# 15. Responsive behavior
 
 Do not treat mobile as a CSS afterthought.
 
-When implementing/refactoring:
+When implementing or refactoring:
 
-- decide what information is primary;
-- remove persistent chrome that does not deserve viewport space;
+- identify primary information;
 - prefer progressive disclosure;
 - avoid simply shrinking desktop controls;
-- test keyboard-open states;
+- test narrow widths;
 - test long content;
-- test narrow widths.
+- test keyboard-open states.
 
-Desktop and mobile may use different compositions over the same view model.
+Desktop and mobile may use different compositions over the same data/view model.
 
-Avoid duplicating domain/query logic solely because layout differs.
+Do not duplicate domain or query logic solely because layout differs.
 
 ---
 
-# 13. Styling rules
+# 16. Styling
 
 Prefer:
 
 - existing Tailwind conventions;
 - semantic design tokens;
-- existing reusable class/variant helpers;
+- reusable class/variant helpers;
 - shared component variants.
 
 Avoid:
@@ -681,47 +550,48 @@ Avoid:
 - arbitrary z-index values;
 - repeated one-off shadows/borders;
 - duplicated responsive breakpoints for the same concept;
-- inline style objects without a concrete reason.
+- feature code controlling portal/z-index internals without a concrete reason.
 
-If several features need the same treatment, promote it into a shared token/component.
-
----
-
-# 14. Z-index and overlays
-
-Overlay primitives should follow one shared policy.
-
-Do not allow every modal/drawer/popover to invent:
-
-```css
-z-[9999]
-```
-
-Shared Dialog/Sheet/Popover/Menu primitives should define the layer strategy.
-
-Feature code should not normally control portal or z-index internals.
+Promote repeated semantic treatments into a shared token or component.
 
 ---
 
-# 15. Error/loading/empty states
+# 17. Loading, empty, and error states
 
-Prefer reusable states when semantics match.
+Reuse shared states when semantics match.
 
-Examples:
+A feature may compose shared primitives with feature-specific content and actions.
 
-```tsx
-<LoadingState />
-<EmptyState />
-<ErrorState />
-```
+Do not create one universal state component with many unrelated flags.
 
-but do not make one universal component with dozens of flags.
+Use Error Boundaries where a render failure needs a useful isolation/recovery boundary.
 
-A feature may compose shared primitives with feature-specific copy/actions.
+Do not wrap every small component in its own boundary.
 
 ---
 
-# 16. Testing guidance
+# 18. Memoization and render performance
+
+Memoization should follow good data boundaries, not compensate for poor ones.
+
+Prefer this order:
+
+1. define cohesive component and view-model boundaries;
+2. keep state local;
+3. preserve stable identities where practical;
+4. remove unnecessary effects and cascading updates;
+5. profile the actual interaction;
+6. add targeted memoization or scheduling only if needed.
+
+Do not add `memo`, `useMemo`, or `useCallback` mechanically.
+
+Do not rely on memoization for correctness.
+
+Do not adopt React Compiler as part of an unrelated refactor without an explicit technical decision.
+
+---
+
+# 19. Testing
 
 Test logic at the level where it lives.
 
@@ -731,559 +601,112 @@ Prefer unit tests for:
 
 - event grouping;
 - derived statuses;
-- normalized labels;
-- state transitions.
+- normalization;
+- state transitions;
+- deterministic projection.
 
 ## Visual components
 
-Test:
+Test user-observable behavior:
 
 - visible content;
 - accessibility state;
 - callbacks;
 - expand/collapse;
-- disabled/loading variants.
+- disabled/loading states;
+- keyboard interaction where relevant.
 
-## Smart/container components
+Prefer React Testing Library or the project's established equivalent for new component tests.
+
+Do not introduce deprecated renderer-based approaches for new tests.
+
+## Smart/orchestration code
 
 Test:
 
 - integration with query/mutation contracts;
 - error handling;
-- correct mapping into presentation props.
+- mapping into presentation props;
+- relevant lifecycle behavior.
 
-Avoid relying exclusively on large snapshots.
-
-For new React component tests, prefer user-observable testing through React Testing Library (or the project's existing equivalent). Do not introduce `react-test-renderer` for new tests; it is deprecated in React 19.
-
----
-
-# 17. Refactoring rule: improve boundaries while touching code
-
-When a refactor touches an oversized or mixed-responsibility component:
-
-- do not preserve poor boundaries solely to minimize the diff;
-- extract reusable primitives/components where the new design clearly requires them;
-- move event/data transformation out of visual JSX;
-- remove dead branches and obsolete presentation paths;
-- reuse existing shared primitives instead of adding another local version.
-
-Do not perform unrelated broad cleanup, but do not knowingly build the new feature on top of an obviously broken local abstraction.
+Avoid relying exclusively on broad snapshots.
 
 ---
 
-# 18. Avoid premature generic abstractions
+# 20. Refactoring rule
 
-Do not create a generic abstraction before there is a clear shared concept.
+When touching an oversized or mixed-responsibility feature:
 
-Prefer:
+- improve boundaries required by the touched behavior;
+- extract independently behaving components and hooks;
+- move meaningful data transformation out of JSX;
+- reuse existing primitives;
+- remove obsolete local implementations superseded by the refactor.
 
-```text
-SessionDetails
-WorkSummary
-StatusLabel
-```
+Do not perform unrelated repository-wide cleanup.
 
-over:
+Do not preserve an obviously broken local boundary merely to minimize the diff.
 
-```text
-UniversalInfoPanel
-GenericTimelineItem
-FlexibleMetaBlock
-```
-
-unless multiple real consumers prove the generic concept.
-
-Build reusable semantics, not generic-looking names.
+A refactor should improve the code that the change actually depends on, not opportunistically redesign the whole frontend.
 
 ---
 
-# 19. Feature code should read like the product
+# 21. React linting as enforcement
 
-Prefer composition that communicates the UX:
+Prefer mechanical enforcement for rules that tools can reliably verify.
 
-```tsx
-<ChatLayout>
-  <ChatHeader />
-  <Conversation>
-    <ChatTurn>
-      <AssistantMessage />
-      <WorkSummary />
-    </ChatTurn>
-  </Conversation>
-  <Composer />
-</ChatLayout>
-```
+Use the official React hooks lint rules where compatible with the repository.
 
-The main feature component should make the product structure obvious.
+Treat lint failures as design signals rather than routinely silencing them.
 
-If understanding the screen requires reading 500 lines of conditional JSX, the decomposition is probably wrong.
+Architecture rules such as module responsibility and file decomposition remain review concerns and should not be reduced to crude LOC lint rules.
 
 ---
 
-# 20. Render purity and component identity
-
-React rendering must be pure.
-
-A component should calculate UI from its current props, state and context. Rendering should not mutate external state or create values whose meaning depends on the act of rendering itself.
-
-Avoid during render:
-
-```tsx
-const id = crypto.randomUUID();
-const now = Date.now();
-props.items.sort();
-externalCache.set(key, value);
-```
-
-when those operations change identity, mutate shared data or make the same inputs produce different output.
-
-Prefer:
-- IDs from domain data;
-- `useId` for accessibility relationships;
-- event handlers for user-triggered side effects;
-- Effects only for synchronization with external systems;
-- immutable updates.
-
-## 20.1 Define component types statically
-
-Do not define React component types inside another component unless there is an exceptional, documented reason.
-
-Avoid:
-
-```tsx
-function Chat() {
-  function Message() {
-    return <div>...</div>;
-  }
-
-  return <Message />;
-}
-```
-
-A nested component type is recreated when the parent renders. That can cause unnecessary remounting and state loss.
-
-Prefer module-level component definitions:
-
-```tsx
-function Message() {
-  return <div>...</div>;
-}
-
-function Chat() {
-  return <Message />;
-}
-```
-
-Small render helper functions that return fragments of JSX are a separate choice, but if something has its own state, hooks, lifecycle or reusable visual responsibility, make it a real stable component.
-
----
-
-# 21. Identity, keys and state lifetime
-
-Treat React `key` as an identity boundary, not as a warning-suppression mechanism.
-
-## 21.1 Stable list keys
-
-For messages, sessions, Work items, tasks and other dynamic collections:
-
-- use a stable identifier from the data;
-- do not use array index when items can be inserted, removed or reordered;
-- do not generate keys during rendering;
-- never use `Math.random()` or a new UUID as a render-time key.
-
-Good:
-
-```tsx
-{messages.map(message => (
-  <Message key={message.id} message={message} />
-))}
-```
-
-Poor:
-
-```tsx
-{messages.map((message, index) => (
-  <Message key={index} message={message} />
-))}
-```
-
-for a live/streaming list whose contents may change.
-
-Stable keys preserve the correct component state, DOM and interaction state across updates.
-
-## 21.2 Use keys deliberately to reset state
-
-Keys may intentionally define when local state belongs to a different entity.
-
-Example:
-
-```tsx
-<Composer key={sessionId} sessionId={sessionId} />
-```
-
-may be appropriate if a composer draft must be reset when switching to another session.
-
-Do not reset state indirectly through synchronization Effects if entity identity already provides the correct boundary.
-
-Before adding reset logic, decide explicitly:
-
-- should state survive this entity change?
-- or is this a new component identity?
-
----
-
-# 22. Context and subscription boundaries
-
-Context is useful for low-friction dependency distribution, but it should not become a high-frequency global event bus.
-
-React re-renders consumers when the context value changes. `memo` does not prevent a component from receiving a new context value.
-
-Therefore, context boundaries should follow **change boundaries**, just like view models.
-
-Avoid one context such as:
-
-```ts
-type ChatContextValue = {
-  sessionIdentity: SessionIdentity; // almost static
-  permissions: Permissions;         // rarely changes
-  currentActivity: Activity;        // changes frequently
-  streamedText: string;             // changes constantly
-  composerDraft: string;            // changes while typing
-};
-```
-
-if all consumers receive a new context value on every streaming update.
-
-Prefer:
-- separate contexts for genuinely separate concerns;
-- local state when state is local;
-- selectors/subscriptions to the smallest required slice when using an external store;
-- stable context values where the underlying data did not change.
-
-Example direction:
-
-```text
-SessionIdentityContext    -> low-frequency session metadata
-SessionActionsContext     -> stable actions
-Streaming/work state      -> narrow feature subscription / props / selector
-Composer draft            -> local composer state
-```
-
-Do not split contexts mechanically into dozens of tiny providers. Split them when consumers and update frequency differ materially.
-
----
-
-# 23. Memoization and render-performance strategy
-
-Memoization should follow good data boundaries, not compensate for poor ones.
-
-Use this order:
-
-1. design cohesive component/view-model/update boundaries;
-2. keep state local;
-3. preserve stable identities for unchanged data where practical;
-4. remove unnecessary Effects and cascading updates;
-5. profile an actual slow interaction;
-6. then add targeted memoization or scheduling if still needed.
-
-## 23.1 Preserve references for unchanged update units
-
-When a projection or selector returns structured data, avoid rebuilding unrelated submodels when only one small part changed.
-
-For example, a streaming token should not require recreating stable session metadata objects if their data is unchanged.
-
-Conceptually:
-
-```ts
-{
-  identity,       // stable reference
-  associations,   // stable until tasks/spec change
-  currentTurn,    // changes during stream
-}
-```
-
-is easier to optimize than reconstructing one giant object graph on every event.
-
-This is especially important for:
-- streaming chats;
-- large lists;
-- context values;
-- memoized children;
-- selector-based stores.
-
-## 23.2 Do not memoize everything by default
-
-Do not add `memo`, `useMemo` and `useCallback` mechanically.
-
-Manual memoization is useful when:
-- a component is measurably expensive;
-- it frequently receives unchanged props;
-- preserving a value/function identity matters to another optimized boundary;
-- profiling shows a real benefit.
-
-Do not rely on memoization for correctness.
-
-Avoid custom deep `arePropsEqual` comparators except for a very constrained, measured case. A deep comparison can cost more than rendering and becomes fragile as data evolves.
-
-## 23.3 React Compiler
-
-Modern React can use React Compiler to automatically memoize components, values and functions.
-
-If Nevo adopts React Compiler:
-- do not retain manual memoization merely out of habit;
-- let compiler diagnostics influence cleanup;
-- verify optimization with React DevTools when performance matters.
-
-Do **not** adopt React Compiler solely as part of an unrelated UI refactor without an explicit technical decision.
-
-Even with the compiler, good change boundaries still matter:
-- broad context invalidation still changes consumers;
-- external subscriptions still need sensible selectors;
-- rebuilding unnecessary domain/view structures still increases work outside React rendering.
-
-## 23.4 Non-blocking rendering is an escalation tool
-
-If profiling shows that a large non-critical render blocks input or interaction, consider React scheduling primitives such as:
-- `useDeferredValue`;
-- `useTransition`.
-
-Do not use transitions for controlled text-input state itself. Input state must stay responsive and synchronous.
-
-Use scheduling only after fixing avoidable render work first.
-
----
-
-# 24. Controlled state and source of truth
-
-A piece of state should have one clear owner.
-
-Avoid maintaining two synchronized copies of the same information.
-
-Examples to avoid:
-
-```tsx
-const { data: session } = useSession(id);
-const [localSession, setLocalSession] = useState(session);
-
-useEffect(() => {
-  setLocalSession(session);
-}, [session]);
-```
-
-unless the local copy deliberately represents an editable draft/snapshot with different lifecycle semantics.
-
-Prefer:
-- query/server state as the source of truth for persisted data;
-- local state for unsaved UI state;
-- explicit draft models when the user is editing something before commit;
-- derived values calculated from existing state instead of duplicated state.
-
-## 24.1 Avoid impossible UI states
-
-When several booleans describe one state machine, prefer a discriminated state when combinations can become invalid.
-
-Avoid:
-
-```ts
-{
-  isLoading: true,
-  isFailed: true,
-  isCompleted: true
-}
-```
-
-when those states are mutually exclusive.
-
-Prefer:
-
-```ts
-type LoadState =
-  | { kind: "loading" }
-  | { kind: "ready"; data: Data }
-  | { kind: "failed"; error: Error };
-```
-
-Do not create a state machine where independent booleans genuinely represent independent dimensions. Use this pattern when it prevents invalid combinations.
-
----
-
-# 25. Leaf-component contract and Radix composition
-
-Components intended to be used as UI primitives or as children of Radix `asChild` must behave like transparent, semantic leaf components.
-
-They should:
-- spread supported DOM props onto the underlying interactive element;
-- preserve event handlers supplied by the primitive;
-- accept/pass through `className`;
-- accept/pass through `aria-*` and `data-*` attributes;
-- expose/pass through the underlying ref using the project's React-version convention;
-- render the correct semantic element by default.
-
-Example:
-
-```tsx
-function Button({
-  ref,
-  className,
-  ...props
-}: React.ComponentPropsWithRef<"button">) {
-  return (
-    <button
-      ref={ref}
-      className={cn(buttonStyles(), className)}
-      {...props}
-    />
-  );
-}
-```
-
-For React versions/patterns where `forwardRef` is still required by an existing dependency or compatibility layer, use it there. New React 19 code can receive `ref` as a prop.
-
-Do not use `asChild` to turn an accessible interactive control into an inaccessible `div`.
-
-Prefer native semantics:
-
-```tsx
-<button />
-<a href="..." />
-<input />
-```
-
-and use Radix to provide behavior that native HTML alone does not provide cleanly.
-
-A Nevo wrapper should hide library-specific configuration from feature code where practical.
-
----
-
-# 26. IDs and accessibility relationships
-
-Use `useId` when a reusable component needs unique IDs to connect accessibility attributes such as:
-
-- `htmlFor`;
-- `aria-describedby`;
-- `aria-labelledby`.
-
-Example:
-
-```tsx
-const hintId = useId();
-
-return (
-  <>
-    <input aria-describedby={hintId} />
-    <p id={hintId}>...</p>
-  </>
-);
-```
-
-Do not use `useId` for list keys. List identity must come from the data.
-
----
-
-# 27. React linting as architecture enforcement
-
-Prefer enforcing React rules mechanically rather than relying only on review memory.
-
-Use the official `eslint-plugin-react-hooks` recommended configuration where compatible with the repository.
-
-Relevant rules include:
-- `rules-of-hooks`;
-- `exhaustive-deps`;
-- `purity`;
-- `immutability`;
-- `refs`;
-- `static-components`;
-- `set-state-in-effect`;
-- `set-state-in-render`;
-- compiler-related diagnostics when applicable.
-
-Treat lint failures as signals to inspect the design.
-
-Do not routinely silence `exhaustive-deps` or other React rules with disable comments just to make lint pass.
-
-If an existing codebase has many violations:
-- adopt/fix incrementally;
-- keep explicit follow-ups for legacy violations;
-- do not weaken new/refactored code to match the legacy pattern.
-
----
-
-# 28. Error boundaries
-
-Use Error Boundaries for render failures that need UI isolation.
-
-Do not expect `try/catch` around JSX in a parent render to catch errors thrown while rendering descendants.
-
-Consider local boundaries around genuinely failure-prone or optional surfaces when one failure should not destroy the entire workspace, for example:
-- rich markdown/rendering plugins;
-- code preview/viewers;
-- independently loaded panels.
-
-Do not wrap every tiny component in its own boundary.
-
-The boundary should correspond to a useful recovery/isolation unit.
-
----
-
-# 29. Review checklist
+# 22. Review checklist
 
 When creating or refactoring React UI, verify:
 
-- [ ] Does the component have one clear responsibility?
-- [ ] Can the main feature/page be understood mostly from composition?
-- [ ] Is any large raw-data transformation still happening inside JSX?
+- [ ] Does each primary module have one clear responsibility?
+- [ ] Can the page/feature be understood mostly from composition and orchestration?
+- [ ] Are several independently stateful or lifecycle-owning components accumulating in one file?
+- [ ] Could small private visual helpers reasonably stay local instead of creating unnecessary files?
+- [ ] Does a feature directory exist only where the feature has real internal structure?
+- [ ] Are feature-specific hooks/view models kept feature-local?
+- [ ] Is file size being used as a review signal rather than an automatic split rule?
+- [ ] Is significant raw-data transformation kept out of JSX?
 - [ ] Are visual and orchestration concerns separated where complexity warrants it?
 - [ ] Did we search for an existing shared primitive/component first?
-- [ ] Are semantic design tokens reused instead of raw colors?
-- [ ] Are status/color conventions consistent with existing shared components?
-- [ ] Is a difficult interaction being hand-rolled even though the chosen primitive library already solves it?
-- [ ] Does feature code depend on Nevo wrappers rather than directly on Radix where a wrapper exists?
-- [ ] Are we accidentally introducing another general-purpose UI framework?
+- [ ] Are semantic tokens reused instead of raw one-off colors?
+- [ ] Is difficult interaction behavior implemented through the established primitive system?
 - [ ] Is state owned at the narrowest sensible level?
-- [ ] Is derived state being duplicated?
-- [ ] Are effects being used only where synchronization/side effects are genuinely needed?
+- [ ] Is derived or persisted state duplicated unnecessarily?
+- [ ] Are effects used for genuine synchronization?
+- [ ] Do context/view-model boundaries follow update boundaries?
+- [ ] Are list keys stable and derived from data?
+- [ ] Are component types defined statically?
 - [ ] Are accessibility and keyboard behavior covered?
-- [ ] Does the component behave well on narrow mobile widths?
-- [ ] Are long content and loading/error states handled?
-- [ ] Are reusable interaction patterns implemented once?
-- [ ] Are tests focused on projection/behavior instead of only snapshots?
-- [ ] Did the refactor remove obsolete local implementations it supersedes?
-- [ ] Did we avoid unrelated cleanup and premature generic abstractions?
-- [ ] Are dynamic list keys stable and derived from data?
-- [ ] Are component types defined statically rather than inside frequently rendered parents?
-- [ ] Does local state have one clear source of truth rather than mirroring props/query data?
-- [ ] Do Context boundaries avoid coupling high-frequency streaming state to mostly-static consumers?
-- [ ] Do view-model/reference boundaries preserve unchanged update units where practical?
-- [ ] Are `memo` / `useMemo` / `useCallback` justified rather than applied mechanically?
-- [ ] Are Radix-compatible leaf components spreading props and passing refs correctly?
-- [ ] Are native semantic elements preserved when composing primitives?
-- [ ] Are React lint rules being fixed rather than routinely suppressed?
+- [ ] Does the feature behave correctly on narrow/mobile layouts?
+- [ ] Are tests located at the responsibility they verify?
+- [ ] Are memoization and performance mechanisms justified by real behavior?
+- [ ] Did the refactor avoid unrelated cleanup and premature generic abstractions?
 
 ---
 
-# 30. Preferred Nevo UI stack direction
+# 23. Preferred frontend stack direction
 
-Unless explicitly revised by architecture decisions:
+Unless explicitly revised by an architecture decision:
 
 ```text
 React
   +
-Tailwind / Nevo semantic design tokens
+Tailwind / semantic design tokens
   +
-Nevo-owned UI components/primitives
+application-owned UI components/primitives
   +
 Radix Primitives for complex accessible interaction behavior
 ```
 
-Do not introduce MUI, Chakra, Headless UI, Ant Design or another general-purpose component/primitive system alongside this stack without an explicit architectural decision.
+Do not introduce another competing general-purpose component/primitive framework without an explicit technical decision.
 
-This does not prohibit focused libraries for specialized capabilities such as:
-- code editors;
-- charts;
-- virtualization;
-- drag and drop;
-- rich text;
-- data grids when genuinely required.
-
-The rule is to maintain one coherent ownership model for the general UI system.
+Specialized libraries remain acceptable when they solve a distinct capability.

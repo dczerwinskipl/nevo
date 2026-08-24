@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-24T19:42:14.084Z",
+  "generated": "2026-08-24T20:35:53.780Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -526,6 +526,26 @@
       ]
     },
     {
+      "file": "docs/development/node-tooling-guidelines.md",
+      "id": "development.node-tooling-guidelines",
+      "type": "development",
+      "title": "Node tooling guidelines",
+      "status": "current",
+      "read_when": [
+        "creating or restructuring Node CLI commands",
+        "changing Node-based developer tooling",
+        "changing dashboard server code",
+        "running Git, filesystem, or child-process operations from Node",
+        "adding long-running operations, progress, streaming, or cancellation",
+        "refactoring large .mjs modules under tools"
+      ],
+      "summary": "Practical architecture guidelines for Node-based tooling, CLI commands, and long-lived dashboard/server code. Covers module boundaries, command/application separation, external IO, async process execution, errors and exit codes, dependency injection, testing, runtime state, and pragmatic module sizing.",
+      "related": [
+        "development.coding-conventions",
+        "development.architecture-overview"
+      ]
+    },
+    {
       "file": "docs/development/orchestration.md",
       "id": "development.orchestration",
       "type": "development",
@@ -607,7 +627,7 @@
       "file": "docs/development/react-component-guidelines.md",
       "id": "development.react-component-guidelines",
       "type": "development",
-      "title": "React component guidelines",
+      "title": "React component and module guidelines",
       "status": "current",
       "read_when": [
         "creating or restructuring React components",
@@ -615,9 +635,10 @@
         "introducing dialogs, drawers, menus, tooltips, or other interactive primitives",
         "extracting reusable components",
         "changing styling or status/color presentation",
-        "refactoring large feature components"
+        "refactoring large feature components",
+        "reorganizing React files, hooks, view models, or feature modules"
       ],
-      "summary": "Preferred way to structure React UI code in Nevo: component sizing/composition, the token -> primitive -> wrapper -> feature layering, state/effect/context boundaries, memoization discipline, and the accessibility baseline. Always-read guidance for frontend implementation and refactoring, not specific to any one change.",
+      "summary": "Preferred way to structure React UI code: component composition, module/file boundaries, token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model boundaries, accessibility, testing, and pragmatic size smells. Treat this as required guidance for frontend implementation and refactoring when explicitly attached to a task.",
       "related": [
         "development.coding-conventions",
         "development.architecture-overview"
