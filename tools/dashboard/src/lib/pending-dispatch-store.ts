@@ -149,6 +149,7 @@ export interface UseInitialDispatchOptions {
   assistant: InitialDispatchAssistant;
   isProviderAvailable: boolean;
   currentMode: AgentExecutionMode;
+  onBeforeDispatch?: () => void;
 }
 
 export interface InitialDispatchState {
@@ -171,6 +172,7 @@ export class InitialDispatchController {
   public assistant: InitialDispatchAssistant;
   public isProviderAvailable: boolean;
   public currentMode: AgentExecutionMode;
+  public onBeforeDispatch?: () => void;
   private transientError: string | null = null;
   private listeners = new Set<() => void>();
 
@@ -180,6 +182,7 @@ export class InitialDispatchController {
     this.assistant = options.assistant;
     this.isProviderAvailable = options.isProviderAvailable;
     this.currentMode = options.currentMode;
+    this.onBeforeDispatch = options.onBeforeDispatch;
   }
 
   updateOptions(options: Partial<UseInitialDispatchOptions>): void {
@@ -188,6 +191,7 @@ export class InitialDispatchController {
     if (options.assistant !== undefined) this.assistant = options.assistant;
     if (options.isProviderAvailable !== undefined) this.isProviderAvailable = options.isProviderAvailable;
     if (options.currentMode !== undefined) this.currentMode = options.currentMode;
+    if (options.onBeforeDispatch !== undefined) this.onBeforeDispatch = options.onBeforeDispatch;
   }
 
   subscribe(listener: () => void): () => void {
@@ -229,6 +233,7 @@ export class InitialDispatchController {
     const retried = pendingDispatchStore.retryPending(this.provider, this.sessionId);
     if (retried) {
       this.transientError = null;
+      this.onBeforeDispatch?.();
       this.notify();
       return this.checkAndDispatch();
     }
@@ -248,6 +253,7 @@ export class InitialDispatchController {
     const pending = pendingDispatchStore.getPending(this.provider, this.sessionId);
     if (!pending || pending.status !== 'pending') return false;
 
+    this.onBeforeDispatch?.();
     pendingDispatchStore.markInFlight(this.provider, this.sessionId);
     this.transientError = null;
     this.notify();

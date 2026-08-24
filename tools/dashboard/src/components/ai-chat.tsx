@@ -171,6 +171,9 @@ export function AiChatPage({
     assistant,
     isProviderAvailable,
     currentMode,
+    onBeforeDispatch: useCallback(() => {
+      setRuntimeError(null);
+    }, []),
   });
 
   const displayError = initialDispatch.displayError || runtimeError || null;
@@ -180,6 +183,34 @@ export function AiChatPage({
     initialDispatch.handleDismissError();
     setRuntimeError(null);
   }, [initialDispatch]);
+
+  const handleRetryInitial = useCallback(async () => {
+    setRuntimeError(null);
+    return initialDispatch.handleRetryInitial();
+  }, [initialDispatch]);
+
+  const handleCancelTurn = useCallback(async () => {
+    setRuntimeError(null);
+    try {
+      await assistant.cancelTurn();
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.cancelTurn]);
+
+  const handleRespondInteraction = useCallback(async (interactionId: string, response: unknown) => {
+    setRuntimeError(null);
+    try {
+      await assistant.respondInteraction(interactionId, response);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.respondInteraction]);
+
+  const handleReload = useCallback(async () => {
+    setRuntimeError(null);
+    await assistant.reload();
+  }, [assistant.reload]);
 
   const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${displayError ?? ''}`;
 
@@ -359,7 +390,7 @@ export function AiChatPage({
                   {assistant.loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-3">
-                  <Button variant="default" size="sm" onClick={() => void assistant.reload()}>
+                  <Button variant="default" size="sm" onClick={() => void handleReload()}>
                     <RefreshCw className="mr-1.5 size-3.5" />
                     Spróbuj ponownie
                   </Button>
@@ -391,14 +422,14 @@ export function AiChatPage({
               <PermissionPrompt
                 interaction={assistant.pendingInteraction as Extract<AiInteraction, { kind: 'permission' }>}
                 disabled={false}
-                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+                onResolve={response => void handleRespondInteraction(assistant.pendingInteraction!.id, response)}
               />
             )}
             {assistant.pendingInteraction?.kind === 'question' && (
               <QuestionPrompt
                 interaction={assistant.pendingInteraction as AiQuestionInteraction}
                 disabled={false}
-                onResolve={response => void assistant.respondInteraction(assistant.pendingInteraction!.id, response)}
+                onResolve={response => void handleRespondInteraction(assistant.pendingInteraction!.id, response)}
               />
             )}
             {displayError && (
@@ -427,7 +458,7 @@ export function AiChatPage({
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={() => void initialDispatch.handleRetryInitial()}
+                      onClick={() => void handleRetryInitial()}
                       className="h-7 gap-1.5 px-2.5 text-xs font-medium"
                     >
                       <RefreshCw className="size-3" />
@@ -468,7 +499,7 @@ export function AiChatPage({
               currentMode={currentMode}
               onModeChange={(m) => setSelectedModeOverride(m)}
               onSend={(text) => handleComposerSubmit(text)}
-              onCancel={() => void assistant.cancelTurn()}
+              onCancel={() => void handleCancelTurn()}
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
               isProviderAvailable={isProviderAvailable}

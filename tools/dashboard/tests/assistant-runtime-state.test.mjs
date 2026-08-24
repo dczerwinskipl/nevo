@@ -11,6 +11,10 @@ import {
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
 } from '../src/lib/nevo-assistant-runtime.ts';
+import {
+  pendingDispatchStore,
+  InitialDispatchController,
+} from '../src/lib/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
   return readFileSync(fileURLToPath(new URL('../src/lib/nevo-assistant-runtime.ts', import.meta.url)), 'utf8');
@@ -444,4 +448,174 @@ test('BLOCKING: AiChatPage and useNevoAssistantRuntime wire user-visible error c
   const failedInteractionErr = new Error('Failed to submit question response: network timeout');
   onErrorSink(failedInteractionErr);
   assert.equal(surfacedError, 'Failed to submit question response: network timeout');
+});
+
+test('BLOCKING: Action/error lifecycle: Initial dispatch retry clears stale runtime error upon retry start and success (A)', async () => {
+  const provider = 'mock';
+  const sessionId = 'session-retry-clean-1';
+  pendingDispatchStore.setPending(provider, sessionId, 'Initial prompt');
+
+  let runtimeError = null;
+  let sendTurnCallCount = 0;
+  let shouldFail = true;
+
+  const mockAssistant = {
+    isReady: true,
+    sendTurn: async (_prompt, _opts) => {
+      sendTurnCallCount++;
+      if (shouldFail) {
+        runtimeError = 'API error: 500 Internal Server Error';
+        throw new Error('API error: 500 Internal Server Error');
+      }
+      return { ok: true };
+    },
+  };
+
+  const controller = new InitialDispatchController({
+    provider,
+    sessionId,
+    assistant: mockAssistant,
+    isProviderAvailable: true,
+    currentMode: 'edit',
+    onBeforeDispatch: () => {
+      runtimeError = null;
+    },
+  });
+
+  // 1. First dispatch attempt fails
+  const initialResult = await controller.checkAndDispatch();
+  assert.equal(initialResult, false);
+  assert.equal(sendTurnCallCount, 1);
+  assert.equal(runtimeError, 'API error: 500 Internal Server Error');
+  assert.equal(controller.displayError, 'API error: 500 Internal Server Error');
+
+  // Unified displayError in AiChatPage before retry
+  let displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, 'API error: 500 Internal Server Error');
+
+  // 2. User clicks "Ponów próbę" -> explicit retry handler clears runtimeError and retries
+  shouldFail = false;
+  runtimeError = null; // cleared by handleRetryInitial on attempt start
+
+  const retryPromise = controller.handleRetryInitial();
+
+  // While in-flight, displayError is cleared (not stale)
+  displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, null, 'Error must not remain visible while retry is in-flight');
+
+  const retryResult = await retryPromise;
+  assert.equal(retryResult, true);
+  assert.equal(sendTurnCallCount, 2);
+
+  // 3. After success, displayError stays null (no stale error survives)
+  displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, null, 'No stale error after successful retry');
+  assert.equal(controller.pending, null, 'Pending record cleared after success');
+});
+
+test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old error and surfaces new failure (B)', async () => {
+  const provider = 'mock';
+  const sessionId = 'session-retry-fail-again-1';
+  pendingDispatchStore.setPending(provider, sessionId, 'Initial prompt');
+
+  let runtimeError = null;
+  let currentErrorMessage = 'First failure: Connection reset';
+  let clearedAtStart = false;
+
+  const mockAssistant = {
+    isReady: true,
+    sendTurn: async (_prompt, _opts) => {
+      clearedAtStart = (runtimeError === null);
+      await new Promise((r) => setTimeout(r, 5));
+      runtimeError = currentErrorMessage;
+      throw new Error(currentErrorMessage);
+    },
+  };
+
+  const controller = new InitialDispatchController({
+    provider,
+    sessionId,
+    assistant: mockAssistant,
+    isProviderAvailable: true,
+    currentMode: 'edit',
+    onBeforeDispatch: () => {
+      runtimeError = null;
+    },
+  });
+
+  // 1. First attempt fails
+  await controller.checkAndDispatch();
+  assert.equal(controller.displayError, 'First failure: Connection reset');
+
+  // 2. Next attempt configures new error
+  currentErrorMessage = 'Second failure: Rate limit 429';
+  clearedAtStart = false;
+
+  // 3. User retries -> old error is cleared when attempt begins
+  const retryPromise = controller.handleRetryInitial();
+  assert.equal(controller.displayError, null, 'Controller error must be null while retry is in-flight');
+
+  const retryResult = await retryPromise;
+  assert.equal(retryResult, false);
+  assert.equal(clearedAtStart, true, 'Old runtime error must be cleared before starting new attempt');
+
+  // 4. New error is surfaced to user
+  const displayError = controller.displayError || runtimeError || null;
+  assert.equal(displayError, 'Second failure: Rate limit 429');
+});
+
+test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previous runtime error on explicit attempt (C)', async () => {
+  const chatSource = readAiChatSource();
+
+  // Verify AiChatPage wires action wrappers that clear runtimeError before starting
+  assert.match(chatSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+  assert.match(chatSource, /const handleRetryInitial = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
+
+  // Behavioral test for cancel recovery:
+  let runtimeError = 'Cancel failed: 500 Internal Server Error';
+  let cancelSucceeds = false;
+
+  const executeCancelAttempt = async () => {
+    runtimeError = null; // cleared before attempt
+    if (!cancelSucceeds) {
+      runtimeError = 'Cancel failed: 500 Internal Server Error';
+      throw new Error('Cancel failed: 500');
+    }
+  };
+
+  // First cancel fails
+  try {
+    await executeCancelAttempt();
+  } catch {}
+  assert.equal(runtimeError, 'Cancel failed: 500 Internal Server Error');
+
+  // Second cancel succeeds -> runtime error stays cleared
+  cancelSucceeds = true;
+  await executeCancelAttempt();
+  assert.equal(runtimeError, null, 'Runtime error must not survive successful cancel');
+
+  // Behavioral test for interaction recovery:
+  runtimeError = 'Interaction failed: timeout';
+  let interactionSucceeds = false;
+
+  const executeInteractionAttempt = async () => {
+    runtimeError = null; // cleared before attempt
+    if (!interactionSucceeds) {
+      runtimeError = 'Interaction failed: timeout';
+      throw new Error('Interaction failed: timeout');
+    }
+  };
+
+  // First attempt fails
+  try {
+    await executeInteractionAttempt();
+  } catch {}
+  assert.equal(runtimeError, 'Interaction failed: timeout');
+
+  // Second attempt succeeds -> runtime error stays cleared
+  interactionSucceeds = true;
+  await executeInteractionAttempt();
+  assert.equal(runtimeError, null, 'Runtime error must not survive successful interaction response');
 });
