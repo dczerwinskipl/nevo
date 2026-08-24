@@ -1,5 +1,6 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { StatusLabel } from '@/components/status-label';
 import { cn } from '@/lib/utils';
 
 export interface ChatHeaderProps {
@@ -38,8 +39,8 @@ export function ChatHeader({
               {title}
             </h1>
             {status && (
-              <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[9px] text-[var(--muted)]">
-                {status}
+              <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[var(--muted)]">
+                <StatusLabel>{status}</StatusLabel>
               </span>
             )}
           </div>

@@ -1,5 +1,6 @@
 import type { DashboardChange, StageId } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { StatusLabel } from '@/components/status-label';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'done', label: 'Gotowe', color: 'bg-[var(--accent)]' },
@@ -53,7 +54,7 @@ export function StageProgress({
           {visibleStages.map(stage => (
             <div key={stage.id} className="flex min-w-0 items-center gap-2 text-[9px] text-[var(--muted)]">
               <span className={cn('size-1.5 shrink-0 rounded-full', stage.color)} />
-              <span className="truncate text-[10px] font-bold uppercase tracking-[0.1em]">{stage.label}</span>
+              <StatusLabel className="truncate">{stage.label}</StatusLabel>
               <span className="ml-auto tabular-nums text-[var(--muted-strong)]">{change.metrics.stageCounts[stage.id]}</span>
             </div>
           ))}

@@ -62,9 +62,28 @@ export function ChatComposer({
     ? 'Turn trwa…'
     : 'Napisz wiadomość…';
 
+  const isMobile = () => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.innerWidth < 768 ||
+      ('ontouchstart' in window && navigator.maxTouchPoints > 0)
+    );
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter inserts newline (FR-21). Never submit on Enter.
-    // Explicit send button only.
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        // Shift + Enter: insert newline on both desktop and mobile
+        return;
+      }
+      if (!isMobile() && !event.nativeEvent.isComposing) {
+        // Desktop: Enter sends
+        event.preventDefault();
+        handleSend();
+      }
+      // Mobile: Enter inserts newline (default behavior, button sends)
+    }
   };
 
   const handleSend = () => {

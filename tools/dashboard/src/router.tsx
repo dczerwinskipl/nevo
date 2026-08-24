@@ -419,8 +419,8 @@ function SpecChatRouteComponent() {
 
   if (sessionsQuery.loading && !sessionsQuery.data) return <LoadingScreen />;
 
-  // Sessions Query Error
-  if (sessionsQuery.error) {
+  // Fatal initial Sessions Query Error (error && !data)
+  if (sessionsQuery.error && !sessionsQuery.data) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard

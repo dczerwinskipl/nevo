@@ -352,17 +352,17 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
-      review_revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      review_revision: ea9b9678c2bfb923cc308d9d56d574a7c4d36354
       changed_paths:
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-session-list.tsx
         - tools/dashboard/src/components/stage-progress.tsx
         - tools/dashboard/src/components/status-board.tsx
         - tools/dashboard/src/components/status-label.tsx
-      worktree_patch_fingerprint: 2377bef40b9419d6cb88b801122fa41a6e0237241274b9cb571b5464193814a1
+      worktree_patch_fingerprint: 98b938b38f11251866512b4a7abe09842951a7e2b83ea17c5ba7cc87bfcb4391
     self_check:
       fingerprint: 542f3a51daeed02373cdd1eb07ca12e89e4b5994ad354bd5b7c30950cc87a11f
-      revision: c0c6d21bd5f4b3b1c6c6110bd98a025d04926ba4
+      revision: ea9b9678c2bfb923cc308d9d56d574a7c4d36354
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

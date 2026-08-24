@@ -11,14 +11,16 @@ function readAiChatSource() {
   return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
-test('AC1 & AC2: Enter key does not submit message; submission uses explicit send action', () => {
+test('Composer key interaction: Desktop Enter sends & Shift+Enter newlines; Mobile Enter newlines & button sends', () => {
   const source = readComposerSource();
 
-  // Enter must not call onSend / submit
-  assert.ok(!source.includes("event.key === 'Enter' && !event.shiftKey"), 'Enter key must not submit form');
-  assert.ok(!source.includes("submitMessage(composer)"), 'Inline form submit on Enter is removed');
+  // Desktop Enter sends, Shift+Enter inserts newline
+  assert.ok(source.includes("event.key === 'Enter'"), 'Enter key handled');
+  assert.ok(source.includes('event.shiftKey'), 'Shift+Enter inserts newline');
+  assert.ok(source.includes('!isMobile()'), 'Desktop guard for Enter send');
+  assert.ok(source.includes('handleSend()'), 'Enter calls handleSend on desktop');
 
-  // Explicit send handler exists
+  // Explicit send handler exists for button
   assert.match(source, /handleSend\s*=\s*\(\)\s*=>/);
   assert.match(source, /onClick=\{handleSend\}/);
 });

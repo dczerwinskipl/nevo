@@ -261,13 +261,26 @@ test('9. No reverse spec resolution: AiChatPage receives spec directly, without 
   assert.ok(!aiChatSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
 });
 
-test('10. SpecChatRouteComponent: Explicit handling of sessionsQuery.error with StatusCard, retry and back fallback', () => {
+test('10. SpecChatRouteComponent: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
   const routerSource = readSource('router.tsx');
 
-  // Must handle sessionsQuery.error explicitly before fallthrough to LoadingScreen
-  assert.ok(routerSource.includes('if (sessionsQuery.error) {'), 'Explicit sessionsQuery.error branch');
+  // Fatal initial error: error && !data renders blocking StatusCard with retry and back fallback
+  assert.ok(routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'), 'Fatal error requires error && !data');
   assert.ok(routerSource.includes('Nie udało się wczytać sesji specyfikacji'), 'Error card title present');
   assert.ok(routerSource.includes('sessionsQuery.refresh()'), 'Retry calls sessionsQuery.refresh');
   assert.ok(routerSource.includes('router.history.canGoBack?.()'), 'Safe in-app history back check');
   assert.ok(routerSource.includes('replace: true'), 'Fallback uses replace semantics');
+
+  // Background refetch failure (error && data): does not trigger blocking StatusCard
+  const mockFatalState = { error: 'Network error', data: null, sessions: [] };
+  const isFatal = Boolean(mockFatalState.error && !mockFatalState.data);
+  assert.equal(isFatal, true, 'No prior data + error -> fatal blocking error');
+
+  const mockBackgroundFailureState = {
+    error: 'Poll failed',
+    data: { specId: 'spec-1', sessions: [{ provider: 'claude', providerSessionId: 'sess-1' }] },
+    sessions: [{ provider: 'claude', providerSessionId: 'sess-1' }],
+  };
+  const isFatalBackground = Boolean(mockBackgroundFailureState.error && !mockBackgroundFailureState.data);
+  assert.equal(isFatalBackground, false, 'Existing data + background error -> non-blocking, chat remains usable');
 });

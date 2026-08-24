@@ -14,18 +14,30 @@ export function formatSessionStatus(status?: AiSessionStatus | string | null): s
 }
 
 export interface StatusLabelProps {
-  status: string;
-  kind?: 'stage' | 'session' | 'task';
+  status?: string;
+  kind?: 'stage' | 'session' | 'task' | 'raw';
+  children?: React.ReactNode;
   className?: string;
 }
 
-export function StatusLabel({ status, kind = 'stage', className }: StatusLabelProps) {
-  const label = kind === 'session' ? formatSessionStatus(status) : formatStatus(status);
+export function StatusLabel({ status, kind = 'raw', children, className }: StatusLabelProps) {
+  let content: React.ReactNode = children;
+  if (!content && status !== undefined) {
+    if (kind === 'session') {
+      content = formatSessionStatus(status);
+    } else if (kind === 'stage' || kind === 'task') {
+      content = formatStatus(status);
+    } else {
+      content = status;
+    }
+  }
+
   return (
     <span className={cn('text-[10px] font-bold uppercase tracking-[0.1em]', className)}>
-      {label}
+      {content}
     </span>
   );
 }
 
 export { formatStatus };
+

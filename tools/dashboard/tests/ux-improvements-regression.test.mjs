@@ -149,23 +149,36 @@ test('Item 7 (Task 17): AiSessionCreateModal provider group uses semantic fields
   assert.ok(modalSource.includes('aria-pressed={mode === item.id}'));
 });
 
-test('Item 8 (Task 18): Shared status label component and consistent session status labels', () => {
+test('Item 8 (Task 18): Shared status label component and consistent session status labels across all 5 sites', () => {
   const statusLabelSource = readSource('components/status-label.tsx');
   const stageProgressSource = readSource('components/stage-progress.tsx');
   const statusBoardSource = readSource('components/status-board.tsx');
   const sessionListSource = readSource('components/ai-session-list.tsx');
+  const chatHeaderSource = readSource('components/chat-header/chat-header.tsx');
   const aiChatSource = readSource('components/ai-chat.tsx');
 
-  // 1. Shared formatSessionStatus function
-  assert.ok(statusLabelSource.includes('formatSessionStatus'));
+  // 1. StatusLabel primitive owns common typography contract
+  assert.ok(statusLabelSource.includes('export function StatusLabel'), 'StatusLabel component exported');
+  assert.ok(statusLabelSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'), 'Typography contract owned by StatusLabel');
+  assert.ok(statusLabelSource.includes('formatSessionStatus'), 'Shared formatSessionStatus exported');
 
-  // 2. Consistent stage/task status typography across stage-progress and status-board
-  assert.ok(stageProgressSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'));
-  assert.ok(statusBoardSource.includes('text-[10px] font-bold uppercase tracking-[0.1em]'));
+  // 2. Site 1: stage-progress stage labels use StatusLabel
+  assert.ok(stageProgressSource.includes("import { StatusLabel } from '@/components/status-label'"), 'stage-progress imports StatusLabel');
+  assert.ok(stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'), 'stage-progress renders StatusLabel');
 
-  // 3. Polish status in both session list and chat header
-  assert.ok(sessionListSource.includes('formatSessionStatus(status)'));
-  assert.ok(aiChatSource.includes('formatSessionStatus(assistant.activity)'));
+  // 3. Site 2 & 3: status-board lane header and task status labels use StatusLabel
+  assert.ok(statusBoardSource.includes("import { StatusLabel } from '@/components/status-label'"), 'status-board imports StatusLabel');
+  assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
+  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status} />'), 'status-board task status renders StatusLabel');
+
+  // 4. Site 4: ai-session-list session status uses StatusLabel
+  assert.ok(sessionListSource.includes("from '@/components/status-label'"), 'ai-session-list imports from status-label');
+  assert.ok(sessionListSource.includes('<StatusLabel kind="session" status={session.status} />'), 'ai-session-list renders StatusLabel');
+
+  // 5. Site 5: chat header session status uses StatusLabel
+  assert.ok(chatHeaderSource.includes("import { StatusLabel } from '@/components/status-label'"), 'chat-header imports StatusLabel');
+  assert.ok(chatHeaderSource.includes('<StatusLabel>{status}</StatusLabel>'), 'chat-header renders StatusLabel');
+  assert.ok(aiChatSource.includes('formatSessionStatus(assistant.activity)'), 'ai-chat passes formatSessionStatus to header');
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {

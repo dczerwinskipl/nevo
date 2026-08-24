@@ -40,7 +40,7 @@ export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
   });
 }
 
-import { formatSessionStatus } from '@/components/status-label';
+import { StatusLabel, formatSessionStatus } from '@/components/status-label';
 
 export function statusLabel(status: AiSession['status']) {
   return formatSessionStatus(status);
@@ -134,13 +134,13 @@ export function AiSessionRow({
           </p>
           <span
             className={cn(
-              'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+              'shrink-0 rounded-full px-2 py-0.5',
               session.status === 'running' || session.status === 'waitingForUser'
                 ? 'bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
                 : 'bg-white/6 text-[var(--muted)]'
             )}
           >
-            {statusLabel(session.status)}
+            <StatusLabel kind="session" status={session.status} />
           </span>
         </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
