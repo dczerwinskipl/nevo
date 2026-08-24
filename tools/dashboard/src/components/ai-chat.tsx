@@ -32,6 +32,7 @@ import {
   useDeleteAiSession,
 } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
 import { projectChat } from '@/lib/chat-projection';
 import { useScrollFollow } from '@/lib/use-scroll-follow';
 import type {
@@ -217,7 +218,10 @@ export function AiChatPage({
 
   const providersQuery = useAiProviders();
   const providerInfo = providersQuery.data?.providers.find((p) => p.id === provider);
-  const isProviderAvailable = providerInfo?.available !== false;
+  const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
+  const providerUnavailableReason = providerInfo
+    ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
+    : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
 
   const submitMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -312,14 +316,14 @@ export function AiChatPage({
           </SheetContent>
         </Sheet>
 
-        {!isProviderAvailable && providerInfo && (
+        {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
           <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
             <div className="mx-auto flex max-w-4xl items-start gap-2.5 text-xs text-amber-200">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">Provider {providerInfo.label} nie jest dostępny</p>
+                <p className="font-semibold">Provider {providerInfo?.label || provider} nie jest dostępny</p>
                 <p className="mt-0.5 text-[11px] text-amber-200/80">
-                  {providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.'}
+                  {providerUnavailableReason}
                 </p>
               </div>
             </div>

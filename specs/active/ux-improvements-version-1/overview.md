@@ -80,16 +80,16 @@ package outside `tools/dashboard` consumes it.
 - `tools/dashboard` is self-contained; no external consumers, no public API/package-boundary
   concern (`tools/dashboard/package.json:3`).
 - Tasks 1-20 retain the original no-server/backend constraint from owner decision D1.
-  Owner decision D4 adds one narrowly scoped exception for task 21: repository-level AI
-  adapter diagnostics configuration and Antigravity lifecycle hardening in the explicitly
-  allowed root, `tools/ai/**`, and `tools/dashboard/server/**` paths. Core `src/**` remains
-  out of scope.
+  Owner decisions D4-D5 add one scoped exception for task 21: workstation-local AI adapter
+  enablement/diagnostics, the related session availability messages, and Antigravity lifecycle
+  hardening in the explicitly allowed `.nevo-ai-local`, `tools/ai/**`,
+  `tools/dashboard/server/**`, and named dashboard UI paths. Core `src/**` remains out of scope.
 - No new npm dependencies — every fix is CSS, markup, or component-composition.
 - New color tokens follow the one existing derivation precedent already in the codebase
   (`status-board.tsx:21`'s `color-mix(in srgb, var(--accent) 25%, transparent)` pattern), not
   a new token system invented from scratch.
-- Provider order must have exactly one source of truth: the registration array in
-  `tools/dashboard/server/ai-services.mjs:28` (owner decision D2).
+- Provider order must have exactly one source of truth: the ordered entries in the local
+  `.nevo-ai-local/ai-adapters.yaml` allow-list (owner decisions D2 and D5).
 
 ## Affected modules
 
@@ -120,13 +120,14 @@ shape already used for `deterministic-workflow-foundation`.
 ## Owner decisions
 
 See `owner-decisions.md`: D1 (original UX scope), D2 (mock provider ordering), D3
-(area/task grouping), D4 (Antigravity diagnostics and minimal lifecycle hardening).
+(area/task grouping), D4 (Antigravity diagnostics and minimal lifecycle hardening), D5
+(workstation-local adapter allow-list).
 
 ## Proposed architecture
 
 No architectural change to the public/provider-neutral contracts. 20 independent,
-mostly-frontend-only fixes are supplemented by one focused Antigravity adapter hardening
-task. The work is decomposed into 7 areas
+mostly-frontend-only fixes are supplemented by one local adapter-configuration and Antigravity
+hardening task. The work is decomposed into 7 areas
 mirroring the ux-review report's own themes, with the color-token task sequenced first since
 several later tasks (mock-provider badge, task-board columns) reuse its tokens or an already-
 existing neutral token.
@@ -144,8 +145,8 @@ existing neutral token.
   touch-target findings are covered by their `chat-and-sessions` counterparts).
 - `areas/typography-and-consistency.md` — shared status-label component, H2 scale,
   Escape-key consistency (3 tasks).
-- `areas/ai-adapters.md` — configurable Antigravity raw diagnostics and minimal lifecycle
-  hardening using the existing neutral contracts (1 task).
+- `areas/ai-adapters.md` — workstation-local adapter allow-list, configurable Antigravity raw
+  diagnostics, and minimal lifecycle hardening using the existing neutral contracts (1 task).
 
 ## Change-wide acceptance criteria
 

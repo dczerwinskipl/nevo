@@ -5,6 +5,7 @@ import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/hooks/use-dashboard-data';
 import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
 import { AI_MODES } from '@/lib/ai-mode-meta';
+import { AI_ADAPTERS_ENABLE_MESSAGE } from '@/lib/ai-adapter-config';
 import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
 
 export interface AiSessionCreateModalProps {
@@ -113,8 +114,8 @@ export function AiSessionCreateModal({
             Providerzy są niedostępni.
           </div>
         ) : !enabledProviders.length ? (
-          <div className="mt-6 rounded-xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted)]">
-            Brak aktywnych agentów / providerów.
+          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+            {AI_ADAPTERS_ENABLE_MESSAGE}
           </div>
         ) : (
           <>

@@ -89,5 +89,29 @@
   operation handle, polling mechanism, or provider-history persistence is introduced.
 - **Date:** 2026-08-24
 - **Affected artifacts:** `overview.md`, `areas/ai-adapters.md`,
-  `tasks/21-antigravity-diagnostics-and-turn-lifecycle.md`, `ai-adapters.yaml`, Antigravity
-  adapter/server wiring, focused tests, and `docs/development/ai-sessions.md`.
+  `tasks/21-antigravity-diagnostics-and-turn-lifecycle.md`, the adapter configuration,
+  Antigravity adapter/server wiring, focused tests, and `docs/development/ai-sessions.md`.
+
+## D5: Workstation-local adapter allow-list
+
+- **Question:** Should the new adapter YAML remain a tracked repository-wide diagnostics file,
+  or should it become the ignored local source of truth for which adapters are registered?
+- **Options considered:** (A) tracked root defaults shared by every checkout | (B) ignored
+  `.nevo-ai-local/ai-adapters.yaml` containing the ordered enabled-adapter list plus
+  provider-local diagnostics settings
+- **Decision:** Use option B. The file is the complete explicit allow-list. Missing file means
+  no adapter is registered; there is no implicit Mock exception. Antigravity raw capture is
+  independently opt-in. Both new-session entry points show the configuration path when the
+  allow-list is empty, and an existing session blocks new turns when its adapter is absent.
+- **Rationale:** Adapter installation, enablement, CLI availability, and diagnostic collection
+  are workstation concerns and must not be committed as shared repository policy. This also
+  realizes the previously intended `.nevo-ai-local` provider configuration instead of adding
+  a second tracked configuration surface.
+- **Consequences:** D5 supersedes D4 for configuration location/defaults and D2 for the source
+  of provider order: file order now replaces server registration-array order, while the UI still
+  never re-sorts it. Task 21 may additionally touch the two session-creation surfaces, the
+  existing-session availability banner, and dashboard service tests. The wider provider-neutral
+  contract redesign remains in the separate `ai-adapters-hardening` draft.
+- **Date:** 2026-08-24
+- **Affected artifacts:** `.nevo-ai-local/ai-adapters.yaml`, `areas/ai-adapters.md`, task 21,
+  dashboard adapter config/service/UI/tests, and `docs/development/ai-sessions.md`.

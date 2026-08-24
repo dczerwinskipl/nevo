@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -181,10 +181,23 @@ test('Agent session routes expose the complete provider-neutral session and turn
   }
 });
 
-test('default dashboard AI service registers Codex alongside existing providers', async () => {
-  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }) });
+test('default dashboard AI service registers only adapters enabled in the local config', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-config-'));
+  const adapterConfigPath = join(configDir, 'ai-adapters.yaml');
+  await writeFile(adapterConfigPath, `version: 1
+adapters:
+  codex:
+    enabled: true
+  claude:
+    enabled: true
+  antigravity:
+    enabled: false
+  mock:
+    enabled: true
+`, 'utf8');
+  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }), adapterConfigPath });
   try {
-    assert.deepEqual(service.registry.list(), ['claude', 'antigravity', 'codex', 'mock']);
+    assert.deepEqual(service.registry.list(), ['codex', 'claude', 'mock']);
     const descriptor = service.registry.get('codex').descriptor;
     assert.equal(descriptor.label, 'OpenAI Codex');
     assert.equal(descriptor.capabilities.resumeSession, true);
@@ -192,6 +205,22 @@ test('default dashboard AI service registers Codex alongside existing providers'
     assert.equal(descriptor.capabilities.planUpdates, false);
   } finally {
     await service.shutdown();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('default dashboard AI service registers no adapters when the local config is absent', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-missing-config-'));
+  const service = createDefaultDashboardAiService({
+    dataLoader: () => ({ active: [] }),
+    adapterConfigPath: join(configDir, 'missing.yaml'),
+  });
+  try {
+    assert.deepEqual(service.registry.list(), []);
+    assert.deepEqual(service.listProviders(), []);
+  } finally {
+    await service.shutdown();
+    await rm(configDir, { recursive: true, force: true });
   }
 });
 

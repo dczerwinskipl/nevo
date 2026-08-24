@@ -3,6 +3,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { parseYamlFile } from '../../lib/yaml.mjs';
 
 export const DEFAULT_ANTIGRAVITY_RAW_DIRECTORY = '.nevo-ai-local/antigravity_raw';
+export const DEFAULT_AI_ADAPTERS_CONFIG_PATH = '.nevo-ai-local/ai-adapters.yaml';
+export const SUPPORTED_AI_ADAPTERS = Object.freeze(['claude', 'antigravity', 'codex', 'mock']);
 
 function configError(field, message) {
   return new Error(`Invalid AI adapter configuration at '${field}': ${message}`);
@@ -38,8 +40,9 @@ export function loadAiAdaptersConfig({ repoRoot, filePath } = {}) {
     throw new TypeError('repoRoot is required to load AI adapter configuration.');
   }
 
-  const effectiveFilePath = filePath ?? resolve(repoRoot, 'ai-adapters.yaml');
-  const raw = existsSync(effectiveFilePath) ? parseYamlFile(effectiveFilePath) : {};
+  const effectiveFilePath = filePath ?? resolve(repoRoot, DEFAULT_AI_ADAPTERS_CONFIG_PATH);
+  const configured = existsSync(effectiveFilePath);
+  const raw = configured ? parseYamlFile(effectiveFilePath) : {};
   const root = requireObject(raw, 'root');
   const version = root.version ?? 1;
   if (version !== 1) {
@@ -47,6 +50,12 @@ export function loadAiAdaptersConfig({ repoRoot, filePath } = {}) {
   }
 
   const adapters = requireObject(root.adapters, 'adapters');
+  for (const adapterId of Object.keys(adapters)) {
+    if (!SUPPORTED_AI_ADAPTERS.includes(adapterId)) {
+      throw configError(`adapters.${adapterId}`, `unknown adapter; expected one of ${SUPPORTED_AI_ADAPTERS.join(', ')}.`);
+    }
+  }
+
   const antigravity = requireObject(adapters.antigravity, 'adapters.antigravity');
   const diagnostics = requireObject(antigravity.diagnostics, 'adapters.antigravity.diagnostics');
   const rawResponses = requireObject(
@@ -54,16 +63,33 @@ export function loadAiAdaptersConfig({ repoRoot, filePath } = {}) {
     'adapters.antigravity.diagnostics.raw_responses',
   );
 
-  const enabled = rawResponses.enabled ?? true;
-  if (typeof enabled !== 'boolean') {
+  const rawCaptureEnabled = rawResponses.enabled ?? false;
+  if (typeof rawCaptureEnabled !== 'boolean') {
     throw configError('adapters.antigravity.diagnostics.raw_responses.enabled', 'expected true or false.');
+  }
+
+  const adapterConfig = {};
+  for (const adapterId of SUPPORTED_AI_ADAPTERS) {
+    const configuredAdapter = requireObject(adapters[adapterId], `adapters.${adapterId}`);
+    const enabled = configuredAdapter.enabled ?? false;
+    if (typeof enabled !== 'boolean') {
+      throw configError(`adapters.${adapterId}.enabled`, 'expected true or false.');
+    }
+    adapterConfig[adapterId] = { enabled };
   }
 
   const directory = rawResponses.directory ?? DEFAULT_ANTIGRAVITY_RAW_DIRECTORY;
   return {
-    antigravity: {
-      rawCaptureEnabled: enabled,
-      rawCaptureDir: resolveRepositoryDirectory(repoRoot, directory),
+    configPath: effectiveFilePath,
+    configured,
+    adapterOrder: Object.keys(adapters),
+    adapters: {
+      ...adapterConfig,
+      antigravity: {
+        ...adapterConfig.antigravity,
+        rawCaptureEnabled,
+        rawCaptureDir: resolveRepositoryDirectory(repoRoot, directory),
+      },
     },
   };
 }

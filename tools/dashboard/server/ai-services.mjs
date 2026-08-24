@@ -13,25 +13,42 @@ import { loadAiAdaptersConfig } from './ai-adapters-config.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-export function createDefaultDashboardAiService({ dataLoader } = {}) {
-  const adapterConfig = loadAiAdaptersConfig({ repoRoot: REPO_ROOT });
+export function createDefaultDashboardAiService({ dataLoader, adapterConfigPath } = {}) {
+  const adapterConfig = loadAiAdaptersConfig({ repoRoot: REPO_ROOT, filePath: adapterConfigPath });
   const data = dataLoader ? dataLoader() : {};
   const demonstration = data.active?.find(specification => specification.slug === 'multi-provider-agent-sessions' && specification.specId)
     || data.active?.find(specification => specification.slug === 'ai-sessions-live-chat-integration' && specification.specId)
     || data.active?.find(specification => specification.specId);
-  const mockAdapter = createMockAiAdapter(demonstration ? {
-    specId: demonstration.specId,
-    taskIds: demonstration.tasks?.map(task => task.id) || [],
-  } : {});
-  const claudeAdapter = new ClaudeAgentProvider({ cwd: REPO_ROOT });
-  const antigravityAdapter = new AntigravityAgentProvider({
-    cwd: REPO_ROOT,
-    mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
-    rawCaptureEnabled: adapterConfig.antigravity.rawCaptureEnabled,
-    rawCaptureDir: adapterConfig.antigravity.rawCaptureDir,
-  });
-  const codexAdapter = new CodexAgentProvider({ cwd: REPO_ROOT });
-  const registry = createAiAdapterRegistry([claudeAdapter, antigravityAdapter, codexAdapter, mockAdapter]);
+  const adapters = [];
+  for (const adapterId of adapterConfig.adapterOrder) {
+    if (!adapterConfig.adapters[adapterId].enabled) continue;
+    switch (adapterId) {
+      case 'claude':
+        adapters.push(new ClaudeAgentProvider({ cwd: REPO_ROOT }));
+        break;
+      case 'antigravity':
+        adapters.push(new AntigravityAgentProvider({
+          cwd: REPO_ROOT,
+          mappingFilePath: resolve(REPO_ROOT, '.nevo-ai-local', 'antigravity-sessions.json'),
+          rawCaptureEnabled: adapterConfig.adapters.antigravity.rawCaptureEnabled,
+          rawCaptureDir: adapterConfig.adapters.antigravity.rawCaptureDir,
+        }));
+        break;
+      case 'codex':
+        adapters.push(new CodexAgentProvider({ cwd: REPO_ROOT }));
+        break;
+      case 'mock':
+        adapters.push(createMockAiAdapter(demonstration ? {
+          specId: demonstration.specId,
+          taskIds: demonstration.tasks?.map(task => task.id) || [],
+        } : {}));
+        break;
+    }
+  }
+  if (adapters.length === 0) {
+    console.warn(`[ai] No AI adapters are enabled. Configure ${adapterConfig.configPath} and restart the dashboard.`);
+  }
+  const registry = createAiAdapterRegistry(adapters);
   const transcriptCache = createTranscriptCacheService();
   const bindingService = createAgentSessionBindingService();
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });

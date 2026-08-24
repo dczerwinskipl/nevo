@@ -5,18 +5,28 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
+  DEFAULT_AI_ADAPTERS_CONFIG_PATH,
   DEFAULT_ANTIGRAVITY_RAW_DIRECTORY,
   loadAiAdaptersConfig,
 } from '../server/ai-adapters-config.mjs';
 
-test('AI adapter config preserves Antigravity diagnostic defaults when the YAML file is absent', async () => {
+test('AI adapter config disables every adapter and raw capture when the local YAML file is absent', async () => {
   const repoRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-adapters-default-'));
   try {
     const config = loadAiAdaptersConfig({ repoRoot });
     assert.deepEqual(config, {
-      antigravity: {
-        rawCaptureEnabled: true,
-        rawCaptureDir: resolve(repoRoot, DEFAULT_ANTIGRAVITY_RAW_DIRECTORY),
+      configPath: resolve(repoRoot, DEFAULT_AI_ADAPTERS_CONFIG_PATH),
+      configured: false,
+      adapterOrder: [],
+      adapters: {
+        claude: { enabled: false },
+        antigravity: {
+          enabled: false,
+          rawCaptureEnabled: false,
+          rawCaptureDir: resolve(repoRoot, DEFAULT_ANTIGRAVITY_RAW_DIRECTORY),
+        },
+        codex: { enabled: false },
+        mock: { enabled: false },
       },
     });
   } finally {
@@ -24,23 +34,36 @@ test('AI adapter config preserves Antigravity diagnostic defaults when the YAML 
   }
 });
 
-test('AI adapter config reads the raw response toggle and custom repository-relative directory', async () => {
+test('AI adapter config reads the enabled adapter list and Antigravity diagnostics', async () => {
   const repoRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-adapters-custom-'));
   try {
     const filePath = join(repoRoot, 'ai-adapters.yaml');
     await writeFile(filePath, `version: 1
 adapters:
+  claude:
+    enabled: true
   antigravity:
+    enabled: true
     diagnostics:
       raw_responses:
-        enabled: false
+        enabled: true
         directory: .nevo-ai-local/provider-raw/antigravity
+  codex:
+    enabled: false
+  mock:
+    enabled: true
 `, 'utf8');
 
     const config = loadAiAdaptersConfig({ repoRoot, filePath });
-    assert.equal(config.antigravity.rawCaptureEnabled, false);
+    assert.equal(config.configured, true);
+    assert.deepEqual(config.adapterOrder, ['claude', 'antigravity', 'codex', 'mock']);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(config.adapters).map(([id, value]) => [id, value.enabled])),
+      { claude: true, antigravity: true, codex: false, mock: true },
+    );
+    assert.equal(config.adapters.antigravity.rawCaptureEnabled, true);
     assert.equal(
-      config.antigravity.rawCaptureDir,
+      config.adapters.antigravity.rawCaptureDir,
       resolve(repoRoot, '.nevo-ai-local/provider-raw/antigravity'),
     );
   } finally {
@@ -62,6 +85,28 @@ test('AI adapter config reports field-specific errors for invalid values and uns
       assert.throws(
         () => loadAiAdaptersConfig({ repoRoot, filePath }),
         /adapters\.antigravity\.diagnostics\.raw_responses\.enabled.*expected true or false/,
+      );
+    });
+
+    await t.test('adapter enabled must be boolean', async () => {
+      await writeFile(filePath, `adapters:
+  codex:
+    enabled: "yes"
+`, 'utf8');
+      assert.throws(
+        () => loadAiAdaptersConfig({ repoRoot, filePath }),
+        /adapters\.codex\.enabled.*expected true or false/,
+      );
+    });
+
+    await t.test('unknown adapter is rejected', async () => {
+      await writeFile(filePath, `adapters:
+  imaginary:
+    enabled: true
+`, 'utf8');
+      assert.throws(
+        () => loadAiAdaptersConfig({ repoRoot, filePath }),
+        /adapters\.imaginary.*unknown adapter/,
       );
     });
 
