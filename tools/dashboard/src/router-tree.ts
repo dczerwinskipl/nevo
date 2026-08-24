@@ -13,12 +13,6 @@ export interface ChatSearch {
   turnId?: string;
 }
 
-export interface NavigationHistoryState {
-  origin?: 'dashboard' | 'spec' | 'task';
-  originTaskId?: string;
-  restoreTaskId?: string;
-}
-
 export type SessionRouteDestination =
   | {
       to: '/specs/$source/$slug/sessions/$provider/$sessionId';
@@ -37,7 +31,7 @@ export type SessionRouteDestination =
       };
     };
 
-export function resolveSessionRoute(
+export function resolveSessionDestination(
   session: { provider: string; sessionId: string; providerSessionId?: string; specId?: string | null },
   specs: Array<{ specId?: string | null; source: 'active' | 'archive'; slug: string }>
 ): SessionRouteDestination {
@@ -45,17 +39,18 @@ export function resolveSessionRoute(
 
   if (session.specId) {
     const owningSpec = specs.find((s) => s.specId === session.specId);
-    if (owningSpec) {
-      return {
-        to: '/specs/$source/$slug/sessions/$provider/$sessionId',
-        params: {
-          source: owningSpec.source,
-          slug: owningSpec.slug,
-          provider: session.provider,
-          sessionId: effectiveSessionId,
-        },
-      };
+    if (!owningSpec) {
+      throw new Error(`Nie znaleziono specyfikacji o ID '${session.specId}' dla sesji '${effectiveSessionId}'.`);
     }
+    return {
+      to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+      params: {
+        source: owningSpec.source,
+        slug: owningSpec.slug,
+        provider: session.provider,
+        sessionId: effectiveSessionId,
+      },
+    };
   }
 
   return {
@@ -65,104 +60,6 @@ export function resolveSessionRoute(
       sessionId: effectiveSessionId,
     },
   };
-}
-
-export function createSessionSwitchNavigator(
-  navigate: (opts: any) => Promise<any> | void,
-  specs: Array<{ specId?: string | null; source: 'active' | 'archive'; slug: string }>,
-  historyState?: NavigationHistoryState
-) {
-  return (session: AiSession) => {
-    const destination = resolveSessionRoute(session, specs);
-    return navigate({
-      to: destination.to,
-      params: destination.params,
-      state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
-      replace: true,
-    });
-  };
-}
-
-export function createBackNavigator({
-  routerHistory,
-  navigate,
-  specContext,
-}: {
-  routerHistory: { canGoBack: () => boolean; back: () => void };
-  navigate: (opts: any) => Promise<any> | void;
-  specContext?: { source: 'active' | 'archive'; slug: string } | null;
-}) {
-  return () => {
-    if (routerHistory.canGoBack()) {
-      routerHistory.back();
-      return;
-    }
-    if (specContext) {
-      navigate({
-        to: '/specs/$source/$slug',
-        params: { source: specContext.source, slug: specContext.slug },
-        replace: true,
-      });
-      return;
-    }
-    navigate({ to: '/', replace: true });
-  };
-}
-
-export function createRestoreTaskIdConsumer(
-  navigate: (opts: any) => Promise<any> | void,
-  source: 'active' | 'archive',
-  slug: string
-) {
-  return () => {
-    navigate({
-      to: '/specs/$source/$slug',
-      params: { source, slug },
-      state: (prev: any) => {
-        if (!prev || !prev.restoreTaskId) return prev;
-        const { restoreTaskId: _, ...rest } = prev;
-        return rest;
-      },
-      replace: true,
-    });
-  };
-}
-
-export interface SpecCanonicalTarget {
-  slug: string;
-  source: 'active' | 'archive';
-  [key: string]: any;
-}
-
-export function resolveSpecRouteCanonicalization<T extends SpecCanonicalTarget>({
-  requestedSource,
-  slug,
-  activeSpecs,
-  archiveSpecs,
-}: {
-  requestedSource: 'active' | 'archive';
-  slug: string;
-  activeSpecs: T[];
-  archiveSpecs: T[];
-}): {
-  status: 'matched' | 'redirect' | 'not-found';
-  canonicalSource?: 'active' | 'archive';
-  spec?: T;
-} {
-  const currentCollection = requestedSource === 'active' ? activeSpecs : archiveSpecs;
-  const matched = currentCollection.find((s) => s.slug === slug);
-  if (matched) {
-    return { status: 'matched', canonicalSource: requestedSource, spec: matched };
-  }
-
-  const oppositeSource: 'active' | 'archive' = requestedSource === 'active' ? 'archive' : 'active';
-  const oppositeCollection = requestedSource === 'active' ? archiveSpecs : activeSpecs;
-  const oppositeMatched = oppositeCollection.find((s) => s.slug === slug);
-  if (oppositeMatched) {
-    return { status: 'redirect', canonicalSource: oppositeSource, spec: oppositeMatched };
-  }
-
-  return { status: 'not-found' };
 }
 
 export const rootRoute = createRootRoute();

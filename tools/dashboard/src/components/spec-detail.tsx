@@ -457,38 +457,18 @@ function OverviewPanel({
 
 export function SpecDetail({
   change,
-  initialTaskId,
-  onConsumeRestoreTaskId,
   onOpenSession,
   onCreateSession,
   onNavigateMode,
 }: {
   change: DashboardChange;
-  initialTaskId: string | null;
-  onConsumeRestoreTaskId?: () => void;
-  onOpenSession: (session: AiSession, taskId?: string) => void;
+  onOpenSession: (session: AiSession) => void;
   onCreateSession: () => void;
   onNavigateMode?: (mode: 'active' | 'archive') => void;
 }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => (
-    initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null
-  ));
-
-  const consumedTaskIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!initialTaskId) return;
-    if (consumedTaskIdRef.current === initialTaskId) return;
-    consumedTaskIdRef.current = initialTaskId;
-
-    const isValid = change.tasks.some(task => task.id === initialTaskId);
-    if (isValid) {
-      setSelectedTaskId(initialTaskId);
-    }
-    onConsumeRestoreTaskId?.();
-  }, [initialTaskId, change.tasks, onConsumeRestoreTaskId]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
     try {
       return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -826,7 +806,7 @@ export function SpecDetail({
         <TaskDialog
           change={change}
           taskId={selectedTask.id}
-          onOpenSession={(session, taskId) => onOpenSession(session, taskId ?? selectedTask.id)}
+          onOpenSession={onOpenSession}
           onOpenTask={(target) => {
             const nextTaskId = typeof target === 'string' ? target : target.taskId;
             setSelectedTaskId(nextTaskId);
