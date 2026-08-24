@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.escape-key-closes-all-modals
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:

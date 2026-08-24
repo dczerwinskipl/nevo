@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.mobile-collapse-empty-columns
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:

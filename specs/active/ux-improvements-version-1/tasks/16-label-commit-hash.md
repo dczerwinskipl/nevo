@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.label-commit-hash
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:

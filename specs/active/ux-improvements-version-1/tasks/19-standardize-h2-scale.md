@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.standardize-h2-scale
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:

@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.dedupe-recent-sessions
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:

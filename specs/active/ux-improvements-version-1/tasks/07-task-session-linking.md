@@ -1,6 +1,6 @@
 ---
 id: ux-improvements-version-1.task-session-linking
-status: draft
+status: verified
 change: ux-improvements-version-1
 context:
   required:
