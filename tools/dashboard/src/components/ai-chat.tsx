@@ -148,30 +148,38 @@ export function AiChatPage({
     ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
     : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
 
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
   const assistant = useNevoAssistantRuntime({
     provider,
     providerSessionId: sessionId,
     onTurnCompleted: () => {
       onTurnChange(null);
+      setRuntimeError(null);
+    },
+    onError: (err) => {
+      setRuntimeError(err.message);
     },
   });
 
   const session = assistant.sessionDetails;
   const currentMode: AgentExecutionMode = selectedModeOverride ?? session?.mode ?? 'edit';
 
-  const {
-    displayError,
-    canRetryInitial,
-    handleRetryInitial,
-    handleDismissError,
-    setSubmissionError,
-  } = useInitialDispatch({
+  const initialDispatch = useInitialDispatch({
     provider,
     sessionId,
     assistant,
     isProviderAvailable,
     currentMode,
   });
+
+  const displayError = initialDispatch.displayError || runtimeError || null;
+  const canRetryInitial = initialDispatch.canRetryInitial;
+
+  const handleDismissError = useCallback(() => {
+    initialDispatch.handleDismissError();
+    setRuntimeError(null);
+  }, [initialDispatch]);
 
   const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${displayError ?? ''}`;
 
@@ -223,6 +231,10 @@ export function AiChatPage({
   }, [assistant.activeTurnId, onTurnChange]);
 
   useEffect(() => {
+    setRuntimeError(null);
+  }, [provider, sessionId]);
+
+  useEffect(() => {
     if (!chatViewport.keyboardOpen || !isFollowing) return;
     window.scrollTo(0, 0);
     scrollToBottom('auto');
@@ -236,21 +248,21 @@ export function AiChatPage({
       await deleteSession({ provider, sessionId });
       onBack();
     } catch (err) {
-      setSubmissionError(err instanceof Error ? err.message : String(err));
+      setRuntimeError(err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleComposerSubmit = useCallback(async (promptText: string) => {
     const trimmed = promptText.trim();
     if (!trimmed || !isProviderAvailable || !assistant.canStartTurn) return;
-    setSubmissionError(null);
+    setRuntimeError(null);
     scrollToBottom('auto');
     try {
       await assistant.sendTurn(trimmed, { mode: currentMode });
     } catch (err) {
-      setSubmissionError(err instanceof Error ? err.message : String(err));
+      setRuntimeError(err instanceof Error ? err.message : String(err));
     }
-  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom, setSubmissionError]);
+  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
   const submitMessage = handleComposerSubmit;
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
@@ -415,7 +427,7 @@ export function AiChatPage({
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={handleRetryInitial}
+                      onClick={() => void initialDispatch.handleRetryInitial()}
                       className="h-7 gap-1.5 px-2.5 text-xs font-medium"
                     >
                       <RefreshCw className="size-3" />

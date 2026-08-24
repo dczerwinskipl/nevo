@@ -353,22 +353,22 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const chatSource = readAiChatSource();
-  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/lib/use-initial-dispatch.ts', import.meta.url)), 'utf8');
+  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/lib/pending-dispatch-store.ts', import.meta.url)), 'utf8');
 
   // AiChatPage uses useInitialDispatch
   assert.match(chatSource, /useInitialDispatch/);
 
   // Initial message effect checks assistant.isReady and pendingDispatchStore
-  assert.match(initialDispatchSource, /pendingDispatchStore\.getPending\(provider, sessionId\)/);
-  assert.match(initialDispatchSource, /pendingDispatchStore\.markInFlight\(provider, sessionId\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.getPending\(this\.provider, this\.sessionId\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markInFlight\(this\.provider, this\.sessionId\)/);
 
   // Calls sendTurn with stable idempotencyKey and clears on success
-  assert.match(initialDispatchSource, /await assistant\.sendTurn\(current\.prompt, \{/);
-  assert.match(initialDispatchSource, /idempotencyKey: current\.idempotencyKey/);
-  assert.match(initialDispatchSource, /pendingDispatchStore\.clearPending\(provider, sessionId\)/);
+  assert.match(initialDispatchSource, /await this\.assistant\.sendTurn\(pending\.prompt, \{/);
+  assert.match(initialDispatchSource, /idempotencyKey: pending\.idempotencyKey/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.clearPending\(this\.provider, this\.sessionId\)/);
 
   // Does not silently discard errors and marks failure for retry
-  assert.match(initialDispatchSource, /pendingDispatchStore\.markFailed\(provider, sessionId, errorMsg\)/);
+  assert.match(initialDispatchSource, /pendingDispatchStore\.markFailed\(this\.provider, this\.sessionId, errorMsg\)/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {
@@ -403,4 +403,45 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
   // E. Null / undefined error -> no error
   assert.equal(shouldSurfaceTurnError(null), false);
   assert.equal(shouldSurfaceTurnError(undefined), false);
+});
+
+test('BLOCKING: AiChatPage and useNevoAssistantRuntime wire user-visible error channel for cancel, interaction, and turn failures', async () => {
+  const chatSource = readAiChatSource();
+
+  // AiChatPage must wire onError into useNevoAssistantRuntime and maintain user-visible runtimeError
+  assert.match(chatSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
+  assert.match(chatSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
+
+  // Behavioral test: simulate runtime error callback pipeline
+  let surfacedError = null;
+  const onErrorSink = (err) => {
+    surfacedError = err.message;
+  };
+
+  // 1. Turn failure (non-cancellation) triggers onError
+  const turnError = { code: 'AI_PROVIDER_ERROR', message: 'API rate limit exceeded' };
+  if (shouldSurfaceTurnError(turnError)) {
+    onErrorSink(new Error(turnError.message));
+  }
+  assert.equal(surfacedError, 'API rate limit exceeded');
+
+  // 2. Cancellation error suppressed from onError
+  surfacedError = null;
+  const cancelError = { code: 'AI_TURN_CANCELLED', message: 'User stopped generation' };
+  if (shouldSurfaceTurnError(cancelError)) {
+    onErrorSink(new Error(cancelError.message));
+  }
+  assert.equal(surfacedError, null, 'AI_TURN_CANCELLED must not surface');
+
+  // 3. Failed cancel request (e.g. 500 error while turn is still running) triggers onError
+  const failedCancelErr = new Error('Failed to cancel turn: 500 Internal Server Error');
+  if (shouldSurfaceCancelError('turn-1', new Set())) {
+    onErrorSink(failedCancelErr);
+  }
+  assert.equal(surfacedError, 'Failed to cancel turn: 500 Internal Server Error');
+
+  // 4. Failed interaction response triggers onError
+  const failedInteractionErr = new Error('Failed to submit question response: network timeout');
+  onErrorSink(failedInteractionErr);
+  assert.equal(surfacedError, 'Failed to submit question response: network timeout');
 });

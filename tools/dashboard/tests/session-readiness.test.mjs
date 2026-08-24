@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { pendingDispatchStore } from '../src/lib/pending-dispatch-store.ts';
-import { InitialDispatchController } from '../src/lib/use-initial-dispatch.ts';
+import {
+  pendingDispatchStore,
+  InitialDispatchController,
+} from '../src/lib/pending-dispatch-store.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
@@ -267,7 +269,7 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   const routerTreeSource = readSource('router-tree.ts');
   const routerSource = readSource('router.tsx');
   const aiChatSource = readSource('components/ai-chat.tsx');
-  const useInitialDispatchSource = readSource('lib/use-initial-dispatch.ts');
+  const pendingDispatchStoreSource = readSource('lib/pending-dispatch-store.ts');
 
   // router-tree.ts does not declare initialPrompt in ChatSearch
   assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
@@ -276,11 +278,11 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
   assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
 
-  // ai-chat.tsx and use-initial-dispatch.ts enforce explicit pending status and production retry
+  // ai-chat.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
   assert.ok(aiChatSource.includes('useInitialDispatch'));
-  assert.ok(useInitialDispatchSource.includes("current.status !== 'pending'"));
-  assert.ok(useInitialDispatchSource.includes('pendingDispatchStore.retryPending'));
-  assert.ok(useInitialDispatchSource.includes('pendingDispatchStore.clearPending'));
+  assert.ok(pendingDispatchStoreSource.includes("pending.status !== 'pending'"));
+  assert.ok(pendingDispatchStoreSource.includes('retryPending('));
+  assert.ok(pendingDispatchStoreSource.includes('clearPending('));
 });
 
 test('Finding 3: Tool card layout and pre blocks are constrained to chat width and support horizontal scroll', () => {
