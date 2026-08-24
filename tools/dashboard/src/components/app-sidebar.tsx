@@ -29,6 +29,8 @@ interface AppSidebarProps {
   sessions: AiSession[];
   sessionsLoading: boolean;
   sessionsError: string | null;
+  sessionNavigationError?: string | null;
+  onDismissSessionNavigationError?: () => void;
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
   onOpenCreateSpec?: () => void;
@@ -109,6 +111,8 @@ export function AppSidebar({
   sessions,
   sessionsLoading,
   sessionsError,
+  sessionNavigationError,
+  onDismissSessionNavigationError,
   onSessionsRetry,
   onOpenSession,
   onOpenCreateSpec,
@@ -220,6 +224,18 @@ export function AppSidebar({
                   />
                 )}
               </div>
+              {sessionNavigationError && (
+                <div className="mb-2">
+                  <StatusCard
+                    variant="warning"
+                    size="sm"
+                    title="Błąd otwierania sesji"
+                    description={sessionNavigationError}
+                    onRetry={onDismissSessionNavigationError}
+                    retryLabel="Zamknij"
+                  />
+                </div>
+              )}
               {sessionsLoading ? <p className="py-2 text-[11px] text-[var(--muted)]">Wczytywanie sesji…</p>
                 : sessionsError ? (
                   <div className="my-1">

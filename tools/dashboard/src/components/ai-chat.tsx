@@ -112,8 +112,6 @@ export function AiChatPage({
   provider,
   sessionId,
   changes,
-  initialTurnId,
-  onTurnChange,
   onBack,
   backLabel,
   onSwitchSession,
@@ -122,8 +120,6 @@ export function AiChatPage({
   provider: string;
   sessionId: string;
   changes: DashboardChange[];
-  initialTurnId: string | null;
-  onTurnChange: (turnId: string | null) => void;
   onBack: () => void;
   backLabel: string;
   onSwitchSession: (session: AiSession) => void;
@@ -154,7 +150,6 @@ export function AiChatPage({
     provider,
     providerSessionId: sessionId,
     onTurnCompleted: () => {
-      onTurnChange(null);
       setRuntimeError(null);
     },
     onError: (err) => {
@@ -256,10 +251,6 @@ export function AiChatPage({
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
     return new Map(projection.workByTurn.map(work => [work.turnId, work]));
   }, [assistant.messages, assistant.activeTurnId]);
-
-  useEffect(() => {
-    onTurnChange(assistant.activeTurnId);
-  }, [assistant.activeTurnId, onTurnChange]);
 
   useEffect(() => {
     setRuntimeError(null);
@@ -515,8 +506,12 @@ export function AiChatPage({
             change={change}
             taskId={inspectedTaskId}
             onOpenSession={(s) => {
-              setInspectedTaskId(null);
-              onSwitchSession(s);
+              try {
+                onSwitchSession(s);
+                setInspectedTaskId(null);
+              } catch (err) {
+                setRuntimeError(err instanceof Error ? err.message : String(err));
+              }
             }}
             onOpenTask={(target) => {
               const nextTaskId = typeof target === 'string' ? target : target.taskId;

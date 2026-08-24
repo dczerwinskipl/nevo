@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createMemoryHistory, isRedirect } from '@tanstack/react-router';
+import { createMemoryHistory } from '@tanstack/react-router';
 import {
   createAppRouter,
-  activeAliasRoute,
   resolveSessionDestination,
 } from '../src/router-tree.ts';
 
@@ -33,7 +32,7 @@ test('Route tree resolves primary screens with clean URLs', async () => {
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
   assert.equal(Object.keys(router.state.location.search).length, 0);
 
-  // 4. Spec-Scoped AI Chat Route
+  // 4. Spec-Scoped AI Chat Route (No turnId in URL search params)
   await router.navigate({
     to: '/specs/$source/$slug/sessions/$provider/$sessionId',
     params: {
@@ -42,13 +41,12 @@ test('Route tree resolves primary screens with clean URLs', async () => {
       provider: 'claude',
       sessionId: 'session-12345',
     },
-    search: { turnId: 'turn-abc' },
   });
   assert.equal(
     router.state.location.pathname,
     '/specs/active/ux-improvements-version-1/sessions/claude/session-12345'
   );
-  assert.equal(router.state.location.search.turnId, 'turn-abc');
+  assert.equal(Object.keys(router.state.location.search).length, 0);
 
   // 5. Global AI Chat Route
   await router.navigate({
@@ -58,24 +56,7 @@ test('Route tree resolves primary screens with clean URLs', async () => {
   assert.equal(router.state.location.pathname, '/ai/sessions/gemini/adhoc-session-999');
 });
 
-test('Redirect alias /active routes to root /', async () => {
-  const history = createMemoryHistory({ initialEntries: ['/'] });
-  const router = createAppRouter(history);
-  await router.load();
-
-  // Alias /active matches activeAliasRoute and triggers redirect to /
-  const activeMatches = router.matchRoutes('/active');
-  assert.equal(activeMatches[activeMatches.length - 1]?.routeId, '/app-layout/active');
-  try {
-    await activeAliasRoute.options.beforeLoad({});
-    assert.fail('Should have thrown redirect');
-  } catch (err) {
-    assert.equal(isRedirect(err), true);
-    assert.equal(err.options.to, '/');
-  }
-});
-
-test('1. Spec chat Back: /specs/:source/:slug/sessions/:provider/:sessionId -> Back navigates directly to parent /specs/:source/:slug', async () => {
+test('1. Spec chat Back: /specs/:source/:slug/sessions/:provider/:sessionId -> Back navigates directly to parent /specs/:source/:slug regardless of history', async () => {
   // Even if history previously contains '/' or another route, Back goes directly to the parent route
   const history = createMemoryHistory({
     initialEntries: ['/', '/specs/active/other-spec', '/specs/active/foo/sessions/claude/123'],
@@ -85,10 +66,12 @@ test('1. Spec chat Back: /specs/:source/:slug/sessions/:provider/:sessionId -> B
 
   assert.equal(router.state.location.pathname, '/specs/active/foo/sessions/claude/123');
 
-  // Application Back action in SpecChatRouteComponent:
+  // Production Back action in SpecChatRouteComponent:
+  const source = 'active';
+  const slug = 'foo';
   await router.navigate({
     to: '/specs/$source/$slug',
-    params: { source: 'active', slug: 'foo' },
+    params: { source, slug },
   });
   await router.load();
 
@@ -238,17 +221,27 @@ test('7. Ad-hoc -> spec switch: /ai/sessions/A -> select X/session B -> /specs/X
   assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-B');
 });
 
-test('8. Invalid unresolved spec ownership: session.specId != null but spec cannot be resolved -> throws error, does not navigate to global', () => {
+test('8. Invalid unresolved spec ownership: session.specId != null but spec cannot be resolved -> throws error, zero navigation', () => {
+  const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
+  const router = createAppRouter(history);
+
   const specs = [{ specId: 'spec-x-id', source: 'active', slug: 'spec-x' }];
   const orphanSession = { provider: 'claude', sessionId: 'sess-orphan', specId: 'unknown-spec-id' };
 
-  assert.throws(
-    () => resolveSessionDestination(orphanSession, specs),
-    /Nie znaleziono specyfikacji o ID 'unknown-spec-id'/
-  );
+  // Resolution throws explicit error
+  let navigationError = null;
+  try {
+    const dest = resolveSessionDestination(orphanSession, specs);
+    router.navigate({ to: dest.to, params: dest.params });
+  } catch (err) {
+    navigationError = err.message;
+  }
+
+  assert.ok(navigationError?.includes("Nie znaleziono specyfikacji o ID 'unknown-spec-id'"));
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x', 'Zero navigation occurred');
 });
 
-test('9. No post-render redirect: navigating from /specs/X/sessions/A to /specs/X keeps spec route mounted without reactively reopening A', async () => {
+test('9. Behavioral no post-render redirect: Back from /specs/X/sessions/A to /specs/X stays at /specs/X through subsequent state updates', async () => {
   const history = createMemoryHistory({
     initialEntries: ['/specs/active/spec-x/sessions/claude/sess-A'],
   });
@@ -264,13 +257,14 @@ test('9. No post-render redirect: navigating from /specs/X/sessions/A to /specs/
 
   assert.equal(router.state.location.pathname, '/specs/active/spec-x');
 
-  // Verify source code of router.tsx and spec-detail.tsx does not contain useEffect-based navigations
+  // Verify AiChatPage and router.tsx source code does not contain activeTurnId URL syncing or onTurnChange
+  const aiChatSource = readSource('components/ai-chat.tsx');
   const routerSource = readSource('router.tsx');
-  const specDetailSource = readSource('components/spec-detail.tsx');
 
+  assert.ok(!aiChatSource.includes('onTurnChange'), 'AiChatPage must not have onTurnChange');
+  assert.ok(!aiChatSource.includes('initialTurnId'), 'AiChatPage must not have initialTurnId');
+  assert.ok(!routerSource.includes('turnId'), 'router.tsx must not have turnId search param plumbing');
   assert.ok(!routerSource.includes('useEffect('), 'router.tsx must not have useEffect navigations');
-  assert.ok(!specDetailSource.includes('restoreTaskId'), 'spec-detail.tsx must not have restoreTaskId');
-  assert.ok(!specDetailSource.includes('initialTaskId'), 'spec-detail.tsx must not have initialTaskId');
 });
 
 test('Single click on sidebar Active/Archive tabs creates exactly one history transition', async () => {

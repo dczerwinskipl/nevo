@@ -2,16 +2,11 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  redirect,
 } from '@tanstack/react-router';
 
 import type { AiSession } from './lib/types';
 
 export interface SpecSearch {}
-
-export interface ChatSearch {
-  turnId?: string;
-}
 
 export type SessionRouteDestination =
   | {
@@ -85,29 +80,14 @@ export const specRoute = createRoute({
   validateSearch: (): SpecSearch => ({}),
 });
 
-// The single intentional redirect alias: /active -> /
-export const activeAliasRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/active',
-  beforeLoad: () => {
-    throw redirect({ to: '/' });
-  },
-});
-
 export const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ai/sessions/$provider/$sessionId',
-  validateSearch: (search: Record<string, unknown>): ChatSearch => ({
-    turnId: typeof search.turnId === 'string' ? search.turnId : undefined,
-  }),
 });
 
 export const specChatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/specs/$source/$slug/sessions/$provider/$sessionId',
-  validateSearch: (search: Record<string, unknown>): ChatSearch => ({
-    turnId: typeof search.turnId === 'string' ? search.turnId : undefined,
-  }),
 });
 
 export const routeTree = rootRoute.addChildren([
@@ -115,7 +95,6 @@ export const routeTree = rootRoute.addChildren([
     indexRoute,
     archiveRoute,
     specRoute,
-    activeAliasRoute,
   ]),
   chatRoute,
   specChatRoute,

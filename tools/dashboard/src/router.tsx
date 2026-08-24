@@ -6,7 +6,7 @@ import {
   useMatches,
 } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Menu, Radio } from 'lucide-react';
+import { AlertCircle, Menu, Radio } from 'lucide-react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
@@ -29,7 +29,6 @@ import {
   chatRoute,
   specChatRoute,
   createAppRouter,
-  type ChatSearch,
   resolveSessionDestination,
 } from './router-tree';
 
@@ -54,6 +53,7 @@ function AppLayoutComponent() {
   const { data, error, loading, refreshing, live, refresh } = useDashboardData();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sessionNavigationError, setSessionNavigationError] = useState<string | null>(null);
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
@@ -139,6 +139,23 @@ function AppLayoutComponent() {
         </div>
       </header>
 
+      {sessionNavigationError && (
+        <div className="sticky top-16 z-40 flex items-center justify-between border-b border-amber-500/30 bg-amber-950/90 px-4 py-3 text-sm text-amber-200 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 shrink-0 text-amber-400" />
+            <span>{sessionNavigationError}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-amber-300 hover:text-white"
+            onClick={() => setSessionNavigationError(null)}
+          >
+            Zamknij
+          </Button>
+        </div>
+      )}
+
       <main>
         {loading && !data ? (
           <LoadingScreen />
@@ -168,19 +185,22 @@ function AppLayoutComponent() {
           sessions={globalSessions.sessions}
           sessionsLoading={globalSessions.loading}
           sessionsError={globalSessions.error}
+          sessionNavigationError={sessionNavigationError}
+          onDismissSessionNavigationError={() => setSessionNavigationError(null)}
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={(session) => {
             const allSpecs = [...(data.active ?? []), ...(data.archive ?? [])];
             try {
               const dest = resolveSessionDestination(session, allSpecs);
+              setSessionNavigationError(null);
               navigate({
                 to: dest.to,
                 params: dest.params,
               });
+              setSidebarOpen(false);
             } catch (err) {
-              console.error('Failed to open session from sidebar:', err);
+              setSessionNavigationError(err instanceof Error ? err.message : String(err));
             }
-            setSidebarOpen(false);
           }}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
@@ -361,7 +381,6 @@ function SpecDetailRouteComponent() {
 // 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:provider/:sessionId)
 function SpecChatRouteComponent() {
   const params = specChatRoute.useParams();
-  const search = specChatRoute.useSearch() as ChatSearch;
 
   const { data, loading, error, refresh } = useDashboardData();
   const navigate = useNavigate();
@@ -370,7 +389,6 @@ function SpecChatRouteComponent() {
   const slug = params.slug;
   const provider = params.provider;
   const sessionId = params.sessionId;
-  const initialTurnId = search.turnId || null;
 
   const selectedSpec = useMemo(() => {
     if (!data) return null;
@@ -385,30 +403,14 @@ function SpecChatRouteComponent() {
     });
   }, [navigate, slug, source]);
 
-  const handleTurnChange = useCallback(
-    (turnId: string | null) => {
-      navigate({
-        to: '/specs/$source/$slug/sessions/$provider/$sessionId',
-        params: { source, slug, provider, sessionId },
-        search: { turnId: turnId || undefined },
-        replace: true,
-      });
-    },
-    [navigate, provider, sessionId, slug, source]
-  );
-
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
       const allSpecs = [...(data?.active ?? []), ...(data?.archive ?? [])];
-      try {
-        const dest = resolveSessionDestination(targetSession, allSpecs);
-        navigate({
-          to: dest.to,
-          params: dest.params,
-        });
-      } catch (err) {
-        console.error('Failed to resolve session destination:', err);
-      }
+      const dest = resolveSessionDestination(targetSession, allSpecs);
+      navigate({
+        to: dest.to,
+        params: dest.params,
+      });
     },
     [data, navigate]
   );
@@ -461,8 +463,6 @@ function SpecChatRouteComponent() {
       key={`${provider}:${sessionId}`}
       provider={provider}
       sessionId={sessionId}
-      initialTurnId={initialTurnId}
-      onTurnChange={handleTurnChange}
       onBack={handleBack}
       backLabel="Wróć do specyfikacji"
       onSwitchSession={handleSwitchSession}
@@ -475,43 +475,25 @@ function SpecChatRouteComponent() {
 // 6. Global/Ad-hoc Chat Route Component (/ai/sessions/:provider/:sessionId)
 function GlobalChatRouteComponent() {
   const params = chatRoute.useParams();
-  const search = chatRoute.useSearch() as ChatSearch;
 
-  const { data, loading, error, refresh } = useDashboardData();
+  const { data, loading, error } = useDashboardData();
   const navigate = useNavigate();
 
   const provider = params.provider;
   const sessionId = params.sessionId;
-  const initialTurnId = search.turnId || null;
 
   const handleBack = useCallback(() => {
     navigate({ to: '/' });
   }, [navigate]);
 
-  const handleTurnChange = useCallback(
-    (turnId: string | null) => {
-      navigate({
-        to: '/ai/sessions/$provider/$sessionId',
-        params: { provider, sessionId },
-        search: { turnId: turnId || undefined },
-        replace: true,
-      });
-    },
-    [navigate, provider, sessionId]
-  );
-
   const handleSwitchSession = useCallback(
     (targetSession: AiSession) => {
       const allSpecs = [...(data?.active ?? []), ...(data?.archive ?? [])];
-      try {
-        const dest = resolveSessionDestination(targetSession, allSpecs);
-        navigate({
-          to: dest.to,
-          params: dest.params,
-        });
-      } catch (err) {
-        console.error('Failed to resolve session destination:', err);
-      }
+      const dest = resolveSessionDestination(targetSession, allSpecs);
+      navigate({
+        to: dest.to,
+        params: dest.params,
+      });
     },
     [data, navigate]
   );
@@ -560,8 +542,6 @@ function GlobalChatRouteComponent() {
       key={`${provider}:${sessionId}`}
       provider={provider}
       sessionId={sessionId}
-      initialTurnId={initialTurnId}
-      onTurnChange={handleTurnChange}
       onBack={handleBack}
       backLabel="Wróć do listy"
       onSwitchSession={handleSwitchSession}
