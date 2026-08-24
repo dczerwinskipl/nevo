@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function calculateMaxScrollTop(el: { scrollHeight: number; clientHeight: number }): number {
   return Math.max(0, el.scrollHeight - el.clientHeight);
@@ -185,7 +185,6 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
   const stateRef = useRef<ScrollControllerState>(state);
   stateRef.current = state;
 
-  const initialMountRef = useRef(true);
   const touchStartYRef = useRef(0);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -257,43 +256,28 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     };
   }, [handleScroll]);
 
-  // React to semantic contentKey changes
+  // React to semantic contentKey changes and message arrivals
   useEffect(() => {
     const el = containerRef.current;
-    if (initialMountRef.current) {
-      initialMountRef.current = false;
-      if (el) {
-        const targetScrollTop = calculateMaxScrollTop(el);
-        const nextState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
-        stateRef.current = nextState;
-        setState(nextState);
-        el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
-      }
-      return;
-    }
+    if (!el) return;
 
-    // Physical sanity check on the DOM element:
-    // If the DOM is physically not near bottom and we're not in programmatic scroll, force detached
-    let currentState = stateRef.current;
-    if (el && !currentState.isProgrammaticScroll && !isScrolledNearBottom(el, threshold)) {
-      currentState = {
-        ...currentState,
-        isFollowing: false,
-      };
-    }
-
-    const { state: nextState, shouldScrollToBottom } = handleContentArrival(currentState);
-    if (shouldScrollToBottom && el) {
+    if (stateRef.current.isFollowing) {
       const targetScrollTop = calculateMaxScrollTop(el);
-      const progState = handleProgrammaticScroll(nextState, targetScrollTop, false);
+      const progState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
       stateRef.current = progState;
       setState(progState);
       el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+      requestAnimationFrame(() => {
+        if (stateRef.current.isFollowing && containerRef.current) {
+          containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
+        }
+      });
     } else {
+      const { state: nextState } = handleContentArrival(stateRef.current);
       stateRef.current = nextState;
       setState(nextState);
     }
-  }, [effectiveKey, threshold]);
+  }, [effectiveKey]);
 
   return {
     containerRef,

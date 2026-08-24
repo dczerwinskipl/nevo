@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
 import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
+import { formatRoute } from '@/lib/router';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -47,13 +48,19 @@ function SpecNavigationItem({
   selected: boolean;
   onClick: () => void;
 }) {
+  const href = formatRoute({ type: 'spec', source: change.source, slug: change.slug });
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <a
+      href={href}
+      onClick={(e) => {
+        if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       aria-current={selected ? 'page' : undefined}
       className={cn(
-        'group w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
+        'group block w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
         selected
           ? 'border-[color-mix(in_srgb,var(--accent)_36%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface-raised))]'
           : 'border-transparent bg-transparent hover:border-[var(--border)] hover:bg-[var(--surface-raised)]',
@@ -94,7 +101,7 @@ function SpecNavigationItem({
           )}
         </div>
       </div>
-    </button>
+    </a>
   );
 }
 

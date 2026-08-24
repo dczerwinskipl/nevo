@@ -271,6 +271,7 @@ export default function App() {
             initialTaskId={chatOriginTaskId}
             onOpenSession={(session, taskId) => openSession(session, null, taskId ?? null)}
             onCreateSession={() => { setChatOriginTaskId(null); setCreateChange(selected); }}
+            onNavigateMode={changeMode}
           />
         ) : route.type === 'spec' && data && !selected ? (
           <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">

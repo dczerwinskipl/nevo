@@ -16,6 +16,7 @@ import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
 import { useAiProviders, useDeleteAiSession } from '@/hooks/use-dashboard-data';
+import { formatRoute } from '@/lib/router';
 
 function sessionTitle(session: AiSession) {
   if (session.title?.trim()) return session.title.trim();
@@ -100,6 +101,13 @@ export function AiSessionRow({
     : [];
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
 
+  const sessionHref = formatRoute({
+    type: 'chat',
+    provider: session.provider,
+    sessionId: session.providerSessionId || session.sessionId,
+    turnId: null,
+  });
+
   return (
     <div
       className={cn(
@@ -107,18 +115,28 @@ export function AiSessionRow({
         compact ? 'p-3' : 'p-4'
       )}
     >
-      <button
-        type="button"
-        onClick={() => onOpen(session)}
+      <a
+        href={sessionHref}
+        onClick={(e) => {
+          if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+            e.preventDefault();
+            onOpen(session);
+          }
+        }}
         className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
       >
         <MessagesSquare className="size-4" />
-      </button>
+      </a>
       <div className="min-w-0 flex-1 pr-6">
-        <button
-          type="button"
-          onClick={() => onOpen(session)}
+        <a
+          href={sessionHref}
+          onClick={(e) => {
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+              e.preventDefault();
+              onOpen(session);
+            }
+          }}
           className="flex w-full items-start justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
         >
           <p className="truncate text-sm font-semibold text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
@@ -134,7 +152,7 @@ export function AiSessionRow({
           >
             {statusLabel(session.status)}
           </span>
-        </button>
+        </a>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (

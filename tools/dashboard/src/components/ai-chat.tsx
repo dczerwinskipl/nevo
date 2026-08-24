@@ -155,7 +155,7 @@ export function AiChatPage({
     },
   });
 
-  const scrollContentKey = `${assistant.contentRevision}|${submissionError ?? ''}`;
+  const scrollContentKey = `${assistant.contentRevision}|${assistant.messages.length}|${assistant.isLoading}|${submissionError ?? ''}`;
 
   const {
     containerRef: transcriptRef,

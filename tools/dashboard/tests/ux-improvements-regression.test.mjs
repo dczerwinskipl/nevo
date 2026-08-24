@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -33,8 +33,8 @@ test('Item 2A & 2B (Task 07 / Item 9A): AiSessionRow uses non-interactive card, 
   // Outer container is a non-interactive div without role=button or tabIndex=0
   assert.ok(!sessionListSource.includes('role="button"'), 'Outer card must not be role=button');
 
-  // Primary open session button exists as its own control
-  assert.ok(sessionListSource.includes('onClick={() => onOpen(session)}'));
+  // Primary open session link/button exists as its own control
+  assert.ok(sessionListSource.includes('onOpen(session)'));
 
   // Task links are styled as interactive chips with CheckSquare icon and hover/focus states
   assert.ok(sessionListSource.includes('onOpenTask && matchedTask ? ('));

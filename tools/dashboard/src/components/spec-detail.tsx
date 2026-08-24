@@ -59,6 +59,7 @@ import {
   invalidateDashboardQueries,
 } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
+import { formatRoute } from '@/lib/router';
 
 const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
 
@@ -454,7 +455,19 @@ function OverviewPanel({
   );
 }
 
-export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSession }: { change: DashboardChange; initialTaskId: string | null; onOpenSession: (session: AiSession, taskId?: string) => void; onCreateSession: () => void }) {
+export function SpecDetail({
+  change,
+  initialTaskId,
+  onOpenSession,
+  onCreateSession,
+  onNavigateMode,
+}: {
+  change: DashboardChange;
+  initialTaskId: string | null;
+  onOpenSession: (session: AiSession, taskId?: string) => void;
+  onCreateSession: () => void;
+  onNavigateMode?: (mode: 'active' | 'archive') => void;
+}) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
@@ -647,11 +660,35 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7 sm:px-7 lg:px-9">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-        <span>NEvo</span><span>/</span>
-        <span>{change.source === 'active' ? 'Aktualne' : 'Archiwum'}</span><span>/</span>
-        <span className="max-w-[240px] truncate text-[var(--foreground)]">{change.slug}</span>
-      </div>
+      <nav aria-label="Okruszki nawigacji" className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
+        <a
+          href={formatRoute({ type: 'dashboard', mode: 'active' })}
+          onClick={(e) => {
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+              e.preventDefault();
+              onNavigateMode?.('active');
+            }
+          }}
+          className="hover:text-[var(--foreground)] transition-colors"
+        >
+          NEvo
+        </a>
+        <span>/</span>
+        <a
+          href={formatRoute({ type: 'dashboard', mode: change.source })}
+          onClick={(e) => {
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+              e.preventDefault();
+              onNavigateMode?.(change.source);
+            }
+          }}
+          className="hover:text-[var(--foreground)] transition-colors"
+        >
+          {change.source === 'active' ? 'Aktualne' : 'Archiwum'}
+        </a>
+        <span>/</span>
+        <span className="max-w-[240px] truncate text-[var(--foreground)] font-medium">{change.slug}</span>
+      </nav>
 
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
         <div>
