@@ -5,10 +5,35 @@ import {
   redirect,
 } from '@tanstack/react-router';
 
+import type { AiSession } from './lib/types';
+
 export interface SpecSearch {}
 
 export interface ChatSearch {
   turnId?: string;
+}
+
+export interface NavigationHistoryState {
+  origin?: 'dashboard' | 'spec' | 'task';
+  originSpecSlug?: string;
+  originSpecSource?: 'active' | 'archive';
+  originTaskId?: string;
+  restoreTaskId?: string;
+}
+
+export function createSessionSwitchNavigator(
+  navigate: (opts: any) => Promise<any> | void,
+  historyState?: NavigationHistoryState
+) {
+  return (session: AiSession) => {
+    const effectiveSessionId = session.providerSessionId || session.sessionId;
+    return navigate({
+      to: '/ai/sessions/$provider/$sessionId',
+      params: { provider: session.provider, sessionId: effectiveSessionId },
+      state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+      replace: true,
+    });
+  };
 }
 
 export const rootRoute = createRootRoute();

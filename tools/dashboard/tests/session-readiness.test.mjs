@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,39 +19,50 @@ if (typeof globalThis.sessionStorage === 'undefined') {
   };
 }
 
-// Minimal React-like lifecycle harness to test the initial prompt effect behaviorally
-class EffectHarness {
-  constructor(effectFn, depsFn) {
-    this.effectFn = effectFn;
-    this.depsFn = depsFn;
-    this.lastDeps = null;
-    this.cleanup = null;
+// Minimal React-like lifecycle harness modeling AiChatPage production dispatch and retry
+class AiChatPageHarness {
+  constructor({ provider, sessionId, assistant, isProviderAvailable = true, currentMode = 'agent' }) {
+    this.provider = provider;
+    this.sessionId = sessionId;
+    this.assistant = assistant;
+    this.isProviderAvailable = isProviderAvailable;
+    this.currentMode = currentMode;
+    this.submissionError = null;
+    this.retryTrigger = 0;
   }
 
-  run() {
-    const deps = this.depsFn();
-    if (!this.lastDeps || this.depsChanged(this.lastDeps, deps)) {
-      if (this.cleanup) {
-        this.cleanup();
+  // Production retry action in AiChatPage error banner
+  handleRetryInitialDispatch() {
+    const retried = pendingDispatchStore.retryPending(this.provider, this.sessionId);
+    if (retried) {
+      this.submissionError = null;
+      this.retryTrigger++;
+      this.runEffect();
+    }
+  }
+
+  // Production dispatch effect in AiChatPage
+  runEffect() {
+    if (!this.isProviderAvailable || !this.assistant.isReady) return;
+    const pending = pendingDispatchStore.getPending(this.provider, this.sessionId);
+    if (!pending || pending.status !== 'pending') return;
+
+    pendingDispatchStore.markInFlight(this.provider, this.sessionId);
+    this.submissionError = null;
+
+    (async () => {
+      try {
+        await this.assistant.sendTurn(pending.prompt, {
+          mode: this.currentMode,
+          idempotencyKey: pending.idempotencyKey,
+        });
+        pendingDispatchStore.clearPending(this.provider, this.sessionId);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        pendingDispatchStore.markFailed(this.provider, this.sessionId, errorMsg);
+        this.submissionError = errorMsg;
       }
-      this.lastDeps = deps;
-      this.cleanup = this.effectFn();
-    }
-  }
-
-  depsChanged(oldDeps, newDeps) {
-    if (oldDeps.length !== newDeps.length) return true;
-    for (let i = 0; i < oldDeps.length; i++) {
-      if (!Object.is(oldDeps[i], newDeps[i])) return true;
-    }
-    return false;
-  }
-
-  unmount() {
-    if (this.cleanup) {
-      this.cleanup();
-      this.cleanup = null;
-    }
+    })();
   }
 }
 
@@ -88,7 +99,6 @@ test('Finding 1 & 2 (Behavioral): A dispatch starts -> unmount/navigate to B -> 
 
   const provider = 'claude';
   const sessionIdA = 'session-A';
-  const sessionIdB = 'session-B';
   const promptA = 'Prompt for session A';
 
   pendingDispatchStore.setPending(provider, sessionIdA, promptA);
@@ -99,38 +109,16 @@ test('Finding 1 & 2 (Behavioral): A dispatch starts -> unmount/navigate to B -> 
     resolveSendA = resolve;
   });
 
-  const mockSendTurnA = async (text, opts) => {
-    turnsDispatchedA.push({ text, opts });
-    return sendTurnPromiseA;
+  const assistantA = {
+    isReady: true,
+    sendTurn: async (text, opts) => {
+      turnsDispatchedA.push({ text, opts });
+      return sendTurnPromiseA;
+    },
   };
 
-  // Mount Session A
-  let isReadyA = true;
-  let submissionErrorA = null;
-
-  const effectFnA = () => {
-    if (!isReadyA) return;
-    const pending = pendingDispatchStore.getPending(provider, sessionIdA);
-    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
-
-    pendingDispatchStore.markInFlight(provider, sessionIdA);
-    submissionErrorA = null;
-
-    (async () => {
-      try {
-        await mockSendTurnA(pending.prompt, {
-          mode: 'agent',
-          idempotencyKey: pending.idempotencyKey,
-        });
-        pendingDispatchStore.clearPending(provider, sessionIdA);
-      } catch (err) {
-        pendingDispatchStore.markFailed(provider, sessionIdA, err.message);
-      }
-    })();
-  };
-
-  const harnessA = new EffectHarness(effectFnA, () => [isReadyA]);
-  harnessA.run();
+  const pageA = new AiChatPageHarness({ provider, sessionId: sessionIdA, assistant: assistantA });
+  pageA.runEffect();
 
   // 1. Dispatch A started
   assert.equal(turnsDispatchedA.length, 1);
@@ -138,7 +126,6 @@ test('Finding 1 & 2 (Behavioral): A dispatch starts -> unmount/navigate to B -> 
   assert.ok(keyA.startsWith('turn_'));
 
   // 2. User switches to session B (Session A unmounts while POST is in flight)
-  harnessA.unmount();
 
   // 3. POST for session A completes while A is unmounted
   resolveSendA({ ok: true });
@@ -148,14 +135,14 @@ test('Finding 1 & 2 (Behavioral): A dispatch starts -> unmount/navigate to B -> 
   assert.equal(pendingDispatchStore.getPending(provider, sessionIdA), null);
 
   // 4. User navigates back to Session A (Session A mounts again)
-  const remountHarnessA = new EffectHarness(effectFnA, () => [isReadyA]);
-  remountHarnessA.run();
+  const remountPageA = new AiChatPageHarness({ provider, sessionId: sessionIdA, assistant: assistantA });
+  remountPageA.runEffect();
 
   // No second turn is ever dispatched!
   assert.equal(turnsDispatchedA.length, 1, 'Must NOT create a second logical turn upon remount');
 });
 
-test('Finding 2a (Behavioral): Failed initial dispatch -> production retryPending() -> successful dispatch with same idempotency key', async () => {
+test('Finding 1 & 2a (Behavioral): Failed initial dispatch does NOT auto-dispatch on rerender/remount, and retries successfully upon production retry action', async () => {
   pendingDispatchStore.clearAll();
 
   const provider = 'claude';
@@ -166,67 +153,57 @@ test('Finding 2a (Behavioral): Failed initial dispatch -> production retryPendin
 
   const dispatchedTurns = [];
   let shouldFail = true;
-  let isReady = true;
-  let submissionError = null;
-  let retryTrigger = 0;
 
-  const mockSendTurn = async (text, opts) => {
-    dispatchedTurns.push({ text, opts });
-    if (shouldFail) {
-      throw new Error('500 Internal Server Error');
-    }
-    return { ok: true };
-  };
-
-  const effectFn = () => {
-    if (!isReady) return;
-    const pending = pendingDispatchStore.getPending(provider, sessionId);
-    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
-
-    pendingDispatchStore.markInFlight(provider, sessionId);
-    submissionError = null;
-
-    (async () => {
-      try {
-        await mockSendTurn(pending.prompt, {
-          mode: 'agent',
-          idempotencyKey: pending.idempotencyKey,
-        });
-        pendingDispatchStore.clearPending(provider, sessionId);
-      } catch (err) {
-        pendingDispatchStore.markFailed(provider, sessionId, err.message);
-        submissionError = err.message;
+  const assistant = {
+    isReady: true,
+    sendTurn: async (text, opts) => {
+      dispatchedTurns.push({ text, opts });
+      if (shouldFail) {
+        throw new Error('500 Internal Server Error');
       }
-    })();
+      return { ok: true };
+    },
   };
 
-  const harness = new EffectHarness(effectFn, () => [isReady, retryTrigger]);
+  const page = new AiChatPageHarness({ provider, sessionId, assistant });
 
-  // Attempt 1: fails
-  harness.run();
+  // 1. Attempt 1: fails
+  page.runEffect();
   await Promise.resolve();
   await Promise.resolve();
 
   assert.equal(dispatchedTurns.length, 1);
-  assert.equal(submissionError, '500 Internal Server Error');
+  assert.equal(page.submissionError, '500 Internal Server Error');
   const failedRecord = pendingDispatchStore.getPending(provider, sessionId);
   assert.equal(failedRecord?.status, 'failed');
 
-  // Attempt 2: user clicks "Ponów próbę" in UI, invoking production retryPending()
+  // 2. Dependency change / effect re-run while failed: MUST NOT automatically redispatch!
+  page.currentMode = 'edit';
+  page.runEffect();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(dispatchedTurns.length, 1, 'Failed record MUST NOT automatically dispatch on dependency change');
+
+  // 3. Component remount / navigation return while failed: MUST NOT automatically redispatch!
+  const remountedPage = new AiChatPageHarness({ provider, sessionId, assistant });
+  remountedPage.runEffect();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(dispatchedTurns.length, 1, 'Failed record MUST NOT automatically dispatch on component remount');
+
+  // 4. UI provides retry affordance: status is failed
+  assert.equal(pendingDispatchStore.getPending(provider, sessionId)?.status, 'failed');
+
+  // 5. User clicks "Ponów próbę" in the UI (executes production handleRetryInitialDispatch)
   shouldFail = false;
-  const retriedRecord = pendingDispatchStore.retryPending(provider, sessionId);
-  assert.equal(retriedRecord?.status, 'pending');
-  assert.equal(retriedRecord?.idempotencyKey, dispatchedTurns[0].opts.idempotencyKey, 'Must preserve stable idempotency key');
-
-  // Trigger retry in component lifecycle
-  retryTrigger++;
-  harness.run();
+  remountedPage.handleRetryInitialDispatch();
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(dispatchedTurns.length, 2);
+  // Exactly two attempts total, reusing the exact same idempotency key
+  assert.equal(dispatchedTurns.length, 2, 'Exactly two attempts total after explicit retry');
   assert.equal(dispatchedTurns[0].opts.idempotencyKey, dispatchedTurns[1].opts.idempotencyKey, 'Retry MUST reuse the identical idempotency key');
-  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared upon success');
+  assert.equal(pendingDispatchStore.getPending(provider, sessionId), null, 'Cleared upon successful delivery');
 });
 
 test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -> recovers to pending and dispatches exactly once', async () => {
@@ -252,34 +229,16 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 
   // 4. New runtime dispatch lifecycle runs
   const dispatched = [];
-  const mockSendTurn = async (text, opts) => {
-    dispatched.push({ text, opts });
-    return { ok: true };
+  const assistant = {
+    isReady: true,
+    sendTurn: async (text, opts) => {
+      dispatched.push({ text, opts });
+      return { ok: true };
+    },
   };
 
-  let isReady = true;
-  const effectFn = () => {
-    if (!isReady) return;
-    const pending = pendingDispatchStore.getPending(provider, sessionId);
-    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
-
-    pendingDispatchStore.markInFlight(provider, sessionId);
-
-    (async () => {
-      try {
-        await mockSendTurn(pending.prompt, {
-          mode: 'agent',
-          idempotencyKey: pending.idempotencyKey,
-        });
-        pendingDispatchStore.clearPending(provider, sessionId);
-      } catch (err) {
-        pendingDispatchStore.markFailed(provider, sessionId, err.message);
-      }
-    })();
-  };
-
-  const harness = new EffectHarness(effectFn, () => [isReady]);
-  harness.run();
+  const newPage = new AiChatPageHarness({ provider, sessionId, assistant });
+  newPage.runEffect();
   await Promise.resolve();
   await Promise.resolve();
 
@@ -300,7 +259,8 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
   assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
 
-  // ai-chat.tsx uses pendingDispatchStore and retryPending
+  // ai-chat.tsx uses pendingDispatchStore and only dispatches when status === 'pending'
+  assert.ok(aiChatSource.includes("pending.status !== 'pending'"));
   assert.ok(aiChatSource.includes('pendingDispatchStore.getPending'));
   assert.ok(aiChatSource.includes('pendingDispatchStore.markInFlight'));
   assert.ok(aiChatSource.includes('pendingDispatchStore.retryPending'));

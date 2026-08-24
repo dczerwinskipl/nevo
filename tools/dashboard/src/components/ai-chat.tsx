@@ -269,7 +269,7 @@ export function AiChatPage({
   useEffect(() => {
     if (!isProviderAvailable || !assistant.isReady) return;
     const pending = pendingDispatchStore.getPending(provider, sessionId);
-    if (!pending || pending.status === 'in-flight' || pending.status === 'completed') return;
+    if (!pending || pending.status !== 'pending') return;
 
     pendingDispatchStore.markInFlight(provider, sessionId);
     setSubmissionError(null);

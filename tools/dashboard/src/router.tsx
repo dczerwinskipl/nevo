@@ -31,15 +31,9 @@ import {
   chatRoute,
   createAppRouter,
   type ChatSearch,
+  type NavigationHistoryState,
+  createSessionSwitchNavigator,
 } from './router-tree';
-
-export interface NavigationHistoryState {
-  origin?: 'dashboard' | 'spec' | 'task';
-  originSpecSlug?: string;
-  originSpecSource?: 'active' | 'archive';
-  originTaskId?: string;
-  restoreTaskId?: string;
-}
 
 export function LoadingScreen() {
   return (
@@ -446,15 +440,7 @@ function ChatRouteComponent() {
   );
 
   const handleSwitchSession = useCallback(
-    (session: AiSession) => {
-      const effectiveSessionId = session.providerSessionId || session.sessionId;
-      navigate({
-        to: '/ai/sessions/$provider/$sessionId',
-        params: { provider: session.provider, sessionId: effectiveSessionId },
-        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
-        replace: true,
-      });
-    },
+    createSessionSwitchNavigator(navigate, historyState),
     [historyState, navigate]
   );
 
