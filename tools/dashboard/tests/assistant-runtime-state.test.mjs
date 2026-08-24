@@ -327,15 +327,43 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   );
 });
 
-test('AiChatPage disables normal composer send when session is waitingForUser', () => {
+test('AiChatPage disables normal composer send when session cannot start turn', () => {
   const chatSource = readAiChatSource();
 
-  // submitMessage requires assistant.activity === 'idle'
-  assert.match(chatSource, /assistant\.activity !== 'idle'/);
+  // submitMessage requires assistant.canStartTurn
+  assert.match(chatSource, /!assistant\.canStartTurn/);
 
-  // ChatComposer has disabled and placeholder configured for waitingForUser
-  assert.match(chatSource, /disabled=\{assistant\.activity !== 'idle' && !assistant\.isRunning\}/);
+  // ChatComposer has disabled and placeholder configured
+  assert.match(chatSource, /disabled=\{!assistant\.canStartTurn \|\| !isProviderAvailable\}/);
   assert.match(chatSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
+});
+
+test('Finding 1: Runtime exposes explicit readiness contract and rejects send while loading', () => {
+  const runtimeSource = readRuntimeSource();
+
+  // Exposes isReady and canStartTurn derived state
+  assert.ok(runtimeSource.includes('const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === \'idle\');'));
+  assert.ok(runtimeSource.includes('isReady: exposedIsReady'));
+  assert.ok(runtimeSource.includes('canStartTurn: exposedCanStartTurn'));
+
+  // handleSendTurn explicitly throws if snapshot is still loading
+  assert.ok(runtimeSource.includes('Cannot start turn while the session snapshot is loading.'));
+  assert.ok(runtimeSource.includes('Cannot start turn on a session with a load error.'));
+});
+
+test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
+  const chatSource = readAiChatSource();
+
+  // Initial message effect checks assistant.isReady
+  assert.match(chatSource, /if \(!assistant\.isReady \|\| !isProviderAvailable\) return;/);
+
+  // Calls onInitialMessageConsumed ONLY on successful completion
+  assert.match(chatSource, /await assistant\.sendTurn\(initialMessage, \{ mode: currentMode \}\);/);
+  assert.match(chatSource, /onInitialMessageConsumed\(\);/);
+
+  // Does not silently discard errors
+  assert.match(chatSource, /setSubmissionError\(err instanceof Error \? err\.message : String\(err\)\);/);
+  assert.match(chatSource, /initialSentRef\.current = false;/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {

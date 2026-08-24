@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
 import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
-import { formatRoute } from '@/lib/router';
+import { Link } from '@tanstack/react-router';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -48,16 +48,11 @@ function SpecNavigationItem({
   selected: boolean;
   onClick: () => void;
 }) {
-  const href = formatRoute({ type: 'spec', source: change.source, slug: change.slug });
   return (
-    <a
-      href={href}
-      onClick={(e) => {
-        if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-          e.preventDefault();
-          onClick();
-        }
-      }}
+    <Link
+      to="/specs/$source/$slug"
+      params={{ source: change.source, slug: change.slug }}
+      onClick={onClick}
       aria-current={selected ? 'page' : undefined}
       className={cn(
         'group block w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
@@ -101,7 +96,7 @@ function SpecNavigationItem({
           )}
         </div>
       </div>
-    </a>
+    </Link>
   );
 }
 

@@ -59,7 +59,7 @@ import {
   invalidateDashboardQueries,
 } from '@/hooks/use-dashboard-data';
 import { AiSessionList } from '@/components/ai-session-list';
-import { formatRoute } from '@/lib/router';
+import { Link } from '@tanstack/react-router';
 
 const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
 
@@ -661,31 +661,19 @@ export function SpecDetail({
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 pb-16 pt-7 sm:px-7 lg:px-9">
       <nav aria-label="Okruszki nawigacji" className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
-        <a
-          href={formatRoute({ type: 'dashboard', mode: 'active' })}
-          onClick={(e) => {
-            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-              e.preventDefault();
-              onNavigateMode?.('active');
-            }
-          }}
+        <Link
+          to="/"
           className="hover:text-[var(--foreground)] transition-colors"
         >
           NEvo
-        </a>
+        </Link>
         <span>/</span>
-        <a
-          href={formatRoute({ type: 'dashboard', mode: change.source })}
-          onClick={(e) => {
-            if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-              e.preventDefault();
-              onNavigateMode?.(change.source);
-            }
-          }}
+        <Link
+          to={change.source === 'archive' ? '/archive' : '/'}
           className="hover:text-[var(--foreground)] transition-colors"
         >
           {change.source === 'active' ? 'Aktualne' : 'Archiwum'}
-        </a>
+        </Link>
         <span>/</span>
         <span className="max-w-[240px] truncate text-[var(--foreground)] font-medium">{change.slug}</span>
       </nav>

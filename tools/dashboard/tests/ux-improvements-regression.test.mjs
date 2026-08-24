@@ -94,24 +94,31 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary header chrome', () => {
-  const appSource = readSource('App.tsx');
+  const routerSource = readSource('router.tsx');
 
   // Indicator is icon-only in header with role=status, tabIndex=0, title, aria-label
-  assert.ok(appSource.includes('role="status"'));
-  assert.ok(appSource.includes('tabIndex={0}'));
-  assert.ok(appSource.includes("aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}"));
-  assert.ok(appSource.includes("title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}"));
-  assert.ok(appSource.includes('className="flex size-8 items-center justify-center rounded-lg border'));
-  assert.ok(!appSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
+  assert.ok(routerSource.includes('role="status"'));
+  assert.ok(routerSource.includes('tabIndex={0}'));
+  assert.ok(routerSource.includes("aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}"));
+  assert.ok(routerSource.includes("title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}"));
+  assert.ok(routerSource.includes('className="flex size-8 items-center justify-center rounded-lg border'));
+  assert.ok(!routerSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 
-test('Item 5 (Task 14): Per-task action is placed inline on task title row in StatusBoard', () => {
+test('Item 5 (Task 14 & Finding 2): TaskCard uses non-interactive container and dedicated sibling buttons', () => {
   const statusBoardSource = readSource('components/status-board.tsx');
 
-  // Title row contains task.title and right-aligned action button
-  assert.ok(statusBoardSource.includes('<div className="mt-2.5 flex items-start justify-between gap-2">'));
-  assert.ok(statusBoardSource.includes('<h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] min-w-0 flex-1">{task.title}</h3>'));
-  assert.ok(statusBoardSource.includes('onAction?.(task, actionGate.action);'));
+  // Outer card is non-interactive div without role=button or tabIndex=0
+  assert.ok(!statusBoardSource.includes('role="button"'), 'TaskCard outer div must not have role=button');
+  assert.ok(!statusBoardSource.includes('tabIndex={0}'), 'TaskCard outer div must not have tabIndex=0');
+
+  // Dedicated button for opening task details
+  assert.ok(statusBoardSource.includes('onClick={event => onSelect?.(task, event.currentTarget)}'));
+  assert.ok(statusBoardSource.includes('aria-label={`Otwórz szczegóły zadania: ${task.title}`}'));
+
+  // Separate action button
+  assert.ok(statusBoardSource.includes('onClick={() => onAction?.(task, actionGate.action)}'));
+  assert.ok(statusBoardSource.includes('aria-label={`${actionGate.action === \'approve\' ? \'Zatwierdź zadanie\' : \'Zaakceptuj zadanie\'}: ${task.title}\`}'));
 });
 
 test('Item 6: AppSidebar cleanup of unused task/delete handlers', () => {

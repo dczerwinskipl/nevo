@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { StageProgress } from '@/components/stage-progress';
 
-import { formatRoute } from '@/lib/router';
+import { Link } from '@tanstack/react-router';
 
 export function ListOverview({
   mode,
@@ -37,17 +37,12 @@ export function ListOverview({
 
       <div className="mt-10 space-y-2">
         {changes.map(change => {
-          const href = formatRoute({ type: 'spec', source: change.source, slug: change.slug });
           return (
-            <a
+            <Link
               key={change.slug}
-              href={href}
-              onClick={(e) => {
-                if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-                  e.preventDefault();
-                  onSelect(change);
-                }
-              }}
+              to="/specs/$source/$slug"
+              params={{ source: change.source, slug: change.slug }}
+              onClick={() => onSelect(change)}
               className="group block w-full text-left"
             >
               <Card className="p-5 transition-colors group-hover:border-[var(--border-strong)] group-hover:bg-[var(--surface-raised)]">
@@ -71,7 +66,7 @@ export function ListOverview({
                   <ArrowRight className="mt-3 size-4 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--accent)]" />
                 </div>
               </Card>
-            </a>
+            </Link>
           );
         })}
 

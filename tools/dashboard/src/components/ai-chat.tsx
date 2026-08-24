@@ -238,18 +238,41 @@ export function AiChatPage({
 
   const submitMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || assistant.activity !== 'idle' || !isProviderAvailable) return;
+    if (!trimmed || !assistant.canStartTurn || !isProviderAvailable) return;
     setSubmissionError(null);
     scrollToBottom('auto');
-    await assistant.sendTurn(trimmed, { mode: currentMode });
-  }, [assistant, isProviderAvailable, currentMode, scrollToBottom]);
+    try {
+      await assistant.sendTurn(trimmed, { mode: currentMode });
+    } catch (err) {
+      setSubmissionError(err instanceof Error ? err.message : String(err));
+    }
+  }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
 
+  const initialSentRef = useRef(false);
   useEffect(() => {
-    if (!initialMessage || initialSent.current) return;
-    initialSent.current = true;
-    onInitialMessageConsumed();
-    void submitMessage(initialMessage);
-  }, [initialMessage, onInitialMessageConsumed, submitMessage]);
+    if (!initialMessage || initialSentRef.current) return;
+    if (!assistant.isReady || !isProviderAvailable) return;
+
+    let active = true;
+    (async () => {
+      initialSentRef.current = true;
+      try {
+        await assistant.sendTurn(initialMessage, { mode: currentMode });
+        if (active) {
+          onInitialMessageConsumed();
+        }
+      } catch (err) {
+        if (active) {
+          setSubmissionError(err instanceof Error ? err.message : String(err));
+          initialSentRef.current = false;
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [initialMessage, assistant.isReady, isProviderAvailable, assistant.sendTurn, currentMode, onInitialMessageConsumed]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height
@@ -444,7 +467,7 @@ export function AiChatPage({
               isRunning={assistant.isRunning}
               canCancel={Boolean(assistant.capabilities?.cancelTurn && assistant.isRunning && assistant.activeTurnId)}
               isProviderAvailable={isProviderAvailable}
-              disabled={assistant.activity !== 'idle' && !assistant.isRunning}
+              disabled={!assistant.canStartTurn || !isProviderAvailable}
               placeholder={assistant.activity === 'waitingForUser' ? 'Odpowiedz na pytanie powyżej…' : undefined}
               loadError={assistant.loadError}
             />

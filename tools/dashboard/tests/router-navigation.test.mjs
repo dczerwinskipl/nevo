@@ -1,132 +1,130 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createMemoryHistory, isRedirect } from '@tanstack/react-router';
 import {
-  parseRoute,
-  formatRoute,
-  isSameRoute,
-} from '../src/lib/router.ts';
+  createAppRouter,
+  activeAliasRoute,
+  specsArchiveAliasRoute,
+  specSlugAliasRoute,
+} from '../src/router-tree.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
 }
 
-test('Item 10: parseRoute correctly maps URL paths to authoritative AppRoute structures', () => {
-  // Dashboard routes
-  assert.deepEqual(parseRoute('/'), { type: 'dashboard', mode: 'active' });
-  assert.deepEqual(parseRoute('/active'), { type: 'dashboard', mode: 'active' });
-  assert.deepEqual(parseRoute('/archive'), { type: 'dashboard', mode: 'archive' });
-  assert.deepEqual(parseRoute('/specs/archive'), { type: 'dashboard', mode: 'archive' });
+test('Item 10 (TanStack Router): Route tree resolves primary application screens and parses params/search', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/'] });
+  const router = createAppRouter(history);
+  await router.load();
 
-  // Specification detail routes
-  assert.deepEqual(
-    parseRoute('/specs/active/ux-improvements-version-1'),
-    { type: 'spec', source: 'active', slug: 'ux-improvements-version-1' }
-  );
-  assert.deepEqual(
-    parseRoute('/specs/archive/old-architecture-spike'),
-    { type: 'spec', source: 'archive', slug: 'old-architecture-spike' }
-  );
-  assert.deepEqual(
-    parseRoute('/specs/ux-improvements-version-1'),
-    { type: 'spec', source: 'active', slug: 'ux-improvements-version-1' }
-  );
+  // 1. Active Dashboard
+  assert.equal(router.state.location.pathname, '/');
 
-  // AI Chat / session routes
-  assert.deepEqual(
-    parseRoute('/ai/sessions/claude/session-12345'),
-    { type: 'chat', provider: 'claude', sessionId: 'session-12345', turnId: null }
-  );
-  assert.deepEqual(
-    parseRoute('/ai/sessions/claude/session-12345', '?turnId=turn-abc'),
-    { type: 'chat', provider: 'claude', sessionId: 'session-12345', turnId: 'turn-abc' }
-  );
-  assert.deepEqual(
-    parseRoute('/ai/sessions/antigravity/thread%2F456'),
-    { type: 'chat', provider: 'antigravity', sessionId: 'thread/456', turnId: null }
-  );
+  // 2. Archive Dashboard
+  await router.navigate({ to: '/archive' });
+  assert.equal(router.state.location.pathname, '/archive');
+
+  // 3. Spec Detail Route
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'ux-improvements-version-1' },
+  });
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+
+  // 4. AI Chat Route with search params
+  await router.navigate({
+    to: '/ai/sessions/$provider/$sessionId',
+    params: { provider: 'claude', sessionId: 'session-12345' },
+    search: { turnId: 'turn-abc', originTaskId: '08-chat-follow-scroll' },
+  });
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/session-12345');
+  assert.equal(router.state.location.search.turnId, 'turn-abc');
+  assert.equal(router.state.location.search.originTaskId, '08-chat-follow-scroll');
 });
 
-test('Item 10: formatRoute correctly serializes AppRoute to authoritative URL paths', () => {
-  assert.equal(formatRoute({ type: 'dashboard', mode: 'active' }), '/');
-  assert.equal(formatRoute({ type: 'dashboard', mode: 'archive' }), '/archive');
-  assert.equal(
-    formatRoute({ type: 'spec', source: 'active', slug: 'ux-improvements-version-1' }),
-    '/specs/active/ux-improvements-version-1'
-  );
-  assert.equal(
-    formatRoute({ type: 'spec', source: 'archive', slug: 'old-architecture-spike' }),
-    '/specs/archive/old-architecture-spike'
-  );
-  assert.equal(
-    formatRoute({ type: 'chat', provider: 'claude', sessionId: 'session-12345', turnId: null }),
-    '/ai/sessions/claude/session-12345'
-  );
-  assert.equal(
-    formatRoute({ type: 'chat', provider: 'claude', sessionId: 'session-12345', turnId: 'turn-abc' }),
-    '/ai/sessions/claude/session-12345?turnId=turn-abc'
-  );
+test('Item 10 (TanStack Router): Redirect aliases route to canonical URLs', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/'] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  // Alias /active matches activeAliasRoute and triggers redirect to /
+  const activeMatches = router.matchRoutes('/active');
+  assert.equal(activeMatches[activeMatches.length - 1]?.routeId, '/app-layout/active');
+  try {
+    await activeAliasRoute.options.beforeLoad({});
+    assert.fail('Should have thrown redirect');
+  } catch (err) {
+    assert.equal(isRedirect(err), true);
+    assert.equal(err.options.to, '/');
+  }
+
+  // Alias /specs/archive matches specsArchiveAliasRoute and triggers redirect to /archive
+  const archiveMatches = router.matchRoutes('/specs/archive');
+  assert.equal(archiveMatches[archiveMatches.length - 1]?.routeId, '/app-layout/specs/archive');
+  try {
+    await specsArchiveAliasRoute.options.beforeLoad({});
+    assert.fail('Should have thrown redirect');
+  } catch (err) {
+    assert.equal(isRedirect(err), true);
+    assert.equal(err.options.to, '/archive');
+  }
+
+  // Alias /specs/:slug matches specSlugAliasRoute and triggers redirect to /specs/active/:slug
+  const slugMatches = router.matchRoutes('/specs/ux-improvements-version-1');
+  assert.equal(slugMatches[slugMatches.length - 1]?.routeId, '/app-layout/specs/$slug');
+  try {
+    await specSlugAliasRoute.options.beforeLoad({ params: { slug: 'ux-improvements-version-1' } });
+    assert.fail('Should have thrown redirect');
+  } catch (err) {
+    assert.equal(isRedirect(err), true);
+    assert.equal(err.options.to, '/specs/$source/$slug');
+    assert.deepEqual(err.options.params, { source: 'active', slug: 'ux-improvements-version-1' });
+  }
 });
 
-test('Item 10: isSameRoute accurately compares route equality', () => {
-  assert.equal(
-    isSameRoute({ type: 'dashboard', mode: 'active' }, { type: 'dashboard', mode: 'active' }),
-    true
-  );
-  assert.equal(
-    isSameRoute({ type: 'dashboard', mode: 'active' }, { type: 'dashboard', mode: 'archive' }),
-    false
-  );
-  assert.equal(
-    isSameRoute(
-      { type: 'spec', source: 'active', slug: 's1' },
-      { type: 'spec', source: 'active', slug: 's1' }
-    ),
-    true
-  );
-  assert.equal(
-    isSameRoute(
-      { type: 'spec', source: 'active', slug: 's1' },
-      { type: 'spec', source: 'archive', slug: 's1' }
-    ),
-    false
-  );
-  assert.equal(
-    isSameRoute(
-      { type: 'chat', provider: 'p1', sessionId: 's1', turnId: null },
-      { type: 'chat', provider: 'p1', sessionId: 's1', turnId: null }
-    ),
-    true
-  );
-  assert.equal(
-    isSameRoute(
-      { type: 'chat', provider: 'p1', sessionId: 's1', turnId: 't1' },
-      { type: 'chat', provider: 'p1', sessionId: 's1', turnId: null }
-    ),
-    false
-  );
+test('Item 10 (TanStack Router): Memory history supports Back and Forward navigation without duplicate state', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/'] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  // Navigate to spec
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'ux-improvements-version-1' },
+  });
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+
+  // Navigate to chat
+  await router.navigate({
+    to: '/ai/sessions/$provider/$sessionId',
+    params: { provider: 'claude', sessionId: 'sess-1' },
+  });
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/sess-1');
+
+  // History back -> returns to spec
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+
+  // History back -> returns to dashboard
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/');
+
+  // History forward -> returns to spec
+  router.history.forward();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
 });
 
-test('Item 10: App.tsx uses route-based navigation ownership and popstate listener', () => {
+test('Item 10 (TanStack Router): App.tsx mounts RouterProvider and uses authoritative router state', () => {
   const appSource = readSource('App.tsx');
 
-  // App uses parseRoute, formatRoute from router.ts
-  assert.ok(appSource.includes("from '@/lib/router'"));
-  assert.ok(appSource.includes('parseRoute(window.location.pathname'));
-  assert.ok(appSource.includes('formatRoute('));
-
-  // Popstate listener updates route from window.location
-  assert.ok(appSource.includes("window.addEventListener('popstate'"));
-
-  // Primary destinations use navigate() helper
-  assert.ok(appSource.includes('const navigate = useCallback('));
-  assert.ok(appSource.includes('window.history.pushState('));
-  assert.ok(appSource.includes('window.history.replaceState('));
-
-  // Route drives rendered view
-  assert.ok(appSource.includes("if (route.type === 'chat')"));
-  assert.ok(appSource.includes("route.type === 'spec' && selected"));
+  assert.ok(appSource.includes("import { RouterProvider } from '@tanstack/react-router'"));
+  assert.ok(appSource.includes("import { router } from './router'"));
+  assert.ok(appSource.includes('<RouterProvider router={router} />'));
 });
 
 test('Item 10: Opening task details from chat or spec is transient UI state and does not navigate routes', () => {

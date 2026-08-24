@@ -811,14 +811,28 @@ export function useNevoAssistantRuntime({
   // 3. Send Turn
   const handleSendTurn = useCallback(
     async (messageText: string, options?: { mode?: AgentExecutionMode }) => {
-      if (!canStartTurn(activityRef.current, provider, providerSessionId, messageText)) return;
-      if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
+      const trimmed = messageText ? messageText.trim() : '';
+      if (!trimmed) {
+        throw new Error('Cannot start turn with an empty message.');
+      }
+      if (!provider || !providerSessionId) {
+        throw new Error('Cannot start turn without an active provider and session ID.');
+      }
+      if (!isSnapshotLoaded || loadedIdentity !== `${provider}:${providerSessionId}`) {
+        throw new Error('Cannot start turn while the session snapshot is loading.');
+      }
+      if (loadError) {
+        throw new Error('Cannot start turn on a session with a load error.');
+      }
+      if (activityRef.current !== 'idle') {
+        throw new Error(`Cannot start turn while session is ${activityRef.current}.`);
+      }
 
       const idempotencyKey = createTurnIdempotencyKey();
       const userMessage: NormalizedMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        text: messageText,
+        text: trimmed,
         createdAt: new Date().toISOString(),
       };
 
@@ -839,7 +853,7 @@ export function useNevoAssistantRuntime({
               'x-nevo-dashboard-action': '1',
             },
             body: JSON.stringify({
-              message: messageText,
+              message: trimmed,
               idempotencyKey,
               ...(options?.mode ? { mode: options.mode } : {}),
             }),
@@ -865,10 +879,12 @@ export function useNevoAssistantRuntime({
         activityRef.current = 'idle';
         setActiveTurnId(null);
         activeTurnIdRef.current = null;
-        onError?.(err instanceof Error ? err : new Error(String(err)));
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        onErrorRef.current?.(normalized);
+        throw normalized;
       }
     },
-    [provider, providerSessionId, loadedIdentity, onError]
+    [provider, providerSessionId, isSnapshotLoaded, loadedIdentity, loadError]
   );
 
   // 4. Cancel Turn
@@ -970,6 +986,8 @@ export function useNevoAssistantRuntime({
     : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
+  const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
+  const exposedCanStartTurn = exposedIsReady;
 
   // 6. Convert NormalizedMessages to Assistant UI ThreadMessageLike
   const assistantMessages: ThreadMessageLike[] = useMemo(() => {
@@ -1012,6 +1030,9 @@ export function useNevoAssistantRuntime({
     activeTurnId: exposedActiveTurnId,
     contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
+    isReady: exposedIsReady,
+    canStartTurn: exposedCanStartTurn,
+    isSnapshotLoaded,
     loadError: exposedLoadError,
     reload,
     sendTurn: handleSendTurn,
