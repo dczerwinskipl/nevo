@@ -1,12 +1,26 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
 import { Send, CircleStop } from 'lucide-react';
+import { useMediaQuery } from 'usehooks-ts';
 import { Button } from '@/components/ui/button';
 import type { AgentExecutionMode } from '@/lib/types';
 import { AI_MODES, getModeMeta } from '@/lib/ai-mode-meta';
 import { cn } from '@/lib/utils';
-import { getComposerLayoutState, adjustComposerTextareaElement } from './composer-sizing';
+import {
+  getComposerLayoutState,
+  adjustComposerTextareaElement,
+  resolveComposerKeyAction,
+} from './composer-sizing';
 
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
+export function useComposerInputMode() {
+  const prefersTouchInteraction = useMediaQuery('(pointer: coarse) and (hover: none)');
+
+  return {
+    prefersTouchInteraction,
+    enterToSend: !prefersTouchInteraction,
+  };
+}
 
 export interface ChatComposerProps {
   onSend: (text: string) => void | Promise<void>;
@@ -39,6 +53,7 @@ export function ChatComposer({
   const [isFocused, setIsFocused] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = externalTextareaRef || internalTextareaRef;
+  const { enterToSend } = useComposerInputMode();
 
   const adjustHeight = useCallback(() => {
     adjustComposerTextareaElement(textareaRef.current, isFocused);
@@ -62,27 +77,17 @@ export function ChatComposer({
     ? 'Turn trwa…'
     : 'Napisz wiadomość…';
 
-  const isMobile = () => {
-    if (typeof window === 'undefined') return false;
-    return (
-      window.matchMedia('(pointer: coarse)').matches ||
-      window.innerWidth < 768 ||
-      ('ontouchstart' in window && navigator.maxTouchPoints > 0)
-    );
-  };
-
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter') {
-      if (event.shiftKey) {
-        // Shift + Enter: insert newline on both desktop and mobile
-        return;
-      }
-      if (!isMobile() && !event.nativeEvent.isComposing) {
-        // Desktop: Enter sends
-        event.preventDefault();
-        handleSend();
-      }
-      // Mobile: Enter inserts newline (default behavior, button sends)
+    const action = resolveComposerKeyAction({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+      enterToSend,
+    });
+
+    if (action === 'send') {
+      event.preventDefault();
+      handleSend();
     }
   };
 

@@ -127,4 +127,26 @@
   - Task 09: Superseded by D6 — the global recent sessions section in `AppSidebar` was intentionally removed rather than retained with reduced density.
 - **Date:** 2026-08-24
 - **Affected artifacts:** `owner-decisions.md`, `tasks/07-task-session-linking.md`, `tasks/09-dedupe-recent-sessions.md`, `router.tsx`, `router-tree.ts`, `app-sidebar.tsx`.
+## D7: Composer keyboard interaction modality (Desktop vs Touch)
 
+- **Question:** How should the chat composer handle `Enter` vs `Shift+Enter` key events across desktop keyboards and mobile/touch devices?
+- **Options considered:**
+  (A) User-Agent / device-sniffing libraries (`react-device-detect`, `ua-parser-js`, etc.) or viewport width thresholds (`innerWidth < 768px`)
+  (B) Strict send button only across all devices (never submit on Enter)
+  (C) Primary input modality detection via `usehooks-ts` `useMediaQuery('(pointer: coarse) and (hover: none)')`
+- **Decision:** Implement Option C. Use `usehooks-ts` `useMediaQuery` to detect primary input modality (`prefersTouchInteraction`).
+  - **Desktop / keyboard-oriented interaction** (`prefersTouchInteraction === false`):
+    - `Enter` sends the message (`onSend`).
+    - `Shift + Enter` inserts a newline.
+  - **Touch-oriented interaction** (`prefersTouchInteraction === true`):
+    - `Enter` inserts a newline.
+    - Explicit *Wyślij* button sends the message.
+  - **IME Composition**:
+    - `Enter` during active IME composition (`event.nativeEvent.isComposing`) never triggers sending in either modality.
+- **Rationale:** Key interactions depend on input modality (hardware keyboard vs virtual touch keyboard), not screen resolution or browser user-agent headers. `usehooks-ts` is the standardized shared utility for media query evaluation without bespoke hooks or brittle device sniffing.
+- **Consequences:**
+  - `ChatComposer` in `tools/dashboard/src/components/composer/composer.tsx` uses `useComposerInputMode` wrapping `useMediaQuery`.
+  - `resolveComposerKeyAction` encapsulates keyboard event resolution.
+  - Behavioral unit tests in `composer-interaction.test.mjs` test all interaction combinations directly.
+- **Date:** 2026-08-24
+- **Affected artifacts:** `owner-decisions.md`, `components/composer/composer.tsx`, `components/composer/composer-sizing.ts`, `tests/composer-interaction.test.mjs`.
