@@ -256,6 +256,40 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
     };
   }, [handleScroll]);
 
+  // Keep viewport glued to bottom when DOM height expands (streaming, dynamic tools, markdown images)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const snapToBottomIfFollowing = () => {
+      if (stateRef.current.isFollowing && containerRef.current) {
+        const target = calculateMaxScrollTop(containerRef.current);
+        containerRef.current.scrollTop = target;
+        stateRef.current = {
+          ...stateRef.current,
+          lastScrollTop: target,
+        };
+      }
+    };
+
+    snapToBottomIfFollowing();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        snapToBottomIfFollowing();
+      });
+      resizeObserver.observe(el);
+      if (el.firstElementChild) {
+        resizeObserver.observe(el.firstElementChild);
+      }
+    }
+
+    return () => {
+      resizeObserver?.disconnect();
+    };
+  }, []);
+
   // React to semantic contentKey changes and message arrivals
   useEffect(() => {
     const el = containerRef.current;
@@ -266,10 +300,10 @@ export function useScrollFollow(options: UseScrollFollowOptions = {}): UseScroll
       const progState = handleProgrammaticScroll(stateRef.current, targetScrollTop, false);
       stateRef.current = progState;
       setState(progState);
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+      el.scrollTop = targetScrollTop;
       requestAnimationFrame(() => {
         if (stateRef.current.isFollowing && containerRef.current) {
-          containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
+          containerRef.current.scrollTop = calculateMaxScrollTop(containerRef.current);
         }
       });
     } else {

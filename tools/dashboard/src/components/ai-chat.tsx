@@ -240,8 +240,9 @@ export function AiChatPage({
     const trimmed = text.trim();
     if (!trimmed || assistant.activity !== 'idle' || !isProviderAvailable) return;
     setSubmissionError(null);
+    scrollToBottom('auto');
     await assistant.sendTurn(trimmed, { mode: currentMode });
-  }, [assistant, isProviderAvailable, currentMode]);
+  }, [assistant, isProviderAvailable, currentMode, scrollToBottom]);
 
   useEffect(() => {
     if (!initialMessage || initialSent.current) return;
