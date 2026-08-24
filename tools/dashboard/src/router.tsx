@@ -1,13 +1,16 @@
-﻿import {
+import {
   Outlet,
   Link,
   useNavigate,
   useRouter,
+  useLocation,
+  useMatches,
+  useCanGoBack,
 } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Menu, Radio } from 'lucide-react';
 
-import { AppSidebar } from '@/components/app-sidebar';
+import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
 import { ListOverview } from '@/components/list-overview';
 import { SpecDetail } from '@/components/spec-detail';
 import { AiChatPage } from '@/components/ai-chat';
@@ -55,6 +58,37 @@ function AppLayoutComponent() {
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const globalSessions = useAiSessions({ enabled: Boolean(data) });
   const navigate = useNavigate();
+  const location = useLocation();
+  const matches = useMatches();
+
+  const mode: DashboardMode = useMemo(() => {
+    const specMatch = matches.find((m) => m.routeId === '/app-layout/specs/$source/$slug');
+    if (specMatch) {
+      const source = (specMatch.params as { source?: string }).source;
+      return source === 'archive' ? 'archive' : 'active';
+    }
+    if (location.pathname === '/archive' || location.pathname.startsWith('/specs/archive')) {
+      return 'archive';
+    }
+    return 'active';
+  }, [location.pathname, matches]);
+
+  const selectedSlug = useMemo(() => {
+    const specMatch = matches.find((m) => m.routeId === '/app-layout/specs/$source/$slug');
+    return specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null;
+  }, [matches]);
+
+  const filteredChanges = useMemo(() => {
+    if (!data) return [];
+    const source = mode === 'active' ? data.active : data.archive;
+    const query = search.trim().toLocaleLowerCase('pl');
+    return source.filter(
+      (change) =>
+        !query ||
+        change.title.toLocaleLowerCase('pl').includes(query) ||
+        change.slug.includes(query)
+    );
+  }, [data, mode, search]);
 
   return (
     <div className="min-h-screen lg:pl-[370px]">
@@ -126,21 +160,15 @@ function AppLayoutComponent() {
 
       {data && (
         <AppSidebar
-          mode={typeof window !== 'undefined' && window.location.pathname.startsWith('/archive') ? 'archive' : 'active'}
+          mode={mode}
           onModeChange={(m) => {
             navigate({ to: m === 'archive' ? '/archive' : '/' });
             setSearch('');
           }}
           active={data.active}
           archive={data.archive}
-          changes={typeof window !== 'undefined' && window.location.pathname.startsWith('/archive') ? data.archive : data.active}
-          selectedSlug={null}
-          onSelect={(change) => {
-            navigate({
-              to: '/specs/$source/$slug',
-              params: { source: change.source, slug: change.slug },
-            });
-          }}
+          changes={filteredChanges}
+          selectedSlug={selectedSlug}
           sessions={globalSessions.sessions}
           sessionsLoading={globalSessions.loading}
           sessionsError={globalSessions.error}
@@ -151,6 +179,7 @@ function AppLayoutComponent() {
               to: '/ai/sessions/$provider/$sessionId',
               params: { provider: session.provider, sessionId: effectiveSessionId },
             });
+            setSidebarOpen(false);
           }}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
@@ -204,41 +233,17 @@ function AppLayoutComponent() {
 // 2. Active Dashboard Component
 function ActiveDashboardComponent() {
   const { data } = useDashboardData();
-  const navigate = useNavigate();
   const changes = data?.active ?? [];
 
-  return (
-    <ListOverview
-      mode="active"
-      changes={changes}
-      onSelect={(change) =>
-        navigate({
-          to: '/specs/$source/$slug',
-          params: { source: change.source, slug: change.slug },
-        })
-      }
-    />
-  );
+  return <ListOverview mode="active" changes={changes} />;
 }
 
 // 3. Archive Dashboard Component
 function ArchiveDashboardComponent() {
   const { data } = useDashboardData();
-  const navigate = useNavigate();
   const changes = data?.archive ?? [];
 
-  return (
-    <ListOverview
-      mode="archive"
-      changes={changes}
-      onSelect={(change) =>
-        navigate({
-          to: '/specs/$source/$slug',
-          params: { source: change.source, slug: change.slug },
-        })
-      }
-    />
-  );
+  return <ListOverview mode="archive" changes={changes} />;
 }
 
 // 4. Spec Detail Component
@@ -284,6 +289,14 @@ function SpecDetailRouteComponent() {
       <SpecDetail
         change={selected}
         initialTaskId={search.taskId || null}
+        onTaskSelect={(taskId) => {
+          navigate({
+            to: '/specs/$source/$slug',
+            params: { source, slug },
+            search: { taskId: taskId || undefined },
+            replace: true,
+          });
+        }}
         onOpenSession={(session, taskId) => {
           const effectiveSessionId = session.providerSessionId || session.sessionId;
           navigate({
@@ -328,44 +341,60 @@ function ChatRouteComponent() {
   const initialTurnId = search.turnId || null;
   const originTaskId = search.originTaskId || null;
 
+  const associatedChange = useMemo(() => {
+    if (!data) return null;
+    const activeSession = globalSessions.sessions.find(
+      (s) =>
+        s.provider === provider &&
+        (s.providerSessionId === sessionId || s.sessionId === sessionId)
+    );
+    const specId = activeSession?.specId;
+    if (specId) {
+      const found =
+        data.active.find((c) => c.specId === specId) ||
+        data.archive.find((c) => c.specId === specId);
+      if (found) return found;
+    }
+    if (originTaskId) {
+      const found = [...data.active, ...data.archive].find((c) =>
+        c.tasks.some((t) => t.id === originTaskId)
+      );
+      if (found) return found;
+    }
+    return null;
+  }, [data, globalSessions.sessions, originTaskId, provider, sessionId]);
+
   const handleBack = useCallback(() => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
+    if (router.history.canGoBack()) {
       router.history.back();
       return;
     }
 
-    if (data) {
-      const activeSession = globalSessions.sessions.find(
-        (s) => s.provider === provider && (s.providerSessionId === sessionId || s.sessionId === sessionId)
-      );
-      const specId = activeSession?.specId;
-      const associatedChange = specId
-        ? (data.active.find((c) => c.specId === specId) || data.archive.find((c) => c.specId === specId))
-        : null;
-      if (associatedChange) {
-        navigate({
-          to: '/specs/$source/$slug',
-          params: { source: associatedChange.source, slug: associatedChange.slug },
-        });
-        return;
-      }
+    if (associatedChange) {
+      navigate({
+        to: '/specs/$source/$slug',
+        params: { source: associatedChange.source, slug: associatedChange.slug },
+        search: originTaskId ? { taskId: originTaskId } : {},
+      });
+      return;
     }
     navigate({ to: '/' });
-  }, [data, globalSessions.sessions, navigate, provider, router.history, sessionId]);
+  }, [associatedChange, navigate, originTaskId, router.history]);
 
   const handleTurnChange = useCallback(
     (turnId: string | null) => {
       navigate({
         to: '/ai/sessions/$provider/$sessionId',
         params: { provider, sessionId },
-        search: (prev: ChatSearch) => ({
-          ...prev,
+        search: {
           turnId: turnId || undefined,
-        }),
+          originTaskId: originTaskId || undefined,
+          initialPrompt: search.initialPrompt || undefined,
+        },
         replace: true,
       });
     },
-    [navigate, provider, sessionId]
+    [navigate, originTaskId, provider, search.initialPrompt, sessionId]
   );
 
   const handleSwitchSession = useCallback(
@@ -415,6 +444,12 @@ function ChatRouteComponent() {
     [data, navigate]
   );
 
+  const backLabel = useMemo(() => {
+    if (originTaskId) return 'Wróć do taska';
+    if (associatedChange) return 'Wróć do specyfikacji';
+    return 'Wróć do listy';
+  }, [associatedChange, originTaskId]);
+
   if (loading && !data) return <LoadingScreen />;
   if (error && !data) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
@@ -431,16 +466,16 @@ function ChatRouteComponent() {
         navigate({
           to: '/ai/sessions/$provider/$sessionId',
           params: { provider, sessionId },
-          search: (prev: ChatSearch) => {
-            const { initialPrompt, ...rest } = prev;
-            return rest;
+          search: {
+            turnId: initialTurnId || undefined,
+            originTaskId: originTaskId || undefined,
           },
           replace: true,
         });
       }}
       onTurnChange={handleTurnChange}
       onBack={handleBack}
-      backLabel={originTaskId ? 'Wróć do taska' : 'Wróć do specyfikacji'}
+      backLabel={backLabel}
       onSwitchSession={handleSwitchSession}
       onOpenTask={handleOpenTask}
       changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}

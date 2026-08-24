@@ -354,16 +354,18 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const chatSource = readAiChatSource();
 
-  // Initial message effect checks assistant.isReady
-  assert.match(chatSource, /if \(!assistant\.isReady \|\| !isProviderAvailable\) return;/);
+  // Initial message effect checks assistant.isReady and dispatch tracking
+  assert.match(chatSource, /if \(!assistant\.isReady\) return;/);
+  assert.match(chatSource, /inFlightDispatchesRef\.current\.has\(dispatchKey\)/);
+  assert.match(chatSource, /completedDispatchesRef\.current\.has\(dispatchKey\)/);
 
   // Calls onInitialMessageConsumed ONLY on successful completion
   assert.match(chatSource, /await assistant\.sendTurn\(initialMessage, \{ mode: currentMode \}\);/);
   assert.match(chatSource, /onInitialMessageConsumed\(\);/);
 
-  // Does not silently discard errors
+  // Does not silently discard errors and clears in-flight lock for retry
   assert.match(chatSource, /setSubmissionError\(err instanceof Error \? err\.message : String\(err\)\);/);
-  assert.match(chatSource, /initialSentRef\.current = false;/);
+  assert.match(chatSource, /inFlightDispatchesRef\.current\.delete\(dispatchKey\);/);
 });
 
 test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for explicit AI_TURN_CANCELLED', () => {

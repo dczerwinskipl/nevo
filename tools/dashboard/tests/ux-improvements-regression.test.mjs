@@ -105,18 +105,22 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary head
   assert.ok(!routerSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 
-test('Item 5 (Task 14 & Finding 2): TaskCard uses non-interactive container and dedicated sibling buttons', () => {
+test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses non-interactive container, inline title-row action, and sibling keyboard controls', () => {
   const statusBoardSource = readSource('components/status-board.tsx');
 
-  // Outer card is non-interactive div without role=button or tabIndex=0
+  // 1. Outer card is non-interactive div without role=button or tabIndex=0
   assert.ok(!statusBoardSource.includes('role="button"'), 'TaskCard outer div must not have role=button');
   assert.ok(!statusBoardSource.includes('tabIndex={0}'), 'TaskCard outer div must not have tabIndex=0');
 
-  // Dedicated button for opening task details
+  // 2. Title row contains both the task-details button and sibling action button inline
+  assert.ok(statusBoardSource.includes('<div className="mt-2.5 flex items-start justify-between gap-2">'));
+
+  // 3. Dedicated semantic button for opening task details (flex-1)
   assert.ok(statusBoardSource.includes('onClick={event => onSelect?.(task, event.currentTarget)}'));
   assert.ok(statusBoardSource.includes('aria-label={`Otwórz szczegóły zadania: ${task.title}`}'));
+  assert.ok(statusBoardSource.includes('min-w-0 flex-1 text-left'));
 
-  // Separate action button
+  // 4. Separate right-aligned sibling action button (shrink-0), not nested inside details button
   assert.ok(statusBoardSource.includes('onClick={() => onAction?.(task, actionGate.action)}'));
   assert.ok(statusBoardSource.includes('aria-label={`${actionGate.action === \'approve\' ? \'Zatwierdź zadanie\' : \'Zaakceptuj zadanie\'}: ${task.title}\`}'));
 });

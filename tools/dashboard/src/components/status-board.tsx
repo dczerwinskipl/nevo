@@ -41,46 +41,34 @@ function TaskCard({
   return (
     <div
       className={cn(
-        'group relative flex flex-col justify-between w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)]',
+        'group relative block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)]',
         tone.line,
       )}
     >
-      <button
-        type="button"
-        onClick={event => onSelect?.(task, event.currentTarget)}
-        aria-label={`Otwórz szczegóły zadania: ${task.title}`}
-        className="flex flex-col flex-1 w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
-      >
-        <div className="flex w-full items-center justify-between gap-2">
-          <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
-            #{String(task.order ?? '—').padStart(2, '0')}
-          </span>
-          {isDone ? (
-            <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
-          ) : task.blockedBy.length ? (
-            <LockKeyhole className="size-3.5 text-[var(--muted)]" />
-          ) : (
-            <CircleDashed className="size-3.5 text-[var(--muted)]" />
-          )}
-        </div>
-        <div className="mt-2.5 w-full">
-          <h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
+          #{String(task.order ?? '—').padStart(2, '0')}
+        </span>
+        {isDone ? (
+          <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
+        ) : task.blockedBy.length ? (
+          <LockKeyhole className="size-3.5 text-[var(--muted)]" />
+        ) : (
+          <CircleDashed className="size-3.5 text-[var(--muted)]" />
+        )}
+      </div>
+      <div className="mt-2.5 flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={event => onSelect?.(task, event.currentTarget)}
+          aria-label={`Otwórz szczegóły zadania: ${task.title}`}
+          className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded cursor-pointer"
+        >
+          <h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
             {task.title}
           </h3>
-        </div>
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <Badge className={cn('border-0 px-2 py-0.5 text-[9px]', tone.tint)}>{formatStatus(task.status)}</Badge>
-          {task.dependsOn.length > 0 && (
-            <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
-              <GitBranch className="size-3" />
-              {task.dependsOn.length}
-            </span>
-          )}
-        </div>
-      </button>
-
-      {hasAction && (
-        <div className="mt-2.5 flex items-center justify-end pt-2 border-t border-[var(--border)]/40">
+        </button>
+        {hasAction && (
           <Button
             size="sm"
             variant="secondary"
@@ -98,8 +86,17 @@ function TaskCard({
               </>
             )}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <Badge className={cn('border-0 px-2 py-0.5 text-[9px]', tone.tint)}>{formatStatus(task.status)}</Badge>
+        {task.dependsOn.length > 0 && (
+          <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
+            <GitBranch className="size-3" />
+            {task.dependsOn.length}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

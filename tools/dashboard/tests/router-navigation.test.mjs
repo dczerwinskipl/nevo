@@ -14,7 +14,7 @@ function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
 }
 
-test('Item 10 (TanStack Router): Route tree resolves primary application screens and parses params/search', async () => {
+test('Finding 3 & 4 (TanStack Router): Route tree resolves primary application screens and parses params/search', async () => {
   const history = createMemoryHistory({ initialEntries: ['/'] });
   const router = createAppRouter(history);
   await router.load();
@@ -44,7 +44,7 @@ test('Item 10 (TanStack Router): Route tree resolves primary application screens
   assert.equal(router.state.location.search.originTaskId, '08-chat-follow-scroll');
 });
 
-test('Item 10 (TanStack Router): Redirect aliases route to canonical URLs', async () => {
+test('Finding 3 & 4 (TanStack Router): Redirect aliases route to canonical URLs', async () => {
   const history = createMemoryHistory({ initialEntries: ['/'] });
   const router = createAppRouter(history);
   await router.load();
@@ -84,47 +84,122 @@ test('Item 10 (TanStack Router): Redirect aliases route to canonical URLs', asyn
   }
 });
 
-test('Item 10 (TanStack Router): Memory history supports Back and Forward navigation without duplicate state', async () => {
+test('Finding 3 (TanStack Router): In-app history back/forward navigation does not duplicate entries', async () => {
   const history = createMemoryHistory({ initialEntries: ['/'] });
   const router = createAppRouter(history);
   await router.load();
 
-  // Navigate to spec
+  // Initial load: canGoBack is false
+  assert.equal(router.history.canGoBack(), false);
+
+  // Navigate: Dashboard -> Spec
   await router.navigate({
     to: '/specs/$source/$slug',
     params: { source: 'active', slug: 'ux-improvements-version-1' },
   });
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+  assert.equal(router.history.canGoBack(), true);
 
-  // Navigate to chat
+  // Navigate: Spec -> Chat
   await router.navigate({
     to: '/ai/sessions/$provider/$sessionId',
     params: { provider: 'claude', sessionId: 'sess-1' },
   });
   assert.equal(router.state.location.pathname, '/ai/sessions/claude/sess-1');
+  assert.equal(router.history.canGoBack(), true);
 
-  // History back -> returns to spec
+  // In-app Back: Chat -> Spec
   router.history.back();
   await router.load();
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+  assert.equal(router.history.canGoBack(), true);
 
-  // History back -> returns to dashboard
+  // In-app Back: Spec -> Dashboard
   router.history.back();
   await router.load();
   assert.equal(router.state.location.pathname, '/');
+  assert.equal(router.history.canGoBack(), false);
 
-  // History forward -> returns to spec
+  // In-app Forward: Dashboard -> Spec
   router.history.forward();
   await router.load();
   assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
 });
 
-test('Item 10 (TanStack Router): App.tsx mounts RouterProvider and uses authoritative router state', () => {
-  const appSource = readSource('App.tsx');
+test('Finding 3 (TanStack Router): Direct deep link to chat reports canGoBack=false and triggers fallback', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/ai/sessions/claude/deep-link-session-123'],
+  });
+  const router = createAppRouter(history);
+  await router.load();
 
-  assert.ok(appSource.includes("import { RouterProvider } from '@tanstack/react-router'"));
-  assert.ok(appSource.includes("import { router } from './router'"));
-  assert.ok(appSource.includes('<RouterProvider router={router} />'));
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/deep-link-session-123');
+  assert.equal(router.history.canGoBack(), false, 'Direct deep link entry must NOT use browser back to leave Nevo');
+});
+
+test('Finding 3 (TanStack Router): Task -> Chat -> Back restores originating task dialog context', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/'] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  // 1. User opens spec
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'ux-improvements-version-1' },
+  });
+
+  // 2. User opens task dialog inside spec (transient search update via replace: true)
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'ux-improvements-version-1' },
+    search: { taskId: '08-chat-follow-scroll' },
+    replace: true,
+  });
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+  assert.equal(router.state.location.search.taskId, '08-chat-follow-scroll');
+
+  // 3. User navigates from task dialog into chat
+  await router.navigate({
+    to: '/ai/sessions/$provider/$sessionId',
+    params: { provider: 'claude', sessionId: 'sess-task-1' },
+    search: { originTaskId: '08-chat-follow-scroll' },
+  });
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/sess-task-1');
+  assert.equal(router.state.location.search.originTaskId, '08-chat-follow-scroll');
+
+  // 4. Back pops to spec and restores search.taskId
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/ux-improvements-version-1');
+  assert.equal(router.state.location.search.taskId, '08-chat-follow-scroll', 'Task context must be restored on Back');
+});
+
+test('Finding 4 (TanStack Router): AppLayout derives mode and selectedSlug reactively from router state', () => {
+  const routerSource = readSource('router.tsx');
+
+  // Uses useLocation and useMatches
+  assert.ok(routerSource.includes('const location = useLocation();'));
+  assert.ok(routerSource.includes('const matches = useMatches();'));
+
+  // Correctly handles /specs/archive/:slug as archive mode
+  assert.ok(routerSource.includes("source === 'archive' ? 'archive' : 'active'"));
+  assert.ok(routerSource.includes("location.pathname.startsWith('/specs/archive')"));
+
+  // Derives selectedSlug from active match params instead of passing null
+  assert.ok(routerSource.includes('specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null'));
+  assert.ok(routerSource.includes('selectedSlug={selectedSlug}'));
+});
+
+test('Finding 4 (TanStack Router): AppSidebar uses Link for tabs and does not duplicate imperative navigation', () => {
+  const sidebarSource = readSource('components/app-sidebar.tsx');
+
+  // Tabs use <Link to="/"> and <Link to="/archive">
+  assert.match(sidebarSource, /<Link[\s\S]*?to="\/"/);
+  assert.match(sidebarSource, /<Link[\s\S]*?to="\/archive"/);
+
+  // SpecNavigationItem is a Link that closes sidebar without duplicate navigate()
+  assert.ok(sidebarSource.includes('<SpecNavigationItem'));
+  assert.ok(sidebarSource.includes('onClose();'));
 });
 
 test('Item 10: Opening task details from chat or spec is transient UI state and does not navigate routes', () => {

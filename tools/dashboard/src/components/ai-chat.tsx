@@ -248,31 +248,46 @@ export function AiChatPage({
     }
   }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
 
-  const initialSentRef = useRef(false);
+  const sessionKey = `${provider}:${sessionId}`;
+  const activeSessionKeyRef = useRef(sessionKey);
+  activeSessionKeyRef.current = sessionKey;
+  const isMountedRef = useRef(true);
   useEffect(() => {
-    if (!initialMessage || initialSentRef.current) return;
-    if (!assistant.isReady || !isProviderAvailable) return;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-    let active = true;
+  const inFlightDispatchesRef = useRef(new Set<string>());
+  const completedDispatchesRef = useRef(new Set<string>());
+  const dispatchKey = `${sessionKey}::${initialMessage}`;
+
+  useEffect(() => {
+    if (!initialMessage || !isProviderAvailable) return;
+    if (completedDispatchesRef.current.has(dispatchKey)) return;
+    if (inFlightDispatchesRef.current.has(dispatchKey)) return;
+    if (!assistant.isReady) return;
+
+    inFlightDispatchesRef.current.add(dispatchKey);
+    setSubmissionError(null);
+
     (async () => {
-      initialSentRef.current = true;
       try {
         await assistant.sendTurn(initialMessage, { mode: currentMode });
-        if (active) {
+        completedDispatchesRef.current.add(dispatchKey);
+        inFlightDispatchesRef.current.delete(dispatchKey);
+        if (isMountedRef.current && activeSessionKeyRef.current === sessionKey) {
           onInitialMessageConsumed();
         }
       } catch (err) {
-        if (active) {
+        inFlightDispatchesRef.current.delete(dispatchKey);
+        if (isMountedRef.current && activeSessionKeyRef.current === sessionKey) {
           setSubmissionError(err instanceof Error ? err.message : String(err));
-          initialSentRef.current = false;
         }
       }
     })();
-
-    return () => {
-      active = false;
-    };
-  }, [initialMessage, assistant.isReady, isProviderAvailable, assistant.sendTurn, currentMode, onInitialMessageConsumed]);
+  }, [initialMessage, assistant.isReady, isProviderAvailable, assistant.sendTurn, currentMode, onInitialMessageConsumed, sessionKey, dispatchKey]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height

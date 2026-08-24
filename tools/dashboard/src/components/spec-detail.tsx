@@ -461,12 +461,14 @@ export function SpecDetail({
   onOpenSession,
   onCreateSession,
   onNavigateMode,
+  onTaskSelect,
 }: {
   change: DashboardChange;
   initialTaskId: string | null;
   onOpenSession: (session: AiSession, taskId?: string) => void;
   onCreateSession: () => void;
   onNavigateMode?: (mode: 'active' | 'archive') => void;
+  onTaskSelect?: (taskId: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
@@ -567,12 +569,14 @@ export function SpecDetail({
     taskTriggerRef.current = trigger;
     actionsQuery.resetExecution();
     setSelectedTaskId(task.id);
-  }, [actionsQuery]);
+    onTaskSelect?.(task.id);
+  }, [actionsQuery, onTaskSelect]);
 
   const closeTask = useCallback(() => {
     setSelectedTaskId(null);
+    onTaskSelect?.(null);
     requestAnimationFrame(() => taskTriggerRef.current?.focus());
-  }, []);
+  }, [onTaskSelect]);
 
   const handleOperationTerminal = useCallback(async () => {
     await invalidateDashboardQueries(queryClient);

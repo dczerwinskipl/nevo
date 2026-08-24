@@ -15,7 +15,7 @@ export function ListOverview({
 }: {
   mode: 'active' | 'archive';
   changes: DashboardChange[];
-  onSelect: (change: DashboardChange) => void;
+  onSelect?: (change: DashboardChange) => void;
 }) {
   const archive = mode === 'archive';
   return (
@@ -42,7 +42,7 @@ export function ListOverview({
               key={change.slug}
               to="/specs/$source/$slug"
               params={{ source: change.source, slug: change.slug }}
-              onClick={() => onSelect(change)}
+              onClick={() => onSelect?.(change)}
               className="group block w-full text-left"
             >
               <Card className="p-5 transition-colors group-hover:border-[var(--border-strong)] group-hover:bg-[var(--surface-raised)]">

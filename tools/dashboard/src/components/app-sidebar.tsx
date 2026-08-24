@@ -21,12 +21,12 @@ export type DashboardMode = 'active' | 'archive';
 
 interface AppSidebarProps {
   mode: DashboardMode;
-  onModeChange: (mode: DashboardMode) => void;
+  onModeChange?: (mode: DashboardMode) => void;
   active: DashboardChange[];
   archive: DashboardChange[];
   changes: DashboardChange[];
   selectedSlug: string | null;
-  onSelect: (change: DashboardChange) => void;
+  onSelect?: (change: DashboardChange) => void;
   sessions: AiSession[];
   sessionsLoading: boolean;
   sessionsError: string | null;
@@ -46,7 +46,7 @@ function SpecNavigationItem({
 }: {
   change: DashboardChange;
   selected: boolean;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   return (
     <Link
@@ -165,9 +165,12 @@ export function AppSidebar({
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
-            <button
-              type="button"
-              onClick={() => onModeChange('active')}
+            <Link
+              to="/"
+              onClick={() => {
+                onModeChange?.('active');
+                onClose();
+              }}
               className={cn(
                 'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
                 mode === 'active' ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
@@ -176,10 +179,13 @@ export function AppSidebar({
               <LayoutDashboard className="size-3.5" />
               Aktualne
               <Badge className="border-0 bg-white/6 px-1.5 py-0 text-[9px]">{active.length}</Badge>
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange('archive')}
+            </Link>
+            <Link
+              to="/archive"
+              onClick={() => {
+                onModeChange?.('archive');
+                onClose();
+              }}
               className={cn(
                 'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
                 mode === 'archive' ? 'bg-[var(--surface-hover)] text-[var(--foreground)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]',
@@ -188,7 +194,7 @@ export function AppSidebar({
               <Archive className="size-3.5" />
               Archiwum
               <Badge className="border-0 bg-white/6 px-1.5 py-0 text-[9px]">{archive.length}</Badge>
-            </button>
+            </Link>
           </div>
 
           <label className="relative mt-3 block">
@@ -257,7 +263,10 @@ export function AppSidebar({
                 key={`${change.source}:${change.slug}`}
                 change={change}
                 selected={selectedSlug === change.slug}
-                onClick={() => onSelect(change)}
+                onClick={() => {
+                  onSelect?.(change);
+                  onClose();
+                }}
               />
             ))}
             {visible.length === 0 && (
