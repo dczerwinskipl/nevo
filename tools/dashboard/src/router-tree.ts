@@ -15,41 +15,92 @@ export interface ChatSearch {
 
 export interface NavigationHistoryState {
   origin?: 'dashboard' | 'spec' | 'task';
-  originSpecSlug?: string;
-  originSpecSource?: 'active' | 'archive';
   originTaskId?: string;
   restoreTaskId?: string;
 }
 
+export type SessionRouteDestination =
+  | {
+      to: '/specs/$source/$slug/sessions/$provider/$sessionId';
+      params: {
+        source: 'active' | 'archive';
+        slug: string;
+        provider: string;
+        sessionId: string;
+      };
+    }
+  | {
+      to: '/ai/sessions/$provider/$sessionId';
+      params: {
+        provider: string;
+        sessionId: string;
+      };
+    };
+
+export function resolveSessionRoute(
+  session: { provider: string; sessionId: string; providerSessionId?: string; specId?: string | null },
+  specs: Array<{ specId?: string | null; source: 'active' | 'archive'; slug: string }>
+): SessionRouteDestination {
+  const effectiveSessionId = session.providerSessionId || session.sessionId;
+
+  if (session.specId) {
+    const owningSpec = specs.find((s) => s.specId === session.specId);
+    if (owningSpec) {
+      return {
+        to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+        params: {
+          source: owningSpec.source,
+          slug: owningSpec.slug,
+          provider: session.provider,
+          sessionId: effectiveSessionId,
+        },
+      };
+    }
+  }
+
+  return {
+    to: '/ai/sessions/$provider/$sessionId',
+    params: {
+      provider: session.provider,
+      sessionId: effectiveSessionId,
+    },
+  };
+}
+
 export function createSessionSwitchNavigator(
   navigate: (opts: any) => Promise<any> | void,
+  specs: Array<{ specId?: string | null; source: 'active' | 'archive'; slug: string }>,
   historyState?: NavigationHistoryState
 ) {
   return (session: AiSession) => {
-    const effectiveSessionId = session.providerSessionId || session.sessionId;
+    const destination = resolveSessionRoute(session, specs);
     return navigate({
-      to: '/ai/sessions/$provider/$sessionId',
-      params: { provider: session.provider, sessionId: effectiveSessionId },
+      to: destination.to,
+      params: destination.params,
       state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
       replace: true,
     });
   };
 }
 
-export function createBackNavigator(
-  routerHistory: { canGoBack: () => boolean; back: () => void },
-  navigate: (opts: any) => Promise<any> | void,
-  associatedChange?: { source: 'active' | 'archive'; slug: string } | null
-) {
+export function createBackNavigator({
+  routerHistory,
+  navigate,
+  specContext,
+}: {
+  routerHistory: { canGoBack: () => boolean; back: () => void };
+  navigate: (opts: any) => Promise<any> | void;
+  specContext?: { source: 'active' | 'archive'; slug: string } | null;
+}) {
   return () => {
     if (routerHistory.canGoBack()) {
       routerHistory.back();
       return;
     }
-    if (associatedChange) {
+    if (specContext) {
       navigate({
         to: '/specs/$source/$slug',
-        params: { source: associatedChange.source, slug: associatedChange.slug },
+        params: { source: specContext.source, slug: specContext.slug },
         replace: true,
       });
       return;
@@ -172,6 +223,14 @@ export const chatRoute = createRoute({
   }),
 });
 
+export const specChatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/specs/$source/$slug/sessions/$provider/$sessionId',
+  validateSearch: (search: Record<string, unknown>): ChatSearch => ({
+    turnId: typeof search.turnId === 'string' ? search.turnId : undefined,
+  }),
+});
+
 export const routeTree = rootRoute.addChildren([
   appLayoutRoute.addChildren([
     indexRoute,
@@ -182,6 +241,7 @@ export const routeTree = rootRoute.addChildren([
     specSlugAliasRoute,
   ]),
   chatRoute,
+  specChatRoute,
 ]);
 
 export function createAppRouter(history?: any) {

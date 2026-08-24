@@ -29,6 +29,7 @@ import {
   archiveRoute,
   specRoute,
   chatRoute,
+  specChatRoute,
   createAppRouter,
   type ChatSearch,
   type NavigationHistoryState,
@@ -36,6 +37,7 @@ import {
   createBackNavigator,
   createRestoreTaskIdConsumer,
   resolveSpecRouteCanonicalization,
+  resolveSessionRoute,
 } from './router-tree';
 
 export function LoadingScreen() {
@@ -175,10 +177,11 @@ function AppLayoutComponent() {
           sessionsError={globalSessions.error}
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={(session) => {
-            const effectiveSessionId = session.providerSessionId || session.sessionId;
+            const allSpecs = [...(data?.active ?? []), ...(data?.archive ?? [])];
+            const dest = resolveSessionRoute(session, allSpecs);
             navigate({
-              to: '/ai/sessions/$provider/$sessionId',
-              params: { provider: session.provider, sessionId: effectiveSessionId },
+              to: dest.to,
+              params: dest.params,
               state: (prev: any) => ({ ...prev, origin: 'dashboard' }),
             });
             setSidebarOpen(false);
@@ -202,13 +205,16 @@ function AppLayoutComponent() {
                 pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialPrompt);
               }
               navigate({
-                to: '/ai/sessions/$provider/$sessionId',
-                params: { provider: session.provider, sessionId: effectiveSessionId },
+                to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+                params: {
+                  source: 'active',
+                  slug: spec.slug,
+                  provider: session.provider,
+                  sessionId: effectiveSessionId,
+                },
                 state: (prev: any) => ({
                   ...prev,
                   origin: 'spec',
-                  originSpecSlug: spec.slug,
-                  originSpecSource: 'active',
                 }),
               });
             } else {
@@ -233,13 +239,16 @@ function AppLayoutComponent() {
               pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
             }
             navigate({
-              to: '/ai/sessions/$provider/$sessionId',
-              params: { provider: session.provider, sessionId: effectiveSessionId },
+              to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+              params: {
+                source: targetChange.source,
+                slug: targetChange.slug,
+                provider: session.provider,
+                sessionId: effectiveSessionId,
+              },
               state: (prev: any) => ({
                 ...prev,
                 origin: 'spec',
-                originSpecSlug: targetChange.slug,
-                originSpecSource: targetChange.source,
               }),
             });
           }}
@@ -343,14 +352,17 @@ function SpecDetailRouteComponent() {
             });
           }
           navigate({
-            to: '/ai/sessions/$provider/$sessionId',
-            params: { provider: session.provider, sessionId: effectiveSessionId },
+            to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+            params: {
+              source: selected.source,
+              slug: selected.slug,
+              provider: session.provider,
+              sessionId: effectiveSessionId,
+            },
             state: (prev: any) => ({
               ...prev,
               origin: taskId ? 'task' : 'spec',
               originTaskId: taskId,
-              originSpecSlug: selected.slug,
-              originSpecSource: selected.source,
             }),
           });
         }}
@@ -368,13 +380,16 @@ function SpecDetailRouteComponent() {
               pendingDispatchStore.setPending(session.provider, effectiveSessionId, initialMessage);
             }
             navigate({
-              to: '/ai/sessions/$provider/$sessionId',
-              params: { provider: session.provider, sessionId: effectiveSessionId },
+              to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+              params: {
+                source: selected.source,
+                slug: selected.slug,
+                provider: session.provider,
+                sessionId: effectiveSessionId,
+              },
               state: (prev: any) => ({
                 ...prev,
                 origin: 'spec',
-                originSpecSlug: selected.slug,
-                originSpecSource: selected.source,
               }),
             });
           }}
@@ -384,8 +399,181 @@ function SpecDetailRouteComponent() {
   );
 }
 
-// 5. Chat Route Component
-function ChatRouteComponent() {
+// 5. Spec-Scoped Chat Route Component (/specs/:source/:slug/sessions/:provider/:sessionId)
+function SpecChatRouteComponent() {
+  const params = specChatRoute.useParams();
+  const search = specChatRoute.useSearch() as ChatSearch;
+  const location = useLocation();
+  const historyState = location.state as NavigationHistoryState | undefined;
+
+  const { data, loading, error } = useDashboardData();
+  const globalSessions = useAiSessions({ enabled: Boolean(data) });
+  const navigate = useNavigate();
+  const router = useRouter();
+
+  const source = params.source as 'active' | 'archive';
+  const slug = params.slug;
+  const provider = params.provider;
+  const sessionId = params.sessionId;
+  const initialTurnId = search.turnId || null;
+
+  const origin = historyState?.origin;
+
+  const resolution = useMemo(() => {
+    if (!data) return null;
+    return resolveSpecRouteCanonicalization({
+      requestedSource: source,
+      slug,
+      activeSpecs: data.active,
+      archiveSpecs: data.archive,
+    });
+  }, [data, source, slug]);
+
+  const activeSession = useMemo(() => {
+    return globalSessions.sessions.find(
+      (s) => s.provider === provider && (s.providerSessionId === sessionId || s.sessionId === sessionId)
+    );
+  }, [globalSessions.sessions, provider, sessionId]);
+
+  // Handle canonicalization / redirects:
+  useEffect(() => {
+    if (!data) return;
+
+    // 1. If spec source changed (active <-> archive)
+    if (resolution?.status === 'redirect' && resolution.canonicalSource) {
+      navigate({
+        to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+        params: { source: resolution.canonicalSource, slug, provider, sessionId },
+        search: { turnId: initialTurnId || undefined },
+        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+        replace: true,
+      });
+      return;
+    }
+
+    // 2. If loaded session belongs to a different spec or is ad-hoc
+    if (activeSession) {
+      const allSpecs = [...data.active, ...data.archive];
+      const target = resolveSessionRoute(activeSession, allSpecs);
+      if (
+        target.to === '/specs/$source/$slug/sessions/$provider/$sessionId' &&
+        (target.params.source !== source || target.params.slug !== slug)
+      ) {
+        navigate({
+          to: target.to,
+          params: target.params,
+          search: { turnId: initialTurnId || undefined },
+          state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+          replace: true,
+        });
+      } else if (target.to === '/ai/sessions/$provider/$sessionId') {
+        navigate({
+          to: target.to,
+          params: target.params,
+          search: { turnId: initialTurnId || undefined },
+          state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+          replace: true,
+        });
+      }
+    }
+  }, [activeSession, data, historyState, initialTurnId, navigate, provider, resolution, sessionId, slug, source]);
+
+  const handleBack = useCallback(
+    createBackNavigator({
+      routerHistory: router.history,
+      navigate,
+      specContext: { source: resolution?.canonicalSource || source, slug },
+    }),
+    [navigate, resolution?.canonicalSource, router.history, slug, source]
+  );
+
+  const handleTurnChange = useCallback(
+    (turnId: string | null) => {
+      navigate({
+        to: '/specs/$source/$slug/sessions/$provider/$sessionId',
+        params: { source, slug, provider, sessionId },
+        search: { turnId: turnId || undefined },
+        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+        replace: true,
+      });
+    },
+    [historyState, navigate, provider, sessionId, slug, source]
+  );
+
+  const handleSwitchSession = useCallback(
+    createSessionSwitchNavigator(
+      navigate,
+      [...(data?.active ?? []), ...(data?.archive ?? [])],
+      historyState
+    ),
+    [data, historyState, navigate]
+  );
+
+  const handleOpenTask = useCallback(
+    (target: TaskNavigationTarget | string, explicitSlug?: string | null) => {
+      const taskId = typeof target === 'string' ? target : target.taskId;
+      const targetSlug = typeof target === 'string' ? (explicitSlug || slug) : (target.specSlug || explicitSlug || slug);
+
+      if (data) {
+        const change =
+          [...data.active, ...data.archive].find((item) => item.slug === targetSlug) ||
+          (taskId ? [...data.active, ...data.archive].find((c) => c.tasks.some((t) => t.id === taskId)) : null);
+        if (change) {
+          navigate({
+            to: '/specs/$source/$slug',
+            params: { source: change.source, slug: change.slug },
+            state: (prev: any) => ({ ...prev, restoreTaskId: taskId }),
+          });
+          return;
+        }
+      }
+      navigate({ to: '/' });
+    },
+    [data, navigate, slug]
+  );
+
+  const backLabel = useMemo(() => {
+    if (origin === 'task') return 'Wróć do taska';
+    return 'Wróć do specyfikacji';
+  }, [origin]);
+
+  if (loading && !data) return <LoadingScreen />;
+  if (error && !data) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
+  }
+  if (data && resolution?.status === 'not-found') {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
+        <StatusCard
+          variant="info"
+          title="Specyfikacja nie znaleziona"
+          description={`Nie znaleziono specyfikacji '${slug}'.`}
+          onRetry={() => navigate({ to: '/' })}
+          retryLabel="Wróć do listy specyfikacji"
+          className="w-full text-left"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <AiChatPage
+      key={`${provider}:${sessionId}`}
+      provider={provider}
+      sessionId={sessionId}
+      initialTurnId={initialTurnId}
+      onTurnChange={handleTurnChange}
+      onBack={handleBack}
+      backLabel={backLabel}
+      onSwitchSession={handleSwitchSession}
+      onOpenTask={handleOpenTask}
+      changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
+    />
+  );
+}
+
+// 6. Global/Ad-hoc Chat Route Component (/ai/sessions/:provider/:sessionId)
+function GlobalChatRouteComponent() {
   const params = chatRoute.useParams();
   const search = chatRoute.useSearch() as ChatSearch;
   const location = useLocation();
@@ -400,41 +588,36 @@ function ChatRouteComponent() {
   const sessionId = params.sessionId;
   const initialTurnId = search.turnId || null;
 
-  const origin = historyState?.origin;
-  const originTaskId = historyState?.originTaskId;
-
-  const associatedChange = useMemo(() => {
-    if (!data) return null;
-    const activeSession = globalSessions.sessions.find(
-      (s) =>
-        s.provider === provider &&
-        (s.providerSessionId === sessionId || s.sessionId === sessionId)
+  const activeSession = useMemo(() => {
+    return globalSessions.sessions.find(
+      (s) => s.provider === provider && (s.providerSessionId === sessionId || s.sessionId === sessionId)
     );
-    const specId = activeSession?.specId;
-    if (specId) {
-      const found =
-        data.active.find((c) => c.specId === specId) ||
-        data.archive.find((c) => c.specId === specId);
-      if (found) return found;
+  }, [globalSessions.sessions, provider, sessionId]);
+
+  // Compatibility redirect for deep links: if loaded session has specId, redirect to canonical spec-scoped route
+  useEffect(() => {
+    if (data && activeSession?.specId) {
+      const allSpecs = [...data.active, ...data.archive];
+      const target = resolveSessionRoute(activeSession, allSpecs);
+      if (target.to === '/specs/$source/$slug/sessions/$provider/$sessionId') {
+        navigate({
+          to: target.to,
+          params: target.params,
+          search: { turnId: initialTurnId || undefined },
+          state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+          replace: true,
+        });
+      }
     }
-    if (originTaskId) {
-      const found = [...data.active, ...data.archive].find((c) =>
-        c.tasks.some((t) => t.id === originTaskId)
-      );
-      if (found) return found;
-    }
-    if (historyState?.originSpecSlug) {
-      const found = [...data.active, ...data.archive].find((c) =>
-        c.slug === historyState.originSpecSlug
-      );
-      if (found) return found;
-    }
-    return null;
-  }, [data, globalSessions.sessions, historyState?.originSpecSlug, originTaskId, provider, sessionId]);
+  }, [activeSession, data, historyState, initialTurnId, navigate]);
 
   const handleBack = useCallback(
-    createBackNavigator(router.history, navigate, associatedChange),
-    [associatedChange, navigate, router.history]
+    createBackNavigator({
+      routerHistory: router.history,
+      navigate,
+      specContext: null,
+    }),
+    [navigate, router.history]
   );
 
   const handleTurnChange = useCallback(
@@ -451,19 +634,23 @@ function ChatRouteComponent() {
   );
 
   const handleSwitchSession = useCallback(
-    createSessionSwitchNavigator(navigate, historyState),
-    [historyState, navigate]
+    createSessionSwitchNavigator(
+      navigate,
+      [...(data?.active ?? []), ...(data?.archive ?? [])],
+      historyState
+    ),
+    [data, historyState, navigate]
   );
 
   const handleOpenTask = useCallback(
     (target: TaskNavigationTarget | string, explicitSlug?: string | null) => {
       const taskId = typeof target === 'string' ? target : target.taskId;
-      const specSlug = typeof target === 'string' ? explicitSlug : (target.specSlug || explicitSlug);
+      const targetSlug = typeof target === 'string' ? explicitSlug : (target.specSlug || explicitSlug);
 
-      if (specSlug && data) {
+      if (targetSlug && data) {
         const change =
-          data.active.find((item) => item.slug === specSlug) ||
-          data.archive.find((item) => item.slug === specSlug);
+          data.active.find((item) => item.slug === targetSlug) ||
+          data.archive.find((item) => item.slug === targetSlug);
         if (change) {
           navigate({
             to: '/specs/$source/$slug',
@@ -489,14 +676,6 @@ function ChatRouteComponent() {
     [data, navigate]
   );
 
-  const backLabel = useMemo(() => {
-    if (origin === 'task') return 'Wróć do taska';
-    if (origin === 'spec') return 'Wróć do specyfikacji';
-    if (origin === 'dashboard') return 'Wróć do listy';
-    if (associatedChange) return 'Wróć do specyfikacji';
-    return 'Wróć do listy';
-  }, [associatedChange, origin]);
-
   if (loading && !data) return <LoadingScreen />;
   if (error && !data) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-red-200">{error}</div>;
@@ -510,7 +689,7 @@ function ChatRouteComponent() {
       initialTurnId={initialTurnId}
       onTurnChange={handleTurnChange}
       onBack={handleBack}
-      backLabel={backLabel}
+      backLabel="Wróć do listy"
       onSwitchSession={handleSwitchSession}
       onOpenTask={handleOpenTask}
       changes={[...(data?.active ?? []), ...(data?.archive ?? [])]}
@@ -524,7 +703,8 @@ appLayoutRoute.update({ component: AppLayoutComponent });
 indexRoute.update({ component: ActiveDashboardComponent });
 archiveRoute.update({ component: ArchiveDashboardComponent });
 specRoute.update({ component: SpecDetailRouteComponent });
-chatRoute.update({ component: ChatRouteComponent });
+chatRoute.update({ component: GlobalChatRouteComponent });
+specChatRoute.update({ component: SpecChatRouteComponent });
 
 export const router = createAppRouter();
 

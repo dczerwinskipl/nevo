@@ -16,7 +16,6 @@ import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
 import { useAiProviders, useDeleteAiSession } from '@/hooks/use-dashboard-data';
-import { Link } from '@tanstack/react-router';
 
 function sessionTitle(session: AiSession) {
   if (session.title?.trim()) return session.title.trim();
@@ -110,19 +109,17 @@ export function AiSessionRow({
         compact ? 'p-3' : 'p-4'
       )}
     >
-      <Link
-        to="/ai/sessions/$provider/$sessionId"
-        params={{ provider: session.provider, sessionId: effectiveSessionId }}
+      <button
+        type="button"
         onClick={() => onOpen(session)}
         className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
       >
         <MessagesSquare className="size-4" />
-      </Link>
+      </button>
       <div className="min-w-0 flex-1 pr-6">
-        <Link
-          to="/ai/sessions/$provider/$sessionId"
-          params={{ provider: session.provider, sessionId: effectiveSessionId }}
+        <button
+          type="button"
           onClick={() => onOpen(session)}
           className="flex w-full items-start justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
         >
@@ -139,7 +136,7 @@ export function AiSessionRow({
           >
             {statusLabel(session.status)}
           </span>
-        </Link>
+        </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
