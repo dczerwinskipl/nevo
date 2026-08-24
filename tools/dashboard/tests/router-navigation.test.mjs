@@ -284,3 +284,46 @@ test('10. SpecChatRouteComponent: Fatal initial load error blocks with StatusCar
   const isFatalBackground = Boolean(mockBackgroundFailureState.error && !mockBackgroundFailureState.data);
   assert.equal(isFatalBackground, false, 'Existing data + background error -> non-blocking, chat remains usable');
 });
+
+test('11. Session switching: Switching sessions inside same spec uses replace to preserve Spec -> Session history hierarchy', async () => {
+  const routerSource = readSource('router.tsx');
+
+  // Verify production handleSwitchSession uses replace: true
+  assert.ok(
+    routerSource.includes('handleSwitchSession') && routerSource.includes('replace: true'),
+    'handleSwitchSession must navigate with replace: true'
+  );
+
+  // Memory history test sequence: Spec -> Session A -> Switch to Session B -> Back -> Spec -> Forward -> Session B
+  const history = createMemoryHistory({ initialEntries: ['/specs/active/spec-x'] });
+  const router = createAppRouter(history);
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x');
+
+  // Navigate to Session A (normal push from spec detail)
+  await router.navigate({
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+    params: { source: 'active', slug: 'spec-x', provider: 'claude', providerSessionId: 'sess-a' },
+  });
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/claude/sess-a');
+
+  // Switch to Session B (in-chat session switch with replace: true)
+  await router.navigate({
+    to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
+    params: { source: 'active', slug: 'spec-x', provider: 'antigravity', providerSessionId: 'sess-b' },
+    replace: true,
+  });
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/antigravity/sess-b');
+
+  // History Back returns directly to Spec, bypassing replaced Session A
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x', 'Back returns to parent specification');
+
+  // History Forward returns to Session B
+  router.history.forward();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-x/sessions/antigravity/sess-b', 'Forward restores session B');
+});

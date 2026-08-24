@@ -387,6 +387,7 @@ function SpecChatRouteComponent() {
           provider: targetSession.provider,
           providerSessionId: targetSession.providerSessionId,
         },
+        replace: true,
       });
     },
     [navigate, slug, source]

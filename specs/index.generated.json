@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-24T19:08:33.260Z",
+  "generated": "2026-08-24T19:31:22.914Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -772,6 +772,40 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "ef7a1223ee7f84539c447ed9edc91da6396b4bf6"
+          }
+        },
+        {
+          "id": "composer-keyboard-modality",
+          "order": 22,
+          "file": "tasks/22-composer-keyboard-modality.md",
+          "status": "implemented",
+          "implementation": {
+            "baseline_revision": "cbed510f1aa6a1fa8343c284fb6cfee2e3342aca",
+            "review_revision": "01ded628d362729a863ef88b55b477f1a3c8b3c4",
+            "changed_paths": [
+              "specs/active/ux-improvements-version-1/owner-decisions.md",
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/src/components/composer/composer-sizing.ts",
+              "tools/dashboard/src/components/composer/composer.tsx",
+              "tools/dashboard/tests/composer-interaction.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "c21ddb39acc45456aa0aec84883ed494eaa497c58ad0768397bd22fccd950ad6",
+            "revision": "01ded628d362729a863ef88b55b477f1a3c8b3c4",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         }
       ]
