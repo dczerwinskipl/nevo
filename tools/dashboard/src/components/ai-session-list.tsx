@@ -104,8 +104,14 @@ export function AiSessionRow({
 
   return (
     <div
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (!target?.closest('button, a, input, textarea, select')) {
+          onOpen(session);
+        }
+      }}
       className={cn(
-        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)]',
+        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] cursor-pointer',
         compact ? 'p-3' : 'p-4'
       )}
     >

@@ -40,8 +40,14 @@ function TaskCard({
 
   return (
     <div
+      onClick={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (!target?.closest('button, a, input, textarea, select')) {
+          onSelect?.(task, e.currentTarget);
+        }
+      }}
       className={cn(
-        'group relative block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)]',
+        'group relative block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)] cursor-pointer',
         tone.line,
       )}
     >
