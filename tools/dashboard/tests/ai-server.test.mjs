@@ -112,6 +112,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     const filtered = await fetch(`${baseUrl}/api/agent-sessions?specId=${specId}&taskId=task-a`);
     const bindings = (await filtered.json()).sessions;
     assert.ok(bindings.some(b => b.providerSessionId === providerSessionId && b.specId === specId));
+    assert.ok(bindings.some(b => b.sessionId === providerSessionId));
 
     // 4. Session details snapshot: GET /api/agent-sessions/:provider/:providerSessionId
     const sessionDetails = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}`);
@@ -164,6 +165,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(createModalResponse.status, 201);
     const createModalBody = await createModalResponse.json();
     assert.ok(createModalBody.session.providerSessionId);
+    assert.equal(createModalBody.session.sessionId, createModalBody.session.providerSessionId);
     assert.equal(createModalBody.session.specId, specId);
     assert.equal(createModalBody.session.taskId, 'task-a');
 
@@ -206,6 +208,45 @@ adapters:
   } finally {
     await service.shutdown();
     await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('durable session history remains readable after its adapter is disabled', async () => {
+  const { service } = createStack();
+  const server = createDashboardServer({
+    aiService: service,
+    aiAccessPolicy: () => true,
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const created = await fetch(`${baseUrl}/api/agent-sessions`, control({
+      provider: 'mock',
+      specId,
+      taskId: 'task-a',
+    }));
+    assert.equal(created.status, 201);
+    const session = (await created.json()).session;
+
+    service.registry.unregister('mock');
+
+    const history = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}`
+    );
+    assert.equal(history.status, 200);
+    const snapshot = (await history.json()).session;
+    assert.equal(snapshot.providerSessionId, session.providerSessionId);
+    assert.deepEqual(snapshot.capabilities, {});
+
+    const newTurn = await fetch(
+      `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
+      control({ message: 'must remain blocked while the adapter is disabled' })
+    );
+    assert.equal(newTurn.status, 404);
+  } finally {
+    await closeServer(server);
   }
 });
 

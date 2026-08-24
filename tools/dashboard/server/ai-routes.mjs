@@ -337,7 +337,11 @@ export async function handleAiRequest({
 
       if (method === 'GET') {
         authorize(accessPolicy, 'read', request);
-        const descriptor = service.registry?.get(provider)?.descriptor;
+        // Reading durable history must not depend on the adapter currently
+        // being enabled. Starting a new turn still goes through registry.get().
+        const descriptor = service.registry?.has(provider)
+          ? service.registry.get(provider).descriptor
+          : undefined;
         const capabilities = descriptor?.capabilities || {};
 
         const binding = await service.getSession(provider, providerSessionId);
