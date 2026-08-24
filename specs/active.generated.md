@@ -6,4 +6,3 @@
 |---|---|---|---|---|
 | `ai-adapters-hardening` | AI adapters hardening | draft | 10 | 2026-08-24 |
 | `deterministic-workflow-foundation` | Deterministic workflow foundation | draft | 10 | 2026-08-18 |
-| `ux-improvements-version-1` | UX Improvements version 1 | draft | 10 | 2026-08-19 |
