@@ -7,7 +7,7 @@ import {
   useMatches,
   useCanGoBack,
 } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Menu, Radio } from 'lucide-react';
 
 import { AppSidebar, type DashboardMode } from '@/components/app-sidebar';
@@ -33,6 +33,9 @@ import {
   type ChatSearch,
   type NavigationHistoryState,
   createSessionSwitchNavigator,
+  createBackNavigator,
+  createRestoreTaskIdConsumer,
+  resolveSpecRouteCanonicalization,
 } from './router-tree';
 
 export function LoadingScreen() {
@@ -275,16 +278,33 @@ function SpecDetailRouteComponent() {
   const navigate = useNavigate();
   const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
 
-  const selected = useMemo(() => {
+  const resolution = useMemo(() => {
     if (!data) return null;
-    return (
-      (source === 'active' ? data.active : data.archive).find((c) => c.slug === slug) ??
-      (source === 'active' ? data.archive : data.active).find((c) => c.slug === slug) ??
-      null
-    );
+    return resolveSpecRouteCanonicalization({
+      requestedSource: source,
+      slug,
+      activeSpecs: data.active,
+      archiveSpecs: data.archive,
+    });
   }, [data, source, slug]);
 
-  if (data && !selected) {
+  const handleConsumeRestoreTaskId = useCallback(
+    createRestoreTaskIdConsumer(navigate, source, slug),
+    [navigate, source, slug]
+  );
+
+  useEffect(() => {
+    if (resolution?.status === 'redirect' && resolution.canonicalSource) {
+      navigate({
+        to: '/specs/$source/$slug',
+        params: { source: resolution.canonicalSource, slug },
+        state: (prev: any) => ({ ...prev, ...(historyState || {}) }),
+        replace: true,
+      });
+    }
+  }, [resolution, slug, historyState, navigate]);
+
+  if (data && resolution?.status === 'not-found') {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl flex-col items-center justify-center px-6">
         <StatusCard
@@ -299,22 +319,25 @@ function SpecDetailRouteComponent() {
     );
   }
 
-  if (!selected) {
+  if (!resolution || resolution.status !== 'matched' || !resolution.spec) {
     return <LoadingScreen />;
   }
+
+  const selected = resolution.spec;
 
   return (
     <>
       <SpecDetail
         change={selected}
         initialTaskId={initialTaskId}
+        onConsumeRestoreTaskId={handleConsumeRestoreTaskId}
         onOpenSession={(session, taskId) => {
           const effectiveSessionId = session.providerSessionId || session.sessionId;
           // Store restoreTaskId on current spec history entry so Back from chat restores the dialog
           if (taskId) {
             navigate({
               to: '/specs/$source/$slug',
-              params: { source, slug },
+              params: { source: selected.source, slug: selected.slug },
               state: (prev: any) => ({ ...prev, restoreTaskId: taskId }),
               replace: true,
             });
@@ -409,22 +432,10 @@ function ChatRouteComponent() {
     return null;
   }, [data, globalSessions.sessions, historyState?.originSpecSlug, originTaskId, provider, sessionId]);
 
-  const handleBack = useCallback(() => {
-    if (router.history.canGoBack()) {
-      router.history.back();
-      return;
-    }
-
-    // Deterministic fallback for direct deep links without in-app history
-    if (associatedChange) {
-      navigate({
-        to: '/specs/$source/$slug',
-        params: { source: associatedChange.source, slug: associatedChange.slug },
-      });
-      return;
-    }
-    navigate({ to: '/' });
-  }, [associatedChange, navigate, router.history]);
+  const handleBack = useCallback(
+    createBackNavigator(router.history, navigate, associatedChange),
+    [associatedChange, navigate, router.history]
+  );
 
   const handleTurnChange = useCallback(
     (turnId: string | null) => {

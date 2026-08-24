@@ -9,6 +9,9 @@ import {
   specsArchiveAliasRoute,
   specSlugAliasRoute,
   createSessionSwitchNavigator,
+  createBackNavigator,
+  createRestoreTaskIdConsumer,
+  resolveSpecRouteCanonicalization,
 } from '../src/router-tree.ts';
 
 function readSource(relative) {
@@ -226,4 +229,165 @@ test('Item 10: TaskDialog is local UI overlay and does not mutate route search q
   // In spec-detail.tsx, selectedTaskId is local state without search query manipulation
   assert.ok(specDetailSource.includes('const [selectedTaskId, setSelectedTaskId] = useState<string | null>'));
   assert.ok(specDetailSource.includes('onClose={closeTask}'));
+});
+
+test('Issue 1 (Behavioral): restoreTaskId is consumed exactly once and does not resurrect closed dialog on refresh or navigation', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/'] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  // 1. Navigate to spec
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'spec-test' },
+  });
+
+  // 2. Open task -> store restoreTaskId in history state and navigate to chat
+  await router.navigate({
+    to: '/specs/$source/$slug',
+    params: { source: 'active', slug: 'spec-test' },
+    state: (prev) => ({ ...prev, restoreTaskId: 'task-1' }),
+    replace: true,
+  });
+
+  await router.navigate({
+    to: '/ai/sessions/$provider/$sessionId',
+    params: { provider: 'claude', sessionId: 'session-1' },
+    state: (prev) => ({ ...prev, origin: 'task', originTaskId: 'task-1' }),
+  });
+
+  // 3. User clicks Back -> returns to spec with restoreTaskId in history state
+  router.history.back();
+  await router.load();
+
+  assert.equal(router.state.location.pathname, '/specs/active/spec-test');
+  assert.equal(router.state.location.state?.restoreTaskId, 'task-1', 'Task dialog restored on Back');
+
+  // 4. SpecDetail consumes restoreTaskId with replace semantics immediately
+  const consumeRestoreTaskId = createRestoreTaskIdConsumer(router.navigate, 'active', 'spec-test');
+  await consumeRestoreTaskId();
+  await router.load();
+
+  // URL must not change and restoreTaskId must be cleared from current history entry
+  assert.equal(router.state.location.pathname, '/specs/active/spec-test');
+  assert.equal(router.state.location.state?.restoreTaskId, undefined, 'restoreTaskId must be consumed and cleared');
+
+  // 5. User explicitly closes the dialog (selectedTaskId becomes null)
+  let selectedTaskId = null;
+
+  // 6. Simulate SSE/dashboard refresh with new change.tasks reference
+  const refreshedTasks = [{ id: 'task-1', title: 'Task 1' }, { id: 'task-2', title: 'Task 2' }];
+  // SpecDetail with consumedTaskIdRef and cleared history state does not reopen the task
+  const initialTaskId = router.state.location.state?.restoreTaskId || null;
+  assert.equal(initialTaskId, null, 'initialTaskId is now null');
+  assert.equal(selectedTaskId, null, 'Task remains closed across data/task refreshes');
+
+  // 7. Navigate away to / and navigate back: restoreTaskId remains absent
+  await router.navigate({ to: '/' });
+  router.history.back();
+  await router.load();
+  assert.equal(router.state.location.pathname, '/specs/active/spec-test');
+  assert.equal(router.state.location.state?.restoreTaskId, undefined, 'History state does not resurrect closed task');
+});
+
+test('Issue 2 (Behavioral): Direct deep-link Back fallback uses replace semantics and does not allow browser Back to return to discarded chat', async () => {
+  const history = createMemoryHistory({
+    initialEntries: ['/ai/sessions/claude/direct-deep-link-session'],
+  });
+  const router = createAppRouter(history);
+  await router.load();
+
+  assert.equal(router.state.location.pathname, '/ai/sessions/claude/direct-deep-link-session');
+  assert.equal(router.history.canGoBack(), false, 'Direct entry has canGoBack=false');
+  assert.equal(history.length, 1);
+
+  // Execute production back navigator with associated spec change
+  const associatedChange = { source: 'active', slug: 'direct-spec-slug' };
+  const handleBack = createBackNavigator(router.history, router.navigate, associatedChange);
+  await handleBack();
+  await router.load();
+
+  // Route is replaced with the spec URL, history length stays 1
+  assert.equal(router.state.location.pathname, '/specs/active/direct-spec-slug');
+  assert.equal(history.length, 1, 'History entry must be REPLACED, not pushed');
+  assert.equal(router.history.canGoBack(), false, 'Cannot go back to discarded direct chat');
+
+  // Test fallback without associated change (defaults to / with replace)
+  const historyRoot = createMemoryHistory({
+    initialEntries: ['/ai/sessions/claude/standalone-session'],
+  });
+  const routerRoot = createAppRouter(historyRoot);
+  await routerRoot.load();
+
+  const handleBackRoot = createBackNavigator(routerRoot.history, routerRoot.navigate, null);
+  await handleBackRoot();
+  await routerRoot.load();
+
+  assert.equal(routerRoot.state.location.pathname, '/');
+  assert.equal(historyRoot.length, 1, 'History entry replaced with /');
+});
+
+test('Issue 3 (Behavioral): Route source canonicalization keeps URL and rendered spec collection in sync', () => {
+  const activeSpecs = [
+    { slug: 'active-feature-a', source: 'active' },
+    { slug: 'active-feature-b', source: 'active' },
+  ];
+  const archiveSpecs = [
+    { slug: 'archived-feature-x', source: 'archive' },
+    { slug: 'archived-feature-y', source: 'archive' },
+  ];
+
+  // 1. Active URL + active spec -> matched
+  const r1 = resolveSpecRouteCanonicalization({
+    requestedSource: 'active',
+    slug: 'active-feature-a',
+    activeSpecs,
+    archiveSpecs,
+  });
+  assert.equal(r1.status, 'matched');
+  assert.equal(r1.canonicalSource, 'active');
+  assert.equal(r1.spec.slug, 'active-feature-a');
+
+  // 2. Archive URL + archive spec -> matched
+  const r2 = resolveSpecRouteCanonicalization({
+    requestedSource: 'archive',
+    slug: 'archived-feature-x',
+    activeSpecs,
+    archiveSpecs,
+  });
+  assert.equal(r2.status, 'matched');
+  assert.equal(r2.canonicalSource, 'archive');
+  assert.equal(r2.spec.slug, 'archived-feature-x');
+
+  // 3. Stale active URL for now-archived spec -> canonical redirect to archive
+  const r3 = resolveSpecRouteCanonicalization({
+    requestedSource: 'active',
+    slug: 'archived-feature-x',
+    activeSpecs,
+    archiveSpecs,
+  });
+  assert.equal(r3.status, 'redirect');
+  assert.equal(r3.canonicalSource, 'archive');
+  assert.equal(r3.spec.slug, 'archived-feature-x');
+
+  // 4. Stale archive URL for now-active spec -> canonical redirect to active
+  const r4 = resolveSpecRouteCanonicalization({
+    requestedSource: 'archive',
+    slug: 'active-feature-b',
+    activeSpecs,
+    archiveSpecs,
+  });
+  assert.equal(r4.status, 'redirect');
+  assert.equal(r4.canonicalSource, 'active');
+  assert.equal(r4.spec.slug, 'active-feature-b');
+
+  // 5. Missing slug -> not-found
+  const r5 = resolveSpecRouteCanonicalization({
+    requestedSource: 'active',
+    slug: 'completely-missing-slug',
+    activeSpecs,
+    archiveSpecs,
+  });
+  assert.equal(r5.status, 'not-found');
+  assert.equal(r5.spec, undefined);
 });

@@ -458,25 +458,37 @@ function OverviewPanel({
 export function SpecDetail({
   change,
   initialTaskId,
+  onConsumeRestoreTaskId,
   onOpenSession,
   onCreateSession,
   onNavigateMode,
 }: {
   change: DashboardChange;
   initialTaskId: string | null;
+  onConsumeRestoreTaskId?: () => void;
   onOpenSession: (session: AiSession, taskId?: string) => void;
   onCreateSession: () => void;
   onNavigateMode?: (mode: 'active' | 'archive') => void;
 }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => (
+    initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null
+  ));
+
+  const consumedTaskIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (initialTaskId && change.tasks.some(task => task.id === initialTaskId)) {
+    if (!initialTaskId) return;
+    if (consumedTaskIdRef.current === initialTaskId) return;
+    consumedTaskIdRef.current = initialTaskId;
+
+    const isValid = change.tasks.some(task => task.id === initialTaskId);
+    if (isValid) {
       setSelectedTaskId(initialTaskId);
     }
-  }, [initialTaskId, change.tasks]);
+    onConsumeRestoreTaskId?.();
+  }, [initialTaskId, change.tasks, onConsumeRestoreTaskId]);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
     try {
       return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -551,7 +563,6 @@ export function SpecDetail({
   useEffect(() => {
     setActiveTab('overview');
     setVisitedTabs(new Set(['overview']));
-    setSelectedTaskId(initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
     setFinalizeOpen(false);
     try {
       const savedOp = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -561,7 +572,7 @@ export function SpecDetail({
     } catch {
       setActiveOperationId(null);
     }
-  }, [change.slug, initialTaskId]);
+  }, [change.slug]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLElement) => {
     taskTriggerRef.current = trigger;

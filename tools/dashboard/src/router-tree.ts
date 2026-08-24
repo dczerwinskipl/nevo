@@ -36,6 +36,84 @@ export function createSessionSwitchNavigator(
   };
 }
 
+export function createBackNavigator(
+  routerHistory: { canGoBack: () => boolean; back: () => void },
+  navigate: (opts: any) => Promise<any> | void,
+  associatedChange?: { source: 'active' | 'archive'; slug: string } | null
+) {
+  return () => {
+    if (routerHistory.canGoBack()) {
+      routerHistory.back();
+      return;
+    }
+    if (associatedChange) {
+      navigate({
+        to: '/specs/$source/$slug',
+        params: { source: associatedChange.source, slug: associatedChange.slug },
+        replace: true,
+      });
+      return;
+    }
+    navigate({ to: '/', replace: true });
+  };
+}
+
+export function createRestoreTaskIdConsumer(
+  navigate: (opts: any) => Promise<any> | void,
+  source: 'active' | 'archive',
+  slug: string
+) {
+  return () => {
+    navigate({
+      to: '/specs/$source/$slug',
+      params: { source, slug },
+      state: (prev: any) => {
+        if (!prev || !prev.restoreTaskId) return prev;
+        const { restoreTaskId: _, ...rest } = prev;
+        return rest;
+      },
+      replace: true,
+    });
+  };
+}
+
+export interface SpecCanonicalTarget {
+  slug: string;
+  source: 'active' | 'archive';
+  [key: string]: any;
+}
+
+export function resolveSpecRouteCanonicalization<T extends SpecCanonicalTarget>({
+  requestedSource,
+  slug,
+  activeSpecs,
+  archiveSpecs,
+}: {
+  requestedSource: 'active' | 'archive';
+  slug: string;
+  activeSpecs: T[];
+  archiveSpecs: T[];
+}): {
+  status: 'matched' | 'redirect' | 'not-found';
+  canonicalSource?: 'active' | 'archive';
+  spec?: T;
+} {
+  const currentCollection = requestedSource === 'active' ? activeSpecs : archiveSpecs;
+  const matched = currentCollection.find((s) => s.slug === slug);
+  if (matched) {
+    return { status: 'matched', canonicalSource: requestedSource, spec: matched };
+  }
+
+  const oppositeSource: 'active' | 'archive' = requestedSource === 'active' ? 'archive' : 'active';
+  const oppositeCollection = requestedSource === 'active' ? archiveSpecs : activeSpecs;
+  const oppositeMatched = oppositeCollection.find((s) => s.slug === slug);
+  if (oppositeMatched) {
+    return { status: 'redirect', canonicalSource: oppositeSource, spec: oppositeMatched };
+  }
+
+  return { status: 'not-found' };
+}
+
 export const rootRoute = createRootRoute();
 
 export const appLayoutRoute = createRoute({
