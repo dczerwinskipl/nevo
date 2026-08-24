@@ -281,8 +281,8 @@ function DocumentationPanel({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[280px_1fr] items-start">
-      <nav aria-label="Spis dokumentów specyfikacji" className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+    <div className="grid w-full min-w-0 max-w-full items-start gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+      <nav aria-label="Spis dokumentów specyfikacji" className="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
         {groups.map((group) => {
           const GroupIcon = resolveTabIcon(group.icon, group.items.length > 1 ? 'directory' : 'document');
           return (
@@ -322,13 +322,13 @@ function DocumentationPanel({
         })}
       </nav>
 
-      <div className="min-w-0">
+      <div className="w-full min-w-0 max-w-full">
         {documentQuery.loading ? (
           <ContentLoading />
         ) : documentQuery.error ? (
           <ContentError message={documentQuery.error} onRetry={() => void documentQuery.refresh()} />
         ) : selectedDoc && documentQuery.data?.available ? (
-          <Card className="overflow-hidden">
+          <Card className="w-full max-w-full overflow-hidden">
             <div className="border-b border-[var(--border)] bg-[var(--surface-raised)] px-5 py-4 sm:px-8 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
@@ -339,12 +339,12 @@ function DocumentationPanel({
                 </h2>
               </div>
               {selectedDoc.path && (
-                <span className="font-mono text-[10px] text-[var(--muted)]">
+                <span className="max-w-full break-all font-mono text-[10px] text-[var(--muted)]">
                   {selectedDoc.path}
                 </span>
               )}
             </div>
-            <article className="px-5 py-7 sm:px-8 sm:py-9">
+            <article className="w-full min-w-0 max-w-full px-5 py-7 sm:px-8 sm:py-9">
               <MarkdownContent markdown={documentQuery.data.markdown ?? ''} />
             </article>
           </Card>

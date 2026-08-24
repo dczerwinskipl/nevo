@@ -25,6 +25,19 @@ test('AC1 & AC2: Header and conversation layouts prevent horizontal overflow acr
   assert.match(aiChatSource, /overflow-hidden overscroll-none/);
 });
 
+test('Documentation layout constrains both grid tracks and rendered Markdown to the viewport', () => {
+  const specDetailSource = readSource('components/spec-detail.tsx');
+  const documentSectionSource = readSource('components/document-section-panel.tsx');
+  const directorySectionSource = readSource('components/directory-section-panel.tsx');
+  const stylesSource = readSource('index.css');
+
+  assert.match(specDetailSource, /lg:grid-cols-\[minmax\(0,280px\)_minmax\(0,1fr\)\]/);
+  assert.match(specDetailSource, /w-full min-w-0 max-w-full/);
+  assert.match(documentSectionSource, /w-full min-w-0 max-w-full/);
+  assert.match(directorySectionSource, /w-full min-w-0 max-w-full/);
+  assert.match(stylesSource, /\.markdown-body \{\s+width: 100%;\s+min-width: 0;\s+max-width: 100%;/);
+});
+
 test('AC3: Mobile keyboard viewport adjustments and safe area insets are wired', () => {
   const aiChatSource = readSource('components/ai-chat.tsx');
   const sheetSource = readSource('components/ui/sheet.tsx');
