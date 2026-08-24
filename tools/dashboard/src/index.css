@@ -2,27 +2,27 @@
 
 :root {
   color-scheme: dark;
-  --background: #090b10;
-  --surface: #101319;
-  --surface-raised: #151920;
-  --surface-hover: #1a1f28;
-  --border: #242a34;
-  --border-strong: #353d49;
-  --foreground: #f2f5ed;
-  --muted: #7f8996;
-  --muted-strong: #a8b0bb;
-  --accent: #c8f85a;
-  --accent-strong: #d7ff78;
+  --background: #090b16;
+  --surface: #101420;
+  --surface-raised: #161b2b;
+  --surface-hover: #1b2235;
+  --border: #252d43;
+  --border-strong: #37425f;
+  --foreground: #eef2ff;
+  --muted: #818ba5;
+  --muted-strong: #abb4cb;
+  --accent: #818cf8;
+  --accent-strong: #a5b4fc;
   --success: #34d399;
   --success-strong: #6ee7b7;
   --warning: #fbbf24;
   --warning-strong: #fde68a;
   --danger: #fb7185;
   --danger-strong: #fecdd3;
-  --info: #38bdf8;
-  --info-strong: #bae6fd;
-  --cat-1: #fb923c;
-  --cat-2: #c084fc;
+  --info: #60a5fa;
+  --info-strong: #bfdbfe;
+  --cat-1: #a78bfa;
+  --cat-2: #60a5fa;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -30,7 +30,7 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-color: #303845 transparent;
+  scrollbar-color: #35405d transparent;
   scrollbar-width: thin;
 }
 
@@ -44,8 +44,8 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at 22% -10%, rgba(200, 248, 90, 0.075), transparent 28rem),
-    radial-gradient(circle at 80% 115%, rgba(72, 111, 255, 0.055), transparent 32rem),
+    radial-gradient(circle at 22% -10%, rgba(129, 140, 248, 0.09), transparent 28rem),
+    radial-gradient(circle at 80% 115%, rgba(59, 130, 246, 0.065), transparent 32rem),
     var(--background);
   color: var(--foreground);
 }
@@ -73,7 +73,7 @@ button {
 }
 
 ::selection {
-  background: rgba(200, 248, 90, 0.3);
+  background: rgba(129, 140, 248, 0.3);
   color: #ffffff;
 }
 
@@ -123,7 +123,7 @@ button {
   border-radius: 0.35rem;
   background: var(--background);
   padding: 0.12rem 0.35rem;
-  color: #d9e3c3;
+  color: #c7d2fe;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 0.84em;
 }
