@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, type Keyboar
 import { Send, CircleStop } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AgentExecutionMode } from '@/lib/types';
+import { AI_MODES, getModeMeta } from '@/lib/ai-mode-meta';
 import { cn } from '@/lib/utils';
 import { getComposerLayoutState, adjustComposerTextareaElement } from './composer-sizing';
 
@@ -20,21 +21,6 @@ export interface ChatComposerProps {
   placeholder?: string;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
-
-const MODE_METAS: Record<AgentExecutionMode, { label: string; description: string }> = {
-  ask: {
-    label: 'ask',
-    description: 'Tryb Ask (Plan) - tylko odczyt i analiza bez modyfikacji plików',
-  },
-  edit: {
-    label: 'edit',
-    description: 'Tryb Edit (Domyślny) - bezpieczna edycja kodu w workspace',
-  },
-  agent: {
-    label: 'agent',
-    description: 'Tryb Agent (Auto) - pełna autonomia z pominięciem pytań o uprawnienia',
-  },
-};
 
 export function ChatComposer({
   onSend,
@@ -126,21 +112,22 @@ export function ChatComposer({
         <div className="flex items-center justify-between border-t border-[var(--border)]/60 px-3 py-2">
           {/* Mode Switcher */}
           <div className="flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-0.5 text-[10px]">
-            {(['ask', 'edit', 'agent'] as const).map((m) => (
+            {AI_MODES.map((modeMeta) => (
               <button
-                key={m}
+                key={modeMeta.id}
                 type="button"
-                onClick={() => onModeChange(m)}
+                onClick={() => onModeChange(modeMeta.id)}
                 className={cn(
                   'rounded px-2 py-1 font-semibold uppercase tracking-wider text-[9px] transition-colors',
-                  currentMode === m
+                  currentMode === modeMeta.id
                     ? 'bg-[var(--accent)] text-[#111604]'
                     : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                 )}
-                title={MODE_METAS[m].description}
+                title={`${modeMeta.label} - ${modeMeta.description}`}
+                aria-label={`${modeMeta.label}: ${modeMeta.description}`}
                 disabled={isDisabled}
               >
-                {m}
+                {modeMeta.id}
               </button>
             ))}
           </div>

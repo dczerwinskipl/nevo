@@ -37,6 +37,7 @@ import type {
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
   SpecificationTaskDocument,
+  TaskNavigationTarget,
 } from '@/lib/types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -358,6 +359,7 @@ function DocumentationPanel({
 
 function TaskDialog({
   task,
+  tasks = [],
   document: taskDocument,
   loading,
   error,
@@ -372,9 +374,11 @@ function TaskDialog({
   sessionsError,
   onSessionsRetry,
   onOpenSession,
+  onOpenTask,
   onClose,
 }: {
   task: DashboardTask;
+  tasks?: DashboardTask[];
   document: SpecificationTaskDocument | null;
   loading: boolean;
   error: string | null;
@@ -389,6 +393,7 @@ function TaskDialog({
   sessionsError: string | null;
   onSessionsRetry: () => void;
   onOpenSession: (session: AiSession) => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -453,10 +458,9 @@ function TaskDialog({
           </Button>
         </div>
 
-        <div className="overflow-y-auto px-5 py-6 sm:px-7 sm:py-8">
-          <div className="mb-6 flex flex-wrap gap-2 text-[11px] text-[var(--muted)]">
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">Status: {formatStatus(task.status)}</span>
-            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1">
+        <div className="flex-1 overflow-y-auto px-5 py-6 sm:px-7 sm:py-7">
+          <div className="mb-7 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-[var(--muted-strong)]">
               Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
             </span>
             {task.blockedBy.length > 0 && (
@@ -468,7 +472,7 @@ function TaskDialog({
 
           <section className="mb-7" aria-label="Sesje powiązane z zadaniem">
             <div className="mb-3 flex items-center gap-2"><MessagesSquare className="size-4 text-[var(--accent)]" /><h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3></div>
-            <AiSessionList sessions={sessions} tasks={[task]} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} emptyLabel="To zadanie nie ma jeszcze powiązanych sesji." />
+            <AiSessionList sessions={sessions} tasks={tasks.length > 0 ? tasks : [task]} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} emptyLabel="To zadanie nie ma jeszcze powiązanych sesji." />
           </section>
 
           {loading ? (
@@ -522,7 +526,7 @@ function OverviewPanel({
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
   onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {
   return (
     <>
@@ -595,6 +599,12 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => initialTaskId && change.tasks.some(task => task.id === initialTaskId) ? initialTaskId : null);
+
+  useEffect(() => {
+    if (initialTaskId && change.tasks.some(task => task.id === initialTaskId)) {
+      setSelectedTaskId(initialTaskId);
+    }
+  }, [initialTaskId, change.tasks]);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
     try {
       return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
@@ -886,7 +896,10 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
             taskActions={actionsQuery.data?.tasks}
             onDirectTaskAction={executeDirectTaskAction}
             onBatchTaskAction={executeBatchTaskAction}
-            onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+            onOpenTask={(target) => {
+              const nextTaskId = typeof target === 'string' ? target : target.taskId;
+              setSelectedTaskId(nextTaskId);
+            }}
             actions={
               change.source === 'active' ? (
                 <div className="mb-9 max-w-xl">
@@ -940,6 +953,7 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
       {selectedTask && (
         <TaskDialog
           task={selectedTask}
+          tasks={change.tasks}
           document={selectedTaskDocument}
           loading={taskDocumentQuery.loading}
           error={taskDocumentQuery.error}
@@ -954,6 +968,11 @@ export function SpecDetail({ change, initialTaskId, onOpenSession, onCreateSessi
           sessionsError={sessionsQuery.error}
           onSessionsRetry={() => void sessionsQuery.refresh()}
           onOpenSession={session => onOpenSession(session, selectedTask.id)}
+          onOpenTask={(target) => {
+            const nextTaskId = typeof target === 'string' ? target : target.taskId;
+            closeTask();
+            setSelectedTaskId(nextTaskId);
+          }}
           onClose={closeTask}
         />
       )}

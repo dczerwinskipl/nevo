@@ -10,7 +10,7 @@ import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
 import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
-import type { AiSession, DashboardChange } from '@/lib/types';
+import type { AiSession, DashboardChange, TaskNavigationTarget } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 function LoadingScreen() {
@@ -151,7 +151,10 @@ export default function App() {
     setPendingInitialMessage(null);
   }, []);
 
-  const handleOpenTask = useCallback((taskId: string, specSlug?: string) => {
+  const handleOpenTask = useCallback((target: TaskNavigationTarget | string, explicitSlug?: string | null) => {
+    const taskId = typeof target === 'string' ? target : target.taskId;
+    const specSlug = typeof target === 'string' ? explicitSlug : (target.specSlug || explicitSlug);
+
     if (specSlug) {
       const change = data?.active.find(item => item.slug === specSlug)
         || data?.archive.find(item => item.slug === specSlug);
@@ -201,12 +204,16 @@ export default function App() {
         </div>
         <div className="flex items-center gap-2">
           <div
-            className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[10px] text-[var(--muted)]"
+            role="status"
+            tabIndex={0}
+            aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
             title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
+            className="flex size-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default"
           >
-            <span className={cn('size-1.5 rounded-full', live ? 'bg-[var(--accent)]' : 'bg-amber-300 animate-pulse')} />
-            <Radio className={cn('size-3', live ? 'text-[var(--accent)]' : 'text-amber-300')} />
-            <span className="hidden sm:inline">{live ? 'SSE: Połączono' : 'SSE: Rozłączono'}</span>
+            <span className="relative flex size-3.5 items-center justify-center">
+              <Radio className={cn('size-3.5', live ? 'text-[var(--accent)]' : 'text-amber-400')} />
+              <span className={cn('absolute -top-0.5 -right-0.5 size-1.5 rounded-full', live ? 'bg-[var(--accent)]' : 'bg-amber-400 animate-ping')} />
+            </span>
           </div>
           <RetryButton size="icon" onClick={() => void refresh()} loading={refreshing} label="Odśwież dashboard" />
         </div>
@@ -248,7 +255,6 @@ export default function App() {
           onSessionsRetry={() => void globalSessions.refresh()}
           onOpenSession={session => openSession(session, null, null)}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
-          onOpenTask={handleOpenTask}
           search={search}
           onSearchChange={setSearch}
           open={sidebarOpen}

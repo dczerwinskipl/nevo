@@ -8,11 +8,13 @@ context:
     - specs/active/ux-improvements-version-1/areas/chat-and-sessions.md
     - tools/dashboard/src/components/ai-chat.tsx
     - tools/dashboard/src/components/ai-session-create-modal.tsx
+    - tools/dashboard/src/components/composer/composer.tsx
     - tools/dashboard/src/lib/types.ts
   optional: []
 allowed_paths:
   - tools/dashboard/src/components/ai-chat.tsx
   - tools/dashboard/src/components/ai-session-create-modal.tsx
+  - tools/dashboard/src/components/composer/composer.tsx
   - tools/dashboard/src/lib/ai-mode-meta.ts
 forbidden_paths:
   - src/**

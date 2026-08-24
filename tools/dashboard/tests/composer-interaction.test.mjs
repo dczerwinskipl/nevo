@@ -149,13 +149,13 @@ test('AC8 & AC9: Mode control is located inside the composer, not in the chat he
   const composerSource = readComposerSource();
   const aiChatSource = readAiChatSource();
 
-  // Composer contains mode switcher buttons (ask, edit, agent)
-  assert.match(composerSource, /\(\['ask', 'edit', 'agent'\] as const\)\.map/);
-  assert.match(composerSource, /onModeChange\(m\)/);
+  // Composer contains mode switcher buttons using canonical AI_MODES
+  assert.match(composerSource, /AI_MODES\.map/);
+  assert.match(composerSource, /onModeChange\(modeMeta\.id\)/);
 
   // Header in ai-chat.tsx does not contain the duplicate mode switcher
   const headerSection = aiChatSource.slice(aiChatSource.indexOf('const header = ('), aiChatSource.indexOf('return ('));
-  assert.ok(!headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
+  assert.ok(!headerSection.includes('AI_MODES.map') && !headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
 
   // No non-functional placeholder model/usage controls
   assert.ok(!composerSource.includes('select-model') && !composerSource.includes('usage-placeholder'));

@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import { StageProgress } from '@/components/stage-progress';
 import { AiSessionRow, sortSessionsByRecency } from '@/components/ai-session-list';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
-import { useDeleteAiSession } from '@/hooks/use-dashboard-data';
 
 export type DashboardMode = 'active' | 'archive';
 
@@ -37,7 +36,6 @@ interface AppSidebarProps {
   onSearchChange: (value: string) => void;
   open: boolean;
   onClose: () => void;
-  onOpenTask?: (taskId: string, specSlug?: string) => void;
 }
 
 function SpecNavigationItem({
@@ -118,20 +116,10 @@ export function AppSidebar({
   onSearchChange,
   open,
   onClose,
-  onOpenTask,
 }: AppSidebarProps) {
   const visible = changes;
   const activeSpecIds = new Set(active.map(change => change.specId).filter(Boolean));
   const recentSessions = sortSessionsByRecency(sessions.filter(session => activeSpecIds.has(session.specId))).slice(0, 5);
-  const activeTasks = active.flatMap(change => change.tasks);
-
-  const deleteMutation = useDeleteAiSession();
-  const handleDeleteSession = async (session: AiSession) => {
-    await deleteMutation.deleteSession({
-      provider: session.provider,
-      sessionId: session.providerSessionId || session.sessionId,
-    });
-  };
 
   return (
     <>
@@ -240,20 +228,16 @@ export function AppSidebar({
                 )
                 : recentSessions.length ? (
                   <div className="space-y-1.5">
-                    {recentSessions.map(session => {
-                      const spec = active.find(a => a.specId === session.specId) || archive.find(a => a.specId === session.specId);
-                      return (
-                        <AiSessionRow
-                          key={`${session.provider}:${session.sessionId}`}
-                          session={session}
-                          tasks={activeTasks}
-                          onOpen={onOpenSession}
-                          compact
-                          showSubtitle={false}
-                          showDelete={false}
-                        />
-                      );
-                    })}
+                    {recentSessions.map(session => (
+                      <AiSessionRow
+                        key={`${session.provider}:${session.providerSessionId || session.sessionId}`}
+                        session={session}
+                        onOpen={onOpenSession}
+                        compact
+                        showSubtitle={false}
+                        showDelete={false}
+                      />
+                    ))}
                   </div>
                 )
                 : <p className="py-2 text-[11px] text-[var(--muted)]">Brak sesji dla aktywnych specyfikacji.</p>}

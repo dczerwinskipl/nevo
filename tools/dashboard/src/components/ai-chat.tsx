@@ -41,6 +41,7 @@ import type {
   AiQuestionInteraction,
   AiSession,
   DashboardChange,
+  TaskNavigationTarget,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -63,18 +64,20 @@ function useChatVisualViewport() {
         const offsetTop = visualViewport ? Math.max(0, Math.round(visualViewport.offsetTop)) : 0;
         baselineHeight.current = Math.max(baselineHeight.current, height);
         const active = document.activeElement;
-        const textEntryFocused = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement;
-        const keyboardOpen = textEntryFocused && height < baselineHeight.current - 80;
-
-        if (textEntryFocused && window.scrollY !== 0) {
-          window.scrollTo(0, 0);
-        }
-
-        setViewport(previous => previous.height === height && previous.offsetTop === offsetTop && previous.keyboardOpen === keyboardOpen
-          ? previous
-          : { height, offsetTop, keyboardOpen });
+        const keyboard = Boolean(
+          active &&
+          (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.getAttribute('contenteditable') === 'true') &&
+          visualViewport &&
+          visualViewport.height < baselineHeight.current - 80
+        );
+        setViewport({
+          height: visualViewport ? Math.round(visualViewport.height) : null,
+          offsetTop,
+          keyboardOpen: keyboard,
+        });
       });
     };
+
     const resetBaseline = () => {
       baselineHeight.current = 0;
       measure();
@@ -124,7 +127,7 @@ export function AiChatPage({
   onBack: () => void;
   backLabel: string;
   onSwitchSession: (session: AiSession) => void;
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (target: TaskNavigationTarget) => void;
 }) {
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -166,7 +169,18 @@ export function AiChatPage({
 
   const session = assistant.sessionDetails;
   const change = changes.find(item => item.specId === session?.specId) ?? null;
-  const linkedTasks = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
+  const rawTaskIds = session?.taskIds && session.taskIds.length > 0 ? session.taskIds : (session?.taskId ? [session.taskId] : []);
+  const sessionTaskItems = useMemo(() => {
+    if (!rawTaskIds.length) return [];
+    return rawTaskIds.map((taskId) => {
+      const matchedTask = change?.tasks?.find((t) => t.id === taskId);
+      return {
+        id: taskId,
+        title: matchedTask?.title || taskId,
+        isClickable: Boolean(change && matchedTask),
+      };
+    });
+  }, [rawTaskIds, change]);
 
   const workByTurnId = useMemo(() => {
     const projection = projectChat(assistant.messages, { activeTurnId: assistant.activeTurnId });
@@ -279,12 +293,13 @@ export function AiChatPage({
               <SessionDetails
                 specTitle={change?.title}
                 specId={session?.specId}
-                tasks={linkedTasks}
+                specSlug={change?.slug}
+                tasks={sessionTaskItems}
                 provider={provider}
                 mode={currentMode}
-                onOpenTask={(taskId) => {
+                onOpenTask={(target) => {
                   setIsSessionDetailsOpen(false);
-                  onOpenTask?.(taskId);
+                  onOpenTask?.(target);
                 }}
                 onDelete={() => {
                   setIsSessionDetailsOpen(false);

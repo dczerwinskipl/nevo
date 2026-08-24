@@ -57,14 +57,16 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
-      review_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      review_revision: 60b8789bf701d68e2940e8464737d03dc18739cb
       changed_paths:
+        - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-session-create-modal.tsx
+        - tools/dashboard/src/components/composer/composer.tsx
         - tools/dashboard/src/lib/ai-mode-meta.ts
-      worktree_patch_fingerprint: dfe11b305a1992a78adde89c2c81ca42fef3621c06b179769da391d3e1b2763c
+      worktree_patch_fingerprint: 8e13f7b02a276be3b2a5f444b1fc9b9fa69866f892ad59bb30b8664d3a169eed
     self_check:
-      fingerprint: b86a145ab1125e1e0641998665e6ff9c717f5809198073c927b8067e5af8e333
-      revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      fingerprint: d1c24bf762149ec8907f85fcbaf6334e50c070e7894da27ae8032fefde0535d8
+      revision: 60b8789bf701d68e2940e8464737d03dc18739cb
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -118,17 +120,18 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
-      review_revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      review_revision: 60b8789bf701d68e2940e8464737d03dc18739cb
       changed_paths:
         - tools/dashboard/src/App.tsx
         - tools/dashboard/src/components/ai-chat.tsx
         - tools/dashboard/src/components/ai-session-list.tsx
         - tools/dashboard/src/components/app-sidebar.tsx
+        - tools/dashboard/src/components/session-details/session-details.tsx
         - tools/dashboard/src/components/spec-detail.tsx
-      worktree_patch_fingerprint: 19004f47c6c3243ae772b42d6f24649ecf87b4e17dce61c76be444efc2055983
+      worktree_patch_fingerprint: 07e585e012f8854a3cee4c11ba13a6518c13fbfcf83843c746842b4048e44961
     self_check:
-      fingerprint: 246117bc7d685546410566e0f15fbb2014d3ae1f2fbc2df60c88ca3d7e2f7dfe
-      revision: ad1a2563fffa6353d30d2e9cdf22320dc85656c0
+      fingerprint: 3c236cc41b717dc771b9413f71429d39aa4d4046a694a37db8203fd5ba623b33
+      revision: 60b8789bf701d68e2940e8464737d03dc18739cb
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

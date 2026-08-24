@@ -10,7 +10,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import type { AiSession, DashboardTask } from '@/lib/types';
+import type { AiSession, DashboardTask, TaskNavigationTarget } from '@/lib/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
@@ -70,7 +70,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
 
 export function AiSessionRow({
   session,
-  tasks,
+  tasks = [],
   onOpen,
   onDelete,
   onOpenTask,
@@ -79,10 +79,10 @@ export function AiSessionRow({
   showDelete = true,
 }: {
   session: AiSession;
-  tasks: DashboardTask[];
+  tasks?: DashboardTask[];
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   compact?: boolean;
   showSubtitle?: boolean;
   showDelete?: boolean;
@@ -101,26 +101,28 @@ export function AiSessionRow({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(session)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen(session);
-        }
-      }}
       className={cn(
-        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left outline-none transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-pointer',
+        'group relative flex min-w-0 w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_38%,var(--border))] hover:bg-[var(--surface-raised)]',
         compact ? 'p-3' : 'p-4'
       )}
     >
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
+      <button
+        type="button"
+        onClick={() => onOpen(session)}
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        aria-label={`Otwórz sesję: ${sessionTitle(session)}`}
+      >
         <MessagesSquare className="size-4" />
-      </div>
+      </button>
       <div className="min-w-0 flex-1 pr-6">
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-sm font-semibold text-[var(--foreground)]">{sessionTitle(session)}</p>
+        <button
+          type="button"
+          onClick={() => onOpen(session)}
+          className="flex w-full items-start justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
+        >
+          <p className="truncate text-sm font-semibold text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
+            {sessionTitle(session)}
+          </p>
           <span
             className={cn(
               'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide',
@@ -131,7 +133,7 @@ export function AiSessionRow({
           >
             {statusLabel(session.status)}
           </span>
-        </div>
+        </button>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--muted)]">
           <ProviderBadge provider={session.provider} />
           {!isAvailable && (
@@ -159,11 +161,8 @@ export function AiSessionRow({
                       {onOpenTask && matchedTask ? (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenTask(taskId);
-                          }}
-                          className="truncate text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--accent)] hover:underline"
+                          onClick={() => onOpenTask({ taskId })}
+                          className="truncate text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded"
                         >
                           {label}
                         </button>
@@ -184,8 +183,8 @@ export function AiSessionRow({
         <button
           type="button"
           title="Usuń sesję z dysku"
-          onClick={async (e) => {
-            e.stopPropagation();
+          aria-label="Usuń sesję z dysku"
+          onClick={async () => {
             if (isDeleting) return;
             if (!window.confirm('Czy na pewno chcesz usunąć tę sesję z dysku?')) return;
             setIsDeleting(true);
@@ -196,7 +195,7 @@ export function AiSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>
@@ -207,7 +206,7 @@ export function AiSessionRow({
 
 export function AiSessionList({
   sessions,
-  tasks,
+  tasks = [],
   loading,
   error,
   onRetry,
@@ -218,13 +217,13 @@ export function AiSessionList({
   limit,
 }: {
   sessions: AiSession[];
-  tasks: DashboardTask[];
+  tasks?: DashboardTask[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;
   onOpen: (session: AiSession) => void;
   onDelete?: (session: AiSession) => void | Promise<void>;
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (target: TaskNavigationTarget | string) => void;
   emptyLabel?: string;
   limit?: number;
 }) {

@@ -10,6 +10,7 @@ context:
     - tools/dashboard/src/components/spec-detail.tsx
     - tools/dashboard/src/components/ai-session-list.tsx
     - tools/dashboard/src/components/ai-chat.tsx
+    - tools/dashboard/src/components/session-details/session-details.tsx
     - tools/dashboard/src/components/app-sidebar.tsx
     - tools/dashboard/src/App.tsx
     - tools/dashboard/src/lib/types.ts
@@ -18,6 +19,7 @@ allowed_paths:
   - tools/dashboard/src/components/spec-detail.tsx
   - tools/dashboard/src/components/ai-session-list.tsx
   - tools/dashboard/src/components/ai-chat.tsx
+  - tools/dashboard/src/components/session-details/session-details.tsx
   - tools/dashboard/src/components/app-sidebar.tsx
   - tools/dashboard/src/App.tsx
 forbidden_paths:

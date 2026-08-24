@@ -55,42 +55,42 @@ function TaskCard({
       }}
       aria-label={`Otwórz szczegóły zadania: ${task.title}`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
           #{String(task.order ?? '—').padStart(2, '0')}
         </span>
-        <div className="flex items-center gap-1.5">
-          {hasAction && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-5 px-2 text-[10px] font-semibold text-[var(--accent)] border border-[var(--accent)]/40 hover:bg-[var(--accent)]/15"
-              onClick={e => {
-                e.stopPropagation();
-                onAction?.(task, actionGate.action);
-              }}
-            >
-              {actionGate.action === 'approve' ? (
-                <>
-                  <Play className="mr-1 size-2.5" /> Zatwierdź
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
-                </>
-              )}
-            </Button>
-          )}
-          {isDone ? (
-            <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
-          ) : task.blockedBy.length ? (
-            <LockKeyhole className="size-3.5 text-[var(--muted)]" />
-          ) : (
-            <CircleDashed className="size-3.5 text-[var(--muted)]" />
-          )}
-        </div>
+        {isDone ? (
+          <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
+        ) : task.blockedBy.length ? (
+          <LockKeyhole className="size-3.5 text-[var(--muted)]" />
+        ) : (
+          <CircleDashed className="size-3.5 text-[var(--muted)]" />
+        )}
       </div>
-      <h3 className="mt-2.5 text-[13px] font-semibold leading-5 text-[var(--foreground)]">{task.title}</h3>
+      <div className="mt-2.5 flex items-start justify-between gap-2">
+        <h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] min-w-0 flex-1">{task.title}</h3>
+        {hasAction && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-5 shrink-0 px-2 text-[10px] font-semibold text-[var(--accent)] border border-[var(--accent)]/40 hover:bg-[var(--accent)]/15"
+            onClick={e => {
+              e.stopPropagation();
+              onAction?.(task, actionGate.action);
+            }}
+          >
+            {actionGate.action === 'approve' ? (
+              <>
+                <Play className="mr-1 size-2.5" /> Zatwierdź
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mr-1 size-2.5" /> Zaakceptuj
+              </>
+            )}
+          </Button>
+        )}
+      </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <Badge className={cn('border-0 px-2 py-0.5 text-[9px]', tone.tint)}>{formatStatus(task.status)}</Badge>
         {task.dependsOn.length > 0 && (
