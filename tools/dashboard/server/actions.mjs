@@ -177,6 +177,12 @@ export function executeSpecificationAction({
   });
 
   const useGit = useGitParam ?? (root === REPOSITORY_ROOT);
+
+  let resolveCompletion;
+  const completion = new Promise((resolvePromise) => {
+    resolveCompletion = resolvePromise;
+  });
+
   const runner = async () => {
     try {
       let result;
@@ -225,6 +231,7 @@ export function executeSpecificationAction({
       }
     } finally {
       markFinished();
+      resolveCompletion();
     }
   };
 
@@ -238,5 +245,6 @@ export function executeSpecificationAction({
     message: action === 'approve'
       ? 'Zadanie zostało zatwierdzone.'
       : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+    completion,
   };
 }

@@ -23,7 +23,7 @@ export function createSpecsRouteAdapter({
   activeDir,
   root,
 } = {}) {
-  const activeControllers = new Map(); // slug -> AbortController
+  const activeActions = new Map(); // slug -> { controller, completion }
 
   const handleSpecsRoute = async ({
     request,
@@ -124,13 +124,19 @@ export function createSpecsRouteAdapter({
           sendJson(response, 403, { error: 'Dashboard action header is required.' });
           return true;
         }
-        if (activeControllers.has(slug)) {
+        if (activeActions.has(slug)) {
           sendJson(response, 409, { error: 'Another specification action is already running.' });
           return true;
         }
         const controller = new AbortController();
-        activeControllers.set(slug, controller);
         let hasStarted = false;
+        let cleanupDone = false;
+        const cleanup = () => {
+          if (cleanupDone) return;
+          cleanupDone = true;
+          activeActions.delete(slug);
+        };
+
         try {
           const body = await readJsonBody(request);
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -145,13 +151,26 @@ export function createSpecsRouteAdapter({
             root,
             operationRuntime: runtime,
             signal: controller.signal,
-            onFinished: () => {
-              activeControllers.delete(slug);
-            },
+            onFinished: cleanup,
+          });
+
+          const completion = (result?.completion && typeof result.completion.then === 'function')
+            ? result.completion.finally(cleanup)
+            : Promise.resolve().finally(cleanup);
+
+          activeActions.set(slug, {
+            controller,
+            completion,
           });
           hasStarted = true;
 
-          sendJson(response, 200, result);
+          sendJson(response, 200, {
+            ok: result.ok,
+            operationId: result.operationId,
+            action: result.action,
+            ...(result.taskId ? { taskId: result.taskId } : {}),
+            message: result.message,
+          });
         } catch (error) {
           const known = error instanceof SpecificationActionError || error instanceof HttpError;
           sendJson(response, known ? error.status : 500, {
@@ -159,7 +178,7 @@ export function createSpecsRouteAdapter({
           });
         } finally {
           if (!hasStarted) {
-            activeControllers.delete(slug);
+            cleanup();
           }
         }
         return true;
@@ -245,19 +264,24 @@ export function createSpecsRouteAdapter({
     return false;
   };
 
-  const shutdown = () => {
-    for (const [slug, controller] of activeControllers.entries()) {
+  const shutdown = async () => {
+    const entries = Array.from(activeActions.values());
+    for (const { controller } of entries) {
       try {
         controller.abort(new Error('Dashboard server shutting down'));
       } catch {}
     }
-    activeControllers.clear();
+    if (entries.length > 0) {
+      await Promise.allSettled(entries.map(e => e.completion));
+    }
+    activeActions.clear();
   };
 
   return {
     handleSpecsRoute,
     shutdown,
-    getActiveControllers: () => activeControllers,
+    getActiveActions: () => activeActions,
+    getActiveControllers: () => new Map(Array.from(activeActions.entries()).map(([k, v]) => [k, v.controller])),
   };
 }
 

@@ -116,17 +116,46 @@ test('serves active-only lifecycle gates and executes explicit validated actions
   }
 });
 
-test('specs route adapter manages AbortController lifecycle and aborts on shutdown', async () => {
+test('specs route adapter manages AbortController and completion settlement during shutdown', async () => {
   let capturedSignal = null;
-  let finishAction = null;
+  let settleActionPromise;
+  const actionDone = new Promise((resolve) => { settleActionPromise = resolve; });
+  let actionSettled = false;
+  let runtimeShutdownCalled = false;
+  const eventsOrder = [];
+
+  const fakeOperationRuntime = {
+    createOperation: () => 'op-test-1',
+    recordEvent: () => {},
+    completeOperation: () => {},
+    failOperation: () => {},
+    getSnapshot: () => ({ status: 'running', steps: [], events: [] }),
+    shutdown: () => {
+      runtimeShutdownCalled = true;
+      eventsOrder.push({ type: 'runtime-shutdown', afterActionSettled: actionSettled });
+    },
+  };
 
   const server = createDashboardServer({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
+    operationRuntime: fakeOperationRuntime,
     actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
       capturedSignal = signal;
-      finishAction = onFinished;
-      return { ok: true, operationId: 'op-abort-test', action, taskId };
+      const wrappedCompletion = (async () => {
+        await actionDone;
+        actionSettled = true;
+        eventsOrder.push({ type: 'action-settled' });
+      })();
+
+      return {
+        ok: true,
+        operationId: 'op-abort-test',
+        action,
+        taskId,
+        message: 'Started',
+        completion: wrappedCompletion,
+      };
     },
   });
 
@@ -140,10 +169,15 @@ test('specs route adapter manages AbortController lifecycle and aborts on shutdo
     });
 
     assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.equal(json.ok, true);
+    assert.equal(json.operationId, 'op-abort-test');
+    assert.equal(json.completion, undefined, 'completion promise is not exposed in public JSON');
+
     assert.ok(capturedSignal, 'AbortSignal was passed to actionExecutor');
     assert.equal(capturedSignal.aborted, false);
 
-    // Concurrency lock is active
+    // Concurrency lock is active while action is running
     const conflictRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
@@ -151,13 +185,35 @@ test('specs route adapter manages AbortController lifecycle and aborts on shutdo
     });
     assert.equal(conflictRes.status, 409);
 
-    // When server closes, the active controller is aborted
-    await new Promise(r => server.close(r));
-    assert.equal(capturedSignal.aborted, true);
+    // Trigger server shutdown
+    let shutdownSettled = false;
+    const shutdownPromise = server.shutdown().then(() => {
+      shutdownSettled = true;
+    });
 
-    // Action finishes cleanup
-    if (finishAction) finishAction();
+    // Verify signal is aborted
+    assert.equal(capturedSignal.aborted, true, 'AbortSignal was aborted on server shutdown');
+
+    // Give microtasks a cycle to prove shutdown is STILL waiting for the action to settle
+    await Promise.resolve();
+    assert.equal(shutdownSettled, false, 'Shutdown did not complete while action was still settling');
+    assert.equal(runtimeShutdownCalled, false, 'OperationRuntime.shutdown was not called prematurely');
+
+    // Now settle the deferred action promise
+    settleActionPromise();
+
+    // Now await the shutdown promise
+    await shutdownPromise;
+    assert.equal(shutdownSettled, true, 'Shutdown completed after action settled');
+    assert.equal(runtimeShutdownCalled, true, 'OperationRuntime was shut down');
+
+    // Check strict execution order: action settled before runtime shutdown
+    assert.deepEqual(eventsOrder, [
+      { type: 'action-settled' },
+      { type: 'runtime-shutdown', afterActionSettled: true },
+    ]);
   } finally {
+    try { await server.shutdown(); } catch {}
     try { await new Promise(r => server.close(r)); } catch {}
   }
 });

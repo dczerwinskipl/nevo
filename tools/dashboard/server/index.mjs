@@ -125,12 +125,49 @@ export function createDashboardServer({
     }
   });
 
+  let shutdownPromise = null;
+  const performShutdown = async () => {
+    if (!shutdownPromise) {
+      shutdownPromise = (async () => {
+        try {
+          await specsAdapter.shutdown?.();
+        } catch (err) {
+          console.error('[server] error shutting down specs adapter:', err);
+        }
+        try {
+          await aiAdapter.shutdown?.();
+        } catch (err) {
+          console.error('[server] error shutting down AI adapter:', err);
+        }
+        try {
+          operationRuntime.shutdown?.();
+        } catch (err) {
+          console.error('[server] error shutting down operation runtime:', err);
+        }
+        try {
+          eventHub?.close?.();
+        } catch (err) {
+          console.error('[server] error closing event hub:', err);
+        }
+      })();
+    }
+    return shutdownPromise;
+  };
+
+  const originalClose = server.close.bind(server);
+  server.close = function (callback) {
+    return originalClose(async (err) => {
+      await performShutdown();
+      if (typeof callback === 'function') {
+        callback(err);
+      }
+    });
+  };
+
   server.on('close', () => {
-    eventHub?.close?.();
-    aiAdapter.shutdown?.();
-    specsAdapter.shutdown?.();
-    operationRuntime.shutdown?.();
+    void performShutdown();
   });
+  server.shutdown = performShutdown;
   return server;
 }
 

@@ -32,3 +32,11 @@ follow_ups:
     resolver_task: specs-lifecycle-and-storage-capabilities
     status: open
     resolution: null
+  - id: async-github-cli-resolution
+    source_task: shared-specs-workflow-operations
+    kind: PERFORMANCE
+    severity: non-blocking
+    reason: "The long-running dashboard server GitHub path currently performs synchronous gh --version resolution via resolveGhBinary() / isGhAvailable() on first use. Evaluate and migrate to an asynchronous binary resolution helper."
+    resolver_task: null
+    status: open
+    resolution: null

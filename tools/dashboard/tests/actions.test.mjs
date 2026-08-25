@@ -144,9 +144,7 @@ test('in-process action execution records failure in OperationRuntime on error a
   const sample = fixture();
   let terminationCount = 0;
   let runtimeResult = null;
-
-  let resolveDone;
-  const donePromise = new Promise(resolve => { resolveDone = resolve; });
+  let onFinishedCallCount = 0;
 
   const runtime = {
     createOperation: () => 'op-fail-1',
@@ -154,12 +152,10 @@ test('in-process action execution records failure in OperationRuntime on error a
     completeOperation: (id, result) => {
       terminationCount++;
       runtimeResult = { status: 'completed', result };
-      resolveDone();
     },
     failOperation: (id, error) => {
       terminationCount++;
       runtimeResult = { status: 'failed', error };
-      resolveDone();
     },
   };
 
@@ -171,13 +167,18 @@ test('in-process action execution records failure in OperationRuntime on error a
       activeDir: sample.activeDir,
       root: sample.root,
       operationRuntime: runtime,
+      onFinished: () => {
+        onFinishedCallCount++;
+      },
     });
 
     assert.equal(result.ok, true);
+    assert.ok(result.completion && typeof result.completion.then === 'function', 'result provides completion Promise');
 
-    await donePromise;
+    await result.completion;
 
     assert.equal(terminationCount, 1, 'OperationRuntime terminated exactly once on failure');
+    assert.equal(onFinishedCallCount, 1, 'onFinished was called exactly once on failure');
     assert.equal(runtimeResult?.status, 'failed');
     assert.ok(runtimeResult?.error, 'OperationRuntime received failure error');
   } finally {
