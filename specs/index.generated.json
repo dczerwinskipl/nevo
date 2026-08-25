@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T10:33:32.503Z",
+  "generated": "2026-08-25T10:37:49.148Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -208,7 +208,7 @@
           "id": "specs-lifecycle-and-storage-capabilities",
           "order": 2,
           "file": "tasks/02-specs-lifecycle-and-storage-capabilities.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "shared-specs-workflow-operations"
           ]
@@ -217,7 +217,7 @@
           "id": "specs-cli-entrypoint-and-command-boundary",
           "order": 3,
           "file": "tasks/03-specs-cli-entrypoint-and-command-boundary.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "specs-lifecycle-and-storage-capabilities"
           ]
@@ -226,7 +226,7 @@
           "id": "dashboard-server-runtime-and-routes",
           "order": 4,
           "file": "tasks/04-dashboard-server-runtime-and-routes.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "shared-specs-workflow-operations"
           ]
@@ -235,13 +235,13 @@
           "id": "spec-detail-and-workflow-feature-slice",
           "order": 5,
           "file": "tasks/05-spec-detail-and-workflow-feature-slice.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "changes-and-pr-diff-feature-slice",
           "order": 6,
           "file": "tasks/06-changes-and-pr-diff-feature-slice.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "spec-detail-and-workflow-feature-slice"
           ]
@@ -250,7 +250,7 @@
           "id": "ai-assistant-chat-and-runtime-feature-slice",
           "order": 7,
           "file": "tasks/07-ai-assistant-chat-and-runtime-feature-slice.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "changes-and-pr-diff-feature-slice"
           ]
@@ -259,7 +259,7 @@
           "id": "e2e-verification-and-guidelines-audit",
           "order": 8,
           "file": "tasks/08-e2e-verification-and-guidelines-audit.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "specs-cli-entrypoint-and-command-boundary",
             "dashboard-server-runtime-and-routes",

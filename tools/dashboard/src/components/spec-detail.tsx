@@ -609,6 +609,8 @@ export function SpecDetail({
                 const snap = (await checkRes.json()) as OperationSnapshot;
                 if (snap.status === 'completed') {
                   isTerminal = true;
+                  // Allow Git and filesystem locks to settle before next task
+                  await new Promise(r => setTimeout(r, 600));
                 } else if (snap.status === 'failed') {
                   return; // Stop batch execution if a task fails
                 }
