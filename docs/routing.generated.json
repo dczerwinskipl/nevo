@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T09:25:18.744Z",
+  "generated": "2026-08-25T09:59:48.490Z",
   "rules": [
     {
       "rule_id": "CIM-01",
@@ -149,6 +149,18 @@
       "rule_id": "RT-12",
       "path_glob": "src/NEvo.Messaging.Cqrs/**",
       "doc_ref": "docs/development/processing-model.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-13",
+      "path_glob": "tools/**",
+      "doc_ref": "docs/development/node-tooling-guidelines.md",
+      "source": "docs/ai/task-routing.md"
+    },
+    {
+      "rule_id": "RT-14",
+      "path_glob": "tools/dashboard/src/**",
+      "doc_ref": "docs/development/react-component-guidelines.md",
       "source": "docs/ai/task-routing.md"
     }
   ]

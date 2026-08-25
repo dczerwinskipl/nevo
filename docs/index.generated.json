@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T09:25:18.742Z",
+  "generated": "2026-08-25T09:59:48.488Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -837,7 +837,7 @@
       "type": "ai",
       "title": "Framework task routing",
       "status": "current",
-      "summary": "For a given kind of framework change, which documents to read, which invariants to preserve, and which tests to run. Distinct from how-to-navigate.md, which routes the spec/task workflow itself, not framework knowledge.",
+      "summary": "For a given kind of framework or tooling change, which documents to read, which invariants to preserve, and which tests to run. Distinct from how-to-navigate.md, which routes the spec/task workflow itself, not framework knowledge.",
       "related": [
         "ai.how-to-navigate",
         "ai.change-impact-map"
