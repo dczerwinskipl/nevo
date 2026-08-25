@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 
 import { createDashboardServer } from '../server/index.mjs';
-import { ACTIVE_DIR, refreshSpecsIndexes } from '../../specs/service.mjs';
+import { ACTIVE_DIR } from '../../specs/store.mjs';
+import { refreshSpecsIndexes } from '../../specs/indexes.mjs';
 
 function fakeHub() {
   return { subscribe: () => () => {}, close: () => {} };

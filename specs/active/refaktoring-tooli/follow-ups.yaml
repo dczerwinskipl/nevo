@@ -12,7 +12,14 @@ follow_ups:
     source_task: dashboard-server-runtime-and-routes
     kind: MAINTAINABILITY
     severity: non-blocking
-    reason: "Migrate the dashboard HTTP adapter from native node:http to Fastify after the current capability boundaries are stabilized. The migration should: preserve current application/capability operations; replace manual route/method/path matching with Fastify routes; register capability route groups as Fastify plugins; use route prefixes/params; centralize HTTP error mapping where appropriate; use Fastify lifecycle/shutdown support; preserve SSE semantics; and use Fastify inject-based HTTP testing where useful."
+    reason: "Migrate the dashboard HTTP adapter from native node:http to Fastify
+      after the current capability boundaries are stabilized. The migration
+      should: preserve current application/capability operations; replace manual
+      route/method/path matching with Fastify routes; register capability route
+      groups as Fastify plugins; use route prefixes/params; centralize HTTP
+      error mapping where appropriate; use Fastify lifecycle/shutdown support;
+      preserve SSE semantics; and use Fastify inject-based HTTP testing where
+      useful."
     resolver_task: null
     status: open
     resolution: null
@@ -20,7 +27,9 @@ follow_ups:
     source_task: dashboard-server-runtime-and-routes
     kind: MAINTAINABILITY
     severity: non-blocking
-    reason: "Evaluate and migrate extracted Node tooling to TypeScript, preferably when the tooling moves to its own repository or after the Fastify migration."
+    reason: "Evaluate and migrate extracted Node tooling to TypeScript, preferably
+      when the tooling moves to its own repository or after the Fastify
+      migration."
     resolver_task: null
     status: open
     resolution: null
@@ -28,15 +37,26 @@ follow_ups:
     source_task: shared-specs-workflow-operations
     kind: PERFORMANCE
     severity: non-blocking
-    reason: "Evaluate repository-size-dependent synchronous filesystem work remaining in shared specs operations (including metadata/index regeneration and finalize validation/archive paths) while Task 02 decomposes specs lifecycle and storage capabilities. Small bounded synchronous reads/writes do not need mechanical conversion."
+    reason: "Evaluate repository-size-dependent synchronous filesystem work
+      remaining in shared specs operations (including metadata/index
+      regeneration and finalize validation/archive paths) while Task 02
+      decomposes specs lifecycle and storage capabilities. Small bounded
+      synchronous reads/writes do not need mechanical conversion."
     resolver_task: specs-lifecycle-and-storage-capabilities
-    status: open
-    resolution: null
+    status: resolved
+    resolution: "Evaluated during Task 02/03 modularization: long-running
+      server/runtime paths in tools/dashboard use async filesystem APIs
+      (loadChangeAsync, listChangesAsync), while short-lived CLI command
+      executions retain bounded synchronous filesystem operations in compliance
+      with node-tooling-guidelines.md."
   - id: async-github-cli-resolution
     source_task: shared-specs-workflow-operations
     kind: PERFORMANCE
     severity: non-blocking
-    reason: "The long-running dashboard server GitHub path currently performs synchronous gh --version resolution via resolveGhBinary() / isGhAvailable() on first use. Evaluate and migrate to an asynchronous binary resolution helper."
+    reason: "The long-running dashboard server GitHub path currently performs
+      synchronous gh --version resolution via resolveGhBinary() /
+      isGhAvailable() on first use. Evaluate and migrate to an asynchronous
+      binary resolution helper."
     resolver_task: null
     status: open
     resolution: null

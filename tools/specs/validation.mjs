@@ -7,8 +7,10 @@ import { parseFrontMatterFile, parseYamlFile } from '../lib/yaml.mjs';
 import { CliError, RECOVERY_SCENARIOS } from '../lib/cli-errors.mjs';
 import {
   listChanges, ACTIVE_DIR, ARCHIVE_DIR,
-  normalizePullRequestReference, pullRequestReferenceKey,
 } from './store.mjs';
+import {
+  normalizePullRequestReference, pullRequestReferenceKey,
+} from './pull-requests.mjs';
 import { parseOwnerDecisions, parseConstraints } from './fingerprint.mjs';
 import { pathGlobsOverlap } from './context.mjs';
 import { FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES } from './follow-ups.mjs';

@@ -1,7 +1,7 @@
 import { TERMINAL_STATUSES, completionHardStop, validateTransition, validateApproval } from './lifecycle-primitives.mjs';
 import { computeMechanicalExemption } from './validation.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from './fingerprint.mjs';
-import { loadReview } from './store.mjs';
+import { loadReview } from './lifecycle/reviews.mjs';
 
 /**
  * Registry of validator building blocks.

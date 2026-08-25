@@ -1,4 +1,6 @@
 import { DEPENDENCY_SATISFYING_STATUSES, validateTransition } from '../lifecycle-primitives.mjs';
+import { updateYamlFile } from '../../lib/yaml.mjs';
+import { CliError } from '../../lib/cli-errors.mjs';
 
 // ── Postcondition-based recovery (D8, D17, area recovery-and-resume) ───────
 //
@@ -241,3 +243,40 @@ export function resolveAfterConfirmedRepair(freshInspection) {
       (freshInspection.reason ? `: ${freshInspection.reason}` : '.'),
   };
 }
+
+// ── Suspension persistence ─────────────────────────────────────────────────
+
+export function setTaskSuspension(change, taskId, suspension) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    if (item.has('execution')) {
+      item.get('execution', true).set('suspension', suspension);
+    } else {
+      item.set('execution', { suspension });
+    }
+  });
+}
+
+export function clearTaskSuspension(change, taskId) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item?.has('execution')) return;
+    const execution = item.get('execution', true);
+    if (execution.has('suspension')) execution.delete('suspension');
+    if (execution.items.length === 0) item.delete('execution');
+  });
+}
+
+export function guardAgainstUnsafeManual(task, taskId, action) {
+  const suspension = task.execution?.suspension;
+  if (suspension?.kind === 'unsafe-manual') {
+    throw new CliError(
+      `Task '${taskId}' has an unresolved unsafe-manual suspension (${suspension.code}) — ` +
+      `it must be resolved manually before '${action}' can be retried.`
+    );
+  }
+}
+

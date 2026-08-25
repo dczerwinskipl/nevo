@@ -55,7 +55,7 @@ tasks:
       - shared-specs-workflow-operations
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
+      review_revision: e9001c70c9455b34487241795b616d33f26e6594
       changed_paths:
         - tools/specs/commands/agent-session.mjs
         - tools/specs/commands/approve.mjs
@@ -86,16 +86,28 @@ tasks:
         - tools/specs/lifecycle/reviews.mjs
         - tools/specs/lifecycle/stage.mjs
         - tools/specs/operations/approve.mjs
+        - tools/specs/operations/batch.mjs
+        - tools/specs/operations/comments.mjs
+        - tools/specs/operations/complete.mjs
         - tools/specs/operations/finalize.mjs
+        - tools/specs/operations/index.mjs
+        - tools/specs/operations/provenance.mjs
+        - tools/specs/operations/reviews.mjs
+        - tools/specs/operations/self-check.mjs
+        - tools/specs/operations/start.mjs
+        - tools/specs/operations/status.mjs
         - tools/specs/operations/verify.mjs
+        - tools/specs/pull-requests.mjs
         - tools/specs/service.mjs
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
         - tools/tests/context.test.mjs
-      worktree_patch_fingerprint: null
+        - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/refactoring-review-findings.test.mjs
+      worktree_patch_fingerprint: a916b4a28ac1a182d66a4d13e802c07dd156421a36ab78892c2f0a9fb25263e5
     self_check:
       fingerprint: e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429
-      revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
+      revision: e9001c70c9455b34487241795b616d33f26e6594
       commands:
         - command: node --test tools/tests/task-lifecycle.test.mjs
             tools/tests/gates.test.mjs tools/tests/workflow-*.test.mjs
@@ -112,7 +124,7 @@ tasks:
       - specs-lifecycle-and-storage-capabilities
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
+      review_revision: e9001c70c9455b34487241795b616d33f26e6594
       changed_paths:
         - tools/specs.mjs
         - tools/specs/commands/agent-session.mjs
@@ -144,16 +156,28 @@ tasks:
         - tools/specs/lifecycle/reviews.mjs
         - tools/specs/lifecycle/stage.mjs
         - tools/specs/operations/approve.mjs
+        - tools/specs/operations/batch.mjs
+        - tools/specs/operations/comments.mjs
+        - tools/specs/operations/complete.mjs
         - tools/specs/operations/finalize.mjs
+        - tools/specs/operations/index.mjs
+        - tools/specs/operations/provenance.mjs
+        - tools/specs/operations/reviews.mjs
+        - tools/specs/operations/self-check.mjs
+        - tools/specs/operations/start.mjs
+        - tools/specs/operations/status.mjs
         - tools/specs/operations/verify.mjs
+        - tools/specs/pull-requests.mjs
         - tools/specs/service.mjs
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
         - tools/tests/context.test.mjs
-      worktree_patch_fingerprint: null
+        - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/refactoring-review-findings.test.mjs
+      worktree_patch_fingerprint: 47548b0845f67a26407189d67f84e7359384125082164868621dfcc6dcc6eeec
     self_check:
       fingerprint: b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29
-      revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
+      revision: e9001c70c9455b34487241795b616d33f26e6594
       commands:
         - command: node --test tools/tests/cli-*.test.mjs
             tools/tests/handler-testability.test.mjs

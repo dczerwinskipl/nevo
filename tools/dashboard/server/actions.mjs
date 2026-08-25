@@ -4,7 +4,8 @@ import { promisify } from 'node:util';
 import * as git from '../../lib/git.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../specs/gates.mjs';
-import { ACTIVE_DIR, loadChange, loadFollowUps } from '../../specs/service.mjs';
+import { ACTIVE_DIR, loadChange } from '../../specs/store.mjs';
+import { loadFollowUps } from '../../specs/follow-ups.mjs';
 import { approveTask, verifyTask, finalizeChange } from '../../specs/operations/index.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
 

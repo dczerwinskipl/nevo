@@ -9,7 +9,7 @@ import {
   loadSpecificationActions,
   SpecificationActionError,
 } from '../server/actions.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/service.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-dashboard-actions-${process.pid}-${Date.now()}-${Math.random()}`);

@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { readUtf8, writeUtf8 } from '../../lib/fs.mjs';
 import {
   isTaskReady,
   DEPENDENCY_SATISFYING_STATUSES,
@@ -388,3 +391,30 @@ export function computeBatchReviewVerdict({ ownerDecisionFindings = 0, otherFind
   if (otherFindings > 0) return 'changes-recommended';
   return 'no-findings';
 }
+
+// ── Batch intent persistence ───────────────────────────────────────────────
+
+export function batchIntentFile(change) {
+  return join(change._dir, 'batch.json');
+}
+
+/** Load a change's active batch intent, or `null` if none is in progress. */
+export function loadBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (!existsSync(file)) return null;
+  const raw = readUtf8(file);
+  if (!raw.trim()) return null;
+  return JSON.parse(raw);
+}
+
+/** Persist a new batch's intent. */
+export function writeBatchIntent(change, intent) {
+  writeUtf8(batchIntentFile(change), JSON.stringify(intent, null, 2));
+}
+
+/** Clear a change's batch intent file once the batch is done (or abandoned). */
+export function clearBatchIntent(change) {
+  const file = batchIntentFile(change);
+  if (existsSync(file)) writeUtf8(file, '');
+}
+

@@ -12,7 +12,7 @@ import {
   setTaskSuspension,
   clearTaskSuspension,
   guardAgainstUnsafeManual,
-} from './specs/store.mjs';
+} from './specs/lifecycle/recovery.mjs';
 import { BATCH_SELECTION_MODES } from './specs/lifecycle/batch.mjs';
 
 import {

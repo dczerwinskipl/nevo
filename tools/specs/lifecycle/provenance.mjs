@@ -1,4 +1,6 @@
 import { pathMatchesAllowedPattern } from './recovery.mjs';
+import { updateYamlFile } from '../../lib/yaml.mjs';
+import { CliError } from '../../lib/cli-errors.mjs';
 
 // ── Implementation provenance & changed path attribution (D34/D35, task 15) ─
 
@@ -158,3 +160,26 @@ export function validateMaintenanceCorrectionEntry(entry) {
   if (!entry?.revision) missing.push('revision');
   return missing.length ? { ok: false, missing } : { ok: true };
 }
+
+// ── Implementation provenance & self-check persistence ─────────────────────
+
+/** Write `task`'s `implementation` provenance block — overwrites any prior value. */
+export function writeImplementationProvenance(change, taskId, implementation) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('implementation', implementation);
+  });
+}
+
+/** Write `task`'s `self_check` block — overwrites any prior value. */
+export function writeSelfCheck(change, taskId, selfCheck) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    item.set('self_check', selfCheck);
+  });
+}
+

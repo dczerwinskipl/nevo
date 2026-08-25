@@ -1,6 +1,8 @@
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
 import {
-  loadChangeAnywhere,
+  requireChangeAnywhere,
   ARCHIVE_DIR,
   ROOT,
 } from '../store.mjs';
@@ -15,6 +17,7 @@ import {
 import {
   TERMINAL_STATUSES,
 } from '../lifecycle-primitives.mjs';
+import { loadFollowUps } from '../follow-ups.mjs';
 import { validateSpecs } from '../validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from '../../docs/service.mjs';
 import {
@@ -24,6 +27,12 @@ import {
   commitAllAsync,
   pushAsync,
   touchesPathsAsync,
+  getAheadBehind,
+  isWorkingTreeClean,
+  branchExists,
+  checkoutBranch,
+  createAndCheckoutBranch,
+  getCurrentRevision,
 } from '../../lib/git.mjs';
 import {
   isGhAvailable,
@@ -36,6 +45,18 @@ import { CliError } from '../../lib/cli-errors.mjs';
 import { ensureDir, moveDir } from '../../lib/fs.mjs';
 import { updateYamlFile } from '../../lib/yaml.mjs';
 import { runProcessWithTailAsync } from '../../lib/process.mjs';
+
+function runGit(args, root = ROOT) {
+  return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+}
+
+function tryRevParse(root, ref) {
+  try { return runGit(['rev-parse', ref], root); } catch { return null; }
+}
+
+function remoteBranchExists(root, name) {
+  return tryRevParse(root, `refs/remotes/origin/${name}`) !== null;
+}
 
 export function archiveSpecificationSync(changeSlug, changeDir) {
   ensureDir(ARCHIVE_DIR);
@@ -71,6 +92,9 @@ export async function runDotnetCheckAsync(name, args, { root = ROOT, signal = nu
   }
 }
 
+/**
+ * Gathers every fact validateFinalize and deriveStage need across git, PR, follow-ups, and verification.
+ */
 export async function gatherFinalizeFactsAsync(branch, change, emitter = null, root = ROOT, { signal = null } = {}) {
   const verification = [];
 
@@ -124,7 +148,7 @@ export async function gatherFinalizeFactsAsync(branch, change, emitter = null, r
     }
   }
 
-  const touchesSource = pr && await touchesPathsAsync(root, `origin/${pr.baseRefName}`, branch, ['src', 'tests'], { signal });
+  const touchesSource = pr?.baseRefName && await touchesPathsAsync(root, `origin/${pr.baseRefName}`, branch, ['src', 'tests'], { signal });
   if (touchesSource) {
     emitter?.stepStarted({ id: 'dotnet-build', label: 'Dotnet build' });
     const buildRes = await runDotnetCheckAsync('dotnet build', ['build'], { root, signal });
@@ -137,11 +161,102 @@ export async function gatherFinalizeFactsAsync(branch, change, emitter = null, r
     verification.push(testRes);
     if (testRes.passed) emitter?.stepCompleted({ id: 'dotnet-test' });
     else emitter?.stepFailed({ id: 'dotnet-test', error: testRes.detail || 'Test failed' });
-  } else if (pr) {
-    verification.push({ name: 'dotnet build/test', passed: true, detail: 'skipped -- no src/**/tests/** changes on this branch' });
+  } else if (pr?.baseRefName) {
+    verification.push({ name: 'dotnet build/test', passed: true, detail: 'skipped — no src/**/tests/** changes on this branch' });
   }
 
-  return { pr, ghAvailable, verification };
+  const followUps = loadFollowUps(change);
+  const openBlockingFollowUps = (followUps.follow_ups || [])
+    .filter(f => f.status === 'open' && f.severity === 'blocking')
+    .map(f => ({ id: f.id, reason: f.reason }));
+
+  const gitClean = await isWorkingTreeCleanAsync(root, { signal });
+  const branchInfo = getAheadBehind(root, branch);
+
+  return {
+    gitClean,
+    branch: branchInfo,
+    ghAvailable,
+    pr: pr ? { number: pr.number, state: pr.state, isDraft: pr.isDraft, unresolvedThreads: pr.unresolvedThreads, baseRefName: pr.baseRefName } : null,
+    verification,
+    openBlockingFollowUps,
+  };
+}
+
+/**
+ * Synchronous fact-gathering helper for tests and callers with synchronous context.
+ */
+export function gatherFinalizeFacts(branch, change, emitter = null, root = ROOT) {
+  const verification = [];
+
+  emitter?.stepStarted({ id: 'validate-specs', label: 'Validate specs' });
+  const specErrors = validateSpecs();
+  const specPassed = specErrors.length === 0;
+  verification.push({ name: 'specs validate', passed: specPassed, detail: specErrors[0] });
+  if (specPassed) emitter?.stepCompleted({ id: 'validate-specs' });
+  else emitter?.stepFailed({ id: 'validate-specs', error: specErrors[0] || 'Spec validation failed' });
+
+  emitter?.stepStarted({ id: 'check-specs-indexes', label: 'Check spec indexes' });
+  const specCheckProblems = checkSpecsIndexes();
+  const specCheckPassed = specCheckProblems.length === 0;
+  verification.push({ name: 'specs check', passed: specCheckPassed, detail: specCheckProblems[0] });
+  if (specCheckPassed) emitter?.stepCompleted({ id: 'check-specs-indexes' });
+  else emitter?.stepFailed({ id: 'check-specs-indexes', error: specCheckProblems[0] || 'Spec indexes stale' });
+
+  emitter?.stepStarted({ id: 'validate-docs', label: 'Validate docs' });
+  const docs = scanDocs();
+  const docErrors = validateDocs(docs);
+  const docPassed = docErrors.length === 0;
+  verification.push({ name: 'docs validate', passed: docPassed, detail: docErrors[0] });
+  if (docPassed) emitter?.stepCompleted({ id: 'validate-docs' });
+  else emitter?.stepFailed({ id: 'validate-docs', error: docErrors[0] || 'Docs validation failed' });
+
+  emitter?.stepStarted({ id: 'check-docs-indexes', label: 'Check docs indexes' });
+  const docCheckProblems = checkDocsIndexes(docs);
+  const docCheckPassed = docCheckProblems.length === 0;
+  verification.push({ name: 'docs check', passed: docCheckPassed, detail: docCheckProblems[0] });
+  if (docCheckPassed) emitter?.stepCompleted({ id: 'check-docs-indexes' });
+  else emitter?.stepFailed({ id: 'check-docs-indexes', error: docCheckProblems[0] || 'Docs indexes stale' });
+
+  emitter?.stepStarted({ id: 'load-pr-review', label: 'Load PR and review state' });
+  let pr = null;
+  const ghAvailable = isGhAvailable();
+  if (!ghAvailable) {
+    verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
+    emitter?.stepFailed({ id: 'load-pr-review', error: 'GitHub CLI not available' });
+  }
+
+  const followUps = loadFollowUps(change);
+  const openBlockingFollowUps = (followUps.follow_ups || [])
+    .filter(f => f.status === 'open' && f.severity === 'blocking')
+    .map(f => ({ id: f.id, reason: f.reason }));
+
+  return {
+    gitClean: isWorkingTreeClean(root),
+    branch: getAheadBehind(root, branch),
+    ghAvailable,
+    pr,
+    verification,
+    openBlockingFollowUps,
+  };
+}
+
+export function runPostMergeCheck(root, branch, computeCheckFailures) {
+  runGit(['fetch', 'origin'], root);
+  checkoutBranch(root, 'main');
+  try {
+    runGit(['pull', '--ff-only'], root);
+  } catch {}
+  const mergedSha = getCurrentRevision(root);
+
+  const failed = computeCheckFailures();
+  if (failed.length) {
+    return { ok: false, mergedSha, diagnosticBranch: branch, failed };
+  }
+
+  runGit(['push', 'origin', '--delete', branch], root);
+  runGit(['branch', '-D', branch], root);
+  return { ok: true, mergedSha, deletedBranch: branch };
 }
 
 export async function runPostMergeCheckAsync(root, branch, computeCheckFailures, { signal = null } = {}) {
@@ -160,19 +275,52 @@ export async function runPostMergeCheckAsync(root, branch, computeCheckFailures,
   return { ok: true, mergedSha, deletedBranch: branch };
 }
 
+/**
+ * The nine-step guarded repair-branch creation (D23, corrected by D25).
+ */
+export function createRepairBranch(root, { branchName, failingSha }) {
+  if (!isWorkingTreeClean(root)) {
+    return { ok: false, failedGuard: 'clean-worktree', mainSwitched: false, fetchRan: false, branchCreated: false };
+  }
+  if (branchExists(root, branchName)) {
+    return { ok: false, failedGuard: 'local-branch-absent', mainSwitched: false, fetchRan: false, branchCreated: false };
+  }
+
+  runGit(['fetch', 'origin'], root);
+  const fetchRan = true;
+
+  if (remoteBranchExists(root, branchName)) {
+    return { ok: false, failedGuard: 'remote-branch-absent', mainSwitched: false, fetchRan, branchCreated: false };
+  }
+  if (tryRevParse(root, 'origin/main') !== failingSha) {
+    return { ok: false, failedGuard: 'origin-main-unchanged', mainSwitched: false, fetchRan, branchCreated: false };
+  }
+
+  checkoutBranch(root, 'main');
+  const mainSwitched = true;
+  try {
+    runGit(['pull', '--ff-only'], root);
+  } catch {
+    // A genuine non-fast-forward (local main has diverged)
+  }
+
+  if (getCurrentRevision(root) !== failingSha) {
+    return { ok: false, failedGuard: 'local-main-matches-failing-sha', mainSwitched, fetchRan, branchCreated: false };
+  }
+
+  createAndCheckoutBranch(root, branchName);
+  return { ok: true, mainSwitched, fetchRan, branchCreated: true };
+}
+
 export async function finalizeChange({
   changeSlug,
   gitRoot = ROOT,
+  directories = {},
   check = false,
   emitter = null,
   signal = null,
 } = {}) {
-  const located = loadChangeAnywhere(changeSlug);
-  if (!located) {
-    throw new CliError(`Change '${changeSlug}' not found in specs/active/ or specs/archive/`);
-  }
-  const change = located;
-  const location = located._dir?.includes('archive') ? 'archive' : 'active';
+  const { change, location } = requireChangeAnywhere(changeSlug, directories);
 
   const branch = await getCurrentBranchAsync(gitRoot, { signal });
   const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
@@ -244,7 +392,7 @@ export async function finalizeChange({
   }
 
   progress.stepCompleted({ id: 'post-merge-check' });
-  const summary = `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed -- branch '${postMerge.deletedBranch}' deleted.`;
+  const summary = `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed — branch '${postMerge.deletedBranch}' deleted.`;
   progress.operationCompleted({ summary });
 
   return { ok: true, summary, facts, result, postMerge };

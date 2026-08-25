@@ -7,10 +7,12 @@ import test from 'node:test';
 import { buildProgram, handlePullRequestAdd } from '../specs.mjs';
 import {
   addPullRequestReference,
+  normalizePullRequestReference,
+} from '../specs/pull-requests.mjs';
+import {
   loadChange,
   loadChangeAnywhere,
-  normalizePullRequestReference,
-} from '../specs/service.mjs';
+} from '../specs/store.mjs';
 import { validatePullRequestReferences } from '../specs/validation.mjs';
 
 function fixture({ archived = false } = {}) {

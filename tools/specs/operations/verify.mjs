@@ -1,17 +1,20 @@
+import { existsSync, statSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 import {
   requireChange,
   requireTask,
-  guardAgainstUnsafeManual,
   setTaskStatus,
   ROOT,
 } from '../store.mjs';
+import { guardAgainstUnsafeManual } from '../lifecycle/recovery.mjs';
 import {
   buildSpecsIndexes,
   writeSpecsIndexes,
 } from '../indexes.mjs';
 import { evaluateGate } from '../gates.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
+import { splitShellWords } from '../../lib/shell-words.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import {
   getDirtyPathsAsync,
@@ -20,6 +23,46 @@ import {
   getAheadBehindAsync,
   pushAsync,
 } from '../../lib/git.mjs';
+
+function normalizePath(p) {
+  return p ? p.replace(/\\/g, '/') : p;
+}
+
+export function runVerificationCommand(commandString, root = ROOT) {
+  try {
+    const [program, ...args] = splitShellWords(commandString);
+    const normalizedArgs = [];
+    for (const arg of args) {
+      if (program === 'node' && args.includes('--test')) {
+        const clean = arg.replace(/[\\/]+$/, '');
+        try {
+          if (clean && existsSync(join(root, clean)) && statSync(join(root, clean)).isDirectory()) {
+            const files = readdirSync(join(root, clean))
+              .filter(f => f.endsWith('.test.mjs') || f.endsWith('.test.js'))
+              .map(f => `${clean}/${f}`.replace(/\\/g, '/'));
+            normalizedArgs.push(...files);
+            continue;
+          }
+        } catch {}
+      }
+      normalizedArgs.push(arg);
+    }
+    const windowsCommandShim = process.platform === 'win32'
+      && ['echo', 'npm', 'npx', 'pnpm', 'yarn'].includes(program.toLowerCase());
+    if (windowsCommandShim) {
+      execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', program, ...args], {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } else {
+      execFileSync(program, normalizedArgs, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    }
+    return { command: commandString, exit_code: 0 };
+  } catch (error) {
+    return { command: commandString, exit_code: typeof error.status === 'number' ? error.status : 1 };
+  }
+}
 
 export async function verifyTask(options = {}) {
   const {
@@ -32,6 +75,7 @@ export async function verifyTask(options = {}) {
     emitter = null,
     signal = null,
   } = options;
+
   const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
   const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
   const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
@@ -42,13 +86,8 @@ export async function verifyTask(options = {}) {
   const task = requireTask(change, taskId);
   guardAgainstUnsafeManual(task, taskId, 'verify');
 
-  const gateResult = evaluateGate('task.verify', { task, change, taskId }, { mode: 'full' });
+  const useGit = git !== false && gitIntegration !== false && !check;
 
-  if (check) {
-    return gateResult;
-  }
-
-  const useGit = git !== false && gitIntegration !== false;
   const steps = [
     { id: 'validate-transition', label: 'Validate transition' },
     { id: 'verify-task', label: 'Verify task' },
@@ -64,27 +103,43 @@ export async function verifyTask(options = {}) {
 
   // 1. Validate transition
   progress.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
-  if (!gateResult.ok) {
-    progress.stepFailed({ id: 'validate-transition', error: gateResult.reason });
-    progress.operationFailed({ error: gateResult.reason });
-    throw new CliError(gateResult.reason);
-  }
 
-  const normalizePath = p => p.replace(/\\/g, '/');
-  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
+  const relativeChangeYaml = normalizePath(relative(gitRoot, change._file));
   const allowedExact = new Set([
-    changeYamlRel,
+    relativeChangeYaml,
     normalizePath(relative(gitRoot, activeIndexMd)),
     normalizePath(relative(gitRoot, archiveIndexMd)),
     normalizePath(relative(gitRoot, indexJson)),
   ]);
+
+  const gateResult = evaluateGate('task.verify', {
+    change,
+    task,
+    taskId,
+  });
+
+  if (check) {
+    if (gateResult.ok) {
+      progress.stepCompleted({ id: 'validate-transition' });
+    } else {
+      progress.stepFailed({ id: 'validate-transition', error: gateResult.reason || 'Verification gate failed' });
+    }
+    return gateResult;
+  }
+
+  if (!gateResult.ok) {
+    const errorMsg = gateResult.reason || 'Verification gate failed';
+    progress.stepFailed({ id: 'validate-transition', error: errorMsg });
+    progress.operationFailed({ error: errorMsg });
+    throw new CliError(errorMsg);
+  }
 
   if (useGit) {
     const baselineDirty = (await getDirtyPathsAsync(gitRoot, { signal })).map(normalizePath);
     if (baselineDirty.length > 0) {
       const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
       if (dirtyTargets.length > 0) {
-        const err = `Cannot commit verification: ${dirtyTargets.join(', ')} contains pre-existing uncommitted modifications.`;
+        const err = `Cannot commit verification: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
         progress.stepFailed({ id: 'validate-transition', error: err });
         progress.operationFailed({ error: err });
         throw new CliError(err);
@@ -98,11 +153,12 @@ export async function verifyTask(options = {}) {
       }
     }
   }
+
   progress.stepCompleted({ id: 'validate-transition' });
 
-  // 2. Verify task
+  // 2. Mark verified
   progress.stepStarted({ id: 'verify-task', label: 'Verify task' });
-  if (task.status !== 'verified') {
+  if (!gateResult.idempotent) {
     setTaskStatus(change, taskId, 'verified');
   }
   progress.stepCompleted({ id: 'verify-task' });
@@ -138,22 +194,25 @@ export async function verifyTask(options = {}) {
     progress.stepCompleted({ id: 'commit-verification' });
 
     progress.stepStarted({ id: 'push-verification', label: 'Push verification' });
+    const branch = await getCurrentBranchAsync(gitRoot, { signal });
+    const aheadBehind = await getAheadBehindAsync(gitRoot, branch, { signal });
+    if (aheadBehind.behind > 0) {
+      const err = `Cannot push: local branch '${branch}' is ${aheadBehind.behind} commit(s) behind remote.`;
+      progress.stepFailed({ id: 'push-verification', error: err });
+      progress.operationFailed({ error: err });
+      throw new CliError(err);
+    }
     try {
-      const branch = await getCurrentBranchAsync(gitRoot, { signal });
-      const ab = await getAheadBehindAsync(gitRoot, branch, { signal });
-      if (!ab.hasUpstream || ab.ahead > 0) {
-        await pushAsync(gitRoot, branch, { signal });
-      }
-      progress.stepCompleted({ id: 'push-verification' });
+      await pushAsync(gitRoot, branch, { signal });
     } catch (e) {
       progress.stepFailed({ id: 'push-verification', error: e.message });
       progress.operationFailed({ error: e.message });
       throw new CliError(`Push verification failed: ${e.message}`);
     }
+    progress.stepCompleted({ id: 'push-verification' });
   }
 
   const summary = `Task '${taskId}' in change '${changeSlug}' marked as verified.`;
   progress.operationCompleted({ summary });
-
-  return { ok: true, change, task, summary };
+  return { ok: true, summary, gateResult };
 }

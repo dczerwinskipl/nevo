@@ -285,7 +285,7 @@ export function getPrForBranch(root, branch) {
     return JSON.parse(json);
   } catch (error) {
     const message = String(error?.stderr || error?.message || '');
-    if (/no pull requests found/i.test(message)) return null;
+    if (/no (?:pull requests|git remotes) found/i.test(message)) return null;
     throw error;
   }
 }
@@ -299,7 +299,7 @@ export async function getPrForBranchAsync(root, branch, options = {}) {
     return JSON.parse(json);
   } catch (error) {
     const message = String(error?.stderr || error?.message || '');
-    if (/no pull requests found/i.test(message)) return null;
+    if (/no (?:pull requests|git remotes) found/i.test(message)) return null;
     throw error;
   }
 }

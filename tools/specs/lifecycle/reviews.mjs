@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { parseFrontMatterFile } from '../../lib/yaml.mjs';
 import { completionHardStop } from '../lifecycle-primitives.mjs';
 import { pathMatchesAllowedPattern } from './recovery.mjs';
 
@@ -591,3 +594,12 @@ export function buildConsolidatedDecisionStage(records) {
     ),
   };
 }
+
+// ── Review loading ─────────────────────────────────────────────────────────
+
+export function loadReview(change) {
+  const file = join(change._dir, 'reviews', 'spec.md');
+  if (!existsSync(file)) return null;
+  return parseFrontMatterFile(file);
+}
+

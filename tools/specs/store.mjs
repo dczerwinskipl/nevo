@@ -3,8 +3,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readUtf8, writeUtf8, resolveWithinBase } from '../lib/fs.mjs';
-import { parseYamlFile, parseYamlString, parseFrontMatterFile, updateYamlFile } from '../lib/yaml.mjs';
+import { resolveWithinBase } from '../lib/fs.mjs';
+import { parseYamlFile, parseYamlString, updateYamlFile } from '../lib/yaml.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -74,7 +74,7 @@ export async function listChangesAsync(dir = ACTIVE_DIR) {
   return results.filter(Boolean);
 }
 
-/** Active-first lookup used by PR attachment and dashboard reads. */
+/** Active-first lookup used by PR attachment, finalize, and dashboard reads. */
 export function loadChangeAnywhere(slug, { activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
   const active = loadChange(slug, activeDir);
   if (active) return { change: active, location: 'active' };
@@ -131,187 +131,4 @@ export function writeBulkTransition(change, transitions) {
       item.set('status', t.to);
     }
   });
-}
-
-// ── Pull Request references ────────────────────────────────────────────────
-
-const DEFAULT_PULL_REQUEST_BASE_URLS = Object.freeze({
-  github: 'https://github.com',
-  gitlab: 'https://gitlab.com',
-});
-
-/** Normalize the durable, provider-neutral identity stored in change.yaml. */
-export function normalizePullRequestReference(reference, label = 'pull request reference') {
-  if (!reference || typeof reference !== 'object' || Array.isArray(reference)) {
-    throw new CliError(`${label} must be an object`);
-  }
-
-  const provider = String(reference.provider ?? '').trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]{0,63}$/.test(provider)) {
-    throw new CliError(`${label}.provider must be a lowercase provider id (letters, digits, hyphens)`);
-  }
-
-  const rawBaseUrl = String(reference.base_url ?? DEFAULT_PULL_REQUEST_BASE_URLS[provider] ?? '').trim();
-  if (!rawBaseUrl) {
-    throw new CliError(`${label}.base_url is required for provider '${provider}'`);
-  }
-  let parsedBaseUrl;
-  try {
-    parsedBaseUrl = new URL(rawBaseUrl);
-  } catch {
-    throw new CliError(`${label}.base_url must be an absolute http(s) URL`);
-  }
-  if (!['http:', 'https:'].includes(parsedBaseUrl.protocol)
-    || parsedBaseUrl.username || parsedBaseUrl.password
-    || parsedBaseUrl.search || parsedBaseUrl.hash) {
-    throw new CliError(`${label}.base_url must be an absolute http(s) URL without credentials, query, or fragment`);
-  }
-  const baseUrl = parsedBaseUrl.href.replace(/\/+$/, '');
-
-  let repository = String(reference.repository ?? '').trim().replace(/^\/+|\/+$/g, '');
-  repository = repository.replace(/\.git$/i, '');
-  const repositoryParts = repository.split('/');
-  if (repositoryParts.length < 2
-    || repositoryParts.some(part => !part || part === '.' || part === '..')
-    || /[\\?#\s]/.test(repository)) {
-    throw new CliError(`${label}.repository must be a provider path such as 'owner/repository'`);
-  }
-
-  const number = typeof reference.number === 'number'
-    ? reference.number
-    : Number(String(reference.number ?? '').trim());
-  if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new CliError(`${label}.number must be a positive integer`);
-  }
-
-  return { provider, base_url: baseUrl, repository, number };
-}
-
-export function pullRequestReferenceKey(reference) {
-  const normalized = normalizePullRequestReference(reference);
-  return [
-    normalized.provider,
-    normalized.base_url.toLowerCase(),
-    normalized.repository.toLowerCase(),
-    normalized.number,
-  ].join('|');
-}
-
-/** Single structural write path for appending a normalized reference. */
-export function addPullRequestReference(change, reference) {
-  const normalized = normalizePullRequestReference(reference);
-  const key = pullRequestReferenceKey(normalized);
-  if ((change.pull_requests || []).some(item => pullRequestReferenceKey(item) === key)) {
-    return { added: false, reference: normalized };
-  }
-
-  updateYamlFile(change._file, doc => {
-    if (!doc.has('pull_requests')) doc.set('pull_requests', []);
-    const references = doc.get('pull_requests', true);
-    if (Array.isArray(references)) {
-      references.push(normalized);
-      doc.set('pull_requests', references);
-    } else if (references && typeof references.add === 'function') {
-      references.flow = false;
-      references.add(normalized);
-    } else {
-      throw new CliError(`pull_requests must be an array in ${change._file}`);
-    }
-  });
-  change.pull_requests = [...(change.pull_requests || []), normalized];
-  return { added: true, reference: normalized };
-}
-
-// ── Review loading ─────────────────────────────────────────────────────────
-
-export function loadReview(change) {
-  const file = join(change._dir, 'reviews', 'spec.md');
-  if (!existsSync(file)) return null;
-  return parseFrontMatterFile(file);
-}
-
-// ── Implementation provenance writer (D34/D35, task 15) ────────────────────
-
-/** Write `task`'s `implementation` provenance block — overwrites any prior value. */
-export function writeImplementationProvenance(change, taskId, implementation) {
-  updateYamlFile(change._file, doc => {
-    const tasks = doc.get('tasks', true);
-    const item = tasks?.items?.find(it => it.get('id') === taskId);
-    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
-    item.set('implementation', implementation);
-  });
-}
-
-// ── Self-check writer (D28, task 08) ────────────────────────────────────────
-
-/** Write `task`'s `self_check` block — overwrites any prior value. */
-export function writeSelfCheck(change, taskId, selfCheck) {
-  updateYamlFile(change._file, doc => {
-    const tasks = doc.get('tasks', true);
-    const item = tasks?.items?.find(it => it.get('id') === taskId);
-    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
-    item.set('self_check', selfCheck);
-  });
-}
-
-// ── Batch intent ───────────────────────────────────────────────────────────
-
-export function batchIntentFile(change) {
-  return join(change._dir, 'batch.json');
-}
-
-/** Load a change's active batch intent, or `null` if none is in progress. */
-export function loadBatchIntent(change) {
-  const file = batchIntentFile(change);
-  if (!existsSync(file)) return null;
-  const raw = readUtf8(file);
-  if (!raw.trim()) return null; // cleared (clearBatchIntent's empty-file convention)
-  return JSON.parse(raw);
-}
-
-/** Persist a new batch's intent. */
-export function writeBatchIntent(change, intent) {
-  writeUtf8(batchIntentFile(change), JSON.stringify(intent, null, 2));
-}
-
-/** Clear a change's batch intent file once the batch is done (or abandoned). */
-export function clearBatchIntent(change) {
-  const file = batchIntentFile(change);
-  if (existsSync(file)) writeUtf8(file, '');
-}
-
-// ── Suspension management ──────────────────────────────────────────────────
-
-export function setTaskSuspension(change, taskId, suspension) {
-  updateYamlFile(change._file, doc => {
-    const tasks = doc.get('tasks', true);
-    const item = tasks?.items?.find(it => it.get('id') === taskId);
-    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
-    if (item.has('execution')) {
-      item.get('execution', true).set('suspension', suspension);
-    } else {
-      item.set('execution', { suspension });
-    }
-  });
-}
-
-export function clearTaskSuspension(change, taskId) {
-  updateYamlFile(change._file, doc => {
-    const tasks = doc.get('tasks', true);
-    const item = tasks?.items?.find(it => it.get('id') === taskId);
-    if (!item?.has('execution')) return;
-    const execution = item.get('execution', true);
-    if (execution.has('suspension')) execution.delete('suspension');
-    if (execution.items.length === 0) item.delete('execution');
-  });
-}
-
-export function guardAgainstUnsafeManual(task, taskId, action) {
-  const suspension = task.execution?.suspension;
-  if (suspension?.kind === 'unsafe-manual') {
-    throw new CliError(
-      `Task '${taskId}' has an unresolved unsafe-manual suspension (${suspension.code}) — ` +
-      `it must be resolved manually before '${action}' can be retried.`
-    );
-  }
 }

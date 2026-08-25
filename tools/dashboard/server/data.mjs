@@ -10,8 +10,8 @@ import {
   loadChange,
   listChanges,
   listChangesAsync,
-} from '../../specs/service.mjs';
-import { isTaskReady } from '../../specs/lifecycle.mjs';
+} from '../../specs/store.mjs';
+import { isTaskReady } from '../../specs/lifecycle-primitives.mjs';
 import {
   SPEC_STAGES,
   isCompletedStatus,

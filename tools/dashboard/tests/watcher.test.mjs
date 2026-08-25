@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createSpecEventHub, isRelevantSpecPath } from '../server/watcher.mjs';
-import { ACTIVE_DIR } from '../../specs/service.mjs';
+import { ACTIVE_DIR } from '../../specs/store.mjs';
 
 test('recognizes source files that should trigger a refresh', () => {
   assert.equal(isRelevantSpecPath('sample/change.yaml'), true);

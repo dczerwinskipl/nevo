@@ -10,7 +10,7 @@ import { createOperationRuntime, OperationNotFoundError } from '../server/operat
 import { executeSpecificationAction } from '../server/actions.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
 import { handleOperationRoute } from '../server/routes/operations.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/service.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function createMockChildProcess() {
   const child = new EventEmitter();

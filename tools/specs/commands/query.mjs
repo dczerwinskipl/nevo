@@ -7,8 +7,8 @@ import {
   loadChangeAnywhere,
   requireChange,
   requireTask,
-  addPullRequestReference,
 } from '../store.mjs';
+import { addPullRequestReference } from '../pull-requests.mjs';
 import {
   buildSpecsIndexes,
   writeSpecsIndexes,

@@ -15,7 +15,7 @@ import {
   SpecValidationError,
   SpecConflictError,
   SpecRollbackError,
-} from '../../../specs/service.mjs';
+} from '../../../specs/identity.mjs';
 
 export function createSpecsRouteAdapter({
   operationRuntime,

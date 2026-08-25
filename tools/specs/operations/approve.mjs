@@ -2,13 +2,15 @@ import { join, relative } from 'node:path';
 import {
   requireChange,
   requireTask,
-  guardAgainstUnsafeManual,
-  loadReview,
-  setTaskSuspension,
-  clearTaskSuspension,
   setTaskStatus,
   ROOT,
 } from '../store.mjs';
+import {
+  guardAgainstUnsafeManual,
+  setTaskSuspension,
+  clearTaskSuspension,
+} from '../lifecycle/recovery.mjs';
+import { loadReview } from '../lifecycle/reviews.mjs';
 import {
   computeChangeFingerprint,
   computeTaskFingerprint,
