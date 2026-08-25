@@ -98,11 +98,11 @@ function captureStdout(fn) {
 }
 
 test('CLI step instrumentation — verify, approve, self-check', async (t) => {
-  await t.test('AC3: handleVerify emits progress events and completes on valid transition', () => {
+  await t.test('AC3: handleVerify emits progress events and completes on valid transition', async () => {
     const sample = fixture();
     try {
-      const output = captureStdout(() => {
-        handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
+      const output = await captureStdout(async () => {
+        await handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);
@@ -161,11 +161,11 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     }
   });
 
-  await t.test('AC4: handleApprove emits progress events and completes on approved transition', () => {
+  await t.test('AC4: handleApprove emits progress events and completes on approved transition', async () => {
     const sample = fixture();
     try {
-      const output = captureStdout(() => {
-        handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
+      const output = await captureStdout(async () => {
+        await handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);

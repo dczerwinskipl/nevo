@@ -259,6 +259,20 @@ export function getPrForBranch(root, branch) {
   }
 }
 
+export async function getPrForBranchAsync(root, branch, options = {}) {
+  try {
+    const json = await runAsync(root, ['pr', 'view', branch, '--json', 'number,state,isDraft,url,title,baseRefName'], {
+      op: 'pr-view',
+      signal: options.signal,
+    });
+    return JSON.parse(json);
+  } catch (error) {
+    const message = String(error?.stderr || error?.message || '');
+    if (/no pull requests found/i.test(message)) return null;
+    throw error;
+  }
+}
+
 // Read-only pull request payload for the local dashboard. Authentication and
 // GitHub Enterprise host selection stay inside `gh`; callers receive provider
 // responses only and normalize them before anything reaches a browser.
@@ -401,6 +415,20 @@ export function getUnresolvedReviewThreadCount(root, prNumber) {
   return nodes.filter(n => !n.isResolved).length;
 }
 
+export async function getUnresolvedReviewThreadCountAsync(root, prNumber, options = {}) {
+  const slug = await getRepoSlugAsync(root);
+  const [owner, repo] = slug.split('/');
+  const json = await runAsync(root, [
+    'api', 'graphql',
+    '-f', `query=${REVIEW_THREADS_QUERY}`,
+    '-f', `owner=${owner}`,
+    '-f', `repo=${repo}`,
+    '-F', `pr=${prNumber}`,
+  ], { op: 'unresolved-threads', signal: options.signal });
+  const nodes = JSON.parse(json).data.repository.pullRequest.reviewThreads.nodes;
+  return nodes.filter(n => !n.isResolved).length;
+}
+
 // Full thread + comment detail (author, body, path/line, and each comment's REST
 // `databaseId` for replyToReviewComment) — the read side an agent needs to actually
 // evaluate and act on PR feedback, not just count it. Same 100-thread/20-comment
@@ -469,4 +497,11 @@ export function replyToReviewComment(root, prNumber, commentDatabaseId, body) {
 // called.
 export function mergePr(root, prNumber) {
   run(root, ['pr', 'merge', String(prNumber), '--squash']);
+}
+
+export async function mergePrAsync(root, prNumber, options = {}) {
+  await runAsync(root, ['pr', 'merge', String(prNumber), '--squash'], {
+    op: 'pr-merge',
+    signal: options.signal,
+  });
 }

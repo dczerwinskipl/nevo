@@ -127,16 +127,22 @@ test('production-path in-process action execution uses shared application operat
     await donePromise;
 
     assert.equal(runtimeResult?.status, 'completed', JSON.stringify(runtimeResult));
+    assert.equal(runtimeResult?.result?.ok, true);
+    assert.ok(runtimeResult?.result?.summary, 'result object includes domain summary');
     assert.ok(recordedEvents.length > 0, 'progress events recorded in OperationRuntime');
     assert.ok(recordedEvents.some(e => e.type === 'operation.step.started'));
     assert.ok(recordedEvents.some(e => e.type === 'operation.step.completed'));
+    // Ensure operation.completed was not directly forwarded to recordEvent
+    assert.equal(recordedEvents.some(e => e.type === 'operation.completed'), false);
+    assert.equal(recordedEvents.some(e => e.type === 'operation.failed'), false);
   } finally {
     sample.cleanup();
   }
 });
 
-test('in-process action execution records failure in OperationRuntime on error', async () => {
+test('in-process action execution records failure in OperationRuntime on error and terminates exactly once', async () => {
   const sample = fixture();
+  let terminationCount = 0;
   let runtimeResult = null;
 
   let resolveDone;
@@ -146,10 +152,12 @@ test('in-process action execution records failure in OperationRuntime on error',
     createOperation: () => 'op-fail-1',
     recordEvent: () => {},
     completeOperation: (id, result) => {
+      terminationCount++;
       runtimeResult = { status: 'completed', result };
       resolveDone();
     },
     failOperation: (id, error) => {
+      terminationCount++;
       runtimeResult = { status: 'failed', error };
       resolveDone();
     },
@@ -169,6 +177,7 @@ test('in-process action execution records failure in OperationRuntime on error',
 
     await donePromise;
 
+    assert.equal(terminationCount, 1, 'OperationRuntime terminated exactly once on failure');
     assert.equal(runtimeResult?.status, 'failed');
     assert.ok(runtimeResult?.error, 'OperationRuntime received failure error');
   } finally {
@@ -188,10 +197,12 @@ test('revalidates owner actions and requires finalize confirmation', () => {
   }
 });
 
-test('dashboard server code does not import tools/specs.mjs', () => {
+test('dashboard server code does not import tools/specs.mjs and has no obsolete CLI subprocess spawner', () => {
   const actionsSrc = readFileSync(new URL('../server/actions.mjs', import.meta.url), 'utf8');
   assert.equal(actionsSrc.includes("from '../../specs.mjs'"), false);
   assert.equal(actionsSrc.includes('from "../../specs.mjs"'), false);
   assert.equal(actionsSrc.includes("from '../specs.mjs'"), false);
   assert.equal(actionsSrc.includes('from "../specs.mjs"'), false);
+  assert.equal(actionsSrc.includes('defaultSpecsSpawner'), false);
+  assert.equal(actionsSrc.includes('spawnSpecs'), false);
 });

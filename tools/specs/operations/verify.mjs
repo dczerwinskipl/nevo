@@ -6,11 +6,6 @@ import {
   setTaskStatus,
   buildSpecsIndexes,
   writeSpecsIndexes,
-  ACTIVE_DIR,
-  ARCHIVE_DIR,
-  ACTIVE_INDEX_MD,
-  ARCHIVE_INDEX_MD,
-  INDEX_JSON,
   ROOT,
 } from '../service.mjs';
 import { evaluateGate } from '../gates.mjs';
@@ -22,7 +17,7 @@ import {
   getCurrentBranchAsync,
   getAheadBehindAsync,
   pushAsync,
-} from './git.mjs';
+} from '../../lib/git.mjs';
 
 export async function verifyTask(options = {}) {
   const {
@@ -33,6 +28,7 @@ export async function verifyTask(options = {}) {
     gitIntegration = true,
     check = false,
     emitter = null,
+    signal = null,
   } = options;
   const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
   const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
@@ -82,11 +78,11 @@ export async function verifyTask(options = {}) {
   ]);
 
   if (useGit) {
-    const baselineDirty = (await getDirtyPathsAsync(gitRoot)).map(normalizePath);
+    const baselineDirty = (await getDirtyPathsAsync(gitRoot, { signal })).map(normalizePath);
     if (baselineDirty.length > 0) {
       const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
       if (dirtyTargets.length > 0) {
-        const err = `Cannot commit verification: ${dirtyTargets.join(', ')} contains pre-existing uncommitted modifications.` ;
+        const err = `Cannot commit verification: ${dirtyTargets.join(', ')} contains pre-existing uncommitted modifications.`;
         progress.stepFailed({ id: 'validate-transition', error: err });
         progress.operationFailed({ error: err });
         throw new CliError(err);
@@ -118,7 +114,7 @@ export async function verifyTask(options = {}) {
   // 4 & 5. Git commit & push (if enabled)
   if (useGit) {
     progress.stepStarted({ id: 'commit-verification', label: 'Commit verification' });
-    const currentDirty = (await getDirtyPathsAsync(gitRoot)).map(normalizePath);
+    const currentDirty = (await getDirtyPathsAsync(gitRoot, { signal })).map(normalizePath);
     const unrelated = currentDirty.filter(p => !allowedExact.has(p));
     if (unrelated.length > 0) {
       const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
@@ -127,10 +123,10 @@ export async function verifyTask(options = {}) {
       throw new CliError(err);
     }
 
-    const toStage = currentDirty.filter(P => allowedExact.has(p));
+    const toStage = currentDirty.filter(p => allowedExact.has(p));
     if (toStage.length > 0) {
       try {
-        await addAndCommitAsync(gitRoot, toStage, `chore(specs): verify ${changeSlug}/${taskId}`);
+        await addAndCommitAsync(gitRoot, toStage, `chore(specs): verify ${changeSlug}/${taskId}`, { signal });
       } catch (e) {
         progress.stepFailed({ id: 'commit-verification', error: e.message });
         progress.operationFailed({ error: e.message });
@@ -141,10 +137,10 @@ export async function verifyTask(options = {}) {
 
     progress.stepStarted({ id: 'push-verification', label: 'Push verification' });
     try {
-      const branch = await getCurrentBranchAsync(gitRoot);
-      const ab = await getAheadBehindAsync(gitRoot, branch);
+      const branch = await getCurrentBranchAsync(gitRoot, { signal });
+      const ab = await getAheadBehindAsync(gitRoot, branch, { signal });
       if (!ab.hasUpstream || ab.ahead > 0) {
-        await pushAsync(gitRoot, branch);
+        await pushAsync(gitRoot, branch, { signal });
       }
       progress.stepCompleted({ id: 'push-verification' });
     } catch (e) {

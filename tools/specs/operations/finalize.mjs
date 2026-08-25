@@ -1,10 +1,10 @@
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   loadChangeAnywhere,
   buildSpecsIndexes,
   writeSpecsIndexes,
-  ACTIVE_DIR,
   ARCHIVE_DIR,
   ROOT,
 } from '../service.mjs';
@@ -15,24 +15,26 @@ import {
 import { validateSpecs } from '../validation.mjs';
 import { checkSpecsIndexes } from '../service.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from '../../docs/service.mjs';
-import * as git from '../../lib/git.mjs';
+import {
+  runGitAsync,
+  getCurrentBranchAsync,
+  isWorkingTreeCleanAsync,
+  commitAllAsync,
+  pushAsync,
+  touchesPathsAsync,
+} from '../../lib/git.mjs';
 import {
   isGhAvailable,
-  getPrForBranch,
-  getUnresolvedReviewThreadCount,
-  mergePr,
+  getPrForBranchAsync,
+  getUnresolvedReviewThreadCountAsync,
+  mergePrAsync,
 } from '../../lib/github.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { ensureDir, moveDir } from '../../lib/fs.mjs';
 import { updateYamlFile } from '../../lib/yaml.mjs';
-import {
-  getCurrentBranchAsync,
-  isWorkingTreeCleanAsync,
-  commitAllAsync,
-  pushAsync,
-  runGit,
-} from './git.mjs';
+
+const execFileAsync = promisify(execFile);
 
 export function archiveSpecificationSync(changeSlug, changeDir) {
   ensureDir(ARCHIVE_DIR);
@@ -51,14 +53,14 @@ export function gatherPostMergeCheckFailures() {
   const docs = scanDocs();
   const docErrors = validateDocs(docs);
   if (docErrors.length) failed.push({ name: 'docs validate', detail: docErrors[0] });
-  const doccheckProblems = checkDocsIndexes(docs);
+  const docCheckProblems = checkDocsIndexes(docs);
   if (docCheckProblems.length) failed.push({ name: 'docs check', detail: docCheckProblems[0] });
   return failed;
 }
 
-function runDotnetCheck(name, args, root = ROOT) {
+export async function runDotnetCheckAsync(name, args, { root = ROOT, signal = null } = {}) {
   try {
-    execFileSync('dotnet', args, { cwd: root, encoding: 'utf8' });
+    await execFileAsync('dotnet', args, { cwd: root, encoding: 'utf8', signal });
     return { name, passed: true };
   } catch (error) {
     const tail = String(error?.stdout || error?.message || '').trim().split('\n').slice(-5).join(' | ');
@@ -66,7 +68,7 @@ function runDotnetCheck(name, args, root = ROOT) {
   }
 }
 
-export async function gatherFinalizeFactsAsync(branch, change, emitter = null, root = ROOT) {
+export async function gatherFinalizeFactsAsync(branch, change, emitter = null, root = ROOT, { signal = null } = {}) {
   const verification = [];
 
   emitter?.stepStarted({ id: 'validate-specs', label: 'Validate specs' });
@@ -105,22 +107,30 @@ export async function gatherFinalizeFactsAsync(branch, change, emitter = null, r
     verification.push({ name: 'gh CLI', passed: false, detail: 'not installed or not on PATH' });
     emitter?.stepFailed({ id: 'load-pr-review', error: 'GitHub CLI not available' });
   } else {
-    pr = getPrForBranch(root, branch);
-    if (pr) {
-      pr.unresolvedThreads = pr.state === 'MERGED' ? 0 : getUnresolvedReviewThreadCount(root, pr.number);
+    try {
+      pr = await getPrForBranchAsync(root, branch, { signal });
+      if (pr) {
+        pr.unresolvedThreads = pr.state === 'MERGED'
+          ? 0
+          : await getUnresolvedReviewThreadCountAsync(root, pr.number, { signal });
+      }
+      emitter?.stepCompleted({ id: 'load-pr-review' });
+    } catch (e) {
+      emitter?.stepFailed({ id: 'load-pr-review', error: e.message });
+      throw e;
     }
-    emitter?.stepCompleted({ id: 'load-pr-review' });
   }
 
-  if (pr&&git.touchesPaths && git.touchesPaths(root, `origin/${pr.baseRefName}`, branch, ['src', 'tests'])) {
+  const touchesSource = pr && await touchesPathsAsync(root, `origin/${pr.baseRefName}`, branch, ['src', 'tests'], { signal });
+  if (touchesSource) {
     emitter?.stepStarted({ id: 'dotnet-build', label: 'Dotnet build' });
-    const buildRes = runDotnetCheck('dotnet build', ['build'], root);
+    const buildRes = await runDotnetCheckAsync('dotnet build', ['build'], { root, signal });
     verification.push(buildRes);
     if (buildRes.passed) emitter?.stepCompleted({ id: 'dotnet-build' });
     else emitter?.stepFailed({ id: 'dotnet-build', error: buildRes.detail || 'Build failed' });
 
     emitter?.stepStarted({ id: 'dotnet-test', label: 'Dotnet test' });
-    const testRes = runDotnetCheck('dotnet test', ['test'], root);
+    const testRes = await runDotnetCheckAsync('dotnet test', ['test'], { root, signal });
     verification.push(testRes);
     if (testRes.passed) emitter?.stepCompleted({ id: 'dotnet-test' });
     else emitter?.stepFailed({ id: 'dotnet-test', error: testRes.detail || 'Test failed' });
@@ -131,19 +141,19 @@ export async function gatherFinalizeFactsAsync(branch, change, emitter = null, r
   return { pr, ghAvailable, verification };
 }
 
-export async function runPostMergeCheckAsync(root, branch, computeCheckFailures) {
-  await runGit(root, ['fetch', 'origin']);
-  await runGit(root, ['checkout', 'main']);
-  await runGit(root, ['pull', '--ff-only']);
-  const mergedSha = await runGit(root, ['rev-parse', 'HEAD']);
+export async function runPostMergeCheckAsync(root, branch, computeCheckFailures, { signal = null } = {}) {
+  await runGitAsync(root, ['fetch', 'origin'], { signal });
+  await runGitAsync(root, ['checkout', 'main'], { signal });
+  await runGitAsync(root, ['pull', '--ff-only'], { signal });
+  const mergedSha = await runGitAsync(root, ['rev-parse', 'HEAD'], { signal });
 
   const failed = computeCheckFailures();
   if (failed.length) {
     return { ok: false, mergedSha, diagnosticBranch: branch, failed };
   }
 
-  await runGit(root, ['push', 'origin', '--delete', branch]);
-  await runGit(root, ['branch', '-D', branch]);
+  await runGitAsync(root, ['push', 'origin', '--delete', branch], { signal });
+  await runGitAsync(root, ['branch', '-D', branch], { signal });
   return { ok: true, mergedSha, deletedBranch: branch };
 }
 
@@ -152,16 +162,16 @@ export async function finalizeChange({
   gitRoot = ROOT,
   check = false,
   emitter = null,
+  signal = null,
 } = {}) {
   const located = loadChangeAnywhere(changeSlug);
   if (!located) {
     throw new CliError(`Change '${changeSlug}' not found in specs/active/ or specs/archive/`);
   }
   const change = located;
-  const location = located._dirincludes('archive') ? 'archive' : 'active';
+  const location = located._dir?.includes('archive') ? 'archive' : 'active';
 
-
-  const branch = await getCurrentBranchAsync(gitRoot);
+  const branch = await getCurrentBranchAsync(gitRoot, { signal });
   const allTerminal = change.tasks.every(t => TERMINAL_STATUSES.has(t.status));
   if (!allTerminal) {
     throw new CliError('Cannot finalize: not all tasks are in a terminal status.');
@@ -182,8 +192,7 @@ export async function finalizeChange({
   const progress = emitter || createProgressEmitter({ out: null });
   progress.operationStarted({ type: 'finalize', steps });
 
-  const facts = await gatherFinalizeFactsAsync(branch, change, progress, gitRoot);
-
+  const facts = await gatherFinalizeFactsAsync(branch, change, progress, gitRoot, { signal });
 
   progress.stepStarted({ id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' });
   const result = validateFinalize(change, facts);
@@ -202,12 +211,12 @@ export async function finalizeChange({
   progress.stepStarted({ id: 'archive-change', label: 'Archive specification' });
   if (location === 'active') {
     archiveSpecificationSync(changeSlug, change._dir);
-    if (!(await isWorkingTreeCleanAsync(gitRoot))) {
-      await commitAllAsync(gitRoot, `chore(specs): archive ${changeSlug}`);
+    if (!(await isWorkingTreeCleanAsync(gitRoot, { signal }))) {
+      await commitAllAsync(gitRoot, `chore(specs): archive ${changeSlug}`, { signal });
     }
   } else {
-    if (!(await isWorkingTreeCleanAsync(gitRoot))) {
-      await commitAllAsync(gitRoot, `chore(specs): finalize ${changeSlug}`);
+    if (!(await isWorkingTreeCleanAsync(gitRoot, { signal }))) {
+      await commitAllAsync(gitRoot, `chore(specs): finalize ${changeSlug}`, { signal });
     }
   }
   progress.stepCompleted({ id: 'archive-change' });
@@ -219,12 +228,12 @@ export async function finalizeChange({
   }
 
   progress.stepStarted({ id: 'push-and-merge', label: 'Push and merge' });
-  await pushAsync(gitRoot, branch);
-  mergePr(gitRoot, facts.pr.number);
+  await pushAsync(gitRoot, branch, { signal });
+  await mergePrAsync(gitRoot, facts.pr.number, { signal });
   progress.stepCompleted({ id: 'push-and-merge' });
 
   progress.stepStarted({ id: 'post-merge-check', label: 'Post-merge check' });
-  const postMerge = await runPostMergeCheckAsync(gitRoot, branch, gatherPostMergeCheckFailures);
+  const postMerge = await runPostMergeCheckAsync(gitRoot, branch, gatherPostMergeCheckFailures, { signal });
   if (!postMerge.ok) {
     progress.stepFailed({ id: 'post-merge-check', error: 'Post-merge check failed' });
     progress.operationFailed({ error: 'Post-merge check failed' });

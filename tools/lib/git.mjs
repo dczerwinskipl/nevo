@@ -1,18 +1,43 @@
 // Thin Git wrapper — only the operations tools/specs.mjs actually needs.
 // Always execFileSync with an argument array, never shell string concatenation.
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 function run(root, args) {
   return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+}
+
+export async function runGitAsync(root, args, options = {}) {
+  const execOptions = {
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+    ...options,
+  };
+  if (!execOptions.signal) {
+    delete execOptions.signal;
+  }
+  const result = await execFileAsync('git', ['-C', root, ...args], execOptions);
+  return result.stdout.trim();
 }
 
 export function getWorkingTreeStatus(root) {
   return run(root, ['status', '--porcelain']);
 }
 
+export async function getWorkingTreeStatusAsync(root, options = {}) {
+  return await runGitAsync(root, ['status', '--porcelain'], options);
+}
+
 export function isWorkingTreeClean(root) {
   return getWorkingTreeStatus(root) === '';
+}
+
+export async function isWorkingTreeCleanAsync(root, options = {}) {
+  const status = await getWorkingTreeStatusAsync(root, options);
+  return status === '';
 }
 
 export function branchExists(root, name) {
@@ -24,12 +49,29 @@ export function branchExists(root, name) {
   }
 }
 
+export async function branchExistsAsync(root, name, options = {}) {
+  try {
+    await runGitAsync(root, ['rev-parse', '--verify', name], options);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function checkoutBranch(root, name) {
   run(root, ['checkout', name]);
 }
 
+export async function checkoutBranchAsync(root, name, options = {}) {
+  await runGitAsync(root, ['checkout', name], options);
+}
+
 export function createAndCheckoutBranch(root, name) {
   run(root, ['checkout', '-b', name]);
+}
+
+export async function createAndCheckoutBranchAsync(root, name, options = {}) {
+  await runGitAsync(root, ['checkout', '-b', name], options);
 }
 
 // REC-02 fix: the branch exists on origin but not locally — fetch it and create a
@@ -40,17 +82,12 @@ export function checkoutTrackingBranch(root, name) {
   run(root, ['checkout', '-b', name, '--track', `origin/${name}`]);
 }
 
-// NUL-delimited porcelain (`-z`) parses structurally instead of line-oriented
-// text: `git status --porcelain` (no `-z`) quotes paths containing spaces/
-// special characters in ways that are easy to mis-slice, and a rename/copy
-// record is *two* consecutive NUL-terminated fields (new path, then old
-// path) rather than the single "old -> new" arrow string the porcelain v1
-// *text* format renders for a human to read (see `git status --help` §
-// "Porcelain Format Version 1"). Called via `execFileSync` directly, not
-// `run()` — `run()`'s `.trim()` is for human-readable output and must not
-// touch a NUL-delimited byte stream.
-function getDirtyRecords(root) {
-  const raw = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '-z'], { encoding: 'utf8' });
+export async function checkoutTrackingBranchAsync(root, name, options = {}) {
+  await runGitAsync(root, ['fetch', 'origin', name], options);
+  await runGitAsync(root, ['checkout', '-b', name, '--track', `origin/${name}`], options);
+}
+
+function parsePorcelainZ(raw) {
   const fields = raw.split('\0').filter(f => f.length > 0);
   const records = [];
   for (let i = 0; i < fields.length; i++) {
@@ -67,10 +104,42 @@ function getDirtyRecords(root) {
   return records;
 }
 
+function getDirtyRecords(root) {
+  const raw = execFileSync('git', ['-C', root, 'status', '--porcelain=v1', '-z'], { encoding: 'utf8' });
+  return parsePorcelainZ(raw);
+}
+
+export async function getDirtyRecordsAsync(root, options = {}) {
+  const execOptions = {
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+    ...options,
+  };
+  if (!execOptions.signal) {
+    delete execOptions.signal;
+  }
+  const result = await execFileAsync('git', ['-C', root, 'status', '--porcelain=v1', '-z'], execOptions);
+  return parsePorcelainZ(result.stdout);
+}
+
 // Changed file paths, human-readable — a rename/copy renders as "old -> new"
 // in one string, same convention as `git status`'s own default output.
 export function getDirtyFiles(root) {
   return getDirtyRecords(root).map(r => (r.oldPath ? `${r.oldPath} -> ${r.path}` : r.path));
+}
+
+export async function getDirtyFilesAsync(root, options = {}) {
+  const records = await getDirtyRecordsAsync(root, options);
+  return records.map(r => (r.oldPath ? `${r.oldPath} -> ${r.path}` : r.path));
+}
+
+function extractDirtyPaths(records) {
+  const paths = [];
+  for (const r of records) {
+    paths.push(r.path);
+    if (r.oldPath) paths.push(r.oldPath);
+  }
+  return paths;
 }
 
 // Every real path the dirty worktree touches, for classification (PR review
@@ -80,17 +149,15 @@ export function getDirtyFiles(root) {
 // string against a path pattern (as `getDirtyFiles`'s output would) can never
 // match a real pattern, silently misclassifying every rename as unrelated.
 export function getDirtyPaths(root) {
-  const paths = [];
-  for (const r of getDirtyRecords(root)) {
-    paths.push(r.path);
-    if (r.oldPath) paths.push(r.oldPath);
-  }
-  return paths;
+  return extractDirtyPaths(getDirtyRecords(root));
 }
 
-/** Dashboard-safe worktree projection with counts, statuses, and display paths. */
-export function getWorkingTreeSummary(root) {
-  const records = getDirtyRecords(root);
+export async function getDirtyPathsAsync(root, options = {}) {
+  const records = await getDirtyRecordsAsync(root, options);
+  return extractDirtyPaths(records);
+}
+
+function buildWorkingTreeSummary(records) {
   const files = records.map(record => ({
     status: record.status,
     path: record.oldPath ? `${record.oldPath} -> ${record.path}` : record.path,
@@ -105,12 +172,30 @@ export function getWorkingTreeSummary(root) {
   };
 }
 
+/** Dashboard-safe worktree projection with counts, statuses, and display paths. */
+export function getWorkingTreeSummary(root) {
+  return buildWorkingTreeSummary(getDirtyRecords(root));
+}
+
+export async function getWorkingTreeSummaryAsync(root, options = {}) {
+  const records = await getDirtyRecordsAsync(root, options);
+  return buildWorkingTreeSummary(records);
+}
+
 export function getCurrentBranch(root) {
   return run(root, ['branch', '--show-current']);
 }
 
+export async function getCurrentBranchAsync(root, options = {}) {
+  return await runGitAsync(root, ['branch', '--show-current'], options);
+}
+
 export function getCurrentRevision(root) {
   return run(root, ['rev-parse', 'HEAD']);
+}
+
+export async function getCurrentRevisionAsync(root, options = {}) {
+  return await runGitAsync(root, ['rev-parse', 'HEAD'], options);
 }
 
 // Asks the remote directly (PR review packet 03, Problem 2) rather than a
@@ -123,6 +208,15 @@ export function getCurrentRevision(root) {
 export function hasUpstream(root, branch) {
   try {
     const out = run(root, ['ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`]);
+    return out.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function hasUpstreamAsync(root, branch, options = {}) {
+  try {
+    const out = await runGitAsync(root, ['ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`], options);
     return out.length > 0;
   } catch {
     return false;
@@ -145,13 +239,42 @@ export function getAheadBehind(root, branch) {
   return { hasUpstream: true, ahead, behind };
 }
 
+export async function getAheadBehindAsync(root, branch, options = {}) {
+  const upstream = await hasUpstreamAsync(root, branch, options);
+  if (!upstream) {
+    return { hasUpstream: false, ahead: null, behind: null };
+  }
+  await runGitAsync(root, ['fetch', 'origin', branch], options);
+  const raw = await runGitAsync(root, ['rev-list', '--left-right', '--count', `origin/${branch}...${branch}`], options);
+  const [behind, ahead] = raw.split(/\s+/).map(Number);
+  return { hasUpstream: true, ahead, behind };
+}
+
 export function commitAll(root, message) {
   run(root, ['add', '-A']);
   run(root, ['commit', '-m', message]);
 }
 
+export async function commitAllAsync(root, message, options = {}) {
+  await runGitAsync(root, ['add', '-A'], options);
+  await runGitAsync(root, ['commit', '-m', message], options);
+}
+
+export async function addAndCommitAsync(root, paths, message, options = {}) {
+  if (Array.isArray(paths) && paths.length > 0) {
+    await runGitAsync(root, ['add', '--', ...paths], options);
+  } else {
+    await runGitAsync(root, ['add', '-A'], options);
+  }
+  await runGitAsync(root, ['commit', '-m', message], options);
+}
+
 export function push(root, branch) {
   run(root, ['push', '-u', 'origin', branch]);
+}
+
+export async function pushAsync(root, branch, options = {}) {
+  await runGitAsync(root, ['push', '-u', 'origin', branch], options);
 }
 
 // True if any commit reachable from `branch` but not `base` touches one of `paths` —
@@ -159,6 +282,11 @@ export function push(root, branch) {
 // changes, not run unconditionally regardless of what changed.
 export function touchesPaths(root, base, branch, paths) {
   const out = run(root, ['diff', '--stat', `${base}...${branch}`, '--', ...paths]);
+  return out.trim().length > 0;
+}
+
+export async function touchesPathsAsync(root, base, branch, paths, options = {}) {
+  const out = await runGitAsync(root, ['diff', '--stat', `${base}...${branch}`, '--', ...paths], options);
   return out.trim().length > 0;
 }
 

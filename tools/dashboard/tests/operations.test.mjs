@@ -10,6 +10,7 @@ import { createOperationRuntime, OperationNotFoundError } from '../server/operat
 import { executeSpecificationAction } from '../server/actions.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
 import { handleOperationRoute } from '../server/routes/operations.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/service.mjs';
 
 function createMockChildProcess() {
   const child = new EventEmitter();
@@ -22,7 +23,8 @@ function fixture() {
   const root = join(tmpdir(), `nevo-dashboard-op-tests-${process.pid}-${Date.now()}-${Math.random()}`);
   const activeDir = join(root, 'specs', 'active');
   const changeDir = join(activeDir, 'sample-change');
-  mkdirSync(changeDir, { recursive: true });
+  mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+  mkdirSync(join(changeDir, 'reviews'), { recursive: true });
   writeFileSync(join(changeDir, 'change.yaml'), [
     'id: sample-change',
     'title: Sample',
@@ -34,6 +36,31 @@ function fixture() {
     '    status: draft',
     '',
   ].join('\n'));
+  writeFileSync(join(changeDir, 'overview.md'), '# Overview\n\nSample goal');
+  writeFileSync(join(changeDir, 'tasks', '01-design.md'), '# Design\n\nContent');
+
+  const changeObj = {
+    _dir: changeDir,
+    tasks: [
+      { id: 'design-it', file: 'tasks/01-design.md', status: 'draft' },
+    ],
+  };
+  const fingerprint = computeChangeFingerprint(changeObj);
+  const taskFingerprint = computeTaskFingerprint(changeObj, 'design-it');
+  writeFileSync(join(changeDir, 'reviews', 'spec.md'), [
+    '---',
+    'verdict: ready-for-approval',
+    `spec_fingerprint: ${fingerprint}`,
+    'unresolved_required_fixes: 0',
+    'unresolved_owner_decisions: 0',
+    'unresolved_needs_clarification: 0',
+    'task_fingerprints:',
+    `  design-it: ${taskFingerprint}`,
+    '---',
+    '',
+    '# Spec Review',
+  ].join('\n'));
+
   return { root, activeDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -217,69 +244,50 @@ test('OperationRuntime — lifecycle, snapshots, and SSE subscriptions', async (
   });
 });
 
-test('executeSpecificationAction — spawn-based single process runner', async (t) => {
-  await t.test('AC1 & AC10: returns operationId immediately and spawns exactly one process with no preflight spawn', () => {
+test('executeSpecificationAction — in-process single execution runner', async (t) => {
+  await t.test('AC1 & AC10: returns operationId immediately, executes in-process and completes in OperationRuntime', async () => {
     const sample = fixture();
     try {
-      const spawns = [];
-      let childProcess = null;
-
-      const mockSpawner = (root, args) => {
-        spawns.push({ root, args });
-        childProcess = createMockChildProcess();
-        return childProcess;
-      };
-
       const runtime = createOperationRuntime({ idFactory: () => 'op-123' });
+      let resolveDone;
+      const donePromise = new Promise(resolve => { resolveDone = resolve; });
 
       const result = executeSpecificationAction({
         slug: 'sample-change',
-        action: 'verify',
+        action: 'approve',
         taskId: 'design-it',
         activeDir: sample.activeDir,
         root: sample.root,
-        spawnSpecs: mockSpawner,
+        git: false,
         operationRuntime: runtime,
+        onFinished: resolveDone,
       });
 
       assert.equal(result.ok, true);
       assert.equal(result.operationId, 'op-op-123');
-      assert.equal(result.action, 'verify');
+      assert.equal(result.action, 'approve');
       assert.equal(result.taskId, 'design-it');
 
-      // Exactly one spawn (no pre-flight gate check)
-      assert.equal(spawns.length, 1);
-      assert.deepEqual(spawns[0].args, ['verify', 'sample-change', 'design-it']);
+      await donePromise;
 
-      // Operation is currently running (AC1)
-      let snapshot = runtime.getSnapshot('op-op-123');
-      assert.equal(snapshot.status, 'running');
-
-      // Child process writes progress event then closes
-      childProcess.stdout.write('@@nevo:progress@@ {"type":"operation.step.started","id":"verify-trans","label":"Check status"}\n');
-      childProcess.stdout.write('@@nevo:progress@@ {"type":"operation.step.completed","id":"verify-trans"}\n');
-      childProcess.stdout.write('{"ok":true,"action":"verify"}\n');
-      childProcess.emit('close', 0, null);
-
-      snapshot = runtime.getSnapshot('op-op-123');
+      const snapshot = runtime.getSnapshot('op-op-123');
       assert.equal(snapshot.status, 'completed');
-      assert.equal(snapshot.steps[0].id, 'verify-trans');
+      assert.ok(snapshot.steps.length > 0);
+      assert.equal(snapshot.steps[0].id, 'validate-approval');
       assert.equal(snapshot.steps[0].status, 'completed');
+      assert.equal(snapshot.result.ok, true);
+      assert.ok(snapshot.result.summary);
     } finally {
       sample.cleanup();
     }
   });
 
-  await t.test('AC7: existing uninstrumented command output completes successfully via spawn runner', () => {
+  await t.test('OperationRuntime receives complete domain result on successful action', async () => {
     const sample = fixture();
     try {
-      let childProcess = null;
-      const mockSpawner = () => {
-        childProcess = createMockChildProcess();
-        return childProcess;
-      };
-
-      const runtime = createOperationRuntime({ idFactory: () => 'op-uninstrumented' });
+      const runtime = createOperationRuntime({ idFactory: () => 'op-domain-result' });
+      let resolveDone;
+      const donePromise = new Promise(resolve => { resolveDone = resolve; });
 
       executeSpecificationAction({
         slug: 'sample-change',
@@ -287,32 +295,30 @@ test('executeSpecificationAction — spawn-based single process runner', async (
         taskId: 'design-it',
         activeDir: sample.activeDir,
         root: sample.root,
-        spawnSpecs: mockSpawner,
+        git: false,
         operationRuntime: runtime,
+        onFinished: resolveDone,
       });
 
-      childProcess.stdout.write('plain stdout from older specs.mjs\n');
-      childProcess.stdout.write('{"result":{"ok":true}}\n');
-      childProcess.emit('close', 0, null);
+      await donePromise;
 
-      const snapshot = runtime.getSnapshot('op-op-uninstrumented');
+      const snapshot = runtime.getSnapshot('op-op-domain-result');
       assert.equal(snapshot.status, 'completed');
-      assert.deepEqual(snapshot.result, { result: { ok: true } });
+      assert.equal(snapshot.result.ok, true);
+      assert.ok(snapshot.result.task, 'snapshot.result contains task');
+      assert.equal(snapshot.result.task.id, 'design-it');
+      assert.equal(snapshot.result.summary.includes('approved'), true);
     } finally {
       sample.cleanup();
     }
   });
 
-  await t.test('child process failure while a step is running transitions active step to failed status', () => {
+  await t.test('action failure transitions OperationRuntime to failed status with single terminalization', async () => {
     const sample = fixture();
     try {
-      let childProcess = null;
-      const mockSpawner = () => {
-        childProcess = createMockChildProcess();
-        return childProcess;
-      };
-
       const runtime = createOperationRuntime({ idFactory: () => 'op-step-failure' });
+      let resolveDone;
+      const donePromise = new Promise(resolve => { resolveDone = resolve; });
 
       executeSpecificationAction({
         slug: 'sample-change',
@@ -320,27 +326,17 @@ test('executeSpecificationAction — spawn-based single process runner', async (
         taskId: 'design-it',
         activeDir: sample.activeDir,
         root: sample.root,
-        spawnSpecs: mockSpawner,
+        git: false,
         operationRuntime: runtime,
+        onFinished: resolveDone,
       });
 
-      childProcess.stdout.write('@@nevo:progress@@ {"type":"operation.step.started","id":"s1","label":"Step 1"}\n');
+      await donePromise;
 
-      let snapshot = runtime.getSnapshot('op-op-step-failure');
-      assert.equal(snapshot.status, 'running');
-      assert.equal(snapshot.steps[0].id, 's1');
-      assert.equal(snapshot.steps[0].status, 'running');
-
-      // Process crashes / exits with code 1 before emitting step.completed
-      childProcess.stderr.write('Unexpected fatal error');
-      childProcess.emit('close', 1, null);
-
-      snapshot = runtime.getSnapshot('op-op-step-failure');
+      const snapshot = runtime.getSnapshot('op-op-step-failure');
       assert.equal(snapshot.status, 'failed');
-      assert.equal(snapshot.steps[0].id, 's1');
-      assert.equal(snapshot.steps[0].status, 'failed');
-      assert.ok(snapshot.steps[0].error);
-      assert.equal(snapshot.steps[0].error.message, 'Unexpected fatal error');
+      assert.ok(snapshot.error);
+      assert.ok(snapshot.error.message);
     } finally {
       sample.cleanup();
     }

@@ -11,11 +11,6 @@ import {
   setTaskStatus,
   buildSpecsIndexes,
   writeSpecsIndexes,
-  ACTIVE_DIR,
-  ARCHIVE_DIR,
-  ACTIVE_INDEX_MD,
-  ARCHIVE_INDEX_MD,
-  INDEX_JSON,
   ROOT,
 } from '../service.mjs';
 import { evaluateGate } from '../gates.mjs';
@@ -28,7 +23,7 @@ import {
   getCurrentBranchAsync,
   getAheadBehindAsync,
   pushAsync,
-} from './git.mjs';
+} from '../../lib/git.mjs';
 
 export async function approveTask(options = {}) {
   const {
@@ -39,6 +34,7 @@ export async function approveTask(options = {}) {
     gitIntegration = true,
     check = false,
     emitter = null,
+    signal = null,
   } = options;
   const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
   const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
@@ -107,7 +103,7 @@ export async function approveTask(options = {}) {
   ]);
 
   if (useGit) {
-    const baselineDirty = (await getDirtyPathsAsync(gitRoot)).map(normalizePath);
+    const baselineDirty = (await getDirtyPathsAsync(gitRoot, { signal })).map(normalizePath);
     if (baselineDirty.length > 0) {
       const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
       if (dirtyTargets.length > 0) {
@@ -116,9 +112,9 @@ export async function approveTask(options = {}) {
         progress.operationFailed({ error: err });
         throw new CliError(err);
       }
-      const unrelated = baselineDirty.filter(P => !allowedExact.has(p));
+      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
       if (unrelated.length > 0) {
-        const err = `Cannot commit approval: unrelated dirty files in working tree: $}unrelated.join(', ')}`;
+        const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
         progress.stepFailed({ id: 'validate-approval', error: err });
         progress.operationFailed({ error: err });
         throw new CliError(err);
@@ -144,10 +140,10 @@ export async function approveTask(options = {}) {
   // 4 & 5. Git commit & push (if enabled)
   if (useGit) {
     progress.stepStarted({ id: 'commit-approval', label: 'Commit approval' });
-    const currentDirty = (await getDirtyPathsAsync(gitRoot)).map(normalizePath);
+    const currentDirty = (await getDirtyPathsAsync(gitRoot, { signal })).map(normalizePath);
     const unrelated = currentDirty.filter(p => !allowedExact.has(p));
     if (unrelated.length > 0) {
-      const err = `Cannot commit approval: unrelated dirty files in working tree: $}unrelated.join(', ')}`;
+      const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
       progress.stepFailed({ id: 'commit-approval', error: err });
       progress.operationFailed({ error: err });
       throw new CliError(err);
@@ -156,21 +152,21 @@ export async function approveTask(options = {}) {
     const toStage = currentDirty.filter(p => allowedExact.has(p));
     if (toStage.length > 0) {
       try {
-        await addAndCommitAsync(gitRoot, toStage, `chore(specs): approve ${taskId}`);
+        await addAndCommitAsync(gitRoot, toStage, `chore(specs): approve ${taskId}`, { signal });
       } catch (e) {
         progress.stepFailed({ id: 'commit-approval', error: e.message });
         progress.operationFailed({ error: e.message });
-       throw new CliError(`Commit approval failed: ${e.message}`);
+        throw new CliError(`Commit approval failed: ${e.message}`);
       }
     }
     progress.stepCompleted({ id: 'commit-approval' });
 
     progress.stepStarted({ id: 'push-approval', label: 'Push approval' });
     try {
-      const branch = await getCurrentBranchAsync(gitRoot);
-      const ab = await getAheadBehindAsync(gitRoot, branch);
+      const branch = await getCurrentBranchAsync(gitRoot, { signal });
+      const ab = await getAheadBehindAsync(gitRoot, branch, { signal });
       if (!ab.hasUpstream || ab.ahead > 0) {
-        await pushAsync(gitRoot, branch);
+        await pushAsync(gitRoot, branch, { signal });
       }
       progress.stepCompleted({ id: 'push-approval' });
     } catch (e) {
@@ -186,4 +182,4 @@ export async function approveTask(options = {}) {
   progress.operationCompleted({ summary });
 
   return { ok: true, change, task, summary };
-l}
+}
