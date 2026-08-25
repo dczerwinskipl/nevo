@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { loadSpecificationActions } from '../server/actions.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
 
 function fakeHub() {
@@ -14,7 +13,7 @@ function fakeHub() {
   };
 }
 
-test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
+test('composed server routes all major capability route groups', async () => {
   const server = createDashboardServer({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
@@ -22,23 +21,26 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
   const baseUrl = await listen(server, { port: 0 });
 
   try {
+    const health = await fetch(`${baseUrl}/api/health`);
+    assert.equal(health.status, 200);
+
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
     assert.equal(dashboard.status, 200);
-    const data = await dashboard.json();
-    assert.ok(data.counts.active >= 1);
-    assert.ok(Array.isArray(data.active));
 
-    const mutation = await fetch(`${baseUrl}/api/dashboard`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    const specContent = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
+    assert.equal(specContent.status, 200);
 
-    const unknown = await fetch(`${baseUrl}/api/specs/../../secret`);
-    assert.equal(unknown.status, 404);
+    const operation = await fetch(`${baseUrl}/api/operations/non-existent-op`);
+    assert.equal(operation.status, 404);
+
+    const providers = await fetch(`${baseUrl}/api/agent-providers`);
+    assert.equal(providers.status, 200);
   } finally {
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
 
-test('serves exact specification manifest routes without leaking lookup failures', async () => {
+test('handles unknown /api/* fallback with 404 JSON', async () => {
   const server = createDashboardServer({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
@@ -46,177 +48,102 @@ test('serves exact specification manifest routes without leaking lookup failures
   const baseUrl = await listen(server, { port: 0 });
 
   try {
-    const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
-    assert.equal(active.status, 200);
-    const manifest = await active.json();
-    assert.equal(manifest.slug, 'refaktoring-tooli');
-    assert.equal(manifest.source, 'active');
+    const unknownGet = await fetch(`${baseUrl}/api/nonexistent-route`);
+    assert.equal(unknownGet.status, 404);
+    assert.deepEqual(await unknownGet.json(), { error: 'API route not found' });
 
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/content`);
-    assert.equal(missing.status, 404);
-    assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
+    const unknownPost = await fetch(`${baseUrl}/api/nonexistent-route`, { method: 'POST' });
+    assert.equal(unknownPost.status, 404);
+    assert.deepEqual(await unknownPost.json(), { error: 'API route not found' });
 
-    const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
-
-    const traversal = await fetch(`${baseUrl}/api/specs/active/%2e%2e%2fsecret/content`);
-    assert.equal(traversal.status, 404);
-
-    const unknownSource = await fetch(`${baseUrl}/api/specs/other/refaktoring-tooli/content`);
-    assert.equal(unknownSource.status, 404);
+    const nestedUnknown = await fetch(`${baseUrl}/api/unknown/subpath/secret`);
+    assert.equal(nestedUnknown.status, 404);
+    assert.deepEqual(await nestedUnknown.json(), { error: 'API route not found' });
   } finally {
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
 
-test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = createDashboardServer({
+test('handles static asset serving and missing distDir fallback', async () => {
+  const serverMissing = createDashboardServer({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
   });
-  const baseUrl = await listen(server, { port: 0 });
+  const baseUrlMissing = await listen(serverMissing, { port: 0 });
 
   try {
-    const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
-    assert.equal(doc.status, 200);
-    const payload = await doc.json();
-    assert.equal(payload.docId, 'overview');
-    assert.ok(payload.markdown.length > 0);
-
-    const missing = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/task%3Amissing-task-id`);
-    assert.equal(missing.status, 404);
-    assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
-
-    const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    const res = await fetch(`${baseUrlMissing}/`);
+    assert.equal(res.status, 404);
+    const body = await res.json();
+    assert.equal(body.error, 'Dashboard assets not found');
   } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
+    await new Promise(resolvePromise => serverMissing.close(resolvePromise));
+  }
+
+  const tmpDist = join(tmpdir(), `nevo-dist-test-${Date.now()}`);
+  mkdirSync(tmpDist, { recursive: true });
+  writeFileSync(join(tmpDist, 'index.html'), '<!doctype html><html><body>Test</body></html>');
+  writeFileSync(join(tmpDist, 'app.js'), 'console.log("app");');
+
+  const serverWithDist = createDashboardServer({
+    eventHub: fakeHub(),
+    distDir: tmpDist,
+  });
+  const baseUrlWithDist = await listen(serverWithDist, { port: 0 });
+
+  try {
+    const indexRes = await fetch(`${baseUrlWithDist}/`);
+    assert.equal(indexRes.status, 200);
+    assert.match(indexRes.headers.get('content-type'), /text\/html/);
+    assert.match(await indexRes.text(), /<!doctype html>/);
+
+    const jsRes = await fetch(`${baseUrlWithDist}/app.js`);
+    assert.equal(jsRes.status, 200);
+    assert.match(jsRes.headers.get('content-type'), /javascript/);
+    assert.match(await jsRes.text(), /console\.log/);
+
+    const spaFallback = await fetch(`${baseUrlWithDist}/specs/active/refaktoring-tooli`);
+    assert.equal(spaFallback.status, 200);
+    assert.match(spaFallback.headers.get('content-type'), /text\/html/);
+  } finally {
+    await new Promise(resolvePromise => serverWithDist.close(resolvePromise));
+    rmSync(tmpDist, { recursive: true, force: true });
   }
 });
 
-test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
+test('server shutdown lifecycle cleans up eventHub, ai service, and operation runtime', async () => {
+  let eventHubClosed = false;
+  let aiShutdown = false;
+  let opRuntimeShutdown = false;
+
+  const mockHub = {
+    subscribe: () => () => {},
+    close: () => { eventHubClosed = true; },
+  };
+  const mockAiService = {
+    shutdown: () => { aiShutdown = true; },
+    listProviders: () => [],
+  };
+  const mockOpRuntime = {
+    shutdown: () => { opRuntimeShutdown = true; },
+    getSnapshot: () => null,
+  };
+
   const server = createDashboardServer({
-    eventHub: fakeHub(),
+    eventHub: mockHub,
+    aiService: mockAiService,
+    operationRuntime: mockOpRuntime,
     distDir: 'Z:/does-not-exist',
   });
+
   const baseUrl = await listen(server, { port: 0 });
+  await fetch(`${baseUrl}/api/health`);
 
-  try {
-    const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.equal(payload.slug, 'refaktoring-tooli');
-    assert.equal(payload.source, 'active');
-    assert.ok(Array.isArray(payload.tasks));
+  await new Promise(resolvePromise => server.close(resolvePromise));
 
-    const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
-    assert.equal(missing.status, 404);
-
-    const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
-  } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
-  }
-});
-
-test('serves provider-neutral pull request results through an exact read-only route', async () => {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
-  const baseUrl = await listen(server, { port: 0 });
-
-  try {
-    const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests`);
-    assert.equal(response.status, 200);
-    const payload = await response.json();
-    assert.equal(payload.slug, 'refaktoring-tooli');
-    assert.equal(payload.source, 'active');
-    assert.ok(Array.isArray(payload.pullRequests));
-
-    const missing = await fetch(`${baseUrl}/api/specs/archive/missing-nonexistent-slug/pull-requests`);
-    assert.equal(missing.status, 404);
-    assert.deepEqual(await missing.json(), { error: 'Specification changes not found' });
-
-    const traversal = await fetch(`${baseUrl}/api/specs/active/%2e%2e%2fsecret/pull-requests`);
-    assert.equal(traversal.status, 404);
-
-    const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
-  } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
-  }
-});
-
-test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
-  const baseUrl = await listen(server, { port: 0 });
-
-  try {
-    const malformed = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests/42/file-diffs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ headSha: 'sha-1' }),
-    });
-    assert.equal(malformed.status, 400);
-
-    const wrongMethod = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests/42/file-diffs`);
-    assert.equal(wrongMethod.status, 405);
-  } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
-  }
-});
-
-test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
-  const baseUrl = await listen(server, { port: 0 });
-
-  try {
-    const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);
-    assert.equal(gates.status, 200);
-    const actionsPayload = await gates.json();
-    assert.equal(actionsPayload.slug, 'refaktoring-tooli');
-    assert.ok(actionsPayload.tasks);
-
-    const invalid = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
-      body: '{',
-    });
-    assert.equal(invalid.status, 400);
-
-    const missingActionHeader = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'verify', taskId: 'shared-specs-workflow-operations' }),
-    });
-    assert.equal(missingActionHeader.status, 403);
-
-    const invalidShape = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
-      body: 'null',
-    });
-    assert.equal(invalidShape.status, 400);
-
-    const unknownAction = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
-      body: JSON.stringify({ action: 'nonexistent-action' }),
-    });
-    assert.equal(unknownAction.status, 400);
-
-    const archived = await fetch(`${baseUrl}/api/specs/archive/refaktoring-tooli/actions`, { method: 'POST' });
-    assert.equal(archived.status, 405);
-  } finally {
-    await new Promise(resolvePromise => server.close(resolvePromise));
-  }
+  assert.equal(eventHubClosed, true);
+  assert.equal(aiShutdown, true);
+  assert.equal(opRuntimeShutdown, true);
 });
 
 

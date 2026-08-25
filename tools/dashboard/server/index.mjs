@@ -5,19 +5,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { dashboardNetworkConfig } from './network-config.mjs';
 import { createSpecEventHub } from './watcher.mjs';
-import { handleAiRequest } from './ai-routes.mjs';
-import {
-  createDefaultDashboardAiService,
-  createTrustedNetworkAiAccessPolicy,
-} from './ai-services.mjs';
-import {
-  createOperationRuntime,
-  OperationNotFoundError,
-} from './operations.mjs';
+import { createOperationRuntime } from './operations.mjs';
 import { sendJson, readJsonBody, HttpError } from './http-utils.mjs';
+import { handleHealthRoute } from './routes/health.mjs';
+import { handleEventsRoute } from './routes/events.mjs';
 import { handleOperationRoute } from './routes/operations.mjs';
 import { handleSpecsRoute } from './routes/specs.mjs';
 import { handlePullRequestRoute } from './routes/pull-requests.mjs';
+import { createAiRouteAdapter } from './routes/ai.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
@@ -68,48 +63,26 @@ function serveStatic(response, pathname, distDir) {
 export function createDashboardServer({
   eventHub = createSpecEventHub(),
   aiService,
-  aiServiceFactory = createDefaultDashboardAiService,
-  aiAccessPolicy = createTrustedNetworkAiAccessPolicy(),
+  aiServiceFactory,
+  aiAccessPolicy,
   operationRuntime = createOperationRuntime(),
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
-  let resolvedAiService = aiService;
-  const getAiService = () => {
-    resolvedAiService ||= aiServiceFactory();
-    return resolvedAiService;
-  };
-  let aiReconciliationPromise = null;
-  const ensureAiReconciled = () => {
-    const service = getAiService();
-    if (!aiReconciliationPromise) {
-      aiReconciliationPromise = Promise.resolve(service.turnRuntime?.reconcileOrphanedTurns?.()).catch(err => {
-        console.error(`[ai] [reconcile] boot-time turn reconciliation failed: ${err.message}`);
-      });
-    }
-    return aiReconciliationPromise;
-  };
+  const aiAdapter = createAiRouteAdapter({
+    aiService,
+    aiServiceFactory,
+    aiAccessPolicy,
+  });
+
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
 
-    if (
-      url.pathname.startsWith('/api/ai/') ||
-      url.pathname === '/api/agent-sessions' ||
-      url.pathname.startsWith('/api/agent-sessions/') ||
-      url.pathname === '/api/agent-providers' ||
-      url.pathname.startsWith('/api/agent-providers/')
-    ) {
-      await ensureAiReconciled();
-      await handleAiRequest({
-        request,
-        response,
-        method,
-        url,
-        service: getAiService(),
-        accessPolicy: aiAccessPolicy,
-        sendJson,
-        readJsonBody,
-      });
+    if (handleHealthRoute({ request, response, method, url })) {
+      return;
+    }
+
+    if (handleEventsRoute({ request, response, method, url, eventHub })) {
       return;
     }
 
@@ -117,50 +90,15 @@ export function createDashboardServer({
       return;
     }
 
-    if (await handleSpecsRoute({
-      request,
-      response,
-      method,
-      url,
-      operationRuntime,
-    })) {
+    if (await handleSpecsRoute({ request, response, method, url, operationRuntime })) {
       return;
     }
 
-    if (await handlePullRequestRoute({
-      request,
-      response,
-      method,
-      url,
-    })) {
+    if (await handlePullRequestRoute({ request, response, method, url })) {
       return;
     }
 
-    if (method !== 'GET') {
-      sendJson(response, 405, { error: 'Method not allowed' });
-      return;
-    }
-
-    if (url.pathname === '/api/health') {
-      sendJson(response, 200, { status: 'ok' });
-      return;
-    }
-
-    if (url.pathname === '/api/events') {
-      response.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        connection: 'keep-alive',
-      });
-      response.write(`event: connected\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
-      const unsubscribe = eventHub.subscribe(event => {
-        response.write(`event: specs-changed\ndata: ${JSON.stringify(event)}\n\n`);
-      });
-      const keepAlive = setInterval(() => response.write(': keep-alive\n\n'), 20_000);
-      request.on('close', () => {
-        clearInterval(keepAlive);
-        unsubscribe();
-      });
+    if (await aiAdapter.handleAiRoute({ request, response, method, url })) {
       return;
     }
 
@@ -178,8 +116,8 @@ export function createDashboardServer({
   });
 
   server.on('close', () => {
-    eventHub.close?.();
-    void (resolvedAiService?.shutdown?.() ?? resolvedAiService?.turnRuntime?.shutdown?.());
+    eventHub?.close?.();
+    aiAdapter.shutdown?.();
     operationRuntime.shutdown?.();
   });
   return server;

@@ -81,11 +81,16 @@ export async function handleSpecsRoute({
     return true;
   }
 
-  const actionRoute = url.pathname.match(/^\/api\/specs\/active\/([^/]+)\/actions$/);
+  const actionRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/actions$/);
   if (actionRoute) {
+    const [, source, rawSlug] = actionRoute;
+    if (source === 'archive') {
+      sendJson(response, 405, { error: 'Method not allowed' });
+      return true;
+    }
     let slug;
     try {
-      slug = decodeURIComponent(actionRoute[1]);
+      slug = decodeURIComponent(rawSlug);
     } catch {
       sendJson(response, 404, { error: 'Specification actions not found' });
       return true;
