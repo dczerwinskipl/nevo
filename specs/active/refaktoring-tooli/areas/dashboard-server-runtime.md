@@ -23,7 +23,8 @@ Owns the HTTP/SSE server layer for the specification dashboard (`tools/dashboard
 - Ensure all action triggers (approve, verify, finalize) remain asynchronous, cancellable, and preserve progress streaming without blocking server responsiveness.
 - Move potentially unbounded repository traversal and repeated file reads off the blocking request path or execute them asynchronously using the smallest appropriate boundary.
 - Refactor the operation SSE subscription lifecycle to robustly handle reconnects, synchronous event replay, exactly-once cleanup, and no use-before-initialization errors.
-- Organize server route handlers into focused capability modules (for example under `tools/dashboard/server/routes/` covering specifications, changes/diffs, AI sessions, and operations).
+- Organize server route handlers into focused capability modules (for example under `tools/dashboard/server/routes/` covering specifications, changes/diffs, and operations).
+- Preserve existing `tools/dashboard/server/ai-routes.mjs` internal behavior and structure, allowing only minimal wiring changes required for server bootstrap extraction.
 - HTTP handlers must strictly:
   - Validate request parameters (`parse -> validate -> normalize`).
   - Invoke application operations (shared with CLI or provided by server services).
@@ -45,3 +46,4 @@ The server exposes REST and SSE interfaces consumed by the React frontend. All J
 ## Out of scope
 
 - Changing the underlying HTTP server framework.
+- Decomposing or redesigning internal AI/session route handlers in `tools/dashboard/server/ai-routes.mjs`.

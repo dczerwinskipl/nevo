@@ -38,7 +38,7 @@ Modularize dashboard server route handlers into capability-focused route modules
 
 ## Expected outcome
 
-- Route definitions are organized into modular route handlers (e.g. under `tools/dashboard/server/routes/` or cohesive capability modules) covering specifications, pull request diffs, operations, and AI sessions.
+- Route definitions are organized into modular route handlers (e.g. under `tools/dashboard/server/routes/` or cohesive capability modules) covering specifications, pull request diffs, and operations.
 - `tools/dashboard/server/index.mjs` handles only server bootstrap, static asset mounting, middleware registration, and graceful shutdown.
 - Potentially unbounded repository traversal and repeated file reads on `GET /api/dashboard` are moved off the blocking request path or executed asynchronously using the smallest appropriate boundary (without introducing unnecessary background job frameworks), ensuring the event loop remains responsive.
 - The operation SSE route handler and runtime subscription lifecycle are refactored to cleanly support:
@@ -57,12 +57,28 @@ Modularize dashboard server route handlers into capability-focused route modules
 
 ## Verification
 
-```text
-npm --prefix tools/dashboard test
-node tools/specs.mjs validate
-```
+The task requires focused automated test coverage in `tools/dashboard/tests/` without real-time sleeps, timing-sensitive assertions, or millisecond benchmarks:
+
+1. **Focused regression tests for resumable SSE lifecycle:**
+   - initial subscription to a running operation;
+   - cursor-based reconnect/resume using `afterSequence` / `Last-Event-ID`;
+   - reconnect to an already-completed operation;
+   - reconnect to an already-failed/cancelled operation;
+   - synchronous replay of terminal events during subscription setup (verifying absence of use-before-initialization errors);
+   - exactly-once connection cleanup on client disconnect or completion;
+   - no duplicate terminal handling;
+   - no leaked subscriptions or event listeners under controlled deterministic events.
+2. **Focused coverage for asynchronous dashboard-data boundary:**
+   - verification that `GET /api/dashboard` uses the non-blocking data-loading boundary while preserving exact response data shapes, error responses, and active/archive spec discovery semantics under controlled test fixtures.
+3. **Automated suite execution:**
+   ```text
+   npm --prefix tools/dashboard test
+   node tools/specs.mjs validate
+   ```
 
 ## Out of scope
 
+- **AI route internals**: Existing `tools/dashboard/server/ai-routes.mjs` is already a capability-owned route boundary. Preserve its internal AI/session behavior and structure in this task except for minimal wiring changes required by server bootstrap/routing extraction. AI route decomposition belongs outside this specification.
 - Modifying frontend React components in `tools/dashboard/src/`.
+- Redesigning AI provider adapters or protocols in `tools/ai/**`.
 - Introducing background job frameworks or message queues.
