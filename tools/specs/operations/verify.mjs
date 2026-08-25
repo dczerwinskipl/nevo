@@ -4,10 +4,12 @@ import {
   requireTask,
   guardAgainstUnsafeManual,
   setTaskStatus,
+  ROOT,
+} from '../store.mjs';
+import {
   buildSpecsIndexes,
   writeSpecsIndexes,
-  ROOT,
-} from '../service.mjs';
+} from '../indexes.mjs';
 import { evaluateGate } from '../gates.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';

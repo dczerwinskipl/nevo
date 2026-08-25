@@ -6,11 +6,14 @@ import { resolveWithinBase, readUtf8 } from '../lib/fs.mjs';
 import { parseFrontMatterFile, parseYamlFile } from '../lib/yaml.mjs';
 import { CliError, RECOVERY_SCENARIOS } from '../lib/cli-errors.mjs';
 import {
-  listChanges, ACTIVE_DIR, ARCHIVE_DIR, parseOwnerDecisions, parseConstraints,
-  pathGlobsOverlap, FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES,
-  normalizePullRequestReference, pullRequestReferenceKey, isValidSpecId,
-} from './service.mjs';
-import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle.mjs';
+  listChanges, ACTIVE_DIR, ARCHIVE_DIR,
+  normalizePullRequestReference, pullRequestReferenceKey,
+} from './store.mjs';
+import { parseOwnerDecisions, parseConstraints } from './fingerprint.mjs';
+import { pathGlobsOverlap } from './context.mjs';
+import { FOLLOW_UP_STATUSES, FOLLOW_UP_SEVERITIES } from './follow-ups.mjs';
+import { isValidSpecId } from './identity.mjs';
+import { TASK_STATUSES, CHANGE_STATUSES, REMOVED_STATUSES, removedStatusMessage } from './lifecycle-primitives.mjs';
 
 const SUSPENSION_KINDS = new Set(['automatic', 'confirm-required', 'owner-decision', 'unsafe-manual']);
 // The lifecycle actions a suspension can name as its retry target — matches

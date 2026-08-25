@@ -1,17 +1,21 @@
 import { join } from 'node:path';
 import {
   loadChangeAnywhere,
-  buildSpecsIndexes,
-  writeSpecsIndexes,
   ARCHIVE_DIR,
   ROOT,
-} from '../service.mjs';
+} from '../store.mjs';
+import {
+  buildSpecsIndexes,
+  writeSpecsIndexes,
+  checkSpecsIndexes,
+} from '../indexes.mjs';
 import {
   validateFinalize,
+} from '../lifecycle/stage.mjs';
+import {
   TERMINAL_STATUSES,
-} from '../lifecycle.mjs';
+} from '../lifecycle-primitives.mjs';
 import { validateSpecs } from '../validation.mjs';
-import { checkSpecsIndexes } from '../service.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from '../../docs/service.mjs';
 import {
   runGitAsync,

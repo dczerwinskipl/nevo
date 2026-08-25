@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T14:50:01.789Z",
+  "generated": "2026-08-25T15:29:19.551Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -247,19 +247,138 @@
           "id": "specs-lifecycle-and-storage-capabilities",
           "order": 2,
           "file": "tasks/02-specs-lifecycle-and-storage-capabilities.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "shared-specs-workflow-operations"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "review_revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "changed_paths": [
+              "tools/specs/commands/agent-session.mjs",
+              "tools/specs/commands/approve.mjs",
+              "tools/specs/commands/batch.mjs",
+              "tools/specs/commands/comments.mjs",
+              "tools/specs/commands/complete.mjs",
+              "tools/specs/commands/finalize.mjs",
+              "tools/specs/commands/follow-ups.mjs",
+              "tools/specs/commands/index.mjs",
+              "tools/specs/commands/provenance.mjs",
+              "tools/specs/commands/query.mjs",
+              "tools/specs/commands/reviews.mjs",
+              "tools/specs/commands/self-check.mjs",
+              "tools/specs/commands/start.mjs",
+              "tools/specs/commands/status.mjs",
+              "tools/specs/commands/verify.mjs",
+              "tools/specs/context.mjs",
+              "tools/specs/fingerprint.mjs",
+              "tools/specs/follow-ups.mjs",
+              "tools/specs/gates.mjs",
+              "tools/specs/identity.mjs",
+              "tools/specs/indexes.mjs",
+              "tools/specs/lifecycle.mjs",
+              "tools/specs/lifecycle/batch.mjs",
+              "tools/specs/lifecycle/index.mjs",
+              "tools/specs/lifecycle/provenance.mjs",
+              "tools/specs/lifecycle/recovery.mjs",
+              "tools/specs/lifecycle/reviews.mjs",
+              "tools/specs/lifecycle/stage.mjs",
+              "tools/specs/operations/approve.mjs",
+              "tools/specs/operations/finalize.mjs",
+              "tools/specs/operations/verify.mjs",
+              "tools/specs/service.mjs",
+              "tools/specs/store.mjs",
+              "tools/specs/validation.mjs",
+              "tools/tests/context.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "0fa4b2054566b071b7ef6abc3edcddf089e6de3ac052804699d43f8888163192"
+          },
+          "self_check": {
+            "fingerprint": "e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429",
+            "revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "commands": [
+              {
+                "command": "node --test tools/tests/task-lifecycle.test.mjs tools/tests/gates.test.mjs tools/tests/workflow-*.test.mjs tools/tests/recovery.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "specs-cli-entrypoint-and-command-boundary",
           "order": 3,
           "file": "tasks/03-specs-cli-entrypoint-and-command-boundary.md",
-          "status": "approved",
+          "status": "implemented",
           "depends_on": [
             "specs-lifecycle-and-storage-capabilities"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "review_revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "changed_paths": [
+              "tools/specs.mjs",
+              "tools/specs/commands/agent-session.mjs",
+              "tools/specs/commands/approve.mjs",
+              "tools/specs/commands/batch.mjs",
+              "tools/specs/commands/comments.mjs",
+              "tools/specs/commands/complete.mjs",
+              "tools/specs/commands/finalize.mjs",
+              "tools/specs/commands/follow-ups.mjs",
+              "tools/specs/commands/index.mjs",
+              "tools/specs/commands/provenance.mjs",
+              "tools/specs/commands/query.mjs",
+              "tools/specs/commands/reviews.mjs",
+              "tools/specs/commands/self-check.mjs",
+              "tools/specs/commands/start.mjs",
+              "tools/specs/commands/status.mjs",
+              "tools/specs/commands/verify.mjs",
+              "tools/specs/context.mjs",
+              "tools/specs/fingerprint.mjs",
+              "tools/specs/follow-ups.mjs",
+              "tools/specs/gates.mjs",
+              "tools/specs/identity.mjs",
+              "tools/specs/indexes.mjs",
+              "tools/specs/lifecycle.mjs",
+              "tools/specs/lifecycle/batch.mjs",
+              "tools/specs/lifecycle/index.mjs",
+              "tools/specs/lifecycle/provenance.mjs",
+              "tools/specs/lifecycle/recovery.mjs",
+              "tools/specs/lifecycle/reviews.mjs",
+              "tools/specs/lifecycle/stage.mjs",
+              "tools/specs/operations/approve.mjs",
+              "tools/specs/operations/finalize.mjs",
+              "tools/specs/operations/verify.mjs",
+              "tools/specs/service.mjs",
+              "tools/specs/store.mjs",
+              "tools/specs/validation.mjs",
+              "tools/tests/context.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "6060235f456ad986b11493686dcec08d7b870014ad0056337c9d6106a67a3baa"
+          },
+          "self_check": {
+            "fingerprint": "b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29",
+            "revision": "97e397ed87cc8af0e945db1208457a642e918e38",
+            "commands": [
+              {
+                "command": "node --test tools/tests/cli-*.test.mjs tools/tests/handler-testability.test.mjs",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs check",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "dashboard-server-runtime-and-routes",

@@ -4,15 +4,19 @@ import {
   requireTask,
   guardAgainstUnsafeManual,
   loadReview,
-  computeChangeFingerprint,
-  computeTaskFingerprint,
   setTaskSuspension,
   clearTaskSuspension,
   setTaskStatus,
+  ROOT,
+} from '../store.mjs';
+import {
+  computeChangeFingerprint,
+  computeTaskFingerprint,
+} from '../fingerprint.mjs';
+import {
   buildSpecsIndexes,
   writeSpecsIndexes,
-  ROOT,
-} from '../service.mjs';
+} from '../indexes.mjs';
 import { evaluateGate } from '../gates.mjs';
 import { computeMechanicalExemption } from '../validation.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
