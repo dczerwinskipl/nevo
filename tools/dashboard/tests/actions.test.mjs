@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,7 @@ import {
   loadSpecificationActions,
   SpecificationActionError,
 } from '../server/actions.mjs';
-import { buildProgram } from '../../specs.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/service.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-dashboard-actions-${process.pid}-${Date.now()}-${Math.random()}`);
@@ -31,27 +31,36 @@ function fixture() {
     '    status: implemented',
     '',
   ].join('\n'));
-  return { root, activeDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
-}
+  mkdirSync(join(changeDir, 'tasks'), { recursive: true });
+  writeFileSync(join(changeDir, 'overview.md'), '# Overview\n\nSample goal');
+  writeFileSync(join(changeDir, 'tasks', '01-design-task.md'), '# Design Task\n\nContent');
+  writeFileSync(join(changeDir, 'tasks', '02-implemented-task.md'), '# Implemented Task\n\nContent');
 
-function successfulRunner(calls) {
-  return (_root, args) => {
-    calls.push(args);
-    if (args.includes('--check') && args[0] === 'finalize') {
-      return JSON.stringify({
-        facts: {
-          branch: { hasUpstream: true, ahead: 0, behind: 0 },
-          pr: { number: 42, state: 'OPEN', isDraft: false, unresolvedThreads: 0 },
-          verification: [{ name: 'specs validate', passed: true }],
-        },
-        result: { ok: true, idempotent: false },
-      });
-    }
-    if (args.includes('--check')) {
-      return JSON.stringify({ result: { ok: true, idempotent: false } });
-    }
-    return 'ok';
+  const changeObj = {
+    _dir: changeDir,
+    tasks: [
+      { id: 'design-task', file: 'tasks/01-design-task.md', status: 'draft' },
+      { id: 'implemented-task', file: 'tasks/02-implemented-task.md', status: 'implemented' },
+    ],
   };
+  const fingerprint = computeChangeFingerprint(changeObj);
+  const taskFingerprint = computeTaskFingerprint(changeObj, 'design-task');
+  mkdirSync(join(changeDir, 'reviews'), { recursive: true });
+  writeFileSync(join(changeDir, 'reviews', 'spec.md'), [
+    '---',
+    'verdict: ready-for-approval',
+    `spec_fingerprint: ${fingerprint}`,
+    'unresolved_required_fixes: 0',
+    'unresolved_owner_decisions: 0',
+    'unresolved_needs_clarification: 0',
+    'task_fingerprints:',
+    `  design-task: ${taskFingerprint}`,
+    '---',
+    '',
+    '# Spec Review',
+  ].join('\n'));
+
+  return { root, activeDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 test('projects contextual task gates, finalize validation, and worktree state for an active specification', async () => {
@@ -81,39 +90,108 @@ test('projects contextual task gates, finalize validation, and worktree state fo
   }
 });
 
-test('revalidates owner actions, requires finalize confirmation, and invokes the existing CLI flow', () => {
+test('production-path in-process action execution uses shared application operation, emits progress to OperationRuntime, and completes without spawning CLI', async () => {
   const sample = fixture();
-  const calls = [];
-  const runSpecs = successfulRunner(calls);
+  const recordedEvents = [];
+  let runtimeResult = null;
+
+  let resolveDone;
+  const donePromise = new Promise(resolve => { resolveDone = resolve; });
+
+  const runtime = {
+    createOperation: () => 'op-prod-1',
+    recordEvent: (id, event) => { recordedEvents.push(event); },
+    completeOperation: (id, result) => {
+      runtimeResult = { status: 'completed', result };
+      resolveDone();
+    },
+    failOperation: (id, error) => {
+      runtimeResult = { status: 'failed', error };
+      resolveDone();
+    },
+  };
+
   try {
-    const approved = executeSpecificationAction({
-      slug: 'sample', action: 'approve', taskId: 'design-task',
-      activeDir: sample.activeDir, root: sample.root, runSpecs,
+    const result = executeSpecificationAction({
+      slug: 'sample',
+      action: 'approve',
+      taskId: 'design-task',
+      activeDir: sample.activeDir,
+      root: sample.root,
+      operationRuntime: runtime,
     });
-    assert.equal(approved.ok, true);
-    assert.ok(calls.some(args => args.join(' ') === 'approve sample design-task'));
 
-    assert.throws(() => executeSpecificationAction({
-      slug: 'sample', action: 'finalize', confirmed: false,
-      activeDir: sample.activeDir, root: sample.root, runSpecs,
-    }), error => error instanceof SpecificationActionError && error.status === 400);
+    assert.equal(result.ok, true);
+    assert.equal(result.operationId, 'op-prod-1');
 
-    const finalized = executeSpecificationAction({
-      slug: 'sample', action: 'finalize', confirmed: true,
-      activeDir: sample.activeDir, root: sample.root, runSpecs,
-    });
-    assert.equal(finalized.ok, true);
-    assert.ok(calls.some(args => args.join(' ') === 'finalize sample'));
+    await donePromise;
+
+    assert.equal(runtimeResult?.status, 'completed', JSON.stringify(runtimeResult));
+    assert.ok(recordedEvents.length > 0, 'progress events recorded in OperationRuntime');
+    assert.ok(recordedEvents.some(e => e.type === 'operation.step.started'));
+    assert.ok(recordedEvents.some(e => e.type === 'operation.step.completed'));
   } finally {
     sample.cleanup();
   }
 });
 
-test('approve and verify expose read-only check flags for dashboard preflight', () => {
-  const program = buildProgram();
-  for (const name of ['approve', 'verify']) {
-    const command = program.commands.find(candidate => candidate.name() === name);
-    assert.ok(command);
-    assert.match(command.helpInformation(), /--check/);
+test('in-process action execution records failure in OperationRuntime on error', async () => {
+  const sample = fixture();
+  let runtimeResult = null;
+
+  let resolveDone;
+  const donePromise = new Promise(resolve => { resolveDone = resolve; });
+
+  const runtime = {
+    createOperation: () => 'op-fail-1',
+    recordEvent: () => {},
+    completeOperation: (id, result) => {
+      runtimeResult = { status: 'completed', result };
+      resolveDone();
+    },
+    failOperation: (id, error) => {
+      runtimeResult = { status: 'failed', error };
+      resolveDone();
+    },
+  };
+
+  try {
+    const result = executeSpecificationAction({
+      slug: 'sample',
+      action: 'verify',
+      taskId: 'design-task', // draft task cannot be verified -> throws gate error
+      activeDir: sample.activeDir,
+      root: sample.root,
+      operationRuntime: runtime,
+    });
+
+    assert.equal(result.ok, true);
+
+    await donePromise;
+
+    assert.equal(runtimeResult?.status, 'failed');
+    assert.ok(runtimeResult?.error, 'OperationRuntime received failure error');
+  } finally {
+    sample.cleanup();
   }
+});
+
+test('revalidates owner actions and requires finalize confirmation', () => {
+  const sample = fixture();
+  try {
+    assert.throws(() => executeSpecificationAction({
+      slug: 'sample', action: 'finalize', confirmed: false,
+      activeDir: sample.activeDir, root: sample.root,
+    }), error => error instanceof SpecificationActionError && error.status === 400);
+  } finally {
+    sample.cleanup();
+  }
+});
+
+test('dashboard server code does not import tools/specs.mjs', () => {
+  const actionsSrc = readFileSync(new URL('../server/actions.mjs', import.meta.url), 'utf8');
+  assert.equal(actionsSrc.includes("from '../../specs.mjs'"), false);
+  assert.equal(actionsSrc.includes('from "../../specs.mjs"'), false);
+  assert.equal(actionsSrc.includes("from '../specs.mjs'"), false);
+  assert.equal(actionsSrc.includes('from "../specs.mjs"'), false);
 });

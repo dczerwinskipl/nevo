@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { createOperationRuntime, OperationNotFoundError } from '../server/operations.mjs';
 import { executeSpecificationAction } from '../server/actions.mjs';
 import { createDashboardServer, listen } from '../server/index.mjs';
+import { handleOperationRoute } from '../server/routes/operations.mjs';
 
 function createMockChildProcess() {
   const child = new EventEmitter();
@@ -512,4 +513,164 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
     const sseBadCursor = await fetch(`${baseUrl}/api/operations/${opCompleted}/events?after=-5`);
     assert.equal(sseBadCursor.status, 400);
   });
+});
+
+test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)', async () => {
+  let subscribeCallCount = 0;
+  let unsubscribeCallCount = 0;
+  let activeSubscribers = 0;
+
+  const mockRuntime = {
+    getSnapshot: (id) => ({
+      id,
+      type: 'test-op',
+      status: 'running',
+      steps: [],
+      lastEventId: 0,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }),
+    subscribe: (id, { afterSequence, onEvent }) => {
+      subscribeCallCount++;
+      activeSubscribers++;
+      let unsubscribed = false;
+      return () => {
+        if (!unsubscribed) {
+          unsubscribed = true;
+          unsubscribeCallCount++;
+          activeSubscribers--;
+        }
+      };
+    },
+  };
+
+  // Test 1: single registration and cleanup on client disconnect (request 'close')
+  {
+    subscribeCallCount = 0;
+    unsubscribeCallCount = 0;
+    activeSubscribers = 0;
+
+    const req = new EventEmitter();
+    req.headers = {};
+    const res = new PassThrough();
+    res.writeHead = () => {};
+
+    const handled = handleOperationRoute({
+      request: req,
+      response: res,
+      method: 'GET',
+      url: new URL('http://127.0.0.1/api/operations/op-1/events'),
+      operationRuntime: mockRuntime,
+    });
+    assert.equal(handled, true);
+    assert.equal(subscribeCallCount, 1, 'subscription registration occurs once');
+    assert.equal(activeSubscribers, 1);
+
+    // Simulate client disconnect
+    req.emit('close');
+    assert.equal(unsubscribeCallCount, 1, 'cleanup/unsubscribe occurs exactly once');
+    assert.equal(activeSubscribers, 0, 'no listener/subscription remains after connection termination');
+
+    // Simulate duplicate disconnect / close
+    req.emit('close');
+    assert.equal(unsubscribeCallCount, 1, 'client disconnect does not double-clean');
+  }
+
+  // Test 2: terminal completion ends SSE and unsubscribes exactly once
+  {
+    subscribeCallCount = 0;
+    unsubscribeCallCount = 0;
+    activeSubscribers = 0;
+
+    let capturedOnEvent = null;
+    const runtimeWithCallback = {
+      getSnapshot: (id) => ({
+        id,
+        type: 'test-op',
+        status: 'running',
+        steps: [],
+        lastEventId: 0,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      subscribe: (id, { onEvent }) => {
+        subscribeCallCount++;
+        activeSubscribers++;
+        capturedOnEvent = onEvent;
+        return () => {
+          unsubscribeCallCount++;
+          activeSubscribers--;
+        };
+      },
+    };
+
+    const req = new EventEmitter();
+    req.headers = {};
+    const res = new PassThrough();
+    res.writeHead = () => {};
+
+    handleOperationRoute({
+      request: req,
+      response: res,
+      method: 'GET',
+      url: new URL('http://127.0.0.1/api/operations/op-2/events'),
+      operationRuntime: runtimeWithCallback,
+    });
+
+    assert.equal(subscribeCallCount, 1);
+    assert.equal(activeSubscribers, 1);
+
+    // Emit terminal completed event
+    capturedOnEvent({ id: 1, type: 'operation.completed', data: { ok: true } });
+    assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
+    assert.equal(activeSubscribers, 0);
+
+    // Ensure closing request after completion does not double clean
+    req.emit('close');
+    assert.equal(unsubscribeCallCount, 1, 'no duplicate terminal handling');
+  }
+
+  // Test 3: terminal replay on already-completed operation does not leave a subscriber registered
+  {
+    subscribeCallCount = 0;
+    unsubscribeCallCount = 0;
+    activeSubscribers = 0;
+
+    const completedRuntime = {
+      getSnapshot: (id) => ({
+        id,
+        type: 'test-op',
+        status: 'completed',
+        steps: [],
+        lastEventId: 5,
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+      subscribe: () => {
+        subscribeCallCount++;
+        activeSubscribers++;
+        return () => {
+          unsubscribeCallCount++;
+          activeSubscribers--;
+        };
+      },
+    };
+
+    const req = new EventEmitter();
+    req.headers = {};
+    const res = new PassThrough();
+    res.writeHead = () => {};
+
+    // Replay with cursor at latest event (no new events to wait for)
+    handleOperationRoute({
+      request: req,
+      response: res,
+      method: 'GET',
+      url: new URL('http://127.0.0.1/api/operations/op-3/events?after=5'),
+      operationRuntime: completedRuntime,
+    });
+
+    assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
+    assert.equal(activeSubscribers, 0, 'terminal replay does not leave a subscriber registered');
+  }
 });

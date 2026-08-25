@@ -6,7 +6,7 @@ import * as git from '../../lib/git.mjs';
 import { parseProgressLine, createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../specs/gates.mjs';
 import { ACTIVE_DIR, loadChange, loadFollowUps } from '../../specs/service.mjs';
-import { handleApprove, handleVerify, handleFinalize } from '../../specs.mjs';
+import { approveTask, verifyTask, finalizeChange } from '../../specs/operations/index.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -215,6 +215,7 @@ export function executeSpecificationAction({
   confirmed = false,
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
+  git,
   runSpecs,
   spawnSpecs = defaultSpecsSpawner,
   operationRuntime,
@@ -278,23 +279,24 @@ export function executeSpecificationAction({
       ? operationRuntime.createOperation({ type: operationType })
       : `op-${Date.now()}`;
 
-    queueMicrotask(() => {
-      try {
-        const emitter = createProgressEmitter({
-          out: null,
-          onEvent: (event) => {
-            if (operationRuntime && event.type !== 'operation.started') {
-              operationRuntime.recordEvent(operationId, event);
-            }
-          },
-        });
+    const emitter = createProgressEmitter({
+      out: null,
+      onEvent: (event) => {
+        if (operationRuntime && event.type !== 'operation.started') {
+          operationRuntime.recordEvent(operationId, event);
+        }
+      },
+    });
 
+    const useGit = git ?? (root === REPOSITORY_ROOT);
+    const runner = async () => {
+      try {
         if (action === 'approve') {
-          handleApprove(slug, taskId, { activeDir, gitRoot: root, emitter });
+          await approveTask({ changeSlug: slug, taskId, activeDir, gitRoot: root, git: useGit, emitter });
         } else if (action === 'verify') {
-          handleVerify(slug, taskId, { activeDir, gitRoot: root, emitter });
+          await verifyTask({ changeSlug: slug, taskId, activeDir, gitRoot: root, git: useGit, emitter });
         } else if (action === 'finalize') {
-          handleFinalize(slug, { gitRoot: root, emitter });
+          await finalizeChange({ changeSlug: slug, gitRoot: root, emitter });
         }
 
         if (operationRuntime) {
@@ -314,7 +316,9 @@ export function executeSpecificationAction({
       } finally {
         markFinished();
       }
-    });
+    };
+
+    void runner();
 
     return {
       ok: true,

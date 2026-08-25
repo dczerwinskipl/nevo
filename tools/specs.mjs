@@ -29,6 +29,7 @@ import {
   backfillSpecIds, resolveCanonicalSpec, isValidSpecId,
   ACTIVE_DIR, ARCHIVE_DIR,
 } from './specs/service.mjs';
+import { approveTask, verifyTask, finalizeChange } from './specs/operations/index.mjs';
 import { readAgentExecutionContext, createAgentSessionBindingService } from './ai/binding-service.mjs';
 import { validateSpecs, computeMechanicalExemption } from './specs/validation.mjs';
 import { scanDocs, validateDocs, checkDocsIndexes } from './docs/service.mjs';
@@ -278,156 +279,18 @@ export function handleFingerprint(changeSlug, options = {}) {
   console.log(computeChangeFingerprint(change));
 }
 
-export function handleApprove(changeSlug, taskId, options = {}) {
-  const gitRoot = options.gitRoot || ROOT;
-  const change = requireChange(changeSlug, options.activeDir);
-  const task = requireTask(change, taskId);
-  guardAgainstUnsafeManual(task, taskId, 'approve');
-
-  const { eligible: mechanicalExempt } = computeMechanicalExemption(change, task);
-  const review = loadReview(change);
-  const currentFingerprint = computeChangeFingerprint(change);
-  const currentTaskFingerprint = computeTaskFingerprint(change, taskId);
-
-  const gateResult = evaluateGate('task.approve', {
-    task,
-    review,
-    currentFingerprint,
-    mechanicalExempt,
-    taskId,
-    currentTaskFingerprint,
-  }, { mode: 'full' });
-
-  if (options.check) {
-    console.log(JSON.stringify({ change: changeSlug, task: taskId, result: gateResult }, null, 2));
-    return gateResult;
-  }
-
-  const useGit = options.git !== false && options.gitIntegration !== false;
-
-  const steps = [
-    { id: 'validate-approval', label: 'Validate approval' },
-    { id: 'approve-task', label: 'Approve task' },
-    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
-  ];
-  if (useGit) {
-    steps.push({ id: 'commit-approval', label: 'Commit approval' });
-    steps.push({ id: 'push-approval', label: 'Push approval' });
-  }
-
+export async function handleApprove(changeSlug, taskId, options = {}) {
   const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
-  emitter.operationStarted({ type: 'approve', steps });
-
-  // 1. Validate approval
-  emitter.stepStarted({ id: 'validate-approval', label: 'Validate approval' });
-  if (!gateResult.ok) {
-    emitter.stepFailed({ id: 'validate-approval', error: gateResult.reason });
-    emitter.operationFailed({ error: gateResult.reason });
-    if (gateResult.code === 'stale-fingerprint' || gateResult.code === 'missing-task-fingerprint' || gateResult.code === 'stale-task-fingerprint') {
-      setTaskSuspension(change, taskId, {
-        kind: 'confirm-required', code: 'REC-07', previous_action: 'approve',
-        created_at: new Date().toISOString(),
-      });
-      throw new RecoveryError('REC-07', { detail: gateResult.reason });
-    }
-    throw new CliError(gateResult.reason);
+  if (options.check) {
+    const result = await approveTask({ changeSlug, taskId, ...options, check: true, emitter });
+    console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
+    return result;
   }
-  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
-  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
-  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
-  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
-  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
-
-  const normalizePath = p => p.replace(/\\/g, '/');
-  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
-  const allowedExact = new Set([
-    changeYamlRel,
-    normalizePath(relative(gitRoot, activeIndexMd)),
-    normalizePath(relative(gitRoot, archiveIndexMd)),
-    normalizePath(relative(gitRoot, indexJson)),
-  ]);
-
-  // Baseline dirty check
-  if (useGit) {
-    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
-    if (baselineDirty.length > 0) {
-      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
-      if (dirtyTargets.length > 0) {
-        const err = `Cannot commit approval: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
-        emitter.stepFailed({ id: 'validate-approval', error: err });
-        emitter.operationFailed({ error: err });
-        throw new CliError(err);
-      }
-      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
-      if (unrelated.length > 0) {
-        const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
-        emitter.stepFailed({ id: 'validate-approval', error: err });
-        emitter.operationFailed({ error: err });
-        throw new CliError(err);
-      }
-    }
+  const result = await approveTask({ changeSlug, taskId, ...options, emitter });
+  if (!options.silent && !options.emitter) {
+    console.log(result.summary);
   }
-  emitter.stepCompleted({ id: 'validate-approval' });
-
-  // 2. Approve task
-  emitter.stepStarted({ id: 'approve-task', label: 'Approve task' });
-  if (task.status !== 'approved') {
-    clearTaskSuspension(change, taskId);
-    setTaskStatus(change, taskId, 'approved');
-  }
-  emitter.stepCompleted({ id: 'approve-task' });
-
-  // 3. Rebuild metadata
-  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
-  const built = buildSpecsIndexes({ activeDir, archiveDir });
-  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
-  emitter.stepCompleted({ id: 'rebuild-metadata' });
-
-  // 4 & 5. Git commit & push (if enabled)
-  if (useGit) {
-    emitter.stepStarted({ id: 'commit-approval', label: 'Commit approval' });
-    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
-    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
-    if (unrelated.length > 0) {
-      const err = `Cannot commit approval: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
-      emitter.stepFailed({ id: 'commit-approval', error: err });
-      emitter.operationFailed({ error: err });
-      throw new CliError(err);
-    }
-
-    const toStage = currentDirty.filter(p => allowedExact.has(p));
-    if (toStage.length > 0) {
-      try {
-        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
-        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): approve ${taskId}`], { encoding: 'utf8' });
-      } catch (e) {
-        emitter.stepFailed({ id: 'commit-approval', error: e.message });
-        emitter.operationFailed({ error: e.message });
-        throw new CliError(`Commit approval failed: ${e.message}`);
-      }
-    }
-    emitter.stepCompleted({ id: 'commit-approval' });
-
-    emitter.stepStarted({ id: 'push-approval', label: 'Push approval' });
-    try {
-      const branch = git.getCurrentBranch(gitRoot);
-      const ab = git.getAheadBehind(gitRoot, branch);
-      if (!ab.hasUpstream || ab.ahead > 0) {
-        git.push(gitRoot, branch);
-      }
-      emitter.stepCompleted({ id: 'push-approval' });
-    } catch (e) {
-      emitter.stepFailed({ id: 'push-approval', error: e.message });
-      emitter.operationFailed({ error: e.message });
-      throw new CliError(`Push approval failed: ${e.message}`);
-    }
-  }
-
-  const summary = mechanicalExempt
-    ? `Task '${taskId}' marked as approved (type: mechanical — review-exempt deterministic approval).`
-    : `Task '${taskId}' marked as approved.`;
-  emitter.operationCompleted({ summary });
-  console.log(summary);
+  return result;
 }
 
 // Postcondition-based start (D8 reference example, area recovery-and-resume):
@@ -565,13 +428,10 @@ export function handleComplete(changeSlug, taskId) {
   console.log(`Task '${taskId}' marked as implemented. Present results to owner for verification.`);
 }
 
-export function handleVerify(changeSlug, taskId, options = {}) {
-  const gitRoot = options.gitRoot || ROOT;
-  const change = requireChange(changeSlug, options.activeDir);
-  const task = requireTask(change, taskId);
-  const gateResult = evaluateGate('task.verify', { task, change }, { mode: 'full' });
-
+export async function handleVerify(changeSlug, taskId, options = {}) {
+  const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
   if (options.check) {
+    const gateResult = await verifyTask({ changeSlug, taskId, ...options, check: true, emitter });
     const result = {
       ok: gateResult.ok,
       ...(gateResult.idempotent ? { idempotent: true } : {}),
@@ -580,122 +440,11 @@ export function handleVerify(changeSlug, taskId, options = {}) {
     console.log(JSON.stringify({ change: changeSlug, task: taskId, result }, null, 2));
     return result;
   }
-
-  const useGit = options.git !== false && options.gitIntegration !== false;
-
-  const steps = [
-    { id: 'validate-transition', label: 'Validate transition' },
-    { id: 'verify-task', label: 'Verify task' },
-    { id: 'rebuild-metadata', label: 'Rebuild spec metadata' },
-  ];
-  if (useGit) {
-    steps.push({ id: 'commit-verification', label: 'Commit verification' });
-    steps.push({ id: 'push-verification', label: 'Push verification' });
+  const result = await verifyTask({ changeSlug, taskId, ...options, emitter });
+  if (!options.silent && !options.emitter) {
+    console.log(result.summary);
   }
-
-  const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
-  emitter.operationStarted({ type: 'verify', steps });
-
-  // 1. Validate transition
-  emitter.stepStarted({ id: 'validate-transition', label: 'Validate transition' });
-  if (!gateResult.ok) {
-    emitter.stepFailed({ id: 'validate-transition', error: gateResult.reason });
-    emitter.operationFailed({ error: gateResult.reason });
-    throw new CliError(gateResult.reason);
-  }
-  const activeDir = options.activeDir || join(gitRoot, 'specs', 'active');
-  const archiveDir = options.archiveDir || join(gitRoot, 'specs', 'archive');
-  const activeIndexMd = options.activeIndexMd || join(gitRoot, 'specs', 'active.generated.md');
-  const archiveIndexMd = options.archiveIndexMd || join(gitRoot, 'specs', 'archive.generated.md');
-  const indexJson = options.indexJson || join(gitRoot, 'specs', 'index.generated.json');
-
-  const normalizePath = p => p.replace(/\\/g, '/');
-  const changeYamlRel = normalizePath(relative(gitRoot, join(activeDir, changeSlug, 'change.yaml')));
-  const allowedExact = new Set([
-    changeYamlRel,
-    normalizePath(relative(gitRoot, activeIndexMd)),
-    normalizePath(relative(gitRoot, archiveIndexMd)),
-    normalizePath(relative(gitRoot, indexJson)),
-  ]);
-
-  // Baseline dirty check
-  if (useGit) {
-    const baselineDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
-    if (baselineDirty.length > 0) {
-      const dirtyTargets = baselineDirty.filter(p => allowedExact.has(p));
-      if (dirtyTargets.length > 0) {
-        const err = `Cannot commit verification: '${dirtyTargets.join(', ')}' contains pre-existing uncommitted modifications.`;
-        emitter.stepFailed({ id: 'validate-transition', error: err });
-        emitter.operationFailed({ error: err });
-        throw new CliError(err);
-      }
-      const unrelated = baselineDirty.filter(p => !allowedExact.has(p));
-      if (unrelated.length > 0) {
-        const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
-        emitter.stepFailed({ id: 'validate-transition', error: err });
-        emitter.operationFailed({ error: err });
-        throw new CliError(err);
-      }
-    }
-  }
-  emitter.stepCompleted({ id: 'validate-transition' });
-
-  // 2. Verify task
-  emitter.stepStarted({ id: 'verify-task', label: 'Verify task' });
-  if (task.status !== 'verified') {
-    setTaskStatus(change, taskId, 'verified');
-  }
-  emitter.stepCompleted({ id: 'verify-task' });
-
-  // 3. Rebuild metadata
-  emitter.stepStarted({ id: 'rebuild-metadata', label: 'Rebuild spec metadata' });
-  const built = buildSpecsIndexes({ activeDir, archiveDir });
-  writeSpecsIndexes(built, { activeIndexMd, archiveIndexMd, indexJson });
-  emitter.stepCompleted({ id: 'rebuild-metadata' });
-
-  // 4 & 5. Git commit & push (if enabled)
-  if (useGit) {
-    emitter.stepStarted({ id: 'commit-verification', label: 'Commit verification' });
-    const currentDirty = git.getDirtyPaths(gitRoot).map(normalizePath);
-    const unrelated = currentDirty.filter(p => !allowedExact.has(p));
-    if (unrelated.length > 0) {
-      const err = `Cannot commit verification: unrelated dirty files in working tree: ${unrelated.join(', ')}`;
-      emitter.stepFailed({ id: 'commit-verification', error: err });
-      emitter.operationFailed({ error: err });
-      throw new CliError(err);
-    }
-
-    const toStage = currentDirty.filter(p => allowedExact.has(p));
-    if (toStage.length > 0) {
-      try {
-        execFileSync('git', ['-C', gitRoot, 'add', '--', ...toStage], { encoding: 'utf8' });
-        execFileSync('git', ['-C', gitRoot, 'commit', '-m', `chore(specs): verify ${changeSlug}/${taskId}`], { encoding: 'utf8' });
-      } catch (e) {
-        emitter.stepFailed({ id: 'commit-verification', error: e.message });
-        emitter.operationFailed({ error: e.message });
-        throw new CliError(`Commit verification failed: ${e.message}`);
-      }
-    }
-    emitter.stepCompleted({ id: 'commit-verification' });
-
-    emitter.stepStarted({ id: 'push-verification', label: 'Push verification' });
-    try {
-      const branch = git.getCurrentBranch(gitRoot);
-      const ab = git.getAheadBehind(gitRoot, branch);
-      if (!ab.hasUpstream || ab.ahead > 0) {
-        git.push(gitRoot, branch);
-      }
-      emitter.stepCompleted({ id: 'push-verification' });
-    } catch (e) {
-      emitter.stepFailed({ id: 'push-verification', error: e.message });
-      emitter.operationFailed({ error: e.message });
-      throw new CliError(`Push verification failed: ${e.message}`);
-    }
-  }
-
-  const summary = `Task '${taskId}' (${changeSlug}) marked as verified.`;
-  emitter.operationCompleted({ summary });
-  console.log(summary);
+  return result;
 }
 
 // ── Self-check (D28) — the single write path for self_check ────────────────
@@ -1466,87 +1215,18 @@ export function handleBulkTransition(changeSlug, options = {}) {
 // failing gate, and the interactive "are you sure" for this whole action lives one layer
 // up, in /nevo-ai:spec-finalize — this command does exactly what it's told,
 // deterministically, the same split as `approve`/`archive`.
-export function handleFinalize(changeSlug, options = {}) {
-  const { change, location } = requireChangeAnywhere(changeSlug);
-  const branch = git.getCurrentBranch(ROOT);
-
-  if (options.check) {
-    const facts = gatherFinalizeFacts(branch, change);
-    const result = validateFinalize(change, facts);
-    console.log(JSON.stringify({ change: changeSlug, branch, location, facts, result }, null, 2));
-    return;
-  }
-
+export async function handleFinalize(changeSlug, options = {}) {
   const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
-  emitter.operationStarted({ type: 'finalize', steps: [
-    { id: 'validate-specs', label: 'Validate specs' },
-    { id: 'check-specs-indexes', label: 'Check spec indexes' },
-    { id: 'validate-docs', label: 'Validate docs' },
-    { id: 'check-docs-indexes', label: 'Check docs indexes' },
-    { id: 'load-pr-review', label: 'Load PR and review state' },
-    { id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' },
-    { id: 'archive-change', label: 'Archive specification' },
-    { id: 'push-and-merge', label: 'Push and merge' },
-    { id: 'post-merge-check', label: 'Post-merge check' },
-  ]});
-
-  const facts = gatherFinalizeFacts(branch, change, emitter);
-  emitter.stepStarted({ id: 'evaluate-finalize-gate', label: 'Evaluate finalize gate' });
-  const result = validateFinalize(change, facts);
-
-  if (!result.ok) {
-    emitter.stepFailed({ id: 'evaluate-finalize-gate', error: result.reason || 'Finalize gate blocked' });
-    emitter.operationFailed({ error: result.reason || 'Finalize gate blocked' });
-    throw new CliError(result.reason);
+  if (options.check) {
+    const checkReport = await finalizeChange({ changeSlug, ...options, check: true, emitter });
+    console.log(JSON.stringify(checkReport, null, 2));
+    return checkReport;
   }
-  emitter.stepCompleted({ id: 'evaluate-finalize-gate' });
-
-  emitter.stepStarted({ id: 'archive-change', label: 'Archive specification' });
-  if (location === 'active') {
-    handleArchive(changeSlug);
-    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): archive ${changeSlug}`);
-  } else {
-    console.log(`Change '${changeSlug}' is already archived.`);
-    if (!git.isWorkingTreeClean(ROOT)) git.commitAll(ROOT, `chore(specs): finalize ${changeSlug}`);
+  const result = await finalizeChange({ changeSlug, ...options, emitter });
+  if (!options.silent && !options.emitter) {
+    console.log(result.summary);
   }
-  emitter.stepCompleted({ id: 'archive-change' });
-
-  if (result.idempotent) {
-    emitter.operationCompleted({ summary: 'PR was already merged.' });
-    console.log('PR was already merged. Any pending local changes were committed — push manually if the remote branch still exists.');
-    return;
-  }
-
-  emitter.stepStarted({ id: 'push-and-merge', label: 'Push and merge' });
-  git.push(ROOT, branch);
-  github.mergePr(ROOT, facts.pr.number);
-  emitter.stepCompleted({ id: 'push-and-merge' });
-
-  emitter.stepStarted({ id: 'post-merge-check', label: 'Post-merge check' });
-  const postMerge = runPostMergeCheck(ROOT, branch, gatherPostMergeCheckFailures);
-  if (!postMerge.ok) {
-    emitter.stepFailed({ id: 'post-merge-check', error: 'Post-merge check failed' });
-    emitter.operationFailed({ error: 'Post-merge check failed' });
-    console.error(`Post-merge check FAILED after merging PR #${facts.pr.number} (merged SHA: ${postMerge.mergedSha}).`);
-    for (const f of postMerge.failed) console.error(`  - ${f.name}${f.detail ? `: ${f.detail}` : ''}`);
-    console.error(
-      `Branch '${postMerge.diagnosticBranch}' preserved as a diagnostic anchor (not deleted). ` +
-      `No follow-up entry was written for this already-archived change.`
-    );
-    console.error(
-      `To create a repair branch once confirmed: node tools/specs.mjs finalize-repair-branch ` +
-      `${changeSlug} --failing-sha ${postMerge.mergedSha}`
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  emitter.stepCompleted({ id: 'post-merge-check' });
-  emitter.operationCompleted({ summary: `Pushed and merged PR #${facts.pr.number} (squash).` });
-  console.log(
-    `Pushed and merged PR #${facts.pr.number} (squash). Post-merge check passed — ` +
-    `branch '${postMerge.deletedBranch}' deleted.`
-  );
+  return result;
 }
 
 // Read-only lifecycle navigator: where does this change sit right now, across the

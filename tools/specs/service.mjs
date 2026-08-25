@@ -12,7 +12,7 @@ import { parseYamlFile, parseYamlString, parseFrontMatterFile, updateYamlFile } 
 import { CliError } from '../lib/cli-errors.mjs';
 import { ACTIVE_CHANGE_STATUSES, isTaskReady } from './lifecycle.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const ACTIVE_DIR = join(ROOT, 'specs', 'active');
 export const ARCHIVE_DIR = join(ROOT, 'specs', 'archive');
 export const ACTIVE_INDEX_MD = join(ROOT, 'specs', 'active.generated.md');
@@ -1156,4 +1156,56 @@ ${validGoal || 'Define the goals and expected outcomes of this specification.'}
       throw creationError;
     }
   });
+}
+
+export function requireChange(slug, baseDir = ACTIVE_DIR) {
+  const change = loadChange(slug, baseDir);
+  if (!change) throw new CliError(`Change '${slug}' not found in specs/active/`);
+  return change;
+}
+
+export function requireChangeAnywhere(slug, { activeDir = ACTIVE_DIR, archiveDir = ARCHIVE_DIR } = {}) {
+  const located = loadChangeAnywhere(slug, { activeDir, archiveDir });
+  if (located) return located;
+  throw new CliError(`Change '${slug}' not found in specs/active/ or specs/archive/`);
+}
+
+export function requireTask(change, taskId) {
+  const task = change.tasks.find(t => t.id === taskId);
+  if (!task) throw new CliError(`Task '${taskId}' not found in change '${change._slug}'`);
+  return task;
+}
+
+export function setTaskSuspension(change, taskId, suspension) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item) throw new CliError(`Task '${taskId}' not found in ${change._file}`);
+    if (item.has('execution')) {
+      item.get('execution', true).set('suspension', suspension);
+    } else {
+      item.set('execution', { suspension });
+    }
+  });
+}
+
+export function clearTaskSuspension(change, taskId) {
+  updateYamlFile(change._file, doc => {
+    const tasks = doc.get('tasks', true);
+    const item = tasks?.items?.find(it => it.get('id') === taskId);
+    if (!item?.has('execution')) return;
+    const execution = item.get('execution', true);
+    if (execution.has('suspension')) execution.delete('suspension');
+    if (execution.items.length === 0) item.delete('execution');
+  });
+}
+
+export function guardAgainstUnsafeManual(task, taskId, action) {
+  const suspension = task.execution?.suspension;
+  if (suspension?.kind === 'unsafe-manual') {
+    throw new CliError(
+      `Task '${taskId}' has an unresolved unsafe-manual suspension (${suspension.code}) — ` +
+      `it must be resolved manually before '${action}' can be retried.`
+    );
+  }
 }
