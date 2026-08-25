@@ -13,9 +13,9 @@ read_when:
   - Node tooling or server changes
 summary: >
   Practical architecture guidelines for Node-based developer tooling, CLI commands, and
-  long-lived dashboard server code. Covers module boundaries, thin external boundaries,
-  pure decision logic vs IO, async process execution, lifecycle and cancellation, dependency
-  injection, error mapping, testing boundaries, and anti-overengineering rules.
+  long-lived dashboard server code. Covers module boundaries, capability-oriented ownership,
+  thin external boundaries, pure decision logic vs IO, async process execution, lifecycle
+  and cancellation, dependency injection, error mapping, testing boundaries, and anti-overengineering rules.
 related:
   - development.coding-conventions
   - development.architecture-overview
@@ -121,6 +121,32 @@ A subprocess is appropriate when invoking an external executable (e.g. `git`, `g
 ---
 
 # 3. Organize modules by cohesive capability
+
+## 3.1 Prefer capability-oriented boundaries over technical layers
+
+**«Prefer capability-oriented boundaries over technical-layer grouping when a capability has meaningful behavior of its own. Keep closely related orchestration, policy, and tests near the capability, while shared infrastructure such as Git, filesystem, process execution, and common runtime primitives remains shared.»**
+
+When an operation or capability has meaningful behavior of its own (e.g. specification finalization, recovery inspection, batch progression), prefer keeping its application orchestration, closely related validation/policy, and dedicated tests near that capability rather than spreading them mechanically across technical-layer folders.
+
+For example, a cohesive capability such as specification finalization conceptually owns:
+- application orchestration;
+- operation-specific validation and policy rules;
+- operation-specific tests.
+
+It consumes shared infrastructure adapters such as:
+- Git client;
+- filesystem helpers;
+- process execution runner;
+- shared runtime primitives.
+
+**Important clarifications:**
+- This is **not** a requirement to adopt a formal Vertical Slice Architecture.
+- A small operation can legitimately remain in an existing cohesive module.
+- Boundaries should emerge from actual responsibility and change cohesion, not from a formula.
+- Do **not** create one directory per CLI command mechanically.
+- Shared low-level adapters (e.g. `lib/git.mjs`, `lib/fs.mjs`) must remain shared; do not duplicate infrastructure inside individual capability modules.
+
+## 3.2 Avoid generic catch-alls
 
 Prefer modules named around what the code actually does:
 
@@ -363,6 +389,7 @@ Test behavior at the responsibility level that owns it:
 When creating or refactoring Node tooling code, verify:
 
 - [ ] Is the external boundary (CLI / HTTP) thin?
+- [ ] Are capability-oriented boundaries preferred over technical-layer grouping where behavior is cohesive?
 - [ ] Can application operations be reused without spawning CLI subprocesses?
 - [ ] Are modules grouped by cohesive capability rather than catch-all nouns (`service.mjs`, `utils.mjs`)?
 - [ ] Is file size used solely as an inspection trigger rather than an extraction rule?

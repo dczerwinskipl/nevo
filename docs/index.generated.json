@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T08:49:30.420Z",
+  "generated": "2026-08-25T09:25:18.742Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -540,7 +540,7 @@
         "refactoring Node modules under tools",
         "Node tooling or server changes"
       ],
-      "summary": "Practical architecture guidelines for Node-based developer tooling, CLI commands, and long-lived dashboard server code. Covers module boundaries, thin external boundaries, pure decision logic vs IO, async process execution, lifecycle and cancellation, dependency injection, error mapping, testing boundaries, and anti-overengineering rules.",
+      "summary": "Practical architecture guidelines for Node-based developer tooling, CLI commands, and long-lived dashboard server code. Covers module boundaries, capability-oriented ownership, thin external boundaries, pure decision logic vs IO, async process execution, lifecycle and cancellation, dependency injection, error mapping, testing boundaries, and anti-overengineering rules.",
       "related": [
         "development.coding-conventions",
         "development.architecture-overview",
@@ -640,7 +640,7 @@
         "extracting reusable components",
         "changing styling or status/color presentation"
       ],
-      "summary": "Practical architecture guidelines for React UI code: component composition, module and file boundaries, \"one primary concept per module\", token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model projections, testing, and anti-mechanical refactoring principles.",
+      "summary": "Practical architecture guidelines for React UI code: component composition, module and file boundaries, \"one primary concept per module\", feature-local vertical ownership, token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model projections, testing, and anti-mechanical refactoring principles.",
       "related": [
         "development.coding-conventions",
         "development.architecture-overview",

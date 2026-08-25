@@ -13,9 +13,9 @@ read_when:
   - changing styling or status/color presentation
 summary: >
   Practical architecture guidelines for React UI code: component composition, module and
-  file boundaries, "one primary concept per module", token -> primitive -> wrapper -> feature
-  layering, state/effect/context ownership, view-model projections, testing, and anti-mechanical
-  refactoring principles.
+  file boundaries, "one primary concept per module", feature-local vertical ownership,
+  token -> primitive -> wrapper -> feature layering, state/effect/context ownership,
+  view-model projections, testing, and anti-mechanical refactoring principles.
 related:
   - development.coding-conventions
   - development.architecture-overview
@@ -144,7 +144,37 @@ A component is a strong candidate for its own module when it owns a real, indepe
 
 **Reuse is not required to justify an independent module.** A component used in only one feature can still deserve its own file because it owns a separate interaction or lifecycle responsibility.
 
-## 2.4 Feature directories
+## 2.4 Prefer feature-local vertical ownership
+
+**«Prefer feature-local vertical ownership when component, interaction behavior, projection, and tests belong to the same feature. Promote only genuinely shared primitives or behavior to global/shared modules.»**
+
+When a feature or product capability has meaningful behavior of its own, prefer keeping its constituent parts together:
+- visual and container components;
+- interaction behavior and dialog contracts;
+- feature-local hooks;
+- projections and view-model transformations;
+- feature-specific tests.
+
+Prefer keeping these concepts close to the feature rather than scattering them automatically across global technical-layer folders such as:
+
+```text
+# Avoid premature horizontal scattering:
+components/   ← every component in the repo
+hooks/        ← every hook in the repo
+models/       ← every projection in the repo
+utils/        ← every helper in the repo
+```
+
+Instead, keep feature-specific code vertically owned by the feature. Promote code to global/shared directories (`src/components/ui/`, `src/hooks/`, `src/lib/`) only when there is genuine cross-feature reuse or it represents an application-wide primitive.
+
+**Important clarifications:**
+- This does **not** mean every feature requires a dedicated directory.
+- This does **not** mean every component needs its own vertical slice.
+- This does **not** mean every feature must have component, hook, model, and test files.
+- Existing cohesive code should **never** be reorganized solely to match a vertical-slice pattern.
+- A small feature may remain in a single, cohesive module.
+
+## 2.5 Feature directories
 
 Do not create a directory for every single component by default. Start with a single module when a feature is small.
 
@@ -155,9 +185,9 @@ chat/
   ai-chat.tsx               # Orchestration and composition
   conversation.tsx          # Message stream visual component
   session-dialog.tsx        # Independent modal interaction
-  use-chat-viewport.ts      # Viewport and scroll lifecycle
-  chat-view-model.ts        # Pure data projection logic
-  chat-view-model.test.ts   # Pure unit tests
+  use-chat-viewport.ts      # Viewport and scroll lifecycle (feature-local hook)
+  chat-view-model.ts        # Pure data projection logic (feature-local projection)
+  chat-view-model.test.ts   # Pure unit tests (feature-local test)
 ```
 
 A feature directory is justified when it groups files that:
@@ -168,7 +198,7 @@ A feature directory is justified when it groups files that:
 
 Keep feature-specific hooks, view models, and helpers **feature-local** until there is genuine, proven reuse across independent features.
 
-## 2.5 Promote code upward only when reuse is real
+## 2.6 Promote code upward only when reuse is real
 
 Keep code feature-local until a real shared concept emerges. Promote to shared UI or shared hooks only when:
 - multiple independent features genuinely require the same semantic concept;
@@ -213,9 +243,7 @@ Application-owned UI primitives (Button, Dialog, Card, Sheet)
     ↓
 Reusable visual components
     ↓
-Feature components
-    ↓
-Feature hooks / view models / orchestration
+Feature components & feature-local modules (dialogs, hooks, view models)
     ↓
 Pages / workspace composition
 ```
@@ -299,12 +327,12 @@ Prefer:
 ```text
 raw events / API responses
         ↓
-pure projection / selector / view-model function
+pure projection / selector / view-model function (feature-local by default)
         ↓
 visual components
 ```
 
-Projection logic should be deterministic and independently testable with fast unit tests. Build view models close to the feature consuming them. Do not create view models ceremonially for trivial 1-to-1 prop mapping.
+Projection logic should be deterministic and independently testable with fast unit tests. Build view models close to the feature consuming them. Promote to shared `src/lib/` only when multiple independent features require the same projection. Do not create view models ceremonially for trivial 1-to-1 prop mapping.
 
 ## 7.1 View-model boundaries follow change boundaries
 
@@ -342,7 +370,7 @@ Do not treat responsive layouts as a CSS afterthought. Test narrow widths, colla
 
 Test logic at the responsibility level where it lives:
 
-1. **Projection / View-model logic:** Pure unit tests for data transformations, event filtering, sorting, status derivation, and grouping.
+1. **Projection / View-model logic:** Pure unit tests for data transformations, event filtering, sorting, status derivation, and grouping (kept feature-local beside the projection where practical).
 2. **Visual components:** Observable behavior tests (visible content, accessibility attributes, callback invocation, expand/collapse, disabled states) using React Testing Library.
 3. **Smart / Orchestration components:** Integration tests for query/mutation contracts, error handling, and parameter routing.
 
@@ -355,6 +383,7 @@ Avoid relying exclusively on broad, brittle snapshot tests.
 When creating or reviewing React UI code, verify:
 
 - [ ] Does each primary module represent one clear concept?
+- [ ] Is feature-local vertical ownership preferred over premature scattering into global technical folders?
 - [ ] Are small private render helpers kept local rather than creating unnecessary files?
 - [ ] Do separate modules exist for independent interaction contracts (dialogs, menus, editors)?
 - [ ] Is a feature directory used only when the feature has real internal structure?
