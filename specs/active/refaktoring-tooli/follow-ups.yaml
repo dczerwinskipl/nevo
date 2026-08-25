@@ -24,3 +24,11 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: repository-scale-sync-fs-evaluation
+    source_task: shared-specs-workflow-operations
+    kind: PERFORMANCE
+    severity: non-blocking
+    reason: "Evaluate repository-size-dependent synchronous filesystem work remaining in shared specs operations (including metadata/index regeneration and finalize validation/archive paths) while Task 02 decomposes specs lifecycle and storage capabilities. Small bounded synchronous reads/writes do not need mechanical conversion."
+    resolver_task: specs-lifecycle-and-storage-capabilities
+    status: open
+    resolution: null

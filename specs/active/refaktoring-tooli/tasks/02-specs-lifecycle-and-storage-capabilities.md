@@ -41,6 +41,7 @@ Separate pure deterministic decision logic from external filesystem/Git I/O acro
 
 - Pure decision algorithms (e.g. transition validation, postcondition recovery inspection, fingerprinting, stage derivation, batch progress calculation) are decoupled into focused capability modules and covered by pure unit tests.
 - Filesystem persistence, index generation, and context packet generation are grouped into cohesive capability modules.
+- Evaluate remaining repository-size-dependent synchronous filesystem operations in shared specs operations (metadata/index regeneration, finalize validation/archive paths) and determine appropriate async boundaries without mechanically converting small bounded reads/writes (`repository-scale-sync-fs-evaluation`).
 - Internal callers are migrated directly to newly separated capability modules; compatibility re-exports are retained only where real external callers or public tooling interfaces require them, eliminating unnecessary forwarding layers.
 
 ## Preserved contracts & behavior

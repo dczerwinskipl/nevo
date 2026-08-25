@@ -115,3 +115,49 @@ test('serves active-only lifecycle gates and executes explicit validated actions
     await new Promise(r => server.close(r));
   }
 });
+
+test('specs route adapter manages AbortController lifecycle and aborts on shutdown', async () => {
+  let capturedSignal = null;
+  let finishAction = null;
+
+  const server = createDashboardServer({
+    eventHub: fakeHub(),
+    distDir: 'Z:/does-not-exist',
+    actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
+      capturedSignal = signal;
+      finishAction = onFinished;
+      return { ok: true, operationId: 'op-abort-test', action, taskId };
+    },
+  });
+
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const res = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      body: JSON.stringify({ action: 'approve', taskId: 'shared-specs-workflow-operations' }),
+    });
+
+    assert.equal(res.status, 200);
+    assert.ok(capturedSignal, 'AbortSignal was passed to actionExecutor');
+    assert.equal(capturedSignal.aborted, false);
+
+    // Concurrency lock is active
+    const conflictRes = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
+      body: JSON.stringify({ action: 'approve', taskId: 'shared-specs-workflow-operations' }),
+    });
+    assert.equal(conflictRes.status, 409);
+
+    // When server closes, the active controller is aborted
+    await new Promise(r => server.close(r));
+    assert.equal(capturedSignal.aborted, true);
+
+    // Action finishes cleanup
+    if (finishAction) finishAction();
+  } finally {
+    try { await new Promise(r => server.close(r)); } catch {}
+  }
+});

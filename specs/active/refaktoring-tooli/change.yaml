@@ -18,7 +18,7 @@ tasks:
     status: implemented
     implementation:
       baseline_revision: 5f9652827bcb63515dbadfadf2404704d543ff72
-      review_revision: 6c3f3851d182fb52c6b7592dd3da82c6856f2e72
+      review_revision: 17ff7429adc52c4af8bd250db4886e6e807b3e06
       changed_paths:
         - tools/dashboard/server/actions.mjs
         - tools/dashboard/tests/actions.test.mjs
@@ -37,10 +37,10 @@ tasks:
         - tools/specs/operations/index.mjs
         - tools/specs/operations/verify.mjs
         - tools/specs/service.mjs
-      worktree_patch_fingerprint: 62ad48386dc0a6cee1b6fbc3cd69230b365df662c7fe881b50b07f57f03d713e
+      worktree_patch_fingerprint: a28fd3179c796f856b01583faaa6168dbf4a570050207aa0e67fcba8e37b8c85
     self_check:
       fingerprint: 531a004b687d7dc54e32894e3c9f2e026eca40c513417058437312c113fc9457
-      revision: 6c3f3851d182fb52c6b7592dd3da82c6856f2e72
+      revision: 17ff7429adc52c4af8bd250db4886e6e807b3e06
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
@@ -67,7 +67,7 @@ tasks:
       - shared-specs-workflow-operations
     implementation:
       baseline_revision: 5f9652827bcb63515dbadfadf2404704d543ff72
-      review_revision: 6c3f3851d182fb52c6b7592dd3da82c6856f2e72
+      review_revision: 17ff7429adc52c4af8bd250db4886e6e807b3e06
       changed_paths:
         - tools/dashboard/server/actions.mjs
         - tools/dashboard/server/ai-routes.mjs
@@ -91,10 +91,10 @@ tasks:
         - tools/dashboard/tests/server.test.mjs
         - tools/dashboard/tests/spec-create-api.test.mjs
         - tools/dashboard/tests/specs.test.mjs
-      worktree_patch_fingerprint: a496189bd42dada5e26f6cb9efe0e6350af884a0baba40a2ced45181522865ad
+      worktree_patch_fingerprint: 9af2c22f2f1be071d58229e5404dfb7ad30feadeb888dc87c6ad416bbc8afbf0
     self_check:
       fingerprint: 82519f27b420910913fba182f1986fbf956145adc65cb3ac9a4bdc4e3c84b0db
-      revision: 6c3f3851d182fb52c6b7592dd3da82c6856f2e72
+      revision: 17ff7429adc52c4af8bd250db4886e6e807b3e06
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0

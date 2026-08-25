@@ -10,7 +10,7 @@ import { sendJson, readJsonBody, HttpError } from './http-utils.mjs';
 import { handleHealthRoute } from './routes/health.mjs';
 import { handleEventsRoute } from './routes/events.mjs';
 import { handleOperationRoute } from './routes/operations.mjs';
-import { handleSpecsRoute } from './routes/specs.mjs';
+import { handleSpecsRoute, createSpecsRouteAdapter } from './routes/specs.mjs';
 import { handlePullRequestRoute } from './routes/pull-requests.mjs';
 import { createAiRouteAdapter } from './routes/ai.mjs';
 
@@ -66,12 +66,22 @@ export function createDashboardServer({
   aiServiceFactory,
   aiAccessPolicy,
   operationRuntime = createOperationRuntime(),
+  actionExecutor,
+  activeDir,
+  root,
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
   const aiAdapter = createAiRouteAdapter({
     aiService,
     aiServiceFactory,
     aiAccessPolicy,
+  });
+
+  const specsAdapter = createSpecsRouteAdapter({
+    operationRuntime,
+    actionExecutor,
+    activeDir,
+    root,
   });
 
   const server = createServer(async (request, response) => {
@@ -90,7 +100,7 @@ export function createDashboardServer({
       return;
     }
 
-    if (await handleSpecsRoute({ request, response, method, url, operationRuntime })) {
+    if (await specsAdapter.handleSpecsRoute({ request, response, method, url })) {
       return;
     }
 
@@ -118,6 +128,7 @@ export function createDashboardServer({
   server.on('close', () => {
     eventHub?.close?.();
     aiAdapter.shutdown?.();
+    specsAdapter.shutdown?.();
     operationRuntime.shutdown?.();
   });
   return server;

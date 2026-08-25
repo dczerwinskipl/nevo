@@ -35,16 +35,38 @@ export class Semaphore {
     this.queue = [];
   }
 
-  async acquire() {
+  async acquire(signal) {
+    if (signal?.aborted) {
+      const error = signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
     if (this.current < this.max) {
       this.current++;
       return () => this.release();
     }
-    return new Promise((resolvePromise) => {
-      this.queue.push(() => {
+    return new Promise((resolvePromise, rejectPromise) => {
+      let onAbort;
+      const item = () => {
+        if (signal && onAbort) {
+          signal.removeEventListener('abort', onAbort);
+        }
         this.current++;
         resolvePromise(() => this.release());
-      });
+      };
+      if (signal) {
+        onAbort = () => {
+          const idx = this.queue.indexOf(item);
+          if (idx !== -1) {
+            this.queue.splice(idx, 1);
+          }
+          const error = signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
+          error.name = 'AbortError';
+          rejectPromise(error);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      this.queue.push(item);
     });
   }
 
@@ -146,24 +168,33 @@ function run(root, args) {
   });
 }
 
-export async function runAsync(root, args, { op = 'gh', timeout = 60000, semaphore = defaultGhSemaphore } = {}) {
+export async function runAsync(root, args, { op = 'gh', timeout = 60000, semaphore = defaultGhSemaphore, signal } = {}) {
+  if (signal?.aborted) {
+    const error = signal.reason instanceof Error ? signal.reason : new Error('The operation was aborted');
+    error.name = 'AbortError';
+    throw error;
+  }
   const binary = resolveGhBinary();
   if (!binary) throw new Error('gh CLI is not available (checked PATH and known Windows install locations).');
   const queueStart = performance.now();
-  const release = await semaphore.acquire();
+  const release = await semaphore.acquire(signal);
   const queueMs = Math.round(performance.now() - queueStart);
   const execStart = performance.now();
   try {
     return await new Promise((resolvePromise, rejectPromise) => {
+      const execOptions = {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: GH_CLI_MAX_BUFFER_BYTES,
+        timeout,
+      };
+      if (signal) {
+        execOptions.signal = signal;
+      }
       execFile(
         binary,
         args,
-        {
-          cwd: root,
-          encoding: 'utf8',
-          maxBuffer: GH_CLI_MAX_BUFFER_BYTES,
-          timeout,
-        },
+        execOptions,
         (error, stdout, stderr) => {
           const ghMs = Math.round(performance.now() - execStart);
           if (process.env.DEBUG || process.env.NODE_ENV !== 'production') {

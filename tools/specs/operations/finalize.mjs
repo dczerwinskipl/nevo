@@ -1,6 +1,4 @@
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import {
   loadChangeAnywhere,
   buildSpecsIndexes,
@@ -33,8 +31,7 @@ import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 import { ensureDir, moveDir } from '../../lib/fs.mjs';
 import { updateYamlFile } from '../../lib/yaml.mjs';
-
-const execFileAsync = promisify(execFile);
+import { runProcessWithTailAsync } from '../../lib/process.mjs';
 
 export function archiveSpecificationSync(changeSlug, changeDir) {
   ensureDir(ARCHIVE_DIR);
@@ -60,10 +57,12 @@ export function gatherPostMergeCheckFailures() {
 
 export async function runDotnetCheckAsync(name, args, { root = ROOT, signal = null } = {}) {
   try {
-    await execFileAsync('dotnet', args, { cwd: root, encoding: 'utf8', signal });
+    await runProcessWithTailAsync('dotnet', args, { cwd: root, signal, maxTailLines: 50 });
     return { name, passed: true };
   } catch (error) {
-    const tail = String(error?.stdout || error?.message || '').trim().split('\n').slice(-5).join(' | ');
+    const tail = error?.tail && error.tail.length > 0
+      ? error.tail.slice(-5).join(' | ')
+      : String(error?.message || '').trim().split('\n').slice(-5).join(' | ');
     return { name, passed: false, detail: tail };
   }
 }
