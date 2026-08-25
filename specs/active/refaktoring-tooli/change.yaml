@@ -61,3 +61,8 @@ tasks:
       - ai-subsystem-and-adapters-refactoring
       - dashboard-server-modularization
       - dashboard-frontend-components-decomposition
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 39
