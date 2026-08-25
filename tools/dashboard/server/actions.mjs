@@ -1,11 +1,14 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 
 import * as git from '../../lib/git.mjs';
 import { parseProgressLine } from '../../lib/operation-progress.mjs';
-import { evaluateGate } from '../../specs/gates.mjs';
+import { evaluateGate, evaluateTaskGate } from '../../specs/gates.mjs';
 import { ACTIVE_DIR, loadChange, loadFollowUps } from '../../specs/service.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
+
+const execFileAsync = promisify(execFile);
 
 const ACTIONABLE_TASK_STATUSES = new Map([
   ['draft', 'approve'],
@@ -18,14 +21,6 @@ export class SpecificationActionError extends Error {
     this.name = 'SpecificationActionError';
     this.status = status;
   }
-}
-
-function defaultSpecsRunner(root, args) {
-  const script = resolve(root, 'tools', 'specs.mjs');
-  return execFileSync(process.execPath, [script, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-  }).trim();
 }
 
 export function defaultSpecsSpawner(root, args) {
@@ -50,40 +45,81 @@ function parseReport(output, label) {
   }
 }
 
-function taskGate(runSpecs, root, slug, task) {
-  const action = ACTIONABLE_TASK_STATUSES.get(task.status);
-  if (!action) return null;
-  try {
-    const report = parseReport(runSpecs(root, [action, slug, task.id, '--check']), `${action} check`);
-    return {
-      action,
-      enabled: Boolean(report.result?.ok && !report.result?.idempotent),
-      reason: report.result?.ok ? null : (report.result?.reason || `The ${action} gate did not pass.`),
-    };
-  } catch {
-    return { action, enabled: false, reason: `Nie udało się sprawdzić bramki ${action}.` };
+export function taskGate(changeOrRunSpecs, taskOrRoot, slugOrOptions, maybeTask) {
+  if (typeof changeOrRunSpecs === 'function') {
+    const runSpecs = changeOrRunSpecs;
+    const root = taskOrRoot;
+    const slug = slugOrOptions;
+    const task = maybeTask;
+    const action = ACTIONABLE_TASK_STATUSES.get(task?.status);
+    if (!action) return null;
+    try {
+      const report = parseReport(runSpecs(root, [action, slug, task.id, '--check']), `${action} check`);
+      return {
+        action,
+        enabled: Boolean(report.result?.ok && !report.result?.idempotent),
+        reason: report.result?.ok ? null : (report.result?.reason || `The ${action} gate did not pass.`),
+      };
+    } catch {
+      return { action, enabled: false, reason: `Nie udało się sprawdzić bramki ${action}.` };
+    }
   }
+
+  const change = changeOrRunSpecs;
+  const task = taskOrRoot;
+  const options = slugOrOptions || {};
+  if (options.taskGateEvaluator) {
+    return options.taskGateEvaluator(change, task);
+  }
+  if (options.runSpecs) {
+    const action = ACTIONABLE_TASK_STATUSES.get(task?.status);
+    if (!action) return null;
+    try {
+      const report = parseReport(options.runSpecs(options.root, [action, options.slug, task.id, '--check']), `${action} check`);
+      return {
+        action,
+        enabled: Boolean(report.result?.ok && !report.result?.idempotent),
+        reason: report.result?.ok ? null : (report.result?.reason || `The ${action} gate did not pass.`),
+      };
+    } catch {
+      return { action, enabled: false, reason: `Nie udało się sprawdzić bramki ${action}.` };
+    }
+  }
+  return evaluateTaskGate(change, task, options);
 }
 
-function finalizeGate(runSpecs, root, slug) {
-  try {
-    const report = parseReport(runSpecs(root, ['finalize', slug, '--check']), 'finalize check');
-    return {
-      enabled: Boolean(report.result?.ok),
-      reason: report.result?.ok ? null : (report.result?.reason || 'The finalize gate did not pass.'),
-      checks: report.facts?.verification || [],
-      pullRequest: report.facts?.pr || null,
-      branch: report.facts?.branch || { hasUpstream: false, ahead: null, behind: null },
-    };
-  } catch {
-    return {
-      enabled: false,
-      reason: 'Nie udało się sprawdzić bramki finalizacji.',
-      checks: [],
-      pullRequest: null,
-      branch: { hasUpstream: false, ahead: null, behind: null },
-    };
+export function finalizeGate(first, second, third) {
+  if (typeof first === 'function') {
+    try {
+      const report = parseReport(first(second, ['finalize', third, '--check']), 'finalize check');
+      return {
+        enabled: Boolean(report.result?.ok),
+        reason: report.result?.ok ? null : (report.result?.reason || 'The finalize gate did not pass.'),
+        checks: report.facts?.verification || [],
+        pullRequest: report.facts?.pr || null,
+        branch: report.facts?.branch || { hasUpstream: false, ahead: null, behind: null },
+      };
+    } catch {
+      return {
+        enabled: false,
+        reason: 'Nie udało się sprawdzić bramki finalizacji.',
+        checks: [],
+        pullRequest: null,
+        branch: { hasUpstream: false, ahead: null, behind: null },
+      };
+    }
   }
+
+  const change = first;
+  const facts = second || {};
+  const result = evaluateGate('finalize', { change, ...facts }, { mode: 'full' });
+  return {
+    enabled: Boolean(result.ok),
+    reason: result.ok ? null : (result.reason || 'The finalize gate did not pass.'),
+    checks: facts?.verification || [],
+    pullRequest: facts?.pr || null,
+    branch: facts?.branch || { hasUpstream: false, ahead: null, behind: null },
+  };
 }
 
 function requireActiveChange(slug, activeDir) {
@@ -95,29 +131,37 @@ function requireActiveChange(slug, activeDir) {
   return change;
 }
 
-function getLocalBranchTracking(root) {
+export async function getLocalBranchTracking(root) {
   try {
-    const raw = execFileSync('git', ['-C', root, 'rev-list', '--left-right', '--count', '@{u}...HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    const [behind, ahead] = raw.split(/\s+/).map(Number);
-    return { hasUpstream: true, ahead: Number.isFinite(ahead) ? ahead : 0, behind: Number.isFinite(behind) ? behind : 0 };
+    const { stdout } = await execFileAsync('git', ['-C', root, 'rev-list', '--left-right', '--count', '@{u}...HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const [behind, ahead] = stdout.trim().split(/\s+/).map(Number);
+    return {
+      hasUpstream: true,
+      ahead: Number.isFinite(ahead) ? ahead : 0,
+      behind: Number.isFinite(behind) ? behind : 0,
+    };
   } catch {
     return { hasUpstream: false, ahead: null, behind: null };
   }
 }
 
-export function loadSpecificationActions({
+export async function loadSpecificationActions({
   slug,
   activeDir = ACTIVE_DIR,
   root = REPOSITORY_ROOT,
-  runSpecs = defaultSpecsRunner,
+  taskGateEvaluator,
+  runSpecs,
   worktreeLoader = git.getWorkingTreeSummary,
   branchLoader = git.getCurrentBranch,
   trackingLoader = getLocalBranchTracking,
 } = {}) {
   const change = requireActiveChange(slug, activeDir);
-  const worktree = worktreeLoader(root);
-  const branch = branchLoader(root);
-  const tracking = trackingLoader(root, branch);
+  const worktree = await worktreeLoader(root);
+  const branch = await branchLoader(root);
+  const tracking = await trackingLoader(root, branch);
 
   let openBlockingFollowUps = [];
   try {
@@ -134,6 +178,14 @@ export function loadSpecificationActions({
     openBlockingFollowUps,
   }, { mode: 'fast' });
 
+  const tasks = {};
+  for (const task of change.tasks) {
+    const gate = await taskGate(change, task, { taskGateEvaluator, runSpecs, root, slug });
+    if (gate) {
+      tasks[task.id] = gate;
+    }
+  }
+
   return {
     id: change.id || change._slug,
     slug: change._slug,
@@ -144,9 +196,7 @@ export function loadSpecificationActions({
       branch,
       ...tracking,
     },
-    tasks: Object.fromEntries(change.tasks
-      .map(task => [task.id, taskGate(runSpecs, root, slug, task)])
-      .filter(([, gate]) => gate)),
+    tasks,
     finalize: {
       enabled: gateResult.status === 'allowed' || gateResult.status === 'needs-full-check',
       status: gateResult.status,
@@ -305,5 +355,3 @@ export function executeSpecificationAction({
       : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
   };
 }
-
-export { taskGate, finalizeGate };

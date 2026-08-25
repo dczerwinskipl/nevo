@@ -37,10 +37,10 @@ function fixture() {
   return { root, activeDir, archiveDir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-test('projects active and archived manifests into dashboard data', () => {
+test('projects active and archived manifests into dashboard data', async () => {
   const sample = fixture();
   try {
-    const data = loadDashboardData({ ...sample, repoRoot: sample.root });
+    const data = await loadDashboardData({ ...sample, repoRoot: sample.root });
     assert.deepEqual(data.counts, { active: 1, archived: 1 });
     assert.equal(data.active[0].summary, 'A short file-backed summary for the dashboard.');
     assert.equal(data.active[0].specId, null);
@@ -69,7 +69,7 @@ test('carries a manifest\'s spec_id through both the dashboard projection and th
     const activeChange = join(sample.activeDir, 'sample-change');
     writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\nspec_id: 4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d\ntitle: Sample change\nstatus: in-implementation\npriority: 1\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: verified\n`);
 
-    const change = loadDashboardData({ ...sample, repoRoot: sample.root }).active[0];
+    const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.specId, '4c1a7b8e-2f3d-4a5b-9c6d-1e2f3a4b5c6d');
 
     const manifest = await loadSpecificationManifest({ source: 'active', slug: 'sample-change', ...sample, repoRoot: sample.root });
@@ -87,13 +87,13 @@ test('summary extraction has deterministic fallbacks', () => {
   );
 });
 
-test('keeps stage progress at zero while every actionable task is new', () => {
+test('keeps stage progress at zero while every actionable task is new', async () => {
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
     writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: draft\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: new\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: new\n`);
 
-    const change = loadDashboardData({ ...sample, repoRoot: sample.root }).active[0];
+    const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.metrics.progress, 0);
     assert.equal(change.metrics.stageCounts.new, 2);
   } finally {
@@ -101,13 +101,13 @@ test('keeps stage progress at zero while every actionable task is new', () => {
   }
 });
 
-test('does not count review or implementation stages as completed progress', () => {
+test('does not count review or implementation stages as completed progress', async () => {
   const sample = fixture();
   try {
     const activeChange = join(sample.activeDir, 'sample-change');
     writeFileSync(join(activeChange, 'change.yaml'), `id: sample-change\ntitle: Sample change\nstatus: in-implementation\ntasks:\n  - id: design-it\n    order: 1\n    file: tasks/01-design-it.md\n    status: implemented\n  - id: build-it\n    order: 2\n    file: tasks/02-build-it.md\n    status: in-implementation\n`);
 
-    const change = loadDashboardData({ ...sample, repoRoot: sample.root }).active[0];
+    const change = (await loadDashboardData({ ...sample, repoRoot: sample.root })).active[0];
     assert.equal(change.metrics.progress, 0);
     assert.equal(change.metrics.stageCounts.review, 1);
     assert.equal(change.metrics.stageCounts.implementation, 1);

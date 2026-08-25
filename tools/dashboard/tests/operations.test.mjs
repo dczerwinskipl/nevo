@@ -460,4 +460,76 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
 
     await reader.cancel();
   });
+
+  await t.test('Resumable SSE lifecycle and robust reconnect/replay edge-cases', async () => {
+    // 1. Initial subscription to running operation
+    const opRunning = runtime.createOperation({ type: 'test-running' });
+    const sseRunningRes = await fetch(`${baseUrl}/api/operations/${opRunning}/events`);
+    assert.equal(sseRunningRes.status, 200);
+    const readerRunning = sseRunningRes.body.getReader();
+    const decoder = new TextDecoder();
+    const chunkRunning = await readerRunning.read();
+    assert.ok(decoder.decode(chunkRunning.value).includes('event: snapshot'));
+    await readerRunning.cancel();
+
+    // 2. Cursor-based reconnect/resume using afterSequence / Last-Event-ID
+    const opCursor = runtime.createOperation({ type: 'test-cursor' });
+    runtime.recordEvent(opCursor, { type: 'operation.step.started', id: 's1', label: 'Step 1' });
+    runtime.recordEvent(opCursor, { type: 'operation.step.completed', id: 's1' });
+    runtime.recordEvent(opCursor, { type: 'operation.step.started', id: 's2', label: 'Step 2' });
+
+    const sseCursorRes = await fetch(`${baseUrl}/api/operations/${opCursor}/events?after=2`, {
+      headers: { 'last-event-id': '2' },
+    });
+    assert.equal(sseCursorRes.status, 200);
+    const readerCursor = sseCursorRes.body.getReader();
+    let textCursor = '';
+    while (true) {
+      const { value, done } = await readerCursor.read();
+      if (done || !value) break;
+      textCursor += decoder.decode(value);
+      if (textCursor.includes('event: operation.step.completed') && textCursor.includes('event: operation.step.started')) break;
+    }
+    assert.ok(textCursor.includes('event: snapshot'));
+    assert.ok(textCursor.includes('Step 1'));
+    assert.ok(textCursor.includes('Step 2'));
+    await readerCursor.cancel();
+
+    // 3. Reconnect to an already-completed operation (synchronous replay of completed event)
+    const opCompleted = runtime.createOperation({ type: 'test-completed' });
+    runtime.recordEvent(opCompleted, { type: 'operation.step.started', id: 's1', label: 'Step 1' });
+    runtime.completeOperation(opCompleted, { success: true });
+
+    const sseCompletedRes = await fetch(`${baseUrl}/api/operations/${opCompleted}/events?after=0`);
+    assert.equal(sseCompletedRes.status, 200);
+    const readerCompleted = sseCompletedRes.body.getReader();
+    let textCompleted = '';
+    while (true) {
+      const { value, done } = await readerCompleted.read();
+      if (done || !value) break;
+      textCompleted += decoder.decode(value);
+    }
+    assert.ok(textCompleted.includes('event: snapshot'));
+    assert.ok(textCompleted.includes('event: operation.completed'));
+
+    // 4. Reconnect to an already-failed operation (synchronous replay of failed event)
+    const opFailed = runtime.createOperation({ type: 'test-failed' });
+    runtime.failOperation(opFailed, { message: 'Early crash', code: 'CRASH' });
+
+    const sseFailedRes = await fetch(`${baseUrl}/api/operations/${opFailed}/events?after=0`);
+    assert.equal(sseFailedRes.status, 200);
+    const readerFailed = sseFailedRes.body.getReader();
+    let textFailed = '';
+    while (true) {
+      const { value, done } = await readerFailed.read();
+      if (done || !value) break;
+      textFailed += decoder.decode(value);
+    }
+    assert.ok(textFailed.includes('event: snapshot'));
+    assert.ok(textFailed.includes('event: operation.failed'));
+
+    // 5. Invalid cursor rejected with 400
+    const sseBadCursor = await fetch(`${baseUrl}/api/operations/${opCompleted}/events?after=-5`);
+    assert.equal(sseBadCursor.status, 400);
+  });
 });

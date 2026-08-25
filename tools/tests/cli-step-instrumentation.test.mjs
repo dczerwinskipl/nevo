@@ -85,7 +85,12 @@ function captureStdout(fn) {
     return true;
   };
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.finally(() => {
+        process.stdout.write = originalWrite;
+      }).then(() => lines.flatMap(l => l.split('\n')).filter(Boolean));
+    }
   } finally {
     process.stdout.write = originalWrite;
   }
@@ -172,12 +177,12 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     }
   });
 
-  await t.test('AC6 & AC8: loadSpecificationActions (GET /actions) emits no progress events and never calls finalize --check', () => {
+  await t.test('AC6 & AC8: loadSpecificationActions (GET /actions) emits no progress events and never calls finalize --check', async () => {
     const sample = fixture();
     try {
       const calls = [];
-      const output = captureStdout(() => {
-        const payload = loadSpecificationActions({
+      const output = await captureStdout(async () => {
+        const payload = await loadSpecificationActions({
           slug: 'test-change',
           activeDir: sample.activeDir,
           root: sample.root,

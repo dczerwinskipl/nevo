@@ -57,6 +57,11 @@ Modularize dashboard server route handlers into capability-focused route modules
 
 ## Verification
 
+```text
+npm --prefix tools/dashboard test
+node tools/specs.mjs validate
+```
+
 The task requires focused automated test coverage in `tools/dashboard/tests/` without real-time sleeps, timing-sensitive assertions, or millisecond benchmarks:
 
 1. **Focused regression tests for resumable SSE lifecycle:**
@@ -70,11 +75,6 @@ The task requires focused automated test coverage in `tools/dashboard/tests/` wi
    - no leaked subscriptions or event listeners under controlled deterministic events.
 2. **Focused coverage for asynchronous dashboard-data boundary:**
    - verification that `GET /api/dashboard` uses the non-blocking data-loading boundary while preserving exact response data shapes, error responses, and active/archive spec discovery semantics under controlled test fixtures.
-3. **Automated suite execution:**
-   ```text
-   npm --prefix tools/dashboard test
-   node tools/specs.mjs validate
-   ```
 
 ## Out of scope
 

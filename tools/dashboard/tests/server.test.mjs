@@ -447,7 +447,7 @@ test('slow async pull request operation does not block parallel health or docume
   }
 });
 
-test('GET /actions evaluates task-level gate with check preflight and disables invalid task actions without heavy finalize probe', () => {
+test('GET /actions evaluates task-level gate with check preflight and disables invalid task actions without heavy finalize probe', async () => {
   const root = join(tmpdir(), `nevo-server-actions-${process.pid}-${Date.now()}`);
   const activeDir = join(root, 'specs', 'active');
   const changeDir = join(activeDir, 'sample-change');
@@ -465,7 +465,7 @@ test('GET /actions evaluates task-level gate with check preflight and disables i
 
   try {
     const specsRunnerCalls = [];
-    const actions = loadSpecificationActions({
+    const actions = await loadSpecificationActions({
       slug: 'sample-change',
       activeDir,
       runSpecs: (_root, args) => {
