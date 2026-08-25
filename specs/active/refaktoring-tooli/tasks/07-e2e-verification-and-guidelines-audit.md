@@ -9,12 +9,10 @@ context:
     - docs/development/node-tooling-guidelines.md
     - docs/development/react-component-guidelines.md
   optional:
-    - specs/active/refaktoring-tooli/areas/test-suite-organization.md
     - specs/active/refaktoring-tooli/areas/specs-core-and-lifecycle.md
     - specs/active/refaktoring-tooli/areas/cli-architecture.md
-    - specs/active/refaktoring-tooli/areas/ai-subsystem-and-adapters.md
-    - specs/active/refaktoring-tooli/areas/dashboard-server-backend.md
-    - specs/active/refaktoring-tooli/areas/dashboard-frontend-and-runtime.md
+    - specs/active/refaktoring-tooli/areas/dashboard-server-runtime.md
+    - specs/active/refaktoring-tooli/areas/dashboard-frontend-architecture.md
 allowed_paths:
   - tools/**
   - package.json
@@ -30,20 +28,20 @@ semantic_references:
 
 ## Goal
 
-Execute end-to-end verification of the refactored `tools/` suite and dashboard, verify test completeness, and conduct a formal compliance audit against the checklists in `node-tooling-guidelines.md` and `react-component-guidelines.md`.
+Execute end-to-end verification of the refactored `tools/` suite and dashboard, verify test completeness without regressions, and conduct a formal compliance audit against the checklists in `node-tooling-guidelines.md` and `react-component-guidelines.md`.
 
 ## Implementation constraints
 
 - Execute the complete test suites for Node tooling and Dashboard.
 - Run index checks and specification validation (`specs.mjs check`, `docs.mjs check`, `specs.mjs validate`, `docs.mjs validate`).
 - Verify the absence of dead code or unused imports following the refactoring.
-- Complete the audit checklist from section 25 of `node-tooling-guidelines.md` and section 22 of `react-component-guidelines.md`.
+- Complete the audit checklist from section 14 of `node-tooling-guidelines.md` and section 11 of `react-component-guidelines.md`.
 
 ## Acceptance criteria
 
-1. Full repository test suite passes. `automated: npm test`
-2. Full dashboard test suite passes. `automated: npm --prefix tools/dashboard test`
-3. Dashboard build `npm --prefix tools/dashboard run build` finishes with exit code 0. `automated: npm --prefix tools/dashboard run build`
+1. Full repository test suite passes cleanly. `automated: npm test`
+2. Full dashboard test suite passes cleanly. `automated: npm --prefix tools/dashboard test`
+3. Dashboard production build `npm --prefix tools/dashboard run build` finishes with exit code 0. `automated: npm --prefix tools/dashboard run build`
 4. Specification and documentation validation tools report no errors. `automated: node tools/specs.mjs check && node tools/docs.mjs check`
 5. All checklist items from `node-tooling-guidelines.md` and `react-component-guidelines.md` are satisfied. `inspection: checklist audit`
 

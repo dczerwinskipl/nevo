@@ -12,18 +12,13 @@ Owns the repository's public command-line interfaces (`tools/specs.mjs` and `too
 
 ## Current state
 
-- `tools/specs.mjs` (1855 LOC) contains Commander definitions and complete implementations of all commands (generate, validate, check, list, next, context, fingerprint, approve, start, complete, verify, archive, finalize, status, comments, resolve-comment, pull-request-add, batch-*, follow-up-*, self-check).
-- Handlers intertwine CLI argument parsing, Git execution, direct `console.log` / `console.error` formatting, `process.exitCode` assignments, and AI session auto-binding.
-- Violates §2.1, §4, §14, and §15 of `node-tooling-guidelines.md`.
+- `tools/specs.mjs` mixes Commander CLI option definitions with deep application workflow execution, direct `console.log` / `console.error` formatting, and process exit code mutations across 20+ commands.
+- Deep functions write directly to standard streams and mutate `process.exitCode`, preventing clean reuse as pure application operations.
 
 ## Requirements
 
-- Reduce `tools/specs.mjs` to a thin command registration and dispatch file (< 200–300 LOC).
-- Extract individual command handlers into dedicated modules under `tools/specs/commands/`:
-  - `commands/start.mjs`, `commands/approve.mjs`, `commands/complete.mjs`, `commands/verify.mjs`
-  - `commands/status.mjs`, `commands/finalize.mjs`, `commands/archive.mjs`
-  - `commands/batch.mjs`, `commands/follow-up.mjs`, `commands/self-check.mjs`
-  - `commands/validate.mjs`, `commands/generate.mjs`, `commands/check.mjs`, `commands/pull-request-add.mjs`
+- Separate `tools/specs.mjs` into a thin CLI argument/option parsing and exit-code mapping boundary.
+- Extract individual command orchestration handlers into dedicated application modules under `tools/specs/commands/`.
 - Standardize the CLI output contract:
   - Command results sent to `stdout` (including stable machine-readable JSON/YAML output).
   - Warnings and diagnostics sent to `stderr`.
@@ -37,9 +32,9 @@ The CLI boundary is the public tool contract for human developers and autonomous
 
 ## Area-specific acceptance criteria
 
-1. `tools/specs.mjs` is under 300 LOC and contains only CLI definitions, dispatching, and error mappings.
-2. Every command has a dedicated module in `tools/specs/commands/` testable without invoking `process.argv`.
-3. All tests in `tools/tests/cli/` pass cleanly.
+1. `tools/specs.mjs` serves strictly as a CLI definition, parsing, and exit-code mapping entrypoint.
+2. Command operations are structured as standalone application modules testable without invoking `process.argv`.
+3. All CLI tests and workflow integration tests pass cleanly.
 4. Repository checks (`node tools/specs.mjs check`, `node tools/docs.mjs check`) complete without error.
 
 ## Out of scope
