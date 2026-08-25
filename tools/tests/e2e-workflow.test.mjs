@@ -13,17 +13,32 @@ import { join } from 'node:path';
 
 import { readFileSync, writeFileSync as writeFileSyncNode } from 'node:fs';
 import {
-  loadChange, computeChangeFingerprint, computeTaskFingerprint,
-  parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
-  buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
-} from '../specs/service.mjs';
+  loadChange, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
+} from '../specs/store.mjs';
 import {
-  validateTransition, validateApproval, inspectStartPostconditions, inspectApprovePostconditions,
-  classifyDirtyWorktree, resolveAfterConfirmedRepair, planContinuation, scopeOf, deriveStage,
-  selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
+  computeChangeFingerprint, computeTaskFingerprint, parseOwnerDecisions,
+} from '../specs/fingerprint.mjs';
+import {
+  loadFollowUps, addFollowUp, resolveFollowUp,
+} from '../specs/follow-ups.mjs';
+import {
+  buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes,
+} from '../specs/indexes.mjs';
+import {
+  validateTransition, validateApproval, hardStopReason, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
+} from '../specs/lifecycle-primitives.mjs';
+import {
+  scopeOf, inspectStartPostconditions, inspectApprovePostconditions,
+  classifyDirtyWorktree, resolveAfterConfirmedRepair, planContinuation,
+} from '../specs/lifecycle/recovery.mjs';
+import {
+  deriveStage, validateFinalize,
+} from '../specs/lifecycle/stage.mjs';
+import {
+  selectBatch, deriveBatchProgress, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, staleEvidenceTasks, isTemporaryInconsistency, batchValidationBlocks,
-  computeBatchReviewVerdict, validateFinalize, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
-} from '../specs/lifecycle.mjs';
+  computeBatchReviewVerdict,
+} from '../specs/lifecycle/batch.mjs';
 import {
   validateStatusValue, validateSuspension, validateSemanticReferences, validateFollowUps,
 } from '../specs/validation.mjs';

@@ -18,7 +18,7 @@ import {
   computeTaskReviewChecklist, TASK_REVIEW_CHECKLIST_ITEMS, TASK_REVIEW_VERDICTS,
   classifyScopeFinding, isScopeExceptionValid,
   renderCompactReviewChecklist, renderNormalPassingReportBody, checkReportSectionUniqueness,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/reviews.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 

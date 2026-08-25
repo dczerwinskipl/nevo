@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { handleApprove, handleVerify } from '../specs.mjs';
 import * as git from '../lib/git.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/service.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
 import { parseProgressLine } from '../lib/operation-progress.mjs';
 
 function setupTempGitRepo() {

@@ -9,7 +9,9 @@ import {
   createAgentSessionBindingService,
   readAgentExecutionContext,
 } from '../ai/binding-service.mjs';
-import { resolveCanonicalSpec, buildContextPacket, loadChange } from '../specs/service.mjs';
+import { resolveCanonicalSpec } from '../specs/identity.mjs';
+import { buildContextPacket } from '../specs/context.mjs';
+import { loadChange } from '../specs/store.mjs';
 import { handleAgentSessionAttach } from '../specs.mjs';
 
 test('AgentSessionBindingService binds, updates, lists, and unbinds sessions asynchronously', async () => {

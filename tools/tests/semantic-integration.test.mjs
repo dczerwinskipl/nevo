@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   selectSemanticIntegrationPairs, PER_TASK_REVIEW_FIELDS, validatePerTaskReviewRecord,
   buildConsolidatedDecisionStage,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/reviews.mjs';
 
 // ── selectSemanticIntegrationPairs ──────────────────────────────────────────
 

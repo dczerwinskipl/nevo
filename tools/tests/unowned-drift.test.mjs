@@ -11,8 +11,8 @@ import { dirname, join } from 'node:path';
 
 import {
   classifyUnownedDrift, UNOWNED_DRIFT_OPTIONS, validateMaintenanceCorrectionEntry,
-  resolveScopeCheckPaths,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/provenance.mjs';
+import { resolveScopeCheckPaths } from '../specs/lifecycle/reviews.mjs';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 

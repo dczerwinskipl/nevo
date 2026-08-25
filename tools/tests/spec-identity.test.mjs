@@ -10,8 +10,10 @@ import { join } from 'node:path';
 
 import {
   generateSpecId, isValidSpecId, resolveStableSpecId, backfillSpecIds,
-  loadChange, buildContextPacket, buildSpecsIndexes,
-} from '../specs/service.mjs';
+} from '../specs/identity.mjs';
+import { loadChange } from '../specs/store.mjs';
+import { buildContextPacket } from '../specs/context.mjs';
+import { buildSpecsIndexes } from '../specs/indexes.mjs';
 import { validateSpecs, validateSpecId } from '../specs/validation.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 

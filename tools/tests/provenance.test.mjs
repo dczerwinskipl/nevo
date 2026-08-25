@@ -22,11 +22,12 @@ import { join } from 'node:path';
 import {
   computeTaskAttributedChangedPaths, nextImplementationBaseline, resolveProvenanceMappings,
   detectProvenanceOverlap,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/provenance.mjs';
+import { loadChange } from '../specs/store.mjs';
 import {
-  loadChange, computeChangeFingerprint, computeTaskFingerprint,
+  computeChangeFingerprint, computeTaskFingerprint,
   computeImplementationFingerprint, computeImplementationFingerprintFromProvenance,
-} from '../specs/service.mjs';
+} from '../specs/fingerprint.mjs';
 import { handleApplyProvenance, handleStart, handleSelfCheck } from '../specs.mjs';
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
 

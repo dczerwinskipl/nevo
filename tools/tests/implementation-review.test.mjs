@@ -20,10 +20,12 @@ import {
   computeMultiTaskReviewVerdict, MULTI_TASK_REVIEW_VERDICTS,
   selectEligibleForVerification,
   computeBulkTransitionTarget, validateBulkTransition, MULTI_REVIEW_OUTCOMES,
-  attributeTouchedPaths, detectBatchIntegrationFindings,
   validateAggregateAgainstCanonicalReviews,
-} from '../specs/lifecycle.mjs';
-import { loadChange, writeBulkTransition } from '../specs/service.mjs';
+} from '../specs/lifecycle/reviews.mjs';
+import {
+  attributeTouchedPaths, detectBatchIntegrationFindings,
+} from '../specs/lifecycle/batch.mjs';
+import { loadChange, writeBulkTransition } from '../specs/store.mjs';
 
 // ── parseTaskOrderSpec / resolveReviewScope (AC1, AC2) ──────────────────────
 

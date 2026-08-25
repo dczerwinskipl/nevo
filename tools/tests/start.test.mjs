@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { startNeedsDirtyTreeCheck, setTaskSuspension, clearTaskSuspension } from '../specs.mjs';
-import { loadChange } from '../specs/service.mjs';
+import { loadChange } from '../specs/store.mjs';
 
 describe('startNeedsDirtyTreeCheck — dirty-tree check ordering (PR review packet 03, Problem 1)', () => {
   test('never checks for a completed postcondition, regardless of branch', () => {

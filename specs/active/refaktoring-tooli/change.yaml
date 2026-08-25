@@ -55,7 +55,7 @@ tasks:
       - shared-specs-workflow-operations
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: e9001c70c9455b34487241795b616d33f26e6594
+      review_revision: 255d07bbe3b67061c715f8e559ee43a91c906e47
       changed_paths:
         - tools/specs/commands/agent-session.mjs
         - tools/specs/commands/approve.mjs
@@ -101,13 +101,38 @@ tasks:
         - tools/specs/service.mjs
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
+        - tools/tests/agent-binding.test.mjs
+        - tools/tests/approve-git-sync.test.mjs
+        - tools/tests/batch-review-progress.test.mjs
+        - tools/tests/batch.test.mjs
+        - tools/tests/cli-step-instrumentation.test.mjs
         - tools/tests/context.test.mjs
+        - tools/tests/e2e-workflow.test.mjs
+        - tools/tests/fingerprint.test.mjs
+        - tools/tests/follow-ups.test.mjs
+        - tools/tests/handler-testability.test.mjs
+        - tools/tests/implementation-review.test.mjs
+        - tools/tests/index-generation.test.mjs
+        - tools/tests/mechanical-task.test.mjs
+        - tools/tests/owner-workflow-acceptance.test.mjs
+        - tools/tests/provenance.test.mjs
         - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/recovery.test.mjs
         - tools/tests/refactoring-review-findings.test.mjs
-      worktree_patch_fingerprint: a916b4a28ac1a182d66a4d13e802c07dd156421a36ab78892c2f0a9fb25263e5
+        - tools/tests/review-compaction.test.mjs
+        - tools/tests/scoped-spec-review.test.mjs
+        - tools/tests/semantic-integration.test.mjs
+        - tools/tests/spec-identity.test.mjs
+        - tools/tests/spec-scaffolding.test.mjs
+        - tools/tests/start.test.mjs
+        - tools/tests/status-dependency-aware.test.mjs
+        - tools/tests/task-lifecycle.test.mjs
+        - tools/tests/unowned-drift.test.mjs
+        - tools/tests/validation.test.mjs
+      worktree_patch_fingerprint: 56dc216e89bd0168b84076461d77f17a4303cbe254f1657f4d2b0f02c9f866ce
     self_check:
       fingerprint: e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429
-      revision: e9001c70c9455b34487241795b616d33f26e6594
+      revision: 255d07bbe3b67061c715f8e559ee43a91c906e47
       commands:
         - command: node --test tools/tests/task-lifecycle.test.mjs
             tools/tests/gates.test.mjs tools/tests/workflow-*.test.mjs
@@ -124,7 +149,7 @@ tasks:
       - specs-lifecycle-and-storage-capabilities
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: e9001c70c9455b34487241795b616d33f26e6594
+      review_revision: 255d07bbe3b67061c715f8e559ee43a91c906e47
       changed_paths:
         - tools/specs.mjs
         - tools/specs/commands/agent-session.mjs
@@ -171,13 +196,38 @@ tasks:
         - tools/specs/service.mjs
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
+        - tools/tests/agent-binding.test.mjs
+        - tools/tests/approve-git-sync.test.mjs
+        - tools/tests/batch-review-progress.test.mjs
+        - tools/tests/batch.test.mjs
+        - tools/tests/cli-step-instrumentation.test.mjs
         - tools/tests/context.test.mjs
+        - tools/tests/e2e-workflow.test.mjs
+        - tools/tests/fingerprint.test.mjs
+        - tools/tests/follow-ups.test.mjs
+        - tools/tests/handler-testability.test.mjs
+        - tools/tests/implementation-review.test.mjs
+        - tools/tests/index-generation.test.mjs
+        - tools/tests/mechanical-task.test.mjs
+        - tools/tests/owner-workflow-acceptance.test.mjs
+        - tools/tests/provenance.test.mjs
         - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/recovery.test.mjs
         - tools/tests/refactoring-review-findings.test.mjs
-      worktree_patch_fingerprint: 47548b0845f67a26407189d67f84e7359384125082164868621dfcc6dcc6eeec
+        - tools/tests/review-compaction.test.mjs
+        - tools/tests/scoped-spec-review.test.mjs
+        - tools/tests/semantic-integration.test.mjs
+        - tools/tests/spec-identity.test.mjs
+        - tools/tests/spec-scaffolding.test.mjs
+        - tools/tests/start.test.mjs
+        - tools/tests/status-dependency-aware.test.mjs
+        - tools/tests/task-lifecycle.test.mjs
+        - tools/tests/unowned-drift.test.mjs
+        - tools/tests/validation.test.mjs
+      worktree_patch_fingerprint: 56dc216e89bd0168b84076461d77f17a4303cbe254f1657f4d2b0f02c9f866ce
     self_check:
       fingerprint: b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29
-      revision: e9001c70c9455b34487241795b616d33f26e6594
+      revision: 255d07bbe3b67061c715f8e559ee43a91c906e47
       commands:
         - command: node --test tools/tests/cli-*.test.mjs
             tools/tests/handler-testability.test.mjs

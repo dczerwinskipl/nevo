@@ -6,9 +6,12 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadChange, computeSpecFingerprint, computeChangeFingerprint, computeTaskFingerprint, computeImplementationFingerprint } from '../specs/service.mjs';
+import { loadChange } from '../specs/store.mjs';
+import {
+  computeSpecFingerprint, computeChangeFingerprint, computeTaskFingerprint, computeImplementationFingerprint,
+  parseOwnerDecisions, parseConstraints,
+} from '../specs/fingerprint.mjs';
 import { validateSuspension, validateSelfCheck, validateSemanticReferences } from '../specs/validation.mjs';
-import { parseOwnerDecisions, parseConstraints } from '../specs/service.mjs';
 
 let root;
 

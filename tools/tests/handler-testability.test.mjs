@@ -8,8 +8,10 @@ import { existsSync } from 'node:fs';
 
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
 import { handleStart, handleSelfCheck } from '../specs.mjs';
-import { loadChange, buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes, ACTIVE_DIR } from '../specs/service.mjs';
-import { deriveStage, depsSatisfied } from '../specs/lifecycle.mjs';
+import { loadChange, ACTIVE_DIR } from '../specs/store.mjs';
+import { buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes } from '../specs/indexes.mjs';
+import { deriveStage } from '../specs/lifecycle/stage.mjs';
+import { depsSatisfied } from '../specs/lifecycle-primitives.mjs';
 
 const fixtures = [];
 function fixture(opts) {

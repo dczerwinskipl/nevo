@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { parseProgressLine } from '../lib/operation-progress.mjs';
 import { handleVerify, handleApprove, handleSelfCheck } from '../specs.mjs';
 import { loadSpecificationActions } from '../dashboard/server/actions.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint, loadChange } from '../specs/service.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
+import { loadChange } from '../specs/store.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-cli-instrumentation-${process.pid}-${Date.now()}-${Math.random()}`);

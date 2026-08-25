@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { computeRoutingWarnings, buildContextPacket, loadChange, ARCHIVE_DIR } from '../specs/service.mjs';
+import { computeRoutingWarnings, buildContextPacket } from '../specs/context.mjs';
+import { loadChange, ARCHIVE_DIR } from '../specs/store.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
