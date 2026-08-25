@@ -3,9 +3,10 @@ import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 
 import * as git from '../../lib/git.mjs';
-import { parseProgressLine } from '../../lib/operation-progress.mjs';
+import { parseProgressLine, createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { evaluateGate, evaluateTaskGate } from '../../specs/gates.mjs';
 import { ACTIVE_DIR, loadChange, loadFollowUps } from '../../specs/service.mjs';
+import { handleApprove, handleVerify, handleFinalize } from '../../specs.mjs';
 import { REPOSITORY_ROOT } from './data.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -245,8 +246,8 @@ export function executeSpecificationAction({
     }
   }
 
-  // D11: Triggering verify/approve/finalize spawns exactly ONE child process — no pre-flight --check spawn
-  if (typeof runSpecs === 'function' && spawnSpecs === defaultSpecsSpawner) {
+  // When custom mock runSpecs is supplied in tests:
+  if (typeof runSpecs === 'function' && (!spawnSpecs || spawnSpecs === defaultSpecsSpawner)) {
     try {
       const output = runSpecs(root, args);
       let parsed = null;
@@ -269,6 +270,61 @@ export function executeSpecificationAction({
     } finally {
       markFinished();
     }
+  }
+
+  // When no custom mock spawner is supplied, execute in-process directly:
+  if (!spawnSpecs || spawnSpecs === defaultSpecsSpawner) {
+    const operationId = operationRuntime
+      ? operationRuntime.createOperation({ type: operationType })
+      : `op-${Date.now()}`;
+
+    queueMicrotask(() => {
+      try {
+        const emitter = createProgressEmitter({
+          out: null,
+          onEvent: (event) => {
+            if (operationRuntime && event.type !== 'operation.started') {
+              operationRuntime.recordEvent(operationId, event);
+            }
+          },
+        });
+
+        if (action === 'approve') {
+          handleApprove(slug, taskId, { activeDir, gitRoot: root, emitter });
+        } else if (action === 'verify') {
+          handleVerify(slug, taskId, { activeDir, gitRoot: root, emitter });
+        } else if (action === 'finalize') {
+          handleFinalize(slug, { gitRoot: root, emitter });
+        }
+
+        if (operationRuntime) {
+          operationRuntime.completeOperation(operationId, {
+            ok: true,
+            action,
+            ...(taskId ? { taskId } : {}),
+          });
+        }
+      } catch (error) {
+        if (operationRuntime) {
+          operationRuntime.failOperation(operationId, {
+            message: error?.message || 'Operation failed',
+            code: error?.code,
+          });
+        }
+      } finally {
+        markFinished();
+      }
+    });
+
+    return {
+      ok: true,
+      operationId,
+      action,
+      ...(taskId ? { taskId } : {}),
+      message: action === 'approve'
+        ? 'Zadanie zostało zatwierdzone.'
+        : (action === 'verify' ? 'Implementacja została zaakceptowana.' : 'Specyfikacja została sfinalizowana.'),
+    };
   }
 
   const operationId = operationRuntime

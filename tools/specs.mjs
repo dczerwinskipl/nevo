@@ -315,7 +315,7 @@ export function handleApprove(changeSlug, taskId, options = {}) {
     steps.push({ id: 'push-approval', label: 'Push approval' });
   }
 
-  const emitter = createProgressEmitter();
+  const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
   emitter.operationStarted({ type: 'approve', steps });
 
   // 1. Validate approval
@@ -593,7 +593,7 @@ export function handleVerify(changeSlug, taskId, options = {}) {
     steps.push({ id: 'push-verification', label: 'Push verification' });
   }
 
-  const emitter = createProgressEmitter();
+  const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
   emitter.operationStarted({ type: 'verify', steps });
 
   // 1. Validate transition
@@ -1477,7 +1477,7 @@ export function handleFinalize(changeSlug, options = {}) {
     return;
   }
 
-  const emitter = createProgressEmitter();
+  const emitter = options.emitter || createProgressEmitter({ out: options.out ?? (options.silent ? null : process.stdout) });
   emitter.operationStarted({ type: 'finalize', steps: [
     { id: 'validate-specs', label: 'Validate specs' },
     { id: 'check-specs-indexes', label: 'Check spec indexes' },

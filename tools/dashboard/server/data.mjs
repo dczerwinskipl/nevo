@@ -9,6 +9,7 @@ import {
   ARCHIVE_DIR,
   loadChange,
   listChanges,
+  listChangesAsync,
 } from '../../specs/service.mjs';
 import { isTaskReady } from '../../specs/lifecycle.mjs';
 import {
@@ -686,8 +687,10 @@ export async function loadDashboardData({
   archiveDir = ARCHIVE_DIR,
   repoRoot = REPOSITORY_ROOT,
 } = {}) {
-  const activeChanges = listChanges(activeDir);
-  const archiveChanges = listChanges(archiveDir);
+  const [activeChanges, archiveChanges] = await Promise.all([
+    listChangesAsync(activeDir),
+    listChangesAsync(archiveDir),
+  ]);
 
   const [active, archive] = await Promise.all([
     Promise.all(activeChanges.map(change => changeProjectionAsync(change, 'active', repoRoot)))

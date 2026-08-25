@@ -1,25 +1,30 @@
-import { sendJson, readJsonBody } from '../http-utils.mjs';
-import { SpecificationActionError } from '../actions.mjs';
+import { sendJson, readJsonBody, HttpError } from '../http-utils.mjs';
 import {
+  loadDashboardData,
+  loadSpecificationManifest,
+  loadSpecificationDocument,
+  loadTaskStatuses,
+} from '../data.mjs';
+import {
+  loadSpecificationActions,
+  executeSpecificationAction,
+  SpecificationActionError,
+} from '../actions.mjs';
+import {
+  createSpecification,
   SpecValidationError,
   SpecConflictError,
   SpecRollbackError,
 } from '../../../specs/service.mjs';
+
+const runningActions = new Set();
 
 export async function handleSpecsRoute({
   request,
   response,
   method,
   url,
-  dataLoader,
-  manifestLoader,
-  documentLoader,
-  taskStatusLoader,
-  actionLoader,
-  actionExecutor,
-  specCreator,
   operationRuntime,
-  runningActions,
 }) {
   if (url.pathname === '/api/dashboard') {
     if (method !== 'GET') {
@@ -27,7 +32,7 @@ export async function handleSpecsRoute({
       return true;
     }
     try {
-      const data = await dataLoader();
+      const data = await loadDashboardData();
       sendJson(response, 200, data);
     } catch {
       sendJson(response, 500, { error: 'Unable to load specifications' });
@@ -44,7 +49,7 @@ export async function handleSpecsRoute({
           return true;
         }
 
-        const result = await specCreator({
+        const result = await createSpecification({
           slug: body.slug,
           title: body.title,
           type: body.type,
@@ -64,6 +69,8 @@ export async function handleSpecsRoute({
             slug: error.slug,
             failedSteps: error.failedSteps,
           });
+        } else if (error instanceof HttpError) {
+          sendJson(response, error.status, { error: error.message });
         } else {
           sendJson(response, 500, { error: error?.message || 'Unable to create specification.' });
         }
@@ -90,7 +97,7 @@ export async function handleSpecsRoute({
 
     if (method === 'GET') {
       try {
-        const result = await actionLoader({ slug });
+        const result = await loadSpecificationActions({ slug });
         sendJson(response, 200, result);
       } catch (error) {
         const status = error instanceof SpecificationActionError ? error.status : 500;
@@ -115,7 +122,7 @@ export async function handleSpecsRoute({
         if (!body || typeof body !== 'object' || Array.isArray(body)) {
           throw new SpecificationActionError('Request body must be a JSON object.', 400);
         }
-        const result = actionExecutor({
+        const result = executeSpecificationAction({
           slug,
           action: body.action,
           taskId: body.taskId,
@@ -137,7 +144,7 @@ export async function handleSpecsRoute({
 
         sendJson(response, 200, result);
       } catch (error) {
-        const known = error instanceof SpecificationActionError;
+        const known = error instanceof SpecificationActionError || error instanceof HttpError;
         sendJson(response, known ? error.status : 500, {
           error: known ? error.message : 'Unable to execute specification action.',
         });
@@ -166,7 +173,7 @@ export async function handleSpecsRoute({
         sendJson(response, 404, { error: 'Specification document not found' });
         return true;
       }
-      const document = await documentLoader({ source: documentRoute[1], slug, docId });
+      const document = await loadSpecificationDocument({ source: documentRoute[1], slug, docId });
       if (!document) {
         sendJson(response, 404, { error: 'Specification document not found' });
         return true;
@@ -190,7 +197,7 @@ export async function handleSpecsRoute({
         sendJson(response, 404, { error: 'Specification content not found' });
         return true;
       }
-      const manifest = await manifestLoader({ source: contentRoute[1], slug });
+      const manifest = await loadSpecificationManifest({ source: contentRoute[1], slug });
       if (!manifest) {
         sendJson(response, 404, { error: 'Specification content not found' });
         return true;
@@ -214,7 +221,7 @@ export async function handleSpecsRoute({
         sendJson(response, 404, { error: 'Specification task statuses not found' });
         return true;
       }
-      const statuses = await taskStatusLoader({ source: taskStatusesRoute[1], slug });
+      const statuses = await loadTaskStatuses({ source: taskStatusesRoute[1], slug });
       if (!statuses) {
         sendJson(response, 404, { error: 'Specification task statuses not found' });
         return true;

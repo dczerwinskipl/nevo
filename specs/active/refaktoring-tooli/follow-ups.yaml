@@ -8,3 +8,19 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: fastify-http-adapter-migration
+    source_task: dashboard-server-runtime-and-routes
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: "Migrate the dashboard HTTP adapter from native node:http to Fastify after the current capability boundaries are stabilized. The migration should: preserve current application/capability operations; replace manual route/method/path matching with Fastify routes; register capability route groups as Fastify plugins; use route prefixes/params; centralize HTTP error mapping where appropriate; use Fastify lifecycle/shutdown support; preserve SSE semantics; and use Fastify inject-based HTTP testing where useful."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: node-tooling-typescript-evaluation
+    source_task: dashboard-server-runtime-and-routes
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: "Evaluate and migrate extracted Node tooling to TypeScript, preferably when the tooling moves to its own repository or after the Fastify migration."
+    resolver_task: null
+    status: open
+    resolution: null

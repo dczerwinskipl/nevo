@@ -2,12 +2,13 @@
 // fingerprinting, and generating indexes. No Commander, no process.argv here.
 
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { readUtf8, writeUtf8, resolveWithinBase } from '../lib/fs.mjs';
-import { parseYamlFile, parseFrontMatterFile, updateYamlFile } from '../lib/yaml.mjs';
+import { parseYamlFile, parseYamlString, parseFrontMatterFile, updateYamlFile } from '../lib/yaml.mjs';
 import { CliError } from '../lib/cli-errors.mjs';
 import { ACTIVE_CHANGE_STATUSES, isTaskReady } from './lifecycle.mjs';
 
@@ -101,6 +102,39 @@ export function loadChange(slug, baseDir = ACTIVE_DIR) {
   change.tasks = change.tasks || [];
   change.pull_requests = change.pull_requests === undefined ? [] : change.pull_requests;
   return change;
+}
+
+export async function loadChangeAsync(slug, baseDir = ACTIVE_DIR) {
+  const dir = resolveWithinBase(baseDir, slug);
+  const file = join(dir, 'change.yaml');
+  try {
+    const raw = await readFile(file, 'utf8');
+    const change = parseYamlString(raw, file);
+    if (!change || typeof change !== 'object') return null;
+    change._slug = slug;
+    change._file = file;
+    change._dir = dir;
+    change.tasks = change.tasks || [];
+    change.pull_requests = change.pull_requests === undefined ? [] : change.pull_requests;
+    return change;
+  } catch {
+    return null;
+  }
+}
+
+export async function listChangesAsync(dir = ACTIVE_DIR) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const results = await Promise.all(
+    entries
+      .filter(entry => entry.isDirectory())
+      .map(async entry => loadChangeAsync(entry.name, dir))
+  );
+  return results.filter(Boolean);
 }
 
 // ── Stable specification identity (D2, area stable-spec-identity, task 01) ─

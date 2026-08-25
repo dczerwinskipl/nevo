@@ -64,7 +64,7 @@ function writeSse(response, eventName, data, id) {
 }
 
 function errorResponse(error, sendJson, response) {
-  if (error?.name === 'SpecificationActionError') {
+  if (error?.name === 'HttpError' || error?.name === 'SpecificationActionError') {
     console.error(`[ai] [error] validation error: ${error.message}`);
     sendJson(response, error.status || 400, { error: { code: 'AI_VALIDATION_ERROR', message: error.message } });
     return;

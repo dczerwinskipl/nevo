@@ -1,15 +1,16 @@
-import { sendJson, readJsonBody } from '../http-utils.mjs';
-import { SpecificationActionError } from '../actions.mjs';
+import { sendJson, readJsonBody, HttpError } from '../http-utils.mjs';
+import {
+  loadSpecificationPullRequestFileDiffs,
+  loadSpecificationPullRequestFiles,
+  loadSpecificationPullRequestFullDiff,
+  loadSpecificationPullRequests,
+} from '../providers/service.mjs';
 
 export async function handlePullRequestRoute({
   request,
   response,
   method,
   url,
-  pullRequestLoader,
-  pullRequestFilesLoader,
-  pullRequestFileDiffsLoader,
-  pullRequestFullDiffLoader,
 }) {
   const pullRequestSubRoute = url.pathname.match(
     /^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests\/(\d+)\/(files|file-diffs|diff)$/,
@@ -32,7 +33,7 @@ export async function handlePullRequestRoute({
     if (resource === 'files') {
       if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return true; }
       try {
-        const files = await pullRequestFilesLoader({ source, slug, number });
+        const files = await loadSpecificationPullRequestFiles({ source, slug, number });
         if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return true; }
         sendJson(response, 200, files);
       } catch (error) {
@@ -45,9 +46,8 @@ export async function handlePullRequestRoute({
     if (resource === 'diff') {
       if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return true; }
       try {
-        const diff = await pullRequestFullDiffLoader({ source, slug, number });
-        if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return true;
-      }
+        const diff = await loadSpecificationPullRequestFullDiff({ source, slug, number });
+        if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return true; }
         sendJson(response, 200, diff);
       } catch (error) {
         const status = typeof error?.status === 'number' ? error.status : 502;
@@ -66,11 +66,11 @@ export async function handlePullRequestRoute({
       }
       const paths = body.paths.filter(path => typeof path === 'string');
       const headSha = typeof body.headSha === 'string' ? body.headSha : null;
-      const diffs = await pullRequestFileDiffsLoader({ source, slug, number, paths, headSha });
+      const diffs = await loadSpecificationPullRequestFileDiffs({ source, slug, number, paths, headSha });
       if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return true; }
       sendJson(response, 200, diffs);
     } catch (error) {
-      const status = typeof error?.status === 'number' ? error.status : (error instanceof SpecificationActionError ? error.status : 502);
+      const status = typeof error?.status === 'number' ? error.status : (typeof error?.statusCode === 'number' ? error.statusCode : 502);
       sendJson(response, status, {
         error: error?.message || 'Unable to load pull request file diffs.',
       });
@@ -90,7 +90,7 @@ export async function handlePullRequestRoute({
         sendJson(response, 404, { error: 'Specification changes not found' });
         return true;
       }
-      const changes = await pullRequestLoader({ source: pullRequestRoute[1], slug });
+      const changes = await loadSpecificationPullRequests({ source: pullRequestRoute[1], slug });
       if (!changes) {
         sendJson(response, 404, { error: 'Specification changes not found' });
         return true;

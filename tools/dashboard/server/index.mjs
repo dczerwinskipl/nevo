@@ -3,24 +3,7 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import {
-  loadDashboardData,
-  loadSpecificationManifest,
-  loadSpecificationDocument,
-  loadTaskStatuses,
-} from './data.mjs';
-import {
-  executeSpecificationAction,
-  loadSpecificationActions,
-  SpecificationActionError,
-} from './actions.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
-import {
-  loadSpecificationPullRequestFileDiffs,
-  loadSpecificationPullRequestFiles,
-  loadSpecificationPullRequestFullDiff,
-  loadSpecificationPullRequests,
-} from './providers/service.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 import { handleAiRequest } from './ai-routes.mjs';
 import {
@@ -31,13 +14,7 @@ import {
   createOperationRuntime,
   OperationNotFoundError,
 } from './operations.mjs';
-import {
-  createSpecification,
-  SpecValidationError,
-  SpecConflictError,
-  SpecRollbackError,
-} from '../../specs/service.mjs';
-import { sendJson, readJsonBody } from './http-utils.mjs';
+import { sendJson, readJsonBody, HttpError } from './http-utils.mjs';
 import { handleOperationRoute } from './routes/operations.mjs';
 import { handleSpecsRoute } from './routes/specs.mjs';
 import { handlePullRequestRoute } from './routes/pull-requests.mjs';
@@ -55,6 +32,7 @@ const CONTENT_TYPES = new Map([
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
   ['.woff2', 'font/woff2'],
+  ['.woff', 'font/woff'],
 ]);
 
 function safeStaticPath(distDir, pathname) {
@@ -88,28 +66,16 @@ function serveStatic(response, pathname, distDir) {
 }
 
 export function createDashboardServer({
-  dataLoader = loadDashboardData,
-  manifestLoader = loadSpecificationManifest,
-  documentLoader = loadSpecificationDocument,
-  taskStatusLoader = loadTaskStatuses,
-  pullRequestLoader = loadSpecificationPullRequests,
-  pullRequestFilesLoader = loadSpecificationPullRequestFiles,
-  pullRequestFileDiffsLoader = loadSpecificationPullRequestFileDiffs,
-  pullRequestFullDiffLoader = loadSpecificationPullRequestFullDiff,
-  actionLoader = loadSpecificationActions,
-  actionExecutor = executeSpecificationAction,
   eventHub = createSpecEventHub(),
   aiService,
   aiServiceFactory = createDefaultDashboardAiService,
   aiAccessPolicy = createTrustedNetworkAiAccessPolicy(),
   operationRuntime = createOperationRuntime(),
-  specCreator = createSpecification,
   distDir = DEFAULT_DIST_DIR,
 } = {}) {
-  const runningActions = new Set();
   let resolvedAiService = aiService;
   const getAiService = () => {
-    resolvedAiService ||= aiServiceFactory({ dataLoader });
+    resolvedAiService ||= aiServiceFactory();
     return resolvedAiService;
   };
   let aiReconciliationPromise = null;
@@ -156,15 +122,7 @@ export function createDashboardServer({
       response,
       method,
       url,
-      dataLoader,
-      manifestLoader,
-      documentLoader,
-      taskStatusLoader,
-      actionLoader,
-      actionExecutor,
-      specCreator,
       operationRuntime,
-      runningActions,
     })) {
       return;
     }
@@ -174,10 +132,6 @@ export function createDashboardServer({
       response,
       method,
       url,
-      pullRequestLoader,
-      pullRequestFilesLoader,
-      pullRequestFileDiffsLoader,
-      pullRequestFullDiffLoader,
     })) {
       return;
     }
@@ -254,4 +208,4 @@ if (isDirectRun) {
   console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');
 }
 
-export { safeStaticPath, sendJson, readJsonBody };
+export { safeStaticPath, sendJson, readJsonBody, HttpError };
