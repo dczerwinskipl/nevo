@@ -62,7 +62,7 @@ tasks:
   - id: dashboard-server-runtime-and-routes
     order: 4
     file: tasks/04-dashboard-server-runtime-and-routes.md
-    status: implemented
+    status: verified
     depends_on:
       - shared-specs-workflow-operations
     implementation:

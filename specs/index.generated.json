@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T14:20:24.170Z",
+  "generated": "2026-08-25T14:33:27.476Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -265,7 +265,7 @@
           "id": "dashboard-server-runtime-and-routes",
           "order": 4,
           "file": "tasks/04-dashboard-server-runtime-and-routes.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "shared-specs-workflow-operations"
           ],
