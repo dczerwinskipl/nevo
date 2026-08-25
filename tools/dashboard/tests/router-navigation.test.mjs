@@ -341,7 +341,7 @@ test('12. Fallback routing: Archived spec accessed via /specs/active/... or acti
 });
 
 test('13. Archived spec sessions: spec-detail and task-dialog enable useAiSessions for archived specs with specId', () => {
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
   const taskDialogSource = readSource('components/task-dialog.tsx');
 
   assert.ok(

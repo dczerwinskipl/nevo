@@ -26,7 +26,7 @@ test('AC1 & AC2: Header and conversation layouts prevent horizontal overflow acr
 });
 
 test('Documentation layout constrains both grid tracks and rendered Markdown to the viewport', () => {
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/documentation-panel.tsx');
   const documentSectionSource = readSource('components/document-section-panel.tsx');
   const directorySectionSource = readSource('components/directory-section-panel.tsx');
   const stylesSource = readSource('index.css');

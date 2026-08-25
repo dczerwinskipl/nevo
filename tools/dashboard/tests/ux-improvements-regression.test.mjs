@@ -69,7 +69,7 @@ test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks agains
 
 test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecDetail and AiChatPage without leaveChat()', () => {
   const taskDialogSource = readSource('components/task-dialog.tsx');
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
   const aiChatSource = readSource('components/ai-chat.tsx');
 
   // TaskDialog is a reusable component in components/task-dialog.tsx
@@ -182,7 +182,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/overview-panel.tsx');
   const statusBoardSource = readSource('components/status-board.tsx');
 
   // Both section h2 headings use text-xl

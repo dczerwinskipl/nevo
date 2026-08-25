@@ -282,7 +282,38 @@ tasks:
   - id: spec-detail-and-workflow-feature-slice
     order: 5
     file: tasks/05-spec-detail-and-workflow-feature-slice.md
-    status: approved
+    status: implemented
+    implementation:
+      baseline_revision: 23226096ef88dcc8f33783d655a9c6d3b9c79be1
+      review_revision: 23226096ef88dcc8f33783d655a9c6d3b9c79be1
+      changed_paths:
+        - tools/dashboard/src/components/directory-section-panel.tsx
+        - tools/dashboard/src/components/document-section-panel.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/components/spec-detail/documentation-panel.tsx
+        - tools/dashboard/src/components/spec-detail/documentation-projection.ts
+        - tools/dashboard/src/components/spec-detail/index.tsx
+        - tools/dashboard/src/components/spec-detail/overview-panel.tsx
+        - tools/dashboard/src/components/spec-detail/spec-detail-queries.ts
+        - tools/dashboard/src/components/spec-detail/spec-detail.tsx
+        - tools/dashboard/src/components/task-dialog.tsx
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/router-navigation.test.mjs
+        - tools/dashboard/tests/spec-detail-documentation-projection.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+      worktree_patch_fingerprint: 5426eb46d07f460dd65c9dbcc234d68f8c7c47d5a2c845d0e35b4a217af547d7
+    self_check:
+      fingerprint: 4c5e0e53915a5a76cce648a58e3e2806e367e3340504cb47867c5ad95412ce7e
+      revision: 23226096ef88dcc8f33783d655a9c6d3b9c79be1
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
   - id: changes-and-pr-diff-feature-slice
     order: 6
     file: tasks/06-changes-and-pr-diff-feature-slice.md

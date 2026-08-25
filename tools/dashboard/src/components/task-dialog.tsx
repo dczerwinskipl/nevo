@@ -12,11 +12,11 @@ import { Button } from '@/components/ui/button';
 import { MarkdownContent } from '@/components/markdown-content';
 import { TaskActionFooter } from '@/components/spec-actions';
 import { AiSessionList } from '@/components/ai-session-list';
-import {
-  useSpecificationDocument,
-  useSpecificationActions,
-  useAiSessions,
-} from '@/hooks/use-dashboard-data';
+import { useAiSessions } from '@/hooks/use-dashboard-data';
+// Imported directly from the feature module, not the `@/components/spec-detail`
+// barrel — that barrel also exports SpecDetail, which imports TaskDialog itself,
+// and going through it here would create a circular module import.
+import { useSpecificationDocument, useSpecificationActions } from '@/components/spec-detail/spec-detail-queries';
 
 export interface TaskDialogProps {
   change: DashboardChange;
