@@ -15,7 +15,7 @@ tasks:
   - id: shared-specs-workflow-operations
     order: 1
     file: tasks/01-shared-specs-workflow-operations.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 5f9652827bcb63515dbadfadf2404704d543ff72
       review_revision: 62b1e98fcb080d5b13fc11735895157ebeb80706
