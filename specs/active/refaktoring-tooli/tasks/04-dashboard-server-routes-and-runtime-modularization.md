@@ -8,7 +8,10 @@ context:
     - specs/active/refaktoring-tooli/owner-decisions.md
     - specs/active/refaktoring-tooli/areas/dashboard-server-runtime.md
     - docs/development/node-tooling-guidelines.md
-    - tools/dashboard/server/**
+    - tools/dashboard/server/index.mjs
+    - tools/dashboard/server/data.mjs
+    - tools/dashboard/server/actions.mjs
+    - tools/dashboard/server/operations.mjs
   optional: []
 allowed_paths:
   - tools/dashboard/server/**

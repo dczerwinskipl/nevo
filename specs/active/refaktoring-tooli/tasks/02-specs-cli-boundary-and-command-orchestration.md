@@ -9,7 +9,10 @@ context:
     - specs/active/refaktoring-tooli/areas/cli-architecture.md
     - docs/development/node-tooling-guidelines.md
     - tools/specs.mjs
-    - tools/specs/**
+    - tools/specs/lifecycle.mjs
+    - tools/specs/service.mjs
+    - tools/specs/gates.mjs
+    - tools/specs/validation.mjs
   optional: []
 allowed_paths:
   - tools/specs.mjs
