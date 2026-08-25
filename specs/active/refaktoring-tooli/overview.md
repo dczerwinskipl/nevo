@@ -31,8 +31,10 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
    - `tools/specs.mjs` mixes Commander command and option definitions with deep application workflow logic, direct `console.log` / `console.error` writes, and process exit code mutations across 20+ commands (§2.1, §11, §12).
 3. **Monolithic capability bags in specs lifecycle:**
    - `tools/specs/lifecycle.mjs` and `tools/specs/service.mjs` combine disparate capabilities (status transitions, postcondition recovery, batch selection, provenance mapping, index generation, and filesystem persistence) without clear separation between pure decision logic and external I/O (§3, §5, §6).
-4. **Server route mixing:**
+4. **Server route mixing, blocking request-path traversal, and SSE lifecycle edge-cases:**
    - `tools/dashboard/server/index.mjs` and `data.mjs` combine HTTP server bootstrap, static file serving, route registration, and data formatting in route handlers rather than thin boundary controllers (§2.2).
+   - `GET /api/dashboard` performs synchronous directory traversal and repeated file reads across all specifications on the request path, blocking the event loop on long-running dashboard requests (§8.2).
+   - Resumable operation SSE streaming contains a subscription replay edge-case where synchronous replay of terminal events during setup calls cleanup before initialization (§8.2).
 5. **Horizontal scattering across frontend features:**
    - Instead of feature-local vertical ownership, frontend code is scattered horizontally across global files:
      - `tools/dashboard/src/hooks/use-dashboard-data.ts` is a monolithic global hook mixing queries for specifications, diffs, operations, and AI sessions. Internal callers should migrate directly to feature-owned query APIs, removing redundant forwarding exports once migration completes.
@@ -65,7 +67,7 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 - **D1.** Eliminate blocking `execFileSync` invocations in `tools/dashboard/server/actions.mjs` by extracting shared application operations for gate evaluation and action checks, consumed directly in-process by both CLI and dashboard server without subprocesses.
 - **D2.** Separate `tools/specs.mjs` into a thin CLI parsing and output mapping boundary, extracting command orchestration into application modules.
 - **D3.** Decouple pure decision logic from filesystem I/O in `tools/specs/lifecycle.mjs` and modularize `tools/specs/service.mjs` by cohesive capability, migrating internal callers directly.
-- **D4.** Modularize dashboard server routes and refactor frontend features into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, dialogs, and pure view-models, retiring redundant forwarding exports in `use-dashboard-data.ts` as callers migrate.
+- **D4.** Modularize dashboard server routes (eliminating request-path blocking I/O and fixing SSE replay lifecycles) and refactor frontend features into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, and pure view-models, retiring redundant forwarding exports in `use-dashboard-data.ts` as callers migrate.
 
 ## Illustrative Architectural Boundaries
 
@@ -90,7 +92,7 @@ tools/
 │   │   ├── routes/               # Thin HTTP/SSE route handlers
 │   │   ├── actions.mjs           # Non-blocking action execution reusing shared spec operations
 │   │   ├── operations.mjs        # Long-running operation runtime with cancellation
-│   │   └── data.mjs              # Data projection for dashboard views
+│   │   └── data.mjs              # Non-blocking data projection for dashboard views
 │   └── src/
 │       ├── components/
 │       │   ├── spec-detail/      # Vertical slice: Spec detail component, section projection, feature-local queries
@@ -114,7 +116,7 @@ tools/
 1. Dashboard server actions (`tools/dashboard/server/actions.mjs`) no longer execute blocking `execFileSync` calls or spawn CLI subprocesses for gate evaluations, calling shared application operations directly in-process. `automated: npm --prefix tools/dashboard test`
 2. `tools/specs.mjs` serves strictly as a CLI entrypoint, delegating orchestration to reusable command modules and managing stdout/stderr/exit codes at the boundary. `automated: node --test tools/tests/*.test.mjs`
 3. Pure lifecycle decision logic (transitions, recovery postconditions, stage derivation, fingerprinting) is separated from file/Git side effects and covered by unit tests. `automated: node --test tools/tests/*.test.mjs`
-4. Dashboard server HTTP and SSE routes are organized into thin route modules with request validation and proper cleanup. `automated: npm --prefix tools/dashboard test`
+4. Dashboard server HTTP and SSE routes are organized into thin route modules with request validation, non-blocking dashboard data loading off the request path, and robust resumable SSE replay handling. `automated: npm --prefix tools/dashboard test`
 5. Specification Detail feature is refactored into a vertical slice with feature-local queries, document/section projections, and overview composition, migrating spec callers from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
 6. Changes & PR Diffs feature is refactored into a vertical slice with progressive diff hydration, feature-local queries, and feature-local grouping logic, migrating changes callers from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
 7. AI Assistant Chat feature is refactored into a vertical slice with decomposed assistant runtime (`nevo-assistant-runtime.ts`), feature-local projections/helpers, feature-local queries, and viewport tracking, retiring redundant exports from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`

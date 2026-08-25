@@ -1,0 +1,10 @@
+follow_ups:
+  - id: router-spec-resolution-policy
+    source_task: spec-detail-and-workflow-feature-slice
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: Consolidate duplicated spec-scoped route resolution and navigation
+      policy in router.tsx when route ownership is next changed.
+    resolver_task: null
+    status: open
+    resolution: null
