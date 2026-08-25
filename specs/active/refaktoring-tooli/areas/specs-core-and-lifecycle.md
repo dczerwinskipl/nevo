@@ -18,10 +18,10 @@ Owns the core specification domain logic, task lifecycle state machines, workflo
 
 ## Requirements
 
-- Decompose lifecycle capabilities by cohesive responsibility (such as transition rules, postcondition inspection and recovery, batch selection, changed path attribution, and stage derivation).
-- Decompose storage and helper capabilities (such as filesystem persistence, fingerprint calculations, index generation, context packet construction, and follow-up ledger tracking).
+- Decompose lifecycle capabilities by cohesive capability (transition rules, postcondition inspection and recovery, batch selection, changed path attribution, and stage derivation).
+- Decompose storage and helper capabilities (filesystem persistence, fingerprint calculations, index generation, context packet construction, and follow-up ledger tracking).
 - Ensure gate evaluations (`tools/specs/gates.mjs` / lifecycle rules) are exportable as shared application operations, reusable directly in-process by both CLI and dashboard server without spawning subprocesses.
-- Migrate internal callers to the appropriate capability modules; maintain compatibility re-exports only where real callers require them, avoiding mandatory permanent forwarding layers.
+- Migrate internal callers to the appropriate capability modules; maintain compatibility re-exports only where real external callers require them.
 
 ## Interfaces and boundaries
 

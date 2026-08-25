@@ -1,5 +1,5 @@
 ---
-id: refaktoring-tooli.shared-operations-and-server-async-execution
+id: refaktoring-tooli.shared-specs-workflow-operations
 status: draft
 change: refaktoring-tooli
 context:
@@ -16,8 +16,7 @@ context:
 allowed_paths:
   - tools/dashboard/server/actions.mjs
   - tools/specs/**
-  - tools/dashboard/tests/server/**
-  - tools/dashboard/tests/actions.test.mjs
+  - tools/dashboard/tests/**
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
@@ -26,7 +25,7 @@ semantic_references:
   constraints: [C1, C2, C4, C5, C7]
 ---
 
-# Task: Shared operations and server async execution
+# Task: Shared specs workflow operations and in-process action execution
 
 ## Goal
 
@@ -34,7 +33,7 @@ Eliminate blocking synchronous subprocess execution (`execFileSync`) in `tools/d
 
 ## Problem
 
-- `tools/dashboard/server/actions.mjs` executes `execFileSync` to invoke `node tools/specs.mjs <action> <slug> --check` synchronously during HTTP request handling (in `taskGate`, `finalizeGate`, and `loadSpecificationActions`).
+- `tools/dashboard/server/actions.mjs` executes `execFileSync` to invoke `node tools/specs.mjs <action> <slug> --check` synchronously during HTTP request handling (in `taskGate`, `finalizeGate`, and `loadSpecificationActions`), spawning multiple child processes per request.
 - In `getLocalBranchTracking`, it executes `execFileSync('git', ...)` synchronously on the request path.
 - Spawning the project's own CLI as a subprocess to execute internal operations duplicates execution paths and blocks the Node event loop on HTTP requests, violating §2.3 and §9.2 of `node-tooling-guidelines.md`.
 

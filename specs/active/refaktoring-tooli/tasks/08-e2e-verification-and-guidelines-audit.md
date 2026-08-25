@@ -12,7 +12,7 @@ context:
     - specs/active/refaktoring-tooli/areas/specs-core-and-lifecycle.md
     - specs/active/refaktoring-tooli/areas/cli-architecture.md
     - specs/active/refaktoring-tooli/areas/dashboard-server-runtime.md
-    - specs/active/refaktoring-tooli/areas/dashboard-frontend-architecture.md
+    - specs/active/refaktoring-tooli/areas/dashboard-frontend-features.md
 allowed_paths:
   - specs/active/refaktoring-tooli/follow-ups.yaml
   - tools/tests/**
@@ -35,7 +35,7 @@ Execute end-to-end verification of the refactored `tools/` suite and dashboard, 
 
 - Execute the complete test suites for Node tooling and Dashboard.
 - Run index checks and specification validation (`specs.mjs check`, `docs.mjs check`, `specs.mjs validate`, `docs.mjs validate`).
-- Verify the absence of dead code or unused imports following the refactoring across modified modules.
+- Verify the absence of dead code or unused imports following the refactoring across modified slices.
 - Complete the audit checklist from section 14 of `node-tooling-guidelines.md` and section 11 of `react-component-guidelines.md` for modules modified in this change.
 - Any pre-existing guideline violations in unmodified code outside this specification's scope must be recorded in `follow-ups.yaml` rather than triggering out-of-scope refactoring.
 

@@ -1,5 +1,5 @@
 ---
-id: refaktoring-tooli.dashboard-server-routes-and-runtime-modularization
+id: refaktoring-tooli.dashboard-server-runtime-and-routes
 status: draft
 change: refaktoring-tooli
 context:
@@ -15,9 +15,7 @@ context:
   optional: []
 allowed_paths:
   - tools/dashboard/server/**
-  - tools/dashboard/tests/server.test.mjs
-  - tools/dashboard/tests/data.test.mjs
-  - tools/dashboard/tests/operations.test.mjs
+  - tools/dashboard/tests/**
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
@@ -26,7 +24,7 @@ semantic_references:
   constraints: [C1, C2, C4, C5, C7]
 ---
 
-# Task: Dashboard server routes and runtime modularization
+# Task: Dashboard server runtime and routes
 
 ## Goal
 

@@ -1,5 +1,5 @@
 ---
-id: refaktoring-tooli.specs-lifecycle-capabilities-and-decision-logic
+id: refaktoring-tooli.specs-lifecycle-and-storage-capabilities
 status: draft
 change: refaktoring-tooli
 context:
@@ -25,7 +25,7 @@ semantic_references:
   constraints: [C1, C2, C4, C6]
 ---
 
-# Task: Specs lifecycle capabilities and decision logic
+# Task: Specs lifecycle and storage capabilities
 
 ## Goal
 

@@ -18,7 +18,7 @@ Owns the repository's public command-line interfaces (`tools/specs.mjs` and `too
 ## Requirements
 
 - Separate `tools/specs.mjs` into a thin CLI argument/option parsing and exit-code mapping boundary.
-- Extract command orchestration handlers into dedicated application modules (for example under `tools/specs/commands/` or appropriate domain capability modules).
+- Extract command orchestration handlers into dedicated application modules (e.g. under `tools/specs/commands/` or cohesive domain modules).
 - Standardize the CLI output contract:
   - Command results sent to `stdout` (including stable machine-readable JSON/YAML output).
   - Warnings and diagnostics sent to `stderr`.

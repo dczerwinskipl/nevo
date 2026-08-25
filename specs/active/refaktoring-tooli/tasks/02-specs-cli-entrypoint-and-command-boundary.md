@@ -1,5 +1,5 @@
 ---
-id: refaktoring-tooli.specs-cli-boundary-and-command-orchestration
+id: refaktoring-tooli.specs-cli-entrypoint-and-command-boundary
 status: draft
 change: refaktoring-tooli
 context:
@@ -26,7 +26,7 @@ semantic_references:
   constraints: [C1, C2, C4, C5, C6]
 ---
 
-# Task: Specs CLI boundary and command orchestration
+# Task: Specs CLI entrypoint and command boundary
 
 ## Goal
 

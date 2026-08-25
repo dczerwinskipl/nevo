@@ -35,7 +35,7 @@ The server exposes REST and SSE interfaces consumed by the React frontend. All J
 1. Server actions (`server/actions.mjs`) no longer call `execFileSync` or spawn CLI subprocesses for gate evaluations, invoking shared application operations directly.
 2. Server routes are modularized with input validation and clean boundary mapping.
 3. No HTTP/SSE request handler executes blocking synchronous child process calls.
-4. All tests in `tools/dashboard/tests/` (or server test suite) pass cleanly.
+4. All tests in `tools/dashboard/tests/` pass cleanly.
 
 ## Out of scope
 

@@ -1,7 +1,7 @@
-## D1: Shared application operations and non-blocking server execution
+## D1: Shared application operations and in-process server execution
 
 - **Question:** How should the dashboard server check gate conditions and execute specification actions without blocking the event loop or duplicating execution paths?
-- **Options considered:** Keep spawning `specs.mjs` via `execFileSync` / `spawn` in `server/actions.mjs` | extract reusable application functions in `tools/specs/` for gate evaluation and action checks, consumed directly by both CLI and dashboard server without subprocesses
+- **Options considered:** Keep spawning `specs.mjs` via `execFileSync` / `spawn` in `server/actions.mjs` | extract reusable application functions in `tools/specs/` for gate evaluation and action checks, consumed directly in-process by both CLI and dashboard server without subprocesses
 - **Decision:** Extract shared application operations in `tools/specs/` and call them directly in `tools/dashboard/server/actions.mjs`, eliminating blocking `execFileSync` calls on request paths.
 - **Consequences:** Eliminates subprocess spawning for internal operations, prevents server event-loop blocking, and makes gate evaluation directly unit-testable.
 - **Date:** 2026-08-25
@@ -25,11 +25,11 @@
 - **Date:** 2026-08-25
 - **Affected artifacts:** `tools/specs/lifecycle/**`, `tools/specs/store/**`, `tools/specs/**`
 
-## D4: Dashboard server routes and frontend architectural layering
+## D4: Dashboard server modularization and frontend vertical feature slices
 
-- **Question:** How should the dashboard server and React frontend be structured to eliminate monolithic hooks and coupled feature components?
-- **Options considered:** Keep monolithic `use-dashboard-data.ts` and composite view files | modularize server routes by capability, split `use-dashboard-data.ts` into domain query hooks, separate assistant runtime event mapping from UI adapter state, and decompose complex feature components (`spec-detail.tsx`, `changes-panel.tsx`, `ai-chat.tsx`) into composable subcomponents and feature-local view-models
-- **Decision:** Implement outcome-based modularization for server routes, domain query hooks, assistant runtime layers, and feature components according to `node-tooling-guidelines.md` and `react-component-guidelines.md`.
-- **Consequences:** Server routes become thin controllers; frontend data projections stay pure, feature-local, and outside JSX; modal dialogs and independent interaction contracts have clear lifecycle ownership.
+- **Question:** How should the dashboard server and React frontend be structured to eliminate monolithic files and technical-layer scattering?
+- **Options considered:** Keep monolithic `use-dashboard-data.ts` and horizontal component files | modularize server routes by capability and organize the frontend into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, dialogs, and pure view-models
+- **Decision:** Implement vertical feature slices on the frontend and capability routes on the server according to `node-tooling-guidelines.md` and `react-component-guidelines.md`.
+- **Consequences:** Each frontend feature owns its complete slice (UI, hooks, dialogs, projections, tests); server routes become thin controllers; feature-specific helpers are no longer scattered in global folders.
 - **Date:** 2026-08-25
 - **Affected artifacts:** `tools/dashboard/server/**`, `tools/dashboard/src/**`
