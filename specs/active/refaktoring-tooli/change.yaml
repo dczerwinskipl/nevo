@@ -50,12 +50,12 @@ tasks:
   - id: specs-lifecycle-and-storage-capabilities
     order: 2
     file: tasks/02-specs-lifecycle-and-storage-capabilities.md
-    status: implemented
+    status: verified
     depends_on:
       - shared-specs-workflow-operations
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      review_revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
       changed_paths:
         - tools/specs/commands/agent-session.mjs
         - tools/specs/commands/approve.mjs
@@ -92,10 +92,10 @@ tasks:
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
         - tools/tests/context.test.mjs
-      worktree_patch_fingerprint: 0fa4b2054566b071b7ef6abc3edcddf089e6de3ac052804699d43f8888163192
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429
-      revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
       commands:
         - command: node --test tools/tests/task-lifecycle.test.mjs
             tools/tests/gates.test.mjs tools/tests/workflow-*.test.mjs
@@ -107,12 +107,12 @@ tasks:
   - id: specs-cli-entrypoint-and-command-boundary
     order: 3
     file: tasks/03-specs-cli-entrypoint-and-command-boundary.md
-    status: implemented
+    status: verified
     depends_on:
       - specs-lifecycle-and-storage-capabilities
     implementation:
       baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
-      review_revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      review_revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
       changed_paths:
         - tools/specs.mjs
         - tools/specs/commands/agent-session.mjs
@@ -150,10 +150,10 @@ tasks:
         - tools/specs/store.mjs
         - tools/specs/validation.mjs
         - tools/tests/context.test.mjs
-      worktree_patch_fingerprint: 6060235f456ad986b11493686dcec08d7b870014ad0056337c9d6106a67a3baa
+      worktree_patch_fingerprint: null
     self_check:
       fingerprint: b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29
-      revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      revision: 7626e838471f8f5ba18ea51723dbf8dcbf0edbd0
       commands:
         - command: node --test tools/tests/cli-*.test.mjs
             tools/tests/handler-testability.test.mjs
