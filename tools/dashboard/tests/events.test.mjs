@@ -62,3 +62,42 @@ test('serves GET /api/events with SSE headers, connected event, eventHub subscri
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
+
+test('server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
+  let unsubscribeCallCount = 0;
+  const fakeHub = {
+    subscribe: () => {
+      return () => {
+        unsubscribeCallCount++;
+      };
+    },
+    close: () => {},
+  };
+
+  const server = createDashboardServer({
+    eventHub: fakeHub,
+    distDir: 'Z:/does-not-exist',
+  });
+  const baseUrl = await listen(server, { port: 0 });
+
+  // Open a real persistent SSE connection without aborting it
+  const res = await fetch(`${baseUrl}/api/events`);
+  assert.equal(res.status, 200);
+
+  const reader = res.body.getReader();
+  const { value: firstChunk, done: firstDone } = await reader.read();
+  assert.equal(firstDone, false);
+  assert.match(new TextDecoder().decode(firstChunk), /event: connected/);
+
+  // Initiate graceful server close while client SSE connection is actively open
+  const closePromise = new Promise((resolvePromise) => server.close(resolvePromise));
+
+  // The reader must receive stream completion (done: true) because server closes the SSE response
+  const { done: streamEnded } = await reader.read();
+  assert.equal(streamEnded, true, 'SSE stream was closed by server shutdown');
+
+  // Server close completes without needing client abort
+  await closePromise;
+
+  assert.equal(unsubscribeCallCount, 1, 'EventHub subscriber was cleaned up exactly once');
+});

@@ -8,8 +8,8 @@ import { createSpecEventHub } from './watcher.mjs';
 import { createOperationRuntime } from './operations.mjs';
 import { sendJson, readJsonBody, HttpError } from './http-utils.mjs';
 import { handleHealthRoute } from './routes/health.mjs';
-import { handleEventsRoute } from './routes/events.mjs';
-import { handleOperationRoute } from './routes/operations.mjs';
+import { handleEventsRoute, createEventsRouteAdapter } from './routes/events.mjs';
+import { handleOperationRoute, createOperationRouteAdapter } from './routes/operations.mjs';
 import { handleSpecsRoute, createSpecsRouteAdapter } from './routes/specs.mjs';
 import { handlePullRequestRoute } from './routes/pull-requests.mjs';
 import { createAiRouteAdapter } from './routes/ai.mjs';
@@ -84,6 +84,14 @@ export function createDashboardServer({
     root,
   });
 
+  const eventsAdapter = createEventsRouteAdapter({
+    eventHub,
+  });
+
+  const operationAdapter = createOperationRouteAdapter({
+    operationRuntime,
+  });
+
   const server = createServer(async (request, response) => {
     const method = request.method || 'GET';
     const url = new URL(request.url || '/', 'http://127.0.0.1');
@@ -92,11 +100,11 @@ export function createDashboardServer({
       return;
     }
 
-    if (handleEventsRoute({ request, response, method, url, eventHub })) {
+    if (eventsAdapter.handleEventsRoute({ request, response, method, url })) {
       return;
     }
 
-    if (handleOperationRoute({ request, response, method, url, operationRuntime })) {
+    if (operationAdapter.handleOperationRoute({ request, response, method, url })) {
       return;
     }
 
@@ -129,21 +137,40 @@ export function createDashboardServer({
   const performShutdown = async () => {
     if (!shutdownPromise) {
       shutdownPromise = (async () => {
+        // 1 & 2. Abort and await running specification actions
         try {
           await specsAdapter.shutdown?.();
         } catch (err) {
           console.error('[server] error shutting down specs adapter:', err);
         }
+
+        // 3. Close active SSE connections / subscriptions
+        try {
+          eventsAdapter.shutdown?.();
+        } catch (err) {
+          console.error('[server] error shutting down events adapter:', err);
+        }
+        try {
+          operationAdapter.shutdown?.();
+        } catch (err) {
+          console.error('[server] error shutting down operations adapter:', err);
+        }
+
+        // 4. Shut down AI resources
         try {
           await aiAdapter.shutdown?.();
         } catch (err) {
           console.error('[server] error shutting down AI adapter:', err);
         }
+
+        // 5. Shut down OperationRuntime
         try {
           operationRuntime.shutdown?.();
         } catch (err) {
           console.error('[server] error shutting down operation runtime:', err);
         }
+
+        // 6. Close event hub watcher
         try {
           eventHub?.close?.();
         } catch (err) {
@@ -156,12 +183,23 @@ export function createDashboardServer({
 
   const originalClose = server.close.bind(server);
   server.close = function (callback) {
-    return originalClose(async (err) => {
-      await performShutdown();
-      if (typeof callback === 'function') {
-        callback(err);
-      }
+    const closePromise = new Promise((resolveClose, rejectClose) => {
+      originalClose((err) => {
+        if (err) rejectClose(err);
+        else resolveClose();
+      });
     });
+
+    const fullShutdown = (async () => {
+      await performShutdown();
+      await closePromise;
+    })();
+
+    if (typeof callback === 'function') {
+      fullShutdown.then(() => callback(null), (err) => callback(err));
+    }
+
+    return server;
   };
 
   server.on('close', () => {
