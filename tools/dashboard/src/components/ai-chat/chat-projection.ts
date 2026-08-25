@@ -1,4 +1,4 @@
-import type { AgentToolCall, AssistantTurnItem, NormalizedMessage } from './types';
+import type { AgentToolCall, AssistantTurnItem, NormalizedMessage } from '@/lib/types';
 
 /**
  * A single conversational entry (user/assistant/system text). One-to-one with a

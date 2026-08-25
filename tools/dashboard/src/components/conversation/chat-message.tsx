@@ -6,7 +6,7 @@ import { MarkdownContent } from '@/components/markdown-content';
 import { WorkSummary } from '@/components/work/work-summary';
 import { hasVisibleProse, shouldRenderChatMessage } from '@/components/work/work-visibility';
 import { shouldCollapseMessage } from '@/components/conversation/message-collapse';
-import type { TurnWork } from '@/lib/chat-projection';
+import type { TurnWork } from '@/components/ai-chat/chat-projection';
 import type { NormalizedMessage } from '@/lib/types';
 import { cn } from '@/lib/utils';
 

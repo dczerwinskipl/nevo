@@ -15,7 +15,7 @@ import type { AiSession, DashboardTask, TaskNavigationTarget } from '@/lib/types
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { useAiProviders, useDeleteAiSession } from '@/hooks/use-dashboard-data';
+import { useAiProviders, useDeleteAiSession } from '@/components/ai-chat/ai-chat-queries';
 
 function sessionTitle(session: AiSession) {
   if (session.title?.trim()) return session.title.trim();

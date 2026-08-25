@@ -24,7 +24,8 @@ import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAiSessions, invalidateDashboardQueries } from '@/hooks/use-dashboard-data';
+import { invalidateDashboardQueries } from '@/hooks/use-dashboard-data';
+import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
 import { Link } from '@tanstack/react-router';
 
 import { useSpecificationActions, useSpecificationManifest } from './spec-detail-queries';

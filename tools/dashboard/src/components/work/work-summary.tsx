@@ -2,8 +2,8 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle } from 'lucide-react';
 import { AiToolView } from '@/components/ai-tool-view';
 import { visibleWorkItemsWhenTerminal, visibleWorkItemsWhileRunning } from '@/components/work/work-visibility';
-import { activityLabelFor } from '@/lib/tool-activity-labels';
-import { isGenuineTurnError, type PresentationSeverity, type TurnWork, type WorkItem } from '@/lib/chat-projection';
+import { activityLabelFor } from '@/components/ai-chat/tool-activity-labels';
+import { isGenuineTurnError, type PresentationSeverity, type TurnWork, type WorkItem } from '@/components/ai-chat/chat-projection';
 import type { AgentToolCall } from '@/lib/types';
 import { cn } from '@/lib/utils';
 

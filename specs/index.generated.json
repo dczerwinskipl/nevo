@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T17:59:22.082Z",
+  "generated": "2026-08-25T18:15:59.397Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -558,7 +558,7 @@
           "id": "changes-and-pr-diff-feature-slice",
           "order": 6,
           "file": "tasks/06-changes-and-pr-diff-feature-slice.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "depends_on": [
             "spec-detail-and-workflow-feature-slice"
           ],
@@ -606,10 +606,76 @@
           "id": "ai-assistant-chat-and-runtime-feature-slice",
           "order": 7,
           "file": "tasks/07-ai-assistant-chat-and-runtime-feature-slice.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "changes-and-pr-diff-feature-slice"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "1650ed8d138586d6451d35e4b7827f4555d90ed7",
+            "review_revision": "1650ed8d138586d6451d35e4b7827f4555d90ed7",
+            "changed_paths": [
+              "tools/dashboard/src/components/ai-chat/agent-event-reducer.ts",
+              "tools/dashboard/src/components/ai-chat/agent-event-source.ts",
+              "tools/dashboard/src/components/ai-chat/agent-session-transport.ts",
+              "tools/dashboard/src/components/ai-chat/ai-chat-helpers.ts",
+              "tools/dashboard/src/components/ai-chat/ai-chat-queries.ts",
+              "tools/dashboard/src/components/ai-chat/ai-chat.tsx",
+              "tools/dashboard/src/components/ai-chat/chat-projection.ts",
+              "tools/dashboard/src/components/ai-chat/create-ai-session-dialog.tsx",
+              "tools/dashboard/src/components/ai-chat/index.tsx",
+              "tools/dashboard/src/components/ai-chat/nevo-assistant-runtime.ts",
+              "tools/dashboard/src/components/ai-chat/pending-dispatch-store.ts",
+              "tools/dashboard/src/components/ai-chat/tool-activity-labels.ts",
+              "tools/dashboard/src/components/ai-chat/use-chat-visual-viewport.ts",
+              "tools/dashboard/src/components/ai-chat/use-initial-dispatch.ts",
+              "tools/dashboard/src/components/ai-chat/use-scroll-follow.ts",
+              "tools/dashboard/src/components/ai-session-create-modal.tsx",
+              "tools/dashboard/src/components/ai-session-list.tsx",
+              "tools/dashboard/src/components/ai-tool-view.tsx",
+              "tools/dashboard/src/components/conversation/chat-message.tsx",
+              "tools/dashboard/src/components/spec-create-modal/use-spec-create-form.ts",
+              "tools/dashboard/src/components/spec-detail/spec-detail.tsx",
+              "tools/dashboard/src/components/task-dialog.tsx",
+              "tools/dashboard/src/components/work/work-summary.tsx",
+              "tools/dashboard/src/components/work/work-visibility.ts",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/lib/nevo-assistant-runtime.ts",
+              "tools/dashboard/tests/ai-chat-helpers.test.mjs",
+              "tools/dashboard/tests/assistant-runtime-state.test.mjs",
+              "tools/dashboard/tests/chat-header.test.mjs",
+              "tools/dashboard/tests/chat-projection.test.mjs",
+              "tools/dashboard/tests/composer-interaction.test.mjs",
+              "tools/dashboard/tests/responsive-accessibility-regression.test.mjs",
+              "tools/dashboard/tests/router-navigation.test.mjs",
+              "tools/dashboard/tests/scroll-follow.test.mjs",
+              "tools/dashboard/tests/session-readiness.test.mjs",
+              "tools/dashboard/tests/session-states-integration.test.mjs",
+              "tools/dashboard/tests/tool-activity-labels.test.mjs",
+              "tools/dashboard/tests/ux-improvements-regression.test.mjs",
+              "tools/dashboard/tests/work-summary.test.mjs",
+              "tools/dashboard/tests/work-turn-correlation.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "9bb245c901ee9f5ee625fcfb1e856a9383bdc48beeca5822e838eab1a211fbc5"
+          },
+          "self_check": {
+            "fingerprint": "15a9aafe5a7ef2898211705f0af56e1706b40ac7bab2b246b883781eee8c7bde",
+            "revision": "1650ed8d138586d6451d35e4b7827f4555d90ed7",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "e2e-verification-and-guidelines-audit",

@@ -10,7 +10,7 @@ function readSource(relative) {
 test('AC1 & AC2: Header and conversation layouts prevent horizontal overflow across responsive widths', () => {
   const headerSource = readSource('components/chat-header/chat-header.tsx');
   const chatMessageSource = readSource('components/conversation/chat-message.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   // Header has min-w-0 on flex containers and truncate on title
   assert.match(headerSource, /min-w-0/);
@@ -39,13 +39,17 @@ test('Documentation layout constrains both grid tracks and rendered Markdown to 
 });
 
 test('AC3: Mobile keyboard viewport adjustments and safe area insets are wired', () => {
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
+  const viewportSource = readSource('components/ai-chat/use-chat-visual-viewport.ts');
   const sheetSource = readSource('components/ui/sheet.tsx');
 
-  // useChatVisualViewport listens to visualViewport resize/scroll
+  // AiChatPage consumes useChatVisualViewport's keyboardOpen state
   assert.match(aiChatSource, /useChatVisualViewport/);
-  assert.match(aiChatSource, /visualViewport\?\.addEventListener\('resize'/);
   assert.match(aiChatSource, /keyboardOpen/);
+
+  // useChatVisualViewport listens to visualViewport resize/scroll
+  assert.match(viewportSource, /visualViewport\?\.addEventListener\('resize'/);
+  assert.match(viewportSource, /keyboardOpen/);
 
   // Safe area insets in footer and sheet
   assert.match(aiChatSource, /env\(safe-area-inset-bottom\)/);
@@ -158,7 +162,7 @@ test('AC11: Keyboard focus management, tab order, and keydown handlers are struc
   const toolViewSource = readSource('components/ai-tool-view.tsx');
   const reasoningViewSource = readSource('components/ai-reasoning-view.tsx');
   const workSummarySource = readSource('components/work/work-summary.tsx');
-  const scrollFollowSource = readSource('lib/use-scroll-follow.ts');
+  const scrollFollowSource = readSource('components/ai-chat/use-scroll-follow.ts');
 
   // Interactive buttons have focus-visible rings defined
   assert.match(buttonSource, /focus-visible:ring-2/);
@@ -176,7 +180,7 @@ test('AC11: Keyboard focus management, tab order, and keydown handlers are struc
 
 test('AC13: Regression checks for all NFR-7 critical paths', () => {
   const composerSource = readSource('components/composer/composer.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
   const sessionDetailsSource = readSource('components/session-details/session-details.tsx');
   const headerSource = readSource('components/chat-header/chat-header.tsx');
 

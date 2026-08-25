@@ -17,8 +17,9 @@ import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
 import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
-import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
-import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
+import { useDashboardData } from '@/hooks/use-dashboard-data';
+import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
+import { pendingDispatchStore } from '@/components/ai-chat/pending-dispatch-store';
 import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {

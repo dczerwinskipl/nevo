@@ -12,11 +12,12 @@ import { Button } from '@/components/ui/button';
 import { MarkdownContent } from '@/components/markdown-content';
 import { TaskActionFooter } from '@/components/spec-actions';
 import { AiSessionList } from '@/components/ai-session-list';
-import { useAiSessions } from '@/hooks/use-dashboard-data';
-// Imported directly from the feature module, not the `@/components/spec-detail`
-// barrel — that barrel also exports SpecDetail, which imports TaskDialog itself,
-// and going through it here would create a circular module import.
+// Imported directly from each feature's own module, not their `@/components/spec-detail`
+// / `@/components/ai-chat` barrels — those barrels also export SpecDetail / AiChatPage,
+// which import TaskDialog itself, and going through them here would create a circular
+// module import.
 import { useSpecificationDocument, useSpecificationActions } from '@/components/spec-detail/spec-detail-queries';
+import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
 
 export interface TaskDialogProps {
   change: DashboardChange;

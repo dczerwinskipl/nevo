@@ -48,7 +48,7 @@ test('Item 2A & 2B (Task 07 / Item 9A): AiSessionRow uses non-interactive card, 
 
 test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks against change and use TaskNavigationTarget', () => {
   const sessionDetailsSource = readSource('components/session-details/session-details.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
   const typesSource = readSource('lib/types.ts');
 
   // TaskNavigationTarget contract exists in types.ts
@@ -70,7 +70,7 @@ test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks agains
 test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecDetail and AiChatPage without leaveChat()', () => {
   const taskDialogSource = readSource('components/task-dialog.tsx');
   const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   // TaskDialog is a reusable component in components/task-dialog.tsx
   assert.ok(taskDialogSource.includes('export function TaskDialog('));
@@ -155,7 +155,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   const statusBoardSource = readSource('components/status-board.tsx');
   const sessionListSource = readSource('components/ai-session-list.tsx');
   const chatHeaderSource = readSource('components/chat-header/chat-header.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   // 1. StatusLabel primitive owns common typography contract
   assert.ok(statusLabelSource.includes('export function StatusLabel'), 'StatusLabel component exported');

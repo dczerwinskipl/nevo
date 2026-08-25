@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   pendingDispatchStore,
   InitialDispatchController,
-} from '../src/lib/pending-dispatch-store.ts';
+} from '../src/components/ai-chat/pending-dispatch-store.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
@@ -268,8 +268,8 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routerTreeSource = readSource('router-tree.ts');
   const routerSource = readSource('router.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
-  const pendingDispatchStoreSource = readSource('lib/pending-dispatch-store.ts');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
+  const pendingDispatchStoreSource = readSource('components/ai-chat/pending-dispatch-store.ts');
 
   // router-tree.ts does not declare initialPrompt in ChatSearch
   assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');

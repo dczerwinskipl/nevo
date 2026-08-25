@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { projectChat } from '../src/lib/chat-projection.ts';
+import { projectChat } from '../src/components/ai-chat/chat-projection.ts';
 
 function userMsg(id, text, createdAt = '2026-08-22T10:00:00Z') {
   return { id, role: 'user', text, createdAt };

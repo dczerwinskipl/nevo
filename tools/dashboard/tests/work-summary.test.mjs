@@ -9,8 +9,8 @@ import {
   visibleWorkItemsWhenTerminal,
   visibleWorkItemsWhileRunning,
 } from '../src/components/work/work-visibility.ts';
-import { activityLabelFor } from '../src/lib/tool-activity-labels.ts';
-import { projectChat } from '../src/lib/chat-projection.ts';
+import { activityLabelFor } from '../src/components/ai-chat/tool-activity-labels.ts';
+import { projectChat } from '../src/components/ai-chat/chat-projection.ts';
 
 function readWorkSummarySource() {
   return readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');

@@ -1,4 +1,4 @@
-import type { AgentExecutionMode } from './types';
+import type { AgentExecutionMode } from '@/lib/types';
 
 export interface PendingInitialDispatch {
   sessionKey: string; // `${provider}:${sessionId}`

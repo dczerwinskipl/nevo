@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, LoaderCircle, Wrench, XCircle } from 'lucide-react';
-import { activityLabelFor } from '@/lib/tool-activity-labels';
+import { activityLabelFor } from '@/components/ai-chat/tool-activity-labels';
 import type { AgentToolCall } from '@/lib/types';
 
 export interface AiToolViewProps {
