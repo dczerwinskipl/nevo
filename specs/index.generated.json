@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T17:52:05.079Z",
+  "generated": "2026-08-25T17:59:22.082Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -511,7 +511,7 @@
           "id": "spec-detail-and-workflow-feature-slice",
           "order": 5,
           "file": "tasks/05-spec-detail-and-workflow-feature-slice.md",
-          "status": "in-implementation",
+          "status": "implemented",
           "implementation": {
             "baseline_revision": "23226096ef88dcc8f33783d655a9c6d3b9c79be1",
             "review_revision": "23226096ef88dcc8f33783d655a9c6d3b9c79be1",
@@ -558,10 +558,49 @@
           "id": "changes-and-pr-diff-feature-slice",
           "order": 6,
           "file": "tasks/06-changes-and-pr-diff-feature-slice.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "spec-detail-and-workflow-feature-slice"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "d454f626d66ae57f5fb9280ed5023f025673c8ff",
+            "review_revision": "d454f626d66ae57f5fb9280ed5023f025673c8ff",
+            "changed_paths": [
+              "tools/dashboard/src/components/changes-panel.tsx",
+              "tools/dashboard/src/components/changes-panel/changes-grouping.ts",
+              "tools/dashboard/src/components/changes-panel/changes-panel.tsx",
+              "tools/dashboard/src/components/changes-panel/changes-queries.ts",
+              "tools/dashboard/src/components/changes-panel/file-change.tsx",
+              "tools/dashboard/src/components/changes-panel/index.tsx",
+              "tools/dashboard/src/components/changes-panel/pull-request-cards.tsx",
+              "tools/dashboard/src/components/changes-panel/pull-request-detail.tsx",
+              "tools/dashboard/src/components/changes-panel/pull-request-status.ts",
+              "tools/dashboard/src/hooks/use-dashboard-data.ts",
+              "tools/dashboard/src/lib/changes-grouping.ts",
+              "tools/dashboard/tests/change-view-config.test.mjs",
+              "tools/dashboard/tests/changes-grouping.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "57eda5f2330110e64f7fe64b38be3b58d9de6736972f6b1716d7953377c0daa3"
+          },
+          "self_check": {
+            "fingerprint": "32a74bea3590a43011e75b641f2f930b0db1c435e2965d6cf692a835a0575651",
+            "revision": "d454f626d66ae57f5fb9280ed5023f025673c8ff",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "ai-assistant-chat-and-runtime-feature-slice",
