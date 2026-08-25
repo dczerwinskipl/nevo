@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-24T20:35:53.780Z",
+  "generated": "2026-08-25T08:49:30.420Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -537,12 +537,14 @@
         "changing dashboard server code",
         "running Git, filesystem, or child-process operations from Node",
         "adding long-running operations, progress, streaming, or cancellation",
-        "refactoring large .mjs modules under tools"
+        "refactoring Node modules under tools",
+        "Node tooling or server changes"
       ],
-      "summary": "Practical architecture guidelines for Node-based tooling, CLI commands, and long-lived dashboard/server code. Covers module boundaries, command/application separation, external IO, async process execution, errors and exit codes, dependency injection, testing, runtime state, and pragmatic module sizing.",
+      "summary": "Practical architecture guidelines for Node-based developer tooling, CLI commands, and long-lived dashboard server code. Covers module boundaries, thin external boundaries, pure decision logic vs IO, async process execution, lifecycle and cancellation, dependency injection, error mapping, testing boundaries, and anti-overengineering rules.",
       "related": [
         "development.coding-conventions",
-        "development.architecture-overview"
+        "development.architecture-overview",
+        "development.react-component-guidelines"
       ]
     },
     {
@@ -631,17 +633,18 @@
       "status": "current",
       "read_when": [
         "creating or restructuring React components",
-        "changing shared UI",
+        "React or frontend changes",
+        "React component or module refactoring",
+        "changing shared UI, hooks, or feature modules",
         "introducing dialogs, drawers, menus, tooltips, or other interactive primitives",
         "extracting reusable components",
-        "changing styling or status/color presentation",
-        "refactoring large feature components",
-        "reorganizing React files, hooks, view models, or feature modules"
+        "changing styling or status/color presentation"
       ],
-      "summary": "Preferred way to structure React UI code: component composition, module/file boundaries, token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model boundaries, accessibility, testing, and pragmatic size smells. Treat this as required guidance for frontend implementation and refactoring when explicitly attached to a task.",
+      "summary": "Practical architecture guidelines for React UI code: component composition, module and file boundaries, \"one primary concept per module\", token -> primitive -> wrapper -> feature layering, state/effect/context ownership, view-model projections, testing, and anti-mechanical refactoring principles.",
       "related": [
         "development.coding-conventions",
-        "development.architecture-overview"
+        "development.architecture-overview",
+        "development.node-tooling-guidelines"
       ]
     },
     {
