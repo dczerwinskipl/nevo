@@ -14,8 +14,9 @@ context:
     - specs/active/refaktoring-tooli/areas/dashboard-server-runtime.md
     - specs/active/refaktoring-tooli/areas/dashboard-frontend-architecture.md
 allowed_paths:
-  - tools/**
-  - package.json
+  - specs/active/refaktoring-tooli/follow-ups.yaml
+  - tools/tests/**
+  - tools/dashboard/tests/**
 forbidden_paths:
   - src/**
   - tests/NEvo.*/**
@@ -28,14 +29,15 @@ semantic_references:
 
 ## Goal
 
-Execute end-to-end verification of the refactored `tools/` suite and dashboard, verify test completeness without regressions, and conduct a formal compliance audit against the checklists in `node-tooling-guidelines.md` and `react-component-guidelines.md`.
+Execute end-to-end verification of the refactored `tools/` suite and dashboard, verify test completeness without regressions, and conduct a focused compliance audit for the modules and responsibility boundaries modified by this specification against the checklists in `node-tooling-guidelines.md` and `react-component-guidelines.md`.
 
 ## Implementation constraints
 
 - Execute the complete test suites for Node tooling and Dashboard.
 - Run index checks and specification validation (`specs.mjs check`, `docs.mjs check`, `specs.mjs validate`, `docs.mjs validate`).
-- Verify the absence of dead code or unused imports following the refactoring.
-- Complete the audit checklist from section 14 of `node-tooling-guidelines.md` and section 11 of `react-component-guidelines.md`.
+- Verify the absence of dead code or unused imports following the refactoring across modified modules.
+- Complete the audit checklist from section 14 of `node-tooling-guidelines.md` and section 11 of `react-component-guidelines.md` for modules modified in this change.
+- Any pre-existing guideline violations in unmodified code outside this specification's scope must be recorded in `follow-ups.yaml` rather than triggering out-of-scope refactoring.
 
 ## Acceptance criteria
 
@@ -43,7 +45,7 @@ Execute end-to-end verification of the refactored `tools/` suite and dashboard, 
 2. Full dashboard test suite passes cleanly. `automated: npm --prefix tools/dashboard test`
 3. Dashboard production build `npm --prefix tools/dashboard run build` finishes with exit code 0. `automated: npm --prefix tools/dashboard run build`
 4. Specification and documentation validation tools report no errors. `automated: node tools/specs.mjs check && node tools/docs.mjs check`
-5. All checklist items from `node-tooling-guidelines.md` and `react-component-guidelines.md` are satisfied. `inspection: checklist audit`
+5. All checklist items for the modules and boundaries modified by this specification are satisfied; pre-existing issues outside this change's scope are recorded in `follow-ups.yaml`. `inspection: checklist audit`
 
 ## Verification
 
@@ -57,4 +59,5 @@ node tools/docs.mjs check
 
 ## Out of scope
 
+- Unrelated refactoring or cleanup of untouched tooling files.
 - Changes to NEvo .NET engine code (`src/`).

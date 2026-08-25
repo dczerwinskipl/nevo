@@ -18,20 +18,10 @@ Owns the core specification domain logic, task lifecycle state machines, workflo
 
 ## Requirements
 
-- Decompose lifecycle capabilities by responsibility:
-  - Transition validation and dependency checking.
-  - Postcondition inspection algorithms (`inspectStartPostconditions`, `inspectApprovePostconditions`) and recovery handling.
-  - Batch selection logic and progress derivation.
-  - Changed path attribution and provenance mapping.
-  - Pure stage derivation.
-- Decompose storage and helper capabilities:
-  - Change and task filesystem persistence.
-  - Pure fingerprint calculations.
-  - Specification index generation and verification.
-  - Task context packet construction.
-  - Follow-up ledger persistence in `follow-ups.yaml`.
-- Ensure gate evaluations (`tools/specs/gates.mjs` / lifecycle rules) are directly exportable as shared application operations, reusable by both CLI and dashboard server without spawning subprocesses.
-- Preserve backward-compatible re-exports in `lifecycle.mjs` and `service.mjs` to ensure import stability across existing callers.
+- Decompose lifecycle capabilities by cohesive responsibility (such as transition rules, postcondition inspection and recovery, batch selection, changed path attribution, and stage derivation).
+- Decompose storage and helper capabilities (such as filesystem persistence, fingerprint calculations, index generation, context packet construction, and follow-up ledger tracking).
+- Ensure gate evaluations (`tools/specs/gates.mjs` / lifecycle rules) are exportable as shared application operations, reusable directly in-process by both CLI and dashboard server without spawning subprocesses.
+- Migrate internal callers to the appropriate capability modules; maintain compatibility re-exports only where real callers require them, avoiding mandatory permanent forwarding layers.
 
 ## Interfaces and boundaries
 

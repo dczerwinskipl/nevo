@@ -13,7 +13,7 @@ context:
   optional: []
 allowed_paths:
   - tools/specs.mjs
-  - tools/specs/commands/**
+  - tools/specs/**
   - tools/tests/**
 forbidden_paths:
   - src/**
@@ -37,7 +37,7 @@ Separate the CLI boundary in `tools/specs.mjs` (command/option definitions, argu
 ## Expected outcome
 
 - `tools/specs.mjs` serves strictly as a thin CLI entrypoint that registers commands, parses input, dispatches to application operations, formats stdout/stderr output, and sets `process.exitCode`.
-- Command implementations are structured as standalone application modules under `tools/specs/commands/` (or cohesive domain modules) that return results or throw structured errors without touching `process.exit` or `process.exitCode`.
+- Command implementations are structured as standalone application modules (e.g. under `tools/specs/commands/` or cohesive domain modules) that return results or throw structured errors without touching `process.exit` or `process.exitCode`.
 - AI session auto-binding (`autoBindAgentSession`) is retained as a clean boundary interceptor.
 
 ## Preserved contracts & behavior

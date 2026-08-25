@@ -19,11 +19,7 @@ Owns the HTTP/SSE server layer for the specification dashboard (`tools/dashboard
 
 - Eliminate blocking `execFileSync` calls in `server/actions.mjs` by calling shared application operations directly in-process for gate evaluations (`taskGate`, `finalizeGate`).
 - Ensure all action triggers (approve, verify, finalize) remain asynchronous, cancellable, and preserve progress streaming without blocking server responsiveness.
-- Organize server route handlers into focused modules under `tools/dashboard/server/routes/`:
-  - `routes/specs.mjs` — specifications, manifests, Markdown documents, and tasks.
-  - `routes/changes.mjs` — diff data, changed files, and GitHub provider integration.
-  - `routes/ai.mjs` — SSE streaming for AI sessions and turn management.
-  - `routes/operations.mjs` — starting and tracking background operations.
+- Organize server route handlers into focused capability modules (for example under `tools/dashboard/server/routes/` covering specifications, changes/diffs, AI sessions, and operations).
 - HTTP handlers must strictly:
   - Validate request parameters (`parse -> validate -> normalize`).
   - Invoke application operations (shared with CLI or provided by server services).
@@ -39,7 +35,7 @@ The server exposes REST and SSE interfaces consumed by the React frontend. All J
 1. Server actions (`server/actions.mjs`) no longer call `execFileSync` or spawn CLI subprocesses for gate evaluations, invoking shared application operations directly.
 2. Server routes are modularized with input validation and clean boundary mapping.
 3. No HTTP/SSE request handler executes blocking synchronous child process calls.
-4. All tests in `tools/dashboard/tests/server/` pass cleanly.
+4. All tests in `tools/dashboard/tests/` (or server test suite) pass cleanly.
 
 ## Out of scope
 

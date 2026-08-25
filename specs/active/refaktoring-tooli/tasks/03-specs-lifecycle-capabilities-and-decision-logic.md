@@ -29,7 +29,7 @@ semantic_references:
 
 ## Goal
 
-Separate pure deterministic decision logic from external filesystem/Git I/O across specification lifecycle and storage modules, decomposing `tools/specs/lifecycle.mjs` and `tools/specs/service.mjs` by cohesive capability while preserving backward-compatible re-exports.
+Separate pure deterministic decision logic from external filesystem/Git I/O across specification lifecycle and storage modules, decomposing `tools/specs/lifecycle.mjs` and `tools/specs/service.mjs` by cohesive capability and migrating internal callers.
 
 ## Problem
 
@@ -39,13 +39,13 @@ Separate pure deterministic decision logic from external filesystem/Git I/O acro
 
 ## Expected outcome
 
-- Pure decision algorithms (e.g. transition validation, postcondition recovery inspection, fingerprinting, stage derivation, batch progress calculation) are decoupled into focused capability modules in `tools/specs/lifecycle/` and covered by pure unit tests.
-- Filesystem persistence and index management are grouped into cohesive store/index modules.
-- `lifecycle.mjs` and `service.mjs` retain backward-compatible re-exports for existing consumers.
+- Pure decision algorithms (e.g. transition validation, postcondition recovery inspection, fingerprinting, stage derivation, batch progress calculation) are decoupled into focused capability modules and covered by pure unit tests.
+- Filesystem persistence, index generation, and context packet generation are grouped into cohesive capability modules.
+- Internal callers are migrated directly to newly separated capability modules; compatibility re-exports are retained only where real external callers or public tooling interfaces require them, eliminating unnecessary forwarding layers.
 
 ## Preserved contracts & behavior
 
-- All exported function signatures, return types, error formats, and validation invariants must remain unchanged.
+- All public CLI commands, exit codes, and validation invariants must remain unchanged.
 - All active and archived specifications must continue to validate cleanly with `node tools/specs.mjs validate`.
 
 ## Verification

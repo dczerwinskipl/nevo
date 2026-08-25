@@ -39,7 +39,7 @@ Decompose the monolithic global query file `tools/dashboard/src/hooks/use-dashbo
 
 - `use-dashboard-data.ts` is split into domain-focused query hooks under `tools/dashboard/src/hooks/` (e.g. `use-specs.ts`, `use-changes.ts`, `use-operations.ts`, `use-ai-sessions.ts`), retaining a backward-compatible re-export module if needed.
 - `nevo-assistant-runtime.ts` is decomposed into modular layers separating pure chat message state management, `@assistant-ui/react` runtime adapter bindings, and SSE event mapping.
-- Pure data projections and transformations are kept in `src/lib/` and covered by unit tests.
+- Pure data projections and transformations are kept feature-local (or in `src/lib/` where shared across features) and covered by unit tests.
 
 ## Preserved contracts & behavior
 

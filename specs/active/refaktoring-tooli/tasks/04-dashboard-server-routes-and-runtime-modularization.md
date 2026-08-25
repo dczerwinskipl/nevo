@@ -36,7 +36,7 @@ Modularize dashboard server route handlers into capability-focused route modules
 
 ## Expected outcome
 
-- Route definitions are organized into modular route handlers under `tools/dashboard/server/routes/` (or cohesive capability modules) covering specifications, pull request diffs, operations, and AI sessions.
+- Route definitions are organized into modular route handlers (e.g. under `tools/dashboard/server/routes/` or cohesive capability modules) covering specifications, pull request diffs, operations, and AI sessions.
 - `tools/dashboard/server/index.mjs` handles only server bootstrap, static asset mounting, middleware registration, and graceful shutdown.
 - Handlers validate input at the boundary and map outcomes to HTTP/SSE responses with proper resource cleanup upon client disconnect.
 

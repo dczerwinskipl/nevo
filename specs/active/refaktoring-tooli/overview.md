@@ -48,7 +48,7 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 - **C5.** Thin external boundaries: CLI entrypoints (`tools/specs.mjs`, `tools/docs.mjs`) and HTTP handlers must only parse/validate input, delegate to application operations, and format output.
 - **C6.** Pure logic separated from external I/O: decision algorithms, transition validations, fingerprinting, and view-model projections must remain pure functions, easily unit-testable without filesystem/Git mocking.
 - **C7.** Async and child process safety: no blocking synchronous process/FS calls on server request paths; long-running operations must have explicit lifecycle ownership, timeouts, and `AbortSignal` cancellation.
-- **C8.** Clean React UI architecture: small focused components, data projections kept outside JSX, semantic Tailwind tokens, and accessible Radix primitives.
+- **C8.** Clean React UI architecture: small focused components, data projections kept feature-local and outside JSX, semantic Tailwind tokens, and accessible Radix primitives.
 
 ## Affected Areas
 
@@ -62,18 +62,20 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 
 - **D1.** Eliminate blocking `execFileSync` invocations in `tools/dashboard/server/actions.mjs` by extracting shared application operations for gate evaluation and action checks, consumed directly by both CLI and dashboard server without subprocesses.
 - **D2.** Separate `tools/specs.mjs` into a thin CLI parsing and output mapping boundary, extracting command orchestration into application modules.
-- **D3.** Decouple pure decision logic from filesystem I/O in `tools/specs/lifecycle.mjs` and modularize `tools/specs/service.mjs` by cohesive capability.
-- **D4.** Modularize dashboard server routes and decompose frontend feature monoliths (`use-dashboard-data.ts`, `nevo-assistant-runtime.ts`, `spec-detail.tsx`, `changes-panel.tsx`, `ai-chat.tsx`) into domain hooks, pure view-models, and focused composable subcomponents.
+- **D3.** Decouple pure decision logic from filesystem I/O in `tools/specs/lifecycle.mjs` and modularize `tools/specs/service.mjs` by cohesive capability, migrating internal callers and keeping compatibility re-exports only where real callers require them.
+- **D4.** Modularize dashboard server routes and decompose frontend feature monoliths (`use-dashboard-data.ts`, `nevo-assistant-runtime.ts`, `spec-detail.tsx`, `changes-panel.tsx`, `ai-chat.tsx`) into domain hooks, feature-local view-models, and focused composable subcomponents.
 
-## Proposed Target Architecture
+## Illustrative Architectural Boundaries
+
+> **Note:** The module breakdown below is an illustrative example of cohesive capability boundaries, not a rigid directory layout that must be implemented mechanically. Final file and module placement is chosen during task implementation using the smallest cohesive responsibility boundary required by the code and the applicable guideline.
 
 ```text
 tools/
 ├── specs.mjs                     # Thin Commander CLI entrypoint
 ├── docs.mjs                      # Thin docs CLI entrypoint
 ├── specs/
-│   ├── commands/                 # Command orchestration handlers (start, approve, finalize, etc.)
-│   ├── lifecycle/                # Pure lifecycle capability modules (transitions, recovery, batch, stage)
+│   ├── commands/                 # Command orchestration handlers (illustrative: start, approve, finalize)
+│   ├── lifecycle/                # Pure lifecycle capability modules (illustrative: transitions, recovery, batch, stage)
 │   ├── store/                    # Change and task filesystem persistence
 │   ├── context.mjs               # Task context packet construction
 │   ├── fingerprint.mjs           # Pure fingerprint calculations
@@ -83,18 +85,18 @@ tools/
 ├── lib/                          # Shared I/O adapters (git, fs, github, errors, yaml)
 ├── dashboard/
 │   ├── server/
-│   │   ├── routes/               # Thin HTTP/SSE route handlers
+│   │   ├── routes/               # Thin HTTP/SSE route handlers (illustrative)
 │   │   ├── actions.mjs           # Non-blocking action execution reusing shared spec operations
 │   │   ├── operations.mjs        # Long-running operation runtime with cancellation
 │   │   └── data.mjs              # Data projection for dashboard views
 │   └── src/
 │       ├── components/
-│       │   ├── spec-detail/      # Decomposed specification detail components and dialogs
-│       │   ├── changes-panel/    # Decomposed pull request and diff components
-│       │   ├── ai-chat/          # Decomposed assistant chat components
+│       │   ├── spec-detail/      # Decomposed specification detail components and dialogs (feature-local)
+│       │   ├── changes-panel/    # Decomposed pull request and diff components (feature-local)
+│       │   ├── ai-chat/          # Decomposed assistant chat components (feature-local)
 │       │   └── ui/               # Reusable UI primitives and Radix wrappers
 │       ├── hooks/                # Domain-focused query hooks (use-specs, use-changes, use-operations)
-│       └── lib/                  # Pure view-models and data projections
+│       └── lib/                  # Shared cross-feature utilities and view-models
 └── tests/                        # Layered test suites maintained at responsibility boundaries
 ```
 
@@ -103,7 +105,7 @@ tools/
 - `areas/specs-core-and-lifecycle.md` — shared application operations, gate evaluations, and pure lifecycle logic.
 - `areas/cli-architecture.md` — thin CLI boundary, command dispatching, and output/exit contracts.
 - `areas/dashboard-server-runtime.md` — server route modularization, non-blocking execution, and direct operation reuse.
-- `areas/dashboard-frontend-architecture.md` — domain query hooks, view-models, component composition, and modal lifecycles.
+- `areas/dashboard-frontend-architecture.md` — domain query hooks, feature-local view-models, component composition, and modal lifecycles.
 
 ## Change-wide Acceptance Criteria
 
@@ -112,8 +114,9 @@ tools/
 3. Pure lifecycle decision logic (transitions, recovery postconditions, stage derivation, fingerprinting) is separated from file/Git side effects and covered by unit tests. `automated: node --test tools/tests/*.test.mjs`
 4. Dashboard server HTTP and SSE routes are organized into thin route modules with request validation and proper cleanup. `automated: npm --prefix tools/dashboard test`
 5. `use-dashboard-data.ts` is split into domain-specific query hooks, and assistant runtime event mapping is separated from UI adapter state. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
-6. Complex feature components (`spec-detail`, `changes-panel`, `ai-chat`) have their independent interaction contracts (dialogs, drawers) and pure data projections extracted out of main orchestration JSX. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
+6. Complex feature components (`spec-detail`, `changes-panel`, `ai-chat`) have their independent interaction contracts (dialogs, drawers) and feature-local data projections extracted out of main orchestration JSX. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
 7. All existing functionality, CLI commands, HTTP routes, SSE events, and dashboard UI behavior remain 100% backward compatible without regressions. `automated: npm test && npm --prefix tools/dashboard test && node tools/specs.mjs validate && node tools/docs.mjs validate`
+8. All guideline checklist items for the modules and boundaries touched by this specification are satisfied; pre-existing issues outside this change's scope are recorded in `follow-ups.yaml` without blocking completion. `inspection: checklist audit`
 
 ## Verification Strategy
 
@@ -121,4 +124,4 @@ tools/
 - **Dashboard Automated Tests:** Dashboard test suite execution with `npm --prefix tools/dashboard test`.
 - **TypeScript Build Validation:** Frontend type check and production bundling with `npm --prefix tools/dashboard run build`.
 - **Repository Integrity Validation:** Specification and documentation verification (`node tools/specs.mjs validate`, `node tools/docs.mjs validate`, `node tools/specs.mjs check`).
-- **Guidelines Audit:** Checklist verification against `node-tooling-guidelines.md` and `react-component-guidelines.md`.
+- **Guidelines Audit:** Focused checklist verification against `node-tooling-guidelines.md` and `react-component-guidelines.md` for modules modified in this specification.

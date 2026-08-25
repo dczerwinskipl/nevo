@@ -18,18 +18,14 @@ Owns the React frontend application under `tools/dashboard/src/`, including user
 
 ## Requirements
 
-- Decompose `hooks/use-dashboard-data.ts` into domain-focused query hooks under `tools/dashboard/src/hooks/`:
-  - `use-specs.ts` — specification and task queries/mutations.
-  - `use-changes.ts` / `use-pull-requests.ts` — PR, diff, and file change queries.
-  - `use-operations.ts` — asynchronous operation execution and progress subscriptions.
-  - `use-ai-sessions.ts` — AI sessions and conversation threads.
+- Decompose `hooks/use-dashboard-data.ts` into domain-focused query hooks (for example `use-specs.ts`, `use-changes.ts`, `use-operations.ts`, `use-ai-sessions.ts`), keeping shared utilities in `src/hooks/` or beside their consuming domain.
 - Decompose `lib/nevo-assistant-runtime.ts` into modular layers:
   - Message state and dispatch state machines.
   - Bridge adapter to `@assistant-ui/react`.
   - SSE event mapping to UI structures.
 - Decompose complex feature components:
   - Extract independent interaction contracts (dialogs, drawers, modal forms) into dedicated subcomponents.
-  - Extract heavy data transformations and groupings outside JSX into pure view-model functions.
+  - Extract heavy data transformations and groupings outside JSX into pure feature-local view-model functions, promoting to shared `src/lib/` only when there is genuine cross-feature reuse.
   - Keep small private render helpers local to their parent component where appropriate.
   - Create feature-local directories only where a feature has real internal structure.
 - Utilize existing Tailwind semantic tokens and Radix UI accessibility primitives.
@@ -42,7 +38,7 @@ The frontend communicates with the server backend through REST APIs and SSE even
 
 1. Query hooks are organized by domain capability rather than a single monolithic file.
 2. Independent interaction contracts (dialogs, drawers) have clear lifecycle ownership.
-3. Complex data transformations are extracted into pure view-model functions in `src/lib/` with dedicated unit tests.
+3. Complex data transformations are extracted into pure feature-local view-model functions (or shared `src/lib/` where reused) with dedicated unit tests.
 4. Production build (`npm --prefix tools/dashboard run build`) succeeds without TypeScript type errors.
 5. All tests in `tools/dashboard/tests/` pass cleanly.
 

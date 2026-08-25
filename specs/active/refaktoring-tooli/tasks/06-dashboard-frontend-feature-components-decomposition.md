@@ -11,12 +11,10 @@ context:
     - tools/dashboard/src/components/spec-detail.tsx
     - tools/dashboard/src/components/changes-panel.tsx
     - tools/dashboard/src/components/ai-chat.tsx
-    - tools/dashboard/src/router.tsx
   optional: []
 allowed_paths:
   - tools/dashboard/src/components/**
-  - tools/dashboard/src/router.tsx
-  - tools/dashboard/src/router-tree.ts
+  - tools/dashboard/src/lib/**
   - tools/dashboard/tests/**
 forbidden_paths:
   - src/**
@@ -30,7 +28,7 @@ semantic_references:
 
 ## Goal
 
-Decompose complex feature components (`components/spec-detail.tsx`, `components/changes-panel.tsx`, `components/ai-chat.tsx`, and `router.tsx`) into composable subcomponents, extracting independent interaction contracts (dialogs, drawers) and pure data projections out of JSX while keeping small private render helpers local.
+Decompose complex feature components (`components/spec-detail.tsx`, `components/changes-panel.tsx`, `components/ai-chat.tsx`) into composable subcomponents, extracting independent interaction contracts (dialogs, drawers) and pure data projections out of JSX while keeping small private render helpers local.
 
 ## Problem
 
@@ -42,7 +40,7 @@ Decompose complex feature components (`components/spec-detail.tsx`, `components/
 ## Expected outcome
 
 - Independent interaction contracts (e.g. task detail dialogs, follow-up forms, session creators, file diff items) are extracted into dedicated subcomponents with clear lifecycle ownership.
-- Heavy data calculations and grouping logic are moved out of JSX into pure view-model functions in `src/lib/`.
+- Heavy data calculations and grouping logic are moved out of JSX into pure feature-local view-model functions (or shared `src/lib/` where reused).
 - Page and container components read clearly as orchestration and composition.
 - Small private presentational helpers remain local where they own no independent state or lifecycle.
 - Feature directories are created only where a feature has real internal structure (components + local hooks + view models).
@@ -62,3 +60,4 @@ node tools/specs.mjs validate
 ## Out of scope
 
 - UI visual redesign (colors, typography, and component layout remain unchanged).
+- Router structure modifications (`router.tsx`).
