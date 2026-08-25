@@ -30,7 +30,7 @@ semantic_references:
 
 ## Goal
 
-Separate the CLI boundary in `tools/specs.mjs` (command/option definitions, argument parsing, output formatting, exit code mapping) from application workflow orchestration by extracting command handlers into dedicated application modules.
+Separate the CLI boundary in `tools/specs.mjs` (command/option definitions, argument parsing, output formatting, exit code mapping) from application workflow orchestration by extracting command handlers into dedicated application modules that consume the stabilized lifecycle and storage capabilities.
 
 ## Problem
 

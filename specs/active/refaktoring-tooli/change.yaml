@@ -16,18 +16,18 @@ tasks:
     order: 1
     file: tasks/01-shared-specs-workflow-operations.md
     status: draft
-  - id: specs-cli-entrypoint-and-command-boundary
-    order: 2
-    file: tasks/02-specs-cli-entrypoint-and-command-boundary.md
-    status: draft
-    depends_on:
-      - shared-specs-workflow-operations
   - id: specs-lifecycle-and-storage-capabilities
-    order: 3
-    file: tasks/03-specs-lifecycle-and-storage-capabilities.md
+    order: 2
+    file: tasks/02-specs-lifecycle-and-storage-capabilities.md
     status: draft
     depends_on:
       - shared-specs-workflow-operations
+  - id: specs-cli-entrypoint-and-command-boundary
+    order: 3
+    file: tasks/03-specs-cli-entrypoint-and-command-boundary.md
+    status: draft
+    depends_on:
+      - specs-lifecycle-and-storage-capabilities
   - id: dashboard-server-runtime-and-routes
     order: 4
     file: tasks/04-dashboard-server-runtime-and-routes.md
@@ -42,20 +42,21 @@ tasks:
     order: 6
     file: tasks/06-changes-and-pr-diff-feature-slice.md
     status: draft
+    depends_on:
+      - spec-detail-and-workflow-feature-slice
   - id: ai-assistant-chat-and-runtime-feature-slice
     order: 7
     file: tasks/07-ai-assistant-chat-and-runtime-feature-slice.md
     status: draft
+    depends_on:
+      - changes-and-pr-diff-feature-slice
   - id: e2e-verification-and-guidelines-audit
     order: 8
     file: tasks/08-e2e-verification-and-guidelines-audit.md
     status: draft
     depends_on:
       - specs-cli-entrypoint-and-command-boundary
-      - specs-lifecycle-and-storage-capabilities
       - dashboard-server-runtime-and-routes
-      - spec-detail-and-workflow-feature-slice
-      - changes-and-pr-diff-feature-slice
       - ai-assistant-chat-and-runtime-feature-slice
 
 pull_requests:

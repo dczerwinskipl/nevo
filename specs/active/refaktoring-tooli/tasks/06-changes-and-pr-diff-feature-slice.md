@@ -29,18 +29,18 @@ semantic_references:
 
 ## Goal
 
-Refactor the Changes & Pull Request Diff capability into a cohesive vertical feature slice, modularizing the composite changes panel, organizing diff query hooks into `src/hooks/use-changes.ts`, and keeping diff grouping logic feature-local.
+Refactor the Changes & Pull Request Diff capability into a cohesive vertical feature slice, modularizing the composite changes panel, organizing diff queries feature-locally, and migrating changes callers directly away from `use-dashboard-data.ts`.
 
 ## Problem
 
-- `components/changes-panel.tsx` mixes pull request selection, hierarchical file tree rendering, progressive hydration queues, and git-diff-view controls into one composite component (§1.1, §2.3 of `react-component-guidelines.md`).
+- `components/changes-panel.tsx` mixes pull request selection, hierarchical file tree rendering, progressive hydration queues, and diff viewer controls into one composite component (§1.1, §2.3 of `react-component-guidelines.md`).
 - `lib/changes-grouping.ts` is placed globally in `src/lib/` despite being used solely by the changes panel feature (§2.4).
 - Pull request queries (`useSpecificationPullRequests`, `useSpecificationPullRequestFiles`, `useSpecificationPullRequestFullDiff`, `useSpecificationPullRequestFileDiffs`) are mixed in the global `use-dashboard-data.ts` (§6.2).
 
 ## Expected outcome
 
 - `changes-panel` is decomposed into focused subcomponents (e.g. PR selector, changed file tree item, diff viewer controls, progressive hydration queue) with clear ownership.
-- Pull request and diff queries are extracted into `use-changes.ts` (with backward-compatible re-exports in `use-dashboard-data.ts`).
+- Pull request and diff queries are extracted into a feature-local query module (e.g. beside `changes-panel` or in its feature directory), migrating changes callers directly away from `use-dashboard-data.ts`.
 - `changes-grouping.ts` and related diff projection logic remain feature-local to the changes feature slice.
 
 ## Preserved contracts & behavior

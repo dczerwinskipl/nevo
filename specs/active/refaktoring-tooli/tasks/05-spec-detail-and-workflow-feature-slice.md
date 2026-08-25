@@ -9,8 +9,6 @@ context:
     - specs/active/refaktoring-tooli/areas/dashboard-frontend-features.md
     - docs/development/react-component-guidelines.md
     - tools/dashboard/src/components/spec-detail.tsx
-    - tools/dashboard/src/components/task-dialog.tsx
-    - tools/dashboard/src/components/spec-actions.tsx
     - tools/dashboard/src/hooks/use-dashboard-data.ts
   optional: []
 allowed_paths:
@@ -30,20 +28,19 @@ semantic_references:
 
 ## Goal
 
-Refactor the Specification Detail & Task Workflow capability into a cohesive vertical feature slice, extracting independent modal dialogs and pure data projections out of JSX, separating specification query hooks into `src/hooks/use-specs.ts`, and keeping feature-local projections close to the feature.
+Refactor the Specification Detail & Task Workflow capability into a cohesive vertical feature slice, extracting document/section projections out of JSX, owning specification queries feature-locally, and migrating specification callers directly away from `use-dashboard-data.ts`.
 
 ## Problem
 
-- `components/spec-detail.tsx` is a composite component embedding task detail dialogs (`TaskDialog`), finalization modal dialogs (`FinalizeDialog`), and action footer cards (`TaskActionFooter`) with independent modal and focus lifecycles, obscuring page-level orchestration (§1.1, §2.3 of `react-component-guidelines.md`).
-- Heavy data calculations (e.g. section tab resolution, metric counting, status summaries) are performed directly inside the JSX render path (§7).
-- Specification queries (`useSpecificationManifest`, `useSpecificationDocument`, `useTaskStatuses`, `useSpecificationActions`, `useExecuteSpecificationAction`) are coupled in the global `use-dashboard-data.ts` rather than being owned by the specification feature domain (§2.4, §6.2).
+- In `components/spec-detail.tsx`, document/section projection (`DocumentationPanel`, `DocGroup`, `DocItem` grouping, tab icon resolution) and data calculations (metric counting, status summaries) are performed directly inside the JSX render path, obscuring high-level page composition (§1.1, §7 of `react-component-guidelines.md`).
+- Specification queries (`useSpecificationManifest`, `useSpecificationDocument`, `useTaskStatuses`, `useSpecificationActions`, `useExecuteSpecificationAction`) are coupled in the global `use-dashboard-data.ts` rather than being owned feature-locally beside the specification feature domain (§2.4, §6.2).
+- Batch action orchestration, polling intervals, and operation modal states are managed within the main component without clear boundary separation.
 
 ## Expected outcome
 
-- Independent interaction contracts (`TaskDialog`, `FinalizeDialog`, `RepositoryActionsCard`) have clear lifecycle ownership and are composed cleanly into `spec-detail`.
-- Specification domain queries and mutations are extracted into a dedicated hook `use-specs.ts` (with backward-compatible re-exports in `use-dashboard-data.ts`).
-- Pure data transformations and view-models are kept feature-local (e.g. within `spec-detail/` or alongside the feature) and unit-tested.
-- Page components read clearly as orchestration and composition.
+- Specification domain queries and mutations are extracted into a feature-local query module (e.g. beside `spec-detail` or within its feature directory), migrating specification callers directly away from `use-dashboard-data.ts`.
+- Document and section projections (`DocumentationPanel`, tab resolution) are structured as focused feature-local subcomponents and pure view-model helpers covered by unit tests.
+- Overview composition, metrics formatting, and batch action state are cleanly separated, keeping `spec-detail` focused on page orchestration.
 
 ## Preserved contracts & behavior
 
@@ -60,4 +57,4 @@ node tools/specs.mjs validate
 ## Out of scope
 
 - UI redesign (styling, colors, and layout remain unchanged).
-- Refactoring pull request diffs or AI chat (handled in tasks 06 and 07).
+- Refactoring pull request diffs or AI chat (handled sequentially in tasks 06 and 07).

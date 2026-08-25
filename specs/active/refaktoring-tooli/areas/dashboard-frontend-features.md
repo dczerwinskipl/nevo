@@ -8,22 +8,25 @@ change: refaktoring-tooli
 
 ## Responsibility
 
-Owns the React frontend application under `tools/dashboard/src/`, structured into vertical feature slices (Specification Detail, Changes & Diffs, AI Assistant Chat), reusable UI primitives, custom query hooks, and view-model projections.
+Owns the React frontend application under `tools/dashboard/src/`, structured into vertical feature slices (Specification Detail, Changes & Diffs, AI Assistant Chat), reusable UI primitives, and feature-local view-model projections.
 
 ## Current state
 
 - `hooks/use-dashboard-data.ts` is a monolithic global hook mixing unrelated domain queries (specifications, pull requests/diffs, operations, AI sessions).
 - `lib/nevo-assistant-runtime.ts` bundles Assistant UI integration, local dispatch state machines, event mapping, and subscription handling.
-- Feature components (`spec-detail.tsx`, `changes-panel.tsx`, `ai-chat.tsx`) bundle multiple independent responsibilities: embedded modal dialogs with independent interaction/focus lifecycles, heavy data transformation/grouping inside JSX, and viewport/scroll tracking.
+- In `spec-detail.tsx`, document/section projection and tab navigation are intermingled with overview composition and batch polling.
+- In `changes-panel.tsx`, pull request selection, hierarchical file tree rendering, progressive hydration queues, and diff viewer controls are mixed together.
+- In `ai-chat.tsx`, visual viewport/keyboard tracking (`useChatVisualViewport`) and session creation dialogs (`CreateAiSessionDialog`) are bundled with page layout orchestration.
 - Feature-specific helpers and projections (`chat-projection.ts`, `changes-grouping.ts`, `ai-chat-helpers.ts`, `tool-activity-labels.ts`, `use-scroll-follow.ts`, `pending-dispatch-store.ts`) are scattered globally in `src/lib/`.
 
 ## Requirements
 
 - Organize the frontend around cohesive vertical feature slices:
-  - **Spec Detail Slice:** `spec-detail` component, extracted dialogs (`TaskDialog`, `FinalizeDialog`, `RepositoryActionsCard`), domain query hook (`use-specs.ts`), and feature-local projections.
-  - **Changes & PR Diffs Slice:** `changes-panel` component, PR selector, file tree, progressive diff hydrator, domain query hook (`use-changes.ts`), and feature-local `changes-grouping.ts`.
-  - **AI Assistant Chat Slice:** `ai-chat` component, `ai-session-list`, assistant runtime (`nevo-assistant-runtime.ts`), domain query hook (`use-ai-sessions.ts`), and feature-local helpers (`chat-projection.ts`, `use-scroll-follow.ts`, `ai-chat-helpers.ts`).
-- Extract independent interaction contracts (dialogs, drawers, modal forms) into dedicated subcomponents with clear lifecycle ownership.
+  - **Spec Detail Slice:** `spec-detail` component, document/section projection, overview composition, and feature-local spec queries.
+  - **Changes & PR Diffs Slice:** `changes-panel` component, PR selector, file tree, progressive diff hydrator, feature-local changes queries, and feature-local `changes-grouping.ts`.
+  - **AI Assistant Chat Slice:** `ai-chat` component, `useChatVisualViewport`, `CreateAiSessionDialog`, assistant runtime (`nevo-assistant-runtime.ts`), feature-local AI session queries, and feature-local helpers (`chat-projection.ts`, `use-scroll-follow.ts`, `ai-chat-helpers.ts`).
+- Migrate internal callers from `use-dashboard-data.ts` to feature-local query hooks, retiring redundant forwarding exports as migrations complete.
+- Extract independent interaction contracts (e.g. `CreateAiSessionDialog`, diff viewer controls) into dedicated subcomponents with clear lifecycle ownership.
 - Extract heavy data transformations outside JSX into pure feature-local view-model functions, promoting to shared `src/lib/` only when there is genuine cross-feature reuse.
 - Keep small private render helpers local to their parent component where appropriate.
 - Utilize existing Tailwind semantic tokens and Radix UI accessibility primitives.
@@ -35,7 +38,7 @@ The frontend communicates with the server backend through REST APIs and SSE even
 ## Area-specific acceptance criteria
 
 1. Query hooks and view-models are owned vertically beside their consuming feature slices rather than monolithic global files.
-2. Independent interaction contracts (dialogs, drawers) have clear lifecycle ownership.
+2. Independent interaction contracts (dialogs, drawers, form modals) have clear lifecycle ownership.
 3. Complex data transformations are extracted into pure feature-local view-model functions with dedicated unit tests.
 4. Production build (`npm --prefix tools/dashboard run build`) succeeds without TypeScript type errors.
 5. All tests in `tools/dashboard/tests/` pass cleanly.

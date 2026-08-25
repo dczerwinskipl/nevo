@@ -34,10 +34,12 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 4. **Server route mixing:**
    - `tools/dashboard/server/index.mjs` and `data.mjs` combine HTTP server bootstrap, static file serving, route registration, and data formatting in route handlers rather than thin boundary controllers (§2.2).
 5. **Horizontal scattering across frontend features:**
-   - Instead of feature-local vertical ownership, frontend code is scattered horizontally:
-     - `tools/dashboard/src/hooks/use-dashboard-data.ts` is a monolithic global hook mixing queries for specifications, diffs, operations, and AI sessions.
-     - `tools/dashboard/src/lib/` contains feature-specific helpers (`chat-projection.ts`, `ai-chat-helpers.ts`, `changes-grouping.ts`, `use-scroll-follow.ts`, `pending-dispatch-store.ts`) that belong solely to specific features.
-     - Feature components (`spec-detail.tsx`, `changes-panel.tsx`, `ai-chat.tsx`) embed independent dialog interaction lifecycles and heavy data transformations inside JSX (§1.1, §2.4, §7 of `react-component-guidelines.md`).
+   - Instead of feature-local vertical ownership, frontend code is scattered horizontally across global files:
+     - `tools/dashboard/src/hooks/use-dashboard-data.ts` is a monolithic global hook mixing queries for specifications, diffs, operations, and AI sessions. Internal callers should migrate directly to feature-owned query APIs, removing redundant forwarding exports once migration completes.
+     - `tools/dashboard/src/lib/` contains feature-specific helpers and projections (`chat-projection.ts`, `ai-chat-helpers.ts`, `changes-grouping.ts`, `use-scroll-follow.ts`, `pending-dispatch-store.ts`) that belong vertically to their respective feature slices.
+     - In `spec-detail.tsx`, document/section projection and tab resolution are intermingled with overview composition, operation modal state, and batch polling orchestration.
+     - In `changes-panel.tsx`, pull request selection, hierarchical file tree rendering, progressive hydration queues, and diff viewer controls are mixed together.
+     - In `ai-chat.tsx`, visual viewport/keyboard tracking (`useChatVisualViewport`) and session creation (`CreateAiSessionDialog`) are bundled with page layout orchestration, while `nevo-assistant-runtime.ts` conflates message state transitions, SSE subscriptions, HTTP turn operations, and UI adapter bridge bindings.
 
 ## Constraints
 
@@ -63,7 +65,7 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 - **D1.** Eliminate blocking `execFileSync` invocations in `tools/dashboard/server/actions.mjs` by extracting shared application operations for gate evaluation and action checks, consumed directly in-process by both CLI and dashboard server without subprocesses.
 - **D2.** Separate `tools/specs.mjs` into a thin CLI parsing and output mapping boundary, extracting command orchestration into application modules.
 - **D3.** Decouple pure decision logic from filesystem I/O in `tools/specs/lifecycle.mjs` and modularize `tools/specs/service.mjs` by cohesive capability, migrating internal callers directly.
-- **D4.** Modularize dashboard server routes and refactor frontend features into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, dialogs, and pure view-models.
+- **D4.** Modularize dashboard server routes and refactor frontend features into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, dialogs, and pure view-models, retiring redundant forwarding exports in `use-dashboard-data.ts` as callers migrate.
 
 ## Illustrative Architectural Boundaries
 
@@ -91,9 +93,9 @@ tools/
 │   │   └── data.mjs              # Data projection for dashboard views
 │   └── src/
 │       ├── components/
-│       │   ├── spec-detail/      # Vertical slice: Spec detail component, dialogs, use-specs hook, projections
-│       │   ├── changes-panel/    # Vertical slice: Changes component, diff hydrator, use-changes hook, grouping
-│       │   ├── ai-chat/          # Vertical slice: AI chat, session list, assistant runtime, projections, scroll follow
+│       │   ├── spec-detail/      # Vertical slice: Spec detail component, section projection, feature-local queries
+│       │   ├── changes-panel/    # Vertical slice: Changes component, diff hydrator, feature-local queries, grouping
+│       │   ├── ai-chat/          # Vertical slice: AI chat, visual viewport, assistant runtime, projections
 │       │   └── ui/               # Reusable UI primitives and Radix wrappers
 │       ├── hooks/                # Global/shared hooks (use-batch-queries, use-dashboard-events)
 │       └── lib/                  # Shared cross-feature utilities (types, utils)
@@ -105,7 +107,7 @@ tools/
 - `areas/specs-core-and-lifecycle.md` — shared application operations, gate evaluations, and pure lifecycle logic.
 - `areas/cli-architecture.md` — thin CLI boundary, command dispatching, and output/exit contracts.
 - `areas/dashboard-server-runtime.md` — server route modularization, non-blocking execution, and direct operation reuse.
-- `areas/dashboard-frontend-features.md` — vertical feature slices (Spec Detail, Changes, AI Chat) with local hooks, dialogs, and projections.
+- `areas/dashboard-frontend-features.md` — vertical feature slices (Spec Detail, Changes, AI Chat) with feature-local hooks, dialogs, and projections.
 
 ## Change-wide Acceptance Criteria
 
@@ -113,9 +115,9 @@ tools/
 2. `tools/specs.mjs` serves strictly as a CLI entrypoint, delegating orchestration to reusable command modules and managing stdout/stderr/exit codes at the boundary. `automated: node --test tools/tests/*.test.mjs`
 3. Pure lifecycle decision logic (transitions, recovery postconditions, stage derivation, fingerprinting) is separated from file/Git side effects and covered by unit tests. `automated: node --test tools/tests/*.test.mjs`
 4. Dashboard server HTTP and SSE routes are organized into thin route modules with request validation and proper cleanup. `automated: npm --prefix tools/dashboard test`
-5. Specification Detail feature is refactored into a vertical slice with extracted dialogs, domain hook (`use-specs.ts`), and feature-local projections. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
-6. Changes & PR Diffs feature is refactored into a vertical slice with progressive diff hydration, domain hook (`use-changes.ts`), and feature-local grouping logic. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
-7. AI Assistant Chat feature is refactored into a vertical slice with decomposed assistant runtime (`nevo-assistant-runtime.ts`), feature-local projections/helpers, and domain hook (`use-ai-sessions.ts`). `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
+5. Specification Detail feature is refactored into a vertical slice with feature-local queries, document/section projections, and overview composition, migrating spec callers from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
+6. Changes & PR Diffs feature is refactored into a vertical slice with progressive diff hydration, feature-local queries, and feature-local grouping logic, migrating changes callers from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
+7. AI Assistant Chat feature is refactored into a vertical slice with decomposed assistant runtime (`nevo-assistant-runtime.ts`), feature-local projections/helpers, feature-local queries, and viewport tracking, retiring redundant exports from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
 8. All existing functionality, CLI commands, HTTP routes, SSE events, and dashboard UI behavior remain 100% backward compatible without regressions. `automated: npm test && npm --prefix tools/dashboard test && node tools/specs.mjs validate && node tools/docs.mjs validate`
 9. All guideline checklist items for the modules and boundaries modified by this specification are satisfied; pre-existing issues outside this change's scope are recorded in `follow-ups.yaml`. `inspection: checklist audit`
 

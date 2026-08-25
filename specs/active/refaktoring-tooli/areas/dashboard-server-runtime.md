@@ -32,7 +32,7 @@ The server exposes REST and SSE interfaces consumed by the React frontend. All J
 
 ## Area-specific acceptance criteria
 
-1. Server actions (`server/actions.mjs`) no longer call `execFileSync` or spawn CLI subprocesses for gate evaluations, invoking shared application operations directly.
+1. Server actions (`server/actions.mjs`) no longer call `execFileSync` or spawn CLI subprocesses for gate evaluations, invoking shared application operations directly in-process.
 2. Server routes are modularized with input validation and clean boundary mapping.
 3. No HTTP/SSE request handler executes blocking synchronous child process calls.
 4. All tests in `tools/dashboard/tests/` pass cleanly.

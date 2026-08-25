@@ -20,7 +20,7 @@
 
 - **Question:** How should `tools/specs/lifecycle.mjs` and `tools/specs/service.mjs` be organized to improve cohesion and testability?
 - **Options considered:** Keep them as monolithic catch-all files | separate pure decision logic (transitions, recovery inspection, batch selection, stage derivation) from filesystem/Git persistence, organizing modules by cohesive capability
-- **Decision:** Separate pure deterministic decision logic from external I/O and split storage/indexing capabilities into cohesive capability modules, migrating internal callers and keeping compatibility re-exports only where real external callers require them.
+- **Decision:** Separate pure deterministic decision logic from external I/O and split storage/indexing capabilities into cohesive capability modules, migrating internal callers directly.
 - **Consequences:** Pure logic can be tested deterministically with fast unit tests without filesystem mocks; redundant forwarding layers can be cleanly eliminated where all internal callers migrate.
 - **Date:** 2026-08-25
 - **Affected artifacts:** `tools/specs/lifecycle/**`, `tools/specs/store/**`, `tools/specs/**`
@@ -28,8 +28,8 @@
 ## D4: Dashboard server modularization and frontend vertical feature slices
 
 - **Question:** How should the dashboard server and React frontend be structured to eliminate monolithic files and technical-layer scattering?
-- **Options considered:** Keep monolithic `use-dashboard-data.ts` and horizontal component files | modularize server routes by capability and organize the frontend into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, dialogs, and pure view-models
+- **Options considered:** Keep monolithic `use-dashboard-data.ts` and horizontal component files | modularize server routes by capability and organize the frontend into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, and pure view-models, retiring redundant forwarding exports in `use-dashboard-data.ts` as callers migrate
 - **Decision:** Implement vertical feature slices on the frontend and capability routes on the server according to `node-tooling-guidelines.md` and `react-component-guidelines.md`.
-- **Consequences:** Each frontend feature owns its complete slice (UI, hooks, dialogs, projections, tests); server routes become thin controllers; feature-specific helpers are no longer scattered in global folders.
+- **Consequences:** Each frontend feature owns its complete slice (UI, feature-local hooks, projections, tests); server routes become thin controllers; feature-specific helpers are no longer scattered in global folders.
 - **Date:** 2026-08-25
 - **Affected artifacts:** `tools/dashboard/server/**`, `tools/dashboard/src/**`
