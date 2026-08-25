@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T09:46:24.324Z",
+  "generated": "2026-08-25T10:33:32.503Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -202,7 +202,7 @@
           "id": "shared-specs-workflow-operations",
           "order": 1,
           "file": "tasks/01-shared-specs-workflow-operations.md",
-          "status": "draft"
+          "status": "approved"
         },
         {
           "id": "specs-lifecycle-and-storage-capabilities",

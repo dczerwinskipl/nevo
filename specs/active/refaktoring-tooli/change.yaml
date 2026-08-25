@@ -15,7 +15,7 @@ tasks:
   - id: shared-specs-workflow-operations
     order: 1
     file: tasks/01-shared-specs-workflow-operations.md
-    status: draft
+    status: approved
   - id: specs-lifecycle-and-storage-capabilities
     order: 2
     file: tasks/02-specs-lifecycle-and-storage-capabilities.md
