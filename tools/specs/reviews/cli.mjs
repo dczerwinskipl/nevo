@@ -1,4 +1,4 @@
-import { getReviewScope, applyBulkTransition } from '../operations/reviews.mjs';
+import { getReviewScope, applyBulkTransition } from './operation.mjs';
 
 export function handleReviewScope(changeSlug, options = {}) {
   const result = getReviewScope(changeSlug, options);

@@ -1,4 +1,4 @@
-import { executeSelfCheck } from '../operations/self-check.mjs';
+import { executeSelfCheck } from './operation.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 
 export function handleSelfCheck(changeSlug, taskId, options = {}) {

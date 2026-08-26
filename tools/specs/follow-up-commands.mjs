@@ -1,16 +1,16 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { readUtf8 } from '../../lib/fs.mjs';
-import { requireChange } from '../store.mjs';
+import { readUtf8 } from '../lib/fs.mjs';
+import { requireChange } from './store.mjs';
 import {
   loadFollowUps,
   addFollowUp,
   resolveFollowUp,
   FOLLOW_UP_SEVERITIES,
-} from '../follow-ups.mjs';
-import { parseOwnerDecisions } from '../fingerprint.mjs';
-import { CliError } from '../../lib/cli-errors.mjs';
+} from './follow-ups.mjs';
+import { parseOwnerDecisions } from './fingerprint.mjs';
+import { CliError } from '../lib/cli-errors.mjs';
 
 export function handleFollowUpAdd(changeSlug, id, options = {}) {
   const change = requireChange(changeSlug);

@@ -28,7 +28,9 @@ import {
   computeChangeFingerprint, computeTaskFingerprint,
   computeImplementationFingerprint, computeImplementationFingerprintFromProvenance,
 } from '../specs/fingerprint.mjs';
-import { handleApplyProvenance, handleStart, handleSelfCheck } from '../specs.mjs';
+import { handleApplyProvenance } from '../specs/provenance/cli.mjs';
+import { handleStart } from '../specs/start/cli.mjs';
+import { handleSelfCheck } from '../specs/self-check/cli.mjs';
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
 
 // ── computeTaskAttributedChangedPaths (AC2, AC3) ────────────────────────────

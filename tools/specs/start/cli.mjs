@@ -1,7 +1,7 @@
-import { startTask } from '../operations/start.mjs';
+import { startTask } from './operation.mjs';
 
 // Re-export pure helpers for existing tests
-export { startNeedsDirtyTreeCheck } from '../operations/start.mjs';
+export { startNeedsDirtyTreeCheck } from './operation.mjs';
 
 export function handleStart(changeSlug, taskId, options = {}) {
   const result = startTask(changeSlug, taskId, options);

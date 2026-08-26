@@ -1,6 +1,6 @@
-import { resolveCanonicalSpec } from '../identity.mjs';
-import { requireTask } from '../store.mjs';
-import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
+import { resolveCanonicalSpec } from './identity.mjs';
+import { requireTask } from './store.mjs';
+import { createAgentSessionBindingService } from '../ai/binding-service.mjs';
 
 export async function handleAgentSessionAttach(opts) {
   const specInfo = resolveCanonicalSpec(opts.spec);

@@ -1,4 +1,4 @@
-import { getChangeStatusAsync } from '../operations/status.mjs';
+import { getChangeStatusAsync } from './operation.mjs';
 
 export async function handleStatus(changeSlug) {
   const report = await getChangeStatusAsync(changeSlug);

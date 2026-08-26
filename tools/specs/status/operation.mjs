@@ -3,7 +3,7 @@ import { TERMINAL_STATUSES } from '../lifecycle-primitives.mjs';
 import { deriveStage } from '../lifecycle/stage.mjs';
 import { computeTaskFingerprint } from '../fingerprint.mjs';
 import { loadFollowUps } from '../follow-ups.mjs';
-import { gatherFinalizeFactsAsync } from './finalize.mjs';
+import { gatherFinalizeFactsAsync } from '../finalize/operation.mjs';
 import { getCurrentBranchAsync, getCurrentRevisionAsync } from '../../lib/git.mjs';
 import { isGhAvailable } from '../../lib/github.mjs';
 

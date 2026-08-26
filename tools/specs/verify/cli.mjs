@@ -1,4 +1,4 @@
-import { verifyTask, runVerificationCommand } from '../operations/verify.mjs';
+import { verifyTask, runVerificationCommand } from './operation.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 
 // Re-export runVerificationCommand for backward compatibility

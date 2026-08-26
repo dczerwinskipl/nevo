@@ -24,7 +24,9 @@ import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
-import { handleStart, handleSelfCheck, handleApplyProvenance } from '../specs.mjs';
+import { handleStart } from '../specs/start/cli.mjs';
+import { handleSelfCheck } from '../specs/self-check/cli.mjs';
+import { handleApplyProvenance } from '../specs/provenance/cli.mjs';
 import { loadChange } from '../specs/store.mjs';
 import { computeTaskFingerprint, computeChangeFingerprint } from '../specs/fingerprint.mjs';
 import { buildContextPacket } from '../specs/context.mjs';

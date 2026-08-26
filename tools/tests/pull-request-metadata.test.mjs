@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { buildProgram, handlePullRequestAdd } from '../specs.mjs';
+import { buildProgram } from '../specs.mjs';
+import { handlePullRequestAdd } from '../specs/query.mjs';
 import {
   addPullRequestReference,
   normalizePullRequestReference,

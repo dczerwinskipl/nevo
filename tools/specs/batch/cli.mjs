@@ -3,8 +3,8 @@ import {
   getBatchStatus,
   reviewBatch,
   BATCH_SELECTION_MODES,
-} from '../operations/batch.mjs';
-import { handleStart } from './start.mjs';
+} from './operation.mjs';
+import { handleStart } from '../start/cli.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 
 export { BATCH_SELECTION_MODES };

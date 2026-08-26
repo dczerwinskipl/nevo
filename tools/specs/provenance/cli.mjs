@@ -1,4 +1,4 @@
-import { suggestProvenance, applyProvenance } from '../operations/provenance.mjs';
+import { suggestProvenance, applyProvenance } from './operation.mjs';
 
 export function handleSuggestProvenance(changeSlug, taskId) {
   const result = suggestProvenance(changeSlug, taskId);

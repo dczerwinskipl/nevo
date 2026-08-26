@@ -7,23 +7,23 @@ import {
   loadChangeAnywhere,
   requireChange,
   requireTask,
-} from '../store.mjs';
-import { addPullRequestReference } from '../pull-requests.mjs';
+} from './store.mjs';
+import { addPullRequestReference } from './pull-requests.mjs';
 import {
   buildSpecsIndexes,
   writeSpecsIndexes,
   checkSpecsIndexes,
-} from '../indexes.mjs';
-import { validateSpecs } from '../validation.mjs';
-import { getNext, buildContextPacket } from '../context.mjs';
+} from './indexes.mjs';
+import { validateSpecs } from './validation.mjs';
+import { getNext, buildContextPacket } from './context.mjs';
 import {
   computeChangeFingerprint,
   computeTaskFingerprint,
-} from '../fingerprint.mjs';
-import { backfillSpecIds } from '../identity.mjs';
-import { archiveSpecificationSync } from '../operations/finalize.mjs';
-import { isTaskReady } from '../lifecycle-primitives.mjs';
-import { CliError } from '../../lib/cli-errors.mjs';
+} from './fingerprint.mjs';
+import { backfillSpecIds } from './identity.mjs';
+import { archiveSpecificationSync } from './finalize/operation.mjs';
+import { isTaskReady } from './lifecycle-primitives.mjs';
+import { CliError } from '../lib/cli-errors.mjs';
 
 function reportErrors(errors) {
   errors.forEach(e => console.error(e));

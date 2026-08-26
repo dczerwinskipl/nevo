@@ -24,7 +24,7 @@ import {
   buildSpecsIndexes,
   writeSpecsIndexes,
 } from '../indexes.mjs';
-import { runVerificationCommand } from './verify.mjs';
+import { runVerificationCommand } from '../verify/operation.mjs';
 import * as git from '../../lib/git.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
 

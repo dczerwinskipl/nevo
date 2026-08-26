@@ -11,7 +11,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { startNeedsDirtyTreeCheck, setTaskSuspension, clearTaskSuspension } from '../specs.mjs';
+import { startNeedsDirtyTreeCheck } from '../specs/start/operation.mjs';
+import { setTaskSuspension, clearTaskSuspension } from '../specs.mjs';
 import { loadChange } from '../specs/store.mjs';
 
 describe('startNeedsDirtyTreeCheck — dirty-tree check ordering (PR review packet 03, Problem 1)', () => {

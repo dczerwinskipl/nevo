@@ -8,11 +8,11 @@ import test from 'node:test';
 import {
   finalizeChange,
   gatherFinalizeFactsAsync,
-} from '../specs/operations/finalize.mjs';
-import { getChangeStatusAsync } from '../specs/operations/status.mjs';
-import { startTask } from '../specs/operations/start.mjs';
-import { executeSelfCheck } from '../specs/operations/self-check.mjs';
-import { getReviewScope, applyBulkTransition } from '../specs/operations/reviews.mjs';
+} from '../specs/finalize/operation.mjs';
+import { getChangeStatusAsync } from '../specs/status/operation.mjs';
+import { startTask } from '../specs/start/operation.mjs';
+import { executeSelfCheck } from '../specs/self-check/operation.mjs';
+import { getReviewScope, applyBulkTransition } from '../specs/reviews/operation.mjs';
 import {
   normalizePullRequestReference,
   pullRequestReferenceKey,

@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { parseProgressLine } from '../lib/operation-progress.mjs';
-import { handleVerify, handleApprove, handleSelfCheck } from '../specs.mjs';
+import { handleVerify } from '../specs/verify/cli.mjs';
+import { handleApprove } from '../specs/approve/cli.mjs';
+import { handleSelfCheck } from '../specs/self-check/cli.mjs';
 import { loadSpecificationActions } from '../dashboard/server/actions.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
 import { loadChange } from '../specs/store.mjs';

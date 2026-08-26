@@ -12,7 +12,7 @@ import {
 import { resolveCanonicalSpec } from '../specs/identity.mjs';
 import { buildContextPacket } from '../specs/context.mjs';
 import { loadChange } from '../specs/store.mjs';
-import { handleAgentSessionAttach } from '../specs.mjs';
+import { handleAgentSessionAttach } from '../specs/agent-session.mjs';
 
 test('AgentSessionBindingService binds, updates, lists, and unbinds sessions asynchronously', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-binding-test-'));

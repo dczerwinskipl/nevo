@@ -1,7 +1,7 @@
-import { getPrReviewThreads, resolvePrReviewThread } from '../operations/comments.mjs';
+import { getPrReviewThreads, resolvePrReviewThread } from './operation.mjs';
 
 // Re-export for existing test compatibility
-export { requirePrForChange } from '../operations/comments.mjs';
+export { requirePrForChange } from './operation.mjs';
 
 export function handleComments(changeSlug) {
   const result = getPrReviewThreads(changeSlug);

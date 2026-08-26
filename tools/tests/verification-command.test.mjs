@@ -6,7 +6,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { splitShellWords } from '../lib/shell-words.mjs';
-import { runVerificationCommand } from '../specs.mjs';
+import { runVerificationCommand } from '../specs/verify/operation.mjs';
 
 describe('splitShellWords', () => {
   test('splits plain whitespace-separated words', () => {

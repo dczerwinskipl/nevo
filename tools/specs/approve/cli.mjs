@@ -1,4 +1,4 @@
-import { approveTask } from '../operations/index.mjs';
+import { approveTask } from './operation.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 
 export async function handleApprove(changeSlug, taskId, options = {}) {

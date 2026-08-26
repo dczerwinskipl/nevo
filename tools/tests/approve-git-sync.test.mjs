@@ -4,7 +4,8 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { handleApprove, handleVerify } from '../specs.mjs';
+import { handleApprove } from '../specs/approve/cli.mjs';
+import { handleVerify } from '../specs/verify/cli.mjs';
 import * as git from '../lib/git.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
 import { parseProgressLine } from '../lib/operation-progress.mjs';

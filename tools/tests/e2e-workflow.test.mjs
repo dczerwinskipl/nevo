@@ -43,7 +43,8 @@ import {
   validateStatusValue, validateSuspension, validateSemanticReferences, validateFollowUps,
 } from '../specs/validation.mjs';
 import { parseRoutingTable, validateRoutingTables } from '../docs.mjs';
-import { setTaskSuspension, clearTaskSuspension, createRepairBranch, runPostMergeCheck } from '../specs.mjs';
+import { setTaskSuspension, clearTaskSuspension } from '../specs.mjs';
+import { createRepairBranch, runPostMergeCheck } from '../specs/finalize/operation.mjs';
 
 let root;
 before(() => { root = mkdtempSync(join(tmpdir(), 'nevo-e2e-test-')); });

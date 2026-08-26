@@ -1,4 +1,4 @@
-import { completeTask } from '../operations/complete.mjs';
+import { completeTask } from './operation.mjs';
 
 export function handleComplete(changeSlug, taskId, options = {}) {
   const result = completeTask(changeSlug, taskId, options);

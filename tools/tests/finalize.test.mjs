@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { runPostMergeCheck, createRepairBranch } from '../specs.mjs';
+import { runPostMergeCheck, createRepairBranch } from '../specs/finalize/operation.mjs';
 import { isWorkingTreeClean, branchExists, getCurrentBranch, getCurrentRevision } from '../lib/git.mjs';
 
 let repo, remote;

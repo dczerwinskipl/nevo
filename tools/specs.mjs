@@ -24,32 +24,23 @@ import {
   handleContext,
   handleFingerprint,
   handleBackfillSpecId,
-  handleApprove,
-  handleStart,
-  handleComplete,
-  handleVerify,
   handleArchive,
-  handleFinalize,
-  handleFinalizeRepairBranch,
-  handleStatus,
-  handleComments,
-  handleResolveComment,
   handlePullRequestAdd,
-  handleFollowUpAdd,
-  handleFollowUpResolve,
-  handleSelfCheck,
-  handleSuggestProvenance,
-  handleApplyProvenance,
-  handleBatchStart,
-  handleBatchStatus,
-  handleBatchReview,
-  handleReviewScope,
-  handleBulkTransition,
-  handleAgentSessionAttach,
-} from './specs/commands/index.mjs';
+} from './specs/query.mjs';
+import { handleFollowUpAdd, handleFollowUpResolve } from './specs/follow-up-commands.mjs';
+import { handleAgentSessionAttach } from './specs/agent-session.mjs';
+import { handleApprove } from './specs/approve/cli.mjs';
+import { handleStart } from './specs/start/cli.mjs';
+import { handleComplete } from './specs/complete/cli.mjs';
+import { handleVerify } from './specs/verify/cli.mjs';
+import { handleFinalize, handleFinalizeRepairBranch } from './specs/finalize/cli.mjs';
+import { handleStatus } from './specs/status/cli.mjs';
+import { handleComments, handleResolveComment } from './specs/comments/cli.mjs';
+import { handleSelfCheck } from './specs/self-check/cli.mjs';
+import { handleSuggestProvenance, handleApplyProvenance } from './specs/provenance/cli.mjs';
+import { handleBatchStart, handleBatchStatus, handleBatchReview } from './specs/batch/cli.mjs';
+import { handleReviewScope, handleBulkTransition } from './specs/reviews/cli.mjs';
 
-// Re-export command handlers and domain capabilities for backward compatibility with external/test callers
-export * from './specs/commands/index.mjs';
 export {
   setTaskSuspension,
   clearTaskSuspension,

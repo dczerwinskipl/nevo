@@ -1,14 +1,7 @@
-import { finalizeChange, createRepairBranch } from '../operations/finalize.mjs';
+import { finalizeChange, createRepairBranch } from './operation.mjs';
 import { requireChangeAnywhere, ROOT } from '../store.mjs';
 import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 import { CliError } from '../../lib/cli-errors.mjs';
-
-// Re-export operation functions for compatibility with existing tests
-export {
-  gatherFinalizeFacts,
-  runPostMergeCheck,
-  createRepairBranch,
-} from '../operations/finalize.mjs';
 
 export function handleFinalizeRepairBranch(changeSlug, options = {}) {
   requireChangeAnywhere(changeSlug);

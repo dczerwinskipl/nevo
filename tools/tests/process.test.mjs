@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runProcessWithTailAsync, ProcessExecutionError } from '../lib/process.mjs';
-import { runDotnetCheckAsync } from '../specs/operations/finalize.mjs';
+import { runDotnetCheckAsync } from '../specs/finalize/operation.mjs';
 
 test('runProcessWithTailAsync — spawn-based bounded-output async process runner', async (t) => {
   await t.test('executes successful command and returns exitCode 0 with tail output', async () => {
