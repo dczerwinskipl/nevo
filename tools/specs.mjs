@@ -189,7 +189,8 @@ export function buildProgram() {
     .description('Run a task\'s own "## Verification" commands and write self_check (D28)')
     .argument('<change>')
     .argument('<task>')
-    .action(handleSelfCheck);
+    .option('--incremental', 'Attribute only the commit(s) since this task\'s own last review_revision, unioned onto its existing changed_paths — use for a review-fix re-check across sibling tasks sharing allowed_paths, instead of the default full since-baseline_revision recompute')
+    .action((changeSlug, taskId, opts) => handleSelfCheck(changeSlug, taskId, opts));
 
   program.command('suggest-provenance')
     .description('Read-only: suggest a baseline_revision/changed_paths reconstruction for a task with no persisted implementation block (D34/D35)')

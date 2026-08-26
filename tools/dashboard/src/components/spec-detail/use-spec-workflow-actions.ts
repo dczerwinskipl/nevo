@@ -5,7 +5,7 @@ import type { DashboardChange, DashboardTask, SpecificationOwnerAction } from '@
 import { invalidateDashboardQueries } from '@/hooks/use-dashboard-data';
 import { waitForOperationTerminal } from '@/hooks/wait-for-operation-terminal';
 import type { useSpecificationActions } from './spec-detail-queries';
-import { runBatchTaskAction, runDirectTaskAction, runFinalizeAction } from './spec-workflow-actions';
+import { describeBatchStopReason, runBatchTaskAction, runDirectTaskAction, runFinalizeAction } from './spec-workflow-actions';
 
 type ActionsQuery = ReturnType<typeof useSpecificationActions>;
 
@@ -87,6 +87,12 @@ export function useSpecWorkflowActions(change: DashboardChange, actionsQuery: Ac
         execute: actionsQuery.execute,
         onOperationStarted: updateActiveOperation,
         waitForTerminal: waitForOperationTerminal,
+        // Surfaced through the same OperationModal already showing this task's own
+        // operation — reusing the existing progress UI (kept open, on that exact
+        // operation) rather than adding a new one.
+        onBatchStopped: ({ operationId, title, outcome }) => {
+          updateActiveOperation(operationId, `${title} — ${describeBatchStopReason(outcome)}`);
+        },
       },
       tasks,
       actionName,

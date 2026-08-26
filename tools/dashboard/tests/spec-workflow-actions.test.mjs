@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  describeBatchStopReason,
   runBatchTaskAction,
   runDirectTaskAction,
   runFinalizeAction,
@@ -9,6 +10,19 @@ import {
 
 function task(id) {
   return { id, title: id, status: 'ready', order: 1, dependsOn: [], blockedBy: [] };
+}
+
+function completed(snapshot = { status: 'completed' }) {
+  return { kind: 'completed', snapshot };
+}
+function failed(snapshot = { status: 'failed' }) {
+  return { kind: 'failed', snapshot };
+}
+function timeout(snapshot = { status: 'running' }) {
+  return { kind: 'timeout', snapshot };
+}
+function error(message = 'boom') {
+  return { kind: 'error', message };
 }
 
 test('runDirectTaskAction starts the returned operation with an approve-specific title', async () => {
@@ -58,31 +72,134 @@ test('runDirectTaskAction swallows a rejected execute() (surfaced via mutation s
   assert.deepEqual(started, []);
 });
 
-test('runBatchTaskAction dispatches tasks strictly in order, only starting task N+1 after task N terminates', async () => {
-  const order = [];
-  const tasks = [task('a'), task('b'), task('c')];
+// ── runBatchTaskAction: fail-closed sequential execution ─────────────────────────────
+
+test('1. completed operation -> next task starts', async () => {
+  const executed = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      waitForTerminal: async () => completed(),
+    },
+    [task('a'), task('b'), task('c')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a', 'b', 'c']);
+});
+
+test('2. failed operation -> next task does not start', async () => {
+  const executed = [];
+  const stopped = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      waitForTerminal: async (id) => (id === 'op-a' ? failed() : completed()),
+      onBatchStopped: (info) => stopped.push(info),
+    },
+    [task('a'), task('b'), task('c')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a'], 'only the failing task ran — the batch stopped there');
+  assert.equal(stopped.length, 1);
+  assert.equal(stopped[0].taskId, 'a');
+  assert.equal(stopped[0].outcome.kind, 'failed');
+});
+
+test('3. operation remains running until timeout -> next task does not start', async () => {
+  const executed = [];
+  const stopped = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      waitForTerminal: async () => timeout(),
+      onBatchStopped: (info) => stopped.push(info),
+    },
+    [task('a'), task('b')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a'], 'a timeout is a safety stop, not evidence of completion — task b must never start');
+  assert.equal(stopped[0].outcome.kind, 'timeout');
+});
+
+test('4. initial operation-status fetch fails -> next task does not start', async () => {
+  const executed = [];
+  const stopped = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      waitForTerminal: async () => error('status unavailable'),
+      onBatchStopped: (info) => stopped.push(info),
+    },
+    [task('a'), task('b')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a']);
+  assert.equal(stopped[0].outcome.kind, 'error');
+  assert.equal(stopped[0].outcome.message, 'status unavailable');
+});
+
+test('5. SSE failure followed by a terminal snapshot behaves according to that terminal state (completed case)', async () => {
+  const executed = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      // Simulates waitForOperationTerminal's own SSE-error-then-poll fallback already
+      // having resolved a genuine terminal state — the batch must treat it exactly like
+      // any other completed outcome, no separate "SSE failed" branch.
+      waitForTerminal: async () => completed({ status: 'completed' }),
+    },
+    [task('a'), task('b')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a', 'b']);
+});
+
+test('5b. SSE failure followed by a terminal failed snapshot stops the batch', async () => {
+  const executed = [];
+  await runBatchTaskAction(
+    {
+      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
+      onOperationStarted: () => {},
+      waitForTerminal: async () => failed({ status: 'failed' }),
+    },
+    [task('a'), task('b')],
+    'approve',
+  );
+  assert.deepEqual(executed, ['a']);
+});
+
+test('6. no two batch task operations can become concurrently active through the timeout/error path', async () => {
+  // A batch of 3 tasks where task "a" times out: execute() must never be called for
+  // "b"/"c" while "a"'s own operation is unresolved server-side — i.e. exactly one
+  // execute() call happens, ever, for this batch.
+  let concurrentExecuteCalls = 0;
+  let maxConcurrentExecuteCalls = 0;
+  const executeCalls = [];
 
   await runBatchTaskAction(
     {
       execute: async ({ taskId }) => {
-        order.push(`execute:${taskId}`);
+        concurrentExecuteCalls += 1;
+        maxConcurrentExecuteCalls = Math.max(maxConcurrentExecuteCalls, concurrentExecuteCalls);
+        executeCalls.push(taskId);
+        await new Promise((r) => setTimeout(r, 1));
+        concurrentExecuteCalls -= 1;
         return { ok: true, operationId: `op-${taskId}` };
       },
-      onOperationStarted: (id) => order.push(`started:${id}`),
-      waitForTerminal: async (id) => {
-        order.push(`wait:${id}`);
-        return { status: 'completed' };
-      },
+      onOperationStarted: () => {},
+      waitForTerminal: async () => timeout(),
     },
-    tasks,
+    [task('a'), task('b'), task('c')],
     'approve',
   );
 
-  assert.deepEqual(order, [
-    'execute:a', 'started:op-a', 'wait:op-a',
-    'execute:b', 'started:op-b', 'wait:op-b',
-    'execute:c', 'started:op-c', 'wait:op-c',
-  ]);
+  assert.equal(maxConcurrentExecuteCalls, 1, 'execute() is never called for a later task while an earlier one is still unresolved');
+  assert.deepEqual(executeCalls, ['a'], 'the timeout on "a" prevents "b" and "c" from ever being dispatched');
 });
 
 test('runBatchTaskAction numbers per-task titles with the batch position and total', async () => {
@@ -91,7 +208,7 @@ test('runBatchTaskAction numbers per-task titles with the batch position and tot
     {
       execute: async ({ taskId }) => ({ ok: true, operationId: `op-${taskId}` }),
       onOperationStarted: (id, title) => started.push(title),
-      waitForTerminal: async () => ({ status: 'completed' }),
+      waitForTerminal: async () => completed(),
     },
     [task('a'), task('b')],
     'verify',
@@ -100,20 +217,6 @@ test('runBatchTaskAction numbers per-task titles with the batch position and tot
     'Weryfikacja zadania (1/2): a',
     'Weryfikacja zadania (2/2): b',
   ]);
-});
-
-test('runBatchTaskAction stops immediately when an operation is reported failed — later tasks never run', async () => {
-  const executed = [];
-  await runBatchTaskAction(
-    {
-      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
-      onOperationStarted: () => {},
-      waitForTerminal: async (id) => (id === 'op-a' ? { status: 'failed' } : { status: 'completed' }),
-    },
-    [task('a'), task('b'), task('c')],
-    'approve',
-  );
-  assert.deepEqual(executed, ['a'], 'only the failing task ran — the batch stopped there');
 });
 
 test('runBatchTaskAction stops when dispatching an action itself throws (no operation to wait on)', async () => {
@@ -126,7 +229,7 @@ test('runBatchTaskAction stops when dispatching an action itself throws (no oper
         return { ok: true, operationId: `op-${taskId}` };
       },
       onOperationStarted: () => {},
-      waitForTerminal: async () => ({ status: 'completed' }),
+      waitForTerminal: async () => completed(),
     },
     [task('a'), task('b'), task('c')],
     'approve',
@@ -145,7 +248,7 @@ test('runBatchTaskAction continues past a task whose action completed synchronou
         return taskId === 'a' ? { ok: true } : { ok: true, operationId: `op-${taskId}` };
       },
       onOperationStarted: () => {},
-      waitForTerminal: async (id) => { waited.push(id); return { status: 'completed' }; },
+      waitForTerminal: async (id) => { waited.push(id); return completed(); },
     },
     [task('a'), task('b')],
     'approve',
@@ -154,21 +257,19 @@ test('runBatchTaskAction continues past a task whose action completed synchronou
   assert.deepEqual(waited, ['op-b'], 'no wait was attempted for the task that spawned no operation');
 });
 
-test('runBatchTaskAction continues to the next task when waitForTerminal gives up (timeout/null) without a failed status', async () => {
-  const executed = [];
-  await runBatchTaskAction(
-    {
-      execute: async ({ taskId }) => { executed.push(taskId); return { ok: true, operationId: `op-${taskId}` }; },
-      onOperationStarted: () => {},
-      // Simulates the best-effort timeout fallback in waitForOperationTerminal: resolves
-      // null/non-terminal rather than throwing, and must not be treated as a failure.
-      waitForTerminal: async () => null,
-    },
-    [task('a'), task('b')],
-    'approve',
-  );
-  assert.deepEqual(executed, ['a', 'b']);
+test('describeBatchStopReason produces a distinct, non-empty explanation for each non-completed outcome kind', () => {
+  const failedText = describeBatchStopReason(failed());
+  const timeoutText = describeBatchStopReason(timeout());
+  const errorText = describeBatchStopReason(error('disk full'));
+
+  assert.ok(failedText.length > 0);
+  assert.ok(timeoutText.length > 0);
+  assert.ok(errorText.includes('disk full'));
+  assert.notEqual(failedText, timeoutText);
+  assert.notEqual(timeoutText, errorText);
 });
+
+// ── runFinalizeAction ─────────────────────────────────────────────────────────────────
 
 test('runFinalizeAction starts the returned operation and always closes the dialog on success', async () => {
   const started = [];

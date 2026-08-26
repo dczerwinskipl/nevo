@@ -18,10 +18,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import {
   computeTaskAttributedChangedPaths, nextImplementationBaseline, resolveProvenanceMappings,
-  detectProvenanceOverlap,
+  detectProvenanceOverlap, mergeAttributedChangedPaths,
 } from '../specs/lifecycle/provenance.mjs';
 import { loadChange } from '../specs/store.mjs';
 import {
@@ -82,6 +83,27 @@ describe('computeTaskAttributedChangedPaths — narrows a raw changed-file list 
     // change are just paths, attributed identically.
     const changed = ['tools/specs/lifecycle.mjs' /* committed since baseline */, 'tools/specs/service.mjs' /* still uncommitted */];
     assert.deepEqual(computeTaskAttributedChangedPaths(changed, ['tools/specs/**']), ['tools/specs/lifecycle.mjs', 'tools/specs/service.mjs']);
+  });
+});
+
+// ── mergeAttributedChangedPaths (review-fix incremental attribution) ───────
+
+describe('mergeAttributedChangedPaths — pure union backing --incremental self-check', () => {
+  test('unions two disjoint lists, deduplicated and sorted', () => {
+    assert.deepEqual(
+      mergeAttributedChangedPaths(['b.mjs', 'a.mjs'], ['c.mjs', 'a.mjs']),
+      ['a.mjs', 'b.mjs', 'c.mjs'],
+    );
+  });
+
+  test('an empty increment leaves the existing list unchanged (content-wise)', () => {
+    assert.deepEqual(mergeAttributedChangedPaths(['a.mjs'], []), ['a.mjs']);
+  });
+
+  test('missing/undefined inputs are treated as empty', () => {
+    assert.deepEqual(mergeAttributedChangedPaths(undefined, ['a.mjs']), ['a.mjs']);
+    assert.deepEqual(mergeAttributedChangedPaths(['a.mjs'], undefined), ['a.mjs']);
+    assert.deepEqual(mergeAttributedChangedPaths(undefined, undefined), []);
   });
 });
 
@@ -181,6 +203,114 @@ describe('handleSelfCheck surfaces a real cross-task provenance overlap end-to-e
       // self-check above.
       const overlaps = detectProvenanceOverlap(reloaded.tasks, 'task-b', taskBAfterB.implementation.changed_paths);
       assert.deepEqual(overlaps, [{ taskId: 'task-a', paths: ['shared/file.mjs'] }]);
+    } finally {
+      f.teardown();
+    }
+  });
+});
+
+// ── --incremental self-check (review-fix review finding, spec-detail-and-workflow-
+// feature-slice): the default (non-incremental) self-check always re-derives
+// changed_paths from the full since-baseline_revision range. When a later review-fix
+// commit touches several sibling tasks that share overlapping allowed_paths, that
+// full-range recompute re-absorbs every sibling's own unrelated intervening commits.
+// --incremental instead attributes only the commit(s) since this task's own last
+// review_revision, unioned onto its existing evidence.
+
+describe('executeSelfCheck --incremental: sequential tasks A/B/C, a later review-fix commit touching only A and C', () => {
+  test('A and C each gain only their own review-fix contribution; B (untouched by the fix) is never re-checked and stays exactly as it was; review_revision reflects the real reviewed commit', () => {
+    const f = createFixtureRepo({
+      changeSlug: 'fx-incremental-provenance',
+      tasks: [
+        { id: 'task-a', status: 'approved', allowedPaths: ['domain-a/**'], verification: ['echo ok'] },
+        { id: 'task-b', status: 'approved', allowedPaths: ['domain-b/**'], verification: ['echo ok'] },
+        { id: 'task-c', status: 'approved', allowedPaths: ['domain-c/**'], verification: ['echo ok'] },
+      ],
+    });
+    try {
+      handleStart('fx-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('domain-a/impl.mjs', 'a v1', 'Task A implementation');
+      handleSelfCheck('fx-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+
+      handleStart('fx-incremental-provenance', 'task-b', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('domain-b/impl.mjs', 'b v1', 'Task B implementation');
+      handleSelfCheck('fx-incremental-provenance', 'task-b', { activeDir: f.activeDir, gitRoot: f.root });
+
+      handleStart('fx-incremental-provenance', 'task-c', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('domain-c/impl.mjs', 'c v1', 'Task C implementation');
+      handleSelfCheck('fx-incremental-provenance', 'task-c', { activeDir: f.activeDir, gitRoot: f.root });
+
+      // Sanity: before any review-fix, each task's evidence is already correctly
+      // scoped to just its own file — the pre-existing (non-incremental) behavior is
+      // fine for a clean history with no later cross-task commit.
+      let reloaded = loadChange('fx-incremental-provenance', f.activeDir);
+      assert.deepEqual(reloaded.tasks.find(t => t.id === 'task-a').implementation.changed_paths, ['domain-a/impl.mjs']);
+      assert.deepEqual(reloaded.tasks.find(t => t.id === 'task-b').implementation.changed_paths, ['domain-b/impl.mjs']);
+      assert.deepEqual(reloaded.tasks.find(t => t.id === 'task-c').implementation.changed_paths, ['domain-c/impl.mjs']);
+      const taskBReviewRevisionBeforeFix = reloaded.tasks.find(t => t.id === 'task-b').implementation.review_revision;
+
+      // One review-fix commit touches BOTH task A's and task C's files — task B's
+      // own file is untouched by it.
+      writeFileSync(join(f.root, 'domain-a/impl.mjs'), 'a v2 (review fix)');
+      writeFileSync(join(f.root, 'domain-c/impl.mjs'), 'c v2 (review fix)');
+      execFileSync('git', ['-C', f.root, 'add', 'domain-a/impl.mjs', 'domain-c/impl.mjs']);
+      execFileSync('git', ['-C', f.root, 'commit', '-q', '-m', 'Review fix touching task A and task C']);
+      const reviewFixRevision = execFileSync('git', ['-C', f.root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+      // Only A and C are re-checked — exactly what a real review-fix round would do
+      // (B was never touched, so there is nothing to re-verify for it).
+      handleSelfCheck('fx-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root, incremental: true });
+      handleSelfCheck('fx-incremental-provenance', 'task-c', { activeDir: f.activeDir, gitRoot: f.root, incremental: true });
+
+      reloaded = loadChange('fx-incremental-provenance', f.activeDir);
+      const taskA = reloaded.tasks.find(t => t.id === 'task-a');
+      const taskB = reloaded.tasks.find(t => t.id === 'task-b');
+      const taskC = reloaded.tasks.find(t => t.id === 'task-c');
+
+      // A: still attributable to exactly its own file (the review fix revised it,
+      // didn't add a new one) — never task B's or task C's files.
+      assert.deepEqual(taskA.implementation.changed_paths, ['domain-a/impl.mjs']);
+      assert.equal(taskA.implementation.review_revision, reviewFixRevision, 'A\'s verification revision points at the actual reviewed commit');
+
+      // B: never re-self-checked, and must NOT have silently inherited the
+      // review-fix commit or anything else that happened after its own check.
+      assert.deepEqual(taskB.implementation.changed_paths, ['domain-b/impl.mjs']);
+      assert.equal(taskB.implementation.review_revision, taskBReviewRevisionBeforeFix);
+
+      // C: still attributable to exactly its own file, never A's or B's.
+      assert.deepEqual(taskC.implementation.changed_paths, ['domain-c/impl.mjs']);
+      assert.equal(taskC.implementation.review_revision, reviewFixRevision, 'C\'s verification revision points at the actual reviewed commit');
+    } finally {
+      f.teardown();
+    }
+  });
+
+  test('without --incremental, the same scenario re-absorbs sibling tasks\' unrelated work whenever allowed_paths overlap — proves --incremental is the fix, not a no-op', () => {
+    const f = createFixtureRepo({
+      changeSlug: 'fx-non-incremental-provenance',
+      tasks: [
+        // Deliberately overlapping allowed_paths — the exact real-world shape that
+        // triggered this finding (sibling vertical-slice tasks sharing a broad glob).
+        { id: 'task-a', status: 'approved', allowedPaths: ['shared/**'], verification: ['echo ok'] },
+        { id: 'task-b', status: 'approved', allowedPaths: ['shared/**'], verification: ['echo ok'] },
+      ],
+    });
+    try {
+      handleStart('fx-non-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('shared/a.mjs', 'a v1', 'Task A implementation');
+      handleSelfCheck('fx-non-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+
+      handleStart('fx-non-incremental-provenance', 'task-b', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('shared/b.mjs', 'b v1', 'Task B implementation');
+
+      // Re-checking task A now (default, non-incremental) re-diffs from task A's
+      // ORIGINAL baseline_revision — which predates task B's commit — so task B's
+      // unrelated file, matching task A's broad allowed_paths, is wrongly absorbed.
+      handleSelfCheck('fx-non-incremental-provenance', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+
+      const reloaded = loadChange('fx-non-incremental-provenance', f.activeDir);
+      const taskA = reloaded.tasks.find(t => t.id === 'task-a');
+      assert.deepEqual(taskA.implementation.changed_paths, ['shared/a.mjs', 'shared/b.mjs']);
     } finally {
       f.teardown();
     }

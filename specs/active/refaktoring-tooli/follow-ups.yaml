@@ -37,22 +37,21 @@ follow_ups:
     source_task: shared-specs-workflow-operations
     kind: PERFORMANCE
     severity: non-blocking
-    reason: "Evaluated during Task 02/03 modularization: the dashboard's
-      polled GET /api/specs/active/:slug/actions request path (actions.mjs
-      loadSpecificationActions) never calls validateSpecs()/scanDocs() and
-      uses async git/filesystem calls only. However, the dashboard's
-      user-triggered finalize action executor (executeSpecificationAction ->
-      finalizeChange -> gatherFinalizeFactsAsync) still runs the fully
-      synchronous, repository-scale validateSpecs(), checkSpecsIndexes(),
-      scanDocs(), and checkDocsIndexes() scans on the same long-running
-      Node process, blocking its event loop (other concurrent
-      requests/SSE delivery) for the scan's duration whenever an owner
-      clicks Finalize. A real fix requires converting validation.mjs's and
-      docs/service.mjs's synchronous file-reading internals to async, which
-      is a deep, separately-scoped rewrite of that pure validation logic —
-      too large and risky to fold into this already-large refactor. CLI
-      command executions remain short-lived processes where bounded
-      synchronous filesystem operations are fine per
+    reason: "Evaluated during Task 02/03 modularization: the dashboard's polled GET
+      /api/specs/active/:slug/actions request path (actions.mjs
+      loadSpecificationActions) never calls validateSpecs()/scanDocs() and uses
+      async git/filesystem calls only. However, the dashboard's user-triggered
+      finalize action executor (executeSpecificationAction -> finalizeChange ->
+      gatherFinalizeFactsAsync) still runs the fully synchronous,
+      repository-scale validateSpecs(), checkSpecsIndexes(), scanDocs(), and
+      checkDocsIndexes() scans on the same long-running Node process, blocking
+      its event loop (other concurrent requests/SSE delivery) for the scan's
+      duration whenever an owner clicks Finalize. A real fix requires converting
+      validation.mjs's and docs/service.mjs's synchronous file-reading internals
+      to async, which is a deep, separately-scoped rewrite of that pure
+      validation logic — too large and risky to fold into this already-large
+      refactor. CLI command executions remain short-lived processes where
+      bounded synchronous filesystem operations are fine per
       node-tooling-guidelines.md and are out of scope here."
     resolver_task: null
     status: open
@@ -65,6 +64,32 @@ follow_ups:
       synchronous gh --version resolution via resolveGhBinary() /
       isGhAvailable() on first use. Evaluate and migrate to an asynchronous
       binary resolution helper."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: overlapping-allowed-paths-provenance-attribution
+    source_task: ai-assistant-chat-and-runtime-feature-slice
+    kind: provenance-attribution-limitation
+    severity: non-blocking
+    reason: Tasks 05-07 declare identical/overlapping allowed_paths
+      (tools/dashboard/src/components/**, hooks/**, lib/**, tests/**).
+      self-check now supports --incremental (unions the commit(s) since a task's
+      own last review_revision onto its existing changed_paths, instead of
+      always re-deriving the full since-baseline_revision range), which fixes
+      the general case of a re-check re-absorbing a sibling task's entire
+      separate historical implementation. It does NOT fully disambiguate when a
+      single later review-fix commit touches multiple sibling tasks' files in
+      the SAME commit while those tasks share an identical/overlapping
+      allowed_paths glob (e.g. a fix touching both a spec-detail file and an
+      ai-chat file in one commit still gets attributed to both tasks, since the
+      glob cannot distinguish which file belongs to which task). Full
+      disambiguation would require narrowing tasks 05-07's own allowed_paths
+      declarations to be properly disjoint per feature slice, which is a
+      separate, owner-scoped decision (task 07 in particular legitimately
+      touches shared consumer files like task-dialog.tsx outside a clean
+      ai-chat/** boundary, so a clean disjoint partition is not mechanical).
+      Regression coverage for the fixed general case (A/B/C, review-fix touches
+      A and C, B unaffected) lives in tools/tests/provenance.test.mjs.
     resolver_task: null
     status: open
     resolution: null

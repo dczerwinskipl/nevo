@@ -1,9 +1,9 @@
 import type {
   DashboardTask,
-  OperationSnapshot,
   SpecificationActionResult,
   SpecificationOwnerAction,
 } from '@/lib/types';
+import type { OperationWaitOutcome } from '@/hooks/wait-for-operation-terminal';
 
 /**
  * Pure task-workflow orchestration — no React, no DOM, no sessionStorage. Injected
@@ -15,8 +15,25 @@ import type {
 export interface WorkflowActionDeps {
   execute: (input: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) => Promise<SpecificationActionResult | undefined>;
   onOperationStarted: (operationId: string, title: string) => void;
-  /** Resolves once the operation reaches a backend-reported terminal state (or gives up after a bounded wait). */
-  waitForTerminal: (operationId: string) => Promise<OperationSnapshot | null>;
+  /** Resolves to an explicit, discriminated outcome once waiting for the operation ends — see `OperationWaitOutcome`. */
+  waitForTerminal: (operationId: string) => Promise<OperationWaitOutcome>;
+  /**
+   * Reports why a batch stopped before running every task — called only for the one
+   * task whose wait did not resolve `'completed'`, so `outcome` is never that variant.
+   */
+  onBatchStopped?: (info: { taskId: string; operationId: string; title: string; outcome: Exclude<OperationWaitOutcome, { kind: 'completed' }> }) => void;
+}
+
+/** Short, user-facing explanation of a non-'completed' wait outcome, for the existing operation-progress UI. */
+export function describeBatchStopReason(outcome: Exclude<OperationWaitOutcome, { kind: 'completed' }>): string {
+  switch (outcome.kind) {
+    case 'failed':
+      return 'zadanie nie powiodło się — pozostałe zadania w partii nie zostały uruchomione';
+    case 'timeout':
+      return 'przekroczono czas oczekiwania na zakończenie operacji — pozostałe zadania w partii nie zostały uruchomione';
+    case 'error':
+      return `nie udało się ustalić statusu operacji (${outcome.message}) — pozostałe zadania w partii nie zostały uruchomione`;
+  }
 }
 
 export async function runDirectTaskAction(
@@ -39,10 +56,12 @@ export async function runDirectTaskAction(
 }
 
 /**
- * Runs `actionName` against each task in order, awaiting each spawned operation's own
- * backend-reported terminal state — never a fixed poll interval, never a post-completion
- * delay — before starting the next task. Stops immediately (no further tasks run) if an
- * operation is reported `'failed'`, or if dispatching the action itself throws.
+ * Runs `actionName` against each task strictly in order. Task N+1 may start only after
+ * task N's own spawned operation has been *authoritatively* observed `completed` —
+ * never on a timeout, a status-read failure, or any other non-terminal outcome. Those
+ * are safety stops, not evidence the operation finished, so the batch halts on the
+ * first one encountered (fail closed): no two batch-spawned operations can ever be
+ * concurrently in flight through this loop.
  */
 export async function runBatchTaskAction(
   deps: WorkflowActionDeps,
@@ -55,16 +74,15 @@ export async function runBatchTaskAction(
       const taskId = task.id;
       const res = await deps.execute({ action: actionName, taskId });
       if (res?.operationId) {
-        deps.onOperationStarted(
-          res.operationId,
-          actionName === 'approve'
-            ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
-            : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`
-        );
+        const title = actionName === 'approve'
+          ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
+          : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`;
+        deps.onOperationStarted(res.operationId, title);
 
-        const snapshot = await deps.waitForTerminal(res.operationId);
-        if (snapshot?.status === 'failed') {
-          return; // Stop batch execution if a task fails
+        const outcome = await deps.waitForTerminal(res.operationId);
+        if (outcome.kind !== 'completed') {
+          deps.onBatchStopped?.({ taskId, operationId: res.operationId, title, outcome });
+          return; // Fail closed: anything but an authoritative 'completed' stops the batch.
         }
       }
     } catch {

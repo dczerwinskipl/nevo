@@ -3,7 +3,7 @@ import { createProgressEmitter } from '../../lib/operation-progress.mjs';
 
 export function handleSelfCheck(changeSlug, taskId, options = {}) {
   const emitter = createProgressEmitter();
-  const result = executeSelfCheck(changeSlug, taskId, { ...options, emitter });
+  const result = executeSelfCheck(changeSlug, taskId, { ...options, emitter, incremental: Boolean(options.incremental) });
 
   for (const overlap of result.overlaps) {
     console.log(`Note: '${taskId}' and '${overlap.taskId}' both attribute changed_paths: ${overlap.paths.join(', ')} — verify this overlap is expected before trusting either task's evidence in isolation.`);

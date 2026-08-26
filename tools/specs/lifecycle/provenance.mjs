@@ -21,6 +21,20 @@ export function computeTaskAttributedChangedPaths(changedFiles, allowedPaths) {
 }
 
 /**
+ * Unions a task's already-persisted `changed_paths` with a freshly-attributed
+ * increment — the write self-check's `--incremental` mode uses (area
+ * spec-detail-and-workflow-feature-slice review fix) so a later self-check re-run
+ * *extends* a task's own evidence with what changed since its own last
+ * `review_revision`, rather than re-deriving the full since-`baseline_revision` range
+ * every time (which re-absorbs any sibling task's entire unrelated work that happens
+ * to also match this task's declared `allowed_paths`, once that sibling's own commits
+ * land inside the range). Pure set union — order-independent, deduplicated, sorted.
+ */
+export function mergeAttributedChangedPaths(existingPaths, newlyAttributedPaths) {
+  return [...new Set([...(existingPaths || []), ...(newlyAttributedPaths || [])])].sort();
+}
+
+/**
  * Detects a real provenance overlap (D34/D35, task 15, AC7/AC9) — this
  * task's freshly-recomputed `attributedPaths` (from the current self-check
  * re-run) shares a file with another task's own already-persisted

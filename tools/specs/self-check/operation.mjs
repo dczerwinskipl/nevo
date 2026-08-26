@@ -17,6 +17,7 @@ import { buildSelfCheckResult } from '../lifecycle/batch.mjs';
 import {
   computeTaskAttributedChangedPaths,
   detectProvenanceOverlap,
+  mergeAttributedChangedPaths,
   writeSelfCheck,
   writeImplementationProvenance,
 } from '../lifecycle/provenance.mjs';
@@ -31,12 +32,23 @@ import { CliError } from '../../lib/cli-errors.mjs';
 /**
  * Application operation: execute a task's self-check verification commands,
  * persist self_check results, update implementation provenance and generated indexes.
+ *
+ * `incremental` (default `false`, fully backward compatible): when `true` and the task
+ * already has persisted `changed_paths` from a prior self-check, attribution is
+ * recomputed only from the changes introduced since that prior check (`HEAD^..HEAD` at
+ * self-check time — i.e. the commit(s) this specific re-run is meant to attribute) and
+ * *unioned* onto the existing `changed_paths`, instead of re-deriving the full
+ * since-`baseline_revision` range every time. Use this for a review-fix re-check that
+ * touches several sibling tasks sharing overlapping `allowed_paths` — the default
+ * (non-incremental) full-range recompute would otherwise re-absorb every sibling task's
+ * own unrelated intervening commits into this task's evidence.
  */
 export function executeSelfCheck(changeSlug, taskId, {
   activeDir = ACTIVE_DIR,
   gitRoot = ROOT,
   emitter = null,
   runCommand = runVerificationCommand,
+  incremental = false,
 } = {}) {
   const change = requireChange(changeSlug, activeDir);
   const task = requireTask(change, taskId);
@@ -75,8 +87,14 @@ export function executeSelfCheck(changeSlug, taskId, {
   const overlaps = [];
   if (task.implementation?.baseline_revision) {
     const packet = buildContextPacket(change, task);
-    const changedSinceBaseline = git.getChangedFiles(gitRoot, task.implementation.baseline_revision);
-    const attributedPaths = computeTaskAttributedChangedPaths(changedSinceBaseline, packet.allowed_paths);
+    const priorChangedPaths = task.implementation.changed_paths || [];
+    const useIncremental = incremental && priorChangedPaths.length > 0;
+    const diffBase = useIncremental ? `${currentRevision}^` : task.implementation.baseline_revision;
+    const changedSinceDiffBase = git.getChangedFiles(gitRoot, diffBase);
+    const newlyAttributedPaths = computeTaskAttributedChangedPaths(changedSinceDiffBase, packet.allowed_paths);
+    const attributedPaths = useIncremental
+      ? mergeAttributedChangedPaths(priorChangedPaths, newlyAttributedPaths)
+      : newlyAttributedPaths;
     const worktreeDiff = git.getWorktreeDiff(gitRoot, attributedPaths);
     writeImplementationProvenance(change, taskId, {
       baseline_revision: task.implementation.baseline_revision,
