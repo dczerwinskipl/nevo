@@ -194,6 +194,35 @@ export function getCurrentRevision(root) {
   return run(root, ['rev-parse', 'HEAD']);
 }
 
+// Resolves any ref to its SHA, or null if it doesn't resolve — unlike
+// getCurrentRevision (always HEAD, throws if not in a repo), this is for
+// callers that need to check an arbitrary ref (e.g. 'origin/main') and treat
+// "doesn't resolve" as a normal, expected outcome rather than a fatal error.
+export function revParse(root, ref) {
+  try {
+    return run(root, ['rev-parse', ref]);
+  } catch {
+    return null;
+  }
+}
+
+export function fetchOrigin(root) {
+  run(root, ['fetch', 'origin']);
+}
+
+// Fast-forward-only pull, tolerating the genuine non-fast-forward case (local
+// branch has diverged) by reporting it as `false` rather than throwing —
+// callers that only care "did the local ref move to match origin" can check
+// the return value instead of wrapping every call in their own try/catch.
+export function pullFastForward(root) {
+  try {
+    run(root, ['pull', '--ff-only']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function getCurrentRevisionAsync(root, options = {}) {
   return await runGitAsync(root, ['rev-parse', 'HEAD'], options);
 }

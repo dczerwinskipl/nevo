@@ -37,18 +37,26 @@ follow_ups:
     source_task: shared-specs-workflow-operations
     kind: PERFORMANCE
     severity: non-blocking
-    reason: "Evaluate repository-size-dependent synchronous filesystem work
-      remaining in shared specs operations (including metadata/index
-      regeneration and finalize validation/archive paths) while Task 02
-      decomposes specs lifecycle and storage capabilities. Small bounded
-      synchronous reads/writes do not need mechanical conversion."
-    resolver_task: specs-lifecycle-and-storage-capabilities
-    status: resolved
-    resolution: "Evaluated during Task 02/03 modularization: long-running
-      server/runtime paths in tools/dashboard use async filesystem APIs
-      (loadChangeAsync, listChangesAsync), while short-lived CLI command
-      executions retain bounded synchronous filesystem operations in compliance
-      with node-tooling-guidelines.md."
+    reason: "Evaluated during Task 02/03 modularization: the dashboard's
+      polled GET /api/specs/active/:slug/actions request path (actions.mjs
+      loadSpecificationActions) never calls validateSpecs()/scanDocs() and
+      uses async git/filesystem calls only. However, the dashboard's
+      user-triggered finalize action executor (executeSpecificationAction ->
+      finalizeChange -> gatherFinalizeFactsAsync) still runs the fully
+      synchronous, repository-scale validateSpecs(), checkSpecsIndexes(),
+      scanDocs(), and checkDocsIndexes() scans on the same long-running
+      Node process, blocking its event loop (other concurrent
+      requests/SSE delivery) for the scan's duration whenever an owner
+      clicks Finalize. A real fix requires converting validation.mjs's and
+      docs/service.mjs's synchronous file-reading internals to async, which
+      is a deep, separately-scoped rewrite of that pure validation logic —
+      too large and risky to fold into this already-large refactor. CLI
+      command executions remain short-lived processes where bounded
+      synchronous filesystem operations are fine per
+      node-tooling-guidelines.md and are out of scope here."
+    resolver_task: null
+    status: open
+    resolution: null
   - id: async-github-cli-resolution
     source_task: shared-specs-workflow-operations
     kind: PERFORMANCE

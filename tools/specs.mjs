@@ -16,17 +16,17 @@ import {
 import { BATCH_SELECTION_MODES } from './specs/lifecycle/batch.mjs';
 
 import {
-  handleGenerate,
   handleValidate,
-  handleCheck,
   handleList,
   handleNext,
   handleContext,
   handleFingerprint,
-  handleBackfillSpecId,
-  handleArchive,
-  handlePullRequestAdd,
 } from './specs/query.mjs';
+import { handleGenerate } from './specs/generate/cli.mjs';
+import { handleCheck } from './specs/check/cli.mjs';
+import { handleArchive } from './specs/archive/cli.mjs';
+import { handlePullRequestAdd } from './specs/pull-request-add/cli.mjs';
+import { handleBackfillSpecId } from './specs/backfill-spec-id/cli.mjs';
 import { handleFollowUpAdd, handleFollowUpResolve } from './specs/follow-up-commands.mjs';
 import { handleAgentSessionAttach } from './specs/agent-session.mjs';
 import { handleApprove } from './specs/approve/cli.mjs';

@@ -1,6 +1,6 @@
 // Tests for finalize hardening (D9, D23, D25, task 09): tools/specs.mjs's
-// runPostMergeCheck and createRepairBranch, against a real, disposable temp
-// git repo with a temp "origin" remote — never against this repo's own
+// runPostMergeCheckAsync and createRepairBranch, against a real, disposable
+// temp git repo with a temp "origin" remote — never against this repo's own
 // working tree or branch. Run: node --test tools/tests/
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { runPostMergeCheck, createRepairBranch } from '../specs/finalize/operation.mjs';
+import { runPostMergeCheckAsync, createRepairBranch } from '../specs/finalize/operation.mjs';
 import { isWorkingTreeClean, branchExists, getCurrentBranch, getCurrentRevision } from '../lib/git.mjs';
 
 let repo, remote;
@@ -38,7 +38,7 @@ function cleanup() {
   rmSync(remote, { recursive: true, force: true });
 }
 
-describe('runPostMergeCheck — verify before destructive cleanup (D9, AC1, AC2, AC3)', () => {
+describe('runPostMergeCheckAsync — verify before destructive cleanup (D9, AC1, AC2, AC3)', () => {
   beforeEach(() => {
     freshRepoPair();
     // Simulate "merge already happened on origin/main, feature branch still local+remote"
@@ -58,15 +58,15 @@ describe('runPostMergeCheck — verify before destructive cleanup (D9, AC1, AC2,
   });
   after(cleanup);
 
-  test('does not delete the branch until the post-merge check has run and passed (AC1)', () => {
+  test('does not delete the branch until the post-merge check has run and passed (AC1)', async () => {
     assert.equal(branchExists(repo, 'feature/x'), true);
-    const result = runPostMergeCheck(repo, 'feature/x', () => []); // no failures — passes
+    const result = await runPostMergeCheckAsync(repo, 'feature/x', () => []); // no failures — passes
     assert.equal(result.ok, true);
     assert.equal(branchExists(repo, 'feature/x'), false, 'local branch deleted only after a passing check');
   });
 
-  test('a failed post-merge check leaves the branch intact and reports the merged SHA/failed check/diagnostic branch name (AC2)', () => {
-    const result = runPostMergeCheck(repo, 'feature/x', () => [{ name: 'specs check', detail: 'stale index' }]);
+  test('a failed post-merge check leaves the branch intact and reports the merged SHA/failed check/diagnostic branch name (AC2)', async () => {
+    const result = await runPostMergeCheckAsync(repo, 'feature/x', () => [{ name: 'specs check', detail: 'stale index' }]);
     assert.equal(result.ok, false);
     assert.equal(result.diagnosticBranch, 'feature/x');
     assert.deepEqual(result.failed, [{ name: 'specs check', detail: 'stale index' }]);
@@ -74,8 +74,8 @@ describe('runPostMergeCheck — verify before destructive cleanup (D9, AC1, AC2,
     assert.equal(branchExists(repo, 'feature/x'), true, 'branch preserved as a diagnostic anchor');
   });
 
-  test('a successful check deletes the branch and reports success exactly as finalize does today (AC3)', () => {
-    const result = runPostMergeCheck(repo, 'feature/x', () => []);
+  test('a successful check deletes the branch and reports success exactly as finalize does today (AC3)', async () => {
+    const result = await runPostMergeCheckAsync(repo, 'feature/x', () => []);
     assert.equal(result.ok, true);
     assert.equal(result.deletedBranch, 'feature/x');
     assert.equal(branchExists(repo, 'feature/x'), false);
@@ -83,9 +83,9 @@ describe('runPostMergeCheck — verify before destructive cleanup (D9, AC1, AC2,
     assert.throws(() => git(['rev-parse', '--verify', 'refs/remotes/origin/feature/x']));
   });
 
-  test('the check callback runs against the post-merge tree, not a stale pre-fetch snapshot', () => {
+  test('the check callback runs against the post-merge tree, not a stale pre-fetch snapshot', async () => {
     let sawMergedFile = false;
-    runPostMergeCheck(repo, 'feature/x', () => {
+    await runPostMergeCheckAsync(repo, 'feature/x', () => {
       // c.txt only exists on the post-merge main — proves fetch+checkout+pull ran first.
       sawMergedFile = execFileSync('git', ['-C', repo, 'show', 'HEAD:c.txt'], { encoding: 'utf8' }).includes('merged');
       return [];
@@ -93,8 +93,8 @@ describe('runPostMergeCheck — verify before destructive cleanup (D9, AC1, AC2,
     assert.equal(sawMergedFile, true);
   });
 
-  test('local main is updated (fetched and fast-forwarded) as part of the check, regardless of outcome', () => {
-    runPostMergeCheck(repo, 'feature/x', () => [{ name: 'x', detail: 'fail' }]);
+  test('local main is updated (fetched and fast-forwarded) as part of the check, regardless of outcome', async () => {
+    await runPostMergeCheckAsync(repo, 'feature/x', () => [{ name: 'x', detail: 'fail' }]);
     assert.equal(getCurrentBranch(repo), 'main');
     const mainSha = getCurrentRevision(repo);
     const originMainSha = git(['rev-parse', 'origin/main']);

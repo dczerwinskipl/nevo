@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { buildProgram } from '../specs.mjs';
-import { handlePullRequestAdd } from '../specs/query.mjs';
+import { handlePullRequestAdd } from '../specs/pull-request-add/cli.mjs';
 import {
   addPullRequestReference,
   normalizePullRequestReference,
