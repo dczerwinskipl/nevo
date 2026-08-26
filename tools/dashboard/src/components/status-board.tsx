@@ -1,57 +1,28 @@
-import { CheckCircle2, CircleDashed, GitBranch, LockKeyhole, Play } from 'lucide-react';
+import { CheckCircle2, GitBranch, LockKeyhole, Play } from 'lucide-react';
+import type { CSSProperties } from 'react';
 
 import type {
   DashboardChange,
-  DashboardLane,
   DashboardTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
-  StageId,
 } from '@/lib/types';
-import { cn, formatStatus } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { lanePresentation } from '@/lib/lane-presentation';
 import { Button } from '@/components/ui/button';
-import { StatusLabel, statusTone } from '@/components/status-label';
-
-const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = {
-  new: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
-  design: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
-  ready: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
-  implementation: { dot: 'bg-[var(--accent)]', tint: 'bg-[var(--accent-muted)]', line: 'border-[var(--accent-border)]' },
-  review: { dot: 'bg-[var(--warning)]', tint: 'bg-[color-mix(in_srgb,var(--warning)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--warning)_25%,transparent)]' },
-  done: { dot: 'bg-[var(--success)]', tint: 'bg-[var(--success-muted)]', line: 'border-[var(--success-border)]' },
-};
-
-function taskStatusTint(status: string, fallback: string) {
-  switch (status) {
-    case 'approved':
-    case 'verified':
-    case 'archived':
-      return 'bg-[var(--success-muted)]';
-    case 'implemented':
-      return 'bg-[var(--warning-muted)]';
-    case 'in-implementation':
-      return 'bg-[var(--accent-muted)]';
-    default:
-      return fallback;
-  }
-}
+import { StatusLabel } from '@/components/status-label';
 
 function TaskCard({
   task,
-  lane,
   actionGate,
   onSelect,
   onAction,
 }: {
   task: DashboardTask;
-  lane: DashboardLane;
   actionGate?: SpecificationTaskActionGate | null;
   onSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
   onAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
 }) {
-  const tone = stageTone[lane.id];
-  const isDone = task.status === 'verified' || task.status === 'archived';
   const hasAction = actionGate?.enabled;
 
   return (
@@ -62,39 +33,44 @@ function TaskCard({
           onSelect?.(task, e.currentTarget);
         }
       }}
-      className={cn(
-        'group relative block w-full rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors hover:bg-[var(--surface-raised)] cursor-pointer',
-        tone.line,
-      )}
+      className="group relative block w-full cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] p-3.5 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold tabular-nums tracking-wider text-[var(--muted)]">
           #{String(task.order ?? '—').padStart(2, '0')}
         </span>
-        {isDone ? (
-          <CheckCircle2 className="size-3.5 text-[var(--success)]" />
-        ) : task.blockedBy.length ? (
-          <LockKeyhole className="size-3.5 text-[var(--muted)]" />
-        ) : (
-          <CircleDashed className="size-3.5 text-[var(--muted)]" />
-        )}
+        <div className="flex min-w-0 items-center gap-2 text-[9px] font-medium tabular-nums text-[var(--muted)]">
+          <StatusLabel kind="task" status={task.status} className="truncate text-[9px] font-semibold tracking-[0.08em] text-[var(--muted)]" />
+          {task.dependsOn.length > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1" title={`Zależności: ${task.dependsOn.join(', ')}`}>
+              <GitBranch className="size-3 text-[var(--accent)]" />
+              {task.dependsOn.length}
+            </span>
+          )}
+          {task.blockedBy.length > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1" title={`Blokowane przez: ${task.blockedBy.join(', ')}`}>
+              <LockKeyhole className="size-3 text-[var(--warning)]" />
+              {task.blockedBy.length}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="mt-2.5 flex items-start justify-between gap-2">
-        <button
-          type="button"
-          onClick={event => onSelect?.(task, event.currentTarget)}
-          aria-label={`Otwórz szczegóły zadania: ${task.title}`}
-          className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded cursor-pointer"
-        >
-          <h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] hover:text-[var(--accent)] transition-colors">
-            {task.title}
-          </h3>
-        </button>
-        {hasAction && (
+      <button
+        type="button"
+        onClick={event => onSelect?.(task, event.currentTarget)}
+        aria-label={`Otwórz szczegóły zadania: ${task.title}`}
+        className="mt-2.5 block w-full rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      >
+        <h3 className="text-[13px] font-semibold leading-5 text-[var(--foreground)] transition-colors hover:text-[var(--accent)]">
+          {task.title}
+        </h3>
+      </button>
+      {hasAction && (
+        <div className="mt-3 flex justify-center border-t border-[var(--border)] pt-2.5">
           <Button
             size="sm"
             variant="secondary"
-            className="h-5 shrink-0 px-2 text-[10px] font-semibold text-[var(--accent)] border border-[var(--accent)]/40 hover:bg-[var(--accent)]/15 cursor-pointer"
+            className="h-7 shrink-0 cursor-pointer border border-[var(--accent)]/40 px-2.5 text-[10px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/15"
             onClick={() => onAction?.(task, actionGate.action)}
             aria-label={`${actionGate.action === 'approve' ? 'Zatwierdź zadanie' : 'Zaakceptuj zadanie'}: ${task.title}`}
           >
@@ -108,19 +84,8 @@ function TaskCard({
               </>
             )}
           </Button>
-        )}
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <Badge className={cn('border-0 px-2 py-0.5', taskStatusTint(task.status, tone.tint), statusTone(task.status))}>
-          <StatusLabel kind="task" status={task.status} />
-        </Badge>
-        {task.dependsOn.length > 0 && (
-          <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
-            <GitBranch className="size-3 text-[var(--accent)]" />
-            {task.dependsOn.length}
-          </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -151,47 +116,44 @@ export function StatusBoard({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {change.lanes.map(lane => {
-          const tone = stageTone[lane.id];
+          const presentation = lanePresentation[lane.id];
           const actionableTasks = lane.tasks.filter(task => actions?.[task.id]?.enabled);
           const firstAction = actionableTasks.length > 0 ? actions?.[actionableTasks[0].id]?.action : null;
           return (
-            <div key={lane.id} className={cn('min-w-0', lane.tasks.length === 0 ? 'order-last sm:order-none' : 'order-first sm:order-none')}>
-              <div className="mb-2 flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <span className={cn('size-1.5 rounded-full', tone.dot)} />
-                  <StatusLabel className="text-[var(--muted)]">{lane.shortLabel}</StatusLabel>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {actionableTasks.length > 1 && firstAction && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-5 px-1.5 text-[10px] font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10"
-                      onClick={() => onBatchAction?.(actionableTasks, firstAction)}
-                    >
-                      {firstAction === 'approve'
-                        ? `Zatwierdź (${actionableTasks.length})`
-                        : `Zaakceptuj (${actionableTasks.length})`}
-                    </Button>
-                  )}
-                  <span className="text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
-                </div>
+            <div
+              key={lane.id}
+              style={{ '--lane-accent': presentation.accent } as CSSProperties}
+              className={cn('min-w-0', lane.tasks.length === 0 && 'hidden sm:block')}
+            >
+              <div className="mb-2 flex items-center gap-2 px-1">
+                <span className="size-1.5 rounded-full bg-[var(--lane-accent)]" />
+                <StatusLabel className="text-[var(--muted-strong)]">{lane.shortLabel}</StatusLabel>
+                <span className="ml-auto text-[10px] tabular-nums text-[var(--muted)]">{lane.tasks.length}</span>
               </div>
-              <div className={cn('space-y-2 rounded-2xl border border-dashed p-2 sm:min-h-[160px] 2xl:min-h-[230px]', tone.line, tone.tint, lane.tasks.length === 0 ? 'hidden sm:block min-h-0' : 'min-h-[88px]')}>
+              <div className="space-y-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 sm:min-h-[160px] 2xl:min-h-[230px]">
                 {lane.tasks.map(task => (
                   <TaskCard
                     key={task.id}
                     task={task}
-                    lane={lane}
                     actionGate={actions?.[task.id]}
                     onSelect={onTaskSelect}
                     onAction={onTaskAction}
                   />
                 ))}
                 {lane.tasks.length === 0 && (
-                  <div className="flex h-20 items-center justify-center rounded-xl border border-transparent text-[10px] text-[var(--muted)]">
-                    Brak zadań
-                  </div>
+                  <span className="sr-only">Brak zadań</span>
+                )}
+                {actionableTasks.length > 1 && firstAction && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-full justify-center text-[10px] font-semibold text-[var(--accent)] hover:bg-[var(--accent-muted)]"
+                    onClick={() => onBatchAction?.(actionableTasks, firstAction)}
+                  >
+                    {firstAction === 'approve'
+                      ? `Zatwierdź (${actionableTasks.length})`
+                      : `Zaakceptuj (${actionableTasks.length})`}
+                  </Button>
                 )}
               </div>
             </div>
