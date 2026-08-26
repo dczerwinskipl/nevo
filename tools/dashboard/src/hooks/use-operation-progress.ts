@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import type { OperationSnapshot, OperationEvent, OperationStep } from '@/lib/types';
+import type { OperationEvent, OperationSnapshot } from '@/lib/types';
+import { OPERATION_SSE_EVENT_TYPES, applyOperationEvent, fetchOperationSnapshot } from './operation-snapshot.ts';
 
 export interface UseOperationProgressResult {
   snapshot: OperationSnapshot | null;
@@ -24,114 +25,12 @@ export function useOperationProgress(
 
   const fetchSnapshot = useCallback(async (id: string): Promise<OperationSnapshot | null> => {
     try {
-      const res = await fetch(`/api/operations/${encodeURIComponent(id)}`, {
-        cache: 'no-store',
-      });
-      if (!res.ok) {
-        if (res.status === 404) throw new Error(`Operation '${id}' not found.`);
-        throw new Error(`Failed to fetch operation (${res.status})`);
-      }
-      const data = (await res.json()) as OperationSnapshot;
-      return data;
+      return await fetchOperationSnapshot(id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
       return null;
     }
-  }, []);
-
-  const applyEvent = useCallback((prev: OperationSnapshot, event: OperationEvent): OperationSnapshot => {
-    const updated = { ...prev };
-    if (typeof event.id === 'number') {
-      updated.lastEventId = event.id;
-    }
-
-    if (event.type === 'snapshot' || ((event as { status?: string }).status && Array.isArray((event as { steps?: unknown[] }).steps))) {
-      return event as unknown as OperationSnapshot;
-    }
-
-    if (event.type === 'operation.started') {
-      updated.status = 'running';
-      if (Array.isArray(event.steps)) {
-        updated.steps = (event.steps as Array<{ id: string; label: string }>).map(s => ({
-          id: s.id,
-          label: s.label,
-          status: 'pending',
-        }));
-      }
-    } else if (event.type === 'operation.step.started') {
-      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
-        ? (event as { stepId?: string }).stepId!
-        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
-      if (!stepId) return updated;
-
-      const stepLabel = event.label as string | undefined;
-      const existing = updated.steps.find(s => s.id === stepId);
-      if (existing) {
-        existing.status = 'running';
-        if (stepLabel) existing.label = stepLabel;
-        if (typeof event.total === 'number') existing.total = event.total;
-        if (typeof event.current === 'number') existing.current = event.current;
-        if (typeof event.detail === 'string') existing.detail = event.detail;
-      } else {
-        updated.steps = [
-          ...updated.steps,
-          {
-            id: stepId,
-            label: stepLabel || stepId,
-            status: 'running',
-            total: typeof event.total === 'number' ? event.total : undefined,
-            current: typeof event.current === 'number' ? event.current : undefined,
-            detail: typeof event.detail === 'string' ? event.detail : undefined,
-          },
-        ];
-      }
-    } else if (event.type === 'operation.step.completed') {
-      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
-        ? (event as { stepId?: string }).stepId!
-        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
-      if (!stepId) return updated;
-
-      const existing = updated.steps.find(s => s.id === stepId);
-      if (existing) {
-        existing.status = 'completed';
-        if (typeof event.detail === 'string') existing.detail = event.detail;
-      } else {
-        updated.steps = [
-          ...updated.steps,
-          { id: stepId, label: stepId, status: 'completed', detail: typeof event.detail === 'string' ? event.detail : undefined },
-        ];
-      }
-    } else if (event.type === 'operation.step.failed') {
-      const stepId = typeof (event as { stepId?: string }).stepId === 'string' && (event as { stepId?: string }).stepId
-        ? (event as { stepId?: string }).stepId!
-        : (typeof event.id === 'string' && isNaN(Number(event.id)) ? event.id : '');
-      if (!stepId) return updated;
-
-      const errorObj = typeof event.error === 'string' ? { message: event.error } : (event.error as { message: string; code?: string } | undefined);
-      const existing = updated.steps.find(s => s.id === stepId);
-      if (existing) {
-        existing.status = 'failed';
-        if (errorObj) existing.error = errorObj;
-      } else {
-        updated.steps = [
-          ...updated.steps,
-          { id: stepId, label: stepId, status: 'failed', error: errorObj },
-        ];
-      }
-    } else if (event.type === 'operation.completed') {
-      updated.status = 'completed';
-      if (event.result !== undefined) updated.result = event.result;
-      if (typeof event.completedAt === 'string') updated.completedAt = event.completedAt;
-    } else if (event.type === 'operation.failed') {
-      updated.status = 'failed';
-      if (event.error) {
-        updated.error = typeof event.error === 'string' ? { message: event.error } : (event.error as { message: string; code?: string });
-      }
-      if (typeof event.completedAt === 'string') updated.completedAt = event.completedAt;
-    }
-
-    return updated;
   }, []);
 
   const refetch = useCallback(async () => {
@@ -196,7 +95,7 @@ export function useOperationProgress(
           const parsed = JSON.parse(eventData) as OperationEvent;
           setSnapshot((prev) => {
             if (!prev) return parsed as unknown as OperationSnapshot;
-            const next = applyEvent(prev, parsed);
+            const next = applyOperationEvent(prev, parsed);
             if (next.status === 'completed' || next.status === 'failed') {
               if (!terminalNotifiedRef.current) {
                 terminalNotifiedRef.current = true;
@@ -213,18 +112,7 @@ export function useOperationProgress(
 
       eventSource.onmessage = (event) => handleEventData(event.data);
 
-      const eventTypes = [
-        'snapshot',
-        'operation.started',
-        'operation.step.started',
-        'operation.step.progress',
-        'operation.step.completed',
-        'operation.step.failed',
-        'operation.completed',
-        'operation.failed',
-      ];
-
-      for (const type of eventTypes) {
+      for (const type of OPERATION_SSE_EVENT_TYPES) {
         eventSource.addEventListener(type, (event: MessageEvent) => {
           handleEventData(event.data);
         });
@@ -256,7 +144,7 @@ export function useOperationProgress(
         eventSource.close();
       }
     };
-  }, [applyEvent, fetchSnapshot, operationId]);
+  }, [fetchSnapshot, operationId]);
 
   const isCompleted = snapshot?.status === 'completed';
   const isFailed = snapshot?.status === 'failed';

@@ -122,7 +122,8 @@ export interface FileDiffRequest {
  * Responsibility split:
  *   - usePullRequestFileDiffs owns the React Query key shape (all 5 identity dimensions),
  *     the fetch transport, and the per-item result mapping.
- *   - useBatchQueries owns batshit windowing, in-flight dedup, and TQ lifecycle.
+ *   - useBatchQueries owns batch-window scheduling (via @yornaath/batshit), in-flight
+ *     dedup, and TQ lifecycle.
  *   - The dashboard UI only calls load/preload/get — it never sees batchSize,
  *     inFlight state, or other implementation details.
  *

@@ -12,24 +12,21 @@ import type {
   AiSession,
   DashboardChange,
   DashboardTask,
-  OperationSnapshot,
-  SpecificationOwnerAction,
   TaskNavigationTarget,
 } from '@/lib/types';
 import { cn, formatDate, formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { FinalizeDialog, RepositoryActionsCard, TaskActionFooter } from '@/components/spec-actions';
+import { FinalizeDialog, RepositoryActionsCard } from '@/components/spec-actions';
 import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
-import { useQueryClient } from '@tanstack/react-query';
-import { invalidateDashboardQueries } from '@/hooks/use-dashboard-data';
 import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
 import { Link } from '@tanstack/react-router';
 
 import { useSpecificationActions, useSpecificationManifest } from './spec-detail-queries';
 import { computeVisibleTabs, type SpecTabId } from './documentation-projection';
+import { useSpecWorkflowActions } from './use-spec-workflow-actions';
 import { OverviewPanel } from './overview-panel';
 import { DocumentationPanel } from './documentation-panel';
 
@@ -62,47 +59,16 @@ export function SpecDetail({
   onCreateSession: () => void;
   onNavigateMode?: (mode: 'active' | 'archive') => void;
 }) {
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [activeOperationId, setActiveOperationId] = useState<string | null>(() => {
-    try {
-      return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [operationTitle, setOperationTitle] = useState<string>(() => {
-    try {
-      return (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op-title:${change.slug}`) : '') || 'Przebieg operacji';
-    } catch {
-      return 'Przebieg operacji';
-    }
-  });
-  const [finalizeOpen, setFinalizeOpen] = useState(false);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestQuery = useSpecificationManifest(change, true);
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
   const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) });
+  const workflow = useSpecWorkflowActions(change, actionsQuery);
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
 
   const visibleTabs = useMemo(() => computeVisibleTabs(manifestQuery.data), [manifestQuery.data]);
-
-  const updateActiveOperation = useCallback((opId: string | null, title?: string) => {
-    setActiveOperationId(opId);
-    if (title) setOperationTitle(title);
-    try {
-      if (typeof sessionStorage !== 'undefined') {
-        if (opId) {
-          sessionStorage.setItem(`nevo:active-op:${change.slug}`, opId);
-          if (title) sessionStorage.setItem(`nevo:active-op-title:${change.slug}`, title);
-        } else {
-          sessionStorage.removeItem(`nevo:active-op:${change.slug}`);
-          sessionStorage.removeItem(`nevo:active-op-title:${change.slug}`);
-        }
-      }
-    } catch {}
-  }, [change.slug]);
 
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['overview']));
 
@@ -118,15 +84,6 @@ export function SpecDetail({
   useEffect(() => {
     setActiveTab('overview');
     setVisitedTabs(new Set(['overview']));
-    setFinalizeOpen(false);
-    try {
-      const savedOp = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op:${change.slug}`) : null;
-      const savedTitle = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`nevo:active-op-title:${change.slug}`) : '';
-      setActiveOperationId(savedOp);
-      setOperationTitle(savedTitle || 'Przebieg operacji');
-    } catch {
-      setActiveOperationId(null);
-    }
   }, [change.slug]);
 
   const openTask = useCallback((task: DashboardTask, trigger: HTMLElement) => {
@@ -139,79 +96,6 @@ export function SpecDetail({
     setSelectedTaskId(null);
     requestAnimationFrame(() => taskTriggerRef.current?.focus());
   }, []);
-
-  const handleOperationTerminal = useCallback(async () => {
-    await invalidateDashboardQueries(queryClient);
-  }, [queryClient]);
-
-  const executeDirectTaskAction = useCallback(async (task: DashboardTask, actionName: SpecificationOwnerAction) => {
-    try {
-      const taskId = task.id;
-      const res = await actionsQuery.execute({ action: actionName, taskId });
-      if (res?.operationId) {
-        updateActiveOperation(
-          res.operationId,
-          actionName === 'approve' ? `Zatwierdzanie zadania: ${taskId}` : `Weryfikacja zadania: ${taskId}`
-        );
-      }
-    } catch {
-      // Handled in mutation state
-    }
-  }, [actionsQuery, updateActiveOperation]);
-
-  const executeBatchTaskAction = useCallback(async (tasks: DashboardTask[], actionName: SpecificationOwnerAction) => {
-    for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i];
-      try {
-        const taskId = task.id;
-        const res = await actionsQuery.execute({ action: actionName, taskId });
-        if (res?.operationId) {
-          updateActiveOperation(
-            res.operationId,
-            actionName === 'approve'
-              ? `Zatwierdzanie zadania (${i + 1}/${tasks.length}): ${taskId}`
-              : `Weryfikacja zadania (${i + 1}/${tasks.length}): ${taskId}`
-          );
-
-          // Wait for the spawned operation to reach a terminal state before running next task
-          const startTime = Date.now();
-          let isTerminal = false;
-          while (!isTerminal && Date.now() - startTime < 60000) {
-            await new Promise(r => setTimeout(r, 350));
-            try {
-              const checkRes = await fetch(`/api/operations/${encodeURIComponent(res.operationId)}`, { cache: 'no-store' });
-              if (checkRes.ok) {
-                const snap = (await checkRes.json()) as OperationSnapshot;
-                if (snap.status === 'completed') {
-                  isTerminal = true;
-                  // Allow Git and filesystem locks to settle before next task
-                  await new Promise(r => setTimeout(r, 600));
-                } else if (snap.status === 'failed') {
-                  return; // Stop batch execution if a task fails
-                }
-              }
-            } catch {
-              // retry polling
-            }
-          }
-        }
-      } catch {
-        break;
-      }
-    }
-  }, [actionsQuery, updateActiveOperation]);
-
-  const executeFinalize = useCallback(async () => {
-    try {
-      const res = await actionsQuery.execute({ action: 'finalize', confirmed: true });
-      setFinalizeOpen(false);
-      if (res?.operationId) {
-        updateActiveOperation(res.operationId, 'Finalizacja specyfikacji');
-      }
-    } catch {
-      // The mutation exposes its sanitized error in the confirmation dialog.
-    }
-  }, [actionsQuery, updateActiveOperation]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex = currentIndex;
@@ -323,8 +207,8 @@ export function SpecDetail({
             onOpenSession={onOpenSession}
             onCreateSession={onCreateSession}
             taskActions={actionsQuery.data?.tasks}
-            onDirectTaskAction={executeDirectTaskAction}
-            onBatchTaskAction={executeBatchTaskAction}
+            onDirectTaskAction={workflow.executeDirectTaskAction}
+            onBatchTaskAction={workflow.executeBatchTaskAction}
             onOpenTask={(target) => {
               const nextTaskId = typeof target === 'string' ? target : target.taskId;
               setSelectedTaskId(nextTaskId);
@@ -339,10 +223,7 @@ export function SpecDetail({
                     error={actionsQuery.error}
                     executing={actionsQuery.executing}
                     onRefresh={() => void actionsQuery.refresh()}
-                    onFinalize={() => {
-                      actionsQuery.resetExecution();
-                      setFinalizeOpen(true);
-                    }}
+                    onFinalize={workflow.openFinalize}
                   />
                 </div>
               ) : null
@@ -388,25 +269,25 @@ export function SpecDetail({
             const nextTaskId = typeof target === 'string' ? target : target.taskId;
             setSelectedTaskId(nextTaskId);
           }}
-          onOperationStarted={updateActiveOperation}
+          onOperationStarted={workflow.updateActiveOperation}
           onClose={closeTask}
         />
       )}
 
       <FinalizeDialog
-        open={finalizeOpen}
+        open={workflow.finalizeOpen}
         executing={actionsQuery.executing}
         error={actionsQuery.executionError}
-        onClose={() => { if (!actionsQuery.executing) setFinalizeOpen(false); }}
-        onConfirm={() => void executeFinalize()}
+        onClose={workflow.closeFinalize}
+        onConfirm={() => void workflow.executeFinalize()}
       />
 
       <OperationModal
-        operationId={activeOperationId}
-        open={Boolean(activeOperationId)}
-        title={operationTitle}
-        onClose={() => updateActiveOperation(null)}
-        onTerminal={handleOperationTerminal}
+        operationId={workflow.activeOperationId}
+        open={Boolean(workflow.activeOperationId)}
+        title={workflow.operationTitle}
+        onClose={() => workflow.updateActiveOperation(null)}
+        onTerminal={workflow.handleOperationTerminal}
       />
     </div>
   );

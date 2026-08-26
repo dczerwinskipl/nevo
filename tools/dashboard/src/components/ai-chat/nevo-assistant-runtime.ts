@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useExternalStoreRuntime, type ThreadMessageLike } from '@assistant-ui/react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type {
   AgentCapabilities,
-  AgentEvent,
   AgentExecutionMode,
   AgentSessionSnapshot,
   AiInteraction,
@@ -18,8 +16,10 @@ import {
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
 } from './agent-event-reducer.ts';
-import { subscribeAgentEventSource } from './agent-event-source.ts';
+import { connectAgentEventStream, resolveEventSeq } from './agent-event-source.ts';
 import { classifySessionLoadError, fetchAgentSessionSnapshot, AgentSessionLoadError } from './agent-session-transport.ts';
+import { postCancelTurn, postRespondInteraction, postStartTurn } from './agent-turn-transport.ts';
+import { useAssistantUiBridge } from './use-assistant-ui-bridge.ts';
 
 export interface UseNevoAssistantRuntimeOptions {
   provider: string;
@@ -155,7 +155,9 @@ export function useNevoAssistantRuntime({
     };
   }, [provider, providerSessionId, reloadTrigger]);
 
-  // 2. Live SSE connection & event deduplication
+  // 2. Live SSE connection & event deduplication — connection lifecycle itself lives in
+  // connectAgentEventStream (agent-event-source.ts); this effect only decides what a
+  // received event means for this hook's own React state.
   useEffect(() => {
     if (!provider || !providerSessionId) return;
     const identity = `${provider}:${providerSessionId}`;
@@ -164,86 +166,80 @@ export function useNevoAssistantRuntime({
 
     const cursor = lastSeqRef.current;
     const url = `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/events?after=${cursor}`;
-    const eventSource = new EventSource(url);
 
     let active = true;
 
-    eventSource.onopen = () => {
-      if (active) setLive(true);
-    };
-    eventSource.onerror = () => {
-      if (active) setLive(false);
-    };
+    const disconnect = connectAgentEventStream(url, {
+      onOpen: () => { if (active) setLive(true); },
+      onError: () => { if (active) setLive(false); },
+      onEvent: (event) => {
+        if (!active) return;
+        setLive(true);
+        const seq = resolveEventSeq(event);
+        if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
-    const handleAgentEvent = (event: AgentEvent) => {
-      if (!active) return;
-      setLive(true);
-      const seq = event.seq ?? event.id ?? 0;
-      if (seq <= lastSeqRef.current) return; // Deduplication cursor check
+        setLastEventSeq(seq);
+        lastSeqRef.current = seq;
 
-      setLastEventSeq(seq);
-      lastSeqRef.current = seq;
+        setMessages((prev) => applyAgentEvent(prev, event));
+        if (eventModifiesTranscriptContent(event)) {
+          setContentRevision((r) => r + 1);
+        }
 
-      setMessages((prev) => applyAgentEvent(prev, event));
-      if (eventModifiesTranscriptContent(event)) {
-        setContentRevision((r) => r + 1);
-      }
+        switch (event.type) {
+          case 'turn.started':
+            setActivity('running');
+            activityRef.current = 'running';
+            if (event.turnId) {
+              setActiveTurnId(event.turnId);
+              activeTurnIdRef.current = event.turnId;
+            }
+            break;
 
-      switch (event.type) {
-        case 'turn.started':
-          setActivity('running');
-          activityRef.current = 'running';
-          if (event.turnId) {
-            setActiveTurnId(event.turnId);
-            activeTurnIdRef.current = event.turnId;
-          }
-          break;
+          case 'interaction.requested':
+            setPendingInteraction(event.interaction || null);
+            setActivity('waitingForUser');
+            activityRef.current = 'waitingForUser';
+            break;
 
-        case 'interaction.requested':
-          setPendingInteraction(event.interaction || null);
-          setActivity('waitingForUser');
-          activityRef.current = 'waitingForUser';
-          break;
+          case 'interaction.resolved':
+            setPendingInteraction(null);
+            setActivity('running');
+            activityRef.current = 'running';
+            break;
 
-        case 'interaction.resolved':
-          setPendingInteraction(null);
-          setActivity('running');
-          activityRef.current = 'running';
-          break;
+          case 'turn.completed':
+            if (event.turnId) {
+              terminalTurnIdsRef.current.add(event.turnId);
+            }
+            setActivity('idle');
+            activityRef.current = 'idle';
+            setActiveTurnId(null);
+            activeTurnIdRef.current = null;
+            setPendingInteraction(null);
+            onTurnCompletedRef.current?.();
+            break;
 
-        case 'turn.completed':
-          if (event.turnId) {
-            terminalTurnIdsRef.current.add(event.turnId);
-          }
-          setActivity('idle');
-          activityRef.current = 'idle';
-          setActiveTurnId(null);
-          activeTurnIdRef.current = null;
-          setPendingInteraction(null);
-          onTurnCompletedRef.current?.();
-          break;
-
-        case 'turn.failed':
-          if (event.turnId) {
-            terminalTurnIdsRef.current.add(event.turnId);
-          }
-          setActivity('idle');
-          activityRef.current = 'idle';
-          setActiveTurnId(null);
-          activeTurnIdRef.current = null;
-          setPendingInteraction(null);
-          if (event.error && shouldSurfaceTurnError(event.error)) {
-            onErrorRef.current?.(new Error(event.error.message));
-          }
-          break;
-      }
-    };
-
-    const unsubscribe = subscribeAgentEventSource(eventSource, handleAgentEvent);
+          case 'turn.failed':
+            if (event.turnId) {
+              terminalTurnIdsRef.current.add(event.turnId);
+            }
+            setActivity('idle');
+            activityRef.current = 'idle';
+            setActiveTurnId(null);
+            activeTurnIdRef.current = null;
+            setPendingInteraction(null);
+            if (event.error && shouldSurfaceTurnError(event.error)) {
+              onErrorRef.current?.(new Error(event.error.message));
+            }
+            break;
+        }
+      },
+    });
 
     return () => {
       active = false;
-      unsubscribe();
+      disconnect();
     };
   }, [provider, providerSessionId, loadedIdentity, loadError]);
 
@@ -283,29 +279,11 @@ export function useNevoAssistantRuntime({
       activeTurnIdRef.current = null;
 
       try {
-        const res = await fetch(
-          `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns`,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-nevo-dashboard-action': '1',
-            },
-            body: JSON.stringify({
-              message: trimmed,
-              idempotencyKey,
-              ...(options?.mode ? { mode: options.mode } : {}),
-            }),
-          }
-        );
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Failed to start turn (${res.status})`);
-        }
-
-        const data = await res.json();
-        const returnedTurnId = data.turnId;
+        const { turnId: returnedTurnId } = await postStartTurn(provider, providerSessionId, {
+          message: trimmed,
+          idempotencyKey,
+          mode: options?.mode,
+        });
 
         // Race-safety check: If terminal SSE arrived before this POST response completed,
         // or the activity is no longer running, do not overwrite the cleared activeTurnId.
@@ -333,23 +311,11 @@ export function useNevoAssistantRuntime({
     if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
     try {
-      const res = await fetch(
-        `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/turns/${encodeURIComponent(turnId)}/cancel`,
-        {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-nevo-dashboard-action': '1',
-          },
-          body: JSON.stringify({}),
-        }
-      );
-
-      const errData = !res.ok ? await res.json().catch(() => ({})) : null;
+      const { response, errorData } = await postCancelTurn(provider, providerSessionId, turnId);
       const result = applyCancelTurnResponse({
         turnId,
-        response: res,
-        errorData: errData,
+        response,
+        errorData,
         currentActiveTurnId: activeTurnIdRef.current,
         currentActivity: activityRef.current,
         terminalTurnIds: terminalTurnIdsRef.current,
@@ -387,21 +353,7 @@ export function useNevoAssistantRuntime({
       if (loadedIdentity !== `${provider}:${providerSessionId}`) return;
 
       try {
-        const res = await fetch(
-          `/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(providerSessionId)}/interactions/${encodeURIComponent(interactionId)}/respond`,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-nevo-dashboard-action': '1',
-            },
-            body: JSON.stringify(responsePayload),
-          }
-        );
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Failed to respond to interaction (${res.status})`);
-        }
+        await postRespondInteraction(provider, providerSessionId, interactionId, responsePayload);
         setPendingInteraction(null);
         setContentRevision((r) => r + 1);
         setActivity('running');
@@ -429,33 +381,11 @@ export function useNevoAssistantRuntime({
   const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
   const exposedCanStartTurn = exposedIsReady;
 
-  // 6. Convert NormalizedMessages to Assistant UI ThreadMessageLike
-  const assistantMessages: ThreadMessageLike[] = useMemo(() => {
-    return exposedMessages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      content: m.text,
-      createdAt: new Date(m.createdAt),
-    }));
-  }, [exposedMessages]);
-
-  // 7. Initialize useExternalStoreRuntime
-  const runtime = useExternalStoreRuntime({
+  // 6. Bind to @assistant-ui/react — sole responsibility of useAssistantUiBridge.
+  const runtime = useAssistantUiBridge({
+    messages: exposedMessages,
     isRunning: exposedIsRunning,
-    messages: assistantMessages,
-    convertMessage: (m: ThreadMessageLike) => m,
-    onNew: async (msg) => {
-      let text = '';
-      if (typeof msg.content === 'string') {
-        text = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        text = msg.content
-          .filter((p: any) => p.type === 'text')
-          .map((p: any) => p.text)
-          .join('\n');
-      }
-      await handleSendTurn(text);
-    },
+    onSendText: handleSendTurn,
     onCancel: handleCancelTurn,
   });
 

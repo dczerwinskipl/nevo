@@ -22,6 +22,8 @@ export interface AgentEventSourceLike {
   addEventListener(type: string, listener: (event: MessageEvent) => void): void;
   removeEventListener?(type: string, listener: (event: MessageEvent) => void): void;
   onmessage?: ((event: MessageEvent) => void) | null;
+  onopen?: ((event: Event) => void) | null;
+  onerror?: ((event: Event) => void) | null;
   close(): void;
 }
 
@@ -58,4 +60,34 @@ export function subscribeAgentEventSource(
     }
     eventSource.close();
   };
+}
+
+/** `event.seq` is the primary cursor; `event.id` is the SSE fallback when a provider omits `seq`. */
+export function resolveEventSeq(event: Pick<AgentEvent, 'seq' | 'id'>): number {
+  return event.seq ?? event.id ?? 0;
+}
+
+export interface AgentEventStreamHandlers {
+  onEvent: (event: AgentEvent) => void;
+  onOpen?: () => void;
+  onError?: () => void;
+}
+
+/**
+ * Opens one live agent-event connection and wires it end to end (open/error signaling,
+ * named-event subscription via `subscribeAgentEventSource`, cleanup on disconnect).
+ * Takes an injectable `createEventSource` so this — and thus the live-stream lifecycle
+ * a session runtime depends on — is testable with a fake `AgentEventSourceLike` and no
+ * real browser `EventSource`, `@assistant-ui/react`, or React at all (area
+ * ai-assistant-chat-and-runtime-feature-slice, task 07).
+ */
+export function connectAgentEventStream(
+  url: string,
+  handlers: AgentEventStreamHandlers,
+  createEventSource: (url: string) => AgentEventSourceLike = (u) => new EventSource(u),
+): () => void {
+  const eventSource = createEventSource(url);
+  eventSource.onopen = () => handlers.onOpen?.();
+  eventSource.onerror = () => handlers.onError?.();
+  return subscribeAgentEventSource(eventSource, handlers.onEvent);
 }
