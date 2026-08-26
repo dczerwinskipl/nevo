@@ -3,9 +3,9 @@ import { cn } from '@/lib/utils';
 import { StatusLabel } from '@/components/status-label';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
-  { id: 'done', label: 'Gotowe', color: 'bg-[var(--accent)]' },
+  { id: 'done', label: 'Gotowe', color: 'bg-[var(--success)]' },
   { id: 'review', label: 'Review', color: 'bg-[color-mix(in_srgb,var(--warning)_60%,transparent)]' },
-  { id: 'implementation', label: 'Implementacja', color: 'bg-[color-mix(in_srgb,var(--info)_60%,transparent)]' },
+  { id: 'implementation', label: 'Implementacja', color: 'bg-[var(--accent)]' },
   { id: 'ready', label: 'Ready', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
   { id: 'design', label: 'Projekt', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
   { id: 'new', label: 'Nowe', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
@@ -32,21 +32,16 @@ export function StageProgress({
     <div className={className}>
       <div
         className="flex h-2 w-full overflow-hidden rounded-full bg-white/7"
-        role="img"
-        aria-label={`Rozkład etapów. ${description}.`}
+        role="progressbar"
+        aria-label={`Postęp ukończenia: ${change.metrics.progress}%. ${description}.`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={change.metrics.progress}
       >
-        {visibleStages.map(stage => {
-          const count = change.metrics.stageCounts[stage.id];
-          if (!count || !total) return null;
-          return (
-            <span
-              key={stage.id}
-              className={cn('h-full border-r border-black/25 last:border-r-0', stage.color)}
-              style={{ width: `${(count / total) * 100}%` }}
-              title={`${stage.label}: ${count}/${total}`}
-            />
-          );
-        })}
+        <span
+          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500"
+          style={{ width: `${change.metrics.progress}%` }}
+        />
       </div>
 
       {legend && (

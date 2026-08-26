@@ -50,6 +50,7 @@ import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { StatusBoard } from '@/components/status-board';
+import { statusTone } from '@/components/status-label';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useSpecificationActions,
@@ -88,17 +89,36 @@ export interface SpecTabItem {
   section?: SpecificationManifestSection;
 }
 
-function MetricCard({ icon, label, value, helper }: { icon: React.ReactNode; label: string; value: string; helper: string }) {
+function MetricCard({
+  icon,
+  label,
+  value,
+  helper,
+  tone = 'neutral',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  helper: string;
+  tone?: 'neutral' | 'accent' | 'warning' | 'success';
+}) {
+  const toneClass = {
+    neutral: 'text-[var(--accent)]',
+    accent: 'text-[var(--accent)]',
+    warning: 'text-[var(--warning)]',
+    success: 'text-[var(--success)]',
+  }[tone];
+
   return (
     <Card className="relative overflow-hidden p-4">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-          <p className="mt-2 text-xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+          <p className={cn('mt-2 text-xl font-semibold tracking-tight', tone === 'neutral' ? 'text-[var(--foreground)]' : toneClass)}>{value}</p>
           <p className="mt-1 text-[11px] text-[var(--muted)]">{helper}</p>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
+        <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)]', toneClass)}>
           {icon}
         </div>
       </div>
@@ -137,7 +157,7 @@ function ContentError({ message, onRetry }: { message: string; onRetry: () => vo
 function EmptyDocument({ title, detail }: { title: string; detail: string }) {
   return (
     <Card className="flex min-h-48 flex-col items-center justify-center p-8 text-center">
-      <FileCode2 className="size-6 text-[var(--muted)]" />
+      <FileCode2 className="size-6 text-[var(--accent)]" />
       <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">{title}</h2>
       <p className="mt-2 max-w-md text-xs leading-5 text-[var(--muted)]">{detail}</p>
     </Card>
@@ -407,25 +427,28 @@ function OverviewPanel({
           label="W toku"
           value={String(change.metrics.inImplementation)}
           helper={`${change.metrics.ready} gotowych do startu`}
+          tone="accent"
         />
         <MetricCard
           icon={<CircleDotDashed className="size-4" />}
           label="Review"
           value={String(change.metrics.inReview)}
           helper="zadań oczekuje na weryfikację"
+          tone="warning"
         />
         <MetricCard
           icon={<CheckCircle2 className="size-4" />}
           label="Gotowe"
           value={String(change.metrics.completed)}
           helper="zadań zweryfikowanych"
+          tone="success"
         />
       </section>
 
       {change.nextTask && (
         <Card className="mt-3 overflow-hidden">
           <div className="grid gap-4 p-5 sm:grid-cols-[auto_1fr_auto] sm:items-center">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[#121705]">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
               <ArrowUpRight className="size-4" />
             </div>
             <div>
@@ -674,7 +697,13 @@ export function SpecDetail({
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]">
+            <Badge className={cn(
+              'bg-[var(--surface-raised)]',
+              (change.status === 'verified' || change.status === 'archived') && 'border-[var(--success-border)] bg-[var(--success-muted)]',
+              change.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
+              change.status === 'in-implementation' && 'border-[var(--accent-border)] bg-[var(--accent-muted)]',
+              statusTone(change.status),
+            )}>
               <span className="mr-1.5 size-1.5 rounded-full bg-current" />{formatStatus(change.status)}
             </Badge>
             {change.priority !== null && <Badge>Priorytet {change.priority}</Badge>}
@@ -683,8 +712,8 @@ export function SpecDetail({
           <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{change.title}</h1>
           <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">{change.summary}</p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
-            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5" /> {formatDate(change.updatedAt)}</span>
-            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5" /> {change.path}</span>}
+            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-[var(--accent)]" /> {formatDate(change.updatedAt)}</span>
+            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5 text-[var(--accent)]" /> {change.path}</span>}
           </div>
         </div>
 
@@ -723,7 +752,7 @@ export function SpecDetail({
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={event => handleTabKeyDown(event, index)}
               >
-                <Icon className="size-3.5" />{tab.label}
+                <Icon className="size-3.5 text-[var(--accent)]" />{tab.label}
                 {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--accent)]" />}
               </button>
             );

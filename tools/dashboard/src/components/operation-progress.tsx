@@ -21,7 +21,7 @@ export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
     case 'completed':
       return <CheckCircle2 className="size-4 text-[var(--success)] shrink-0" />;
     case 'running':
-      return <LoaderCircle className="size-4 text-[var(--info)] animate-spin shrink-0" />;
+      return <LoaderCircle className="size-4 text-[var(--accent)] animate-spin shrink-0" />;
     case 'failed':
       return <AlertCircle className="size-4 text-[var(--danger)] shrink-0" />;
     case 'pending':
@@ -35,9 +35,9 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
     <li
       className={cn(
         'flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors text-xs',
-        step.status === 'running' && 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] border border-[color-mix(in_srgb,var(--info)_20%,transparent)]',
+        step.status === 'running' && 'bg-[var(--accent-muted)] border border-[var(--accent-border)]',
         step.status === 'failed' && 'bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)]',
-        step.status === 'completed' && 'bg-zinc-900/40 border border-zinc-800/40',
+        step.status === 'completed' && 'bg-[var(--surface-raised)] border border-[var(--border)]',
         step.status === 'pending' && 'opacity-60',
       )}
     >
@@ -49,7 +49,7 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
           <span
             className={cn(
               'font-medium truncate',
-              step.status === 'running' && 'text-[var(--info-strong)] font-semibold',
+              step.status === 'running' && 'text-[var(--accent)] font-semibold',
               step.status === 'failed' && 'text-[var(--danger-strong)] font-semibold',
               step.status === 'completed' && 'text-[var(--muted-strong)]',
               step.status === 'pending' && 'text-[var(--muted)]',
@@ -109,7 +109,7 @@ export function OperationProgressView({
   if (loading && !snapshot) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center space-y-3" role="status">
-        <LoaderCircle className="size-6 animate-spin text-[var(--info)]" />
+        <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
         <p className="text-xs text-[var(--muted)]">Inicjalizacja operacji…</p>
       </div>
     );
@@ -170,7 +170,7 @@ export function OperationProgressView({
       )}
 
       {onDismiss && !isRunning && (
-        <div className="flex justify-end pt-2 border-t border-zinc-800/80">
+        <div className="flex justify-end pt-2 border-t border-[var(--border)]">
           <Button
             size="sm"
             variant={isCompleted ? 'default' : 'secondary'}
@@ -243,7 +243,7 @@ export function OperationModal({
           </h2>
           <div className="flex items-center gap-3 shrink-0">
             {isRunning && (
-              <span className="inline-flex items-center gap-1.5 font-medium text-[var(--info)] text-xs">
+              <span className="inline-flex items-center gap-1.5 font-medium text-[var(--accent)] text-xs">
                 <LoaderCircle className="size-3.5 animate-spin" /> W toku…
               </span>
             )}

@@ -15,9 +15,9 @@ export function PermissionPrompt({
   onResolve: (response: unknown) => void;
 }) {
   return (
-    <Card className="border-amber-300/25 bg-amber-300/5 p-4 shadow-sm">
+    <Card className="border-[var(--warning-border)] bg-[var(--warning-muted)] p-4 shadow-sm">
       <div className="flex gap-3">
-        <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-200" />
+        <ShieldAlert className="mt-0.5 size-5 shrink-0 text-[var(--warning)]" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-[var(--foreground)]">
             Wymagana zgoda: <span className="font-mono text-[var(--accent)]">{interaction.toolName}</span>

@@ -144,7 +144,7 @@ export function TaskDialog({
               Zależności: {task.dependsOn.length ? task.dependsOn.join(', ') : 'brak'}
             </span>
             {task.blockedBy.length > 0 && (
-              <span className="rounded-md border border-amber-300/20 bg-amber-300/8 px-2.5 py-1 text-amber-200">
+              <span className="rounded-md border border-[var(--warning-border)] bg-[var(--warning-muted)] px-2.5 py-1 text-[var(--warning-strong)]">
                 Blokowane przez: {task.blockedBy.join(', ')}
               </span>
             )}
@@ -172,12 +172,12 @@ export function TaskDialog({
               <LoaderCircle className="size-4 animate-spin text-[var(--accent)]" /> Wczytywanie opisu zadania…
             </div>
           ) : taskDocumentQuery.error ? (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-300">
+            <div className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-muted)] p-4 text-xs text-[var(--danger-strong)]">
               <div className="flex items-center gap-2 font-semibold">
-                <AlertCircle className="size-4 text-red-400" />
+                <AlertCircle className="size-4 text-[var(--danger)]" />
                 <span>Nie udało się wczytać treści zadania</span>
               </div>
-              <p className="mt-1 text-[11px] text-red-200/80">{taskDocumentQuery.error}</p>
+              <p className="mt-1 text-[11px] text-[color-mix(in_srgb,var(--danger-strong)_80%,transparent)]">{taskDocumentQuery.error}</p>
               <Button size="sm" variant="secondary" onClick={() => void taskDocumentQuery.refresh()} className="mt-3">
                 Spróbuj ponownie
               </Button>

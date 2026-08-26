@@ -33,7 +33,7 @@ export function SpecMetadataFields({
       {/* Title */}
       <div>
         <label htmlFor="spec-title" className="block text-xs font-semibold">
-          Tytuł specyfikacji <span className="text-red-400">*</span>
+          Tytuł specyfikacji <span className="text-[var(--danger)]">*</span>
         </label>
         <input
           id="spec-title"
@@ -51,7 +51,7 @@ export function SpecMetadataFields({
       <div>
         <div className="flex items-center justify-between">
           <label htmlFor="spec-slug" className="block text-xs font-semibold">
-            Identyfikator / Slug <span className="text-red-400">*</span>
+            Identyfikator / Slug <span className="text-[var(--danger)]">*</span>
           </label>
           {slugManuallyEdited && title.trim() && slug !== slugifyTitle(title) && (
             <button

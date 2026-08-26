@@ -62,8 +62,8 @@ function stateLabel(pullRequest: AvailablePullRequest) {
 
 function stateTone(pullRequest: AvailablePullRequest) {
   if (pullRequest.draft) return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
-  if (pullRequest.state === 'merged') return 'border-violet-400/25 bg-violet-400/10 text-violet-300';
-  if (pullRequest.state === 'closed') return 'border-red-400/20 bg-red-400/8 text-red-300';
+  if (pullRequest.state === 'merged') return 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]';
+  if (pullRequest.state === 'closed') return 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]';
   return 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]';
 }
 
@@ -135,7 +135,7 @@ function FileChange({
   }, [diff, oldFileName, newFileName]);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
+    <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <button
         type="button"
         className="flex w-full items-center gap-3 bg-[var(--surface-raised)] px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] sm:px-4"
@@ -157,8 +157,8 @@ function FileChange({
           {diff?.previousPath && diff.previousPath !== file.path ? `${diff.previousPath} → ${file.path}` : file.path}
         </span>
         <Badge className="hidden text-[9px] sm:inline-flex">{FILE_STATUS_LABELS[file.status]}</Badge>
-        <span className="inline-flex items-center text-[10px] font-semibold text-emerald-300"><Plus className="size-3" />{file.additions}</span>
-        <span className="inline-flex items-center text-[10px] font-semibold text-red-300"><Minus className="size-3" />{file.deletions}</span>
+        <span className="inline-flex items-center text-[10px] font-semibold text-[var(--success)]"><Plus className="size-3" />{file.additions}</span>
+        <span className="inline-flex items-center text-[10px] font-semibold text-[var(--danger)]"><Minus className="size-3" />{file.deletions}</span>
       </button>
 
       {open && (
@@ -385,8 +385,8 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                 <Files className="size-3.5" />
                 {pullRequest.stats.changedFiles} plików
               </span>
-              <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
-              <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
+              <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
+              <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
               {collapseFilesInitially && <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
@@ -471,7 +471,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                 }
 
                 return (
-                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]">
+                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
@@ -488,8 +488,8 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
                         </span>
                       </div>
                       <div className="flex items-center gap-2.5 text-[10px] shrink-0 font-semibold">
-                        <span className="text-emerald-300">+{st.additions}</span>
-                        <span className="text-red-300">−{st.deletions}</span>
+                        <span className="text-[var(--success)]">+{st.additions}</span>
+                        <span className="text-[var(--danger)]">−{st.deletions}</span>
                       </div>
                     </button>
 
@@ -524,7 +524,7 @@ function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChang
           )}
 
           <details
-            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]"
+            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
             onToggle={(event) => {
               if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading) void fullDiffQuery.load();
             }}
@@ -582,8 +582,8 @@ function PullRequestSummaryCard({
               <span className="max-w-40 truncate font-mono">{pullRequest.base.name || pullRequest.base.label || 'base'}</span>
             </span>
             <span className="inline-flex items-center gap-1.5"><Files className="size-3.5" />{pullRequest.stats.changedFiles} plików</span>
-            <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
-            <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
+            <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
+            <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
           </div>
         </div>
         <ChevronRight className="mt-1 size-4 shrink-0 text-[var(--muted)] sm:mt-0" />

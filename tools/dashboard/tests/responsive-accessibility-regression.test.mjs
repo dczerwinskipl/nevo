@@ -147,7 +147,7 @@ test('AC10: Role and status distinctions are not color-only', () => {
 
   // Tool view uses distinct icons and normalized activity labels
   assert.match(toolViewSource, /CheckCircle2/);
-  assert.match(toolViewSource, /XCircle/);
+  assert.match(toolViewSource, /AlertTriangle/);
   assert.match(toolViewSource, /LoaderCircle/);
 });
 

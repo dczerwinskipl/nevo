@@ -40,7 +40,7 @@ export function sortSessionsByRecency(sessions: AiSession[]): AiSession[] {
   });
 }
 
-import { StatusLabel, formatSessionStatus } from '@/components/status-label';
+import { StatusLabel, formatSessionStatus, statusTone } from '@/components/status-label';
 
 export function statusLabel(status: AiSession['status']) {
   return formatSessionStatus(status);
@@ -135,9 +135,10 @@ export function AiSessionRow({
           <span
             className={cn(
               'shrink-0 rounded-full px-2 py-0.5',
-              session.status === 'running' || session.status === 'waitingForUser'
-                ? 'bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
-                : 'bg-white/6 text-[var(--muted)]'
+              session.status === 'running' && 'bg-[var(--accent-muted)]',
+              session.status === 'waitingForUser' && 'bg-[var(--warning-muted)]',
+              session.status !== 'running' && session.status !== 'waitingForUser' && 'bg-white/6',
+              statusTone(session.status),
             )}
           >
             <StatusLabel kind="session" status={session.status} />
@@ -172,7 +173,7 @@ export function AiSessionRow({
                       className="inline-flex max-w-[240px] items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] cursor-pointer"
                       title={`Otwórz szczegóły zadania: ${label}`}
                     >
-                      <CheckSquare className="size-2.5 shrink-0 text-[var(--info)]" />
+                      <CheckSquare className="size-2.5 shrink-0 text-[var(--accent)]" />
                       <span className="truncate">{label}</span>
                     </button>
                   ) : (
@@ -207,7 +208,7 @@ export function AiSessionRow({
             }
           }}
           disabled={isDeleting}
-          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-30"
+          className="absolute right-1 top-1 flex size-11 items-center justify-center rounded-lg text-[var(--muted)] opacity-70 transition-all hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)] disabled:opacity-30"
         >
           {isDeleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
         </button>

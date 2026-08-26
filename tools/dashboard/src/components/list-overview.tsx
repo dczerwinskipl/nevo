@@ -47,7 +47,7 @@ export function ListOverview({
             >
               <Card className="p-5 transition-colors group-hover:border-[var(--border-strong)] group-hover:bg-[var(--surface-raised)]">
                 <div className="flex items-start gap-4">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted)]">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
                     {archive ? <Archive className="size-4" /> : <FileStack className="size-4" />}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -63,7 +63,7 @@ export function ListOverview({
                       <span className="font-semibold tabular-nums">{change.metrics.progress}%</span>
                     </div>
                   </div>
-                  <ArrowRight className="mt-3 size-4 shrink-0 text-[var(--muted)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--accent)]" />
+                  <ArrowRight className="mt-3 size-4 shrink-0 text-[var(--accent)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--accent-strong)]" />
                 </div>
               </Card>
             </Link>
@@ -72,7 +72,7 @@ export function ListOverview({
 
         {changes.length === 0 && (
           <div className="rounded-2xl border border-dashed border-[var(--border)] py-20 text-center">
-            <Inbox className="mx-auto size-7 text-[var(--muted)]" />
+            <Inbox className="mx-auto size-7 text-[var(--accent)]" />
             <p className="mt-4 text-sm font-semibold text-[var(--foreground)]">Tutaj jest pusto</p>
             <p className="mt-1 text-xs text-[var(--muted)]">Dashboard pokaże pozycje, gdy pojawią się w plikach repozytorium.</p>
           </div>
