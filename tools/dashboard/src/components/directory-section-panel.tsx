@@ -54,7 +54,7 @@ function ContentError({ message, onRetry }: { message: string; onRetry: () => vo
 function EmptyDocument({ title, detail }: { title: string; detail: string }) {
   return (
     <Card className="flex min-h-48 flex-col items-center justify-center p-8 text-center">
-      <FileCode2 className="size-6 text-[var(--muted)]" />
+      <FileCode2 className="size-6 text-[var(--accent)]" />
       <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">{title}</h2>
       <p className="mt-2 max-w-md text-xs leading-5 text-[var(--muted)]">{detail}</p>
     </Card>
@@ -208,7 +208,7 @@ export function DirectorySectionPanel({
                     </p>
                   )}
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />
+                <ChevronRight className="size-4 shrink-0 text-[var(--accent)]" />
               </button>
             </Card>
           );

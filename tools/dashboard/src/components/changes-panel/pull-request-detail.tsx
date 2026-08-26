@@ -198,8 +198,8 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Dashboa
                 <Files className="size-3.5" />
                 {pullRequest.stats.changedFiles} plików
               </span>
-              <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
-              <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
+              <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
+              <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
               {collapseFilesInitially && <span className="text-[var(--muted)]">Duży PR — pliki domyślnie zwinięte</span>}
             </div>
           </div>
@@ -283,7 +283,7 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Dashboa
                 }
 
                 return (
-                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]">
+                  <div key={group.name} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between gap-3 bg-[var(--surface-raised)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
@@ -292,7 +292,7 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Dashboa
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <ChevronDown
-                          className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !isGroupOpen && '-rotate-90')}
+                          className={cn('size-3.5 shrink-0 text-[var(--accent)] transition-transform', !isGroupOpen && '-rotate-90')}
                         />
                         <span className="font-semibold text-xs text-[var(--foreground)] truncate">{group.name}</span>
                         <span className="text-[10px] text-[var(--muted)] font-mono">
@@ -300,8 +300,8 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Dashboa
                         </span>
                       </div>
                       <div className="flex items-center gap-2.5 text-[10px] shrink-0 font-semibold">
-                        <span className="text-emerald-300">+{st.additions}</span>
-                        <span className="text-red-300">−{st.deletions}</span>
+                        <span className="text-[var(--success)]">+{st.additions}</span>
+                        <span className="text-[var(--danger)]">−{st.deletions}</span>
                       </div>
                     </button>
 
@@ -336,7 +336,7 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Dashboa
           )}
 
           <details
-            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[#080a0e]"
+            className="mt-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]"
             onToggle={(event) => {
               if (event.currentTarget.open && !fullDiffQuery.loaded && !fullDiffQuery.loading) void fullDiffQuery.load();
             }}

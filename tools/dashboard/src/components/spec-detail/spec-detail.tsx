@@ -21,6 +21,7 @@ import { FinalizeDialog, RepositoryActionsCard } from '@/components/spec-actions
 import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
+import { statusTone } from '@/components/status-label';
 import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
 import { Link } from '@tanstack/react-router';
 
@@ -133,7 +134,13 @@ export function SpecDetail({
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]">
+            <Badge className={cn(
+              'bg-[var(--surface-raised)]',
+              (change.status === 'verified' || change.status === 'archived') && 'border-[var(--success-border)] bg-[var(--success-muted)]',
+              change.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
+              change.status === 'in-implementation' && 'border-[var(--accent-border)] bg-[var(--accent-muted)]',
+              statusTone(change.status),
+            )}>
               <span className="mr-1.5 size-1.5 rounded-full bg-current" />{formatStatus(change.status)}
             </Badge>
             {change.priority !== null && <Badge>Priorytet {change.priority}</Badge>}
@@ -142,8 +149,8 @@ export function SpecDetail({
           <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{change.title}</h1>
           <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">{change.summary}</p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
-            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5" /> {formatDate(change.updatedAt)}</span>
-            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5" /> {change.path}</span>}
+            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-[var(--accent)]" /> {formatDate(change.updatedAt)}</span>
+            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5 text-[var(--accent)]" /> {change.path}</span>}
           </div>
         </div>
 
@@ -182,7 +189,7 @@ export function SpecDetail({
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={event => handleTabKeyDown(event, index)}
               >
-                <Icon className="size-3.5" />{tab.label}
+                <Icon className="size-3.5 text-[var(--accent)]" />{tab.label}
                 {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[var(--accent)]" />}
               </button>
             );

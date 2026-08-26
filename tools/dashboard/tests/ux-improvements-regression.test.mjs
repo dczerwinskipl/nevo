@@ -93,7 +93,7 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
   assert.ok(aiChatSource.includes('onClose={() => setInspectedTaskId(null)}'));
 });
 
-test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary header chrome', () => {
+test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
   const routerSource = readSource('router.tsx');
 
   // Indicator is icon-only in header with role=status, tabIndex=0, title, aria-label
@@ -101,7 +101,8 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary head
   assert.ok(routerSource.includes('tabIndex={0}'));
   assert.ok(routerSource.includes("aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}"));
   assert.ok(routerSource.includes("title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}"));
-  assert.ok(routerSource.includes('className="flex size-8 items-center justify-center rounded-lg border'));
+  assert.ok(routerSource.includes("? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'"));
+  assert.ok(routerSource.includes(": 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'"));
   assert.ok(!routerSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 
@@ -167,7 +168,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   assert.ok(stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'), 'stage-progress renders StatusLabel');
 
   // 3. Site 2 & 3: status-board lane header and task status labels use StatusLabel
-  assert.ok(statusBoardSource.includes("import { StatusLabel } from '@/components/status-label'"), 'status-board imports StatusLabel');
+  assert.ok(statusBoardSource.includes("from '@/components/status-label'"), 'status-board imports StatusLabel');
   assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
   assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status} />'), 'status-board task status renders StatusLabel');
 

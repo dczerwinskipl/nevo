@@ -16,23 +16,42 @@ import type {
   SpecificationTaskActionGate,
   TaskNavigationTarget,
 } from '@/lib/types';
-import { formatStatus, pluralizeTasks } from '@/lib/utils';
+import { cn, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AiSessionList } from '@/components/ai-session-list';
 import { StatusBoard } from '@/components/status-board';
 
-function MetricCard({ icon, label, value, helper }: { icon: React.ReactNode; label: string; value: string; helper: string }) {
+function MetricCard({
+  icon,
+  label,
+  value,
+  helper,
+  tone = 'neutral',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  helper: string;
+  tone?: 'neutral' | 'accent' | 'warning' | 'success';
+}) {
+  const toneClass = {
+    neutral: 'text-[var(--accent)]',
+    accent: 'text-[var(--accent)]',
+    warning: 'text-[var(--warning)]',
+    success: 'text-[var(--success)]',
+  }[tone];
+
   return (
     <Card className="relative overflow-hidden p-4">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-          <p className="mt-2 text-xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+          <p className={cn('mt-2 text-xl font-semibold tracking-tight', tone === 'neutral' ? 'text-[var(--foreground)]' : toneClass)}>{value}</p>
           <p className="mt-1 text-[11px] text-[var(--muted)]">{helper}</p>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]">
+        <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-raised)]', toneClass)}>
           {icon}
         </div>
       </div>
@@ -88,25 +107,28 @@ export function OverviewPanel({
           label="W toku"
           value={String(change.metrics.inImplementation)}
           helper={`${change.metrics.ready} gotowych do startu`}
+          tone="accent"
         />
         <MetricCard
           icon={<CircleDotDashed className="size-4" />}
           label="Review"
           value={String(change.metrics.inReview)}
           helper="zadań oczekuje na weryfikację"
+          tone="warning"
         />
         <MetricCard
           icon={<CheckCircle2 className="size-4" />}
           label="Gotowe"
           value={String(change.metrics.completed)}
           helper="zadań zweryfikowanych"
+          tone="success"
         />
       </section>
 
       {change.nextTask && (
         <Card className="mt-3 overflow-hidden">
           <div className="grid gap-4 p-5 sm:grid-cols-[auto_1fr_auto] sm:items-center">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[#121705]">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
               <ArrowUpRight className="size-4" />
             </div>
             <div>
@@ -116,7 +138,7 @@ export function OverviewPanel({
               <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{change.nextTask.title}</p>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <Layers3 className="size-3.5" />
+              <Layers3 className="size-3.5 text-[var(--accent)]" />
               {formatStatus(change.nextTask.status)}
             </div>
           </div>

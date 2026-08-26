@@ -64,7 +64,7 @@ export function SessionDetails({
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3.5 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-medium text-[var(--muted-strong)]">
-              <CheckSquare className="size-3.5 text-[var(--info)]" />
+              <CheckSquare className="size-3.5 text-[var(--accent)]" />
               <span>Powiązane zadania</span>
             </div>
             <span className="text-[11px] text-[var(--muted)] font-medium">
@@ -106,14 +106,14 @@ export function SessionDetails({
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 space-y-1">
             <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
-              <Cpu className="size-3.5 text-[var(--muted)]" />
+              <Cpu className="size-3.5 text-[var(--accent)]" />
               <span>Provider</span>
             </div>
             <p className="text-sm font-semibold capitalize text-[var(--foreground)]">{provider}</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 space-y-1">
             <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
-              <Layers className="size-3.5 text-[var(--muted)]" />
+              <Layers className="size-3.5 text-[var(--accent)]" />
               <span>Tryb</span>
             </div>
             <p className="text-sm font-semibold uppercase text-[var(--foreground)]">{mode}</p>
@@ -124,7 +124,7 @@ export function SessionDetails({
       {/* Actions section — visually separated as destructive */}
       <div className="pt-4 border-t border-[var(--border)] space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--danger)]">Strefa niebezpieczna</h3>
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
+        <div className="rounded-xl border border-[var(--danger-border)] bg-[var(--danger-muted)] p-4 space-y-3">
           <div>
             <p className="text-xs font-semibold text-[var(--foreground)]">Usuń sesję</p>
             <p className="text-[11px] text-[var(--muted)] mt-0.5">
@@ -136,7 +136,7 @@ export function SessionDetails({
             variant="ghost"
             onClick={onDelete}
             disabled={disabled || deleting}
-            className="w-full justify-center border border-red-500/30 bg-red-500/10 text-xs font-semibold text-red-400 hover:bg-red-500/20 hover:text-red-300 focus-visible:ring-red-400"
+            className="w-full justify-center border border-[var(--danger-border)] bg-[var(--danger-muted)] text-xs font-semibold text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_18%,transparent)] hover:text-[var(--danger-strong)] focus-visible:ring-[var(--danger)]"
           >
             {deleting ? (
               <LoaderCircle className="mr-2 size-3.5 animate-spin" />

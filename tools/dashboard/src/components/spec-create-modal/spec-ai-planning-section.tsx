@@ -66,7 +66,7 @@ export function SpecAiPlanningSection({
                 Wczytywanie providerów…
               </div>
             ) : !enabledProviders.length ? (
-              <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+              <p className="mt-2 rounded-lg border border-[var(--warning-border)] bg-[var(--warning-muted)] p-3 text-xs text-[var(--warning-strong)]">
                 {AI_ADAPTERS_ENABLE_MESSAGE}
               </p>
             ) : (
@@ -91,7 +91,7 @@ export function SpecAiPlanningSection({
                       <div className="flex w-full items-center justify-between gap-1">
                         <ProviderBadge provider={p.id} />
                         {!isAvailable && (
-                          <span className="text-[9px] font-medium text-amber-300">Niedostępny</span>
+                          <span className="text-[9px] font-medium text-[var(--warning)]">Niedostępny</span>
                         )}
                       </div>
                       <span className="mt-1 text-xs font-semibold text-[var(--foreground)]">{p.label}</span>

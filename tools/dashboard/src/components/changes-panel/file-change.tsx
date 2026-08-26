@@ -64,7 +64,7 @@ export function FileChange({
   }, [diff, oldFileName, newFileName]);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[#0b0d12]">
+    <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <button
         type="button"
         className="flex w-full items-center gap-3 bg-[var(--surface-raised)] px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] sm:px-4"
@@ -80,14 +80,14 @@ export function FileChange({
           });
         }}
       >
-        <ChevronDown className={cn('size-3.5 shrink-0 text-[var(--muted)] transition-transform', !open && '-rotate-90')} />
-        <FileDiff className="size-3.5 shrink-0 text-[var(--muted)]" />
+        <ChevronDown className={cn('size-3.5 shrink-0 text-[var(--accent)] transition-transform', !open && '-rotate-90')} />
+        <FileDiff className="size-3.5 shrink-0 text-[var(--accent)]" />
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--foreground)]" title={file.path}>
           {diff?.previousPath && diff.previousPath !== file.path ? `${diff.previousPath} → ${file.path}` : file.path}
         </span>
         <Badge className="hidden text-[9px] sm:inline-flex">{FILE_STATUS_LABELS[file.status]}</Badge>
-        <span className="inline-flex items-center text-[10px] font-semibold text-emerald-300"><Plus className="size-3" />{file.additions}</span>
-        <span className="inline-flex items-center text-[10px] font-semibold text-red-300"><Minus className="size-3" />{file.deletions}</span>
+        <span className="inline-flex items-center text-[10px] font-semibold text-[var(--success)]"><Plus className="size-3" />{file.additions}</span>
+        <span className="inline-flex items-center text-[10px] font-semibold text-[var(--danger)]"><Minus className="size-3" />{file.deletions}</span>
       </button>
 
       {open && (

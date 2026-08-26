@@ -77,7 +77,7 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
   if (!query.data?.pullRequests.length) {
     return (
       <Card className="flex min-h-56 flex-col items-center justify-center p-8 text-center">
-        <GitPullRequest className="size-7 text-[var(--muted)]" />
+        <GitPullRequest className="size-7 text-[var(--accent)]" />
         <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">Brak przypiętych pull requestów</h2>
         <p className="mt-2 max-w-lg text-xs leading-5 text-[var(--muted)]">
           Przypnij istniejący PR poleceniem <code className="rounded bg-[var(--background)] px-1.5 py-0.5">node tools/specs.mjs pull-request-add</code>, aby zobaczyć jego zmiany.

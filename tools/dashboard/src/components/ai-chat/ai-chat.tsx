@@ -286,12 +286,12 @@ export function AiChatPage({
         </Sheet>
 
         {!providersQuery.loading && providersQuery.data && !isProviderAvailable && (
-          <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2.5 sm:px-6">
-            <div className="mx-auto flex max-w-4xl items-start gap-2.5 text-xs text-amber-200">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+          <div className="shrink-0 border-b border-[var(--warning-border)] bg-[var(--warning-muted)] px-3 py-2.5 sm:px-6">
+            <div className="mx-auto flex max-w-4xl items-start gap-2.5 text-xs text-[var(--warning-strong)]">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold">Provider {providerInfo?.label || provider} nie jest dostępny</p>
-                <p className="mt-0.5 text-[11px] text-amber-200/80">
+                <p className="mt-0.5 text-[11px] text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">
                   {providerUnavailableReason}
                 </p>
               </div>
@@ -307,7 +307,7 @@ export function AiChatPage({
           <div className="mx-auto max-w-4xl space-y-5">
             {assistant.loadError && !assistant.sessionDetails && (
               <div className="py-16 text-center">
-                <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-400">
+                <div className="mx-auto flex size-12 items-center justify-center rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]">
                   <AlertTriangle className="size-6" />
                 </div>
                 <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">
@@ -366,16 +366,16 @@ export function AiChatPage({
                 'flex items-start gap-3 rounded-xl p-3.5 text-xs',
                 displayError.toLowerCase().includes('cancelled')
                   ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'
-                  : 'border border-red-500/30 bg-red-500/10 text-red-200'
+                  : 'border border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger-strong)]'
               )}>
                 <AlertTriangle className={cn(
                   'mt-0.5 size-4 shrink-0',
-                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-red-400'
+                  displayError.toLowerCase().includes('cancelled') ? 'text-[var(--muted)]' : 'text-[var(--danger)]'
                 )} />
                 <div className="min-w-0 flex-1">
                   <p className={cn(
                     'font-semibold',
-                    displayError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-red-300'
+                    displayError.toLowerCase().includes('cancelled') ? 'text-[var(--foreground)]' : 'text-[var(--danger-strong)]'
                   )}>
                     {displayError.toLowerCase().includes('cancelled') ? 'Generowanie przerwane' : 'Komunikat agenta'}
                   </p>

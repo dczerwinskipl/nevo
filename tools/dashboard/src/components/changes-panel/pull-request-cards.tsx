@@ -37,11 +37,11 @@ export function PullRequestSummaryCard({
               <span className="max-w-40 truncate font-mono">{pullRequest.base.name || pullRequest.base.label || 'base'}</span>
             </span>
             <span className="inline-flex items-center gap-1.5"><Files className="size-3.5" />{pullRequest.stats.changedFiles} plików</span>
-            <span className="font-semibold text-emerald-300">+{pullRequest.stats.additions}</span>
-            <span className="font-semibold text-red-300">−{pullRequest.stats.deletions}</span>
+            <span className="font-semibold text-[var(--success)]">+{pullRequest.stats.additions}</span>
+            <span className="font-semibold text-[var(--danger)]">−{pullRequest.stats.deletions}</span>
           </div>
         </div>
-        <ChevronRight className="mt-1 size-4 shrink-0 text-[var(--muted)] sm:mt-0" />
+        <ChevronRight className="mt-1 size-4 shrink-0 text-[var(--accent)] sm:mt-0" />
       </button>
     </Card>
   );

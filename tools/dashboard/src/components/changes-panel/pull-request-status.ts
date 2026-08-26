@@ -9,8 +9,8 @@ export function stateLabel(pullRequest: AvailablePullRequest) {
 
 export function stateTone(pullRequest: AvailablePullRequest) {
   if (pullRequest.draft) return 'border-[color-mix(in_srgb,var(--muted)_20%,transparent)] bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] text-[var(--muted-strong)]';
-  if (pullRequest.state === 'merged') return 'border-violet-400/25 bg-violet-400/10 text-violet-300';
-  if (pullRequest.state === 'closed') return 'border-red-400/20 bg-red-400/8 text-red-300';
+  if (pullRequest.state === 'merged') return 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]';
+  if (pullRequest.state === 'closed') return 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted-strong)]';
   return 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] text-[var(--accent)]';
 }
 

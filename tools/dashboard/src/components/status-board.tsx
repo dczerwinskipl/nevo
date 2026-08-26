@@ -11,16 +11,31 @@ import type {
 import { cn, formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { StatusLabel } from '@/components/status-label';
+import { StatusLabel, statusTone } from '@/components/status-label';
 
 const stageTone: Record<StageId, { dot: string; tint: string; line: string }> = {
   new: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
   design: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
   ready: { dot: 'bg-[var(--muted)]', tint: 'bg-[color-mix(in_srgb,var(--muted)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
-  implementation: { dot: 'bg-[var(--info)]', tint: 'bg-[color-mix(in_srgb,var(--info)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--info)_25%,transparent)]' },
+  implementation: { dot: 'bg-[var(--accent)]', tint: 'bg-[var(--accent-muted)]', line: 'border-[var(--accent-border)]' },
   review: { dot: 'bg-[var(--warning)]', tint: 'bg-[color-mix(in_srgb,var(--warning)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--warning)_25%,transparent)]' },
-  done: { dot: 'bg-[var(--accent)]', tint: 'bg-[color-mix(in_srgb,var(--accent)_7%,transparent)]', line: 'border-[color-mix(in_srgb,var(--accent)_25%,transparent)]' },
+  done: { dot: 'bg-[var(--success)]', tint: 'bg-[var(--success-muted)]', line: 'border-[var(--success-border)]' },
 };
+
+function taskStatusTint(status: string, fallback: string) {
+  switch (status) {
+    case 'approved':
+    case 'verified':
+    case 'archived':
+      return 'bg-[var(--success-muted)]';
+    case 'implemented':
+      return 'bg-[var(--warning-muted)]';
+    case 'in-implementation':
+      return 'bg-[var(--accent-muted)]';
+    default:
+      return fallback;
+  }
+}
 
 function TaskCard({
   task,
@@ -36,7 +51,7 @@ function TaskCard({
   onAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
 }) {
   const tone = stageTone[lane.id];
-  const isDone = lane.id === 'done';
+  const isDone = task.status === 'verified' || task.status === 'archived';
   const hasAction = actionGate?.enabled;
 
   return (
@@ -57,7 +72,7 @@ function TaskCard({
           #{String(task.order ?? '—').padStart(2, '0')}
         </span>
         {isDone ? (
-          <CheckCircle2 className="size-3.5 text-[var(--accent)]" />
+          <CheckCircle2 className="size-3.5 text-[var(--success)]" />
         ) : task.blockedBy.length ? (
           <LockKeyhole className="size-3.5 text-[var(--muted)]" />
         ) : (
@@ -96,12 +111,12 @@ function TaskCard({
         )}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <Badge className={cn('border-0 px-2 py-0.5', tone.tint)}>
+        <Badge className={cn('border-0 px-2 py-0.5', taskStatusTint(task.status, tone.tint), statusTone(task.status))}>
           <StatusLabel kind="task" status={task.status} />
         </Badge>
         {task.dependsOn.length > 0 && (
           <span className="inline-flex items-center gap-1 text-[9px] text-[var(--muted)]" title={`Zależności: ${task.dependsOn.join(', ')}`}>
-            <GitBranch className="size-3" />
+            <GitBranch className="size-3 text-[var(--accent)]" />
             {task.dependsOn.length}
           </span>
         )}

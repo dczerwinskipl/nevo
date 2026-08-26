@@ -48,14 +48,14 @@ function SpecNavigationItem({
       className={cn(
         'group block w-full rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
         selected
-          ? 'border-[color-mix(in_srgb,var(--accent)_36%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,var(--surface-raised))]'
+          ? 'border-[var(--accent-border)] bg-[color-mix(in_srgb,var(--accent)_7%,var(--surface))]'
           : 'border-transparent bg-transparent hover:border-[var(--border)] hover:bg-[var(--surface-raised)]',
       )}
     >
       <div className="flex items-start gap-3">
         <div
           className={cn(
-            'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border text-[var(--muted)]',
+            'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border text-[var(--accent)]',
             selected
               ? 'border-[color-mix(in_srgb,var(--accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--accent)]'
               : 'border-[var(--border)] bg-[var(--surface)]',
@@ -130,7 +130,7 @@ export function AppSidebar({
             className="flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
             title="Przejdź do listy specyfikacji"
           >
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[#101505]">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[var(--accent-foreground)]">
               N
             </div>
             <div>
@@ -181,7 +181,7 @@ export function AppSidebar({
                   : 'text-[var(--muted)] hover:text-[var(--foreground)]',
               )}
             >
-              <LayoutDashboard className="size-3.5" />
+              <LayoutDashboard className="size-3.5 text-[var(--accent)]" />
               <span>W toku</span>
               <Badge className="px-1.5 py-0 text-[10px]">
                 {active.length}
@@ -197,7 +197,7 @@ export function AppSidebar({
                   : 'text-[var(--muted)] hover:text-[var(--foreground)]',
               )}
             >
-              <Archive className="size-3.5" />
+              <Archive className="size-3.5 text-[var(--accent)]" />
               <span>Archiwum</span>
               <Badge className="px-1.5 py-0 text-[10px]">
                 {archive.length}
@@ -207,7 +207,7 @@ export function AppSidebar({
 
           <label className="relative mt-3 block">
             <span className="sr-only">Szukaj specyfikacji</span>
-            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
+            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--accent)]" />
             <input
               value={search}
               onChange={event => onSearchChange(event.target.value)}
@@ -238,7 +238,7 @@ export function AppSidebar({
             ))}
             {visible.length === 0 && (
               <div className="mx-2 rounded-xl border border-dashed border-[var(--border)] px-4 py-10 text-center">
-                <Archive className="mx-auto size-5 text-[var(--muted)]" />
+                <Archive className="mx-auto size-5 text-[var(--accent)]" />
                 <p className="mt-3 text-xs font-semibold text-[var(--foreground)]">Brak wyników</p>
                 <p className="mt-1 text-[11px] leading-5 text-[var(--muted)]">Zmień wyszukiwaną frazę.</p>
               </div>

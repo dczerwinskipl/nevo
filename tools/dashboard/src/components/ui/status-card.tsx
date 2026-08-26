@@ -24,7 +24,7 @@ export const RetryButton = forwardRef<HTMLButtonElement, RetryButtonProps>(funct
         disabled={disabled || loading}
         aria-label={label}
         title={label}
-        className={cn('size-8 shrink-0 rounded-lg text-[var(--muted)] hover:text-[var(--foreground)]', className)}
+        className={cn('size-8 shrink-0 rounded-lg text-[var(--accent)] hover:text-[var(--accent-strong)]', className)}
         {...props}
       >
         <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
