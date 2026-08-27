@@ -186,7 +186,7 @@ test('AC13: Regression checks for all NFR-7 critical paths', () => {
 
   // 1. Send path
   assert.match(composerSource, /onClick=\{handleSend\}/);
-  assert.match(aiChatSource, /submitMessage/);
+  assert.match(aiChatSource, /handleComposerSubmit/);
 
   // 2. Stop/cancel path
   assert.match(composerSource, /onCancel/);

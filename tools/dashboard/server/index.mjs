@@ -6,11 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dashboardNetworkConfig } from './network-config.mjs';
 import { createSpecEventHub } from './watcher.mjs';
 import { createOperationRuntime } from './operations.mjs';
-import { sendJson, readJsonBody, HttpError } from './http-utils.mjs';
+import { sendJson } from './http-utils.mjs';
 import { handleHealthRoute } from './routes/health.mjs';
-import { handleEventsRoute, createEventsRouteAdapter } from './routes/events.mjs';
-import { handleOperationRoute, createOperationRouteAdapter } from './routes/operations.mjs';
-import { handleSpecsRoute, createSpecsRouteAdapter } from './routes/specs.mjs';
+import { createEventsRouteAdapter } from './routes/events.mjs';
+import { createOperationRouteAdapter } from './routes/operations.mjs';
+import { createSpecsRouteAdapter } from './routes/specs.mjs';
 import { handlePullRequestRoute } from './routes/pull-requests.mjs';
 import { createAiRouteAdapter } from './routes/ai.mjs';
 
@@ -231,5 +231,3 @@ if (isDirectRun) {
   console.log(`NEvo dashboard API: ${url}/api/dashboard`);
   console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');
 }
-
-export { safeStaticPath, sendJson, readJsonBody, HttpError };

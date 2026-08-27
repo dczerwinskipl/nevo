@@ -93,3 +93,57 @@ follow_ups:
     resolver_task: null
     status: open
     resolution: null
+  - id: dead-use-task-statuses-export
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: tools/dashboard/src/hooks/use-dashboard-data.ts still exports
+      useTaskStatuses (a TanStack Query hook wrapping GET task statuses), but it
+      has had zero callers anywhere in tools/dashboard/src since before this
+      refactor's own baseline (confirmed via git grep at each of tasks 05-07's
+      baseline revisions) — a pre-existing dead export outside this
+      specification's own scope, not something tasks 05-07 introduced or were
+      responsible for migrating away, so left unremoved per this task's own
+      constraint to record rather than fix pre-existing issues outside scope.
+      Safe to delete in a follow-up pass once confirmed still unused.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: dead-sync-fs-helpers-data-mjs
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: tools/dashboard/server/data.mjs still defines synchronous
+      readOptional/collectRelevantFiles/latestModifiedAt helpers alongside the
+      async readOptionalAsync/collectRelevantFilesAsync/latestModifiedAtAsync
+      variants the request path (loadDashboardData and its dependents) actually
+      uses exclusively. The sync trio has had zero callers since before this
+      refactor's baseline (predates dashboard-server-runtime-and-routes' own
+      baseline revision) — confirmed dead, not something task 04 introduced or
+      left behind, and outside this task's own allowed_paths
+      (tools/dashboard/server/** is not in scope for direct edits here). Safe to
+      delete once confirmed still unused.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: dead-onnavigatemode-prop-spec-detail
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: SpecDetail (tools/dashboard/src/components/spec-detail/spec-detail.tsx)
+      declares an optional onNavigateMode prop, and router.tsx genuinely passes
+      a real active/archive navigation callback into it, but the component
+      itself has never actually invoked the callback anywhere in its body --
+      confirmed present in exactly the same shape (declared, destructured, never
+      called) in the pre-refactor spec-detail.tsx at task 05's own baseline
+      revision, so this predates this specification's own work rather than being
+      a regression it introduced. Left as-is rather than removed here because
+      onNavigateMode is a real prop in this component's public props contract (a
+      live caller passes it), and changing a public component's props shape
+      needs an explicit owner decision per AGENTS.md, not a silent removal
+      during an audit task. Owner should decide whether to wire the callback to
+      an actual UI affordance (e.g. an archive/active switch action) or remove
+      the dead prop and its caller-side wiring together.
+    resolver_task: null
+    status: open
+    resolution: null

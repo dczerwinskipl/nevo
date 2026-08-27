@@ -46,7 +46,6 @@ export function useNevoAssistantRuntime({
   const [contentRevision, setContentRevision] = useState<number>(0);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
@@ -77,7 +76,6 @@ export function useNevoAssistantRuntime({
   const reload = useCallback(async () => {
     setLoadError(null);
     setLoadErrorIdentity(null);
-    setIsLoading(true);
     setReloadTrigger((n) => n + 1);
   }, []);
 
@@ -88,7 +86,6 @@ export function useNevoAssistantRuntime({
       if (!provider || !providerSessionId) return;
 
       const identity = `${provider}:${providerSessionId}`;
-      setIsLoading(true);
       setLoadError(null);
       setLoadErrorIdentity(null);
 
@@ -122,7 +119,6 @@ export function useNevoAssistantRuntime({
         setLoadedIdentity(identity);
         setLoadErrorIdentity(null);
         setLoadError(null);
-        setIsLoading(false);
       } catch (err) {
         if (!cancelled) {
           const classified = classifySessionLoadError(err, provider, providerSessionId);
@@ -141,7 +137,6 @@ export function useNevoAssistantRuntime({
           // Do NOT set loadedIdentity on failure; record loadErrorIdentity instead
           setLoadedIdentity(null);
           setLoadErrorIdentity(identity);
-          setIsLoading(false);
           setLoadError(classified);
           // Note: Handled snapshot load failures do not invoke onError (separated error domain)
         }

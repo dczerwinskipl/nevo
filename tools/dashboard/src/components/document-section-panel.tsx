@@ -1,6 +1,5 @@
 import { FileCode2, LoaderCircle } from 'lucide-react';
 import type { DashboardChange } from '@/lib/types';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
 import { MarkdownContent } from '@/components/markdown-content';

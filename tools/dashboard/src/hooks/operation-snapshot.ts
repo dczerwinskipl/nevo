@@ -31,10 +31,6 @@ export async function fetchOperationSnapshot(operationId: string): Promise<Opera
   return (await res.json()) as OperationSnapshot;
 }
 
-export function isOperationTerminal(snapshot: OperationSnapshot | null | undefined): boolean {
-  return snapshot?.status === 'completed' || snapshot?.status === 'failed';
-}
-
 export function applyOperationEvent(prev: OperationSnapshot, event: OperationEvent): OperationSnapshot {
   const updated = { ...prev };
   if (typeof event.id === 'number') {

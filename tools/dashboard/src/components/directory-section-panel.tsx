@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   ArrowLeft,
   Boxes,
   ChevronRight,
@@ -7,7 +6,6 @@ import {
   FileCode2,
   Folder,
   LoaderCircle,
-  RefreshCw,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -16,7 +14,6 @@ import type {
   DashboardChange,
   SpecificationManifestDirectorySection,
 } from '@/lib/types';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';

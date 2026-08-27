@@ -100,8 +100,6 @@ export function AiSessionRow({
     : [];
   const timeStr = session.lastActivityAt || session.lastSeenAt || session.createdAt;
 
-  const effectiveSessionId = session.providerSessionId || session.sessionId;
-
   return (
     <div
       onClick={(e) => {

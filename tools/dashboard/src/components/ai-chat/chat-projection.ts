@@ -129,10 +129,6 @@ function computeWorkLifecycle(items: WorkItem[], isActiveTurn: boolean): 'curren
   return isActiveTurn || items.some(item => item.status === 'running') ? 'current' : 'terminal';
 }
 
-function computeHasFailures(items: WorkItem[], turnError: { code: string; message: string } | undefined): boolean {
-  return computePresentationSeverity(items, turnError) !== 'normal';
-}
-
 /**
  * Pure, deterministic projection from the session's already-fetched `NormalizedMessage[]`
  * into Conversation entries and per-turn Work groups (owner-decisions.md D6/D7/D9).

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bot, LoaderCircle, MessageSquarePlus, X } from 'lucide-react';
+import { LoaderCircle, MessageSquarePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/components/ai-chat/ai-chat-queries';

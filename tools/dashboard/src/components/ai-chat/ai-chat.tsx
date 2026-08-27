@@ -23,10 +23,7 @@ import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useNevoAssistantRuntime } from './nevo-assistant-runtime';
 import { ChatMessage } from '@/components/conversation/chat-message';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
-import { WorkSummary } from '@/components/work/work-summary';
-import { hasVisibleProse, shouldRenderChatMessage } from '@/components/work/work-visibility';
 import { useDeleteAiSession } from './ai-chat-queries';
-import { initialPromptWithTaskContext } from './ai-chat-helpers';
 import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
 import { projectChat } from './chat-projection';
 import { useScrollFollow } from './use-scroll-follow';
@@ -35,7 +32,6 @@ import { TaskDialog } from '@/components/task-dialog';
 import type {
   AgentExecutionMode,
   AiInteraction,
-  AiMessage,
   AiQuestionInteraction,
   AiSession,
   DashboardChange,
@@ -222,7 +218,6 @@ export function AiChatPage({
       setRuntimeError(err instanceof Error ? err.message : String(err));
     }
   }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
-  const submitMessage = handleComposerSubmit;
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
   const shellStyle = chatViewport.height

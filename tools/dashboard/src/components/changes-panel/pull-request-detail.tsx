@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, Eye, EyeOff, ExternalLink, Files, GitBranch, GitCommitHorizontal, Layers, List, LoaderCircle, UserRound } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import type { AvailablePullRequest, DashboardChange, PullRequestFileManifestEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';

@@ -1,5 +1,5 @@
 import type { OperationSnapshot } from '@/lib/types';
-import { OPERATION_SSE_EVENT_TYPES, applyOperationEvent, fetchOperationSnapshot, isOperationTerminal } from './operation-snapshot.ts';
+import { OPERATION_SSE_EVENT_TYPES, applyOperationEvent, fetchOperationSnapshot } from './operation-snapshot.ts';
 
 /**
  * Explicit result contract for `waitForOperationTerminal` — a caller (e.g. sequential

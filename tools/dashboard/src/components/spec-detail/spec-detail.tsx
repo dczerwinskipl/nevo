@@ -12,7 +12,6 @@ import type {
   AiSession,
   DashboardChange,
   DashboardTask,
-  TaskNavigationTarget,
 } from '@/lib/types';
 import { cn, formatDate, formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
