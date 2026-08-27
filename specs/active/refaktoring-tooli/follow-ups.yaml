@@ -1,4 +1,27 @@
 follow_ups:
+  - id: index-mjs-dead-route-adapter-imports-cleanup
+    source_task: e2e-verification-and-guidelines-audit
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: "tools/dashboard/server/index.mjs belongs to dashboard-server-runtime-and-routes
+      (task 04), already verified/closed before this task 08 audit ran. Task 08's own
+      acceptance criteria required verifying the absence of dead code/unused imports left
+      by the refactoring across modified slices, and this file's route-adapter migration
+      had left three dead direct-handler imports (handleEventsRoute/handleOperationRoute/
+      handleSpecsRoute -- only the adapter-bound methods are ever called) plus an unused
+      safeStaticPath/sendJson/readJsonBody/HttpError re-export with zero external callers.
+      The owner explicitly named this exact file and cleanup in-conversation, authorizing
+      task 08 to touch a file outside its own declared allowed_paths and outside task 04's
+      now-closed scope, rather than leaving it unfixed or reopening task 04."
+    paths:
+      - tools/dashboard/server/index.mjs
+    confirmed_by: owner
+    confirmed_at: "2026-08-27"
+    revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+    resolver_task: e2e-verification-and-guidelines-audit
+    status: resolved
+    resolution: Dead imports and unused re-export removed in commit bbc4536; full test
+      suite, dashboard build, and specs/docs validation all pass afterward.
   - id: router-spec-resolution-policy
     source_task: spec-detail-and-workflow-feature-slice
     kind: MAINTAINABILITY

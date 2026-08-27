@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T12:13:00.995Z",
+  "generated": "2026-08-27T12:15:04.266Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -570,14 +570,8 @@
           "status": "implemented",
           "implementation": {
             "baseline_revision": "23226096ef88dcc8f33783d655a9c6d3b9c79be1",
-            "review_revision": "14c50b583962ac3eff3956b2d598d214647fdded",
+            "review_revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",
             "changed_paths": [
-              "tools/dashboard/src/components/ai-chat/ai-chat.tsx",
-              "tools/dashboard/src/components/ai-chat/chat-projection.ts",
-              "tools/dashboard/src/components/ai-chat/nevo-assistant-runtime.ts",
-              "tools/dashboard/src/components/ai-session-create-modal.tsx",
-              "tools/dashboard/src/components/ai-session-list.tsx",
-              "tools/dashboard/src/components/changes-panel/pull-request-detail.tsx",
               "tools/dashboard/src/components/directory-section-panel.tsx",
               "tools/dashboard/src/components/document-section-panel.tsx",
               "tools/dashboard/src/components/spec-detail.tsx",
@@ -601,7 +595,7 @@
               "tools/dashboard/tests/ux-improvements-regression.test.mjs",
               "tools/dashboard/tests/wait-for-operation-terminal.test.mjs"
             ],
-            "worktree_patch_fingerprint": "133f8d5364945581d13f9020d2001f088773d9d0bb5f5f5c5057ccd1d5d6c9cf"
+            "worktree_patch_fingerprint": null
           },
           "self_check": {
             "fingerprint": "4c5e0e53915a5a76cce648a58e3e2806e367e3340504cb47867c5ad95412ce7e",
@@ -633,7 +627,7 @@
           ],
           "implementation": {
             "baseline_revision": "d454f626d66ae57f5fb9280ed5023f025673c8ff",
-            "review_revision": "5b24b64dae91cf784816dd7f12da6485d4d9b17f",
+            "review_revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",
             "changed_paths": [
               "tools/dashboard/src/components/changes-panel.tsx",
               "tools/dashboard/src/components/changes-panel/changes-grouping.ts",
@@ -680,7 +674,7 @@
           ],
           "implementation": {
             "baseline_revision": "1650ed8d138586d6451d35e4b7827f4555d90ed7",
-            "review_revision": "5b24b64dae91cf784816dd7f12da6485d4d9b17f",
+            "review_revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",
             "changed_paths": [
               "tools/dashboard/src/components/ai-chat/agent-event-reducer.ts",
               "tools/dashboard/src/components/ai-chat/agent-event-source.ts",
@@ -761,16 +755,16 @@
           ],
           "implementation": {
             "baseline_revision": "14c50b583962ac3eff3956b2d598d214647fdded",
-            "review_revision": "14c50b583962ac3eff3956b2d598d214647fdded",
+            "review_revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",
             "changed_paths": [
               "specs/active/refaktoring-tooli/follow-ups.yaml",
               "tools/dashboard/tests/responsive-accessibility-regression.test.mjs"
             ],
-            "worktree_patch_fingerprint": "692b2f4f46dd76e6035d51f3e15a5fe297236a7ef815ea8a609a434335b39dfe"
+            "worktree_patch_fingerprint": "0c2be76d07a41acb055cb7511ff5ec80c5be4a6adddc68129f355e6d1c2a5099"
           },
           "self_check": {
             "fingerprint": "50415d013bc9d61d55f80368a64fc92b52d9ce532449bda5e3d3ddae8f7b5db1",
-            "revision": "14c50b583962ac3eff3956b2d598d214647fdded",
+            "revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",
             "commands": [
               {
                 "command": "npm test",
