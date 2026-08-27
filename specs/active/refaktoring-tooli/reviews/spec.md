@@ -8,22 +8,24 @@ implementation_allowed: false
 unresolved_required_fixes: 0
 unresolved_owner_decisions: 0
 unresolved_needs_clarification: 0
-spec_fingerprint: afba43594326905b7e6fc217bda07ce835b2a17da7f67589e77bd4720890a817
+spec_fingerprint: f1d7ad08e567a3a50fe45d057e49c25ca04218e8d58a51899a72589effa21d20
 task_fingerprints:
-  shared-specs-workflow-operations: 531a004b687d7dc54e32894e3c9f2e026eca40c513417058437312c113fc9457
-  specs-lifecycle-and-storage-capabilities: e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429
-  specs-cli-entrypoint-and-command-boundary: b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29
-  dashboard-server-runtime-and-routes: fe41d6bcc78838986d990bd98adce14d008014dd0d65a07e02c51c600d41791e
-  spec-detail-and-workflow-feature-slice: 36936530f091655b321aea3d42e4289f9b1a315cd565e457e7aa71a9a83ec8b6
-  changes-and-pr-diff-feature-slice: d54cf2f87a1c6df6f5cdf183fdbc7725572d4ec19e9044e750c40ef2152b1c15
-  ai-assistant-chat-and-runtime-feature-slice: 11f648d97e7cc4f08d7e6c81e11f29affe0747fd212705909d291e9a901bee2b
-  e2e-verification-and-guidelines-audit: f7abef556a9545fb2c6597aae0e61dd394b1b841b18a302663cf0ff06dc6631c
-  dashboard-fastify-http-adapter-migration: 88fbe738c6da7ff319ab669f9cc289a8908ac72f5f837bffae59c91521c1906d
+  shared-specs-workflow-operations: 2799e2df61925268e85d00918d2610666ccd13a027cd4344b127b9ccb368f3d1
+  specs-lifecycle-and-storage-capabilities: d062e9d2a9ef2ee6d2578b951c67815f9f5f41c8a473a03a7d0e09c65dc82590
+  specs-cli-entrypoint-and-command-boundary: d5335e78b88e85a2adffc767dda11bc9a98b53ab795f4c3838041fa444be6ab1
+  dashboard-server-runtime-and-routes: 923ff8e50af34df15480d6c1bd24e6928bf8b4835e01661ecbcf910f4075411d
+  spec-detail-and-workflow-feature-slice: 0a0a00c3b838129b787200c227d14ea0e178eed653b838db49230753370a1d75
+  changes-and-pr-diff-feature-slice: 303552552040fe5855423bad19bd5e981c17ac844dc4b2abd7255b1c83cdfb76
+  ai-assistant-chat-and-runtime-feature-slice: dd0572aec3af96e7038c62184f7b8b6b6ec1a37b43bed355a2cad80b470bbab3
+  e2e-verification-and-guidelines-audit: f654f7a41c53e9b54590afcccd7d89787c06b3d29d2ecd3de83acef2040585f5
+  dashboard-fastify-http-adapter-migration: ac444c6e1b81251ddce93c62551be48a0f0e11be05d1eaff68b0a46352345a91
 ---
 
 # Review: refaktoring-tooli (scope: all tasks 01-09)
 
 No reliable previous-file baseline is available for this exact re-review question set — a prior `reviews/spec.md` exists (generated 2026-08-25, covering tasks 01-08 before task 9/D5 existed), and its content was read in full before being overwritten. Its findings are addressed below as the baseline for lifecycle classification where applicable.
+
+**Re-stamp note (2026-08-27, second pass):** PR #39 (tasks 01-08, plus task 9/D5 which had already been pushed before merge) was squash-merged into `main` and the old `feature/refaktoring-tooli` branch was superseded. A fresh branch (`feature/refaktoring-tooli-fastify`) was cut from `main`. `git diff -w a97964c HEAD -- specs/active/refaktoring-tooli/` confirms **zero content difference** for every spec file at the git-object level — the only change is CRLF line endings applied by `core.autocrlf=true` on this fresh checkout, which changes `computeTaskFingerprint`'s/`computeChangeFingerprint`'s raw-byte hash inputs without changing any file's actual content. `spec_fingerprint` and every `task_fingerprints` entry below are re-stamped against the current (CRLF) working tree so `tools/specs.mjs approve` doesn't reject on a spurious mismatch. All findings, the verdict, and its reasoning are otherwise unchanged from the prior pass — re-verified against the freshly re-read files, not carried forward blindly.
 
 ## Verdict
 
