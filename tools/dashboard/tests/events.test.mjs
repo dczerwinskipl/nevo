@@ -1,18 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleEventsRoute } from '../server/routes/events.mjs';
-
-test('events route adapter: returns false for non-events URLs', () => {
-  const handled = handleEventsRoute({
-    request: {},
-    response: {},
-    method: 'GET',
-    url: new URL('http://127.0.0.1/api/health'),
-    eventHub: { subscribe: () => () => {} },
-  });
-  assert.equal(handled, false);
-});
+import { buildDashboardApp, listen } from '../server/index.mjs';
 
 test('serves GET /api/events with SSE headers, connected event, eventHub subscription, and rejects POST with 405', async () => {
   let subscriber = null;
@@ -25,7 +13,7 @@ test('serves GET /api/events with SSE headers, connected event, eventHub subscri
     close: () => {},
   };
 
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub,
     distDir: 'Z:/does-not-exist',
   });
@@ -74,7 +62,7 @@ test('server shutdown closes open SSE connections and cleans subscriptions exact
     close: () => {},
   };
 
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub,
     distDir: 'Z:/does-not-exist',
   });

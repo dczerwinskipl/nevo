@@ -3,7 +3,7 @@ import test from 'node:test';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 
-import { createDashboardServer } from '../server/index.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 import { ACTIVE_DIR } from '../../specs/store.mjs';
 import { refreshSpecsIndexes } from '../../specs/indexes.mjs';
 
@@ -12,18 +12,16 @@ function fakeHub() {
 }
 
 async function startTestServer() {
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub(),
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const baseUrl = await listen(server, { port: 0 });
 
   return {
     baseUrl,
     close: async () => {
-      await new Promise((resolve) => server.close(resolve));
+      await server.close();
     },
   };
 }

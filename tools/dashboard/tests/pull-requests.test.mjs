@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handlePullRequestRoute } from '../server/routes/pull-requests.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
-test('pull-requests route adapter: returns false for non-PR URLs', async () => {
-  const handled = await handlePullRequestRoute({ request: {}, response: {}, method: 'GET', url: new URL('http://127.0.0.1/api/health') });
-  assert.equal(handled, false);
-});
 test('serves provider-neutral pull request results through an exact read-only route', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests`);
@@ -29,7 +24,7 @@ test('serves provider-neutral pull request results through an exact read-only ro
   }
 });
 test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const malformed = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/pull-requests/42/file-diffs`, {

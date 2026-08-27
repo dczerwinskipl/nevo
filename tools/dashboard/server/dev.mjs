@@ -3,13 +3,13 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer } from 'vite';
 
-import { createDashboardServer, listen } from './index.mjs';
+import { buildDashboardApp, listen } from './index.mjs';
 import { dashboardNetworkConfig } from './network-config.mjs';
 
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { host, port: uiPort, apiPort } = dashboardNetworkConfig();
 
-const apiServer = createDashboardServer();
+const apiServer = buildDashboardApp();
 const apiUrl = await listen(apiServer, { host, port: apiPort });
 process.env.NEVO_DASHBOARD_API_URL = apiUrl;
 
@@ -24,7 +24,7 @@ try {
   console.log(`NEvo dashboard API: ${apiUrl}`);
   vite.printUrls();
 } catch (error) {
-  await new Promise(resolvePromise => apiServer.close(resolvePromise));
+  await apiServer.close();
   throw error;
 }
 
@@ -33,7 +33,7 @@ async function shutdown() {
   if (closing) return;
   closing = true;
   await vite.close();
-  await new Promise(resolvePromise => apiServer.close(resolvePromise));
+  await apiServer.close();
 }
 
 process.once('SIGINT', () => void shutdown());

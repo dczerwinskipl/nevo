@@ -1,20 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleHealthRoute } from '../server/routes/health.mjs';
-
-test('health route adapter: returns false for non-health URLs', () => {
-  const handled = handleHealthRoute({
-    request: {},
-    response: {},
-    method: 'GET',
-    url: new URL('http://127.0.0.1/api/specs'),
-  });
-  assert.equal(handled, false);
-});
+import { buildDashboardApp, listen } from '../server/index.mjs';
 
 test('serves GET /api/health with status ok and rejects non-GET with 405', async () => {
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     distDir: 'Z:/does-not-exist',
   });
   const baseUrl = await listen(server, { port: 0 });

@@ -1,18 +1,15 @@
-import { sendJson } from '../http-utils.mjs';
-
-export function createEventsRouteAdapter({ eventHub } = {}) {
+export function registerEventsRoutes(fastify, { eventHub } = {}) {
   const activeConnections = new Set();
 
-  const handleEventsRoute = ({ request, response, method, url, eventHub: hubOverride }) => {
-    if (url.pathname !== '/api/events') {
-      return false;
-    }
-    if (method !== 'GET') {
-      sendJson(response, 405, { error: 'Method not allowed' });
-      return true;
+  fastify.all('/api/events', (request, reply) => {
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
     }
 
-    const hub = hubOverride || eventHub;
+    reply.hijack();
+    const response = reply.raw;
+    const requestRaw = request.raw;
 
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -45,9 +42,9 @@ export function createEventsRouteAdapter({ eventHub } = {}) {
     };
 
     activeConnections.add(cleanup);
-    request.on('close', cleanup);
+    requestRaw.on('close', cleanup);
 
-    unsubscribe = hub?.subscribe?.(event => {
+    unsubscribe = eventHub?.subscribe?.(event => {
       if (isClosed) return;
       response.write('event: specs-changed\ndata: ' + JSON.stringify(event) + '\n\n');
     });
@@ -64,9 +61,7 @@ export function createEventsRouteAdapter({ eventHub } = {}) {
       }
     }, 20000);
     keepAlive.unref?.();
-
-    return true;
-  };
+  });
 
   const shutdown = () => {
     for (const close of Array.from(activeConnections)) {
@@ -78,11 +73,7 @@ export function createEventsRouteAdapter({ eventHub } = {}) {
   };
 
   return {
-    handleEventsRoute,
     shutdown,
     getActiveConnectionCount: () => activeConnections.size,
   };
 }
-
-const defaultEventsAdapter = createEventsRouteAdapter();
-export const handleEventsRoute = defaultEventsAdapter.handleEventsRoute;

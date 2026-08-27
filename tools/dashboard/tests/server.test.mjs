@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createDashboardServer, listen } from '../server/index.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 
 function fakeHub() {
   return {
@@ -14,7 +14,7 @@ function fakeHub() {
 }
 
 test('composed server routes all major capability route groups', async () => {
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
   });
@@ -41,7 +41,7 @@ test('composed server routes all major capability route groups', async () => {
 });
 
 test('handles unknown /api/* fallback with 404 JSON', async () => {
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
   });
@@ -65,7 +65,7 @@ test('handles unknown /api/* fallback with 404 JSON', async () => {
 });
 
 test('handles static asset serving and missing distDir fallback', async () => {
-  const serverMissing = createDashboardServer({
+  const serverMissing = buildDashboardApp({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
   });
@@ -85,7 +85,7 @@ test('handles static asset serving and missing distDir fallback', async () => {
   writeFileSync(join(tmpDist, 'index.html'), '<!doctype html><html><body>Test</body></html>');
   writeFileSync(join(tmpDist, 'app.js'), 'console.log("app");');
 
-  const serverWithDist = createDashboardServer({
+  const serverWithDist = buildDashboardApp({
     eventHub: fakeHub(),
     distDir: tmpDist,
   });
@@ -129,7 +129,7 @@ test('server shutdown lifecycle cleans up eventHub, ai service, and operation ru
     getSnapshot: () => null,
   };
 
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: mockHub,
     aiService: mockAiService,
     operationRuntime: mockOpRuntime,

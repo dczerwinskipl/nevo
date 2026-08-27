@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleSpecsRoute } from '../server/routes/specs.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
-test('specs route adapter: returns false for non-specs URLs', async () => {
-  const handled = await handleSpecsRoute({ request: {}, response: {}, method: 'GET', url: new URL('http://127.0.0.1/api/health') });
-  assert.equal(handled, false);
-});
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
@@ -23,7 +18,7 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
   }
 });
 test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
@@ -41,7 +36,7 @@ test('serves exact specification manifest routes without leaking lookup failures
   }
 });
 test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
@@ -59,7 +54,7 @@ test('serves exact per-document content routes without leaking lookup failures',
   }
 });
 test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
@@ -77,7 +72,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
   }
 });
 test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);
@@ -136,7 +131,7 @@ test('specs route adapter manages AbortController and completion settlement duri
     },
   };
 
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     eventHub: fakeHub(),
     distDir: 'Z:/does-not-exist',
     operationRuntime: fakeOperationRuntime,

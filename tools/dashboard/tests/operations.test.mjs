@@ -8,8 +8,8 @@ import { join } from 'node:path';
 
 import { createOperationRuntime, OperationNotFoundError } from '../server/operations.mjs';
 import { executeSpecificationAction } from '../server/actions.mjs';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleOperationRoute } from '../server/routes/operations.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
+import { registerOperationRoutes } from '../server/routes/operations.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function createMockChildProcess() {
@@ -347,7 +347,7 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
   let activeChild = null;
   const runtime = createOperationRuntime({ idFactory: () => 'srv-op-1' });
   const sample = fixture();
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     operationRuntime: runtime,
     activeDir: sample.activeDir,
     actionExecutor: ({ slug, action, taskId, onFinished }) => {
@@ -511,83 +511,91 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
   });
 });
 
-test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)', async () => {
-  let subscribeCallCount = 0;
-  let unsubscribeCallCount = 0;
-  let activeSubscribers = 0;
-
-  const mockRuntime = {
-    getSnapshot: (id) => ({
-      id,
-      type: 'test-op',
-      status: 'running',
-      steps: [],
-      lastEventId: 0,
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }),
-    subscribe: (id, { afterSequence, onEvent }) => {
-      subscribeCallCount++;
-      activeSubscribers++;
-      let unsubscribed = false;
-      return () => {
-        if (!unsubscribed) {
-          unsubscribed = true;
-          unsubscribeCallCount++;
-          activeSubscribers--;
-        }
-      };
-    },
+// Minimal Fastify request/reply/instance doubles — exercises
+// `registerOperationRoutes`'s SSE handler directly (bypassing real network
+// I/O) with the same deterministic subscribe/unsubscribe-count assertions
+// the old direct-dispatch-function unit tests used, adapted to the new
+// per-capability Fastify plugin shape.
+function fakeFastifyForOperationsTest() {
+  const routes = new Map();
+  return {
+    all: (path, handler) => routes.set(path, handler),
+    route: (path) => routes.get(path),
   };
+}
+
+function fakeOperationsRequest({ operationId, query = {}, headers = {} }) {
+  const raw = new EventEmitter();
+  raw.headers = headers;
+  return { params: { operationId }, query, headers, method: 'GET', raw };
+}
+
+function fakeOperationsReply() {
+  const raw = new PassThrough();
+  raw.writeHead = () => {};
+  const reply = {
+    raw,
+    hijack: () => {},
+    code(status) { this._status = status; return this; },
+    header() { return this; },
+    send(payload) { this._sent = payload; return this; },
+  };
+  return reply;
+}
+
+test('operation SSE route lifecycle guarantees (deterministic verification)', async () => {
+  const fastify = fakeFastifyForOperationsTest();
 
   // Test 1: single registration and cleanup on client disconnect (request 'close')
   {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
+    let subscribeCallCount = 0;
+    let unsubscribeCallCount = 0;
+    let activeSubscribers = 0;
+    const mockRuntime = {
+      getSnapshot: (id) => ({
+        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }),
+      subscribe: () => {
+        subscribeCallCount++;
+        activeSubscribers++;
+        let unsubscribed = false;
+        return () => {
+          if (!unsubscribed) {
+            unsubscribed = true;
+            unsubscribeCallCount++;
+            activeSubscribers--;
+          }
+        };
+      },
+    };
+    registerOperationRoutes(fastify, { operationRuntime: mockRuntime });
+    const handler = fastify.route('/api/operations/:operationId/events');
 
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
-
-    const handled = handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-1/events'),
-      operationRuntime: mockRuntime,
-    });
-    assert.equal(handled, true);
+    const request = fakeOperationsRequest({ operationId: 'op-1' });
+    const reply = fakeOperationsReply();
+    handler(request, reply);
     assert.equal(subscribeCallCount, 1, 'subscription registration occurs once');
     assert.equal(activeSubscribers, 1);
 
-    // Simulate client disconnect
-    req.emit('close');
+    request.raw.emit('close');
     assert.equal(unsubscribeCallCount, 1, 'cleanup/unsubscribe occurs exactly once');
     assert.equal(activeSubscribers, 0, 'no listener/subscription remains after connection termination');
 
-    // Simulate duplicate disconnect / close
-    req.emit('close');
+    request.raw.emit('close');
     assert.equal(unsubscribeCallCount, 1, 'client disconnect does not double-clean');
   }
 
   // Test 2: terminal completion ends SSE and unsubscribes exactly once
   {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
-
+    let subscribeCallCount = 0;
+    let unsubscribeCallCount = 0;
+    let activeSubscribers = 0;
     let capturedOnEvent = null;
     const runtimeWithCallback = {
       getSnapshot: (id) => ({
-        id,
-        type: 'test-op',
-        status: 'running',
-        steps: [],
-        lastEventId: 0,
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }),
       subscribe: (id, { onEvent }) => {
         subscribeCallCount++;
@@ -599,48 +607,32 @@ test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)
         };
       },
     };
+    registerOperationRoutes(fastify, { operationRuntime: runtimeWithCallback });
+    const handler = fastify.route('/api/operations/:operationId/events');
 
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
-
-    handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-2/events'),
-      operationRuntime: runtimeWithCallback,
-    });
+    const request = fakeOperationsRequest({ operationId: 'op-2' });
+    handler(request, fakeOperationsReply());
 
     assert.equal(subscribeCallCount, 1);
     assert.equal(activeSubscribers, 1);
 
-    // Emit terminal completed event
     capturedOnEvent({ id: 1, type: 'operation.completed', data: { ok: true } });
     assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
     assert.equal(activeSubscribers, 0);
 
-    // Ensure closing request after completion does not double clean
-    req.emit('close');
+    request.raw.emit('close');
     assert.equal(unsubscribeCallCount, 1, 'no duplicate terminal handling');
   }
 
   // Test 3: terminal replay on already-completed operation does not leave a subscriber registered
   {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
-
+    let subscribeCallCount = 0;
+    let unsubscribeCallCount = 0;
+    let activeSubscribers = 0;
     const completedRuntime = {
       getSnapshot: (id) => ({
-        id,
-        type: 'test-op',
-        status: 'completed',
-        steps: [],
-        lastEventId: 5,
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        id, type: 'test-op', status: 'completed', steps: [], lastEventId: 5,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }),
       subscribe: () => {
         subscribeCallCount++;
@@ -651,20 +643,11 @@ test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)
         };
       },
     };
+    registerOperationRoutes(fastify, { operationRuntime: completedRuntime });
+    const handler = fastify.route('/api/operations/:operationId/events');
 
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
-
-    // Replay with cursor at latest event (no new events to wait for)
-    handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-3/events?after=5'),
-      operationRuntime: completedRuntime,
-    });
+    const request = fakeOperationsRequest({ operationId: 'op-3', query: { after: '5' } });
+    handler(request, fakeOperationsReply());
 
     assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
     assert.equal(activeSubscribers, 0, 'terminal replay does not leave a subscriber registered');

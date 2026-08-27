@@ -11,7 +11,7 @@ import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
-import { createDashboardServer, listen } from '../server/index.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 import { createDefaultDashboardAiService } from '../server/ai-services.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
@@ -75,7 +75,7 @@ async function closeServer(server) {
 test('Agent session routes expose the complete provider-neutral session and turn lifecycle', async () => {
   const policyCalls = [];
   const { service } = createStack();
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     aiService: service,
     aiAccessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
     eventHub: fakeHub(),
@@ -213,7 +213,7 @@ adapters:
 
 test('durable session history remains readable after its adapter is disabled', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({
+  const server = buildDashboardApp({
     aiService: service,
     aiAccessPolicy: () => true,
     eventHub: fakeHub(),
@@ -267,7 +267,7 @@ test('default dashboard AI service registers no adapters when the local config i
 
 test('Session SSE replays events, preserves pending interaction, and resolves via session endpoint', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -325,7 +325,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
 
 test('single-active-turn and stable question correlation are enforced through HTTP', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -375,7 +375,7 @@ test('single-active-turn and stable question correlation are enforced through HT
 
 test('AI controls validate methods, guards, traversal, malformed and oversized input, and explicit cancellation', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -409,7 +409,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
 test('session control endpoints enforce strict correlation between provider, session, turn, and interaction', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -487,7 +487,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 1: Server 1 runs, turn reaches waitingForUser
   const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
   const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
-  const server1 = createDashboardServer({ aiService: service1, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server1 = buildDashboardApp({ aiService: service1, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl1 = await listen(server1, { port: 0 });
 
   let turnIdAlpha;
@@ -518,7 +518,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
   const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
   const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
-  const server2 = createDashboardServer({ aiService: service2, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server2 = buildDashboardApp({ aiService: service2, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl2 = await listen(server2, { port: 0 });
 
   try {
@@ -595,7 +595,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
     const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
-    const server = createDashboardServer({
+    const server = buildDashboardApp({
       aiService: service,
       eventHub: fakeHub(),
       distDir: 'Z:/does-not-exist',
@@ -697,7 +697,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
   const specId = 'a1111111-1111-4111-a111-111111111111';
 
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -747,7 +747,7 @@ test('AC9: Cross-spec session binding isolation (D10) never produces merged task
   const sharedSessionId = 'shared-agent-session-42';
 
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -833,7 +833,7 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
   const storageDir = join(tmpDir, 'sessions');
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
   const baseUrl = await listen(server, { port: 0 });
 
   try {

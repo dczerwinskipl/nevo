@@ -1,4 +1,3 @@
-import { sendJson, readJsonBody, HttpError } from '../http-utils.mjs';
 import {
   loadDashboardData,
   loadSpecificationManifest,
@@ -16,8 +15,29 @@ import {
   SpecConflictError,
   SpecRollbackError,
 } from '../../../specs/identity.mjs';
+import { HttpError } from '../http-utils.mjs';
 
-export function createSpecsRouteAdapter({
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+const SOURCES = new Set(['active', 'archive']);
+
+// `request.params` values are already decoded once by Fastify/find-my-way
+// (`safeDecodeURIComponent`) — decoding again here would double-decode a
+// slug containing a literal `%`. Only validate the shape, matching the old
+// single-decode-then-validate contract exactly.
+function decodedSlug(raw) {
+  return SLUG_PATTERN.test(raw) ? raw : null;
+}
+
+// See routes/pull-requests.mjs's own copy of this rationale: a `:source`
+// outside {active, archive} never matched the old hand-rolled regexes, so it
+// fell through every capability adapter to the generic `/api/*` 404.
+function rejectUnknownSource(reply, source) {
+  if (SOURCES.has(source)) return false;
+  reply.code(404).send({ error: 'API route not found' });
+  return true;
+}
+
+export function registerSpecsRoutes(fastify, {
   operationRuntime,
   actionExecutor = executeSpecificationAction,
   activeDir,
@@ -25,244 +45,216 @@ export function createSpecsRouteAdapter({
 } = {}) {
   const activeActions = new Map(); // slug -> { controller, completion }
 
-  const handleSpecsRoute = async ({
-    request,
-    response,
-    method,
-    url,
-    operationRuntime: runtimeOverride,
-  }) => {
-    const runtime = runtimeOverride || operationRuntime;
+  fastify.all('/api/dashboard', async (request, reply) => {
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    try {
+      const data = await loadDashboardData();
+      reply.code(200).header('cache-control', 'no-store').send(data);
+    } catch {
+      reply.code(500).send({ error: 'Unable to load specifications' });
+    }
+  });
 
-    if (url.pathname === '/api/dashboard') {
-      if (method !== 'GET') {
-        sendJson(response, 405, { error: 'Method not allowed' });
-        return true;
+  fastify.all('/api/specs', async (request, reply) => {
+    if (request.method !== 'POST') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      reply.code(400).send({ error: 'Request body must be a JSON object.' });
+      return;
+    }
+    try {
+      const result = await createSpecification({
+        slug: body.slug,
+        title: body.title,
+        type: body.type,
+        goal: body.goal,
+      });
+      reply.code(201).send(result);
+    } catch (error) {
+      if (error instanceof SpecValidationError) {
+        reply.code(400).send({ error: error.message, code: error.code, field: error.field });
+      } else if (error instanceof SpecConflictError) {
+        reply.code(409).send({ error: error.message, code: error.code, slug: error.slug });
+      } else if (error instanceof SpecRollbackError) {
+        reply.code(500).send({
+          error: error.message,
+          code: error.code,
+          slug: error.slug,
+          failedSteps: error.failedSteps,
+        });
+      } else if (error instanceof HttpError) {
+        reply.code(error.status).send({ error: error.message });
+      } else {
+        reply.code(500).send({ error: error?.message || 'Unable to create specification.' });
       }
+    }
+  });
+
+  fastify.all('/api/specs/:source/:slug/actions', async (request, reply) => {
+    const { source, slug: rawSlug } = request.params;
+    if (source === 'archive') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    if (rejectUnknownSource(reply, source)) return;
+
+    const slug = decodedSlug(rawSlug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification actions not found' });
+      return;
+    }
+
+    if (request.method === 'GET') {
       try {
-        const data = await loadDashboardData();
-        sendJson(response, 200, data);
-      } catch {
-        sendJson(response, 500, { error: 'Unable to load specifications' });
+        const result = await loadSpecificationActions({ slug, activeDir, root });
+        reply.code(200).header('cache-control', 'no-store').send(result);
+      } catch (error) {
+        const status = error instanceof SpecificationActionError ? error.status : 500;
+        reply.code(status).send({ error: status === 404 ? 'Specification actions not found' : 'Unable to load specification actions' });
       }
-      return true;
+      return;
     }
 
-    if (url.pathname === '/api/specs') {
-      if (method === 'POST') {
-        try {
-          const body = await readJsonBody(request);
-          if (!body || typeof body !== 'object' || Array.isArray(body)) {
-            sendJson(response, 400, { error: 'Request body must be a JSON object.' });
-            return true;
-          }
-
-          const result = await createSpecification({
-            slug: body.slug,
-            title: body.title,
-            type: body.type,
-            goal: body.goal,
-          });
-
-          sendJson(response, 201, result);
-        } catch (error) {
-          if (error instanceof SpecValidationError) {
-            sendJson(response, 400, { error: error.message, code: error.code, field: error.field });
-          } else if (error instanceof SpecConflictError) {
-            sendJson(response, 409, { error: error.message, code: error.code, slug: error.slug });
-          } else if (error instanceof SpecRollbackError) {
-            sendJson(response, 500, {
-              error: error.message,
-              code: error.code,
-              slug: error.slug,
-              failedSteps: error.failedSteps,
-            });
-          } else if (error instanceof HttpError) {
-            sendJson(response, error.status, { error: error.message });
-          } else {
-            sendJson(response, 500, { error: error?.message || 'Unable to create specification.' });
-          }
-        }
-        return true;
+    if (request.method === 'POST') {
+      if (request.headers['x-nevo-dashboard-action'] !== '1') {
+        reply.code(403).send({ error: 'Dashboard action header is required.' });
+        return;
       }
-      sendJson(response, 405, { error: 'Method not allowed' });
-      return true;
-    }
-
-    const actionRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/actions$/);
-    if (actionRoute) {
-      const [, source, rawSlug] = actionRoute;
-      if (source === 'archive') {
-        sendJson(response, 405, { error: 'Method not allowed' });
-        return true;
+      if (activeActions.has(slug)) {
+        reply.code(409).send({ error: 'Another specification action is already running.' });
+        return;
       }
-      let slug;
+      const controller = new AbortController();
+      let hasStarted = false;
+      let cleanupDone = false;
+      const cleanup = () => {
+        if (cleanupDone) return;
+        cleanupDone = true;
+        activeActions.delete(slug);
+      };
+
       try {
-        slug = decodeURIComponent(rawSlug);
-      } catch {
-        sendJson(response, 404, { error: 'Specification actions not found' });
-        return true;
-      }
-      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-        sendJson(response, 404, { error: 'Specification actions not found' });
-        return true;
-      }
-
-      if (method === 'GET') {
-        try {
-          const result = await loadSpecificationActions({ slug, activeDir, root });
-          sendJson(response, 200, result);
-        } catch (error) {
-          const status = error instanceof SpecificationActionError ? error.status : 500;
-          sendJson(response, status, { error: status === 404 ? 'Specification actions not found' : 'Unable to load specification actions' });
+        const body = request.body ?? {};
+        if (typeof body !== 'object' || Array.isArray(body)) {
+          throw new SpecificationActionError('Request body must be a JSON object.', 400);
         }
-        return true;
+        const result = actionExecutor({
+          slug,
+          action: body.action,
+          taskId: body.taskId,
+          confirmed: body.confirmed === true,
+          activeDir,
+          root,
+          operationRuntime,
+          signal: controller.signal,
+          onFinished: cleanup,
+        });
+
+        const completion = (result?.completion && typeof result.completion.then === 'function')
+          ? result.completion.finally(cleanup)
+          : Promise.resolve().finally(cleanup);
+
+        activeActions.set(slug, { controller, completion });
+        hasStarted = true;
+
+        reply.code(200).send({
+          ok: result.ok,
+          operationId: result.operationId,
+          action: result.action,
+          ...(result.taskId ? { taskId: result.taskId } : {}),
+          message: result.message,
+        });
+      } catch (error) {
+        const known = error instanceof SpecificationActionError || error instanceof HttpError;
+        reply.code(known ? error.status : 500).send({
+          error: known ? error.message : 'Unable to execute specification action.',
+        });
+      } finally {
+        if (!hasStarted) {
+          cleanup();
+        }
       }
-
-      if (method === 'POST') {
-        if (request.headers['x-nevo-dashboard-action'] !== '1') {
-          sendJson(response, 403, { error: 'Dashboard action header is required.' });
-          return true;
-        }
-        if (activeActions.has(slug)) {
-          sendJson(response, 409, { error: 'Another specification action is already running.' });
-          return true;
-        }
-        const controller = new AbortController();
-        let hasStarted = false;
-        let cleanupDone = false;
-        const cleanup = () => {
-          if (cleanupDone) return;
-          cleanupDone = true;
-          activeActions.delete(slug);
-        };
-
-        try {
-          const body = await readJsonBody(request);
-          if (!body || typeof body !== 'object' || Array.isArray(body)) {
-            throw new SpecificationActionError('Request body must be a JSON object.', 400);
-          }
-          const result = actionExecutor({
-            slug,
-            action: body.action,
-            taskId: body.taskId,
-            confirmed: body.confirmed === true,
-            activeDir,
-            root,
-            operationRuntime: runtime,
-            signal: controller.signal,
-            onFinished: cleanup,
-          });
-
-          const completion = (result?.completion && typeof result.completion.then === 'function')
-            ? result.completion.finally(cleanup)
-            : Promise.resolve().finally(cleanup);
-
-          activeActions.set(slug, {
-            controller,
-            completion,
-          });
-          hasStarted = true;
-
-          sendJson(response, 200, {
-            ok: result.ok,
-            operationId: result.operationId,
-            action: result.action,
-            ...(result.taskId ? { taskId: result.taskId } : {}),
-            message: result.message,
-          });
-        } catch (error) {
-          const known = error instanceof SpecificationActionError || error instanceof HttpError;
-          sendJson(response, known ? error.status : 500, {
-            error: known ? error.message : 'Unable to execute specification action.',
-          });
-        } finally {
-          if (!hasStarted) {
-            cleanup();
-          }
-        }
-        return true;
-      }
-
-      sendJson(response, 405, { error: 'Method not allowed' });
-      return true;
+      return;
     }
 
-    const documentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content\/([^/]+)$/);
-    if (documentRoute) {
-      if (method !== 'GET') {
-        sendJson(response, 405, { error: 'Method not allowed' });
-        return true;
-      }
-      try {
-        const slug = decodeURIComponent(documentRoute[2]);
-        const docId = decodeURIComponent(documentRoute[3]);
-        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-          sendJson(response, 404, { error: 'Specification document not found' });
-          return true;
-        }
-        const document = await loadSpecificationDocument({ source: documentRoute[1], slug, docId });
-        if (!document) {
-          sendJson(response, 404, { error: 'Specification document not found' });
-          return true;
-        }
-        sendJson(response, 200, document);
-      } catch {
-        sendJson(response, 404, { error: 'Specification document not found' });
-      }
-      return true;
-    }
+    reply.code(405).send({ error: 'Method not allowed' });
+  });
 
-    const contentRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/content$/);
-    if (contentRoute) {
-      if (method !== 'GET') {
-        sendJson(response, 405, { error: 'Method not allowed' });
-        return true;
-      }
-      try {
-        const slug = decodeURIComponent(contentRoute[2]);
-        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-          sendJson(response, 404, { error: 'Specification content not found' });
-          return true;
-        }
-        const manifest = await loadSpecificationManifest({ source: contentRoute[1], slug });
-        if (!manifest) {
-          sendJson(response, 404, { error: 'Specification content not found' });
-          return true;
-        }
-        sendJson(response, 200, manifest);
-      } catch {
-        sendJson(response, 404, { error: 'Specification content not found' });
-      }
-      return true;
+  fastify.all('/api/specs/:source/:slug/content/:docId', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
     }
-
-    const taskStatusesRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/task-statuses$/);
-    if (taskStatusesRoute) {
-      if (method !== 'GET') {
-        sendJson(response, 405, { error: 'Method not allowed' });
-        return true;
+    try {
+      const slug = request.params.slug;
+      const docId = request.params.docId;
+      if (!SLUG_PATTERN.test(slug)) {
+        reply.code(404).send({ error: 'Specification document not found' });
+        return;
       }
-      try {
-        const slug = decodeURIComponent(taskStatusesRoute[2]);
-        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-          sendJson(response, 404, { error: 'Specification task statuses not found' });
-          return true;
-        }
-        const statuses = await loadTaskStatuses({ source: taskStatusesRoute[1], slug });
-        if (!statuses) {
-          sendJson(response, 404, { error: 'Specification task statuses not found' });
-          return true;
-        }
-        sendJson(response, 200, statuses);
-      } catch {
-        sendJson(response, 404, { error: 'Specification task statuses not found' });
+      const document = await loadSpecificationDocument({ source: request.params.source, slug, docId });
+      if (!document) {
+        reply.code(404).send({ error: 'Specification document not found' });
+        return;
       }
-      return true;
+      reply.code(200).header('cache-control', 'no-store').send(document);
+    } catch {
+      reply.code(404).send({ error: 'Specification document not found' });
     }
+  });
 
-    return false;
-  };
+  fastify.all('/api/specs/:source/:slug/content', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    try {
+      const slug = request.params.slug;
+      if (!SLUG_PATTERN.test(slug)) {
+        reply.code(404).send({ error: 'Specification content not found' });
+        return;
+      }
+      const manifest = await loadSpecificationManifest({ source: request.params.source, slug });
+      if (!manifest) {
+        reply.code(404).send({ error: 'Specification content not found' });
+        return;
+      }
+      reply.code(200).header('cache-control', 'no-store').send(manifest);
+    } catch {
+      reply.code(404).send({ error: 'Specification content not found' });
+    }
+  });
+
+  fastify.all('/api/specs/:source/:slug/task-statuses', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    try {
+      const slug = request.params.slug;
+      if (!SLUG_PATTERN.test(slug)) {
+        reply.code(404).send({ error: 'Specification task statuses not found' });
+        return;
+      }
+      const statuses = await loadTaskStatuses({ source: request.params.source, slug });
+      if (!statuses) {
+        reply.code(404).send({ error: 'Specification task statuses not found' });
+        return;
+      }
+      reply.code(200).header('cache-control', 'no-store').send(statuses);
+    } catch {
+      reply.code(404).send({ error: 'Specification task statuses not found' });
+    }
+  });
 
   const shutdown = async () => {
     const entries = Array.from(activeActions.values());
@@ -278,12 +270,8 @@ export function createSpecsRouteAdapter({
   };
 
   return {
-    handleSpecsRoute,
     shutdown,
     getActiveActions: () => activeActions,
     getActiveControllers: () => new Map(Array.from(activeActions.entries()).map(([k, v]) => [k, v.controller])),
   };
 }
-
-const defaultSpecsAdapter = createSpecsRouteAdapter();
-export const handleSpecsRoute = defaultSpecsAdapter.handleSpecsRoute;

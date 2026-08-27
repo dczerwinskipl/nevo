@@ -1,4 +1,3 @@
-import { sendJson, readJsonBody, HttpError } from '../http-utils.mjs';
 import {
   loadSpecificationPullRequestFileDiffs,
   loadSpecificationPullRequestFiles,
@@ -6,101 +5,130 @@ import {
   loadSpecificationPullRequests,
 } from '../providers/service.mjs';
 
-export async function handlePullRequestRoute({
-  request,
-  response,
-  method,
-  url,
-}) {
-  const pullRequestSubRoute = url.pathname.match(
-    /^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests\/(\d+)\/(files|file-diffs|diff)$/,
-  );
-  if (pullRequestSubRoute) {
-    const [, source, rawSlug, rawNumber, resource] = pullRequestSubRoute;
-    let slug;
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+const SOURCES = new Set(['active', 'archive']);
+
+// `request.params` values are already decoded once by Fastify/find-my-way
+// (`safeDecodeURIComponent`) — decoding again here would double-decode a
+// slug containing a literal `%`. Only validate the shape, matching the old
+// single-decode-then-validate contract exactly.
+function decodedSlug(raw) {
+  return SLUG_PATTERN.test(raw) ? raw : null;
+}
+
+// A `:source` outside {active, archive} means none of the old hand-rolled
+// regexes would have matched this path at all, so control would have fallen
+// through every capability adapter to index.mjs's generic `/api/*` 404 —
+// replicate that exact fallthrough response here, not a resource-specific one.
+function rejectUnknownSource(reply, source) {
+  if (SOURCES.has(source)) return false;
+  reply.code(404).send({ error: 'API route not found' });
+  return true;
+}
+
+export function registerPullRequestRoutes(fastify) {
+  fastify.all('/api/specs/:source/:slug/pull-requests', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Specification changes not found' });
+      return;
+    }
     try {
-      slug = decodeURIComponent(rawSlug);
+      const changes = await loadSpecificationPullRequests({ source: request.params.source, slug });
+      if (!changes) {
+        reply.code(404).send({ error: 'Specification changes not found' });
+        return;
+      }
+      reply.code(200).header('cache-control', 'no-store').send(changes);
     } catch {
-      sendJson(response, 404, { error: 'Pull request not found' });
-      return true;
+      reply.code(500).send({ error: 'Unable to load specification changes' });
     }
-    if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-      sendJson(response, 404, { error: 'Pull request not found' });
-      return true;
-    }
-    const number = Number(rawNumber);
+  });
 
-    if (resource === 'files') {
-      if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return true; }
-      try {
-        const files = await loadSpecificationPullRequestFiles({ source, slug, number });
-        if (!files) { sendJson(response, 404, { error: 'Pull request files not found' }); return true; }
-        sendJson(response, 200, files);
-      } catch (error) {
-        const status = typeof error?.status === 'number' ? error.status : 502;
-        sendJson(response, status, { error: error?.message || 'Unable to load pull request files' });
-      }
-      return true;
+  fastify.all('/api/specs/:source/:slug/pull-requests/:number/files', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
     }
-
-    if (resource === 'diff') {
-      if (method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed' }); return true; }
-      try {
-        const diff = await loadSpecificationPullRequestFullDiff({ source, slug, number });
-        if (!diff) { sendJson(response, 404, { error: 'Pull request diff not found' }); return true; }
-        sendJson(response, 200, diff);
-      } catch (error) {
-        const status = typeof error?.status === 'number' ? error.status : 502;
-        sendJson(response, status, { error: error?.message || 'Unable to load pull request diff' });
-      }
-      return true;
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Pull request not found' });
+      return;
     }
-
-    // resource === 'file-diffs'
-    if (method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed' }); return true; }
+    const number = Number(request.params.number);
     try {
-      const body = await readJsonBody(request);
-      if (!body || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.paths)) {
-        sendJson(response, 400, { error: 'Request body must be a JSON object with a paths array.' });
-        return true;
+      const files = await loadSpecificationPullRequestFiles({ source: request.params.source, slug, number });
+      if (!files) {
+        reply.code(404).send({ error: 'Pull request files not found' });
+        return;
       }
+      reply.code(200).header('cache-control', 'no-store').send(files);
+    } catch (error) {
+      const status = typeof error?.status === 'number' ? error.status : 502;
+      reply.code(status).send({ error: error?.message || 'Unable to load pull request files' });
+    }
+  });
+
+  fastify.all('/api/specs/:source/:slug/pull-requests/:number/diff', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'GET') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Pull request not found' });
+      return;
+    }
+    const number = Number(request.params.number);
+    try {
+      const diff = await loadSpecificationPullRequestFullDiff({ source: request.params.source, slug, number });
+      if (!diff) {
+        reply.code(404).send({ error: 'Pull request diff not found' });
+        return;
+      }
+      reply.code(200).header('cache-control', 'no-store').send(diff);
+    } catch (error) {
+      const status = typeof error?.status === 'number' ? error.status : 502;
+      reply.code(status).send({ error: error?.message || 'Unable to load pull request diff' });
+    }
+  });
+
+  fastify.all('/api/specs/:source/:slug/pull-requests/:number/file-diffs', async (request, reply) => {
+    if (rejectUnknownSource(reply, request.params.source)) return;
+    if (request.method !== 'POST') {
+      reply.code(405).send({ error: 'Method not allowed' });
+      return;
+    }
+    const slug = decodedSlug(request.params.slug);
+    if (!slug) {
+      reply.code(404).send({ error: 'Pull request not found' });
+      return;
+    }
+    const number = Number(request.params.number);
+    const body = request.body ?? {};
+    if (typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.paths)) {
+      reply.code(400).send({ error: 'Request body must be a JSON object with a paths array.' });
+      return;
+    }
+    try {
       const paths = body.paths.filter(path => typeof path === 'string');
       const headSha = typeof body.headSha === 'string' ? body.headSha : null;
-      const diffs = await loadSpecificationPullRequestFileDiffs({ source, slug, number, paths, headSha });
-      if (!diffs) { sendJson(response, 404, { error: 'Pull request not found' }); return true; }
-      sendJson(response, 200, diffs);
+      const diffs = await loadSpecificationPullRequestFileDiffs({ source: request.params.source, slug, number, paths, headSha });
+      if (!diffs) {
+        reply.code(404).send({ error: 'Pull request not found' });
+        return;
+      }
+      reply.code(200).header('cache-control', 'no-store').send(diffs);
     } catch (error) {
       const status = typeof error?.status === 'number' ? error.status : (typeof error?.statusCode === 'number' ? error.statusCode : 502);
-      sendJson(response, status, {
-        error: error?.message || 'Unable to load pull request file diffs.',
-      });
+      reply.code(status).send({ error: error?.message || 'Unable to load pull request file diffs.' });
     }
-    return true;
-  }
-
-  const pullRequestRoute = url.pathname.match(/^\/api\/specs\/(active|archive)\/([^/]+)\/pull-requests$/);
-  if (pullRequestRoute) {
-    if (method !== 'GET') {
-      sendJson(response, 405, { error: 'Method not allowed' });
-      return true;
-    }
-    try {
-      const slug = decodeURIComponent(pullRequestRoute[2]);
-      if (!/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) {
-        sendJson(response, 404, { error: 'Specification changes not found' });
-        return true;
-      }
-      const changes = await loadSpecificationPullRequests({ source: pullRequestRoute[1], slug });
-      if (!changes) {
-        sendJson(response, 404, { error: 'Specification changes not found' });
-        return true;
-      }
-      sendJson(response, 200, changes);
-    } catch {
-      sendJson(response, 500, { error: 'Unable to load specification changes' });
-    }
-    return true;
-  }
-
-  return false;
+  });
 }
