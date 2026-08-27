@@ -380,7 +380,7 @@ tasks:
   - id: changes-and-pr-diff-feature-slice
     order: 6
     file: tasks/06-changes-and-pr-diff-feature-slice.md
-    status: implemented
+    status: verified
     depends_on:
       - spec-detail-and-workflow-feature-slice
     implementation:

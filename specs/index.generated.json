@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T13:12:40.294Z",
+  "generated": "2026-08-27T13:12:44.555Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -621,7 +621,7 @@
           "id": "changes-and-pr-diff-feature-slice",
           "order": 6,
           "file": "tasks/06-changes-and-pr-diff-feature-slice.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "spec-detail-and-workflow-feature-slice"
           ],
