@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T12:15:04.266Z",
+  "generated": "2026-08-27T13:12:40.294Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -567,7 +567,7 @@
           "id": "spec-detail-and-workflow-feature-slice",
           "order": 5,
           "file": "tasks/05-spec-detail-and-workflow-feature-slice.md",
-          "status": "implemented",
+          "status": "verified",
           "implementation": {
             "baseline_revision": "23226096ef88dcc8f33783d655a9c6d3b9c79be1",
             "review_revision": "bbc4536e5bc3e78bceda845575e0c87df90aeeca",

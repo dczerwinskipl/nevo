@@ -338,7 +338,7 @@ tasks:
   - id: spec-detail-and-workflow-feature-slice
     order: 5
     file: tasks/05-spec-detail-and-workflow-feature-slice.md
-    status: implemented
+    status: verified
     implementation:
       baseline_revision: 23226096ef88dcc8f33783d655a9c6d3b9c79be1
       review_revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
