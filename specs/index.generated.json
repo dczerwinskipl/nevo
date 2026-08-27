@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T18:36:03.304Z",
+  "generated": "2026-08-27T18:37:27.303Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -800,7 +800,51 @@
             "e2e-verification-and-guidelines-audit"
           ],
           "implementation": {
-            "baseline_revision": "50e7b07aa452a8ca451a98ae98a66b96316de7d9"
+            "baseline_revision": "50e7b07aa452a8ca451a98ae98a66b96316de7d9",
+            "review_revision": "33738ad422569ca4e54de4293299df25c42fa961",
+            "changed_paths": [
+              "tools/dashboard/package-lock.json",
+              "tools/dashboard/package.json",
+              "tools/dashboard/server/app.mjs",
+              "tools/dashboard/server/dev.mjs",
+              "tools/dashboard/server/index.mjs",
+              "tools/dashboard/server/routes/ai.mjs",
+              "tools/dashboard/server/routes/events.mjs",
+              "tools/dashboard/server/routes/health.mjs",
+              "tools/dashboard/server/routes/operations.mjs",
+              "tools/dashboard/server/routes/pull-requests.mjs",
+              "tools/dashboard/server/routes/specs.mjs",
+              "tools/dashboard/tests/ai-contract-drift.test.mjs",
+              "tools/dashboard/tests/ai-server.test.mjs",
+              "tools/dashboard/tests/events.test.mjs",
+              "tools/dashboard/tests/fastify-migration.test.mjs",
+              "tools/dashboard/tests/health.test.mjs",
+              "tools/dashboard/tests/operations.test.mjs",
+              "tools/dashboard/tests/pull-requests.test.mjs",
+              "tools/dashboard/tests/server.test.mjs",
+              "tools/dashboard/tests/spec-create-api.test.mjs",
+              "tools/dashboard/tests/specs.test.mjs"
+            ],
+            "worktree_patch_fingerprint": null
+          },
+          "self_check": {
+            "fingerprint": "ac444c6e1b81251ddce93c62551be48a0f0e11be05d1eaff68b0a46352345a91",
+            "revision": "33738ad422569ca4e54de4293299df25c42fa961",
+            "commands": [
+              {
+                "command": "npm --prefix tools/dashboard test",
+                "exit_code": 0
+              },
+              {
+                "command": "npm --prefix tools/dashboard run build",
+                "exit_code": 0
+              },
+              {
+                "command": "node tools/specs.mjs validate",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
           }
         }
       ]
