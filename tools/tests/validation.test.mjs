@@ -7,7 +7,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadChange, computeTaskFingerprint, parseOwnerDecisions } from '../specs/service.mjs';
+import { loadChange } from '../specs/store.mjs';
+import { computeTaskFingerprint, parseOwnerDecisions } from '../specs/fingerprint.mjs';
 import { validateContextExceptions, validateConsequentialPaths } from '../specs/validation.mjs';
 
 describe('validateContextExceptions (D13, AC1)', () => {

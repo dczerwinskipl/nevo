@@ -144,7 +144,7 @@ export function ChatComposer({
                 className={cn(
                   'rounded px-2 py-1 font-semibold uppercase tracking-wider text-[9px] transition-colors',
                   currentMode === modeMeta.id
-                    ? 'bg-[var(--accent)] text-[#111604]'
+                    ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
                     : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                 )}
                 title={`${modeMeta.label} - ${modeMeta.description}`}
@@ -165,7 +165,7 @@ export function ChatComposer({
                 variant="secondary"
                 onClick={onCancel}
                 disabled={!canCancel}
-                className="h-8 gap-1.5 px-3 text-xs font-semibold text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                className="h-8 gap-1.5 px-3 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-muted)] hover:text-[var(--danger-strong)]"
                 aria-label="Przerwij generowanie"
               >
                 <CircleStop className="size-3.5" />

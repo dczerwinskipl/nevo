@@ -1,4 +1,4 @@
-import type { TurnWork, WorkItem } from '../../lib/chat-projection';
+import type { TurnWork, WorkItem } from '../ai-chat/chat-projection';
 import type { NormalizedMessage } from '../../lib/types';
 
 /**

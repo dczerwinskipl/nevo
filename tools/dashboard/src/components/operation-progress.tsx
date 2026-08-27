@@ -21,7 +21,7 @@ export function StepStatusIcon({ status }: { status: OperationStepStatus }) {
     case 'completed':
       return <CheckCircle2 className="size-4 text-[var(--success)] shrink-0" />;
     case 'running':
-      return <LoaderCircle className="size-4 text-[var(--info)] animate-spin shrink-0" />;
+      return <LoaderCircle className="size-4 text-[var(--accent)] animate-spin shrink-0" />;
     case 'failed':
       return <AlertCircle className="size-4 text-[var(--danger)] shrink-0" />;
     case 'pending':
@@ -35,9 +35,9 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
     <li
       className={cn(
         'flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors text-xs',
-        step.status === 'running' && 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] border border-[color-mix(in_srgb,var(--info)_20%,transparent)]',
+        step.status === 'running' && 'bg-[var(--accent-muted)] border border-[var(--accent-border)]',
         step.status === 'failed' && 'bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)]',
-        step.status === 'completed' && 'bg-zinc-900/40 border border-zinc-800/40',
+        step.status === 'completed' && 'bg-[var(--surface-raised)] border border-[var(--border)]',
         step.status === 'pending' && 'opacity-60',
       )}
     >
@@ -49,7 +49,7 @@ export function OperationStepRow({ step }: { step: OperationStep }) {
           <span
             className={cn(
               'font-medium truncate',
-              step.status === 'running' && 'text-[var(--info-strong)] font-semibold',
+              step.status === 'running' && 'text-[var(--accent)] font-semibold',
               step.status === 'failed' && 'text-[var(--danger-strong)] font-semibold',
               step.status === 'completed' && 'text-[var(--muted-strong)]',
               step.status === 'pending' && 'text-[var(--muted)]',
@@ -109,7 +109,7 @@ export function OperationProgressView({
   if (loading && !snapshot) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center space-y-3" role="status">
-        <LoaderCircle className="size-6 animate-spin text-[var(--info)]" />
+        <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
         <p className="text-xs text-[var(--muted)]">Inicjalizacja operacji…</p>
       </div>
     );
@@ -169,14 +169,14 @@ export function OperationProgressView({
         </p>
       )}
 
-      {onDismiss && (
-        <div className="flex justify-end pt-2 border-t border-zinc-800/80">
+      {onDismiss && !isRunning && (
+        <div className="flex justify-end pt-2 border-t border-[var(--border)]">
           <Button
             size="sm"
             variant={isCompleted ? 'default' : 'secondary'}
             onClick={onDismiss}
           >
-            {isRunning ? 'Ukryj (działa w tle)' : 'Zamknij'}
+            Zamknij
           </Button>
         </div>
       )}
@@ -200,13 +200,17 @@ export function OperationModal({
   const { snapshot, loading, error, isTerminal } = useOperationProgress(operationId, onTerminal);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  const isCompleted = snapshot?.status === 'completed';
+  const isFailed = snapshot?.status === 'failed';
+  const isRunning = snapshot?.status === 'running';
+
   useEffect(() => {
     if (!open) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && isTerminal) {
         onClose();
       }
     };
@@ -216,19 +220,15 @@ export function OperationModal({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, onClose]);
+  }, [open, onClose, isTerminal]);
 
   if (!open || !operationId) return null;
-
-  const isCompleted = snapshot?.status === 'completed';
-  const isFailed = snapshot?.status === 'failed';
-  const isRunning = snapshot?.status === 'running';
 
   return (
     <div
       className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 backdrop-blur-sm p-0 sm:items-center sm:p-4"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && isTerminal) onClose();
       }}
     >
       <div
@@ -243,7 +243,7 @@ export function OperationModal({
           </h2>
           <div className="flex items-center gap-3 shrink-0">
             {isRunning && (
-              <span className="inline-flex items-center gap-1.5 font-medium text-[var(--info)] text-xs">
+              <span className="inline-flex items-center gap-1.5 font-medium text-[var(--accent)] text-xs">
                 <LoaderCircle className="size-3.5 animate-spin" /> W toku…
               </span>
             )}
@@ -257,9 +257,11 @@ export function OperationModal({
                 <AlertCircle className="size-3.5" /> Błąd
               </span>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij podgląd operacji">
-              <X className="size-4" />
-            </Button>
+            {!isRunning && (
+              <Button variant="ghost" size="icon" onClick={onClose} aria-label="Zamknij podgląd operacji">
+                <X className="size-4" />
+              </Button>
+            )}
           </div>
         </div>
 

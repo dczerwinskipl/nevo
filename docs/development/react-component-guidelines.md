@@ -5,32 +5,50 @@ title: React component and module guidelines
 status: current
 read_when:
   - creating or restructuring React components
-  - changing shared UI
+  - React or frontend changes
+  - React component or module refactoring
+  - changing shared UI, hooks, or feature modules
   - introducing dialogs, drawers, menus, tooltips, or other interactive primitives
   - extracting reusable components
   - changing styling or status/color presentation
-  - refactoring large feature components
-  - reorganizing React files, hooks, view models, or feature modules
 summary: >
-  Preferred way to structure React UI code: component composition, module/file
-  boundaries, token -> primitive -> wrapper -> feature layering, state/effect/context
-  ownership, view-model boundaries, accessibility, testing, and pragmatic size smells.
-  Treat this as required guidance for frontend implementation and refactoring when
-  explicitly attached to a task.
+  Practical architecture guidelines for React UI code: component composition, module and
+  file boundaries, "one primary concept per module", feature-local vertical ownership,
+  token -> primitive -> wrapper -> feature layering, state/effect/context ownership,
+  view-model projections, testing, and anti-mechanical refactoring principles.
 related:
   - development.coding-conventions
   - development.architecture-overview
+  - development.node-tooling-guidelines
 ---
 
 # React Component and Module Guidelines
 
-## Purpose
+## Purpose and Repository Context
 
 This document defines the preferred way to structure React UI code.
 
+**Repository context:** The NEvo repository is primarily a .NET project. Node tooling, the developer dashboard, and the AI orchestration layer currently reside in this repository because it is easier to develop, test, and verify end-to-end integration here. Eventually, most of this developer tooling will be extracted into a dedicated tooling repository.
+
+Therefore, these guidelines are:
+- practical for the current `tools/dashboard` codebase;
+- portable to a future standalone tooling repository;
+- strictly scoped to React UI and frontend tooling;
+- designed to maintain clear boundaries without altering the overarching .NET-centric architecture of NEvo.
+
 The goal is not to maximize the number of components or files. The goal is to make UI code easy to understand, compose, test, change, and move between repositories without carrying accidental coupling.
 
-Use architectural responsibility as the primary reason to split code. File size is a review signal, not a design rule.
+---
+
+# How to apply this guideline
+
+Before planning or executing any frontend refactoring, apply these rules:
+
+1. **Decision criteria, not a target file tree:** This document provides architectural heuristics and decision criteria, not an obligatory file tree. Example directory structures and module names in this guide are illustrative.
+2. **Do not refactor solely based on file size:** Never create a refactoring task or split a file solely because it has many lines of code.
+3. **Multiple components in one file are often correct:** Do not extract components into separate files solely because more than one component definition exists in a file.
+4. **Do not mimic examples blindly:** Do not reorganize code merely to make its directory layout look like an example snippet from this guideline.
+5. **Smallest structural change:** Prefer the smallest structural change that improves a real, observable boundary of responsibility, testability, or lifecycle ownership.
 
 ---
 
@@ -41,16 +59,15 @@ Use architectural responsibility as the primary reason to split code. File size 
 A component should have one clear responsibility.
 
 Good reasons to split a component:
-
 - it renders a distinct visual concept;
-- it owns a distinct interaction;
-- it owns state, effects, subscriptions, or browser lifecycle separate from its parent;
+- it owns a distinct interaction contract (e.g. dialog, menu, editor, drawer);
+- it owns state, effects, subscriptions, timers, or browser lifecycle separate from its parent;
 - it can be tested meaningfully in isolation;
-- it contains logic that obscures the parent;
+- it contains logic that obscures the parent's primary intent;
 - it changes for a different reason than the rest of the parent;
 - extracting it makes the feature composition substantially easier to read.
 
-Do not split components solely to satisfy a line-count rule.
+Do not split components solely to satisfy an arbitrary line-count rule.
 
 Prefer:
 
@@ -61,258 +78,224 @@ Prefer:
 <Composer />
 ```
 
-over one component containing layout, fetching, event projection, interaction state, effects, dialogs, and markup.
+over one component containing layout, data fetching, event projection, interaction state, effects, modal dialogs, and markup.
 
-A page or feature component should read primarily as composition and orchestration.
+A page or feature container component should read primarily as composition and orchestration.
 
 ## 1.2 Prefer composition over configuration-heavy components
 
 Prefer composing focused parts through `children`, slots, or small subcomponents.
 
-Avoid components that accumulate many unrelated booleans or variants to represent distinct concepts.
-
-If independent flags materially change responsibility or structure, inspect whether the component should be split instead.
+Avoid components that accumulate many unrelated booleans or variants to represent distinct concepts. If independent flags materially change responsibility or structure, inspect whether the component should be split instead.
 
 ## 1.3 Split by responsibility, not by architectural ceremony
 
-Do not create `FooView`, `FooContainer`, `useFooModel`, `FooService`, and `Foo.types.ts` merely because such layers are possible.
+Do not create `FooView`, `FooContainer`, `useFooModel`, `FooService`, and `Foo.types.ts` merely because such layers are theoretically possible.
 
-Create a boundary when it makes ownership, testing, reuse, or change isolation clearer.
-
-A 20-line file that adds no meaningful boundary is not automatically better than a 120-line cohesive module.
+Create a boundary when it makes ownership, testing, reuse, or change isolation clearer. A 20-line file that adds no meaningful boundary is not automatically better than a cohesive module.
 
 ---
 
-# 2. Component and file organization
+# 2. Component and module organization
 
 ## 2.1 Default: one primary concept per module
 
-A React module should normally have one primary exported concept.
+A React module should normally have **one primary exported concept**.
 
 That concept may be:
-
 - a component;
 - a feature hook;
-- a projection/view-model function;
-- a context/provider;
+- a projection or view-model function;
+- a context provider;
 - a reusable UI primitive.
 
-This is a default, not a hard rule.
+This is a default heuristic, not a dogmatic "one component per file" rule. A module may legitimately contain small private helpers and private components when they are implementation details of the primary concept.
 
-A module may contain small private helpers and private components when they are implementation details of the primary concept.
+## 2.2 When a helper component may stay in the parent file
 
-The purpose of this rule is to avoid files that become informal containers for several independently evolving features.
-
-## 2.2 When a helper component may stay in the same file
-
-A private component may stay beside its parent when most of the following are true:
-
-- it is small and easy to understand;
-- it is used only by that module;
-- it has no independent data fetching;
-- it has no meaningful side effects, subscriptions, timers, or browser lifecycle;
-- it has little or no independent interaction state;
+A private helper component should remain beside its parent when:
+- it is a private rendering detail used only by that module;
+- it is small, simple, and easy to understand;
+- it has no significant independent state of its own;
+- it has no independent lifecycle;
+- it has no subscriptions, timers, viewport, focus, or keyboard event logic;
 - it changes for the same reason as its parent;
-- extracting it would mostly add navigation between files without clarifying ownership.
+- extracting it would mostly add file count and navigation friction without improving ownership or testability.
 
 Typical examples:
-
-- a small metric row;
+- a small metric badge or summary row;
 - a local icon-and-label fragment;
-- a short empty-state fragment;
-- a tiny presentational item used only by its parent.
+- a short empty-state placeholder;
+- a tiny presentational item rendered inside a list.
 
-Do not extract every JSX fragment into a component.
+Do not extract every JSX fragment into its own file.
 
 ## 2.3 When a component should get its own module
 
-A component is a strong candidate for its own module when one or more of these are meaningful:
-
-- it owns an interaction contract such as a dialog, menu, editor, composer, or expandable panel;
-- it owns hooks or effects;
-- it manages focus, keyboard, viewport, timers, subscriptions, or other lifecycle behavior;
+A component is a strong candidate for its own module when it owns a real, independent responsibility, such as:
+- it owns an independent interaction contract (e.g. a dialog, drawer, menu, editor, or composer);
+- it owns independent state, hooks, or lifecycle;
+- it manages focus, keyboard events, viewport listeners, timers, or subscriptions;
 - it has a meaningful props contract that can be understood independently;
-- it contains substantial conditional rendering;
-- it is independently testable;
-- it is reusable;
+- it contains substantial conditional rendering or state branching;
+- it can be tested meaningfully in isolation;
 - it changes independently from the parent;
-- the parent becomes substantially easier to understand after extraction.
+- extracting it makes the parent component substantially easier to understand as orchestration.
 
-Reuse is not required for extraction.
+**Reuse is not required to justify an independent module.** A component used in only one feature can still deserve its own file because it owns a separate interaction or lifecycle responsibility.
 
-A component used in only one feature can still deserve a separate module because it owns a separate responsibility.
+## 2.4 Prefer feature-local vertical ownership
 
-## 2.4 Avoid many unrelated component definitions in one large file
+**«Prefer feature-local vertical ownership when component, interaction behavior, projection, and tests belong to the same feature. Promote only genuinely shared primitives or behavior to global/shared modules.»**
 
-Several tiny private render helpers are acceptable.
+When a feature or product capability has meaningful behavior of its own, prefer keeping its constituent parts together:
+- visual and container components;
+- interaction behavior and dialog contracts;
+- feature-local hooks;
+- projections and view-model transformations;
+- feature-specific tests.
 
-Several stateful or independently behaving components in the same file are usually a smell.
+Prefer keeping these concepts close to the feature rather than scattering them automatically across global technical-layer folders such as:
 
-If a file contains a page, a dialog, a viewport hook, a complex panel, data projection, and command orchestration, the problem is not the line count. The file contains several architectural responsibilities.
+```text
+# Avoid premature horizontal scattering:
+components/   ← every component in the repo
+hooks/        ← every hook in the repo
+models/       ← every projection in the repo
+utils/        ← every helper in the repo
+```
+
+Instead, keep feature-specific code vertically owned by the feature. Promote code to global/shared directories (`src/components/ui/`, `src/hooks/`, `src/lib/`) only when there is genuine cross-feature reuse or it represents an application-wide primitive.
+
+**Important clarifications:**
+- This does **not** mean every feature requires a dedicated directory.
+- This does **not** mean every component needs its own vertical slice.
+- This does **not** mean every feature must have component, hook, model, and test files.
+- Existing cohesive code should **never** be reorganized solely to match a vertical-slice pattern.
+- A small feature may remain in a single, cohesive module.
 
 ## 2.5 Feature directories
 
-Do not create a directory for every component by default.
+Do not create a directory for every single component by default. Start with a single module when a feature is small.
 
-Start with a single module when a feature is small.
-
-Create a feature directory when the feature develops an internal structure, for example:
+Create a feature directory only when a feature develops real internal structure with multiple collaborating responsibilities, for example:
 
 ```text
 chat/
-  ai-chat.tsx
-  conversation.tsx
-  session-dialog.tsx
-  use-chat-viewport.ts
-  chat-view-model.ts
-  chat-view-model.test.ts
+  ai-chat.tsx               # Orchestration and composition
+  conversation.tsx          # Message stream visual component
+  session-dialog.tsx        # Independent modal interaction
+  use-chat-viewport.ts      # Viewport and scroll lifecycle (feature-local hook)
+  chat-view-model.ts        # Pure data projection logic (feature-local projection)
+  chat-view-model.test.ts   # Pure unit tests (feature-local test)
 ```
 
-A feature directory is justified when it groups several files that:
-
+A feature directory is justified when it groups files that:
 - belong to the same product capability;
 - are not general-purpose shared UI;
 - collaborate closely;
-- would otherwise pollute a broad global folder.
+- would otherwise clutter a broad global directory.
 
-Prefer feature-local organization over global catch-all folders such as `hooks/`, `utils/`, or `models/` when code is used by only one feature.
+Keep feature-specific hooks, view models, and helpers **feature-local** until there is genuine, proven reuse across independent features.
 
 ## 2.6 Promote code upward only when reuse is real
 
-Keep code feature-local until there is a real shared concept.
+Keep code feature-local until a real shared concept emerges. Promote to shared UI or shared hooks only when:
+- multiple independent features genuinely require the same semantic concept;
+- the API is stable enough to describe and test independently;
+- sharing removes duplication without introducing a generic, catch-all abstraction.
 
-Promote to shared UI or shared hooks when:
-
-- multiple features need the same semantic concept;
-- the API is stable enough to describe independently;
-- sharing removes duplication without creating a generic catch-all abstraction.
-
-Do not promote code solely because two implementations look visually similar.
-
-Reuse should follow semantic similarity, not visual coincidence.
+Do not promote code solely because two implementations look visually similar. Reuse should follow semantic similarity, not visual coincidence.
 
 ---
 
-# 3. File size is a smell, not a limit
+# 3. File size is an inspection trigger, not an extraction reason
 
-Do not enforce hard maximum LOC rules.
+Do not enforce hard or soft maximum LOC limits.
 
-Use file size to trigger architectural review.
+**File size may trigger inspection, but it must not be the architectural reason for extraction.**
 
-Practical review signals:
+A large file should prompt a review of module cohesion, but refactoring is justified only when a concrete architectural problem is present:
+- multiple independent responsibilities mixed in one file;
+- multiple independent lifecycle owners (timers, listeners, subscriptions);
+- several stateful, complex components accumulating together;
+- mixing high-level orchestration, rendering details, and browser lifecycle behavior;
+- heavy data transformations and projection logic embedded directly in JSX;
+- independent interaction contracts (e.g. embedded modal dialogs with complex state);
+- difficulty understanding the primary component due to unrelated implementation noise.
 
-- around **200 LOC for a single component**: inspect whether rendering, interaction, and data orchestration are still cohesive;
-- around **300 LOC for a React module**: inspect whether more than one meaningful responsibility has accumulated;
-- around **500 LOC or more**: treat the module as a strong architecture smell that requires explicit justification.
+A large module that represents a single, cohesive, deterministic projection or specialized renderer can be completely valid and easier to maintain in one place. Conversely, a small module that mixes fetching, mutations, timers, and rendering may need decomposition despite low line count.
 
-These are intentionally approximate.
-
-A cohesive 350-line projection or specialized renderer may be acceptable.
-
-A 140-line component that mixes fetching, mutations, viewport listeners, timers, and conditional JSX may already need decomposition.
-
-Responsibility, lifecycle, and change boundaries take precedence over LOC.
+Responsibility, lifecycle boundaries, and change reasons take precedence over line count.
 
 ---
 
-# 4. UI architecture
+# 4. UI architecture and layering
 
 Use the following conceptual layering:
 
 ```text
-Design tokens
+Design tokens (colors, spacing, surface levels)
     ↓
-Behavior primitives
+Behavior primitives (Radix UI / accessibility primitives)
     ↓
-Application-owned UI primitives
+Application-owned UI primitives (Button, Dialog, Card, Sheet)
     ↓
 Reusable visual components
     ↓
-Feature components
-    ↓
-Feature hooks / view models / orchestration
+Feature components & feature-local modules (dialogs, hooks, view models)
     ↓
 Pages / workspace composition
 ```
 
-These are dependency directions, not mandatory directories.
+These represent dependency directions, not mandatory directories.
 
 ## 4.1 Design tokens
 
-Use shared semantic tokens for known meanings such as:
-
-- success;
-- warning;
-- danger;
-- information;
-- muted text/background;
-- borders;
-- surface levels;
-- intentional provider identity colors.
-
-Feature components should express meaning rather than recreate the palette.
-
-Avoid raw one-off colors when an existing semantic token expresses the same concept.
+Use shared semantic tokens for known meanings (e.g. success, warning, danger, info, muted surfaces, borders). Feature components should express intent through semantic tokens rather than hardcoded palette values or raw magic colors.
 
 ## 4.2 Behavior primitives
 
-Prefer proven accessible libraries for difficult interaction behavior.
-
+Prefer established, accessible primitive libraries for complex interaction behavior.
 For the current frontend stack:
+- **Radix UI** = accessible interaction behavior (dialogs, popovers, dropdowns, tooltips);
+- **Tailwind CSS + semantic tokens** = styling;
+- **Application-owned wrappers** (`components/ui/*`) = feature-facing API.
 
-```text
-Radix = interaction/accessibility primitives
-Tailwind + application tokens = styling
-Application-owned wrappers = feature-facing UI API
-```
-
-Prefer existing wrappers for dialogs, sheets, menus, popovers, tooltips, and similar behavior.
-
-Do not hand-roll focus trapping, Escape handling, portals, keyboard navigation, or modal background behavior when an established primitive already solves it.
+Prefer existing application wrappers for dialogs, sheets, menus, and tooltips. Do not hand-roll focus trapping, Escape key handling, portals, or backdrop behavior when an established primitive already solves it.
 
 ## 4.3 One general interaction foundation
 
-Do not mix multiple general-purpose UI frameworks that compete for the same responsibility without an explicit technical decision.
-
-Focused libraries for editors, charts, virtualization, drag and drop, rich text, or data grids are fine when they solve a distinct problem.
+Do not mix multiple competing general-purpose UI component frameworks without an explicit architectural decision. Specialized libraries (e.g. diff viewers, code editors, charts) remain acceptable when they solve a distinct capability.
 
 ---
 
-# 5. Visual and orchestration boundaries
+# 5. Visual components vs orchestration
 
 ## 5.1 Visual components
 
-A visual component should mostly:
-
+A visual component should primarily:
 - receive typed props;
-- render UI;
-- emit user intentions through callbacks;
-- own local visual state where appropriate;
-- avoid knowing how data is fetched or persisted.
+- render UI elements;
+- emit user intentions through callback props;
+- own local visual state where appropriate (e.g. hover, local open/closed toggle);
+- avoid knowing how data is fetched, cached, or persisted.
 
-## 5.2 Smart/container components and feature hooks
+## 5.2 Container components and feature hooks
 
-A smart layer may:
+A container / smart layer may:
+- fetch or query server data;
+- dispatch mutations;
+- coordinate routing and navigation;
+- manage side effects and browser lifecycle;
+- translate domain state into view-model props;
+- handle server error states.
 
-- fetch/query data;
-- call mutations;
-- coordinate navigation;
-- own side effects;
-- translate application/domain state into view props;
-- compose several feature states;
-- handle server errors.
+Do not force an artificial visual/container split for trivial components. Separate these concerns when the combined component becomes difficult to understand, test, or evolve.
 
-Do not force a visual/container split for trivial components.
+## 5.3 Keep orchestration visible
 
-Separate these concerns when the combined component becomes harder to understand, test, or evolve.
-
-## 5.3 Keep orchestration visible, not enormous
-
-A page or feature entry component may legitimately coordinate several hooks and actions.
-
-Its responsibility should be to make the feature flow understandable, not to contain the implementation of every subfeature.
-
-If the orchestration itself becomes complex, group related behavior into feature hooks or use-case-style functions rather than moving all code into one generic hook.
+A page or feature entry component should make feature flow obvious at a glance. It coordinates hooks and subcomponents rather than containing inline implementations of every subfeature.
 
 ---
 
@@ -320,393 +303,94 @@ If the orchestration itself becomes complex, group related behavior into feature
 
 ## 6.1 Extract hooks by behavior ownership
 
-A hook is a good extraction candidate when it owns a coherent behavior such as:
+A custom hook is a good extraction candidate when it owns a coherent behavior:
+- viewport, scroll, or keyboard tracking;
+- event subscriptions and SSE streams;
+- polling and timer management;
+- complex session or form lifecycle;
+- coordinated mutations with optimistic updates.
 
-- viewport/keyboard tracking;
-- event subscription;
-- polling;
-- timers;
-- drag/drop state;
-- session lifecycle;
-- coordinated mutations;
-- synchronization with an external system.
+Keep feature-specific hooks beside the feature. Move a hook to a shared directory only when several independent features genuinely share the behavior.
 
-Keep feature-specific hooks beside the feature.
+## 6.2 Avoid hook catch-alls
 
-Move a hook to a shared location only when several independent features genuinely reuse the behavior.
-
-## 6.2 Do not use hooks as dumping grounds
-
-A 300-line `useFeature()` hook containing all queries, mutations, timers, projection, navigation, and UI state merely moves the giant component problem.
-
-Split hooks when they represent different lifecycles or responsibilities.
+Do not create giant multi-hundred-line `useFeature()` hooks containing all queries, mutations, timers, projections, navigation, and local state. Split hooks when they represent distinct lifecycles or capabilities.
 
 ---
 
 # 7. View models and data transformation
 
-Keep significant data transformation out of JSX.
+Keep significant data transformations out of JSX.
 
 Prefer:
 
 ```text
-raw events / API data
+raw events / API responses
         ↓
-projection / selector / view model
+pure projection / selector / view-model function (feature-local by default)
         ↓
 visual components
 ```
 
-Projection logic should normally be deterministic and independently testable.
+Projection logic should be deterministic and independently testable with fast unit tests. Build view models close to the feature consuming them. Promote to shared `src/lib/` only when multiple independent features require the same projection. Do not create view models ceremonially for trivial 1-to-1 prop mapping.
 
-Build view models close to the place where the source data is understood.
+## 7.1 View-model boundaries follow change boundaries
 
-Do not create view models ceremonially for trivial prop mapping.
-
-## 7.1 View-model boundaries should follow change boundaries
-
-Group values that:
-
-- come from the same logical source;
-- change together;
-- are expected to invalidate together.
-
-Do not combine mostly-static metadata with high-frequency streaming state merely to reduce the number of props.
-
-A view model should be the smallest coherent update unit useful to the consumer.
+Group values that come from the same logical source and change together. Do not combine static metadata with high-frequency streaming state merely to reduce prop count.
 
 ---
 
-# 8. State ownership
+# 8. State ownership and effects
 
-Keep state as close as practical to the component or feature that owns it.
+## 8.1 State placement
 
-Prefer:
+Keep state as close as practical to the component or feature that owns it:
+- local component state for transient visual state;
+- feature hooks for feature interaction workflows;
+- server query cache (TanStack Query) for server-persisted state;
+- shared/global state only when distant surfaces genuinely need synchronized client-side state.
 
-- local component state for local visual state;
-- feature hooks for feature behavior;
-- the existing query/cache layer for server state;
-- shared/global state only when distant surfaces genuinely need the same client-side state.
+Do not duplicate derived state. Do not mirror query/props data into local state unless the local value represents an independently editable draft.
 
-Do not duplicate derived state.
+## 8.2 Effects are for synchronization
 
-Do not mirror query/props state into local state unless the local value intentionally represents a different lifecycle, such as an editable draft.
-
-When several booleans model mutually exclusive states, prefer a discriminated state that prevents impossible combinations.
-
----
-
-# 9. Effects and side effects
-
-Use effects to synchronize React with external systems.
-
-Do not use effects as a general event-processing or derived-state mechanism.
-
-Inspect effects that:
-
-- derive normal render state;
-- parse large event streams;
-- coordinate unrelated behaviors;
-- update several state variables in sequence;
-- require complex dependency suppression.
-
-Prefer explicit event handlers, reducers, projections, selectors, or focused feature hooks.
-
-Do not routinely suppress `exhaustive-deps` to preserve an awkward design.
+Use `useEffect` to synchronize React components with external systems (DOM events, timers, websockets, external libraries). Do not use effects for calculating derived state or sequencing state updates.
 
 ---
 
-# 10. Context and subscription boundaries
+# 9. Accessibility and responsive design
 
-Context should not become a high-frequency global event bus.
+Shared primitives must own accessibility behavior: focus management, Escape key handling, keyboard navigation, ARIA roles/states, and focus restoration. Use semantic HTML before custom ARIA.
 
-Context boundaries should follow consumer and change boundaries.
-
-Avoid one broad context combining:
-
-- almost-static identity;
-- rarely-changing permissions;
-- frequent activity;
-- streaming text;
-- local input state.
-
-Prefer narrower contexts, local state, or selector-based subscriptions when update frequency differs materially.
-
-Do not split context mechanically into dozens of providers. Split when consumers or invalidation patterns are genuinely different.
+Do not treat responsive layouts as a CSS afterthought. Test narrow widths, collapsible panels, and long content flows. Desktop and mobile layouts may use different compositions over the same underlying view model without duplicating business logic.
 
 ---
 
-# 11. Props and component contracts
+# 10. Testing strategy
 
-Prefer small, meaningful contracts.
+Test logic at the responsibility level where it lives:
 
-Pass a coherent domain/view concept when its values belong together and change together.
+1. **Projection / View-model logic:** Pure unit tests for data transformations, event filtering, sorting, status derivation, and grouping (kept feature-local beside the projection where practical).
+2. **Visual components:** Observable behavior tests (visible content, accessibility attributes, callback invocation, expand/collapse, disabled states) using React Testing Library.
+3. **Smart / Orchestration components:** Integration tests for query/mutation contracts, error handling, and parameter routing.
 
-Do not pass giant application objects merely to avoid defining props.
-
-Do not construct giant view-model objects from unrelated inputs merely to make a component signature shorter.
-
-Props should make ownership clear.
+Avoid relying exclusively on broad, brittle snapshot tests.
 
 ---
 
-# 12. Variants and reusable components
-
-Use variants for genuine visual variants of the same semantic concept.
-
-If variants begin to represent different product concepts or unrelated behavior, split the components.
-
-Avoid premature abstractions such as:
-
-```text
-UniversalInfoPanel
-GenericTimelineItem
-FlexibleMetaBlock
-```
-
-unless real consumers demonstrate that the generic concept exists.
-
-Build reusable semantics, not generic-looking names.
-
----
-
-# 13. Render purity and identity
-
-React rendering must be pure.
-
-Do not during render:
-
-- mutate external data;
-- sort mutable props in place;
-- create random identity;
-- write to external caches;
-- depend on the fact that rendering happened.
-
-Use stable domain identifiers for keys.
-
-Use `useId` for accessibility relationships, not list keys.
-
-Treat `key` as a component identity boundary. Use it deliberately when local state should reset for a different entity.
-
-## 13.1 Define component types statically
-
-Do not define stateful React component types inside another component.
-
-Small render helper functions are different, but a component with its own state, hooks, lifecycle, or visual responsibility should have stable module-level identity.
-
----
-
-# 14. Accessibility
-
-Accessibility is part of the primitive, not an afterthought.
-
-Shared primitives should own behavior where possible:
-
-- focus management;
-- Escape handling;
-- keyboard navigation;
-- ARIA roles/states;
-- accessible names;
-- focus restoration;
-- modal background behavior.
-
-Use semantic HTML before custom ARIA.
-
-Components used as primitive leaves or Radix `asChild` targets should correctly forward supported DOM props, events, `className`, `aria-*`, `data-*`, and refs according to the project React version.
-
----
-
-# 15. Responsive behavior
-
-Do not treat mobile as a CSS afterthought.
-
-When implementing or refactoring:
-
-- identify primary information;
-- prefer progressive disclosure;
-- avoid simply shrinking desktop controls;
-- test narrow widths;
-- test long content;
-- test keyboard-open states.
-
-Desktop and mobile may use different compositions over the same data/view model.
-
-Do not duplicate domain or query logic solely because layout differs.
-
----
-
-# 16. Styling
-
-Prefer:
-
-- existing Tailwind conventions;
-- semantic design tokens;
-- reusable class/variant helpers;
-- shared component variants.
-
-Avoid:
-
-- scattered magic colors;
-- arbitrary z-index values;
-- repeated one-off shadows/borders;
-- duplicated responsive breakpoints for the same concept;
-- feature code controlling portal/z-index internals without a concrete reason.
-
-Promote repeated semantic treatments into a shared token or component.
-
----
-
-# 17. Loading, empty, and error states
-
-Reuse shared states when semantics match.
-
-A feature may compose shared primitives with feature-specific content and actions.
-
-Do not create one universal state component with many unrelated flags.
-
-Use Error Boundaries where a render failure needs a useful isolation/recovery boundary.
-
-Do not wrap every small component in its own boundary.
-
----
-
-# 18. Memoization and render performance
-
-Memoization should follow good data boundaries, not compensate for poor ones.
-
-Prefer this order:
-
-1. define cohesive component and view-model boundaries;
-2. keep state local;
-3. preserve stable identities where practical;
-4. remove unnecessary effects and cascading updates;
-5. profile the actual interaction;
-6. add targeted memoization or scheduling only if needed.
-
-Do not add `memo`, `useMemo`, or `useCallback` mechanically.
-
-Do not rely on memoization for correctness.
-
-Do not adopt React Compiler as part of an unrelated refactor without an explicit technical decision.
-
----
-
-# 19. Testing
-
-Test logic at the level where it lives.
-
-## Projection/view-model logic
-
-Prefer unit tests for:
-
-- event grouping;
-- derived statuses;
-- normalization;
-- state transitions;
-- deterministic projection.
-
-## Visual components
-
-Test user-observable behavior:
-
-- visible content;
-- accessibility state;
-- callbacks;
-- expand/collapse;
-- disabled/loading states;
-- keyboard interaction where relevant.
-
-Prefer React Testing Library or the project's established equivalent for new component tests.
-
-Do not introduce deprecated renderer-based approaches for new tests.
-
-## Smart/orchestration code
-
-Test:
-
-- integration with query/mutation contracts;
-- error handling;
-- mapping into presentation props;
-- relevant lifecycle behavior.
-
-Avoid relying exclusively on broad snapshots.
-
----
-
-# 20. Refactoring rule
-
-When touching an oversized or mixed-responsibility feature:
-
-- improve boundaries required by the touched behavior;
-- extract independently behaving components and hooks;
-- move meaningful data transformation out of JSX;
-- reuse existing primitives;
-- remove obsolete local implementations superseded by the refactor.
-
-Do not perform unrelated repository-wide cleanup.
-
-Do not preserve an obviously broken local boundary merely to minimize the diff.
-
-A refactor should improve the code that the change actually depends on, not opportunistically redesign the whole frontend.
-
----
-
-# 21. React linting as enforcement
-
-Prefer mechanical enforcement for rules that tools can reliably verify.
-
-Use the official React hooks lint rules where compatible with the repository.
-
-Treat lint failures as design signals rather than routinely silencing them.
-
-Architecture rules such as module responsibility and file decomposition remain review concerns and should not be reduced to crude LOC lint rules.
-
----
-
-# 22. Review checklist
-
-When creating or refactoring React UI, verify:
-
-- [ ] Does each primary module have one clear responsibility?
-- [ ] Can the page/feature be understood mostly from composition and orchestration?
-- [ ] Are several independently stateful or lifecycle-owning components accumulating in one file?
-- [ ] Could small private visual helpers reasonably stay local instead of creating unnecessary files?
-- [ ] Does a feature directory exist only where the feature has real internal structure?
-- [ ] Are feature-specific hooks/view models kept feature-local?
-- [ ] Is file size being used as a review signal rather than an automatic split rule?
-- [ ] Is significant raw-data transformation kept out of JSX?
-- [ ] Are visual and orchestration concerns separated where complexity warrants it?
-- [ ] Did we search for an existing shared primitive/component first?
-- [ ] Are semantic tokens reused instead of raw one-off colors?
-- [ ] Is difficult interaction behavior implemented through the established primitive system?
-- [ ] Is state owned at the narrowest sensible level?
-- [ ] Is derived or persisted state duplicated unnecessarily?
-- [ ] Are effects used for genuine synchronization?
-- [ ] Do context/view-model boundaries follow update boundaries?
-- [ ] Are list keys stable and derived from data?
-- [ ] Are component types defined statically?
-- [ ] Are accessibility and keyboard behavior covered?
-- [ ] Does the feature behave correctly on narrow/mobile layouts?
-- [ ] Are tests located at the responsibility they verify?
-- [ ] Are memoization and performance mechanisms justified by real behavior?
-- [ ] Did the refactor avoid unrelated cleanup and premature generic abstractions?
-
----
-
-# 23. Preferred frontend stack direction
-
-Unless explicitly revised by an architecture decision:
-
-```text
-React
-  +
-Tailwind / semantic design tokens
-  +
-application-owned UI components/primitives
-  +
-Radix Primitives for complex accessible interaction behavior
-```
-
-Do not introduce another competing general-purpose component/primitive framework without an explicit technical decision.
-
-Specialized libraries remain acceptable when they solve a distinct capability.
+# 11. Review checklist
+
+When creating or reviewing React UI code, verify:
+
+- [ ] Does each primary module represent one clear concept?
+- [ ] Is feature-local vertical ownership preferred over premature scattering into global technical folders?
+- [ ] Are small private render helpers kept local rather than creating unnecessary files?
+- [ ] Do separate modules exist for independent interaction contracts (dialogs, menus, editors)?
+- [ ] Is a feature directory used only when the feature has real internal structure?
+- [ ] Are feature-specific hooks, view models, and helpers kept feature-local?
+- [ ] Is file size being used solely as an inspection trigger rather than an extraction rule?
+- [ ] Are heavy data transformations kept out of JSX and tested as pure functions?
+- [ ] Are established design tokens and Radix accessibility primitives used?
+- [ ] Is state owned at the narrowest sensible level without duplicating derived state?
+- [ ] Are effects used strictly for synchronization with external systems?
+- [ ] Are tests focused at the level of responsibility they verify?

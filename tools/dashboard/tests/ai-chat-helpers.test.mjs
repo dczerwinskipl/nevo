@@ -7,8 +7,8 @@ import {
   composeChatMessages,
   createTurnIdempotencyKey,
   initialPromptWithTaskContext,
-} from '../src/lib/ai-chat-helpers.ts';
-import { useNevoAssistantRuntime } from '../src/lib/nevo-assistant-runtime.ts';
+} from '../src/components/ai-chat/ai-chat-helpers.ts';
+import { useNevoAssistantRuntime } from '../src/components/ai-chat/nevo-assistant-runtime.ts';
 
 test('turn idempotency keys work when randomUUID is unavailable on an HTTP VPN origin', () => {
   assert.equal(createTurnIdempotencyKey({
@@ -85,7 +85,8 @@ test('persisted assistant messages replace their streamed version by stable mess
 });
 
 test('browser EventSource dispatches named SSE events only to addEventListener, not onmessage', async () => {
-  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES, applyAgentEvent } = await import('../src/lib/nevo-assistant-runtime.ts');
+  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } = await import('../src/components/ai-chat/agent-event-source.ts');
+  const { applyAgentEvent } = await import('../src/components/ai-chat/agent-event-reducer.ts');
 
   // Minimal standard-compliant EventTarget mock for browser EventSource
   class MockEventSource {
@@ -166,7 +167,7 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
 });
 
 test('classifySessionLoadError distinguishes network, 404 not found, and general HTTP failures', async () => {
-  const { classifySessionLoadError, AgentSessionLoadError } = await import('../src/lib/nevo-assistant-runtime.ts');
+  const { classifySessionLoadError, AgentSessionLoadError } = await import('../src/components/ai-chat/agent-session-transport.ts');
 
   // 1. Network / fetch failures
   const netErr1 = classifySessionLoadError(new TypeError('Failed to fetch'), 'claude', 'sess-1');
@@ -195,7 +196,7 @@ test('classifySessionLoadError distinguishes network, 404 not found, and general
 });
 
 test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network errors with exact classification', async () => {
-  const { fetchAgentSessionSnapshot } = await import('../src/lib/nevo-assistant-runtime.ts');
+  const { fetchAgentSessionSnapshot } = await import('../src/components/ai-chat/agent-session-transport.ts');
 
   // 1. Successful snapshot
   const mockFetchSuccess = async (url) => {

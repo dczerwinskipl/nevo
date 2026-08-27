@@ -10,18 +10,18 @@ import {
   applyCancelTurnResponse,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
-} from '../src/lib/nevo-assistant-runtime.ts';
+} from '../src/components/ai-chat/agent-event-reducer.ts';
 import {
   pendingDispatchStore,
   InitialDispatchController,
-} from '../src/lib/pending-dispatch-store.ts';
+} from '../src/components/ai-chat/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
-  return readFileSync(fileURLToPath(new URL('../src/lib/nevo-assistant-runtime.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/nevo-assistant-runtime.ts', import.meta.url)), 'utf8');
 }
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 test('Issue 1: resolveSnapshotActivity extracts authoritative activity and preserves waitingForUser across reload', () => {
@@ -357,7 +357,7 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
   const chatSource = readAiChatSource();
-  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/lib/pending-dispatch-store.ts', import.meta.url)), 'utf8');
+  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../src/components/ai-chat/pending-dispatch-store.ts', import.meta.url)), 'utf8');
 
   // AiChatPage uses useInitialDispatch
   assert.match(chatSource, /useInitialDispatch/);

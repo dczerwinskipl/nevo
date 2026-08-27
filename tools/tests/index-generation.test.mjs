@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildDocsIndexes } from '../docs/service.mjs';
-import { buildSpecsIndexes } from '../specs/service.mjs';
+import { buildSpecsIndexes } from '../specs/indexes.mjs';
 
 describe('buildDocsIndexes — pure and deterministic', () => {
   const docs = [

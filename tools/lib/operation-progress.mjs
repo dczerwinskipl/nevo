@@ -51,13 +51,18 @@ export function parseProgressLine(line) {
 export function createProgressEmitter({
   out = process.stdout,
   clock = () => new Date(),
+  onEvent,
 } = {}) {
   function emit(type, payload = {}) {
     const formatted = formatProgressEvent(type, payload, clock);
     if (out && typeof out.write === 'function') {
       out.write(formatted);
     }
-    return parseProgressLine(formatted);
+    const parsed = parseProgressLine(formatted);
+    if (typeof onEvent === 'function' && parsed) {
+      onEvent(parsed);
+    }
+    return parsed;
   }
 
   return {

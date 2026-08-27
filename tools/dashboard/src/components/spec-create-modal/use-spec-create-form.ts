@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  useAiProviders,
-  useCreateAiSession,
   useCreateSpecification,
   type CreateSpecificationResult,
 } from '@/hooks/use-dashboard-data';
+import { useAiProviders, useCreateAiSession } from '@/components/ai-chat/ai-chat-queries';
 import { slugifyTitle, resolveDefaultPlanningMode } from '@/lib/spec-create-helpers';
-import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { initialPromptWithTaskContext } from '@/components/ai-chat/ai-chat-helpers';
 import type { AiSession, AgentExecutionMode } from '@/lib/types';
 
 export interface UseSpecCreateFormOptions {

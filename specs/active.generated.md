@@ -6,3 +6,4 @@
 |---|---|---|---|---|
 | `ai-adapters-hardening` | AI adapters hardening | draft | 10 | 2026-08-24 |
 | `deterministic-workflow-foundation` | Deterministic workflow foundation | draft | 10 | 2026-08-18 |
+| `refaktoring-tooli` | Tools refactoring according to Node and React guidelines | draft | 10 | 2026-08-25 |

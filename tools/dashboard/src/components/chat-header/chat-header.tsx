@@ -21,7 +21,7 @@ export function ChatHeader({
   onOpenDetails,
 }: ChatHeaderProps) {
   return (
-    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5">
+    <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5 lg:pr-24">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <Button
@@ -52,14 +52,19 @@ export function ChatHeader({
               tabIndex={0}
               aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
               title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
-              className="flex size-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default"
+              className={cn(
+                'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default lg:hidden',
+                live
+                  ? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'
+                  : 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
+              )}
             >
               <span className="relative flex size-3.5 items-center justify-center">
-                <Radio className={cn('size-3.5', live ? 'text-[var(--accent)]' : 'text-amber-400')} />
+                <Radio className="size-3.5" />
                 <span
                   className={cn(
-                    'absolute -top-0.5 -right-0.5 size-1.5 rounded-full',
-                    live ? 'bg-[var(--accent)]' : 'bg-amber-400 animate-ping'
+                    'absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current',
+                    !live && 'animate-ping'
                   )}
                 />
               </span>

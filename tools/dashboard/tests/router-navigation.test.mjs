@@ -254,7 +254,7 @@ test('8. No global session fetch: AppLayout and AppSidebar do not load global se
 });
 
 test('9. No reverse spec resolution: AiChatPage receives spec directly, without searching all specs', () => {
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   assert.ok(aiChatSource.includes('spec: DashboardChange'), 'AiChatPage receives spec directly');
   assert.ok(!aiChatSource.includes('changes: DashboardChange[]'), 'AiChatPage must not receive changes array to reverse search');
@@ -341,7 +341,7 @@ test('12. Fallback routing: Archived spec accessed via /specs/active/... or acti
 });
 
 test('13. Archived spec sessions: spec-detail and task-dialog enable useAiSessions for archived specs with specId', () => {
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
   const taskDialogSource = readSource('components/task-dialog.tsx');
 
   assert.ok(

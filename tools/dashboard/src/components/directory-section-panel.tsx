@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   ArrowLeft,
   Boxes,
   ChevronRight,
@@ -7,7 +6,6 @@ import {
   FileCode2,
   Folder,
   LoaderCircle,
-  RefreshCw,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -16,12 +14,11 @@ import type {
   DashboardChange,
   SpecificationManifestDirectorySection,
 } from '@/lib/types';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
 import { MarkdownContent } from '@/components/markdown-content';
-import { useSpecificationDocument } from '@/hooks/use-dashboard-data';
+import { useSpecificationDocument } from '@/components/spec-detail/spec-detail-queries';
 
 function ContentLoading() {
   return (
@@ -54,7 +51,7 @@ function ContentError({ message, onRetry }: { message: string; onRetry: () => vo
 function EmptyDocument({ title, detail }: { title: string; detail: string }) {
   return (
     <Card className="flex min-h-48 flex-col items-center justify-center p-8 text-center">
-      <FileCode2 className="size-6 text-[var(--muted)]" />
+      <FileCode2 className="size-6 text-[var(--accent)]" />
       <h2 className="mt-4 text-sm font-semibold text-[var(--foreground)]">{title}</h2>
       <p className="mt-2 max-w-md text-xs leading-5 text-[var(--muted)]">{detail}</p>
     </Card>
@@ -208,7 +205,7 @@ export function DirectorySectionPanel({
                     </p>
                   )}
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-[var(--muted)]" />
+                <ChevronRight className="size-4 shrink-0 text-[var(--accent)]" />
               </button>
             </Card>
           );

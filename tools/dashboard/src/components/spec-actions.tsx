@@ -82,7 +82,7 @@ export function RepositoryActionsCard({
       </div>
 
       <div className="mt-4 space-y-2 text-[10px] leading-5 text-[var(--muted)]">
-        <p className="flex items-center gap-2"><GitBranch className="size-3.5" /><span className="truncate font-mono">{worktree.branch}</span></p>
+        <p className="flex items-center gap-2"><GitBranch className="size-3.5 text-[var(--accent)]" /><span className="truncate font-mono">{worktree.branch}</span></p>
         {!worktree.clean && (
           <p><span className="text-[var(--muted-strong)]">Staged:</span> {worktree.staged} · <span className="text-[var(--muted-strong)]">unstaged:</span> {worktree.unstaged} · <span className="text-[var(--muted-strong)]">untracked:</span> {worktree.untracked}</p>
         )}

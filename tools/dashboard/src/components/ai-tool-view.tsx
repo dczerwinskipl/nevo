@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, LoaderCircle, Wrench, XCircle } from 'lucide-react';
-import { activityLabelFor } from '@/lib/tool-activity-labels';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, LoaderCircle, Wrench } from 'lucide-react';
+import { activityLabelFor } from '@/components/ai-chat/tool-activity-labels';
 import type { AgentToolCall } from '@/lib/types';
 
 export interface AiToolViewProps {
@@ -43,7 +43,7 @@ export function AiToolView({ toolCall }: AiToolViewProps) {
         <div className="flex items-center gap-2 shrink-0 text-[var(--muted)]">
           {isRunning && <LoaderCircle className="size-3.5 animate-spin text-[var(--accent)]" />}
           {isCompleted && <CheckCircle2 className="size-3.5 text-[var(--success)]" />}
-          {isFailed && <XCircle className="size-3.5 text-[var(--danger)]" />}
+          {isFailed && <AlertTriangle className="size-3.5 text-[var(--warning)]" />}
           {toolCall.durationMs != null && (
             <span className="flex items-center gap-1 text-[10px]">
               <Clock className="size-3" />

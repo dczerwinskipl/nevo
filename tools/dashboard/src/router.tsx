@@ -17,8 +17,9 @@ import { AiSessionCreateModal } from '@/components/ai-session-create-modal';
 import { SpecCreateModal } from '@/components/spec-create-modal';
 import { Button } from '@/components/ui/button';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
-import { useAiSessions, useDashboardData } from '@/hooks/use-dashboard-data';
-import { pendingDispatchStore } from '@/lib/pending-dispatch-store';
+import { useDashboardData } from '@/hooks/use-dashboard-data';
+import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
+import { pendingDispatchStore } from '@/components/ai-chat/pending-dispatch-store';
 import type { AiSession, DashboardChange } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import {
@@ -43,6 +44,46 @@ export function LoadingScreen() {
         ))}
       </div>
       <div className="mt-12 h-64 rounded-2xl border border-[var(--border)] bg-[var(--surface)]" />
+    </div>
+  );
+}
+
+function ConnectivityControls({
+  live,
+  refreshing,
+  onRefresh,
+  className,
+}: {
+  live: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-center gap-1', className)}>
+      <div
+        role="status"
+        tabIndex={0}
+        aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
+        title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
+        className={cn(
+          'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default',
+          live
+            ? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'
+            : 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
+        )}
+      >
+        <span className="relative flex size-3.5 items-center justify-center">
+          <Radio className="size-3.5" />
+          <span
+            className={cn(
+              'absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current',
+              !live && 'animate-ping',
+            )}
+          />
+        </span>
+      </div>
+      <RetryButton size="icon" onClick={onRefresh} loading={refreshing} label="Odśwież dashboard" />
     </div>
   );
 }
@@ -89,7 +130,7 @@ function AppLayoutComponent() {
 
   return (
     <div className="min-h-screen lg:pl-[370px]">
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur-xl sm:px-7 lg:px-9">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] px-4 backdrop-blur-xl sm:px-7 lg:hidden">
         <div className="flex items-center gap-3">
           <Button
             variant="secondary"
@@ -105,7 +146,7 @@ function AppLayoutComponent() {
             className="flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-lg cursor-pointer"
             title="Przejdź do listy specyfikacji"
           >
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[#101505]">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-black text-[var(--accent-foreground)]">
               N
             </div>
             <div>
@@ -114,27 +155,15 @@ function AppLayoutComponent() {
             </div>
           </Link>
         </div>
-        <div className="flex items-center gap-2">
-          <div
-            role="status"
-            tabIndex={0}
-            aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
-            title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
-            className="flex size-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default"
-          >
-            <span className="relative flex size-3.5 items-center justify-center">
-              <Radio className={cn('size-3.5', live ? 'text-[var(--accent)]' : 'text-amber-400')} />
-              <span
-                className={cn(
-                  'absolute -top-0.5 -right-0.5 size-1.5 rounded-full',
-                  live ? 'bg-[var(--accent)]' : 'bg-amber-400 animate-ping'
-                )}
-              />
-            </span>
-          </div>
-          <RetryButton size="icon" onClick={() => void refresh()} loading={refreshing} label="Odśwież dashboard" />
-        </div>
+        <ConnectivityControls live={live} refreshing={refreshing} onRefresh={() => void refresh()} />
       </header>
+
+      <ConnectivityControls
+        live={live}
+        refreshing={refreshing}
+        onRefresh={() => void refresh()}
+        className="fixed right-4 top-3 z-40 hidden rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl lg:flex"
+      />
 
       <main>
         {loading && !data ? (
@@ -443,7 +472,7 @@ function SpecChatRouteComponent() {
   if (dataLoading && !data) return <LoadingScreen />;
   if (dataError && !data) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-red-200">
+      <div className="flex min-h-screen items-center justify-center text-sm text-[var(--danger-strong)]">
         {dataError}
       </div>
     );

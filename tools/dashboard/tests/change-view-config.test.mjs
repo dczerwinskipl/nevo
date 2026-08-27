@@ -48,10 +48,10 @@ test('a malformed config file falls back to defaults rather than throwing', () =
   }
 });
 
-test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard, AI, Specs, Docs, Tests, Other)', async () => {
-  const { assignGroup } = await import('../src/lib/changes-grouping.ts');
-  assert.equal(assignGroup('tools/dashboard/src/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard');
-  assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard');
+test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard Server, Dashboard UI, AI, Specs, Docs, Tests, Other)', async () => {
+  const { assignGroup } = await import('../src/components/changes-panel/changes-grouping.ts');
+  assert.equal(assignGroup('tools/dashboard/src/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard UI');
+  assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Server');
   assert.equal(assignGroup('tools/ai/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.claude/skills/demo.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.cursor/rules/main.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');

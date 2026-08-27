@@ -12,7 +12,7 @@ function readAiSessionListSource() {
 }
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 test('Task 09: AiSessionStatus type is narrowed to exactly idle | running | waitingForUser', () => {

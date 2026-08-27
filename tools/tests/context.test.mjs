@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { computeRoutingWarnings, buildContextPacket, loadChange, ARCHIVE_DIR } from '../specs/service.mjs';
+import { computeRoutingWarnings, buildContextPacket } from '../specs/context.mjs';
+import { loadChange, ARCHIVE_DIR } from '../specs/store.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -172,7 +173,7 @@ describe('buildContextPacket\'s routingWarnings — reads only docs/routing.gene
   // prose. What's left to prove here is the *wiring*: the module responsible
   // for it structurally never references either source Markdown file at all.
   test('the routing-warning code path never references the source Markdown files by name, only the generated JSON', () => {
-    const source = readFileSync(join(ROOT, 'tools', 'specs', 'service.mjs'), 'utf8');
+    const source = readFileSync(join(ROOT, 'tools', 'specs', 'context.mjs'), 'utf8');
     assert.doesNotMatch(source, /task-routing\.md/);
     assert.doesNotMatch(source, /change-impact-map\.md/);
     assert.match(source, /routing\.generated\.json/);

@@ -9,8 +9,9 @@ import {
   ARCHIVE_DIR,
   loadChange,
   listChanges,
-} from '../../specs/service.mjs';
-import { isTaskReady } from '../../specs/lifecycle.mjs';
+  listChangesAsync,
+} from '../../specs/store.mjs';
+import { isTaskReady } from '../../specs/lifecycle-primitives.mjs';
 import {
   SPEC_STAGES,
   isCompletedStatus,
@@ -89,6 +90,50 @@ function safeChildPath(baseDir, childPath) {
 function readOptional(filePath) {
   if (!filePath || !existsSync(filePath)) return '';
   return readFileSync(filePath, 'utf8');
+}
+
+async function readOptionalAsync(filePath) {
+  if (!filePath) return '';
+  try {
+    return await readFileAsync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function collectRelevantFilesAsync(dir) {
+  let entries;
+  try {
+    entries = await readdirAsync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const files = [];
+  await Promise.all(entries.map(async entry => {
+    const fullPath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      const children = await collectRelevantFilesAsync(fullPath);
+      files.push(...children);
+    } else if (/\.(?:md|ya?ml)$/i.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }));
+  return files;
+}
+
+async function latestModifiedAtAsync(changeDir) {
+  const files = await collectRelevantFilesAsync(changeDir);
+  if (!files.length) return new Date().toISOString();
+  const stats = await Promise.all(files.map(async file => {
+    try {
+      const s = await statAsync(file);
+      return s.mtimeMs;
+    } catch {
+      return 0;
+    }
+  }));
+  const valid = stats.filter(Number.isFinite);
+  return new Date(valid.length ? Math.max(...valid) : Date.now()).toISOString();
 }
 
 function collectRelevantFiles(dir) {
@@ -554,7 +599,7 @@ export function loadTaskStatuses({
   };
 }
 
-function taskProjection(change, task, repoRoot) {
+async function taskProjectionAsync(change, task, repoRoot) {
   const filePath = safeChildPath(change._dir, task.file);
   const dependencyStatuses = new Map(change.tasks.map(item => [item.id, item.status]));
   const blockedBy = (task.depends_on || []).filter(id => {
@@ -562,9 +607,11 @@ function taskProjection(change, task, repoRoot) {
     return !['implemented', 'verified', 'archived'].includes(status);
   });
 
+  const content = await readOptionalAsync(filePath);
+
   return {
     id: task.id,
-    title: extractTaskTitle(readOptional(filePath), task.id),
+    title: extractTaskTitle(content, task.id),
     status: task.status || 'draft',
     stage: stageForStatus(task.status),
     order: task.order ?? null,
@@ -576,11 +623,15 @@ function taskProjection(change, task, repoRoot) {
   };
 }
 
-function changeProjection(change, source, repoRoot) {
+async function changeProjectionAsync(change, source, repoRoot) {
   const overviewPath = safeChildPath(change._dir, 'overview.md');
-  const tasks = change.tasks
-    .map(task => taskProjection(change, task, repoRoot))
-    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
+  const [tasks, overviewContent, updatedAt] = await Promise.all([
+    Promise.all(change.tasks.map(task => taskProjectionAsync(change, task, repoRoot)))
+      .then(list => list.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))),
+    readOptionalAsync(overviewPath),
+    latestModifiedAtAsync(change._dir),
+  ]);
+
   const actionableTasks = tasks.filter(task => task.status !== 'abandoned');
   const actionableCount = actionableTasks.length;
   const completedCount = tasks.filter(task => isCompletedStatus(task.status)).length;
@@ -603,10 +654,10 @@ function changeProjection(change, source, repoRoot) {
     source,
     priority: change.priority ?? null,
     created: change.created ?? null,
-    updatedAt: latestModifiedAt(change._dir),
+    updatedAt,
     path: repositoryPath(repoRoot, change._dir),
     overviewFile: overviewPath ? repositoryPath(repoRoot, overviewPath) : null,
-    summary: extractOverviewSummary(readOptional(overviewPath), change.title || change._slug),
+    summary: extractOverviewSummary(overviewContent, change.title || change._slug),
     tasks,
     lanes,
     nextTask: activeTask || readyTask || null,
@@ -631,15 +682,22 @@ function activeSort(a, b) {
     || a.title.localeCompare(b.title);
 }
 
-export function loadDashboardData({
+export async function loadDashboardData({
   activeDir = ACTIVE_DIR,
   archiveDir = ARCHIVE_DIR,
   repoRoot = REPOSITORY_ROOT,
 } = {}) {
-  const active = listChanges(activeDir).map(change => changeProjection(change, 'active', repoRoot)).sort(activeSort);
-  const archive = listChanges(archiveDir)
-    .map(change => changeProjection(change, 'archive', repoRoot))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const [activeChanges, archiveChanges] = await Promise.all([
+    listChangesAsync(activeDir),
+    listChangesAsync(archiveDir),
+  ]);
+
+  const [active, archive] = await Promise.all([
+    Promise.all(activeChanges.map(change => changeProjectionAsync(change, 'active', repoRoot)))
+      .then(list => list.sort(activeSort)),
+    Promise.all(archiveChanges.map(change => changeProjectionAsync(change, 'archive', repoRoot)))
+      .then(list => list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))),
+  ]);
 
   return {
     generatedAt: new Date().toISOString(),

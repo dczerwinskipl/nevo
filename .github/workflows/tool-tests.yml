@@ -27,6 +27,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Some tests (e.g. tools/tests/refactoring-review-findings.test.mjs) exercise
+      # the real `gh` CLI against this repo (PR lookups, etc.). Without GH_TOKEN,
+      # `gh` fails with an auth error before it ever gets to "no PR found", which
+      # tools/lib/github.mjs does not treat as the harmless case.
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +44,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run tests
-        run: npm test
+        run: |
+          set +e
+          node --test \
+            --test-reporter=dot --test-reporter-destination=stdout \
+            --test-reporter=tap --test-reporter-destination=test-results.tap \
+            tools/tests/*.test.mjs
+          status=$?
+          echo ""
+          echo "== Summary =="
+          tail -n 8 test-results.tap
+          exit $status
+      - name: Upload full test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-tests-tap-log
+          path: test-results.tap
       - name: Check generated specs indexes are current
         run: npm run specs:check
       - name: Check generated docs indexes are current

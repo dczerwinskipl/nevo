@@ -5,12 +5,16 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  validateTransition, validateApproval, validateFinalize, deriveStage, TRANSITIONS,
+  validateTransition, validateApproval, TRANSITIONS,
   depsSatisfied, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
-  scopeOf, isEndOfScope, nextInScope, planContinuation, stopReasonForSuspension, nextSuspensionForNotRetryable,
+} from '../specs/lifecycle-primitives.mjs';
+import { validateFinalize, deriveStage } from '../specs/lifecycle/stage.mjs';
+import {
+  scopeOf, isEndOfScope, nextInScope,
+  planContinuation, stopReasonForSuspension, nextSuspensionForNotRetryable,
   resolveAfterConfirmedRepair, inspectStartPostconditions, inspectApprovePostconditions,
   classifyDirtyWorktree, CONTINUATION_STOP_REASONS,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/recovery.mjs';
 import { validateStatusValue } from '../specs/validation.mjs';
 
 describe('validateTransition — valid transitions', () => {

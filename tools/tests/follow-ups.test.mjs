@@ -9,9 +9,11 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadChange, loadFollowUps, addFollowUp, resolveFollowUp, parseOwnerDecisions } from '../specs/service.mjs';
+import { loadChange } from '../specs/store.mjs';
+import { loadFollowUps, addFollowUp, resolveFollowUp } from '../specs/follow-ups.mjs';
+import { parseOwnerDecisions } from '../specs/fingerprint.mjs';
 import { validateFollowUps } from '../specs/validation.mjs';
-import { validateFinalize } from '../specs/lifecycle.mjs';
+import { validateFinalize } from '../specs/lifecycle/stage.mjs';
 
 let root;
 

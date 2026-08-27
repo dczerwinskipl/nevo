@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { handleBatchReview } from '../specs.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/service.mjs';
+import { handleBatchReview } from '../specs/batch/cli.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
 import { actionDefinitions } from '../specs/gates.mjs';
 
 function captureStdout(fn) {

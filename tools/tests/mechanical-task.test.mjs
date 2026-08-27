@@ -8,9 +8,9 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadChange } from '../specs/service.mjs';
+import { loadChange } from '../specs/store.mjs';
 import { computeMechanicalExemption } from '../specs/validation.mjs';
-import { validateApproval } from '../specs/lifecycle.mjs';
+import { validateApproval } from '../specs/lifecycle-primitives.mjs';
 
 let root;
 before(() => { root = mkdtempSync(join(tmpdir(), 'nevo-mechanical-test-')); });

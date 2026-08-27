@@ -11,6 +11,8 @@ export const DEFAULT_CHANGE_VIEW = Object.freeze({
     { name: 'Specs', paths: ['specs/**'] },
     { name: 'Source', paths: ['src/**'] },
     { name: 'Tests', paths: ['tests/**'] },
+    { name: 'Tooling: Dashboard Server', paths: ['tools/dashboard/server/**'] },
+    { name: 'Tooling: Dashboard UI', paths: ['tools/dashboard/src/**', 'tools/dashboard/index.html', 'tools/dashboard/vite.config.ts'] },
     { name: 'Tooling: Dashboard', paths: ['tools/dashboard/**'] },
     { name: 'Tooling: AI', paths: ['tools/ai/**', '.claude/**', '.cursor/**'] },
     { name: 'Tooling: Specs', paths: ['tools/specs/**', 'tools/specs.mjs'] },

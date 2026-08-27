@@ -4,7 +4,7 @@ type: ai
 title: Framework task routing
 status: current
 summary: >
-  For a given kind of framework change, which documents to read, which invariants to
+  For a given kind of framework or tooling change, which documents to read, which invariants to
   preserve, and which tests to run. Distinct from how-to-navigate.md, which routes the
   spec/task workflow itself, not framework knowledge.
 related:
@@ -14,10 +14,16 @@ related:
 
 # Framework task routing
 
-This is a routing layer over NEvo's own framework documentation — it does not restate
+This is a routing layer over NEvo's documentation — it does not restate
 any document's content, only points to it. For the spec/task workflow itself (finding
 the next approved task, loading a context packet), see
 `docs/ai/how-to-navigate.md` — that remains the sole source for that concern.
+
+---
+
+# Part 1: NEvo .NET Framework (`src/**`)
+
+Routes for changes to the primary product: the core .NET messaging, persistence, and event-sourcing framework.
 
 ## Modifying message dispatch
 
@@ -84,6 +90,34 @@ the next approved task, loading a context packet), see
 - **Tests:** `tests/NEvo.Messaging.Tests/` for pipeline-level changes; the consuming
   package's own tests for a specific new command/event type.
 
+---
+
+# Part 2: NEvo Developer Tooling & AI Layer (`tools/**`)
+
+Routes for developer tooling, CLI commands, developer dashboard, and AI orchestration layer (`tools/**`).
+Note: These tools currently live in this repository for end-to-end integration testing and workflow efficiency, distinct from the core .NET NEvo framework product.
+
+## Developing Node tooling, CLI commands, and dashboard server
+
+- **Read:** `docs/development/node-tooling-guidelines.md`.
+- **Invariants to preserve:**
+  - CLI entrypoints (`tools/specs.mjs`, `tools/docs.mjs`) remain thin boundaries; argument parsing and exit codes are managed at the boundary.
+  - Long-lived dashboard server processes must not block the Node event loop with synchronous child process execution or unbounded request-path filesystem traversals.
+  - Reusable application operations are called directly in-process without spawning the tool's own CLI.
+  - Long-running background operations support explicit lifecycle management, timeouts, and `AbortSignal` cancellation.
+- **Tests:** `npm test`, `npm --prefix tools/dashboard test`, `node tools/specs.mjs check`.
+
+## Developing React UI and Dashboard frontend
+
+- **Read:** `docs/development/react-component-guidelines.md`.
+- **Invariants to preserve:**
+  - Capability / vertical feature ownership: feature-specific hooks, view-models, projections, and dialogs remain feature-local unless real cross-feature reuse is demonstrated.
+  - Components maintain clear separation between visual presentation and orchestration.
+  - Semantic Tailwind tokens and accessible Radix UI primitives are used for UI consistency.
+- **Tests:** `npm --prefix tools/dashboard test`, `npm --prefix tools/dashboard run build`.
+
+---
+
 ## Routing table
 
 Machine-readable rules matched against a task's `allowed_paths` (D12) — a supplement to
@@ -106,3 +140,7 @@ combined.
 | RT-10 | src/NEvo.Web.Authorization/** | docs/development/extension-points.md |
 | RT-11 | src/NEvo.Messaging.EntityFramework/** | docs/development/inbox-outbox.md |
 | RT-12 | src/NEvo.Messaging.Cqrs/** | docs/development/processing-model.md |
+| RT-13 | tools/*.mjs | docs/development/node-tooling-guidelines.md |
+| RT-14 | tools/specs/** | docs/development/node-tooling-guidelines.md |
+| RT-15 | tools/dashboard/server/** | docs/development/node-tooling-guidelines.md |
+| RT-16 | tools/dashboard/src/** | docs/development/react-component-guidelines.md |

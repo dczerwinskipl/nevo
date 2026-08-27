@@ -8,11 +8,12 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  selectBatch, deriveBatchProgress, hardStopReason, completionHardStop, detectRiskSignals, requiresFullReview,
+  selectBatch, deriveBatchProgress, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, isTemporaryInconsistency, batchValidationBlocks, staleEvidenceTasks,
   computeBatchReviewVerdict, BATCH_REVIEW_VERDICTS, validateBatchCheckpoint,
   attributeTouchedPaths, detectBatchIntegrationFindings,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/batch.mjs';
+import { hardStopReason, completionHardStop } from '../specs/lifecycle-primitives.mjs';
 
 // A linear approved chain a -> b -> c (b depends on a, c depends on b), plus
 // one already-terminal task and one still-draft task, for exercising every

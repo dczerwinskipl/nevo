@@ -13,6 +13,29 @@ export function formatSessionStatus(status?: AiSessionStatus | string | null): s
   }
 }
 
+export function statusTone(status?: string | null): string {
+  switch (status) {
+    case 'approved':
+    case 'verified':
+    case 'archived':
+    case 'completed':
+      return 'text-[var(--success)]';
+    case 'implemented':
+    case 'waitingForUser':
+    case 'review':
+    case 'warning':
+      return 'text-[var(--warning)]';
+    case 'in-implementation':
+    case 'running':
+      return 'text-[var(--accent)]';
+    case 'failed':
+    case 'error':
+      return 'text-[var(--danger)]';
+    default:
+      return 'text-[var(--muted)]';
+  }
+}
+
 export interface StatusLabelProps {
   status?: string;
   kind?: 'stage' | 'session' | 'task' | 'raw';

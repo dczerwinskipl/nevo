@@ -1,0 +1,172 @@
+follow_ups:
+  - id: index-mjs-dead-route-adapter-imports-cleanup
+    source_task: e2e-verification-and-guidelines-audit
+    kind: maintenance-correction
+    severity: non-blocking
+    reason: "tools/dashboard/server/index.mjs belongs to dashboard-server-runtime-and-routes
+      (task 04), already verified/closed before this task 08 audit ran. Task 08's own
+      acceptance criteria required verifying the absence of dead code/unused imports left
+      by the refactoring across modified slices, and this file's route-adapter migration
+      had left three dead direct-handler imports (handleEventsRoute/handleOperationRoute/
+      handleSpecsRoute -- only the adapter-bound methods are ever called) plus an unused
+      safeStaticPath/sendJson/readJsonBody/HttpError re-export with zero external callers.
+      The owner explicitly named this exact file and cleanup in-conversation, authorizing
+      task 08 to touch a file outside its own declared allowed_paths and outside task 04's
+      now-closed scope, rather than leaving it unfixed or reopening task 04."
+    paths:
+      - tools/dashboard/server/index.mjs
+    confirmed_by: owner
+    confirmed_at: "2026-08-27"
+    revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+    resolver_task: e2e-verification-and-guidelines-audit
+    status: resolved
+    resolution: Dead imports and unused re-export removed in commit bbc4536; full test
+      suite, dashboard build, and specs/docs validation all pass afterward.
+  - id: router-spec-resolution-policy
+    source_task: spec-detail-and-workflow-feature-slice
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: Consolidate duplicated spec-scoped route resolution and navigation
+      policy in router.tsx when route ownership is next changed.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: fastify-http-adapter-migration
+    source_task: dashboard-server-runtime-and-routes
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: "Migrate the dashboard HTTP adapter from native node:http to Fastify
+      after the current capability boundaries are stabilized. The migration
+      should: preserve current application/capability operations; replace manual
+      route/method/path matching with Fastify routes; register capability route
+      groups as Fastify plugins; use route prefixes/params; centralize HTTP
+      error mapping where appropriate; use Fastify lifecycle/shutdown support;
+      preserve SSE semantics; and use Fastify inject-based HTTP testing where
+      useful."
+    resolver_task: dashboard-fastify-http-adapter-migration
+    status: open
+    resolution: null
+  - id: node-tooling-typescript-evaluation
+    source_task: dashboard-server-runtime-and-routes
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: "Evaluate and migrate extracted Node tooling to TypeScript, preferably
+      when the tooling moves to its own repository or after the Fastify
+      migration."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: repository-scale-sync-fs-evaluation
+    source_task: shared-specs-workflow-operations
+    kind: PERFORMANCE
+    severity: non-blocking
+    reason: "Evaluated during Task 02/03 modularization: the dashboard's polled GET
+      /api/specs/active/:slug/actions request path (actions.mjs
+      loadSpecificationActions) never calls validateSpecs()/scanDocs() and uses
+      async git/filesystem calls only. However, the dashboard's user-triggered
+      finalize action executor (executeSpecificationAction -> finalizeChange ->
+      gatherFinalizeFactsAsync) still runs the fully synchronous,
+      repository-scale validateSpecs(), checkSpecsIndexes(), scanDocs(), and
+      checkDocsIndexes() scans on the same long-running Node process, blocking
+      its event loop (other concurrent requests/SSE delivery) for the scan's
+      duration whenever an owner clicks Finalize. A real fix requires converting
+      validation.mjs's and docs/service.mjs's synchronous file-reading internals
+      to async, which is a deep, separately-scoped rewrite of that pure
+      validation logic — too large and risky to fold into this already-large
+      refactor. CLI command executions remain short-lived processes where
+      bounded synchronous filesystem operations are fine per
+      node-tooling-guidelines.md and are out of scope here."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: async-github-cli-resolution
+    source_task: shared-specs-workflow-operations
+    kind: PERFORMANCE
+    severity: non-blocking
+    reason: "The long-running dashboard server GitHub path currently performs
+      synchronous gh --version resolution via resolveGhBinary() /
+      isGhAvailable() on first use. Evaluate and migrate to an asynchronous
+      binary resolution helper."
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: overlapping-allowed-paths-provenance-attribution
+    source_task: ai-assistant-chat-and-runtime-feature-slice
+    kind: provenance-attribution-limitation
+    severity: non-blocking
+    reason: Tasks 05-07 declare identical/overlapping allowed_paths
+      (tools/dashboard/src/components/**, hooks/**, lib/**, tests/**).
+      self-check now supports --incremental (unions the commit(s) since a task's
+      own last review_revision onto its existing changed_paths, instead of
+      always re-deriving the full since-baseline_revision range), which fixes
+      the general case of a re-check re-absorbing a sibling task's entire
+      separate historical implementation. It does NOT fully disambiguate when a
+      single later review-fix commit touches multiple sibling tasks' files in
+      the SAME commit while those tasks share an identical/overlapping
+      allowed_paths glob (e.g. a fix touching both a spec-detail file and an
+      ai-chat file in one commit still gets attributed to both tasks, since the
+      glob cannot distinguish which file belongs to which task). Full
+      disambiguation would require narrowing tasks 05-07's own allowed_paths
+      declarations to be properly disjoint per feature slice, which is a
+      separate, owner-scoped decision (task 07 in particular legitimately
+      touches shared consumer files like task-dialog.tsx outside a clean
+      ai-chat/** boundary, so a clean disjoint partition is not mechanical).
+      Regression coverage for the fixed general case (A/B/C, review-fix touches
+      A and C, B unaffected) lives in tools/tests/provenance.test.mjs.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: dead-use-task-statuses-export
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: tools/dashboard/src/hooks/use-dashboard-data.ts still exports
+      useTaskStatuses (a TanStack Query hook wrapping GET task statuses), but it
+      has had zero callers anywhere in tools/dashboard/src since before this
+      refactor's own baseline (confirmed via git grep at each of tasks 05-07's
+      baseline revisions) — a pre-existing dead export outside this
+      specification's own scope, not something tasks 05-07 introduced or were
+      responsible for migrating away, so left unremoved per this task's own
+      constraint to record rather than fix pre-existing issues outside scope.
+      Safe to delete in a follow-up pass once confirmed still unused.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: dead-sync-fs-helpers-data-mjs
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: tools/dashboard/server/data.mjs still defines synchronous
+      readOptional/collectRelevantFiles/latestModifiedAt helpers alongside the
+      async readOptionalAsync/collectRelevantFilesAsync/latestModifiedAtAsync
+      variants the request path (loadDashboardData and its dependents) actually
+      uses exclusively. The sync trio has had zero callers since before this
+      refactor's baseline (predates dashboard-server-runtime-and-routes' own
+      baseline revision) — confirmed dead, not something task 04 introduced or
+      left behind, and outside this task's own allowed_paths
+      (tools/dashboard/server/** is not in scope for direct edits here). Safe to
+      delete once confirmed still unused.
+    resolver_task: null
+    status: open
+    resolution: null
+  - id: dead-onnavigatemode-prop-spec-detail
+    source_task: e2e-verification-and-guidelines-audit
+    kind: MAINTAINABILITY
+    severity: non-blocking
+    reason: SpecDetail (tools/dashboard/src/components/spec-detail/spec-detail.tsx)
+      declares an optional onNavigateMode prop, and router.tsx genuinely passes
+      a real active/archive navigation callback into it, but the component
+      itself has never actually invoked the callback anywhere in its body --
+      confirmed present in exactly the same shape (declared, destructured, never
+      called) in the pre-refactor spec-detail.tsx at task 05's own baseline
+      revision, so this predates this specification's own work rather than being
+      a regression it introduced. Left as-is rather than removed here because
+      onNavigateMode is a real prop in this component's public props contract (a
+      live caller passes it), and changing a public component's props shape
+      needs an explicit owner decision per AGENTS.md, not a silent removal
+      during an audit task. Owner should decide whether to wire the callback to
+      an actual UI affordance (e.g. an archive/active switch action) or remove
+      the dead prop and its caller-side wiring together.
+    resolver_task: null
+    status: open
+    resolution: null

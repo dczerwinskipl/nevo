@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {
   resolveSpecReviewScope, selectChangedTaskIds, findPotentiallyImpactedOutOfScopeTasks,
   scopedReviewBaselineValid, renderScopedSpecReviewBody,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/reviews.mjs';
 
 function fixtureChange() {
   return {

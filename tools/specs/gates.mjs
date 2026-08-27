@@ -1,4 +1,7 @@
 import { TERMINAL_STATUSES, completionHardStop, validateTransition, validateApproval } from './lifecycle-primitives.mjs';
+import { computeMechanicalExemption } from './validation.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from './fingerprint.mjs';
+import { loadReview } from './lifecycle/reviews.mjs';
 
 /**
  * Registry of validator building blocks.
@@ -429,4 +432,75 @@ export function evaluateGate(gateId, context = {}, { mode = 'full' } = {}) {
     idempotent: isIdempotent,
     validations,
   };
+}
+
+const ACTIONABLE_TASK_STATUSES = new Map([
+  ['draft', 'approve'],
+  ['implemented', 'verify'],
+]);
+
+/**
+ * Evaluates the gate for an actionable task directly in-process.
+ *
+ * @param {object} change - Specification change object
+ * @param {object} task - Task object within the change
+ * @param {object} [options]
+ * @returns {{ action: string, enabled: boolean, reason: string | null } | null}
+ */
+export function evaluateTaskGate(change, task, options = {}) {
+  const action = ACTIONABLE_TASK_STATUSES.get(task?.status);
+  if (!action) return null;
+
+  try {
+    if (action === 'approve') {
+      let mechanicalExempt = false;
+      try {
+        const exemptResult = computeMechanicalExemption(change, task);
+        mechanicalExempt = Boolean(exemptResult?.eligible);
+      } catch {}
+
+      let review = null;
+      try {
+        review = loadReview(change);
+      } catch {}
+
+      let currentFingerprint = null;
+      try {
+        currentFingerprint = computeChangeFingerprint(change);
+      } catch {}
+
+      let currentTaskFingerprint = null;
+      try {
+        currentTaskFingerprint = computeTaskFingerprint(change, task.id);
+      } catch {}
+
+      const gateResult = evaluateGate('task.approve', {
+        task,
+        review,
+        currentFingerprint,
+        mechanicalExempt,
+        taskId: task.id,
+        currentTaskFingerprint,
+      }, { mode: 'full' });
+
+      return {
+        action,
+        enabled: Boolean(gateResult.ok && !gateResult.idempotent),
+        reason: gateResult.ok ? null : (gateResult.reason || 'The approve gate did not pass.'),
+      };
+    }
+
+    if (action === 'verify') {
+      const gateResult = evaluateGate('task.verify', { task, change }, { mode: 'full' });
+      return {
+        action,
+        enabled: Boolean(gateResult.ok && !gateResult.idempotent),
+        reason: gateResult.ok ? null : (gateResult.reason || 'The verify gate did not pass.'),
+      };
+    }
+  } catch {
+    return { action, enabled: false, reason: `Nie udało się sprawdzić bramki ${action}.` };
+  }
+
+  return null;
 }

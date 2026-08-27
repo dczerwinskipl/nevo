@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { applyAgentEvent } from '../src/lib/nevo-assistant-runtime.ts';
-import { projectChat } from '../src/lib/chat-projection.ts';
+import { applyAgentEvent } from '../src/components/ai-chat/agent-event-reducer.ts';
+import { projectChat } from '../src/components/ai-chat/chat-projection.ts';
 import { visibleWorkItemsWhileRunning } from '../src/components/work/work-visibility.ts';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 

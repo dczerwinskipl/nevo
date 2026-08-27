@@ -22,28 +22,28 @@ export function SpecCreateErrorBanner({
     <>
       {/* Phase 1 Spec Creation Error */}
       {specError && (
-        <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-200">
-          <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
+        <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-[var(--danger-border)] bg-[var(--danger-muted)] p-3.5 text-xs text-[var(--danger-strong)]">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-[var(--danger)]" />
           <div className="flex-1">
             <p className="font-semibold">Błąd tworzenia specyfikacji</p>
-            <p className="mt-0.5 text-red-300/90">{specError}</p>
+            <p className="mt-0.5 text-[color-mix(in_srgb,var(--danger-strong)_90%,transparent)]">{specError}</p>
           </div>
         </div>
       )}
 
       {/* Phase 2 AI Session Error with 2-action recovery */}
       {aiError && isSpecCreated && (
-        <div className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+        <div className="mt-5 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-muted)] p-4 text-xs text-[var(--warning-strong)]">
           <div className="flex items-start gap-2.5">
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-[var(--warning)]" />
             <div className="flex-1">
               <p className="font-semibold">Specyfikacja została utworzona pomyślnie</p>
-              <p className="mt-1 text-amber-300/90">
+              <p className="mt-1 text-[color-mix(in_srgb,var(--warning-strong)_90%,transparent)]">
                 Uruchomienie sesji AI nie powiodło się: {aiError}
               </p>
             </div>
           </div>
-          <div className="mt-3.5 flex items-center justify-end gap-2 border-t border-amber-500/20 pt-3">
+          <div className="mt-3.5 flex items-center justify-end gap-2 border-t border-[var(--warning-border)] pt-3">
             <Button
               type="button"
               variant="secondary"

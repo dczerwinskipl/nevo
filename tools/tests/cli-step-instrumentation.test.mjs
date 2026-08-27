@@ -6,9 +6,12 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { parseProgressLine } from '../lib/operation-progress.mjs';
-import { handleVerify, handleApprove, handleSelfCheck } from '../specs.mjs';
+import { handleVerify } from '../specs/verify/cli.mjs';
+import { handleApprove } from '../specs/approve/cli.mjs';
+import { handleSelfCheck } from '../specs/self-check/cli.mjs';
 import { loadSpecificationActions } from '../dashboard/server/actions.mjs';
-import { computeChangeFingerprint, computeTaskFingerprint, loadChange } from '../specs/service.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
+import { loadChange } from '../specs/store.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-cli-instrumentation-${process.pid}-${Date.now()}-${Math.random()}`);
@@ -85,7 +88,12 @@ function captureStdout(fn) {
     return true;
   };
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.finally(() => {
+        process.stdout.write = originalWrite;
+      }).then(() => lines.flatMap(l => l.split('\n')).filter(Boolean));
+    }
   } finally {
     process.stdout.write = originalWrite;
   }
@@ -93,11 +101,11 @@ function captureStdout(fn) {
 }
 
 test('CLI step instrumentation — verify, approve, self-check', async (t) => {
-  await t.test('AC3: handleVerify emits progress events and completes on valid transition', () => {
+  await t.test('AC3: handleVerify emits progress events and completes on valid transition', async () => {
     const sample = fixture();
     try {
-      const output = captureStdout(() => {
-        handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
+      const output = await captureStdout(async () => {
+        await handleVerify('test-change', 'task-impl', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);
@@ -156,11 +164,11 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     }
   });
 
-  await t.test('AC4: handleApprove emits progress events and completes on approved transition', () => {
+  await t.test('AC4: handleApprove emits progress events and completes on approved transition', async () => {
     const sample = fixture();
     try {
-      const output = captureStdout(() => {
-        handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
+      const output = await captureStdout(async () => {
+        await handleApprove('test-change', 'task-draft', { activeDir: sample.activeDir, gitRoot: sample.root, git: false });
       });
 
       const events = output.map(parseProgressLine).filter(Boolean);
@@ -172,12 +180,12 @@ test('CLI step instrumentation — verify, approve, self-check', async (t) => {
     }
   });
 
-  await t.test('AC6 & AC8: loadSpecificationActions (GET /actions) emits no progress events and never calls finalize --check', () => {
+  await t.test('AC6 & AC8: loadSpecificationActions (GET /actions) emits no progress events and never calls finalize --check', async () => {
     const sample = fixture();
     try {
       const calls = [];
-      const output = captureStdout(() => {
-        const payload = loadSpecificationActions({
+      const output = await captureStdout(async () => {
+        const payload = await loadSpecificationActions({
           slug: 'test-change',
           activeDir: sample.activeDir,
           root: sample.root,

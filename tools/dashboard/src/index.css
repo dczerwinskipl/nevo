@@ -2,25 +2,51 @@
 
 :root {
   color-scheme: dark;
-  --background: #090b16;
-  --surface: #101420;
-  --surface-raised: #161b2b;
-  --surface-hover: #1b2235;
-  --border: #252d43;
-  --border-strong: #37425f;
-  --foreground: #eef2ff;
-  --muted: #818ba5;
-  --muted-strong: #abb4cb;
-  --accent: #3b82f6;
-  --accent-strong: #60a5fa;
-  --success: #34d399;
-  --success-strong: #6ee7b7;
-  --warning: #fbbf24;
-  --warning-strong: #fde68a;
-  --danger: #fb7185;
-  --danger-strong: #fecdd3;
-  --info: #38bdf8;
-  --info-strong: #bae6fd;
+  /* Neutral foundation. These values must never be derived from --accent. */
+  --background: #090a0d;
+  --surface: #0f1116;
+  --surface-raised: #14171d;
+  --surface-hover: #191d24;
+  --border: #252a33;
+  --border-strong: #343b47;
+  --foreground: #f1f3f5;
+  --muted: #929baa;
+  --muted-strong: #c7cdd6;
+
+  /* Interaction and active state. */
+  --accent: #3882f6;
+  --accent-strong: #1d4ed8;
+  --accent-foreground: #f8fafc;
+  --accent-muted: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 35%, var(--border));
+
+  /* Semantic state. */
+  --success: #35c76f;
+  --success-strong: #7bdc99;
+  --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
+  --success-border: color-mix(in srgb, var(--success) 28%, var(--border));
+  --warning: #f59e0b;
+  --warning-strong: #fcd34d;
+  --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
+  --warning-border: color-mix(in srgb, var(--warning) 28%, var(--border));
+  --danger: #ef4444;
+  --danger-strong: #fca5a5;
+  --danger-muted: color-mix(in srgb, var(--danger) 10%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 28%, var(--border));
+  --info: #06b6d4;
+  --info-strong: #67e8f9;
+  --info-muted: color-mix(in srgb, var(--info) 10%, transparent);
+  --info-border: color-mix(in srgb, var(--info) 28%, var(--border));
+
+  /* Lane presentation. Workflow configuration selects a lane; lanes select tokens. */
+  --lane-new: var(--muted);
+  --lane-design: #8b5cf6;
+  --lane-ready: var(--info);
+  --lane-implementation: var(--accent);
+  --lane-review: var(--warning);
+  --lane-done: var(--success);
+  --lane-danger: var(--danger);
+
   --cat-1: #fb923c;
   --cat-2: #60a5fa;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -30,7 +56,7 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-color: #35405d transparent;
+  scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
 
@@ -44,8 +70,8 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at 22% -10%, rgba(59, 130, 246, 0.09), transparent 28rem),
-    radial-gradient(circle at 80% 115%, rgba(59, 130, 246, 0.065), transparent 32rem),
+    radial-gradient(circle at 22% -10%, rgba(255, 255, 255, 0.025), transparent 28rem),
+    radial-gradient(circle at 80% 115%, rgba(255, 255, 255, 0.018), transparent 32rem),
     var(--background);
   color: var(--foreground);
 }
@@ -73,8 +99,8 @@ button {
 }
 
 ::selection {
-  background: rgba(59, 130, 246, 0.3);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent-foreground);
 }
 
 .markdown-body {
@@ -126,7 +152,7 @@ button {
   border-radius: 0.35rem;
   background: var(--background);
   padding: 0.12rem 0.35rem;
-  color: #c7d2fe;
+  color: var(--muted-strong);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 0.84em;
 }
@@ -135,7 +161,7 @@ button {
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 0.8rem;
-  background: #07090d;
+  background: var(--background);
   padding: 1rem;
 }
 .markdown-body pre code { border: 0; background: transparent; padding: 0; color: inherit; }
@@ -148,13 +174,13 @@ button {
 .markdown-body hr { margin: 1.8rem 0; border: 0; border-top: 1px solid var(--border); }
 
 .nevo-diff-view {
-  scrollbar-color: var(--border-strong) #090b10;
+  scrollbar-color: var(--border-strong) var(--background);
   scrollbar-gutter: stable;
 }
 
 .nevo-diff-view .diff-tailwindcss-wrapper {
   min-width: 680px;
-  background: #0b0d12;
+  background: var(--surface);
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 

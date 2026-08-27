@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Bot, LoaderCircle, MessageSquarePlus, X } from 'lucide-react';
+import { LoaderCircle, MessageSquarePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProviderBadge } from '@/components/ai-session-list';
-import { useAiProviders, useCreateAiSession } from '@/hooks/use-dashboard-data';
-import { initialPromptWithTaskContext } from '@/lib/ai-chat-helpers';
+import { useAiProviders, useCreateAiSession } from '@/components/ai-chat/ai-chat-queries';
+import { initialPromptWithTaskContext } from '@/components/ai-chat/ai-chat-helpers';
 import { AI_MODES } from '@/lib/ai-mode-meta';
 import { AI_ADAPTERS_ENABLE_MESSAGE } from '@/lib/ai-adapter-config';
 import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
@@ -121,11 +121,11 @@ export function AiSessionCreateModal({
             Wczytywanie providerów…
           </div>
         ) : providers.error ? (
-          <div className="mt-6 rounded-xl border border-red-400/20 p-4 text-sm text-red-200">
+          <div className="mt-6 rounded-xl border border-[var(--danger-border)] p-4 text-sm text-[var(--danger-strong)]">
             Providerzy są niedostępni.
           </div>
         ) : !enabledProviders.length ? (
-          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <div className="mt-6 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-muted)] p-4 text-sm text-[var(--warning-strong)]">
             {AI_ADAPTERS_ENABLE_MESSAGE}
           </div>
         ) : (
@@ -149,14 +149,14 @@ export function AiSessionCreateModal({
                         selected
                           ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] ring-1 ring-[var(--accent)]'
                           : !isAvail
-                          ? 'border-dashed border-[var(--border)] bg-black/10 opacity-60 hover:opacity-100 hover:border-amber-400/40'
+                          ? 'border-dashed border-[var(--border)] bg-black/10 opacity-60 hover:opacity-100 hover:border-[var(--warning-border)]'
                           : 'border-[var(--border)] bg-[var(--surface)] hover:border-white/20'
                       }`}
                     >
                       <div className="flex w-full items-center justify-between gap-1">
                         <ProviderBadge provider={p.id} />
                         {!isAvail && (
-                          <span className="rounded bg-amber-500/10 px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider text-amber-400">
+                          <span className="rounded bg-[var(--warning-muted)] px-1 py-0.2 text-[8px] font-bold uppercase tracking-wider text-[var(--warning)]">
                             Brak CLI
                           </span>
                         )}
@@ -254,16 +254,16 @@ export function AiSessionCreateModal({
             </label>
 
             {!isSelectedProviderAvailable && selectedProviderObj && (
-              <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+              <div className="mt-3 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-muted)] p-3 text-xs text-[var(--warning-strong)]">
                 <p className="font-semibold">Provider niedostępny w systemie</p>
-                <p className="mt-0.5 text-[11px] text-amber-200/80">
+                <p className="mt-0.5 text-[11px] text-[color-mix(in_srgb,var(--warning-strong)_80%,transparent)]">
                   {selectedProviderObj.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH.'}
                 </p>
               </div>
             )}
 
             {createSession.error && (
-              <p className="mt-3 text-xs text-red-200">{createSession.error}</p>
+              <p className="mt-3 text-xs text-[var(--danger-strong)]">{createSession.error}</p>
             )}
 
             <Button

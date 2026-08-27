@@ -1,39 +1,37 @@
-import test from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-
-import { handleApprove, handleVerify } from '../specs.mjs';
-import { parseProgressLine } from '../lib/operation-progress.mjs';
-import {
-  computeChangeFingerprint,
-  computeTaskFingerprint,
-  buildSpecsIndexes,
-  writeSpecsIndexes,
-} from '../specs/service.mjs';
+import { handleApprove } from '../specs/approve/cli.mjs';
+import { handleVerify } from '../specs/verify/cli.mjs';
 import * as git from '../lib/git.mjs';
+import { computeChangeFingerprint, computeTaskFingerprint } from '../specs/fingerprint.mjs';
+import { parseProgressLine } from '../lib/operation-progress.mjs';
 
 function setupTempGitRepo() {
-  const base = mkdtempSync(join(tmpdir(), 'nevo-approve-test-'));
-  const originDir = join(base, 'origin.git');
-  const cloneDir = join(base, 'repo');
+  const baseDir = join(tmpdir(), `nevo-approve-test-${Math.random().toString(36).slice(2)}`);
+  const originDir = join(baseDir, 'origin.git');
+  const cloneDir = join(baseDir, 'repo');
 
-  // Create bare origin
-  mkdirSync(originDir, { recursive: true });
-  execFileSync('git', ['init', '--bare'], { cwd: originDir });
+  mkdirSync(baseDir, { recursive: true });
 
-  // Clone repo
+  // Create bare remote repository
+  execFileSync('git', ['init', '--bare', originDir]);
+
+  // Clone from bare remote
   execFileSync('git', ['clone', originDir, cloneDir]);
-  execFileSync('git', ['config', 'user.name', 'NEvo Test'], { cwd: cloneDir });
-  execFileSync('git', ['config', 'user.email', 'test@nevo.local'], { cwd: cloneDir });
-  execFileSync('git', ['checkout', '-b', 'main'], { cwd: cloneDir });
 
-  // Initial main commit
-  writeFileSync(join(cloneDir, 'README.md'), '# NEvo Test Repo\n');
+  // Configure user in clone
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: cloneDir });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: cloneDir });
+
+  // Create initial commit on main
+  writeFileSync(join(cloneDir, 'README.md'), '# Test repo\n');
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: cloneDir });
   execFileSync('git', ['add', '.'], { cwd: cloneDir });
-  execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: cloneDir });
+  execFileSync('git', ['commit', '-m', 'chore: initial commit'], { cwd: cloneDir });
   execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: cloneDir });
 
   // Create feature branch
@@ -45,87 +43,75 @@ function setupTempGitRepo() {
   const changeDir = join(activeDir, 'test-change');
   const tasksDir = join(changeDir, 'tasks');
   const reviewsDir = join(changeDir, 'reviews');
+
   mkdirSync(tasksDir, { recursive: true });
   mkdirSync(reviewsDir, { recursive: true });
 
-  const changeYaml = `id: test-change
-title: Test Change
-type: standard
-status: draft
-tasks:
-  - id: task-1
-    order: 1
-    file: tasks/01-task-1.md
-    status: draft
-`;
+  writeFileSync(join(cloneDir, 'specs', 'active.generated.md'), '# Active Specs\n');
+  writeFileSync(join(cloneDir, 'specs', 'archive.generated.md'), '# Archive Specs\n');
+  writeFileSync(join(cloneDir, 'specs', 'index.generated.json'), JSON.stringify({ generated: new Date().toISOString(), changes: [] }, null, 2));
+
+  const changeYaml = [
+    'id: test-change',
+    'title: Test Change',
+    'status: draft',
+    'tasks:',
+    '  - id: task-1',
+    '    order: 1',
+    '    file: tasks/01-task-1.md',
+    '    status: draft',
+  ].join('\n');
   writeFileSync(join(changeDir, 'change.yaml'), changeYaml);
+  writeFileSync(join(tasksDir, '01-task-1.md'), '# Task 1\n');
 
-  const task1Md = `---
-id: test-change.task-1
-status: draft
-change: test-change
-allowed_paths:
-  - tools/**
----
-
-# Task 1
-`;
-  writeFileSync(join(tasksDir, '01-task-1.md'), task1Md);
-
-  // Compute fingerprints and create valid review
+  // Compute valid review with task fingerprint
   const changeObj = {
-    _slug: 'test-change',
-    _dir: changeDir,
     id: 'test-change',
-    title: 'Test Change',
-    type: 'standard',
-    status: 'draft',
-    tasks: [
-      { id: 'task-1', order: 1, file: 'tasks/01-task-1.md', status: 'draft' },
-    ],
+    _dir: changeDir,
+    tasks: [{ id: 'task-1', file: 'tasks/01-task-1.md', status: 'draft' }],
   };
+  const fingerprint = computeChangeFingerprint(changeObj);
+  const task1Fingerprint = computeTaskFingerprint(changeObj, 'task-1');
 
-  const specFp = computeChangeFingerprint(changeObj);
-  const taskFp = computeTaskFingerprint(changeObj, 'task-1');
+  const reviewMd = [
+    '---',
+    'verdict: ready-for-approval',
+    `spec_fingerprint: ${fingerprint}`,
+    'task_fingerprints:',
+    `  task-1: ${task1Fingerprint}`,
+    'unresolved_required_fixes: 0',
+    'unresolved_owner_decisions: 0',
+    'unresolved_needs_clarification: 0',
+    '---',
+    '',
+    '# Spec Review',
+  ].join('\n');
+  writeFileSync(join(reviewsDir, 'spec.md'), reviewMd);
 
-  const reviewContent = `---
-review-of: specification
-change: test-change
-generated: ${new Date().toISOString()}
-verdict: ready-for-approval
-spec_fingerprint: ${specFp}
-task_fingerprints:
-  task-1: ${taskFp}
-unresolved_required_fixes: 0
-unresolved_owner_decisions: 0
-unresolved_needs_clarification: 0
----
-
-# Spec Review
-`;
-  writeFileSync(join(reviewsDir, 'spec.md'), reviewContent);
-
-  // Commit initial spec structure
+  // Commit spec baseline to repository so working tree is clean
   execFileSync('git', ['add', '.'], { cwd: cloneDir });
   execFileSync('git', ['commit', '-m', 'chore: add spec test-change'], { cwd: cloneDir });
   execFileSync('git', ['push'], { cwd: cloneDir });
 
   return {
-    base,
+    baseDir,
     originDir,
     cloneDir,
     activeDir,
+    changeDir,
     cleanup() {
-      rmSync(base, { recursive: true, force: true });
+      try {
+        rmSync(baseDir, { recursive: true, force: true });
+      } catch {}
     },
   };
 }
 
 test('Approve post-action sync and Git integration', async (t) => {
-  await t.test('approve --no-git approves task and rebuilds metadata without git commit/push', () => {
+  await t.test('approve --no-git approves task and rebuilds metadata without git commit/push', async () => {
     const fixture = setupTempGitRepo();
     try {
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: false,
@@ -149,10 +135,10 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('approve with Git (default) commits ONLY operation-owned files and pushes', () => {
+  await t.test('approve with Git (default) commits ONLY operation-owned files and pushes', async () => {
     const fixture = setupTempGitRepo();
     try {
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -189,15 +175,15 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('approve refuses to commit and fails safely when unrelated dirty file exists outside spec', () => {
+  await t.test('approve refuses to commit and fails safely when unrelated dirty file exists outside spec', async () => {
     const fixture = setupTempGitRepo();
     try {
       // Create unrelated dirty file outside allowed specs paths
       writeFileSync(join(fixture.cloneDir, 'unrelated.txt'), 'unrelated work');
 
-      assert.throws(
-        () => {
-          handleApprove('test-change', 'task-1', {
+      await assert.rejects(
+        async () => {
+          await handleApprove('test-change', 'task-1', {
             gitRoot: fixture.cloneDir,
             activeDir: fixture.activeDir,
             git: true,
@@ -215,15 +201,15 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('approve refuses to commit and fails safely when unrelated dirty task file exists in same spec', () => {
+  await t.test('approve refuses to commit and fails safely when unrelated dirty task file exists in same spec', async () => {
     const fixture = setupTempGitRepo();
     try {
       // Create an unrelated task file or modify existing task file in same spec
       writeFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'tasks', '02-other-task.md'), '# Other task draft');
 
-      assert.throws(
-        () => {
-          handleApprove('test-change', 'task-1', {
+      await assert.rejects(
+        async () => {
+          await handleApprove('test-change', 'task-1', {
             gitRoot: fixture.cloneDir,
             activeDir: fixture.activeDir,
             git: true,
@@ -241,7 +227,7 @@ test('Approve post-action sync and Git integration', async (t) => {
   });
 
   for (const genFile of ['specs/index.generated.json', 'specs/active.generated.md', 'specs/archive.generated.md']) {
-    await t.test(`approve fails closed if pre-existing dirty generated file ${genFile} exists`, () => {
+    await t.test(`approve fails closed if pre-existing dirty generated file ${genFile} exists`, async () => {
       const fixture = setupTempGitRepo();
       try {
         const genFilePath = join(fixture.cloneDir, genFile);
@@ -250,9 +236,9 @@ test('Approve post-action sync and Git integration', async (t) => {
 
         const commitCountBefore = parseInt(execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: fixture.cloneDir, encoding: 'utf8' }).trim(), 10);
 
-        assert.throws(
-          () => {
-            handleApprove('test-change', 'task-1', {
+        await assert.rejects(
+          async () => {
+            await handleApprove('test-change', 'task-1', {
               gitRoot: fixture.cloneDir,
               activeDir: fixture.activeDir,
               git: true,
@@ -277,7 +263,7 @@ test('Approve post-action sync and Git integration', async (t) => {
     });
   }
 
-  await t.test('real push failure during approve: commit created, push fails, retry performs missing push without duplicate commit', () => {
+  await t.test('real push failure during approve: commit created, push fails, retry performs missing push without duplicate commit', async () => {
     const fixture = setupTempGitRepo();
     try {
       // Break the remote URL to force push to genuinely fail
@@ -296,9 +282,9 @@ test('Approve post-action sync and Git integration', async (t) => {
 
       // Run approve with git enabled
       try {
-        assert.throws(
-          () => {
-            handleApprove('test-change', 'task-1', {
+        await assert.rejects(
+          async () => {
+            await handleApprove('test-change', 'task-1', {
               gitRoot: fixture.cloneDir,
               activeDir: fixture.activeDir,
               git: true,
@@ -334,7 +320,7 @@ test('Approve post-action sync and Git integration', async (t) => {
       execFileSync('git', ['remote', 'set-url', 'origin', fixture.originDir], { cwd: fixture.cloneDir });
 
       // Retry approve
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -356,18 +342,18 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('full idempotent approve when all postconditions are already met', () => {
+  await t.test('full idempotent approve when all postconditions are already met', async () => {
     const fixture = setupTempGitRepo();
     try {
       // First run
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
       });
 
       // Second run (fully idempotent)
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -379,11 +365,11 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('verify with Git rebuilds metadata, commits ONLY operation-owned files, and pushes', () => {
+  await t.test('verify with Git rebuilds metadata, commits ONLY operation-owned files, and pushes', async () => {
     const fixture = setupTempGitRepo();
     try {
       // First approve task
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -398,7 +384,7 @@ test('Approve post-action sync and Git integration', async (t) => {
       execFileSync('git', ['push'], { cwd: fixture.cloneDir });
 
       // Owner verifies task
-      handleVerify('test-change', 'task-1', {
+      await handleVerify('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -438,11 +424,11 @@ test('Approve post-action sync and Git integration', async (t) => {
     }
   });
 
-  await t.test('verify refuses to commit and fails safely when unrelated dirty file exists in same spec', () => {
+  await t.test('verify refuses to commit and fails safely when unrelated dirty file exists in same spec', async () => {
     const fixture = setupTempGitRepo();
     try {
       // First approve task
-      handleApprove('test-change', 'task-1', {
+      await handleApprove('test-change', 'task-1', {
         gitRoot: fixture.cloneDir,
         activeDir: fixture.activeDir,
         git: true,
@@ -459,9 +445,9 @@ test('Approve post-action sync and Git integration', async (t) => {
       // Add unrelated dirty task file
       writeFileSync(join(fixture.cloneDir, 'specs', 'active', 'test-change', 'tasks', '02-other.md'), '# Another task');
 
-      assert.throws(
-        () => {
-          handleVerify('test-change', 'task-1', {
+      await assert.rejects(
+        async () => {
+          await handleVerify('test-change', 'task-1', {
             gitRoot: fixture.cloneDir,
             activeDir: fixture.activeDir,
             git: true,
@@ -475,11 +461,11 @@ test('Approve post-action sync and Git integration', async (t) => {
   });
 
   for (const genFile of ['specs/index.generated.json', 'specs/active.generated.md', 'specs/archive.generated.md']) {
-    await t.test(`verify fails closed if pre-existing dirty generated file ${genFile} exists`, () => {
+    await t.test(`verify fails closed if pre-existing dirty generated file ${genFile} exists`, async () => {
       const fixture = setupTempGitRepo();
       try {
         // First approve task
-        handleApprove('test-change', 'task-1', {
+        await handleApprove('test-change', 'task-1', {
           gitRoot: fixture.cloneDir,
           activeDir: fixture.activeDir,
           git: true,
@@ -500,9 +486,9 @@ test('Approve post-action sync and Git integration', async (t) => {
         const dirtyContent = 'pre-existing dirty generated content before verify\n';
         writeFileSync(genFilePath, dirtyContent);
 
-        assert.throws(
-          () => {
-            handleVerify('test-change', 'task-1', {
+        await assert.rejects(
+          async () => {
+            await handleVerify('test-change', 'task-1', {
               gitRoot: fixture.cloneDir,
               activeDir: fixture.activeDir,
               git: true,

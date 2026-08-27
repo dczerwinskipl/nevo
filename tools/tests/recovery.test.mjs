@@ -9,8 +9,9 @@ import { join } from 'node:path';
 
 import {
   inspectStartPostconditions, inspectApprovePostconditions, classifySimpleActionPostcondition,
-  classifyDirtyWorktree, deriveStage, POSTCONDITION_RESULTS,
-} from '../specs/lifecycle.mjs';
+  classifyDirtyWorktree, POSTCONDITION_RESULTS,
+} from '../specs/lifecycle/recovery.mjs';
+import { deriveStage } from '../specs/lifecycle/stage.mjs';
 import { setTaskSuspension, clearTaskSuspension, guardAgainstUnsafeManual } from '../specs.mjs';
 
 describe('POSTCONDITION_RESULTS — the five-value vocabulary (D17)', () => {

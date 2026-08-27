@@ -26,14 +26,19 @@ function trimTrailingNewlines(value) {
   return value;
 }
 
-/** Parse a whole file as YAML (e.g. change.yaml). Throws CliError with the file path on invalid YAML. */
-export function parseYamlFile(path) {
-  const raw = readFileSync(path, 'utf8');
+/** Parse a YAML string. Throws CliError on invalid YAML. */
+export function parseYamlString(raw, label = 'YAML') {
   try {
     return trimTrailingNewlines(parse(raw) ?? {});
   } catch (err) {
-    throw new CliError(`Invalid YAML in ${path}: ${err.message}`);
+    throw new CliError(`Invalid YAML in ${label}: ${err.message}`);
   }
+}
+
+/** Parse a whole file as YAML (e.g. change.yaml). Throws CliError with the file path on invalid YAML. */
+export function parseYamlFile(path) {
+  const raw = readFileSync(path, 'utf8');
+  return parseYamlString(raw, path);
 }
 
 /** Extract the raw text of a `---`-delimited front matter block, or null if there isn't one. */

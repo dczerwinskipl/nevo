@@ -48,7 +48,7 @@ test('Item 2A & 2B (Task 07 / Item 9A): AiSessionRow uses non-interactive card, 
 
 test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks against change and use TaskNavigationTarget', () => {
   const sessionDetailsSource = readSource('components/session-details/session-details.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
   const typesSource = readSource('lib/types.ts');
 
   // TaskNavigationTarget contract exists in types.ts
@@ -69,8 +69,8 @@ test('Item 2B & 2C (Task 07): SessionDetails and AiChatPage resolve tasks agains
 
 test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecDetail and AiChatPage without leaveChat()', () => {
   const taskDialogSource = readSource('components/task-dialog.tsx');
-  const specDetailSource = readSource('components/spec-detail.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   // TaskDialog is a reusable component in components/task-dialog.tsx
   assert.ok(taskDialogSource.includes('export function TaskDialog('));
@@ -93,7 +93,7 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
   assert.ok(aiChatSource.includes('onClose={() => setInspectedTaskId(null)}'));
 });
 
-test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary header chrome', () => {
+test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
   const routerSource = readSource('router.tsx');
 
   // Indicator is icon-only in header with role=status, tabIndex=0, title, aria-label
@@ -101,26 +101,31 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator in primary head
   assert.ok(routerSource.includes('tabIndex={0}'));
   assert.ok(routerSource.includes("aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}"));
   assert.ok(routerSource.includes("title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}"));
-  assert.ok(routerSource.includes('className="flex size-8 items-center justify-center rounded-lg border'));
+  assert.ok(routerSource.includes("? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'"));
+  assert.ok(routerSource.includes(": 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'"));
   assert.ok(!routerSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 
-test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses non-interactive container, inline title-row action, and sibling keyboard controls', () => {
+test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compact metadata, and a separate action footer', () => {
   const statusBoardSource = readSource('components/status-board.tsx');
 
   // 1. Outer card is non-interactive div without role=button or tabIndex=0
   assert.ok(!statusBoardSource.includes('role="button"'), 'TaskCard outer div must not have role=button');
   assert.ok(!statusBoardSource.includes('tabIndex={0}'), 'TaskCard outer div must not have tabIndex=0');
 
-  // 2. Title row contains both the task-details button and sibling action button inline
-  assert.ok(statusBoardSource.includes('<div className="mt-2.5 flex items-start justify-between gap-2">'));
-
-  // 3. Dedicated semantic button for opening task details (flex-1)
+  // 2. Dedicated semantic button for opening task details gets the full card width
   assert.ok(statusBoardSource.includes('onClick={event => onSelect?.(task, event.currentTarget)}'));
   assert.ok(statusBoardSource.includes('aria-label={`Otwórz szczegóły zadania: ${task.title}`}'));
-  assert.ok(statusBoardSource.includes('min-w-0 flex-1 text-left'));
+  assert.ok(statusBoardSource.includes('mt-2.5 block w-full'));
 
-  // 4. Separate right-aligned sibling action button (shrink-0), not nested inside details button
+  // 3. Exact task status, dependencies, and blockers share one compact metadata header
+  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status}'));
+  assert.ok(statusBoardSource.includes('flex min-w-0 items-center gap-2'));
+  assert.ok(statusBoardSource.includes('title={`Zależności: ${task.dependsOn.join(\', \')}`}'));
+  assert.ok(statusBoardSource.includes('title={`Blokowane przez: ${task.blockedBy.join(\', \')}`}'));
+
+  // 4. Action is a separate centered footer, not nested beside the title
+  assert.ok(statusBoardSource.includes('mt-3 flex justify-center border-t border-[var(--border)] pt-2.5'));
   assert.ok(statusBoardSource.includes('onClick={() => onAction?.(task, actionGate.action)}'));
   assert.ok(statusBoardSource.includes('aria-label={`${actionGate.action === \'approve\' ? \'Zatwierdź zadanie\' : \'Zaakceptuj zadanie\'}: ${task.title}\`}'));
 });
@@ -155,7 +160,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   const statusBoardSource = readSource('components/status-board.tsx');
   const sessionListSource = readSource('components/ai-session-list.tsx');
   const chatHeaderSource = readSource('components/chat-header/chat-header.tsx');
-  const aiChatSource = readSource('components/ai-chat.tsx');
+  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
 
   // 1. StatusLabel primitive owns common typography contract
   assert.ok(statusLabelSource.includes('export function StatusLabel'), 'StatusLabel component exported');
@@ -166,10 +171,10 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   assert.ok(stageProgressSource.includes("import { StatusLabel } from '@/components/status-label'"), 'stage-progress imports StatusLabel');
   assert.ok(stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'), 'stage-progress renders StatusLabel');
 
-  // 3. Site 2 & 3: status-board lane header and task status labels use StatusLabel
-  assert.ok(statusBoardSource.includes("import { StatusLabel } from '@/components/status-label'"), 'status-board imports StatusLabel');
-  assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
-  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status} />'), 'status-board task status renders StatusLabel');
+  // 3. Status-board lane headers and exact task statuses use the shared label primitive
+  assert.ok(statusBoardSource.includes("from '@/components/status-label'"), 'status-board imports StatusLabel');
+  assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted-strong)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
+  assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status}'), 'task cards render the exact domain status as lightweight metadata');
 
   // 4. Site 4: ai-session-list session status uses StatusLabel
   assert.ok(sessionListSource.includes("from '@/components/status-label'"), 'ai-session-list imports from status-label');
@@ -182,7 +187,7 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
-  const specDetailSource = readSource('components/spec-detail.tsx');
+  const specDetailSource = readSource('components/spec-detail/overview-panel.tsx');
   const statusBoardSource = readSource('components/status-board.tsx');
 
   // Both section h2 headings use text-xl

@@ -13,22 +13,38 @@ import { join } from 'node:path';
 
 import { readFileSync, writeFileSync as writeFileSyncNode } from 'node:fs';
 import {
-  loadChange, computeChangeFingerprint, computeTaskFingerprint,
-  parseOwnerDecisions, loadFollowUps, addFollowUp, resolveFollowUp,
-  buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
-} from '../specs/service.mjs';
+  loadChange, ACTIVE_INDEX_MD, ARCHIVE_INDEX_MD, INDEX_JSON,
+} from '../specs/store.mjs';
 import {
-  validateTransition, validateApproval, inspectStartPostconditions, inspectApprovePostconditions,
-  classifyDirtyWorktree, resolveAfterConfirmedRepair, planContinuation, scopeOf, deriveStage,
-  selectBatch, deriveBatchProgress, hardStopReason, detectRiskSignals, requiresFullReview,
+  computeChangeFingerprint, computeTaskFingerprint, parseOwnerDecisions,
+} from '../specs/fingerprint.mjs';
+import {
+  loadFollowUps, addFollowUp, resolveFollowUp,
+} from '../specs/follow-ups.mjs';
+import {
+  buildSpecsIndexes, checkSpecsIndexes, writeSpecsIndexes,
+} from '../specs/indexes.mjs';
+import {
+  validateTransition, validateApproval, hardStopReason, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
+} from '../specs/lifecycle-primitives.mjs';
+import {
+  scopeOf, inspectStartPostconditions, inspectApprovePostconditions,
+  classifyDirtyWorktree, resolveAfterConfirmedRepair, planContinuation,
+} from '../specs/lifecycle/recovery.mjs';
+import {
+  deriveStage, validateFinalize,
+} from '../specs/lifecycle/stage.mjs';
+import {
+  selectBatch, deriveBatchProgress, detectRiskSignals, requiresFullReview,
   buildSelfCheckResult, staleEvidenceTasks, isTemporaryInconsistency, batchValidationBlocks,
-  computeBatchReviewVerdict, validateFinalize, TASK_STATUSES, CHANGE_STATUSES, removedStatusMessage,
-} from '../specs/lifecycle.mjs';
+  computeBatchReviewVerdict,
+} from '../specs/lifecycle/batch.mjs';
 import {
   validateStatusValue, validateSuspension, validateSemanticReferences, validateFollowUps,
 } from '../specs/validation.mjs';
 import { parseRoutingTable, validateRoutingTables } from '../docs.mjs';
-import { setTaskSuspension, clearTaskSuspension, createRepairBranch, runPostMergeCheck } from '../specs.mjs';
+import { setTaskSuspension, clearTaskSuspension } from '../specs.mjs';
+import { createRepairBranch, runPostMergeCheckAsync } from '../specs/finalize/operation.mjs';
 
 let root;
 before(() => { root = mkdtempSync(join(tmpdir(), 'nevo-e2e-test-')); });
@@ -480,30 +496,30 @@ describe('Finalization', () => {
     rmSync(remote, { recursive: true, force: true });
   }
 
-  test('a successful post-merge check completes cleanup, branch deletion included', () => {
+  test('a successful post-merge check completes cleanup, branch deletion included', async () => {
     setup();
-    const result = runPostMergeCheck(repo, 'feature/x', () => []);
+    const result = await runPostMergeCheckAsync(repo, 'feature/x', () => []);
     assert.equal(result.ok, true);
     assert.equal(result.deletedBranch, 'feature/x');
     cleanup();
   });
 
-  test('a failed post-merge check does not write into the archived change and preserves the branch', () => {
+  test('a failed post-merge check does not write into the archived change and preserves the branch', async () => {
     setup();
-    const result = runPostMergeCheck(repo, 'feature/x', () => [{ name: 'check', detail: 'stale' }]);
+    const result = await runPostMergeCheckAsync(repo, 'feature/x', () => [{ name: 'check', detail: 'stale' }]);
     assert.equal(result.ok, false);
-    // "does not write into the archived change": runPostMergeCheck itself never
-    // touches follow-ups.yaml or any change file — only git state, asserted here.
+    // "does not write into the archived change": runPostMergeCheckAsync itself
+    // never touches follow-ups.yaml or any change file — only git state, asserted here.
     const status = git(['status', '--porcelain']);
     assert.doesNotMatch(status, /follow-ups\.yaml/);
     assert.equal(result.diagnosticBranch, 'feature/x');
     cleanup();
   });
 
-  test('branch cleanup never occurs before the post-merge check\'s result is known', () => {
+  test('branch cleanup never occurs before the post-merge check\'s result is known', async () => {
     setup();
     let checkRanBeforeDelete = false;
-    runPostMergeCheck(repo, 'feature/x', () => {
+    await runPostMergeCheckAsync(repo, 'feature/x', () => {
       checkRanBeforeDelete = execFileSync('git', ['-C', repo, 'rev-parse', '--verify', 'feature/x'], { encoding: 'utf8' }).length > 0;
       return [];
     });
@@ -730,10 +746,10 @@ describe('D23 — post-merge repair', () => {
 
   test('the repair branch is created only after the caller invokes createRepairBranch — never implicitly', () => {
     // createRepairBranch's own guard suite is finalize.test.mjs's job; here we
-    // assert the composition contract: runPostMergeCheck never calls it.
-    assert.equal(typeof runPostMergeCheck, 'function');
+    // assert the composition contract: runPostMergeCheckAsync never calls it.
+    assert.equal(typeof runPostMergeCheckAsync, 'function');
     assert.equal(typeof createRepairBranch, 'function');
-    assert.notEqual(runPostMergeCheck, createRepairBranch);
+    assert.notEqual(runPostMergeCheckAsync, createRepairBranch);
   });
 
   test('a successful post-merge verification proceeds to cleanup exactly as before', () => {

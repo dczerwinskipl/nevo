@@ -24,8 +24,12 @@ import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createFixtureRepo } from './fixture-repo.test-helper.mjs';
-import { handleStart, handleSelfCheck, handleApplyProvenance } from '../specs.mjs';
-import { loadChange, computeTaskFingerprint, computeChangeFingerprint, buildContextPacket } from '../specs/service.mjs';
+import { handleStart } from '../specs/start/cli.mjs';
+import { handleSelfCheck } from '../specs/self-check/cli.mjs';
+import { handleApplyProvenance } from '../specs/provenance/cli.mjs';
+import { loadChange } from '../specs/store.mjs';
+import { computeTaskFingerprint, computeChangeFingerprint } from '../specs/fingerprint.mjs';
+import { buildContextPacket } from '../specs/context.mjs';
 import { getChangedFiles, getCurrentRevision } from '../lib/git.mjs';
 
 // Captures the fixture repo's current revision before any task edits it —
@@ -35,18 +39,24 @@ import { getChangedFiles, getCurrentRevision } from '../lib/git.mjs';
 function captureRevision(root) {
   return getCurrentRevision(root);
 }
+import { deriveStage } from '../specs/lifecycle/stage.mjs';
+import { depsSatisfied } from '../specs/lifecycle-primitives.mjs';
 import {
-  deriveStage, depsSatisfied,
   computeTaskReviewChecklist, renderCompactReviewChecklist, renderNormalPassingReportBody,
-  computeTaskAttributedChangedPaths, nextImplementationBaseline,
   selectSemanticIntegrationPairs, validatePerTaskReviewRecord, buildConsolidatedDecisionStage,
   resolveSpecReviewScope, selectChangedTaskIds, scopedReviewBaselineValid,
-  classifyUnownedDrift, UNOWNED_DRIFT_OPTIONS, validateMaintenanceCorrectionEntry,
   classifyScopeFinding, isScopeExceptionValid,
   validateAggregateAgainstCanonicalReviews,
-  resolveScopeCheckPaths, detectProvenanceOverlap,
+  resolveScopeCheckPaths,
+} from '../specs/lifecycle/reviews.mjs';
+import {
+  computeTaskAttributedChangedPaths, nextImplementationBaseline,
+  classifyUnownedDrift, UNOWNED_DRIFT_OPTIONS, validateMaintenanceCorrectionEntry,
+  detectProvenanceOverlap,
+} from '../specs/lifecycle/provenance.mjs';
+import {
   attributeTouchedPaths, detectBatchIntegrationFindings,
-} from '../specs/lifecycle.mjs';
+} from '../specs/lifecycle/batch.mjs';
 
 const fixtures = [];
 function fixture(opts) {

@@ -9,14 +9,16 @@ import {
   createSpecification,
   validateSpecSlug,
   validateSpecType,
-  refreshSpecsIndexes,
-  buildSpecsIndexes,
-  checkSpecsIndexes,
-  loadChange,
   SpecValidationError,
   SpecConflictError,
   SpecRollbackError,
-} from '../specs/service.mjs';
+} from '../specs/identity.mjs';
+import {
+  refreshSpecsIndexes,
+  buildSpecsIndexes,
+  checkSpecsIndexes,
+} from '../specs/indexes.mjs';
+import { loadChange } from '../specs/store.mjs';
 
 async function createTempSpecsEnvironment() {
   const root = await mkdtemp(join(tmpdir(), 'nevo-spec-test-'));
