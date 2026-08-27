@@ -1,7 +1,7 @@
 # Specification manifest for refaktoring-tooli
 id: refaktoring-tooli
 title: "Tools refactoring according to Node and React guidelines"
-type: standard
+type: architectural
 status: draft
 priority: 10
 created: 2026-08-25
@@ -507,6 +507,13 @@ tasks:
         - command: node tools/docs.mjs check
           exit_code: 0
       status: passed
+  - id: dashboard-fastify-http-adapter-migration
+    order: 9
+    file: tasks/09-dashboard-fastify-http-adapter-migration.md
+    status: draft
+    depends_on:
+      - dashboard-server-runtime-and-routes
+      - e2e-verification-and-guidelines-audit
 
 pull_requests:
   - provider: github

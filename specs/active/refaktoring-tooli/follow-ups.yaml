@@ -43,7 +43,7 @@ follow_ups:
       error mapping where appropriate; use Fastify lifecycle/shutdown support;
       preserve SSE semantics; and use Fastify inject-based HTTP testing where
       useful."
-    resolver_task: null
+    resolver_task: dashboard-fastify-http-adapter-migration
     status: open
     resolution: null
   - id: node-tooling-typescript-evaluation

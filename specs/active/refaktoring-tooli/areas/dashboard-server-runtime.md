@@ -30,6 +30,7 @@ Owns the HTTP/SSE server layer for the specification dashboard (`tools/dashboard
   - Invoke application operations (shared with CLI or provided by server services).
   - Map results to HTTP responses or SSE event streams.
 - Handle client disconnections (cancelling active SSE streams/operations) and graceful server shutdown.
+- **Fastify adapter (D5):** Replace manual `node:http` request/route/method matching with Fastify. Register each capability route module as a Fastify plugin/route group using Fastify's own routing (paths, params, prefixes). Centralize HTTP error mapping (e.g. `HttpError`) through Fastify's error handler instead of per-route catch/response duplication. Use Fastify's lifecycle hooks for startup and graceful shutdown. Preserve SSE response headers, event framing, and the resumable cursor/reconnect semantics unchanged — only how the raw response stream is obtained may change. Use Fastify's `inject()` for route-level HTTP tests where it materially simplifies over the current manual-request test doubles, without dropping existing SSE/behavioral coverage.
 
 ## Interfaces and boundaries
 
@@ -42,8 +43,10 @@ The server exposes REST and SSE interfaces consumed by the React frontend. All J
 3. No HTTP/SSE request handler executes blocking synchronous child process calls or unbounded synchronous filesystem traversals.
 4. Resumable operation SSE streaming correctly supports initial connections, cursor-based reconnects, completed/failed operations, and clean teardown without leaked listeners.
 5. All tests in `tools/dashboard/tests/` pass cleanly.
+6. The server runs on Fastify: capability route modules are registered as Fastify plugins/route groups, HTTP error mapping is centralized via Fastify's error handler, and startup/shutdown use Fastify's lifecycle hooks.
+7. SSE routes preserve their exact response headers, event framing, and resumable cursor/reconnect semantics after the Fastify migration.
 
 ## Out of scope
 
-- Changing the underlying HTTP server framework.
-- Decomposing or redesigning internal AI/session route handlers in `tools/dashboard/server/ai-routes.mjs`.
+- Decomposing or redesigning internal AI/session route handlers in `tools/dashboard/server/ai-routes.mjs` beyond the minimal wiring needed to register it as a Fastify plugin.
+- Introducing additional HTTP-related dependencies beyond Fastify itself (e.g. separate schema/validation libraries) without a further owner decision.

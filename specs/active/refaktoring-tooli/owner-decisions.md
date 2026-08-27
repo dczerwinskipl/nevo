@@ -33,3 +33,12 @@
 - **Consequences:** Each frontend feature owns its complete slice (UI, feature-local hooks, projections, tests); server routes become thin controllers; feature-specific helpers are no longer scattered in global folders.
 - **Date:** 2026-08-25
 - **Affected artifacts:** `tools/dashboard/server/**`, `tools/dashboard/src/**`
+
+## D5: Adopt Fastify as the dashboard server's HTTP/SSE adapter
+
+- **Question:** Should the dashboard server's manual `node:http` request/route/error handling be replaced with Fastify, and if so, in this change or a separate one?
+- **Options considered:** Defer — leave the existing `fastify-http-adapter-migration` follow-up open and revisit after this change finalizes | create a new, separate change dedicated to the Fastify migration | fold it into `refaktoring-tooli` as an additional task, escalating the change from `standard` (T) to `architectural` (A) since it introduces a new external dependency
+- **Decision:** Fold it into `refaktoring-tooli` as task 9 (`dashboard-fastify-http-adapter-migration`). The change is escalated from `standard` to `architectural` per the T→A escalation rule (new external dependency).
+- **Consequences:** Fastify becomes a new runtime dependency of `tools/dashboard`. The area's prior "changing the underlying HTTP server framework" out-of-scope declaration (`areas/dashboard-server-runtime.md`) no longer applies and is removed. The existing `fastify-http-adapter-migration` follow-up is resolved by task 9 instead of a future change.
+- **Date:** 2026-08-27
+- **Affected artifacts:** `change.yaml` (type, task 9), `areas/dashboard-server-runtime.md`, `tasks/09-dashboard-fastify-http-adapter-migration.md`, `follow-ups.yaml`, `tools/dashboard/package.json`

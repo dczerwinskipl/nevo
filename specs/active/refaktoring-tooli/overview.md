@@ -68,6 +68,7 @@ This specification aims to refactor the existing `tools/dashboard` and relevant 
 - **D2.** Separate `tools/specs.mjs` into a thin CLI parsing and output mapping boundary, extracting command orchestration into application modules.
 - **D3.** Decouple pure decision logic from filesystem I/O in `tools/specs/lifecycle.mjs` and modularize `tools/specs/service.mjs` by cohesive capability, migrating internal callers directly.
 - **D4.** Modularize dashboard server routes (eliminating request-path blocking I/O and fixing SSE replay lifecycles) and refactor frontend features into vertical feature slices (Spec Detail, Changes & Diffs, AI Assistant Chat) containing their components, feature-local hooks, and pure view-models, retiring redundant forwarding exports in `use-dashboard-data.ts` as callers migrate.
+- **D5.** Migrate the dashboard server's HTTP/SSE adapter from manual `node:http` handling to Fastify, replacing manual route/method/path matching with Fastify routing, registering capability route groups as Fastify plugins, and centralizing HTTP error mapping — escalating this change from `standard` to `architectural` since Fastify is a new external dependency. This supersedes the area's prior "changing the underlying HTTP server framework" out-of-scope declaration.
 
 ## Illustrative Architectural Boundaries
 
@@ -122,6 +123,7 @@ tools/
 7. AI Assistant Chat feature is refactored into a vertical slice with decomposed assistant runtime (`nevo-assistant-runtime.ts`), feature-local projections/helpers, feature-local queries, and viewport tracking, retiring redundant exports from `use-dashboard-data.ts`. `automated: npm --prefix tools/dashboard test && npm --prefix tools/dashboard run build`
 8. All existing functionality, CLI commands, HTTP routes, SSE events, and dashboard UI behavior remain 100% backward compatible without regressions. `automated: npm test && npm --prefix tools/dashboard test && node tools/specs.mjs validate && node tools/docs.mjs validate`
 9. All guideline checklist items for the modules and boundaries modified by this specification are satisfied; pre-existing issues outside this change's scope are recorded in `follow-ups.yaml`. `inspection: checklist audit`
+10. The dashboard server's HTTP/SSE adapter runs on Fastify instead of manual `node:http` handling, with capability route groups registered as Fastify plugins and centralized HTTP error mapping, while every existing route, JSON shape, status code, and SSE event/reconnect contract remains 100% backward compatible. `automated: npm --prefix tools/dashboard test`
 
 ## Verification Strategy
 
