@@ -510,7 +510,7 @@ tasks:
   - id: dashboard-fastify-http-adapter-migration
     order: 9
     file: tasks/09-dashboard-fastify-http-adapter-migration.md
-    status: draft
+    status: approved
     depends_on:
       - dashboard-server-runtime-and-routes
       - e2e-verification-and-guidelines-audit

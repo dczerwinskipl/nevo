@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T13:34:21.872Z",
+  "generated": "2026-08-27T18:01:56.733Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -794,7 +794,7 @@
           "id": "dashboard-fastify-http-adapter-migration",
           "order": 9,
           "file": "tasks/09-dashboard-fastify-http-adapter-migration.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "dashboard-server-runtime-and-routes",
             "e2e-verification-and-guidelines-audit"
