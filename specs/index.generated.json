@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T13:12:44.555Z",
+  "generated": "2026-08-27T13:12:48.659Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -668,7 +668,7 @@
           "id": "ai-assistant-chat-and-runtime-feature-slice",
           "order": 7,
           "file": "tasks/07-ai-assistant-chat-and-runtime-feature-slice.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "changes-and-pr-diff-feature-slice"
           ],

@@ -414,7 +414,7 @@ tasks:
   - id: ai-assistant-chat-and-runtime-feature-slice
     order: 7
     file: tasks/07-ai-assistant-chat-and-runtime-feature-slice.md
-    status: implemented
+    status: verified
     depends_on:
       - changes-and-pr-diff-feature-slice
     implementation:
