@@ -34,14 +34,21 @@ import { CliError } from '../../lib/cli-errors.mjs';
  * persist self_check results, update implementation provenance and generated indexes.
  *
  * `incremental` (default `false`, fully backward compatible): when `true` and the task
- * already has persisted `changed_paths` from a prior self-check, attribution is
- * recomputed only from the changes introduced since that prior check (`HEAD^..HEAD` at
- * self-check time — i.e. the commit(s) this specific re-run is meant to attribute) and
- * *unioned* onto the existing `changed_paths`, instead of re-deriving the full
- * since-`baseline_revision` range every time. Use this for a review-fix re-check that
+ * already has a persisted `implementation.review_revision` from a prior self-check,
+ * attribution is computed only from the changes introduced since that task's own
+ * *previous* `review_revision` — i.e. exactly `previousReviewRevision..currentRevision`,
+ * using the same Git abstraction (and the same worktree/untracked-file handling) the
+ * default path already uses — and *unioned* onto the existing `changed_paths`, instead
+ * of re-deriving the full since-`baseline_revision` range every time. The previous
+ * `review_revision` and `changed_paths` are captured up front, before any new
+ * attribution is computed; the new `review_revision` is persisted only once that
+ * attribution has actually been calculated. Use this for a review-fix re-check that
  * touches several sibling tasks sharing overlapping `allowed_paths` — the default
  * (non-incremental) full-range recompute would otherwise re-absorb every sibling task's
- * own unrelated intervening commits into this task's evidence.
+ * own unrelated intervening commits into this task's evidence. Multiple commits landing
+ * between two self-checks (e.g. two separate review-fix commits touching this task
+ * before it's re-checked) are all captured in one call, since the range spans all of
+ * them — never just the single most recent commit.
  */
 export function executeSelfCheck(changeSlug, taskId, {
   activeDir = ACTIVE_DIR,
@@ -87,9 +94,15 @@ export function executeSelfCheck(changeSlug, taskId, {
   const overlaps = [];
   if (task.implementation?.baseline_revision) {
     const packet = buildContextPacket(change, task);
+    // Captured before any new attribution is computed — `useIncremental`'s diff base
+    // and the union below both read these, never a value derived after the fact.
+    const previousReviewRevision = task.implementation.review_revision;
     const priorChangedPaths = task.implementation.changed_paths || [];
-    const useIncremental = incremental && priorChangedPaths.length > 0;
-    const diffBase = useIncremental ? `${currentRevision}^` : task.implementation.baseline_revision;
+    const useIncremental = incremental && Boolean(previousReviewRevision) && priorChangedPaths.length > 0;
+    const diffBase = useIncremental ? previousReviewRevision : task.implementation.baseline_revision;
+    // No explicit `head` — same call shape the default (baseline) path already uses,
+    // so both diff base..working-tree and pick up any still-uncommitted, task-related
+    // worktree changes the same way (tools/lib/git.mjs's own worktree/untracked handling).
     const changedSinceDiffBase = git.getChangedFiles(gitRoot, diffBase);
     const newlyAttributedPaths = computeTaskAttributedChangedPaths(changedSinceDiffBase, packet.allowed_paths);
     const attributedPaths = useIncremental

@@ -315,6 +315,62 @@ describe('executeSelfCheck --incremental: sequential tasks A/B/C, a later review
       f.teardown();
     }
   });
+
+  test('multi-commit case: two separate review-fix commits land before the next --incremental check — both are captured in one call, not just the most recent commit', () => {
+    // Regression for a real bug in the first --incremental implementation: it diffed
+    // `currentRevision^..currentRevision` (only the single most recent commit), so a
+    // task self-checked once, then fixed by TWO separate later commits before its next
+    // self-check, would silently lose the first fix's file. The contract is
+    // `previousReviewRevision..currentRevision` — the full range since this task's own
+    // last review, however many commits that spans.
+    const f = createFixtureRepo({
+      changeSlug: 'fx-incremental-multi-commit',
+      tasks: [
+        { id: 'task-a', status: 'approved', allowedPaths: ['domain-a/**'], verification: ['echo ok'] },
+      ],
+    });
+    try {
+      handleStart('fx-incremental-multi-commit', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+      f.commitFile('domain-a/impl.mjs', 'v1', 'Task A implementation');
+      handleSelfCheck('fx-incremental-multi-commit', 'task-a', { activeDir: f.activeDir, gitRoot: f.root });
+
+      let reloaded = loadChange('fx-incremental-multi-commit', f.activeDir);
+      const revisionR = reloaded.tasks.find(t => t.id === 'task-a').implementation.review_revision;
+      assert.deepEqual(reloaded.tasks.find(t => t.id === 'task-a').implementation.changed_paths, ['domain-a/impl.mjs']);
+
+      // Review-fix commit A changes task file "a" ...
+      f.commitFile('domain-a/a.mjs', 'a v1', 'Review-fix commit A');
+      // ... then review-fix commit B changes task file "b" — both land BEFORE the next self-check.
+      f.commitFile('domain-a/b.mjs', 'b v1', 'Review-fix commit B');
+
+      // One --incremental self-check at B (current HEAD) must capture both.
+      handleSelfCheck('fx-incremental-multi-commit', 'task-a', { activeDir: f.activeDir, gitRoot: f.root, incremental: true });
+
+      reloaded = loadChange('fx-incremental-multi-commit', f.activeDir);
+      const afterBothFixes = reloaded.tasks.find(t => t.id === 'task-a');
+      assert.deepEqual(afterBothFixes.implementation.changed_paths, [
+        'domain-a/a.mjs', 'domain-a/b.mjs', 'domain-a/impl.mjs',
+      ]);
+      const revisionB = afterBothFixes.implementation.review_revision;
+      assert.notEqual(revisionB, revisionR, 'review_revision advanced past the original self-check');
+
+      // A later incremental re-check: an unrelated sibling task's own commit lands
+      // (different allowed_paths, must never be absorbed), then one more review-fix
+      // commit touches this task again.
+      f.commitFile('domain-sibling/unrelated.mjs', 'sibling work', 'Unrelated sibling commit');
+      f.commitFile('domain-a/impl.mjs', 'v2', 'Review-fix commit C');
+      handleSelfCheck('fx-incremental-multi-commit', 'task-a', { activeDir: f.activeDir, gitRoot: f.root, incremental: true });
+
+      reloaded = loadChange('fx-incremental-multi-commit', f.activeDir);
+      const final = reloaded.tasks.find(t => t.id === 'task-a');
+      assert.deepEqual(final.implementation.changed_paths, [
+        'domain-a/a.mjs', 'domain-a/b.mjs', 'domain-a/impl.mjs',
+      ], 'the unrelated sibling commit is never absorbed, even though it landed inside the diffed range');
+      assert.notEqual(final.implementation.review_revision, revisionB, 'review_revision advances again on the second incremental check');
+    } finally {
+      f.teardown();
+    }
+  });
 });
 
 // ── Fingerprint-tier exclusion (AC4) ────────────────────────────────────────
@@ -510,12 +566,17 @@ describe('handleApplyProvenance — never writes without explicit confirmation (
 // only for its error paths, which never reach a real write).
 
 describe('resolveProvenanceMappings — several legacy provenance mappings resolved together (D34/D35 correction)', () => {
-  test('a single task id with --baseline/--changed-paths resolves to the original single-mapping shape', () => {
+  test('a single task id with --baseline/--changed-paths resolves to the original single-mapping shape, reviewRevision defaulting to baseline', () => {
     const mappings = resolveProvenanceMappings('t1', { baseline: 'sha-t1', changedPaths: 'a.mjs,b.mjs' });
-    assert.deepEqual(mappings, [{ taskId: 't1', baseline: 'sha-t1', changedPaths: ['a.mjs', 'b.mjs'] }]);
+    assert.deepEqual(mappings, [{ taskId: 't1', baseline: 'sha-t1', reviewRevision: 'sha-t1', changedPaths: ['a.mjs', 'b.mjs'] }]);
   });
 
-  test('--mappings resolves several task mappings in one call, each with its own baseline and changed paths', () => {
+  test('a single task id with --review-revision preserves the real reviewed revision instead of defaulting to baseline', () => {
+    const mappings = resolveProvenanceMappings('t1', { baseline: 'sha-t1', reviewRevision: 'sha-t1-reviewed', changedPaths: 'a.mjs' });
+    assert.deepEqual(mappings, [{ taskId: 't1', baseline: 'sha-t1', reviewRevision: 'sha-t1-reviewed', changedPaths: ['a.mjs'] }]);
+  });
+
+  test('--mappings resolves several task mappings in one call, each with its own baseline and changed paths, reviewRevision defaulting to baseline when omitted', () => {
     const mappings = resolveProvenanceMappings('t1,t2', {
       mappings: JSON.stringify([
         { task: 't1', baseline: 'sha-t1', changedPaths: ['a.mjs'] },
@@ -523,8 +584,19 @@ describe('resolveProvenanceMappings — several legacy provenance mappings resol
       ]),
     });
     assert.deepEqual(mappings, [
-      { taskId: 't1', baseline: 'sha-t1', changedPaths: ['a.mjs'] },
-      { taskId: 't2', baseline: 'sha-t2', changedPaths: ['b.mjs', 'c.mjs'] },
+      { taskId: 't1', baseline: 'sha-t1', reviewRevision: 'sha-t1', changedPaths: ['a.mjs'] },
+      { taskId: 't2', baseline: 'sha-t2', reviewRevision: 'sha-t2', changedPaths: ['b.mjs', 'c.mjs'] },
+    ]);
+  });
+
+  test('--mappings entry with an explicit reviewRevision preserves it, distinct from baseline', () => {
+    const mappings = resolveProvenanceMappings('t1', {
+      mappings: JSON.stringify([
+        { task: 't1', baseline: 'sha-t1', reviewRevision: 'sha-t1-reviewed', changedPaths: ['a.mjs'] },
+      ]),
+    });
+    assert.deepEqual(mappings, [
+      { taskId: 't1', baseline: 'sha-t1', reviewRevision: 'sha-t1-reviewed', changedPaths: ['a.mjs'] },
     ]);
   });
 

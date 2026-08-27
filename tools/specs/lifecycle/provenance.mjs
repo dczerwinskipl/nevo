@@ -74,14 +74,21 @@ export function nextImplementationBaseline(existing, revision) {
 
 /**
  * Parses/validates `apply-provenance`'s input into a normalized list of
- * `{ taskId, baseline, changedPaths }` mappings — pure, no repository I/O,
- * so `handleApplyProvenance` (tools/specs.mjs) can write from it without the
- * parsing/validation logic itself being repository-bound. Owner correction
- * (seventh refinement pass, area requirement 8): several proposed legacy
- * provenance reconstructions may be confirmed in one owner action via
- * `--mappings` (a JSON array), all resolved together under the caller's one
- * `--confirm` — never one prompt per task. A single task id with
+ * `{ taskId, baseline, reviewRevision, changedPaths }` mappings — pure, no
+ * repository I/O, so `handleApplyProvenance` (tools/specs.mjs) can write
+ * from it without the parsing/validation logic itself being repository-bound.
+ * Owner correction (seventh refinement pass, area requirement 8): several
+ * proposed legacy provenance reconstructions may be confirmed in one owner
+ * action via `--mappings` (a JSON array), all resolved together under the
+ * caller's one `--confirm` — never one prompt per task. A single task id with
  * `baseline`/`changedPaths` options keeps the original single-task shape.
+ * `reviewRevision` is optional in both shapes — when omitted, callers fall
+ * back to `baseline` (the original legacy-task reconstruction behavior,
+ * where a task has never actually been reviewed past its own baseline).
+ * When supplied, it lets a correction preserve a task's real, already-reviewed
+ * revision instead of resetting `review_revision` back to `baseline_revision`
+ * — the case where a task's `changed_paths` need correcting (e.g. sibling-task
+ * contamination) but the task genuinely was reviewed at a later revision.
  * Throws a plain `Error` on invalid input — the caller wraps it as needed.
  */
 export function resolveProvenanceMappings(taskIdOrList, options = {}) {
@@ -93,7 +100,7 @@ export function resolveProvenanceMappings(taskIdOrList, options = {}) {
     try {
       parsed = JSON.parse(options.mappings);
     } catch {
-      throw new Error('apply-provenance --mappings must be valid JSON: an array of {task, baseline, changedPaths}.');
+      throw new Error('apply-provenance --mappings must be valid JSON: an array of {task, baseline, reviewRevision, changedPaths}.');
     }
     if (!Array.isArray(parsed) || !parsed.length) {
       throw new Error('apply-provenance --mappings must be a non-empty JSON array.');
@@ -105,6 +112,7 @@ export function resolveProvenanceMappings(taskIdOrList, options = {}) {
       return {
         taskId: entry.task,
         baseline: entry.baseline,
+        reviewRevision: entry.reviewRevision || entry.baseline,
         changedPaths: Array.isArray(entry.changedPaths) ? entry.changedPaths : [],
       };
     });
@@ -117,6 +125,7 @@ export function resolveProvenanceMappings(taskIdOrList, options = {}) {
   return [{
     taskId: taskIds[0],
     baseline: options.baseline,
+    reviewRevision: options.reviewRevision || options.baseline,
     changedPaths: options.changedPaths ? options.changedPaths.split(',').map(s => s.trim()).filter(Boolean) : [],
   }];
 }

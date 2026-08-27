@@ -203,8 +203,9 @@ export function buildProgram() {
     .argument('<change>')
     .argument('<tasks>', 'A single task id, or a comma-separated list when using --mappings')
     .option('--baseline <revision>', 'Single-task shape only')
+    .option('--review-revision <revision>', 'Single-task shape only — the task\'s real, already-reviewed revision to preserve; defaults to --baseline when omitted (legacy reconstruction)')
     .option('--changed-paths <path,path,...>', 'Single-task shape only')
-    .option('--mappings <json>', 'JSON array of {task, baseline, changedPaths} — required for more than one task; all written under this one --confirm')
+    .option('--mappings <json>', 'JSON array of {task, baseline, reviewRevision, changedPaths} — required for more than one task; all written under this one --confirm; reviewRevision defaults to baseline when omitted')
     .option('--confirm', 'Required — this writes only after explicit confirmation, never unattended')
     .action((changeSlug, tasks, opts) => handleApplyProvenance(changeSlug, tasks, opts));
 

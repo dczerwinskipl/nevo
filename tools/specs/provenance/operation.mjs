@@ -54,10 +54,10 @@ export function applyProvenance(changeSlug, taskIdOrList, options = {}) {
   const change = requireChange(changeSlug);
   for (const { taskId } of mappings) requireTask(change, taskId);
 
-  for (const { taskId, baseline, changedPaths } of mappings) {
+  for (const { taskId, baseline, reviewRevision, changedPaths } of mappings) {
     writeImplementationProvenance(change, taskId, {
       baseline_revision: baseline,
-      review_revision: baseline,
+      review_revision: reviewRevision || baseline,
       changed_paths: changedPaths,
       worktree_patch_fingerprint: null,
     });
