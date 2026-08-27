@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27T13:12:48.659Z",
+  "generated": "2026-08-27T13:12:52.648Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -747,7 +747,7 @@
           "id": "e2e-verification-and-guidelines-audit",
           "order": 8,
           "file": "tasks/08-e2e-verification-and-guidelines-audit.md",
-          "status": "implemented",
+          "status": "verified",
           "depends_on": [
             "specs-cli-entrypoint-and-command-boundary",
             "dashboard-server-runtime-and-routes",
