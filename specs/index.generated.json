@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28T02:27:55.307Z",
+  "generated": "2026-08-28T02:34:13.591Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -801,14 +801,24 @@
           ],
           "implementation": {
             "baseline_revision": "50e7b07aa452a8ca451a98ae98a66b96316de7d9",
-            "review_revision": "33738ad422569ca4e54de4293299df25c42fa961",
+            "review_revision": "82964ca447cd37b62477f3326ded55786002f9b9",
             "changed_paths": [
               "tools/dashboard/package-lock.json",
               "tools/dashboard/package.json",
+              "tools/dashboard/server/ai-routes.mjs",
               "tools/dashboard/server/app.mjs",
               "tools/dashboard/server/dev.mjs",
+              "tools/dashboard/server/http-compat.mjs",
+              "tools/dashboard/server/http-utils.mjs",
               "tools/dashboard/server/index.mjs",
               "tools/dashboard/server/routes/ai.mjs",
+              "tools/dashboard/server/routes/ai/events.mjs",
+              "tools/dashboard/server/routes/ai/index.mjs",
+              "tools/dashboard/server/routes/ai/interactions.mjs",
+              "tools/dashboard/server/routes/ai/providers.mjs",
+              "tools/dashboard/server/routes/ai/sessions.mjs",
+              "tools/dashboard/server/routes/ai/shared.mjs",
+              "tools/dashboard/server/routes/ai/turns.mjs",
               "tools/dashboard/server/routes/events.mjs",
               "tools/dashboard/server/routes/health.mjs",
               "tools/dashboard/server/routes/operations.mjs",
@@ -817,6 +827,7 @@
               "tools/dashboard/tests/ai-contract-drift.test.mjs",
               "tools/dashboard/tests/ai-server.test.mjs",
               "tools/dashboard/tests/events.test.mjs",
+              "tools/dashboard/tests/fastify-architecture.test.mjs",
               "tools/dashboard/tests/fastify-migration.test.mjs",
               "tools/dashboard/tests/health.test.mjs",
               "tools/dashboard/tests/operations.test.mjs",
@@ -829,7 +840,7 @@
           },
           "self_check": {
             "fingerprint": "ac444c6e1b81251ddce93c62551be48a0f0e11be05d1eaff68b0a46352345a91",
-            "revision": "33738ad422569ca4e54de4293299df25c42fa961",
+            "revision": "82964ca447cd37b62477f3326ded55786002f9b9",
             "commands": [
               {
                 "command": "npm --prefix tools/dashboard test",
