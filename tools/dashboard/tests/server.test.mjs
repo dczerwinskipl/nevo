@@ -101,6 +101,15 @@ test('handles static asset serving and missing distDir fallback', async () => {
     const spaFallback = await fetch(`${baseUrlWithDist}/specs/active/refaktoring-tooli`);
     assert.equal(spaFallback.status, 200);
     assert.match(spaFallback.headers.get('content-type'), /text\/html/);
+
+    // Regression guard: a rebuild that lands new hashed asset filenames
+    // while the server is still running (no restart) must still be served —
+    // `wildcard: false` would glob distDir once at plugin-registration time
+    // and 404 on anything added after that snapshot.
+    writeFileSync(join(tmpDist, 'app.newhash123.js'), 'console.log("rebuilt");');
+    const rebuiltRes = await fetch(`${baseUrlWithDist}/app.newhash123.js`);
+    assert.equal(rebuiltRes.status, 200);
+    assert.match(await rebuiltRes.text(), /rebuilt/);
   } finally {
     await new Promise(resolvePromise => serverWithDist.close(resolvePromise));
     rmSync(tmpDist, { recursive: true, force: true });

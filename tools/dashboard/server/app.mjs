@@ -89,7 +89,14 @@ function registerStaticAssets(app, distDir) {
   app.register(fastifyStatic, {
     root: distDir,
     index: ['index.html'],
-    wildcard: false,
+    // `wildcard: false` globs `distDir` once at plugin-registration time and
+    // pre-registers one route per file found then — it never serves a file
+    // added later, so a long-running server started before a rebuild 404s on
+    // every newly hashed asset until restarted. `wildcard: true` (the
+    // default) serves files dynamically per request instead. This isn't an
+    // encapsulated/prefixed registration, so the SPA-fallback
+    // `setNotFoundHandler` above still runs correctly for genuinely missing
+    // paths (per @fastify/static's own "Handling 404s" docs).
     // @fastify/static v10 invokes this with the Fastify `reply` (not the
     // raw `http.ServerResponse`) as the first argument — use `reply.header`,
     // not `res.setHeader`.
