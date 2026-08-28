@@ -1,6 +1,12 @@
-import { registerMethodFallback } from '../http-compat.mjs';
+import { createSpecEventHub } from '../watcher.mjs';
 
-export function registerEventsRoutes(fastify, { eventHub } = {}) {
+/**
+ * The events capability: a spec-change file watcher exposed over SSE.
+ * `eventHub` is used only here — no other capability touches it — so it is
+ * constructed and torn down entirely inside this subtree.
+ */
+export default async function eventsRoutes(fastify, { config = {} } = {}) {
+  const eventHub = config.events?.eventHub ?? createSpecEventHub();
   const activeConnections = new Set();
 
   fastify.get('/api/events', (request, reply) => {
@@ -63,14 +69,10 @@ export function registerEventsRoutes(fastify, { eventHub } = {}) {
     keepAlive.unref?.();
   });
 
-  registerMethodFallback(fastify, '/api/events', ['GET']);
-
-  // Owned here, not in the app-level composition root: this capability
-  // holds open SSE connections and the `eventHub` dependency it was given,
-  // so it registers its own teardown. `preClose` (not `onClose`) because an
-  // open SSE stream never finishes on its own, and Fastify's shutdown
-  // lifecycle blocks `server.close()` on in-flight requests finishing
-  // before any `onClose` hook would run.
+  // Draining open SSE connections is a Fastify request-lifecycle concern —
+  // `preClose` (not `onClose`: an open SSE stream never finishes on its
+  // own, and Fastify's shutdown lifecycle blocks `server.close()` on
+  // in-flight requests finishing before any `onClose` hook would run).
   fastify.addHook('preClose', async () => {
     for (const close of Array.from(activeConnections)) {
       try {
@@ -78,6 +80,12 @@ export function registerEventsRoutes(fastify, { eventHub } = {}) {
       } catch {}
     }
     activeConnections.clear();
+  });
+
+  // `eventHub` is local to this capability — close it here, on the same
+  // resource-lifecycle phase the rest of the app uses for non-connection
+  // resources.
+  fastify.addHook('onClose', async () => {
     try {
       eventHub?.close?.();
     } catch (err) {

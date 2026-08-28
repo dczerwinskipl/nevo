@@ -9,7 +9,7 @@ import { dashboardNetworkConfig } from './network-config.mjs';
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { host, port: uiPort, apiPort } = dashboardNetworkConfig();
 
-const apiServer = buildDashboardApp();
+const apiServer = await buildDashboardApp();
 const apiUrl = await listen(apiServer, { host, port: apiPort });
 process.env.NEVO_DASHBOARD_API_URL = apiUrl;
 

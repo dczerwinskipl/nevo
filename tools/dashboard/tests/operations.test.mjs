@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { createOperationRuntime, OperationNotFoundError } from '../server/operations.mjs';
 import { executeSpecificationAction } from '../server/actions.mjs';
 import { buildDashboardApp, listen } from '../server/index.mjs';
-import { registerOperationRoutes } from '../server/routes/operations.mjs';
+import operationRoutes from '../server/routes/operations.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function createMockChildProcess() {
@@ -347,17 +347,21 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
   let activeChild = null;
   const runtime = createOperationRuntime({ idFactory: () => 'srv-op-1' });
   const sample = fixture();
-  const server = buildDashboardApp({
-    operationRuntime: runtime,
-    activeDir: sample.activeDir,
-    actionExecutor: ({ slug, action, taskId, onFinished }) => {
-      activeChild = createMockChildProcess();
-      const opId = runtime.createOperation({ type: `spec-action-${action}` });
-      activeChild.on('close', () => {
-        runtime.completeOperation(opId, { ok: true });
-        if (typeof onFinished === 'function') onFinished();
-      });
-      return { ok: true, operationId: opId, action, taskId };
+  const server = await buildDashboardApp({
+    config: {
+      operations: { operationRuntime: runtime },
+      activeDir: sample.activeDir,
+      specs: {
+        actionExecutor: ({ slug, action, taskId, onFinished }) => {
+          activeChild = createMockChildProcess();
+          const opId = runtime.createOperation({ type: `spec-action-${action}` });
+          activeChild.on('close', () => {
+            runtime.completeOperation(opId, { ok: true });
+            if (typeof onFinished === 'function') onFinished();
+          });
+          return { ok: true, operationId: opId, action, taskId };
+        },
+      },
     },
   });
   const baseUrl = await listen(server, { port: 0 });
@@ -512,7 +516,7 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
 });
 
 // Minimal Fastify request/reply/instance doubles — exercises
-// `registerOperationRoutes`'s SSE handler directly (bypassing real network
+// `operationRoutes`'s SSE handler directly (bypassing real network
 // I/O) with the same deterministic subscribe/unsubscribe-count assertions
 // the old direct-dispatch-function unit tests used, adapted to the new
 // per-capability Fastify plugin shape.
@@ -577,7 +581,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    registerOperationRoutes(fastify, { operationRuntime: mockRuntime });
+    operationRoutes(fastify, { operationRuntime: mockRuntime });
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-1' });
@@ -615,7 +619,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    registerOperationRoutes(fastify, { operationRuntime: runtimeWithCallback });
+    operationRoutes(fastify, { operationRuntime: runtimeWithCallback });
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-2' });
@@ -651,7 +655,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    registerOperationRoutes(fastify, { operationRuntime: completedRuntime });
+    operationRoutes(fastify, { operationRuntime: completedRuntime });
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-3', query: { after: '5' } });

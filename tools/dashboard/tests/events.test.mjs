@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 
-test('serves GET /api/events with SSE headers, connected event, eventHub subscription, and rejects POST with 405', async () => {
+test('serves GET /api/events with SSE headers, connected event, eventHub subscription, and rejects POST with the generic API 404', async () => {
   let subscriber = null;
   let unsubscribed = false;
   const fakeHub = {
@@ -13,16 +13,18 @@ test('serves GET /api/events with SSE headers, connected event, eventHub subscri
     close: () => {},
   };
 
-  const server = buildDashboardApp({
-    eventHub: fakeHub,
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: {
+      events: { eventHub: fakeHub },
+      distDir: 'Z:/does-not-exist',
+    },
   });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
     const postRes = await fetch(`${baseUrl}/api/events`, { method: 'POST' });
-    assert.equal(postRes.status, 405);
-    assert.deepEqual(await postRes.json(), { error: 'Method not allowed' });
+    assert.equal(postRes.status, 404);
+    assert.deepEqual(await postRes.json(), { error: 'API route not found' });
 
     const controller = new AbortController();
     const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
@@ -62,9 +64,11 @@ test('server shutdown closes open SSE connections and cleans subscriptions exact
     close: () => {},
   };
 
-  const server = buildDashboardApp({
-    eventHub: fakeHub,
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: {
+      events: { eventHub: fakeHub },
+      distDir: 'Z:/does-not-exist',
+    },
   });
   const baseUrl = await listen(server, { port: 0 });
 

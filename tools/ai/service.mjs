@@ -94,6 +94,33 @@ export class AiSessionService {
     };
   }
 
+  /**
+   * Attaches (binds) an already-existing provider session ID to one or more
+   * specs/tasks — the "manual pre-allocated session" creation path, as
+   * opposed to `createSession`, which allocates a brand-new provider
+   * session. Composes the multi-task bind loop atomically so routes never
+   * touch `bindingService` themselves.
+   */
+  async attachSession(provider, { providerSessionId, specId, taskId, taskIds, purpose, mode } = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const resolvedTaskIds = Array.isArray(taskIds) ? taskIds.filter(Boolean) : (taskId ? [taskId] : []);
+
+    let binding;
+    if (this.bindingService) {
+      if (resolvedTaskIds.length > 0) {
+        for (const tId of resolvedTaskIds) {
+          binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId: tId, purpose, mode });
+        }
+      } else {
+        binding = await this.bindingService.bindSession({ provider, providerSessionId, specId, taskId, purpose, mode });
+      }
+    } else {
+      binding = { provider, providerSessionId, specId, taskId, mode };
+    }
+
+    return { ...binding, taskIds: resolvedTaskIds, taskId: taskId || (resolvedTaskIds[0] || undefined) };
+  }
+
   async listSessions(filters = {}) {
     if (!this.bindingService) return [];
     const query = {};
@@ -216,6 +243,70 @@ export class AiSessionService {
       return this.bindingService.updateSessionMode(provider, providerSessionId, validatedMode);
     }
     return { provider, providerSessionId, mode: validatedMode };
+  }
+
+  /**
+   * The full composed session view the dashboard's session-details route
+   * needs — descriptor capabilities, binding, transcript, and live activity
+   * — as one capability-level operation, so HTTP handlers never reach into
+   * `registry`/`bindingService`/`transcriptCache`/`resolveSessionActivity`
+   * themselves.
+   */
+  async getSessionDetails(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+
+    // Reading durable history must not depend on the adapter currently being
+    // enabled. Starting a new turn still goes through registry.get().
+    const descriptor = this.registry?.has(provider)
+      ? this.registry.get(provider).descriptor
+      : undefined;
+    const capabilities = descriptor?.capabilities || {};
+
+    const binding = await this.getSession(provider, providerSessionId);
+    const taskIds = binding?.taskIds || (binding?.taskId ? [binding.taskId] : []);
+    const specId = binding?.specId;
+
+    const transcript = await this.getTranscript(provider, providerSessionId);
+    const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
+    const resolvedMode = binding?.mode ?? descriptor?.defaultMode ?? 'edit';
+
+    return {
+      provider,
+      providerSessionId,
+      sessionId: providerSessionId,
+      status,
+      capabilities,
+      mode: resolvedMode,
+      specId: specId ?? binding?.specId,
+      taskId: binding?.taskId,
+      taskIds,
+      purpose: binding?.purpose,
+      title: binding?.title || binding?.purpose || `${provider} session`,
+      createdAt: binding?.createdAt || transcript?.createdAt || transcript?.updatedAt || new Date().toISOString(),
+      lastSeenAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
+      lastActivityAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
+      activeTurn,
+      pendingInteraction,
+      messages: transcript?.messages || [],
+      lastEventSeq: transcript?.lastEventSeq || 0,
+      updatedAt: transcript?.updatedAt || new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Deletes a session atomically: unbinds it (across every spec it was ever
+   * bound to) and removes its transcript. A route must never perform these
+   * two steps itself.
+   */
+  async deleteSession(provider, providerSessionId) {
+    validateAgentIdentity({ provider, providerSessionId });
+    if (this.bindingService) {
+      await this.bindingService.unbindSession(provider, providerSessionId);
+    }
+    if (this.transcriptCache) {
+      await this.transcriptCache.deleteTranscript(provider, providerSessionId);
+    }
+    return { unbind: true, deleted: true };
   }
 
   async listMessages(provider, providerSessionId) {

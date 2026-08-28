@@ -1,19 +1,11 @@
-import { registerMethodFallback } from '../../http-compat.mjs';
 import { authorize } from './shared.mjs';
 
-export function registerProviderRoutes(fastify, { getAiService, aiAccessPolicy }) {
-  const handler = async (request, reply) => {
-    authorize(aiAccessPolicy, 'read', request);
+export default async function providerRoutes(fastify, { service, accessPolicy }) {
+  fastify.get('/api/agent-providers', async (request, reply) => {
+    authorize(accessPolicy, 'read', request);
     reply.send({
-      providers: getAiService().listProviders(),
+      providers: service.listProviders(),
       access: { mode: 'trusted-network', identityAuthenticated: false },
     });
-  };
-
-  fastify.get('/api/agent-providers', handler);
-  registerMethodFallback(fastify, '/api/agent-providers', ['GET']);
-
-  // Legacy alias.
-  fastify.get('/api/ai/providers', handler);
-  registerMethodFallback(fastify, '/api/ai/providers', ['GET']);
+  });
 }

@@ -1,32 +1,36 @@
-import {
-  loadSpecificationPullRequestFileDiffs,
-  loadSpecificationPullRequestFiles,
-  loadSpecificationPullRequestFullDiff,
-  loadSpecificationPullRequests,
-} from '../providers/service.mjs';
-import { registerMethodFallback } from '../http-compat.mjs';
+import { createPullRequestService } from './service.mjs';
+import { createGitHubPullRequestProvider } from './github.mjs';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
 
-// `request.params` values are already decoded once by Fastify/find-my-way
-// (`safeDecodeURIComponent`) — decoding again would double-decode a slug
-// containing a literal `%`. Only validate the shape.
+// `request.params` values are already decoded once by Fastify/find-my-way —
+// decoding again would double-decode a slug containing a literal `%`.
 function decodedSlug(raw) {
   return SLUG_PATTERN.test(raw) ? raw : null;
 }
 
 // A `:source` outside {active, archive} never matched the old hand-rolled
-// regexes, so it fell through every capability adapter to the generic
-// `/api/*` 404 — replicate that exact fallthrough, not a resource-specific
-// one, by never registering these routes for other source values at all.
+// regexes, so it fell through to the generic `/api/*` 404.
 function rejectUnknownSource(reply, source) {
   if (SOURCES.has(source)) return false;
   reply.code(404).send({ error: 'API route not found' });
   return true;
 }
 
-export function registerPullRequestRoutes(fastify) {
+/**
+ * The pull-requests capability: constructs its own GitHub-backed service
+ * locally. GitHub is the only source today — no registry, just direct
+ * composition (`config.pullRequests?.provider` exists purely as a test
+ * seam, the same shape the rest of the dependencies use).
+ */
+export default async function pullRequestRoutes(fastify, { config = {} } = {}) {
+  const service = createPullRequestService({
+    provider: config.pullRequests?.provider ?? createGitHubPullRequestProvider(),
+    activeDir: config.activeDir,
+    root: config.root,
+  });
+
   fastify.get('/api/specs/:source/:slug/pull-requests', async (request, reply) => {
     if (rejectUnknownSource(reply, request.params.source)) return;
     const slug = decodedSlug(request.params.slug);
@@ -35,7 +39,7 @@ export function registerPullRequestRoutes(fastify) {
       return;
     }
     try {
-      const changes = await loadSpecificationPullRequests({ source: request.params.source, slug });
+      const changes = await service.loadPullRequests({ source: request.params.source, slug });
       if (!changes) {
         reply.code(404).send({ error: 'Specification changes not found' });
         return;
@@ -45,7 +49,6 @@ export function registerPullRequestRoutes(fastify) {
       reply.code(500).send({ error: 'Unable to load specification changes' });
     }
   });
-  registerMethodFallback(fastify, '/api/specs/:source/:slug/pull-requests', ['GET']);
 
   fastify.get('/api/specs/:source/:slug/pull-requests/:number/files', async (request, reply) => {
     if (rejectUnknownSource(reply, request.params.source)) return;
@@ -56,7 +59,7 @@ export function registerPullRequestRoutes(fastify) {
     }
     const number = Number(request.params.number);
     try {
-      const files = await loadSpecificationPullRequestFiles({ source: request.params.source, slug, number });
+      const files = await service.loadFiles({ source: request.params.source, slug, number });
       if (!files) {
         reply.code(404).send({ error: 'Pull request files not found' });
         return;
@@ -67,7 +70,6 @@ export function registerPullRequestRoutes(fastify) {
       reply.code(status).send({ error: error?.message || 'Unable to load pull request files' });
     }
   });
-  registerMethodFallback(fastify, '/api/specs/:source/:slug/pull-requests/:number/files', ['GET']);
 
   fastify.get('/api/specs/:source/:slug/pull-requests/:number/diff', async (request, reply) => {
     if (rejectUnknownSource(reply, request.params.source)) return;
@@ -78,7 +80,7 @@ export function registerPullRequestRoutes(fastify) {
     }
     const number = Number(request.params.number);
     try {
-      const diff = await loadSpecificationPullRequestFullDiff({ source: request.params.source, slug, number });
+      const diff = await service.loadFullDiff({ source: request.params.source, slug, number });
       if (!diff) {
         reply.code(404).send({ error: 'Pull request diff not found' });
         return;
@@ -89,7 +91,6 @@ export function registerPullRequestRoutes(fastify) {
       reply.code(status).send({ error: error?.message || 'Unable to load pull request diff' });
     }
   });
-  registerMethodFallback(fastify, '/api/specs/:source/:slug/pull-requests/:number/diff', ['GET']);
 
   fastify.post('/api/specs/:source/:slug/pull-requests/:number/file-diffs', async (request, reply) => {
     if (rejectUnknownSource(reply, request.params.source)) return;
@@ -107,7 +108,7 @@ export function registerPullRequestRoutes(fastify) {
     try {
       const paths = body.paths.filter(path => typeof path === 'string');
       const headSha = typeof body.headSha === 'string' ? body.headSha : null;
-      const diffs = await loadSpecificationPullRequestFileDiffs({ source: request.params.source, slug, number, paths, headSha });
+      const diffs = await service.loadFileDiffs({ source: request.params.source, slug, number, paths, headSha });
       if (!diffs) {
         reply.code(404).send({ error: 'Pull request not found' });
         return;
@@ -118,5 +119,4 @@ export function registerPullRequestRoutes(fastify) {
       reply.code(status).send({ error: error?.message || 'Unable to load pull request file diffs.' });
     }
   });
-  registerMethodFallback(fastify, '/api/specs/:source/:slug/pull-requests/:number/file-diffs', ['POST']);
 }

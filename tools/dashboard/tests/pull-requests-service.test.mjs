@@ -10,15 +10,8 @@ import {
   getPullRequestFilesWithPatches,
   getPullRequestMetadata,
 } from '../../lib/github.mjs';
-import { classifyUpstreamError, createGitHubProvider, mapGitHubFileManifest, mapGitHubPullRequest } from '../server/providers/github.mjs';
-import {
-  createProviderRegistry,
-  loadSpecificationPullRequestFileDiffs,
-  loadSpecificationPullRequestFiles,
-  loadSpecificationPullRequestFullDiff,
-  loadSpecificationPullRequests,
-  resolvePullRequestReferences,
-} from '../server/providers/service.mjs';
+import { classifyUpstreamError, createGitHubPullRequestProvider, mapGitHubFileManifest, mapGitHubPullRequest } from '../server/pull-requests/github.mjs';
+import { createPullRequestService } from '../server/pull-requests/service.mjs';
 
 const githubReference = {
   provider: 'github',
@@ -144,29 +137,55 @@ test('getFullDiff swallows only an oversized-diff rejection', () => {
   assert.throws(() => getFullDiff('fixture-root', githubReference, unrelated), /authentication failed/);
 });
 
-test('provider registry isolates success, unsupported providers, and sanitized errors', async () => {
-  const provider = createGitHubProvider({
-    fetchMetadata: async (_root, reference) => {
-      if (reference.number === 99) throw new Error('token ghp_secret D:\\private');
-      return githubMetadata();
-    },
-  });
-  const registry = createProviderRegistry([provider]);
-  const results = await resolvePullRequestReferences([
-    githubReference,
-    { ...githubReference, provider: 'gitlab', number: 7 },
-    { ...githubReference, number: 99 },
-  ], { root: 'fixture-root', registry });
+test('pull-requests service isolates success, unsupported providers, and sanitized errors', async () => {
+  const root = join(tmpdir(), `nevo-dashboard-pr-service-${process.pid}-${Date.now()}`);
+  const activeDir = join(root, 'active');
+  const archiveDir = join(root, 'archive');
+  mkdirSync(join(activeDir, 'mixed-pr'), { recursive: true });
+  writeFileSync(join(activeDir, 'mixed-pr', 'change.yaml'), [
+    'id: mixed-pr',
+    'title: Mixed PR',
+    'pull_requests:',
+    '  - provider: github',
+    '    base_url: https://github.example.com',
+    '    repository: owner/repo',
+    '    number: 42',
+    '  - provider: gitlab',
+    '    base_url: https://github.example.com',
+    '    repository: owner/repo',
+    '    number: 7',
+    '  - provider: github',
+    '    base_url: https://github.example.com',
+    '    repository: owner/repo',
+    '    number: 99',
+    'tasks: []',
+    '',
+  ].join('\n'));
 
-  assert.deepEqual(results.map(result => result.availability), ['available', 'unsupported', 'error']);
-  assert.match(results[1].message, /not supported/);
-  assert.equal(results[2].message, 'Unable to load pull request details.');
-  assert.doesNotMatch(JSON.stringify(results), /ghp_secret|D:\\\\private/);
+  try {
+    const provider = createGitHubPullRequestProvider({
+      fetchMetadata: async (_root, reference) => {
+        if (reference.number === 99) throw new Error('token ghp_secret D:\\private');
+        return githubMetadata();
+      },
+    });
+    const service = createPullRequestService({ provider, activeDir, archiveDir, root });
+
+    const changes = await service.loadPullRequests({ source: 'active', slug: 'mixed-pr' });
+    const results = changes.pullRequests;
+
+    assert.deepEqual(results.map(result => result.availability), ['available', 'unsupported', 'error']);
+    assert.match(results[1].message, /not supported/);
+    assert.equal(results[2].message, 'Unable to load pull request details.');
+    assert.doesNotMatch(JSON.stringify(results), /ghp_secret|D:\\\\private/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('provider adapter caches one upstream REST call per (reference, headSha) â€” all batches for the same PR version share it (AC8)', async () => {
   let filesWithPatchesCalls = 0;
-  const provider = createGitHubProvider({
+  const provider = createGitHubPullRequestProvider({
     fetchFilesWithPatches: async () => {
       filesWithPatchesCalls += 1;
       return githubFilesWithPatches();
@@ -198,7 +217,7 @@ test('provider adapter caches one upstream REST call per (reference, headSha) â€
 
 test('loadFullDiff is never invoked by loadFiles/load', async () => {
   let fullDiffCalls = 0;
-  const provider = createGitHubProvider({
+  const provider = createGitHubPullRequestProvider({
     fetchMetadata: async () => githubMetadata(),
     fetchFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changeType: 'ADDED' }],
     fetchFullDiff: async () => { fullDiffCalls += 1; return 'diff --git a/a.js b/a.js\n'; },
@@ -211,7 +230,7 @@ test('loadFullDiff is never invoked by loadFiles/load', async () => {
   assert.equal(result.diffAvailable, true);
 });
 
-test('loads exact active and archived changes and skips providers for empty references', async () => {
+test('loads exact active and archived changes and skips the provider for empty references', async () => {
   const root = join(tmpdir(), `nevo-dashboard-providers-${process.pid}-${Date.now()}`);
   const activeDir = join(root, 'active');
   const archiveDir = join(root, 'archive');
@@ -220,26 +239,25 @@ test('loads exact active and archived changes and skips providers for empty refe
   writeFileSync(join(activeDir, 'with-pr', 'change.yaml'), `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`);
   writeFileSync(join(archiveDir, 'without-pr', 'change.yaml'), 'id: without-pr\ntitle: Without PR\ntasks: []\n');
   let calls = 0;
-  const registry = createProviderRegistry([{
-    id: 'github',
-    load: async (_repoRoot, reference) => {
-      calls += 1;
-      return { availability: 'available', reference: { number: reference.number } };
-    },
-  }]);
+  const service = createPullRequestService({
+    provider: { id: 'github', load: async (_repoRoot, reference) => { calls += 1; return { availability: 'available', reference: { number: reference.number } }; } },
+    activeDir,
+    archiveDir,
+    root,
+  });
 
   try {
-    const active = await loadSpecificationPullRequests({ source: 'active', slug: 'with-pr', activeDir, archiveDir, root, registry });
+    const active = await service.loadPullRequests({ source: 'active', slug: 'with-pr' });
     assert.equal(active.pullRequests.length, 1);
     assert.equal(calls, 1);
 
-    const archive = await loadSpecificationPullRequests({ source: 'archive', slug: 'without-pr', activeDir, archiveDir, root, registry });
+    const archive = await service.loadPullRequests({ source: 'archive', slug: 'without-pr' });
     assert.deepEqual(archive.pullRequests, []);
     assert.equal(calls, 1);
 
-    assert.equal(await loadSpecificationPullRequests({ source: 'other', slug: 'with-pr', activeDir, archiveDir, root, registry }), null);
-    assert.equal(await loadSpecificationPullRequests({ source: 'active', slug: '../with-pr', activeDir, archiveDir, root, registry }), null);
-    assert.equal(await loadSpecificationPullRequests({ source: 'active', slug: 'missing', activeDir, archiveDir, root, registry }), null);
+    assert.equal(await service.loadPullRequests({ source: 'other', slug: 'with-pr' }), null);
+    assert.equal(await service.loadPullRequests({ source: 'active', slug: '../with-pr' }), null);
+    assert.equal(await service.loadPullRequests({ source: 'active', slug: 'missing' }), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -252,30 +270,35 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
   mkdirSync(join(activeDir, 'with-pr'), { recursive: true });
   writeFileSync(join(activeDir, 'with-pr', 'change.yaml'), `id: with-pr\ntitle: With PR\npull_requests:\n  - provider: github\n    base_url: https://github.com\n    repository: owner/repo\n    number: 42\ntasks: []\n`);
 
-  const registry = createProviderRegistry([{
-    id: 'github',
-    load: async () => ({ availability: 'available' }),
-    loadFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }],
-    loadFileDiffs: async (_root, _reference, paths, headSha) => paths.map(path => ({ path, headSha, patch: 'x' })),
-    loadFullDiff: async () => ({ diff: 'diff', diffAvailable: true }),
-  }]);
+  const service = createPullRequestService({
+    provider: {
+      id: 'github',
+      load: async () => ({ availability: 'available' }),
+      loadFiles: async () => [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }],
+      loadFileDiffs: async (_root, _reference, paths, headSha) => paths.map(path => ({ path, headSha, patch: 'x' })),
+      loadFullDiff: async () => ({ diff: 'diff', diffAvailable: true }),
+    },
+    activeDir,
+    archiveDir,
+    root,
+  });
 
   try {
-    const files = await loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
+    const files = await service.loadFiles({ source: 'active', slug: 'with-pr', number: 42 });
     assert.deepEqual(files.files, [{ path: 'a.js', additions: 1, deletions: 0, changes: 1 }]);
     assert.ok(files.changeView.groups.length > 0);
     assert.ok(files.generatedFiles.rules.length > 0);
 
-    const diffs = await loadSpecificationPullRequestFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1', activeDir, archiveDir, root, registry });
+    const diffs = await service.loadFileDiffs({ source: 'active', slug: 'with-pr', number: '42', paths: ['a.js'], headSha: 'sha-1' });
     assert.equal(diffs.number, 42);
     assert.equal(diffs.headSha, 'sha-1');
     assert.deepEqual(diffs.diffs, [{ path: 'a.js', headSha: 'sha-1', patch: 'x' }]);
 
-    const fullDiff = await loadSpecificationPullRequestFullDiff({ source: 'active', slug: 'with-pr', number: 42, activeDir, archiveDir, root, registry });
+    const fullDiff = await service.loadFullDiff({ source: 'active', slug: 'with-pr', number: 42 });
     assert.deepEqual(fullDiff, { number: 42, diff: 'diff', diffAvailable: true });
 
-    assert.equal(await loadSpecificationPullRequestFiles({ source: 'active', slug: 'with-pr', number: 999, activeDir, archiveDir, root, registry }), null);
-    assert.equal(await loadSpecificationPullRequestFiles({ source: 'active', slug: 'missing', number: 42, activeDir, archiveDir, root, registry }), null);
+    assert.equal(await service.loadFiles({ source: 'active', slug: 'with-pr', number: 999 }), null);
+    assert.equal(await service.loadFiles({ source: 'active', slug: 'missing', number: 42 }), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -283,7 +306,7 @@ test('loads a PR sub-resource (files/file-diffs/full-diff) by number, resolved f
 
 test('two concurrent cold diff requests share the same in-flight Promise and execute exactly one fetch', async () => {
   let fetchCount = 0;
-  const provider = createGitHubProvider({
+  const provider = createGitHubPullRequestProvider({
     fetchFilesWithPatches: async () => {
       fetchCount++;
       await new Promise(r => setTimeout(r, 20));
@@ -308,7 +331,7 @@ test('two concurrent cold diff requests share the same in-flight Promise and exe
 test('failure in cold fetch releases in-flight state so future requests can retry', async () => {
   let shouldFail = true;
   let fetchCount = 0;
-  const provider = createGitHubProvider({
+  const provider = createGitHubPullRequestProvider({
     fetchFilesWithPatches: async () => {
       fetchCount++;
       if (shouldFail) throw new Error('network timeout');
@@ -330,7 +353,7 @@ test('failure in cold fetch releases in-flight state so future requests can retr
 
 test('PR metadata is cached across subsequent calls within TTL (cache hit)', async () => {
   let metadataCalls = 0;
-  const provider = createGitHubProvider({
+  const provider = createGitHubPullRequestProvider({
     fetchMetadata: async () => {
       metadataCalls++;
       return githubMetadata();
@@ -357,5 +380,3 @@ test('classifyUpstreamError maps timeouts to 504 and connection drops to 503', (
   const genericErr = classifyUpstreamError(new Error('API error 500'));
   assert.equal(genericErr.status, 502);
 });
-
-

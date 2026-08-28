@@ -2,21 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
   AgentExecutionMode,
-  AiMessage,
   AiSession,
   AiSessionsPayload,
   AiProvidersPayload,
-  AiTurnSnapshot,
 } from '@/lib/types';
 
 const AI_PROVIDERS_QUERY_KEY = ['nevo-ai-providers'] as const;
 const AI_SESSIONS_QUERY_KEY = ['nevo-ai-sessions'] as const;
 const AI_SESSION_QUERY_KEY = ['nevo-ai-session'] as const;
-const AI_MESSAGES_QUERY_KEY = ['nevo-ai-messages'] as const;
-const AI_TURN_QUERY_KEY = ['nevo-ai-turn'] as const;
 
 async function fetchAiProviders() {
-  const response = await fetch('/api/ai/providers', { cache: 'no-store' });
+  const response = await fetch('/api/agent-providers', { cache: 'no-store' });
   if (!response.ok) throw new Error(`AI providers API: ${response.status}`);
   return await response.json() as AiProvidersPayload;
 }
@@ -42,7 +38,7 @@ async function fetchAiSessions({ specId, taskId }: { specId?: string; taskId?: s
   if (specId) query.set('specId', specId);
   if (taskId) query.set('taskId', taskId);
   const suffix = query.size ? `?${query.toString()}` : '';
-  const response = await fetch(`/api/ai/sessions${suffix}`, { cache: 'no-store' });
+  const response = await fetch(`/api/agent-sessions${suffix}`, { cache: 'no-store' });
   if (!response.ok) throw new Error(`AI sessions API: ${response.status}`);
   return await response.json() as AiSessionsPayload;
 }
@@ -82,39 +78,6 @@ async function aiPayload<T>(response: Response, fallback: string) {
     throw new Error(message || `${fallback}: ${response.status}`);
   }
   return payload as T;
-}
-
-async function fetchAiSession(provider: string, sessionId: string) {
-  const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
-  return (await aiPayload<{ session: AiSession }>(response, 'AI session API')).session;
-}
-
-export function useAiSession(provider: string, sessionId: string, enabled = true) {
-  const query = useQuery({
-    queryKey: [...AI_SESSION_QUERY_KEY, provider, sessionId],
-    queryFn: () => fetchAiSession(provider, sessionId),
-    enabled,
-    staleTime: 5_000,
-    refetchInterval: enabled ? 10_000 : false,
-    retry: 1,
-  });
-  return { data: query.data ?? null, loading: query.isPending && enabled, error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
-}
-
-async function fetchAiMessages(provider: string, sessionId: string) {
-  const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/messages`, { cache: 'no-store' });
-  return (await aiPayload<{ messages: AiMessage[] }>(response, 'AI messages API')).messages;
-}
-
-export function useAiMessages(provider: string, sessionId: string, enabled = true) {
-  const query = useQuery({
-    queryKey: [...AI_MESSAGES_QUERY_KEY, provider, sessionId],
-    queryFn: () => fetchAiMessages(provider, sessionId),
-    enabled,
-    staleTime: 5_000,
-    retry: 1,
-  });
-  return { messages: query.data ?? [], loading: query.isPending && enabled, error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
 }
 
 export function useCreateAiSession() {
@@ -157,63 +120,4 @@ export function useDeleteAiSession() {
     },
   });
   return { deleteSession: mutation.mutateAsync, deleting: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
-}
-
-export function useStartAiTurn(provider: string, sessionId: string) {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: async (input: { message: string; mode?: AgentExecutionMode; idempotencyKey?: string }) => {
-      const response = await fetch(`/api/ai/sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/turns`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
-        body: JSON.stringify(input),
-      });
-      return await aiPayload<{ turnId: string; idempotent: boolean }>(response, 'Start AI turn API');
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: AI_SESSION_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: AI_SESSIONS_QUERY_KEY });
-    },
-  });
-  return { start: mutation.mutateAsync, starting: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null, reset: mutation.reset };
-}
-
-export function useAiTurn(turnId: string | null) {
-  const query = useQuery({
-    queryKey: [...AI_TURN_QUERY_KEY, turnId],
-    queryFn: async () => {
-      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}`, { cache: 'no-store' });
-      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'AI turn API')).turn;
-    },
-    enabled: Boolean(turnId),
-    staleTime: 0,
-    retry: 1,
-  });
-  return { data: query.data ?? null, loading: query.isPending && Boolean(turnId), error: query.error instanceof Error ? query.error.message : null, refresh: query.refetch };
-}
-
-export function useResolveAiInteraction(turnId: string | null) {
-  const mutation = useMutation({
-    mutationFn: async ({ interactionId, response: interactionResponse }: { interactionId: string; response: unknown }) => {
-      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}/interactions/${encodeURIComponent(interactionId)}/response`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' },
-        body: JSON.stringify(interactionResponse),
-      });
-      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'AI interaction API')).turn;
-    },
-  });
-  return { resolve: mutation.mutateAsync, resolving: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
-}
-
-export function useCancelAiTurn(turnId: string | null) {
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/ai/turns/${encodeURIComponent(turnId || '')}/cancel`, {
-        method: 'POST', headers: { 'content-type': 'application/json', 'x-nevo-dashboard-action': '1' }, body: '{}',
-      });
-      return (await aiPayload<{ turn: AiTurnSnapshot }>(response, 'Cancel AI turn API')).turn;
-    },
-  });
-  return { cancel: mutation.mutateAsync, cancelling: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 }

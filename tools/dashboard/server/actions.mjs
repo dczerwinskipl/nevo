@@ -251,3 +251,74 @@ export function executeSpecificationAction({
     completion,
   };
 }
+
+/**
+ * The specification-actions capability: owns the single-flight-per-slug
+ * concurrency lock and each in-flight action's `AbortController`, so HTTP
+ * routes only ever call `loadActions`/`startAction` — never touch a Map of
+ * controllers themselves. `shutdown()` aborts and awaits every in-flight
+ * action atomically, for whoever owns this capability's lifecycle.
+ */
+export function createSpecActionsCapability({
+  operationRuntime,
+  actionExecutor = executeSpecificationAction,
+  activeDir = ACTIVE_DIR,
+  root = REPOSITORY_ROOT,
+} = {}) {
+  const activeActions = new Map(); // slug -> { controller, completion }
+
+  function loadActions(slug) {
+    return loadSpecificationActions({ slug, activeDir, root });
+  }
+
+  function startAction({ slug, action, taskId, confirmed }) {
+    if (activeActions.has(slug)) {
+      throw new SpecificationActionError('Another specification action is already running.', 409);
+    }
+    const controller = new AbortController();
+    let hasStarted = false;
+    let cleanupDone = false;
+    const cleanup = () => {
+      if (cleanupDone) return;
+      cleanupDone = true;
+      activeActions.delete(slug);
+    };
+
+    try {
+      const result = actionExecutor({
+        slug,
+        action,
+        taskId,
+        confirmed,
+        activeDir,
+        root,
+        operationRuntime,
+        signal: controller.signal,
+        onFinished: cleanup,
+      });
+      const completion = (result?.completion && typeof result.completion.then === 'function')
+        ? result.completion.finally(cleanup)
+        : Promise.resolve().finally(cleanup);
+      activeActions.set(slug, { controller, completion });
+      hasStarted = true;
+      return result;
+    } finally {
+      if (!hasStarted) cleanup();
+    }
+  }
+
+  async function shutdown() {
+    const entries = Array.from(activeActions.values());
+    for (const { controller } of entries) {
+      try {
+        controller.abort(new Error('Dashboard server shutting down'));
+      } catch {}
+    }
+    if (entries.length > 0) {
+      await Promise.allSettled(entries.map(e => e.completion));
+    }
+    activeActions.clear();
+  }
+
+  return { loadActions, startAction, shutdown };
+}

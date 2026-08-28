@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
@@ -12,13 +12,13 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
     assert.ok(data.counts.active >= 1);
     assert.ok(Array.isArray(data.active));
     const mutation = await fetch(`${baseUrl}/api/dashboard`, { method: 'POST' });
-   assert.equal(mutation.status, 405);
+   assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
@@ -30,13 +30,13 @@ test('serves exact specification manifest routes without leaking lookup failures
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
@@ -48,13 +48,13 @@ test('serves exact per-document content routes without leaking lookup failures',
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
@@ -66,13 +66,13 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
     assert.equal(missing.status, 404);
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = buildDashboardApp({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);
@@ -105,7 +105,7 @@ test('serves active-only lifecycle gates and executes explicit validated actions
     });
     assert.equal(unknownAction.status, 400);
     const archived = await fetch(`${baseUrl}/api/specs/archive/refaktoring-tooli/actions`, { method: 'POST' });
-    assert.equal(archived.status, 405);
+    assert.equal(archived.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
@@ -131,26 +131,30 @@ test('specs route adapter manages AbortController and completion settlement duri
     },
   };
 
-  const server = buildDashboardApp({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-    operationRuntime: fakeOperationRuntime,
-    actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
-      capturedSignal = signal;
-      const wrappedCompletion = (async () => {
-        await actionDone;
-        actionSettled = true;
-        eventsOrder.push({ type: 'action-settled' });
-      })();
+  const server = await buildDashboardApp({
+    config: {
+      events: { eventHub: fakeHub() },
+      distDir: 'Z:/does-not-exist',
+      operations: { operationRuntime: fakeOperationRuntime },
+      specs: {
+        actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
+          capturedSignal = signal;
+          const wrappedCompletion = (async () => {
+            await actionDone;
+            actionSettled = true;
+            eventsOrder.push({ type: 'action-settled' });
+          })();
 
-      return {
-        ok: true,
-        operationId: 'op-abort-test',
-        action,
-        taskId,
-        message: 'Started',
-        completion: wrappedCompletion,
-      };
+          return {
+            ok: true,
+            operationId: 'op-abort-test',
+            action,
+            taskId,
+            message: 'Started',
+            completion: wrappedCompletion,
+          };
+        },
+      },
     },
   });
 

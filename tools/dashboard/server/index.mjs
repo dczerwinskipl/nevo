@@ -21,7 +21,7 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
   const { host, port } = dashboardNetworkConfig();
-  const app = buildDashboardApp();
+  const app = await buildDashboardApp();
   const url = await listen(app, { port, host });
   console.log(`NEvo dashboard: ${url}`);
   console.log(`NEvo dashboard API: ${url}/api/dashboard`);

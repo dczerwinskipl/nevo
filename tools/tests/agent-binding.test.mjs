@@ -530,11 +530,12 @@ test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi
     // 2. Dispatch DELETE request through the real Fastify app (app.inject(),
     // no network port) — the dashboard's AI capability is a real Fastify
     // route, not a hand-dispatched function to call directly.
-    const app = buildDashboardApp({
-      aiService,
-      aiAccessPolicy: () => true,
-      eventHub: { subscribe: () => () => {}, close: () => {} },
-      distDir: 'Z:/does-not-exist',
+    const app = await buildDashboardApp({
+      config: {
+        ai: { service: aiService, accessPolicy: () => true },
+        events: { eventHub: { subscribe: () => () => {}, close: () => {} } },
+        distDir: 'Z:/does-not-exist',
+      },
     });
     try {
       const res = await app.inject({

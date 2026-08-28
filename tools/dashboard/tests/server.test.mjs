@@ -14,9 +14,8 @@ function fakeHub() {
 }
 
 test('composed server routes all major capability route groups', async () => {
-  const server = buildDashboardApp({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -41,9 +40,8 @@ test('composed server routes all major capability route groups', async () => {
 });
 
 test('handles unknown /api/* fallback with 404 JSON', async () => {
-  const server = buildDashboardApp({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -65,9 +63,8 @@ test('handles unknown /api/* fallback with 404 JSON', async () => {
 });
 
 test('handles static asset serving and missing distDir fallback', async () => {
-  const serverMissing = buildDashboardApp({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const serverMissing = await buildDashboardApp({
+    config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' },
   });
   const baseUrlMissing = await listen(serverMissing, { port: 0 });
 
@@ -85,9 +82,8 @@ test('handles static asset serving and missing distDir fallback', async () => {
   writeFileSync(join(tmpDist, 'index.html'), '<!doctype html><html><body>Test</body></html>');
   writeFileSync(join(tmpDist, 'app.js'), 'console.log("app");');
 
-  const serverWithDist = buildDashboardApp({
-    eventHub: fakeHub(),
-    distDir: tmpDist,
+  const serverWithDist = await buildDashboardApp({
+    config: { events: { eventHub: fakeHub() }, distDir: tmpDist },
   });
   const baseUrlWithDist = await listen(serverWithDist, { port: 0 });
 
@@ -129,11 +125,13 @@ test('server shutdown lifecycle cleans up eventHub, ai service, and operation ru
     getSnapshot: () => null,
   };
 
-  const server = buildDashboardApp({
-    eventHub: mockHub,
-    aiService: mockAiService,
-    operationRuntime: mockOpRuntime,
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: {
+      events: { eventHub: mockHub },
+      ai: { service: mockAiService },
+      operations: { operationRuntime: mockOpRuntime },
+      distDir: 'Z:/does-not-exist',
+    },
   });
 
   const baseUrl = await listen(server, { port: 0 });

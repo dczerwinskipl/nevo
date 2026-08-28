@@ -47,14 +47,18 @@ function control(body, extra = {}) {
   };
 }
 
-async function waitFor(baseUrl, turnId, predicate) {
+// Polls the AI service directly (in-process) rather than through HTTP: the
+// dashboard's HTTP surface has no "get turn by ID alone" endpoint (the
+// canonical, session-correlated API doesn't need one — this test
+// infrastructure is the only thing that ever wanted raw turn-by-ID
+// polling), and `service` is already right here.
+async function waitFor(service, turnId, predicate) {
   for (let index = 0; index < 100; index += 1) {
-    const response = await fetch(`${baseUrl}/api/ai/turns/${encodeURIComponent(turnId)}`);
-    const turn = (await response.json()).turn;
+    const turn = service.getTurn(turnId);
     if (predicate(turn)) return turn;
     await new Promise(resolve => setTimeout(resolve, 5));
   }
-  assert.fail('Timed out waiting for API turn state.');
+  assert.fail('Timed out waiting for turn state.');
 }
 
 async function waitForSession(baseUrl, provider, providerSessionId, predicate) {
@@ -75,11 +79,15 @@ async function closeServer(server) {
 test('Agent session routes expose the complete provider-neutral session and turn lifecycle', async () => {
   const policyCalls = [];
   const { service } = createStack();
-  const server = buildDashboardApp({
-    aiService: service,
-    aiAccessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: {
+      ai: {
+        service,
+        accessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
+      },
+      events: { eventHub: fakeHub() },
+      distDir: 'Z:/does-not-exist',
+    },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -104,7 +112,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.ok(providerSessionId);
 
     // Wait for first turn completion
-    const completedTurn = await waitFor(baseUrl, turnId, turn => turn.status === 'completed');
+    const completedTurn = await waitFor(service, turnId, turn => turn.status === 'completed');
     assert.equal(completedTurn.events[0].type, 'turn.started');
     assert.equal(completedTurn.events.at(-1).type, 'turn.completed');
 
@@ -137,7 +145,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     );
     assert.equal(secondTurnResponse.status, 202);
     const { turnId: secondTurnId } = await secondTurnResponse.json();
-    await waitFor(baseUrl, secondTurnId, turn => turn.status === 'completed');
+    await waitFor(service, secondTurnId, turn => turn.status === 'completed');
 
     // 6. Messages list
     const messagesResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/messages`);
@@ -213,11 +221,12 @@ adapters:
 
 test('durable session history remains readable after its adapter is disabled', async () => {
   const { service } = createStack();
-  const server = buildDashboardApp({
-    aiService: service,
-    aiAccessPolicy: () => true,
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const server = await buildDashboardApp({
+    config: {
+      ai: { service, accessPolicy: () => true },
+      events: { eventHub: fakeHub() },
+      distDir: 'Z:/does-not-exist',
+    },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -267,7 +276,7 @@ test('default dashboard AI service registers no adapters when the local config i
 
 test('Session SSE replays events, preserves pending interaction, and resolves via session endpoint', async () => {
   const { service } = createStack();
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -276,7 +285,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
       idempotencyKey: 'permission-1',
     }));
     const { turnId } = await start.json();
-    const pendingTurn = await waitFor(baseUrl, turnId, turn => turn.pendingInteraction);
+    const pendingTurn = await waitFor(service, turnId, turn => turn.pendingInteraction);
 
     // Subscribe to session SSE stream
     const controller = new AbortController();
@@ -303,7 +312,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
     );
     assert.equal(resolved.status, 200);
 
-    const completed = await waitFor(baseUrl, turnId, turn => turn.status === 'completed');
+    const completed = await waitFor(service, turnId, turn => turn.status === 'completed');
     assert.ok(completed.events.some(event => event.type === 'interaction.resolved'));
 
     // Replay SSE after sequence
@@ -325,7 +334,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
 
 test('single-active-turn and stable question correlation are enforced through HTTP', async () => {
   const { service } = createStack();
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -334,7 +343,7 @@ test('single-active-turn and stable question correlation are enforced through HT
       idempotencyKey: 'q-1',
     }));
     const first = await firstResponse.json();
-    await waitFor(baseUrl, first.turnId, turn => turn.pendingInteraction);
+    await waitFor(service, first.turnId, turn => turn.pendingInteraction);
 
     const retryResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-1/turns`, control({
       message: 'ask a question',
@@ -351,7 +360,7 @@ test('single-active-turn and stable question correlation are enforced through HT
     const conflict = await conflictResponse.json();
     assert.equal(conflict.turnId, first.turnId);
 
-    const turn = await waitFor(baseUrl, first.turnId, value => value.pendingInteraction);
+    const turn = await waitFor(service, first.turnId, value => value.pendingInteraction);
     const [one, two] = turn.pendingInteraction.questions;
     const wrong = await fetch(
       `${baseUrl}/api/agent-sessions/mock/demo-task-b-1/interactions/${turn.pendingInteraction.id}/respond`,
@@ -375,11 +384,11 @@ test('single-active-turn and stable question correlation are enforced through HT
 
 test('AI controls validate methods, guards, traversal, malformed and oversized input, and explicit cancellation', async () => {
   const { service } = createStack();
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
-    assert.equal((await fetch(`${baseUrl}/api/agent-providers`, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(`${baseUrl}/api/agent-providers`, { method: 'POST' })).status, 404);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions`, { method: 'POST', body: '{}' })).status, 403);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions`, control({ provider: 'mock', specId, providerSessionId: 'x' }, { origin: 'https://attacker.example' }))).status, 403);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions/%2e%2e/%2e%2e/messages`)).status, 404);
@@ -391,7 +400,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
     const start = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-2/turns`, control({ message: 'permission before cancel' }));
     const { turnId } = await start.json();
-    await waitFor(baseUrl, turnId, turn => turn.pendingInteraction);
+    await waitFor(service, turnId, turn => turn.pendingInteraction);
     const cancelled = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-2/turns/${turnId}/cancel`, control({}));
     assert.equal(cancelled.status, 200);
     assert.equal((await cancelled.json()).turn.events.at(-1).error.code, 'AI_TURN_CANCELLED');
@@ -409,7 +418,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
 test('session control endpoints enforce strict correlation between provider, session, turn, and interaction', async () => {
   const { service } = createStack();
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -419,14 +428,14 @@ test('session control endpoints enforce strict correlation between provider, ses
       idempotencyKey: 'key-alpha',
     }));
     const { turnId: turnIdA } = await startA.json();
-    const turnA = await waitFor(baseUrl, turnIdA, t => t.pendingInteraction);
+    const turnA = await waitFor(service, turnIdA, t => t.pendingInteraction);
 
     const startB = await fetch(`${baseUrl}/api/agent-sessions/mock/session-beta/turns`, control({
       message: 'permission on beta',
       idempotencyKey: 'key-beta',
     }));
     const { turnId: turnIdB } = await startB.json();
-    const turnB = await waitFor(baseUrl, turnIdB, t => t.pendingInteraction);
+    const turnB = await waitFor(service, turnIdB, t => t.pendingInteraction);
 
     // 2. Cross-session cancel attempt: trying to cancel turnIdA using session-beta route
     const crossCancel = await fetch(
@@ -438,8 +447,8 @@ test('session control endpoints enforce strict correlation between provider, ses
     assert.equal(crossCancelJson.error.code, 'AI_NOT_FOUND');
 
     // Verify session-alpha turn is still waitingForUser and NOT cancelled
-    const checkTurnA = await (await fetch(`${baseUrl}/api/ai/turns/${turnIdA}`)).json();
-    assert.equal(checkTurnA.turn.status, 'waitingForUser');
+    const checkTurnA = service.getTurn(turnIdA);
+    assert.equal(checkTurnA.status, 'waitingForUser');
 
     // 3. Cross-session interaction response: trying to resolve turnA's interaction using session-beta route
     const crossRespond = await fetch(
@@ -463,7 +472,7 @@ test('session control endpoints enforce strict correlation between provider, ses
       control({ decision: 'allow' }),
     );
     assert.equal(validRespond.status, 200);
-    const completedA = await waitFor(baseUrl, turnIdA, t => t.status === 'completed');
+    const completedA = await waitFor(service, turnIdA, t => t.status === 'completed');
     assert.equal(completedA.status, 'completed');
 
     const validCancel = await fetch(
@@ -471,7 +480,7 @@ test('session control endpoints enforce strict correlation between provider, ses
       control({}),
     );
     assert.equal(validCancel.status, 200);
-    const cancelledB = await waitFor(baseUrl, turnIdB, t => t.status === 'failed');
+    const cancelledB = await waitFor(service, turnIdB, t => t.status === 'failed');
     assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
   } finally {
     await closeServer(server);
@@ -487,7 +496,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 1: Server 1 runs, turn reaches waitingForUser
   const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
   const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
-  const server1 = buildDashboardApp({ aiService: service1, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server1 = await buildDashboardApp({ config: { ai: { service: service1 }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl1 = await listen(server1, { port: 0 });
 
   let turnIdAlpha;
@@ -501,7 +510,7 @@ test('pending interaction can be resolved after server restart retaining persist
     }));
     const resA = await startA.json();
     turnIdAlpha = resA.turnId;
-    const turnA = await waitFor(baseUrl1, turnIdAlpha, t => t.pendingInteraction);
+    const turnA = await waitFor(service1, turnIdAlpha, t => t.pendingInteraction);
     interactionIdAlpha = turnA.pendingInteraction.id;
 
     const startB = await fetch(`${baseUrl1}/api/agent-sessions/mock/restart-beta/turns`, control({
@@ -510,7 +519,7 @@ test('pending interaction can be resolved after server restart retaining persist
     }));
     const resB = await startB.json();
     turnIdBeta = resB.turnId;
-    await waitFor(baseUrl1, turnIdBeta, t => t.pendingInteraction);
+    await waitFor(service1, turnIdBeta, t => t.pendingInteraction);
   } finally {
     await closeServer(server1);
   }
@@ -518,7 +527,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
   const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
   const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
-  const server2 = buildDashboardApp({ aiService: service2, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server2 = await buildDashboardApp({ config: { ai: { service: service2 }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl2 = await listen(server2, { port: 0 });
 
   try {
@@ -556,7 +565,7 @@ test('pending interaction can be resolved after server restart retaining persist
       control({ decision: 'allow' }),
     );
     assert.equal(validRespond.status, 200);
-    const completedA = await waitFor(baseUrl2, turnIdAlpha, t => t.status === 'completed');
+    const completedA = await waitFor(service2, turnIdAlpha, t => t.status === 'completed');
     assert.equal(completedA.status, 'completed');
 
     // 6. Cancel on restart-beta also works after restart
@@ -565,7 +574,7 @@ test('pending interaction can be resolved after server restart retaining persist
       control({}),
     );
     assert.equal(cancelRes.status, 200);
-    const cancelledB = await waitFor(baseUrl2, turnIdBeta, t => t.status === 'failed');
+    const cancelledB = await waitFor(service2, turnIdBeta, t => t.status === 'failed');
     assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
   } finally {
     await closeServer(server2);
@@ -589,22 +598,24 @@ test('Session mode preference persistence across server restarts and snapshot ex
     return originalStartTurn(params);
   };
 
-  const createTestServer = () => {
+  const createTestServer = async () => {
     const registry = createAiAdapterRegistry([customAdapter]);
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
     const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
-    const server = buildDashboardApp({
-      aiService: service,
-      eventHub: fakeHub(),
-      distDir: 'Z:/does-not-exist',
+    const server = await buildDashboardApp({
+      config: {
+        ai: { service },
+        events: { eventHub: fakeHub() },
+        distDir: 'Z:/does-not-exist',
+      },
     });
     return { server, service, bindingService };
   };
 
   // 1. Start Server 1: Create session with mode 'agent' and another with 'ask'
-  const stack1 = createTestServer();
+  const stack1 = await createTestServer();
   const baseUrl1 = await listen(stack1.server, { port: 0 });
 
   try {
@@ -631,7 +642,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     // 2. Restart server (simulating reload of binding/service state)
     await closeServer(stack1.server);
 
-    const stack2 = createTestServer();
+    const stack2 = await createTestServer();
     const baseUrl2 = await listen(stack2.server, { port: 0 });
 
     try {
@@ -697,7 +708,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
   const specId = 'a1111111-1111-4111-a111-111111111111';
 
   const { service } = createStack({ storageDir });
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -747,7 +758,7 @@ test('AC9: Cross-spec session binding isolation (D10) never produces merged task
   const sharedSessionId = 'shared-agent-session-42';
 
   const { service } = createStack({ storageDir });
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -833,7 +844,7 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
   const storageDir = join(tmpDir, 'sessions');
   const { service } = createStack({ storageDir });
-  const server = buildDashboardApp({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {

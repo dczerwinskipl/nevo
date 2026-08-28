@@ -106,10 +106,11 @@ function diffCacheKey(reference, headSha) {
 }
 
 // `cache` is per-provider-instance, keyed by (reference, headSha) — deliberately
-// long-lived across requests (the registry holding this provider is a module-
-// level singleton, see providers/service.mjs) so a batch of diff requests for
-// the same PR version only ever pays for the underlying REST files+patch call
-// once, regardless of how many separate hydration batches ask for it (area
+// long-lived across requests (the pull-requests capability holds one
+// long-lived provider instance for the whole dashboard server process, see
+// pull-requests/service.mjs) so a batch of diff requests for the same PR
+// version only ever pays for the underlying REST files+patch call once,
+// regardless of how many separate hydration batches ask for it (area
 // pull-request-file-and-diff-loading AC8). No eviction — "no requirement to
 // explicitly purge them in this change" (area doc).
 export class UpstreamProviderError extends Error {
@@ -141,7 +142,7 @@ export function classifyUpstreamError(error) {
   return new UpstreamProviderError(msg || 'Upstream provider error', 502);
 }
 
-export function createGitHubProvider({
+export function createGitHubPullRequestProvider({
   fetchMetadata = getPullRequestMetadataAsync,
   fetchFiles = getPullRequestFilesAsync,
   fetchFilesWithPatches = getPullRequestFilesWithPatchesAsync,
@@ -322,4 +323,3 @@ export function createGitHubProvider({
     },
   };
 }
-

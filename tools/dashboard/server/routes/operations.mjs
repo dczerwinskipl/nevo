@@ -1,5 +1,4 @@
 import { OperationNotFoundError } from '../operations.mjs';
-import { registerMethodFallback } from '../http-compat.mjs';
 
 const OPERATION_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]*$/i;
 
@@ -14,7 +13,16 @@ function validOperationId(request, reply) {
   return operationId;
 }
 
-export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
+/**
+ * The operations capability: exposes the shared `operationRuntime` (long-
+ * running action progress + resumable SSE) over HTTP. `operationRuntime` is
+ * the one resource genuinely consumed by two independent capabilities
+ * (specs actions write to it; this capability reads/streams from it), so
+ * app.mjs constructs it once and passes the same instance here and to the
+ * specs capability — see app.mjs's own comment for why that's the single
+ * justified exception to "capabilities own their dependencies."
+ */
+export default async function operationRoutes(fastify, { operationRuntime }) {
   const activeConnections = new Set();
 
   fastify.get('/api/operations/:operationId', (request, reply) => {
@@ -28,7 +36,6 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       reply.code(status).header('cache-control', 'no-store').send({ error: error?.message || 'Operation not found' });
     }
   });
-  registerMethodFallback(fastify, '/api/operations/:operationId', ['GET']);
 
   fastify.get('/api/operations/:operationId/events', (request, reply) => {
     const operationId = validOperationId(request, reply);
@@ -139,13 +146,13 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       }, 20_000);
     }
   });
-  registerMethodFallback(fastify, '/api/operations/:operationId/events', ['GET']);
 
-  // Owned here: this capability holds open SSE connections and is the
-  // canonical owner of `operationRuntime`'s lifecycle (created once in the
-  // composition root, but consumed and torn down by the operations/specs
-  // capabilities that actually use it). `preClose`, not `onClose` — see
-  // routes/events.mjs's own comment for why.
+  // Draining open SSE connections is a Fastify request-lifecycle concern —
+  // `preClose` (see routes/events.mjs's own comment for why), which always
+  // runs before any `onClose` hook, guaranteeing this drains before the
+  // runtime itself shuts down below (and, more importantly, before the
+  // specs capability's own `onClose`-independent `preClose` hook that aborts
+  // in-flight actions has to compete with a runtime already shut down).
   fastify.addHook('preClose', async () => {
     for (const close of Array.from(activeConnections)) {
       try {
@@ -153,6 +160,9 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       } catch {}
     }
     activeConnections.clear();
+  });
+
+  fastify.addHook('onClose', async () => {
     try {
       operationRuntime.shutdown?.();
     } catch (err) {

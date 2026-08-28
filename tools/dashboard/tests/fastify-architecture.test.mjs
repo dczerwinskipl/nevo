@@ -39,7 +39,7 @@ test('no dashboard route module uses fastify.all(...) as its normal routing patt
     const source = readFileSync(file, 'utf8');
     assert.ok(
       !/\bfastify\.all\s*\(/.test(source) && !/\bscoped\.all\s*\(/.test(source),
-      `${file} still registers routes via .all(...) — use a verb-specific registration (get/post/patch/delete) plus registerMethodFallback for the 405 contract instead.`,
+      `${file} still registers routes via .all(...) — use a verb-specific registration (get/post/patch/delete) instead. An unsupported method on a known path is expected to fall through to Fastify's own generic 404, not a dedicated 405.`,
     );
   }
 });
@@ -49,9 +49,17 @@ test('no dashboard route module hand-dispatches on request.method after Fastify 
     const source = readFileSync(file, 'utf8');
     assert.ok(
       !/if\s*\(\s*request\.method\s*!==/.test(source),
-      `${file} still branches on request.method inside a route handler — Fastify's own verb-specific registration should make this unnecessary (the only sanctioned exception is http-compat.mjs's own method-fallback helper).`,
+      `${file} still branches on request.method inside a route handler — Fastify's own verb-specific registration should make this unnecessary.`,
     );
   }
+});
+
+test('no custom 405 method-fallback machinery exists (an unsupported method falls through to the generic 404)', () => {
+  assert.equal(
+    existsSync(join(serverDir, 'http-compat.mjs')),
+    false,
+    'http-compat.mjs (the old registerMethodFallback 405 helper) should have been removed — no dashboard consumer distinguishes 405 from 404.',
+  );
 });
 
 test('reply.hijack()/reply.raw is confined to genuine SSE streaming boundaries', () => {

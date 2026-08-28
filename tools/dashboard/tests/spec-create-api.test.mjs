@@ -12,8 +12,8 @@ function fakeHub() {
 }
 
 async function startTestServer() {
-  const server = buildDashboardApp({
-    eventHub: fakeHub(),
+  const server = await buildDashboardApp({
+    config: { events: { eventHub: fakeHub() } },
   });
 
   const baseUrl = await listen(server, { port: 0 });
@@ -96,13 +96,13 @@ test('POST /api/specs rejects duplicate slug with 409 Conflict', async () => {
   }
 });
 
-test('POST /api/specs rejects non-POST methods with 405 Method Not Allowed', async () => {
+test('GET /api/specs (no matching route) falls through to the generic API 404', async () => {
   const env = await startTestServer();
   try {
     const res = await fetch(`${env.baseUrl}/api/specs`, {
       method: 'GET',
     });
-    assert.equal(res.status, 405);
+    assert.equal(res.status, 404);
   } finally {
     await env.close();
   }

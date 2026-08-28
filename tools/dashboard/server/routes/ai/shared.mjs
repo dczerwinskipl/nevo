@@ -62,24 +62,14 @@ export function writeSse(response, eventName, data, id) {
   response.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-// Content-type-agnostic, matching the previous `readJsonBody` contract
-// exactly (any content-type accepted, empty body -> `{}`) — Fastify's own
-// `parseAs: 'string'` accumulation enforces each route's own `bodyLimit`.
-export function permissiveAiJsonParser(_request, body, done) {
-  if (!body) {
-    done(null, {});
-    return;
-  }
-  try {
-    done(null, JSON.parse(body));
-  } catch {
-    done(new AiValidationError('Request body must be valid JSON.'));
-  }
-}
-
 // Scoped to the AI plugin only (see routes/ai/index.mjs) — everything here
-// is AI-domain error mapping, kept out of the small, generic app-level
-// handler in app.mjs.
+// is AI-domain error *shape* mapping, kept out of the small, generic
+// app-level handler in app.mjs. JSON parsing itself is defined once, at the
+// application boundary (app.mjs) — the AI plugin inherits that same parser
+// rather than registering an equivalent one of its own; this handler is
+// what turns a shared transport-level parse/size error into the AI
+// response shape (`{ error: { code, message } }`) callers of this capability
+// expect, not a second parser.
 export function aiErrorHandler(error, request, reply) {
   if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
     reply.code(413).send({ error: { code: 'AI_VALIDATION_ERROR', message: 'Request body is too large.' } });
@@ -87,6 +77,10 @@ export function aiErrorHandler(error, request, reply) {
   }
   if (error?.name === 'HttpError' || error?.name === 'SpecificationActionError') {
     reply.code(error.status || 400).send({ error: { code: 'AI_VALIDATION_ERROR', message: error.message } });
+    return;
+  }
+  if (typeof error?.statusCode === 'number' && error.statusCode < 500) {
+    reply.code(error.statusCode).send({ error: { code: 'AI_VALIDATION_ERROR', message: error.message } });
     return;
   }
   const normalized = publicAiError(error);
