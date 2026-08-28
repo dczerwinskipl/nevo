@@ -499,7 +499,7 @@ test('Multi-spec session deletion: unbindSession removes session identity from A
 });
 
 test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi-spec bindings and transcript globally', async () => {
-  const { handleAiRequest } = await import('../../tools/dashboard/server/ai-routes.mjs');
+  const { buildDashboardApp } = await import('../../tools/dashboard/server/index.mjs');
   const { AiSessionService } = await import('../../tools/ai/service.mjs');
   const { SessionTranscriptCacheService } = await import('../../tools/ai/transcript-cache.mjs');
   const { createAiAdapterRegistry } = await import('../../tools/ai/registry.mjs');
@@ -527,32 +527,26 @@ test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi
     transcriptCache.recordUserMessage('claude', 'sess-http-del', { text: 'Hello' });
     await transcriptCache.flush('claude', 'sess-http-del');
 
-    // 2. Dispatch DELETE request
-    let responseStatus = 0;
-    let responseJson = null;
-
-    const handled = await handleAiRequest({
-      request: {
-        headers: {
-          'x-nevo-dashboard-action': '1',
-          host: 'localhost:3000',
-        },
-      },
-      response: {},
-      method: 'DELETE',
-      url: new URL('http://localhost:3000/api/agent-sessions/claude/sess-http-del'),
-      service: aiService,
-      accessPolicy: () => true,
-      sendJson: (_res, status, data) => {
-        responseStatus = status;
-        responseJson = data;
-      },
-      readJsonBody: async () => ({}),
+    // 2. Dispatch DELETE request through the real Fastify app (app.inject(),
+    // no network port) — the dashboard's AI capability is a real Fastify
+    // route, not a hand-dispatched function to call directly.
+    const app = buildDashboardApp({
+      aiService,
+      aiAccessPolicy: () => true,
+      eventHub: { subscribe: () => () => {}, close: () => {} },
+      distDir: 'Z:/does-not-exist',
     });
-
-    assert.equal(handled, true);
-    assert.equal(responseStatus, 200);
-    assert.deepEqual(responseJson, { unbind: true, deleted: true });
+    try {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/api/agent-sessions/claude/sess-http-del',
+        headers: { 'x-nevo-dashboard-action': '1' },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(res.json(), { unbind: true, deleted: true });
+    } finally {
+      await app.close();
+    }
 
     // 3. Verify global cleanup
     assert.equal((await bindingService.listBindings({ specId: specA })).length, 0);

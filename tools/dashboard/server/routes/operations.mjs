@@ -1,22 +1,25 @@
 import { OperationNotFoundError } from '../operations.mjs';
+import { registerMethodFallback } from '../http-compat.mjs';
 
 const OPERATION_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]*$/i;
+
+function validOperationId(request, reply) {
+  // Already decoded once by Fastify/find-my-way (`safeDecodeURIComponent`) —
+  // decoding again would double-decode an id containing a literal `%`.
+  const operationId = request.params.operationId;
+  if (!OPERATION_ID_PATTERN.test(operationId)) {
+    reply.code(404).send({ error: 'Operation not found' });
+    return null;
+  }
+  return operationId;
+}
 
 export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
   const activeConnections = new Set();
 
-  fastify.all('/api/operations/:operationId', (request, reply) => {
-    // Already decoded once by Fastify/find-my-way — see routes/specs.mjs's
-    // own comment on `decodedSlug` for why this must not decode again.
-    const operationId = request.params.operationId;
-    if (!OPERATION_ID_PATTERN.test(operationId)) {
-      reply.code(404).send({ error: 'Operation not found' });
-      return;
-    }
-    if (request.method !== 'GET') {
-      reply.code(405).send({ error: 'Method not allowed' });
-      return;
-    }
+  fastify.get('/api/operations/:operationId', (request, reply) => {
+    const operationId = validOperationId(request, reply);
+    if (!operationId) return;
     try {
       const snapshot = operationRuntime.getSnapshot(operationId);
       reply.code(200).header('cache-control', 'no-store').send(snapshot);
@@ -25,19 +28,11 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       reply.code(status).header('cache-control', 'no-store').send({ error: error?.message || 'Operation not found' });
     }
   });
+  registerMethodFallback(fastify, '/api/operations/:operationId', ['GET']);
 
-  fastify.all('/api/operations/:operationId/events', (request, reply) => {
-    // Already decoded once by Fastify/find-my-way — see routes/specs.mjs's
-    // own comment on `decodedSlug` for why this must not decode again.
-    const operationId = request.params.operationId;
-    if (!OPERATION_ID_PATTERN.test(operationId)) {
-      reply.code(404).send({ error: 'Operation not found' });
-      return;
-    }
-    if (request.method !== 'GET') {
-      reply.code(405).send({ error: 'Method not allowed' });
-      return;
-    }
+  fastify.get('/api/operations/:operationId/events', (request, reply) => {
+    const operationId = validOperationId(request, reply);
+    if (!operationId) return;
 
     const headerCursor = request.headers['last-event-id'];
     const queryCursor = request.query?.after;
@@ -60,6 +55,8 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       return;
     }
 
+    // SSE genuinely needs the raw response — validation/lookup above already
+    // ran through Fastify's normal request/reply lifecycle.
     reply.hijack();
     const response = reply.raw;
     const requestRaw = request.raw;
@@ -142,18 +139,24 @@ export function registerOperationRoutes(fastify, { operationRuntime } = {}) {
       }, 20_000);
     }
   });
+  registerMethodFallback(fastify, '/api/operations/:operationId/events', ['GET']);
 
-  const shutdown = () => {
+  // Owned here: this capability holds open SSE connections and is the
+  // canonical owner of `operationRuntime`'s lifecycle (created once in the
+  // composition root, but consumed and torn down by the operations/specs
+  // capabilities that actually use it). `preClose`, not `onClose` — see
+  // routes/events.mjs's own comment for why.
+  fastify.addHook('preClose', async () => {
     for (const close of Array.from(activeConnections)) {
       try {
         close();
       } catch {}
     }
     activeConnections.clear();
-  };
-
-  return {
-    shutdown,
-    getActiveConnectionCount: () => activeConnections.size,
-  };
+    try {
+      operationRuntime.shutdown?.();
+    } catch (err) {
+      console.error('[server] error shutting down operation runtime:', err);
+    }
+  });
 }

@@ -180,13 +180,22 @@ test('specs route adapter manages AbortController and completion settlement duri
     });
     assert.equal(conflictRes.status, 409);
 
-    // Trigger server shutdown
+    // Trigger server shutdown — the real production close path: specs'
+    // preClose hook (abort/await in-flight actions) is registered before
+    // operations' preClose hook (operationRuntime.shutdown), so Fastify's
+    // sequential preClose execution gives the same ordering guarantee the
+    // old hand-rolled shutdown chain gave explicitly.
     let shutdownSettled = false;
-    const shutdownPromise = server.shutdown().then(() => {
+    const shutdownPromise = server.close().then(() => {
       shutdownSettled = true;
     });
 
-    // Verify signal is aborted
+    // Fastify's own close() sequencing (avvio) invokes the first preClose
+    // hook via a macrotask, not synchronously or even within a microtask —
+    // unlike the old hand-rolled `server.close` override, which ran the
+    // abort() call synchronously within the same tick. A single
+    // `setImmediate` tick is enough to observe it having started.
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(capturedSignal.aborted, true, 'AbortSignal was aborted on server shutdown');
 
     // Give microtasks a cycle to prove shutdown is STILL waiting for the action to settle
@@ -208,7 +217,6 @@ test('specs route adapter manages AbortController and completion settlement duri
       { type: 'runtime-shutdown', afterActionSettled: true },
     ]);
   } finally {
-    try { await server.shutdown(); } catch {}
-    try { await new Promise(r => server.close(r)); } catch {}
+    try { await server.close(); } catch {}
   }
 });

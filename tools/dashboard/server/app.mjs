@@ -12,7 +12,7 @@ import { registerEventsRoutes } from './routes/events.mjs';
 import { registerOperationRoutes } from './routes/operations.mjs';
 import { registerSpecsRoutes } from './routes/specs.mjs';
 import { registerPullRequestRoutes } from './routes/pull-requests.mjs';
-import { registerAiRoutes } from './routes/ai.mjs';
+import { registerAiRoutes } from './routes/ai/index.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
@@ -42,6 +42,13 @@ function permissiveJsonParser(_request, body, done) {
  * Contains no `listen()`/process-lifecycle concerns; `index.mjs` (the
  * runtime boundary) owns those separately, and tests can drive this
  * instance directly via `app.inject()` without opening a network port.
+ *
+ * This is purely a composition root: each `registerXRoutes(fastify, deps)`
+ * call registers its own concrete routes *and* whatever lifecycle hooks its
+ * own resources need (an open SSE connection, a runtime, a service to shut
+ * down). Nothing here reaches back into a capability's internals or
+ * sequences its teardown — that coupling stays inside the capability that
+ * owns the resource.
  */
 export function buildDashboardApp({
   eventHub = createSpecEventHub(),
@@ -65,6 +72,9 @@ export function buildDashboardApp({
   app.removeAllContentTypeParsers();
   app.addContentTypeParser('*', { parseAs: 'string' }, permissiveJsonParser);
 
+  // Small and generic on purpose: only transport-level concerns (body too
+  // large, malformed body, truly unexpected failures). Each capability maps
+  // its own domain errors before they ever reach this handler.
   app.setErrorHandler((error, request, reply) => {
     if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
       reply.code(413).send({ error: 'Request body is too large.' });
@@ -78,17 +88,12 @@ export function buildDashboardApp({
     reply.code(500).send({ error: 'Internal server error' });
   });
 
-  const specsAdapter = registerSpecsRoutes(app, {
-    operationRuntime,
-    actionExecutor,
-    activeDir,
-    root,
-  });
-  const eventsAdapter = registerEventsRoutes(app, { eventHub });
-  const operationAdapter = registerOperationRoutes(app, { operationRuntime });
+  registerSpecsRoutes(app, { operationRuntime, actionExecutor, activeDir, root });
+  registerEventsRoutes(app, { eventHub });
+  registerOperationRoutes(app, { operationRuntime });
   registerPullRequestRoutes(app);
   registerHealthRoutes(app);
-  const aiAdapter = registerAiRoutes(app, { aiService, aiServiceFactory, aiAccessPolicy });
+  registerAiRoutes(app, { aiService, aiServiceFactory, aiAccessPolicy });
 
   app.setNotFoundHandler((request, reply) => {
     const pathname = request.url.split('?')[0];
@@ -127,60 +132,6 @@ export function buildDashboardApp({
       );
     },
   });
-
-  // Deterministic, idempotent teardown of every capability, in the same
-  // order the previous `node:http`-based server used: specs adapter first
-  // (abort/await running actions), then SSE connections/subscriptions, then
-  // AI resources, then the operation runtime, then the event-hub watcher
-  // last. Registered as a single `preClose` hook — not `onClose` — because
-  // Fastify's own shutdown lifecycle blocks `server.close()` on every
-  // in-flight request finishing *before* any `onClose` hook runs, and an
-  // open SSE stream never finishes on its own; ending it must happen while
-  // the request is still in-flight (`preClose`), exactly as Fastify's docs
-  // recommend for SSE/WebSocket teardown. Also decorated as `app.shutdown`
-  // so capability teardown can be exercised on its own, independent of
-  // closing the listening port — the same shape the previous server exposed.
-  let shutdownPromise = null;
-  const performShutdown = () => {
-    if (!shutdownPromise) {
-      shutdownPromise = (async () => {
-        try {
-          await specsAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down specs adapter:', err);
-        }
-        try {
-          eventsAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down events adapter:', err);
-        }
-        try {
-          operationAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down operations adapter:', err);
-        }
-        try {
-          await aiAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down AI adapter:', err);
-        }
-        try {
-          operationRuntime.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down operation runtime:', err);
-        }
-        try {
-          eventHub?.close?.();
-        } catch (err) {
-          console.error('[server] error closing event hub:', err);
-        }
-      })();
-    }
-    return shutdownPromise;
-  };
-
-  app.addHook('preClose', performShutdown);
-  app.decorate('shutdown', performShutdown);
 
   return app;
 }

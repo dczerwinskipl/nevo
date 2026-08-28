@@ -1,12 +1,12 @@
+import { registerMethodFallback } from '../http-compat.mjs';
+
 export function registerEventsRoutes(fastify, { eventHub } = {}) {
   const activeConnections = new Set();
 
-  fastify.all('/api/events', (request, reply) => {
-    if (request.method !== 'GET') {
-      reply.code(405).send({ error: 'Method not allowed' });
-      return;
-    }
-
+  fastify.get('/api/events', (request, reply) => {
+    // SSE genuinely needs the raw response for framing/keepalive/streaming
+    // ownership — everything before this point (route match, method
+    // dispatch) already went through Fastify's normal lifecycle.
     reply.hijack();
     const response = reply.raw;
     const requestRaw = request.raw;
@@ -63,17 +63,25 @@ export function registerEventsRoutes(fastify, { eventHub } = {}) {
     keepAlive.unref?.();
   });
 
-  const shutdown = () => {
+  registerMethodFallback(fastify, '/api/events', ['GET']);
+
+  // Owned here, not in the app-level composition root: this capability
+  // holds open SSE connections and the `eventHub` dependency it was given,
+  // so it registers its own teardown. `preClose` (not `onClose`) because an
+  // open SSE stream never finishes on its own, and Fastify's shutdown
+  // lifecycle blocks `server.close()` on in-flight requests finishing
+  // before any `onClose` hook would run.
+  fastify.addHook('preClose', async () => {
     for (const close of Array.from(activeConnections)) {
       try {
         close();
       } catch {}
     }
     activeConnections.clear();
-  };
-
-  return {
-    shutdown,
-    getActiveConnectionCount: () => activeConnections.size,
-  };
+    try {
+      eventHub?.close?.();
+    } catch (err) {
+      console.error('[server] error closing event hub:', err);
+    }
+  });
 }

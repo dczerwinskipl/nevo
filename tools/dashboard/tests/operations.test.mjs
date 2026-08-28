@@ -519,8 +519,16 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
 function fakeFastifyForOperationsTest() {
   const routes = new Map();
   return {
-    all: (path, handler) => routes.set(path, handler),
-    route: (path) => routes.get(path),
+    get: (path, optionsOrHandler, maybeHandler) => {
+      routes.set(`GET ${path}`, maybeHandler || optionsOrHandler);
+    },
+    route: ({ method, url, handler }) => {
+      for (const m of Array.isArray(method) ? method : [method]) {
+        routes.set(`${m} ${url}`, handler);
+      }
+    },
+    addHook: () => {},
+    getHandler: (method, path) => routes.get(`${method} ${path}`),
   };
 }
 
@@ -570,7 +578,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       },
     };
     registerOperationRoutes(fastify, { operationRuntime: mockRuntime });
-    const handler = fastify.route('/api/operations/:operationId/events');
+    const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-1' });
     const reply = fakeOperationsReply();
@@ -608,7 +616,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       },
     };
     registerOperationRoutes(fastify, { operationRuntime: runtimeWithCallback });
-    const handler = fastify.route('/api/operations/:operationId/events');
+    const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-2' });
     handler(request, fakeOperationsReply());
@@ -644,7 +652,7 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       },
     };
     registerOperationRoutes(fastify, { operationRuntime: completedRuntime });
-    const handler = fastify.route('/api/operations/:operationId/events');
+    const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-3', query: { after: '5' } });
     handler(request, fakeOperationsReply());

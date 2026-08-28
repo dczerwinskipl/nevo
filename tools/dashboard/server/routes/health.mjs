@@ -1,9 +1,8 @@
+import { registerMethodFallback } from '../http-compat.mjs';
+
 export function registerHealthRoutes(fastify) {
-  fastify.all('/api/health', async (request, reply) => {
-    if (request.method !== 'GET') {
-      reply.code(405).send({ error: 'Method not allowed' });
-      return;
-    }
+  fastify.get('/api/health', async (request, reply) => {
     reply.code(200).send({ status: 'ok' });
   });
+  registerMethodFallback(fastify, '/api/health', ['GET']);
 }
