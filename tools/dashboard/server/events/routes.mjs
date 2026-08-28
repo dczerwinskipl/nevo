@@ -1,12 +1,14 @@
-import { createSpecEventHub } from '../watcher.mjs';
+import { createSpecEventHub } from './watcher.mjs';
 
 /**
  * The events capability: a spec-change file watcher exposed over SSE.
  * `eventHub` is used only here — no other capability touches it — so it is
- * constructed and torn down entirely inside this subtree.
+ * constructed and torn down entirely inside this subtree. `eventHub` is
+ * this plugin's own local override (a feature-level test seam, e.g. to
+ * avoid a real `fs.watch` in a unit test) — real usage never passes one.
  */
-export default async function eventsRoutes(fastify, { config = {} } = {}) {
-  const eventHub = config.events?.eventHub ?? createSpecEventHub();
+export default async function eventsRoutes(fastify, { eventHub } = {}) {
+  const hub = eventHub ?? createSpecEventHub();
   const activeConnections = new Set();
 
   fastify.get('/api/events', (request, reply) => {
@@ -50,7 +52,7 @@ export default async function eventsRoutes(fastify, { config = {} } = {}) {
     activeConnections.add(cleanup);
     requestRaw.on('close', cleanup);
 
-    unsubscribe = eventHub?.subscribe?.(event => {
+    unsubscribe = hub?.subscribe?.(event => {
       if (isClosed) return;
       response.write('event: specs-changed\ndata: ' + JSON.stringify(event) + '\n\n');
     });
@@ -87,7 +89,7 @@ export default async function eventsRoutes(fastify, { config = {} } = {}) {
   // resources.
   fastify.addHook('onClose', async () => {
     try {
-      eventHub?.close?.();
+      hub?.close?.();
     } catch (err) {
       console.error('[server] error closing event hub:', err);
     }

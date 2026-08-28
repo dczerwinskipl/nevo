@@ -5,7 +5,7 @@ import {
   loadTaskStatuses,
 } from './data.mjs';
 import { createSpecActionsCapability } from './actions.mjs';
-import { createSpecification } from '../../specs/identity.mjs';
+import { createSpecification } from '../../../specs/identity.mjs';
 
 /**
  * The specs capability: everything the dashboard's specification routes

@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { open as openFile, readdir as readdirAsync, readFile as readFileAsync, stat as statAsync } from 'node:fs/promises';
-import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, extname, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import {
@@ -10,17 +9,16 @@ import {
   loadChange,
   listChanges,
   listChangesAsync,
-} from '../../specs/store.mjs';
-import { isTaskReady } from '../../specs/lifecycle-primitives.mjs';
+} from '../../../specs/store.mjs';
+import { isTaskReady } from '../../../specs/lifecycle-primitives.mjs';
 import {
   SPEC_STAGES,
   isCompletedStatus,
   isTerminalStatus,
   stageForStatus,
-} from '../shared/status-stages.js';
-import { DEFAULT_SPEC_SECTIONS } from '../shared/spec-sections.js';
-
-export const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+} from '../../shared/status-stages.js';
+import { DEFAULT_SPEC_SECTIONS } from '../../shared/spec-sections.js';
+import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 export function stripFrontMatter(markdown) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');

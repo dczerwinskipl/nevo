@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DEFAULT_CHANGE_VIEW, DEFAULT_GENERATED_FILES, loadChangeViewConfig } from '../server/change-view-config.mjs';
+import { DEFAULT_CHANGE_VIEW, DEFAULT_GENERATED_FILES, loadChangeViewConfig } from '../server/pull-requests/change-view-config.mjs';
 
 test('falls back to this repo\'s own reasonable default when no project config file exists', () => {
   const root = join(tmpdir(), `nevo-dashboard-changeview-${process.pid}-${Date.now()}`);

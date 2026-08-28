@@ -6,10 +6,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createOperationRuntime, OperationNotFoundError } from '../server/operations.mjs';
-import { executeSpecificationAction } from '../server/actions.mjs';
-import { buildDashboardApp, listen } from '../server/index.mjs';
-import operationRoutes from '../server/routes/operations.mjs';
+import Fastify from 'fastify';
+import { createOperationRuntime, OperationNotFoundError } from '../server/operations/runtime.mjs';
+import { executeSpecificationAction } from '../server/specs/actions.mjs';
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import specsRoutes from '../server/specs/routes.mjs';
+import operationRoutes from '../server/operations/routes.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function createMockChildProcess() {
@@ -344,27 +346,32 @@ test('executeSpecificationAction — in-process single execution runner', async 
 });
 
 test('Dashboard server — action concurrency & /api/operations routes', async (t) => {
+  // Cross-slice by nature (specs' actions write to `operationRuntime`,
+  // operations reads/streams it), so this registers both slices directly on
+  // a bare Fastify instance — decorating `operationRuntime` the same way
+  // app.mjs does — rather than going through `buildDashboardApp()`.
+  // `actionExecutor` is specs/routes.mjs's own local override option (see
+  // its own comment).
   let activeChild = null;
   const runtime = createOperationRuntime({ idFactory: () => 'srv-op-1' });
   const sample = fixture();
-  const server = await buildDashboardApp({
-    config: {
-      operations: { operationRuntime: runtime },
-      activeDir: sample.activeDir,
-      specs: {
-        actionExecutor: ({ slug, action, taskId, onFinished }) => {
-          activeChild = createMockChildProcess();
-          const opId = runtime.createOperation({ type: `spec-action-${action}` });
-          activeChild.on('close', () => {
-            runtime.completeOperation(opId, { ok: true });
-            if (typeof onFinished === 'function') onFinished();
-          });
-          return { ok: true, operationId: opId, action, taskId };
-        },
-      },
+  const server = Fastify({ bodyLimit: 4096 });
+  registerGlobalHttpInfrastructure(server);
+  server.decorate('operationRuntime', runtime);
+  await server.register(specsRoutes, {
+    config: { activeDir: sample.activeDir },
+    actionExecutor: ({ slug, action, taskId, onFinished }) => {
+      activeChild = createMockChildProcess();
+      const opId = runtime.createOperation({ type: `spec-action-${action}` });
+      activeChild.on('close', () => {
+        runtime.completeOperation(opId, { ok: true });
+        if (typeof onFinished === 'function') onFinished();
+      });
+      return { ok: true, operationId: opId, action, taskId };
     },
   });
-  const baseUrl = await listen(server, { port: 0 });
+  await server.register(operationRoutes);
+  const baseUrl = await server.listen({ port: 0 });
 
   t.after(() => {
     server.close();
@@ -581,7 +588,8 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    operationRoutes(fastify, { operationRuntime: mockRuntime });
+    fastify.operationRuntime = mockRuntime;
+    operationRoutes(fastify);
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-1' });
@@ -619,7 +627,8 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    operationRoutes(fastify, { operationRuntime: runtimeWithCallback });
+    fastify.operationRuntime = runtimeWithCallback;
+    operationRoutes(fastify);
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-2' });
@@ -655,7 +664,8 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
         };
       },
     };
-    operationRoutes(fastify, { operationRuntime: completedRuntime });
+    fastify.operationRuntime = completedRuntime;
+    operationRoutes(fastify);
     const handler = fastify.getHandler('GET', '/api/operations/:operationId/events');
 
     const request = fakeOperationsRequest({ operationId: 'op-3', query: { after: '5' } });

@@ -1,17 +1,15 @@
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
-import { ClaudeAgentProvider } from '../../ai/claude-adapter.mjs';
-import { AntigravityAgentProvider } from '../../ai/antigravity-adapter.mjs';
-import { CodexAgentProvider } from '../../ai/codex-adapter.mjs';
-import { createAiAdapterRegistry } from '../../ai/registry.mjs';
-import { createAiSessionService } from '../../ai/service.mjs';
-import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
-import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
-import { loadAiAdaptersConfig } from './ai-adapters-config.mjs';
-
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+import { resolve } from 'node:path';
+import { createMockAiAdapter } from '../../../ai/mock-adapter.mjs';
+import { ClaudeAgentProvider } from '../../../ai/claude-adapter.mjs';
+import { AntigravityAgentProvider } from '../../../ai/antigravity-adapter.mjs';
+import { CodexAgentProvider } from '../../../ai/codex-adapter.mjs';
+import { createAiAdapterRegistry } from '../../../ai/registry.mjs';
+import { createAiSessionService } from '../../../ai/service.mjs';
+import { createAiTurnRuntime } from '../../../ai/turn-runtime.mjs';
+import { createTranscriptCacheService } from '../../../ai/transcript-cache.mjs';
+import { createAgentSessionBindingService } from '../../../ai/binding-service.mjs';
+import { loadAiAdaptersConfig } from './adapters-config.mjs';
+import { REPOSITORY_ROOT as REPO_ROOT } from '../infrastructure/paths.mjs';
 
 export function createDefaultDashboardAiService({ dataLoader, adapterConfigPath } = {}) {
   const adapterConfig = loadAiAdaptersConfig({ repoRoot: REPO_ROOT, filePath: adapterConfigPath });

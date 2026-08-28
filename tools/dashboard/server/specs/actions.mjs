@@ -1,15 +1,15 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import * as git from '../../lib/git.mjs';
-import { createProgressEmitter } from '../../lib/operation-progress.mjs';
-import { evaluateGate, evaluateTaskGate } from '../../specs/gates.mjs';
-import { ACTIVE_DIR, loadChange } from '../../specs/store.mjs';
-import { loadFollowUps } from '../../specs/follow-ups.mjs';
-import { approveTask } from '../../specs/approve/operation.mjs';
-import { verifyTask } from '../../specs/verify/operation.mjs';
-import { finalizeChange } from '../../specs/finalize/operation.mjs';
-import { REPOSITORY_ROOT } from './data.mjs';
+import * as git from '../../../lib/git.mjs';
+import { createProgressEmitter } from '../../../lib/operation-progress.mjs';
+import { evaluateGate, evaluateTaskGate } from '../../../specs/gates.mjs';
+import { ACTIVE_DIR, loadChange } from '../../../specs/store.mjs';
+import { loadFollowUps } from '../../../specs/follow-ups.mjs';
+import { approveTask } from '../../../specs/approve/operation.mjs';
+import { verifyTask } from '../../../specs/verify/operation.mjs';
+import { finalizeChange } from '../../../specs/finalize/operation.mjs';
+import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 const execFileAsync = promisify(execFile);
 

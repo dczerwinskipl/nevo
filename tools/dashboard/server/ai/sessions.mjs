@@ -7,7 +7,7 @@ import {
   validatedSegment,
   validatedSessionId,
 } from './shared.mjs';
-import { AiValidationError, validateAiMessage } from '../../../../ai/contracts.mjs';
+import { AiValidationError, validateAiMessage } from '../../../ai/contracts.mjs';
 
 const SESSION_CREATE_BODY_LIMIT = 16_384;
 const SESSION_PATCH_BODY_LIMIT = 4_096;

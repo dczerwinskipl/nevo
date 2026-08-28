@@ -1,4 +1,4 @@
-import { AiError, AiValidationError, publicAiError } from '../../../../ai/contracts.mjs';
+import { AiError, AiValidationError, publicAiError } from '../../../ai/contracts.mjs';
 
 export const PROVIDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 export const TURN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;

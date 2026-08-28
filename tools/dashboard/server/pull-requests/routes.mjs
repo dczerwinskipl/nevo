@@ -21,12 +21,15 @@ function rejectUnknownSource(reply, source) {
 /**
  * The pull-requests capability: constructs its own GitHub-backed service
  * locally. GitHub is the only source today — no registry, just direct
- * composition (`config.pullRequests?.provider` exists purely as a test
- * seam, the same shape the rest of the dependencies use).
+ * composition. `provider` is this plugin's own local override option — a
+ * feature-level test seam for registering this capability directly on a
+ * bare Fastify instance — never routed through `buildDashboardApp()`'s
+ * `config`; real usage never passes one, so the real GitHub provider always
+ * applies.
  */
-export default async function pullRequestRoutes(fastify, { config = {} } = {}) {
+export default async function pullRequestRoutes(fastify, { config = {}, provider } = {}) {
   const service = createPullRequestService({
-    provider: config.pullRequests?.provider ?? createGitHubPullRequestProvider(),
+    provider: provider ?? createGitHubPullRequestProvider(),
     activeDir: config.activeDir,
     root: config.root,
   });

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 
 import { buildDashboardApp, listen } from './index.mjs';
-import { dashboardNetworkConfig } from './network-config.mjs';
+import { dashboardNetworkConfig } from './infrastructure/network-config.mjs';
 
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { host, port: uiPort, apiPort } = dashboardNetworkConfig();

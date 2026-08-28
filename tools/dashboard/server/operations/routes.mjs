@@ -1,4 +1,4 @@
-import { OperationNotFoundError } from '../operations.mjs';
+import { OperationNotFoundError } from './runtime.mjs';
 
 const OPERATION_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]*$/i;
 
@@ -18,11 +18,14 @@ function validOperationId(request, reply) {
  * running action progress + resumable SSE) over HTTP. `operationRuntime` is
  * the one resource genuinely consumed by two independent capabilities
  * (specs actions write to it; this capability reads/streams from it), so
- * app.mjs constructs it once and passes the same instance here and to the
- * specs capability — see app.mjs's own comment for why that's the single
- * justified exception to "capabilities own their dependencies."
+ * app.mjs constructs one instance and decorates the root Fastify app with
+ * it (`fastify.operationRuntime`) — read here via that decoration, not as
+ * an explicit option app.mjs threads through registration. See app.mjs's
+ * own comment for why that's the single justified exception to
+ * "capabilities own their dependencies."
  */
-export default async function operationRoutes(fastify, { operationRuntime }) {
+export default async function operationRoutes(fastify) {
+  const { operationRuntime } = fastify;
   const activeConnections = new Set();
 
   fastify.get('/api/operations/:operationId', (request, reply) => {
@@ -148,11 +151,13 @@ export default async function operationRoutes(fastify, { operationRuntime }) {
   });
 
   // Draining open SSE connections is a Fastify request-lifecycle concern —
-  // `preClose` (see routes/events.mjs's own comment for why), which always
+  // `preClose` (see events/routes.mjs's own comment for why), which always
   // runs before any `onClose` hook, guaranteeing this drains before the
-  // runtime itself shuts down below (and, more importantly, before the
+  // shared runtime itself shuts down (and, more importantly, before the
   // specs capability's own `onClose`-independent `preClose` hook that aborts
   // in-flight actions has to compete with a runtime already shut down).
+  // The runtime's own shutdown is NOT this capability's job to call — app.mjs
+  // constructed it, so app.mjs owns tearing it down (see its own comment).
   fastify.addHook('preClose', async () => {
     for (const close of Array.from(activeConnections)) {
       try {
@@ -160,13 +165,5 @@ export default async function operationRoutes(fastify, { operationRuntime }) {
       } catch {}
     }
     activeConnections.clear();
-  });
-
-  fastify.addHook('onClose', async () => {
-    try {
-      operationRuntime.shutdown?.();
-    } catch (err) {
-      console.error('[server] error shutting down operation runtime:', err);
-    }
   });
 }

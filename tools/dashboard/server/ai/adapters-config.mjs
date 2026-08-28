@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { parseYamlFile } from '../../lib/yaml.mjs';
+import { parseYamlFile } from '../../../lib/yaml.mjs';
 
 export const DEFAULT_ANTIGRAVITY_RAW_DIRECTORY = '.nevo-ai-local/antigravity_raw';
 export const DEFAULT_AI_ADAPTERS_CONFIG_PATH = '.nevo-ai-local/ai-adapters.yaml';

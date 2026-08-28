@@ -1,7 +1,7 @@
-// tools/dashboard/server/operations.mjs — operation runtime, snapshot & resumable SSE transport
+// tools/dashboard/server/operations/runtime.mjs — operation runtime, snapshot & resumable SSE transport
 
 import { randomUUID } from 'node:crypto';
-import { parseProgressLine } from '../../lib/operation-progress.mjs';
+import { parseProgressLine } from '../../../lib/operation-progress.mjs';
 
 export class OperationNotFoundError extends Error {
   constructor(operationId) {

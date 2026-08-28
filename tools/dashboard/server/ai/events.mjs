@@ -5,7 +5,7 @@ import {
   validatedSessionId,
   writeSse,
 } from './shared.mjs';
-import { AiValidationError } from '../../../../ai/contracts.mjs';
+import { AiValidationError } from '../../../ai/contracts.mjs';
 
 export default async function aiEventRoutes(fastify, { service, accessPolicy }) {
   const activeConnections = new Set();

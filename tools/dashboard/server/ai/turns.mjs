@@ -7,7 +7,7 @@ import {
   validatedSegment,
   validatedSessionId,
 } from './shared.mjs';
-import { AiValidationError } from '../../../../ai/contracts.mjs';
+import { AiValidationError } from '../../../ai/contracts.mjs';
 
 const TURN_BODY_LIMIT = 128 * 1024;
 const CANCEL_BODY_LIMIT = 512;

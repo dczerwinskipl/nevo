@@ -12,7 +12,7 @@ import {
   loadTaskStatuses,
   safeChildPath,
   stripFrontMatter,
-} from '../server/data.mjs';
+} from '../server/specs/data.mjs';
 
 function fixture() {
   const root = join(tmpdir(), `nevo-dashboard-${process.pid}-${Date.now()}`);

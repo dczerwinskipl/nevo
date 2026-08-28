@@ -1,24 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import eventsRoutes from '../server/events/routes.mjs';
 
-test('serves GET /api/events with SSE headers, connected event, eventHub subscription, and rejects POST with the generic API 404', async () => {
-  let subscriber = null;
-  let unsubscribed = false;
-  const fakeHub = {
-    subscribe: (fn) => {
-      subscriber = fn;
-      return () => { unsubscribed = true; };
-    },
-    close: () => {},
-  };
-
-  const server = await buildDashboardApp({
-    config: {
-      events: { eventHub: fakeHub },
-      distDir: 'Z:/does-not-exist',
-    },
-  });
+test('full app: GET /api/events opens an SSE stream and POST falls through to the generic API 404', async () => {
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -34,43 +22,73 @@ test('serves GET /api/events with SSE headers, connected event, eventHub subscri
     assert.equal(res.headers.get('connection'), 'keep-alive');
 
     const reader = res.body.getReader();
-    const decoder = new TextDecoder();
     const { value: firstChunk } = await reader.read();
-    const text = decoder.decode(firstChunk);
-    assert.match(text, /event: connected/);
-
-    assert.equal(typeof subscriber, 'function');
-    subscriber({ type: 'specs-changed', slug: 'sample' });
-    const { value: secondChunk } = await reader.read();
-    const text2 = decoder.decode(secondChunk);
-    assert.match(text2, /event: specs-changed/);
+    assert.match(new TextDecoder().decode(firstChunk), /event: connected/);
 
     controller.abort();
-    await new Promise(r => setTimeout(r, 50));
-    assert.equal(unsubscribed, true);
   } finally {
     await new Promise(resolvePromise => server.close(resolvePromise));
   }
 });
 
-test('server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
-  let unsubscribeCallCount = 0;
+// `eventHub` is the events slice's own local override option (see
+// events/routes.mjs's own comment) — a feature-level test seam, exercised
+// here by registering just this one capability on a bare Fastify instance
+// (with the same global JSON/error-handling infra app.mjs installs), never
+// routed through `buildDashboardApp()`.
+async function buildEventsTestApp({ eventHub }) {
+  const app = Fastify({ bodyLimit: 4096 });
+  registerGlobalHttpInfrastructure(app);
+  await app.register(eventsRoutes, { eventHub });
+  return app;
+}
+
+test('events slice: SSE subscribes to the eventHub, forwards its events, and unsubscribes once on client disconnect', async () => {
+  let subscriber = null;
+  let unsubscribed = false;
   const fakeHub = {
-    subscribe: () => {
-      return () => {
-        unsubscribeCallCount++;
-      };
+    subscribe: (fn) => {
+      subscriber = fn;
+      return () => { unsubscribed = true; };
     },
     close: () => {},
   };
 
-  const server = await buildDashboardApp({
-    config: {
-      events: { eventHub: fakeHub },
-      distDir: 'Z:/does-not-exist',
-    },
-  });
-  const baseUrl = await listen(server, { port: 0 });
+  const app = await buildEventsTestApp({ eventHub: fakeHub });
+  const baseUrl = await app.listen({ port: 0 });
+
+  try {
+    const controller = new AbortController();
+    const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
+    assert.equal(res.status, 200);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const { value: firstChunk } = await reader.read();
+    assert.match(decoder.decode(firstChunk), /event: connected/);
+
+    assert.equal(typeof subscriber, 'function');
+    subscriber({ type: 'specs-changed', slug: 'sample' });
+    const { value: secondChunk } = await reader.read();
+    assert.match(decoder.decode(secondChunk), /event: specs-changed/);
+
+    controller.abort();
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(unsubscribed, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('events slice: server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
+  let unsubscribeCallCount = 0;
+  const fakeHub = {
+    subscribe: () => () => { unsubscribeCallCount++; },
+    close: () => {},
+  };
+
+  const app = await buildEventsTestApp({ eventHub: fakeHub });
+  const baseUrl = await app.listen({ port: 0 });
 
   // Open a real persistent SSE connection without aborting it
   const res = await fetch(`${baseUrl}/api/events`);
@@ -82,7 +100,7 @@ test('server shutdown closes open SSE connections and cleans subscriptions exact
   assert.match(new TextDecoder().decode(firstChunk), /event: connected/);
 
   // Initiate graceful server close while client SSE connection is actively open
-  const closePromise = new Promise((resolvePromise) => server.close(resolvePromise));
+  const closePromise = app.close();
 
   // The reader must receive stream completion (done: true) because server closes the SSE response
   const { done: streamEnded } = await reader.read();

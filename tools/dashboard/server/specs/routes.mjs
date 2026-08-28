@@ -1,11 +1,11 @@
-import { SpecificationActionError } from '../actions.mjs';
-import { createSpecsCapability } from '../specs-capability.mjs';
+import { SpecificationActionError } from './actions.mjs';
+import { createSpecsCapability } from './service.mjs';
 import {
   SpecValidationError,
   SpecConflictError,
   SpecRollbackError,
 } from '../../../specs/identity.mjs';
-import { HttpError } from '../http-utils.mjs';
+import { HttpError } from './http-utils.mjs';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
@@ -27,14 +27,19 @@ function rejectSource(reply, source, allowed) {
 
 /**
  * The specs capability: constructs its own application-layer service
- * (data/actions/identity composition — see specs-capability.mjs) locally.
- * `operationRuntime` is the one exception passed in from the root — see
- * routes/operations.mjs's own comment for why it's genuinely shared.
+ * (data/actions/identity composition — see service.mjs) locally.
+ * `operationRuntime` is the one exception, read from the shared
+ * `fastify.operationRuntime` decoration the app root installs (see
+ * app.mjs's own comment for why it's genuinely shared) — not threaded
+ * through `config`, and not this plugin's own dependency to construct.
+ * `actionExecutor` is a local override for feature-level tests only; real
+ * usage never passes one, so `createSpecActionsCapability`'s own default
+ * (the real `executeSpecificationAction`) applies.
  */
-export default async function specsRoutes(fastify, { config = {}, operationRuntime } = {}) {
+export default async function specsRoutes(fastify, { config = {}, actionExecutor } = {}) {
   const service = createSpecsCapability({
-    operationRuntime,
-    actionExecutor: config.specs?.actionExecutor,
+    operationRuntime: fastify.operationRuntime,
+    actionExecutor,
     activeDir: config.activeDir,
     root: config.root,
   });
@@ -202,7 +207,7 @@ export default async function specsRoutes(fastify, { config = {}, operationRunti
   // action work tied to an AbortController, so it is the only one that
   // needs to abort and await that work on shutdown. `preClose` (runs before
   // any `onClose` hook) so it always finishes before the shared
-  // `operationRuntime` shuts down in routes/operations.mjs.
+  // `operationRuntime` shuts down (see operations/routes.mjs's own comment).
   fastify.addHook('preClose', async () => {
     await service.shutdown();
   });

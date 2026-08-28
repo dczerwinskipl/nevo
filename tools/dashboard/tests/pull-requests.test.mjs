@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildDashboardApp, listen } from '../server/index.mjs';
-function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
 test('serves provider-neutral pull request results through an exact read-only route', async () => {
   const server = await buildDashboardApp({
-    config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' },
+    config: { distDir: 'Z:/does-not-exist' },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
@@ -29,7 +28,7 @@ test('serves provider-neutral pull request results through an exact read-only ro
 });
 test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
   const server = await buildDashboardApp({
-    config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' },
+    config: { distDir: 'Z:/does-not-exist' },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {

@@ -8,7 +8,7 @@ import {
   executeSpecificationAction,
   loadSpecificationActions,
   SpecificationActionError,
-} from '../server/actions.mjs';
+} from '../server/specs/actions.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function fixture() {
@@ -199,7 +199,7 @@ test('revalidates owner actions and requires finalize confirmation', () => {
 });
 
 test('dashboard server code does not import tools/specs.mjs and has no obsolete CLI subprocess spawner', () => {
-  const actionsSrc = readFileSync(new URL('../server/actions.mjs', import.meta.url), 'utf8');
+  const actionsSrc = readFileSync(new URL('../server/specs/actions.mjs', import.meta.url), 'utf8');
   assert.equal(actionsSrc.includes("from '../../specs.mjs'"), false);
   assert.equal(actionsSrc.includes('from "../../specs.mjs"'), false);
   assert.equal(actionsSrc.includes("from '../specs.mjs'"), false);

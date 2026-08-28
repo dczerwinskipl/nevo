@@ -1,6 +1,6 @@
 import { ACTIVE_DIR, ARCHIVE_DIR, loadChange } from '../../../specs/store.mjs';
-import { REPOSITORY_ROOT } from '../data.mjs';
-import { loadChangeViewConfig } from '../change-view-config.mjs';
+import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
+import { loadChangeViewConfig } from './change-view-config.mjs';
 import { createGitHubPullRequestProvider } from './github.mjs';
 
 function publicReference(reference) {

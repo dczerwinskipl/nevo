@@ -499,7 +499,7 @@ test('Multi-spec session deletion: unbindSession removes session identity from A
 });
 
 test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi-spec bindings and transcript globally', async () => {
-  const { buildDashboardApp } = await import('../../tools/dashboard/server/index.mjs');
+  const { buildAiTestApp } = await import('../../tools/dashboard/tests/helpers/ai-test-app.mjs');
   const { AiSessionService } = await import('../../tools/ai/service.mjs');
   const { SessionTranscriptCacheService } = await import('../../tools/ai/transcript-cache.mjs');
   const { createAiAdapterRegistry } = await import('../../tools/ai/registry.mjs');
@@ -530,13 +530,7 @@ test('HTTP DELETE /api/agent-sessions/:provider/:providerSessionId deletes multi
     // 2. Dispatch DELETE request through the real Fastify app (app.inject(),
     // no network port) — the dashboard's AI capability is a real Fastify
     // route, not a hand-dispatched function to call directly.
-    const app = await buildDashboardApp({
-      config: {
-        ai: { service: aiService, accessPolicy: () => true },
-        events: { eventHub: { subscribe: () => () => {}, close: () => {} } },
-        distDir: 'Z:/does-not-exist',
-      },
-    });
+    const app = await buildAiTestApp({ service: aiService, accessPolicy: () => true });
     try {
       const res = await app.inject({
         method: 'DELETE',

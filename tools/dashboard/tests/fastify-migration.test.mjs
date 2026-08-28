@@ -4,11 +4,10 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import Fastify from 'fastify';
 import { buildDashboardApp } from '../server/index.mjs';
-
-function fakeHub() {
-  return { subscribe: () => () => {}, close: () => {} };
-}
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import specsRoutes from '../server/specs/routes.mjs';
 
 // Characterization coverage specific to the Fastify migration (Task 09) —
 // exercised via `app.inject()`, never a real network port. Behavior already
@@ -17,15 +16,15 @@ function fakeHub() {
 // duplicated here.
 
 test('an unexpected actionExecutor failure is mapped by the specs capability\'s own local catch, not left to hang', async () => {
-  const app = await buildDashboardApp({
-    config: {
-      events: { eventHub: fakeHub() },
-      distDir: 'Z:/does-not-exist',
-      specs: {
-        actionExecutor: () => {
-          throw new Error('boom: unexpected failure unrelated to any known domain error');
-        },
-      },
+  // `actionExecutor` is the specs slice's own local override option (see
+  // specs/routes.mjs's own comment) — exercised here by registering just
+  // this one capability on a bare Fastify instance, never routed through
+  // `buildDashboardApp()`.
+  const app = Fastify({ bodyLimit: 4096 });
+  registerGlobalHttpInfrastructure(app);
+  await app.register(specsRoutes, {
+    actionExecutor: () => {
+      throw new Error('boom: unexpected failure unrelated to any known domain error');
     },
   });
   try {
@@ -46,7 +45,7 @@ test('an unexpected actionExecutor failure is mapped by the specs capability\'s 
 });
 
 test('a truly uncaught error reaches the shared Fastify error handler as a generic 500', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   app.get('/__test/boom', async () => {
     throw new Error('unexpected internal failure');
   });
@@ -60,7 +59,7 @@ test('a truly uncaught error reaches the shared Fastify error handler as a gener
 });
 
 test('the default 4096-byte body limit applies to non-AI routes and rejects oversized JSON with 413', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({
       method: 'POST',
@@ -76,7 +75,7 @@ test('the default 4096-byte body limit applies to non-AI routes and rejects over
 });
 
 test('malformed JSON on the default body parser yields the exact old 400 message', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({
       method: 'POST',
@@ -92,7 +91,7 @@ test('malformed JSON on the default body parser yields the exact old 400 message
 });
 
 test('an empty POST body parses as an empty object, matching the old readJsonBody contract', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({ method: 'POST', url: '/api/specs' });
     // No `slug` in an empty body reaches domain validation (not the
@@ -107,7 +106,7 @@ test('an empty POST body parses as an empty object, matching the old readJsonBod
 });
 
 test('HEAD falls through to the generic API 404 (no auto-HEAD, no custom method-fallback machinery)', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({ method: 'HEAD', url: '/api/health' });
     assert.equal(res.statusCode, 404);
@@ -117,7 +116,7 @@ test('HEAD falls through to the generic API 404 (no auto-HEAD, no custom method-
 });
 
 test('a source outside {active, archive} falls through to the generic API-not-found 404, not a resource-specific one', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({ method: 'GET', url: '/api/specs/bogus-source/refaktoring-tooli/content' });
     assert.equal(res.statusCode, 404);
@@ -133,7 +132,7 @@ test('static caching distinguishes index.html (no-cache) from versioned assets (
   writeFileSync(join(tmpDist, 'index.html'), '<!doctype html><html><body>Test</body></html>');
   writeFileSync(join(tmpDist, 'app.abc123.js'), 'console.log("app");');
 
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: tmpDist } });
+  const app = await buildDashboardApp({ config: { distDir: tmpDist } });
   try {
     const index = await app.inject({ method: 'GET', url: '/' });
     assert.equal(index.statusCode, 200);
@@ -155,7 +154,7 @@ test('static caching distinguishes index.html (no-cache) from versioned assets (
 });
 
 test('graceful shutdown via app.close() completes deterministically and rejects new requests while closing', async () => {
-  const app = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const res = await app.inject({ method: 'GET', url: '/api/health' });
   assert.equal(res.statusCode, 200);
   await app.close();

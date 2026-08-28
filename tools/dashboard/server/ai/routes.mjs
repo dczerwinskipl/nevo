@@ -1,7 +1,7 @@
 import {
   createDefaultDashboardAiService,
   createTrustedNetworkAiAccessPolicy,
-} from '../../ai-services.mjs';
+} from './services.mjs';
 import { aiErrorHandler } from './shared.mjs';
 import providerRoutes from './providers.mjs';
 import sessionRoutes from './sessions.mjs';
@@ -13,14 +13,15 @@ import aiEventRoutes from './events.mjs';
  * AI/agent-session capability entry point. Constructs the AI service and
  * access policy locally — the application root (app.mjs) never sees them —
  * and registers one real Fastify route per concern (providers, sessions,
- * turns, interactions, events). `config.ai` is this capability's own,
- * opaque-to-the-root override namespace: tests pass a stub `service`
- * through it; app.mjs never reads or forwards individual fields out of it.
+ * turns, interactions, events). `service`/`accessPolicy` are this plugin's
+ * own local override options — a feature-level test seam for registering
+ * this capability directly on a bare Fastify instance — never routed
+ * through `buildDashboardApp()`'s `config`; real usage never passes them,
+ * so the real defaults below always apply.
  */
-export default async function aiRoutes(fastify, { config = {} } = {}) {
-  const aiConfig = config.ai || {};
-  const service = aiConfig.service ?? (aiConfig.serviceFactory ?? createDefaultDashboardAiService)();
-  const accessPolicy = aiConfig.accessPolicy ?? createTrustedNetworkAiAccessPolicy();
+export default async function aiRoutes(fastify, { config = {}, service: serviceOverride, accessPolicy: accessPolicyOverride } = {}) {
+  const service = serviceOverride ?? createDefaultDashboardAiService();
+  const accessPolicy = accessPolicyOverride ?? createTrustedNetworkAiAccessPolicy();
 
   let reconciliationPromise = null;
   const ensureReconciled = () => {

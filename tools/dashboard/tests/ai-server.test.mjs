@@ -11,14 +11,11 @@ import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
 import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
-import { buildDashboardApp, listen } from '../server/index.mjs';
-import { createDefaultDashboardAiService } from '../server/ai-services.mjs';
+import { listen } from '../server/index.mjs';
+import { createDefaultDashboardAiService } from '../server/ai/services.mjs';
+import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
-
-function fakeHub() {
-  return { subscribe: () => () => {}, close: () => {} };
-}
 
 // Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
 // boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
@@ -79,15 +76,9 @@ async function closeServer(server) {
 test('Agent session routes expose the complete provider-neutral session and turn lifecycle', async () => {
   const policyCalls = [];
   const { service } = createStack();
-  const server = await buildDashboardApp({
-    config: {
-      ai: {
-        service,
-        accessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
-      },
-      events: { eventHub: fakeHub() },
-      distDir: 'Z:/does-not-exist',
-    },
+  const server = await buildAiTestApp({
+    service,
+    accessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -221,13 +212,7 @@ adapters:
 
 test('durable session history remains readable after its adapter is disabled', async () => {
   const { service } = createStack();
-  const server = await buildDashboardApp({
-    config: {
-      ai: { service, accessPolicy: () => true },
-      events: { eventHub: fakeHub() },
-      distDir: 'Z:/does-not-exist',
-    },
-  });
+  const server = await buildAiTestApp({ service, accessPolicy: () => true });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -276,7 +261,7 @@ test('default dashboard AI service registers no adapters when the local config i
 
 test('Session SSE replays events, preserves pending interaction, and resolves via session endpoint', async () => {
   const { service } = createStack();
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -334,7 +319,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
 
 test('single-active-turn and stable question correlation are enforced through HTTP', async () => {
   const { service } = createStack();
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -384,7 +369,7 @@ test('single-active-turn and stable question correlation are enforced through HT
 
 test('AI controls validate methods, guards, traversal, malformed and oversized input, and explicit cancellation', async () => {
   const { service } = createStack();
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -418,7 +403,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
 test('session control endpoints enforce strict correlation between provider, session, turn, and interaction', async () => {
   const { service } = createStack();
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -496,7 +481,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 1: Server 1 runs, turn reaches waitingForUser
   const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
   const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
-  const server1 = await buildDashboardApp({ config: { ai: { service: service1 }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
 
   let turnIdAlpha;
@@ -527,7 +512,7 @@ test('pending interaction can be resolved after server restart retaining persist
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
   const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
   const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
-  const server2 = await buildDashboardApp({ config: { ai: { service: service2 }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
 
   try {
@@ -604,13 +589,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
     const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
     const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
-    const server = await buildDashboardApp({
-      config: {
-        ai: { service },
-        events: { eventHub: fakeHub() },
-        distDir: 'Z:/does-not-exist',
-      },
-    });
+    const server = await buildAiTestApp({ service });
     return { server, service, bindingService };
   };
 
@@ -708,7 +687,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
   const specId = 'a1111111-1111-4111-a111-111111111111';
 
   const { service } = createStack({ storageDir });
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -758,7 +737,7 @@ test('AC9: Cross-spec session binding isolation (D10) never produces merged task
   const sharedSessionId = 'shared-agent-session-42';
 
   const { service } = createStack({ storageDir });
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -844,7 +823,7 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
   const storageDir = join(tmpDir, 'sessions');
   const { service } = createStack({ storageDir });
-  const server = await buildDashboardApp({ config: { ai: { service }, events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -906,3 +885,19 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
 });
 
 
+
+test('ai slice: registered service is shut down when the app closes', async () => {
+  let shutdownCalled = false;
+  const { service } = createStack();
+  const originalShutdown = service.shutdown.bind(service);
+  service.shutdown = async () => {
+    shutdownCalled = true;
+    await originalShutdown();
+  };
+
+  const server = await buildAiTestApp({ service });
+  await server.listen({ port: 0 });
+  await server.close();
+
+  assert.equal(shutdownCalled, true, 'AI service was shut down when the app closed');
+});

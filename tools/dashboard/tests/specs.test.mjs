@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
-function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import specsRoutes from '../server/specs/routes.mjs';
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
@@ -18,7 +20,7 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
   }
 });
 test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
@@ -36,7 +38,7 @@ test('serves exact specification manifest routes without leaking lookup failures
   }
 });
 test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
@@ -54,7 +56,7 @@ test('serves exact per-document content routes without leaking lookup failures',
   }
 });
 test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
@@ -72,7 +74,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
   }
 });
 test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = await buildDashboardApp({ config: { events: { eventHub: fakeHub() }, distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);
@@ -131,34 +133,41 @@ test('specs route adapter manages AbortController and completion settlement duri
     },
   };
 
-  const server = await buildDashboardApp({
-    config: {
-      events: { eventHub: fakeHub() },
-      distDir: 'Z:/does-not-exist',
-      operations: { operationRuntime: fakeOperationRuntime },
-      specs: {
-        actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
-          capturedSignal = signal;
-          const wrappedCompletion = (async () => {
-            await actionDone;
-            actionSettled = true;
-            eventsOrder.push({ type: 'action-settled' });
-          })();
+  // `operationRuntime` here mirrors app.mjs's own decoration + onClose
+  // shutdown hook exactly (see app.mjs's own comment) — this test verifies
+  // the cross-cutting Fastify guarantee (every `preClose` hook across every
+  // plugin runs before any `onClose` hook, regardless of registration
+  // order) that ordering actually depends on, without needing the full
+  // composed app. `actionExecutor` is specs/routes.mjs's own local override
+  // option (see its own comment).
+  const server = Fastify({ bodyLimit: 4096 });
+  registerGlobalHttpInfrastructure(server);
+  server.decorate('operationRuntime', fakeOperationRuntime);
+  server.addHook('onClose', async () => {
+    fakeOperationRuntime.shutdown();
+  });
+  await server.register(specsRoutes, {
+    config: {},
+    actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
+      capturedSignal = signal;
+      const wrappedCompletion = (async () => {
+        await actionDone;
+        actionSettled = true;
+        eventsOrder.push({ type: 'action-settled' });
+      })();
 
-          return {
-            ok: true,
-            operationId: 'op-abort-test',
-            action,
-            taskId,
-            message: 'Started',
-            completion: wrappedCompletion,
-          };
-        },
-      },
+      return {
+        ok: true,
+        operationId: 'op-abort-test',
+        action,
+        taskId,
+        message: 'Started',
+        completion: wrappedCompletion,
+      };
     },
   });
 
-  const baseUrl = await listen(server, { port: 0 });
+  const baseUrl = await server.listen({ port: 0 });
 
   try {
     const res = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {

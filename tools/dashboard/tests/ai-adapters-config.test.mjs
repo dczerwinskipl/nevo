@@ -8,7 +8,7 @@ import {
   DEFAULT_AI_ADAPTERS_CONFIG_PATH,
   DEFAULT_ANTIGRAVITY_RAW_DIRECTORY,
   loadAiAdaptersConfig,
-} from '../server/ai-adapters-config.mjs';
+} from '../server/ai/adapters-config.mjs';
 
 test('AI adapter config disables every adapter and raw capture when the local YAML file is absent', async () => {
   const repoRoot = await mkdtemp(join(tmpdir(), 'nevo-ai-adapters-default-'));

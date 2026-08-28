@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createSpecEventHub, isRelevantSpecPath } from '../server/watcher.mjs';
+import { createSpecEventHub, isRelevantSpecPath } from '../server/events/watcher.mjs';
 import { ACTIVE_DIR } from '../../specs/store.mjs';
 
 test('recognizes source files that should trigger a refresh', () => {

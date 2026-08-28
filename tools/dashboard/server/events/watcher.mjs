@@ -1,6 +1,6 @@
 import { existsSync, watch } from 'node:fs';
 
-import { ACTIVE_DIR, ARCHIVE_DIR } from '../../specs/store.mjs';
+import { ACTIVE_DIR, ARCHIVE_DIR } from '../../../specs/store.mjs';
 
 export function isRelevantSpecPath(fileName) {
   if (!fileName) return true;

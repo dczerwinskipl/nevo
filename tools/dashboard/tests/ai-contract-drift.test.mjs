@@ -9,7 +9,8 @@ import { createAiAdapterRegistry } from '../../ai/registry.mjs';
 import { createAiSessionService } from '../../ai/service.mjs';
 import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
 import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
-import { buildDashboardApp, listen } from '../server/index.mjs';
+import { listen } from '../server/index.mjs';
+import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -33,13 +34,7 @@ async function createServer() {
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`) });
   const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
   const aiService = createAiSessionService({ registry, turnRuntime, transcriptCache });
-  const server = await buildDashboardApp({
-    config: {
-      ai: { service: aiService },
-      events: { eventHub: { subscribe: () => () => {}, close: () => {} } },
-      distDir: 'Z:/does-not-exist',
-    },
-  });
+  const server = await buildAiTestApp({ service: aiService });
   return { server, aiService };
 }
 

@@ -10,7 +10,7 @@ import {
   CodexAgentProvider,
   createCodexAgentProvider,
 } from '../ai/codex-adapter.mjs';
-import { createDefaultDashboardAiService } from '../dashboard/server/ai-services.mjs';
+import { createDefaultDashboardAiService } from '../dashboard/server/ai/services.mjs';
 
 function tick() {
   return new Promise(resolve => setImmediate(resolve));

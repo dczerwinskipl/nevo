@@ -7,14 +7,8 @@ import { buildDashboardApp, listen } from '../server/index.mjs';
 import { ACTIVE_DIR } from '../../specs/store.mjs';
 import { refreshSpecsIndexes } from '../../specs/indexes.mjs';
 
-function fakeHub() {
-  return { subscribe: () => () => {}, close: () => {} };
-}
-
 async function startTestServer() {
-  const server = await buildDashboardApp({
-    config: { events: { eventHub: fakeHub() } },
-  });
+  const server = await buildDashboardApp({ config: {} });
 
   const baseUrl = await listen(server, { port: 0 });
 
