@@ -1,47 +1,31 @@
-// Genuinely application-wide HTTP infrastructure — the common JSON body
-// parser and the generic transport-level error handler every capability
-// inherits. Exported (not inlined in app.mjs) so slice-level tests that
-// bypass `buildDashboardApp()` to exercise a single capability's `routes.mjs`
-// directly can still stand up the same parsing/error-handling behavior a
-// capability actually runs under, without duplicating it.
+import fastifySse from '@fastify/sse';
 
-// Content-type-agnostic JSON body reader: any content-type is accepted, an
-// empty body parses as `{}`, and Fastify's own `parseAs: 'string'`
-// accumulation enforces `bodyLimit` for us. Defined exactly once — no
-// capability registers an equivalent parser of its own; a capability that
-// needs its own error *shape* for a parse/size failure maps it in its own
-// `setErrorHandler`, inheriting this same parser (see ai/shared.mjs).
-function permissiveJsonParser(_request, body, done) {
-  if (!body) {
-    done(null, {});
-    return;
-  }
-  try {
-    done(null, JSON.parse(body));
-  } catch {
-    const error = new Error('Request body must be valid JSON.');
-    error.statusCode = 400;
-    done(error);
-  }
-}
+// Genuinely application-wide HTTP infrastructure — Fastify's own standard
+// JSON body parsing, SSE transport (@fastify/sse), and a generic
+// transport-level error handler every capability inherits. Exported (not
+// inlined in app.mjs) so slice-level tests that bypass `buildDashboardApp()`
+// to exercise a single capability's `routes.mjs` directly can still stand up
+// the same infrastructure a capability actually runs under, without
+// duplicating it.
+export async function registerGlobalHttpInfrastructure(app) {
+  // No custom content-type parser: `Content-Type: application/json` already
+  // gets Fastify's own built-in JSON parsing (empty body -> 400
+  // FST_ERR_CTP_EMPTY_JSON_BODY, malformed JSON -> 400
+  // FST_ERR_CTP_INVALID_JSON_BODY, both already shaped by the error handler
+  // below). A request with an unrelated content-type (text/plain,
+  // application/octet-stream, ...) is never silently treated as JSON —
+  // every dashboard consumer already sends `content-type: application/json`
+  // on every request that carries a body.
+  await app.register(fastifySse);
 
-export function registerGlobalHttpInfrastructure(app) {
-  // `removeAllContentTypeParsers` first: otherwise Fastify's own built-in
-  // `application/json`/`text/plain` parsers would still claim requests
-  // carrying those headers before our catch-all ever runs (Fastify resolves
-  // an exact content-type match before falling back to a `'*'` registration
-  // in the same scope).
-  app.removeAllContentTypeParsers();
-  app.addContentTypeParser('*', { parseAs: 'string' }, permissiveJsonParser);
-
-  // Small and generic on purpose: only transport-level concerns (body too
-  // large, malformed body, truly unexpected failures). Each capability maps
-  // its own domain errors before they ever reach this handler.
+  // Small and generic on purpose: only transport-level concerns (a known
+  // 4xx from Fastify's own body parsing, or a truly unexpected failure).
+  // Each capability maps its own domain errors before they ever reach this
+  // handler. Kept because the frontend depends on `{ error: <message> }` —
+  // Fastify's own default error shape puts the HTTP reason phrase (e.g.
+  // "Bad Request") in `.error` and the actual message in `.message`, which
+  // does not match what dashboard consumers already parse.
   app.setErrorHandler((error, request, reply) => {
-    if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
-      reply.code(413).send({ error: 'Request body is too large.' });
-      return;
-    }
     if (typeof error.statusCode === 'number' && error.statusCode < 500) {
       reply.code(error.statusCode).send({ error: error.message });
       return;

@@ -16,10 +16,6 @@ import { fileURLToPath } from 'node:url';
 
 const serverDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'server');
 
-// Every dashboard server capability lives as a sibling vertical slice
-// directly under `server/`, each with a `routes.mjs` HTTP entry point.
-const CAPABILITY_DIRS = ['ai', 'events', 'health', 'operations', 'pull-requests', 'specs'];
-
 function listMjsFiles(dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -30,15 +26,42 @@ function listMjsFiles(dir) {
   return files;
 }
 
+// Vertical slices are discovered, not hardcoded: any direct subdirectory of
+// `server/` whose own convention-named `routes.mjs` entry point exists is a
+// capability. This is the same rule @fastify/autoload itself uses to find
+// capabilities (see app.mjs) — a future capability folder is automatically
+// covered by every check below without anyone updating a list here.
+// `infrastructure/` (and anything else with no `routes.mjs`) is excluded by
+// construction, not by name.
+function discoverCapabilityDirs() {
+  return readdirSync(serverDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .filter(name => existsSync(join(serverDir, name, 'routes.mjs')))
+    .sort();
+}
+
+const CAPABILITY_DIRS = discoverCapabilityDirs();
 const capabilityFiles = CAPABILITY_DIRS.flatMap(dir => listMjsFiles(join(serverDir, dir)));
 
 // Files where `reply.hijack()`/`reply.raw` is legitimate: genuine SSE
-// streaming boundaries, not a substitute for Fastify's own routing.
-const KNOWN_SSE_FILES = new Set([
-  join(serverDir, 'events', 'routes.mjs'),
-  join(serverDir, 'operations', 'routes.mjs'),
-  join(serverDir, 'ai', 'events.mjs'),
-]);
+// streaming boundaries, not a substitute for Fastify's own routing. (No
+// longer applicable now that @fastify/sse owns SSE transport — kept as an
+// explicit empty allow-list so a future raw hijack anywhere is always
+// flagged, not silently allowed by an accidentally-stale entry.)
+const KNOWN_SSE_FILES = new Set();
+
+test('capability discovery finds the real vertical slices, and only those', () => {
+  assert.ok(CAPABILITY_DIRS.length > 0, 'discovery found zero capability directories — the walk itself is broken.');
+  assert.ok(
+    !CAPABILITY_DIRS.includes('infrastructure'),
+    'infrastructure/ was discovered as a capability — it must have no routes.mjs of its own; domain-specific code does not belong there.',
+  );
+  assert.ok(
+    !CAPABILITY_DIRS.includes('events'),
+    'events/ still exists as a top-level capability — spec-change watching/notifications belong inside specs/ (see specs/events.mjs), not a fake standalone "Events" capability.',
+  );
+});
 
 test('no dashboard capability module uses fastify.all(...) as its normal routing pattern', () => {
   for (const file of capabilityFiles) {
@@ -68,15 +91,21 @@ test('no custom 405 method-fallback machinery exists (an unsupported method fall
   );
 });
 
-test('reply.hijack()/reply.raw is confined to genuine SSE streaming boundaries', () => {
+test('reply.hijack()/reply.raw/manual SSE framing is gone — @fastify/sse owns SSE transport', () => {
   for (const file of capabilityFiles) {
     const source = readFileSync(file, 'utf8');
-    if (/reply\.hijack\(\)/.test(source)) {
-      assert.ok(
-        KNOWN_SSE_FILES.has(file),
-        `${file} calls reply.hijack() but is not a recognized SSE route file — normal JSON API routes must stay inside Fastify's request/reply lifecycle.`,
-      );
-    }
+    assert.ok(
+      !/reply\.hijack\(\)/.test(source) || KNOWN_SSE_FILES.has(file),
+      `${file} calls reply.hijack() — SSE routes should use @fastify/sse (\`{ sse: 'only' }\` + \`reply.sse\`), not raw response hijacking.`,
+    );
+    assert.ok(
+      !/response\.writeHead\(|reply\.raw\.writeHead\(/.test(source),
+      `${file} manually writes SSE response headers — @fastify/sse already sends Content-Type/Cache-Control/Connection headers on the first reply.sse.send()/stream() call.`,
+    );
+    assert.ok(
+      !/writeSse\s*\(/.test(source),
+      `${file} calls a manual writeSse() helper — use reply.sse.send({ id, event, data }) instead; the manual SSE-framing helper should have been deleted once every consumer migrated.`,
+    );
   }
 });
 
@@ -100,7 +129,7 @@ test('the retired handwritten AI dispatcher no longer exists', () => {
   assert.equal(existsSync(join(serverDir, 'ai', 'routes.mjs')), true, 'ai/routes.mjs (the real Fastify-route AI capability entry point) should exist.');
 });
 
-test('every capability follows the same vertical-slice convention: a sibling folder under server/ with a routes.mjs entry point', () => {
+test('every discovered capability uses the same "routes.mjs" entry-point name', () => {
   for (const dir of CAPABILITY_DIRS) {
     assert.equal(
       existsSync(join(serverDir, dir, 'routes.mjs')),
@@ -133,8 +162,9 @@ test('app.mjs only owns the lifecycle hook for the one genuinely shared resource
 test('app.mjs does not import or enumerate normal capabilities', () => {
   const appSource = readFileSync(join(serverDir, 'app.mjs'), 'utf8');
   for (const dir of CAPABILITY_DIRS) {
-    // `operations/runtime.mjs` is the one sanctioned exception (the shared
-    // operationRuntime factory, not a route entry point) — importing a
+    // `infrastructure/operation-runtime.mjs` is the one sanctioned exception
+    // (the shared operationRuntime factory — genuinely application-wide
+    // infrastructure, not a capability route entry point) — importing a
     // capability's own `routes.mjs` by name is exactly the "central
     // capability registry" this checks against.
     assert.ok(
@@ -172,3 +202,10 @@ test('config is not used as a service locator for constructed feature-private de
   }
 });
 
+test('the removed global permissive JSON parser has no remaining trace', () => {
+  const source = readFileSync(join(serverDir, 'infrastructure', 'http.mjs'), 'utf8');
+  assert.ok(
+    !/removeAllContentTypeParsers|addContentTypeParser/.test(source),
+    'infrastructure/http.mjs still registers a custom content-type parser — Fastify\'s own application/json parsing should be used instead (see its own comment).',
+  );
+});

@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import autoLoad from '@fastify/autoload';
 
 import { registerGlobalHttpInfrastructure } from './infrastructure/http.mjs';
-import { createOperationRuntime } from './operations/runtime.mjs';
+import { createOperationRuntime } from './infrastructure/operation-runtime.mjs';
 
 const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)));
@@ -113,7 +113,7 @@ function registerSharedOperationRuntime(app) {
 export async function buildDashboardApp({ config = {} } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 4096, exposeHeadRoutes: false });
 
-  registerGlobalHttpInfrastructure(app);
+  await registerGlobalHttpInfrastructure(app);
   registerSharedOperationRuntime(app);
 
   await app.register(autoLoad, {

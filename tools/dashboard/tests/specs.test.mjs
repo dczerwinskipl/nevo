@@ -141,7 +141,7 @@ test('specs route adapter manages AbortController and completion settlement duri
   // composed app. `actionExecutor` is specs/routes.mjs's own local override
   // option (see its own comment).
   const server = Fastify({ bodyLimit: 4096 });
-  registerGlobalHttpInfrastructure(server);
+  await registerGlobalHttpInfrastructure(server);
   server.decorate('operationRuntime', fakeOperationRuntime);
   server.addHook('onClose', async () => {
     fakeOperationRuntime.shutdown();

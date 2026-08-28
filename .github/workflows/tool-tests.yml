@@ -41,8 +41,18 @@ jobs:
         with:
           node-version-file: package.json
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/dashboard/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Install dashboard dependencies
+        # tools/dashboard is its own npm project (separate package-lock.json).
+        # Some tools/tests/*.test.mjs files exercise dashboard server code
+        # (e.g. agent-binding.test.mjs's HTTP test registers a real Fastify
+        # instance), so its dependencies (fastify, @fastify/*) must be
+        # installed too, not just the root project's.
+        run: npm --prefix tools/dashboard ci
       - name: Run tests
         run: |
           set +e
@@ -61,6 +71,8 @@ jobs:
         with:
           name: tool-tests-tap-log
           path: test-results.tap
+      - name: Run dashboard server/UI test suite
+        run: npm --prefix tools/dashboard test
       - name: Check generated specs indexes are current
         run: npm run specs:check
       - name: Check generated docs indexes are current

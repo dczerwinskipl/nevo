@@ -21,7 +21,7 @@ test('an unexpected actionExecutor failure is mapped by the specs capability\'s 
   // this one capability on a bare Fastify instance, never routed through
   // `buildDashboardApp()`.
   const app = Fastify({ bodyLimit: 4096 });
-  registerGlobalHttpInfrastructure(app);
+  await registerGlobalHttpInfrastructure(app);
   await app.register(specsRoutes, {
     actionExecutor: () => {
       throw new Error('boom: unexpected failure unrelated to any known domain error');
@@ -68,13 +68,16 @@ test('the default 4096-byte body limit applies to non-AI routes and rejects over
       payload: JSON.stringify({ slug: 'x'.repeat(5000) }),
     });
     assert.equal(res.statusCode, 413);
-    assert.deepEqual(res.json(), { error: 'Request body is too large.' });
+    // Fastify's own FST_ERR_CTP_BODY_TOO_LARGE message (no custom parser
+    // remains to reword it — the shared error handler just forwards
+    // `error.message`, which already carries a 413 statusCode).
+    assert.deepEqual(res.json(), { error: 'Request body is too large' });
   } finally {
     await app.close();
   }
 });
 
-test('malformed JSON on the default body parser yields the exact old 400 message', async () => {
+test('malformed JSON with a declared application/json content-type yields Fastify\'s own 400 message', async () => {
   const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
   try {
     const res = await app.inject({
@@ -84,7 +87,29 @@ test('malformed JSON on the default body parser yields the exact old 400 message
       payload: '{not valid json',
     });
     assert.equal(res.statusCode, 400);
-    assert.deepEqual(res.json(), { error: 'Request body must be valid JSON.' });
+    // Fastify's own built-in JSON parser now runs (no permissive catch-all
+    // parser to intercept it) — FST_ERR_CTP_INVALID_JSON_BODY.
+    assert.deepEqual(res.json(), { error: "Body is not valid JSON but content-type is set to 'application/json'" });
+  } finally {
+    await app.close();
+  }
+});
+
+test('a body with an unrelated content-type is never silently parsed as JSON', async () => {
+  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/specs',
+      headers: { 'content-type': 'text/plain' },
+      payload: JSON.stringify({ slug: 'looks-like-json' }),
+    });
+    // No dashboard route accepts `text/plain` — Fastify's default text
+    // parser hands the raw string through, so the route's own "body must be
+    // a JSON object" validation rejects it, exactly as it would reject any
+    // other malformed request body. This is the point: nothing upstream
+    // silently reinterprets it as JSON just because the bytes look JSON-ish.
+    assert.equal(res.statusCode, 400);
   } finally {
     await app.close();
   }

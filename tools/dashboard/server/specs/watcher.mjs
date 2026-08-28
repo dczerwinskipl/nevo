@@ -1,4 +1,5 @@
-import { existsSync, watch } from 'node:fs';
+import { relative } from 'node:path';
+import { watch } from 'chokidar';
 
 import { ACTIVE_DIR, ARCHIVE_DIR } from '../../../specs/store.mjs';
 
@@ -16,7 +17,16 @@ export function isRelevantSpecPath(fileName) {
 // mapping needed.
 const ROOT_PREFIXES = new Map([[ACTIVE_DIR, 'specs/active'], [ARCHIVE_DIR, 'specs/archive']]);
 
-export function createSpecEventHub({
+/**
+ * The Specs change watcher: watches the active/archive spec directories and
+ * publishes a single debounced `specs-changed` domain event per batch of
+ * relevant file changes. Recursive directory watching, path normalization,
+ * and add/change/unlink interpretation are chokidar's job (a missing root
+ * directory is a graceful no-op, not an error) — this module only owns
+ * which paths are relevant, how changes are grouped/debounced, and what
+ * domain event comes out the other end.
+ */
+export function createSpecChangeWatcher({
   roots = [ACTIVE_DIR, ARCHIVE_DIR],
   watchFactory = watch,
   debounceMs = 80,
@@ -54,20 +64,17 @@ export function createSpecEventHub({
   };
 
   for (const root of roots) {
-    if (!existsSync(root)) continue;
     const prefix = ROOT_PREFIXES.get(root) || null;
-    try {
-      const watcher = watchFactory(root, { recursive: true }, (eventType, fileName) => {
-        if (!isRelevantSpecPath(fileName)) return;
-        const normalized = fileName ? String(fileName).replace(/\\/g, '/') : null;
-        const file = normalized && prefix ? `${prefix}/${normalized}` : null;
-        notify({ eventType, file });
-      });
-      watchers.push(watcher);
-    } catch (error) {
-      for (const watcher of watchers.splice(0)) watcher.close?.();
-      throw new Error(`Cannot watch specification files under ${root}: ${error.message}`, { cause: error });
-    }
+    const watcher = watchFactory(root, { ignoreInitial: true });
+    watcher.on('all', (eventType, filePath) => {
+      const fileName = filePath ? relative(root, filePath).replace(/\\/g, '/') : null;
+      if (!isRelevantSpecPath(fileName)) return;
+      notify({ eventType, file: fileName && prefix ? `${prefix}/${fileName}` : null });
+    });
+    watcher.on('error', error => {
+      console.error(`[server] error watching specification files under ${root}:`, error);
+    });
+    watchers.push(watcher);
   }
 
   return {

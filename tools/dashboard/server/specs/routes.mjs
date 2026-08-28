@@ -6,6 +6,7 @@ import {
   SpecRollbackError,
 } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
+import specEventRoutes from './events.mjs';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
@@ -34,15 +35,19 @@ function rejectSource(reply, source, allowed) {
  * through `config`, and not this plugin's own dependency to construct.
  * `actionExecutor` is a local override for feature-level tests only; real
  * usage never passes one, so `createSpecActionsCapability`'s own default
- * (the real `executeSpecificationAction`) applies.
+ * (the real `executeSpecificationAction`) applies. `watcher` is the same
+ * kind of local override, forwarded to the spec-events sub-plugin (see
+ * events.mjs's own comment).
  */
-export default async function specsRoutes(fastify, { config = {}, actionExecutor } = {}) {
+export default async function specsRoutes(fastify, { config = {}, actionExecutor, watcher } = {}) {
   const service = createSpecsCapability({
     operationRuntime: fastify.operationRuntime,
     actionExecutor,
     activeDir: config.activeDir,
     root: config.root,
   });
+
+  await fastify.register(specEventRoutes, { watcher });
 
   fastify.get('/api/dashboard', async (request, reply) => {
     try {

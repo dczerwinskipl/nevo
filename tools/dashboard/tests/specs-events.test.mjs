@@ -3,7 +3,7 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
-import eventsRoutes from '../server/events/routes.mjs';
+import specEventRoutes from '../server/specs/events.mjs';
 
 test('full app: GET /api/events opens an SSE stream and POST falls through to the generic API 404', async () => {
   const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
@@ -17,8 +17,11 @@ test('full app: GET /api/events opens an SSE stream and POST falls through to th
     const controller = new AbortController();
     const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('content-type'), 'text/event-stream; charset=utf-8');
-    assert.equal(res.headers.get('cache-control'), 'no-cache, no-transform');
+    // @fastify/sse's own headers (no charset on content-type, no
+    // "no-transform" on cache-control — the established plugin's shape, not
+    // our old hand-rolled one).
+    assert.equal(res.headers.get('content-type'), 'text/event-stream');
+    assert.equal(res.headers.get('cache-control'), 'no-cache');
     assert.equal(res.headers.get('connection'), 'keep-alive');
 
     const reader = res.body.getReader();
@@ -31,22 +34,22 @@ test('full app: GET /api/events opens an SSE stream and POST falls through to th
   }
 });
 
-// `eventHub` is the events slice's own local override option (see
-// events/routes.mjs's own comment) — a feature-level test seam, exercised
-// here by registering just this one capability on a bare Fastify instance
-// (with the same global JSON/error-handling infra app.mjs installs), never
-// routed through `buildDashboardApp()`.
-async function buildEventsTestApp({ eventHub }) {
+// `watcher` is the specs-events slice's own local override option (see
+// specs/events.mjs's own comment) — a feature-level test seam, exercised
+// here by registering just this one sub-plugin on a bare Fastify instance
+// (with the same global infra app.mjs installs), never routed through
+// `buildDashboardApp()`.
+async function buildSpecEventsTestApp({ watcher }) {
   const app = Fastify({ bodyLimit: 4096 });
-  registerGlobalHttpInfrastructure(app);
-  await app.register(eventsRoutes, { eventHub });
+  await registerGlobalHttpInfrastructure(app);
+  await app.register(specEventRoutes, { watcher });
   return app;
 }
 
-test('events slice: SSE subscribes to the eventHub, forwards its events, and unsubscribes once on client disconnect', async () => {
+test('specs events: SSE subscribes to the watcher, forwards its events, and unsubscribes once on client disconnect', async () => {
   let subscriber = null;
   let unsubscribed = false;
-  const fakeHub = {
+  const fakeWatcher = {
     subscribe: (fn) => {
       subscriber = fn;
       return () => { unsubscribed = true; };
@@ -54,7 +57,7 @@ test('events slice: SSE subscribes to the eventHub, forwards its events, and uns
     close: () => {},
   };
 
-  const app = await buildEventsTestApp({ eventHub: fakeHub });
+  const app = await buildSpecEventsTestApp({ watcher: fakeWatcher });
   const baseUrl = await app.listen({ port: 0 });
 
   try {
@@ -80,14 +83,14 @@ test('events slice: SSE subscribes to the eventHub, forwards its events, and uns
   }
 });
 
-test('events slice: server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
+test('specs events: server shutdown closes open SSE connections and cleans subscriptions exactly once without client disconnect', async () => {
   let unsubscribeCallCount = 0;
-  const fakeHub = {
+  const fakeWatcher = {
     subscribe: () => () => { unsubscribeCallCount++; },
     close: () => {},
   };
 
-  const app = await buildEventsTestApp({ eventHub: fakeHub });
+  const app = await buildSpecEventsTestApp({ watcher: fakeWatcher });
   const baseUrl = await app.listen({ port: 0 });
 
   // Open a real persistent SSE connection without aborting it
@@ -109,5 +112,5 @@ test('events slice: server shutdown closes open SSE connections and cleans subsc
   // Server close completes without needing client abort
   await closePromise;
 
-  assert.equal(unsubscribeCallCount, 1, 'EventHub subscriber was cleaned up exactly once');
+  assert.equal(unsubscribeCallCount, 1, 'watcher subscriber was cleaned up exactly once');
 });

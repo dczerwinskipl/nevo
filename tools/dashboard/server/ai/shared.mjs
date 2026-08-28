@@ -57,24 +57,16 @@ export function authorize(accessPolicy, capability, request) {
   if (capability === 'control') assertControlRequest(request);
 }
 
-export function writeSse(response, eventName, data, id) {
-  if (id !== undefined) response.write(`id: ${id}\n`);
-  response.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-// Scoped to the AI plugin only (see routes/ai/index.mjs) — everything here
-// is AI-domain error *shape* mapping, kept out of the small, generic
-// app-level handler in app.mjs. JSON parsing itself is defined once, at the
-// application boundary (app.mjs) — the AI plugin inherits that same parser
-// rather than registering an equivalent one of its own; this handler is
-// what turns a shared transport-level parse/size error into the AI
-// response shape (`{ error: { code, message } }`) callers of this capability
-// expect, not a second parser.
+// Scoped to the AI plugin only (see ai/routes.mjs) — everything here is
+// AI-domain error *shape* mapping, kept out of the small, generic app-level
+// handler in infrastructure/http.mjs. JSON parsing itself is Fastify's own
+// standard `application/json` support, applied once at the application
+// boundary — the AI plugin inherits it rather than registering an
+// equivalent parser of its own; this handler is what turns a shared
+// transport-level parse/size error (already carrying its own `statusCode`)
+// into the AI response shape (`{ error: { code, message } }`) callers of
+// this capability expect.
 export function aiErrorHandler(error, request, reply) {
-  if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
-    reply.code(413).send({ error: { code: 'AI_VALIDATION_ERROR', message: 'Request body is too large.' } });
-    return;
-  }
   if (error?.name === 'HttpError' || error?.name === 'SpecificationActionError') {
     reply.code(error.status || 400).send({ error: { code: 'AI_VALIDATION_ERROR', message: error.message } });
     return;

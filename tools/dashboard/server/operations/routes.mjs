@@ -1,4 +1,4 @@
-import { OperationNotFoundError } from './runtime.mjs';
+import { OperationNotFoundError } from '../infrastructure/operation-runtime.mjs';
 
 const OPERATION_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]*$/i;
 
@@ -15,14 +15,19 @@ function validOperationId(request, reply) {
 
 /**
  * The operations capability: exposes the shared `operationRuntime` (long-
- * running action progress + resumable SSE) over HTTP. `operationRuntime` is
- * the one resource genuinely consumed by two independent capabilities
- * (specs actions write to it; this capability reads/streams from it), so
- * app.mjs constructs one instance and decorates the root Fastify app with
- * it (`fastify.operationRuntime`) — read here via that decoration, not as
- * an explicit option app.mjs threads through registration. See app.mjs's
- * own comment for why that's the single justified exception to
- * "capabilities own their dependencies."
+ * running action progress + resumable SSE replay) over HTTP.
+ * `operationRuntime` is the one resource genuinely consumed by two
+ * independent capabilities (specs actions write to it; this capability
+ * reads/streams from it), so app.mjs constructs one instance and decorates
+ * the root Fastify app with it (`fastify.operationRuntime`) — read here via
+ * that decoration, not as an explicit option app.mjs threads through
+ * registration. See app.mjs's own comment for why that's the single
+ * justified exception to "capabilities own their dependencies."
+ *
+ * `@fastify/sse` owns SSE framing, headers, heartbeat, and per-connection
+ * close detection. This route owns the domain semantics on top of it:
+ * snapshot-then-replay-then-live-events cursoring, and stopping once an
+ * operation reaches a terminal state.
  */
 export default async function operationRoutes(fastify) {
   const { operationRuntime } = fastify;
@@ -40,14 +45,16 @@ export default async function operationRoutes(fastify) {
     }
   });
 
-  fastify.get('/api/operations/:operationId/events', (request, reply) => {
+  fastify.get('/api/operations/:operationId/events', { sse: 'only' }, async (request, reply) => {
     const operationId = validOperationId(request, reply);
     if (!operationId) return;
 
-    const headerCursor = request.headers['last-event-id'];
-    const queryCursor = request.query?.after;
-    const rawCursor = headerCursor ?? queryCursor;
-    let afterSequence = 0;
+    // An explicit `Last-Event-ID` header (parsed by @fastify/sse) or
+    // `?after=` query param (kept for simple fetch()-driven reconnects that
+    // don't set a custom header) — absent either, replay starts from the
+    // snapshot's own `lastEventId` below (only new events from here).
+    const rawCursor = reply.sse.lastEventId ?? request.query?.after;
+    let afterSequence;
     if (rawCursor !== undefined && rawCursor !== null && rawCursor !== '') {
       afterSequence = Number(rawCursor);
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
@@ -65,93 +72,43 @@ export default async function operationRoutes(fastify) {
       return;
     }
 
-    // SSE genuinely needs the raw response — validation/lookup above already
-    // ran through Fastify's normal request/reply lifecycle.
-    reply.hijack();
-    const response = reply.raw;
-    const requestRaw = request.raw;
+    reply.sse.keepAlive();
+    activeConnections.add(reply.sse);
+    reply.sse.onClose(() => activeConnections.delete(reply.sse));
 
-    response.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-    });
+    await reply.sse.send({ event: 'snapshot', data: snapshot });
 
-    response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
-
-    let isEnded = false;
-    let keepAlive = null;
-    let unsubscribe = null;
-
-    const cleanup = () => {
-      if (isEnded) return;
-      isEnded = true;
-      if (keepAlive) {
-        clearInterval(keepAlive);
-        keepAlive = null;
-      }
-      if (typeof unsubscribe === 'function') {
-        try { unsubscribe(); } catch {}
-        unsubscribe = null;
-      }
-      activeConnections.delete(cleanup);
-      try {
-        if (!response.writableEnded) {
-          response.end();
-        }
-      } catch {}
-    };
-
-    activeConnections.add(cleanup);
-    requestRaw.on('close', cleanup);
-
-    const replayCursor = rawCursor !== undefined && rawCursor !== null && rawCursor !== ''
-      ? afterSequence
-      : snapshot.lastEventId;
+    const replayCursor = afterSequence !== undefined ? afterSequence : snapshot.lastEventId;
 
     if ((snapshot.status === 'completed' || snapshot.status === 'failed') && replayCursor >= snapshot.lastEventId) {
-      cleanup();
+      reply.sse.close();
       return;
     }
 
+    let unsubscribe;
     try {
       unsubscribe = operationRuntime.subscribe(operationId, {
         afterSequence: replayCursor,
         onEvent: event => {
-          if (isEnded) return;
-          response.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+          reply.sse.send({ id: event.id, event: event.type, data: event }).catch(() => {});
           if (event.type === 'operation.completed' || event.type === 'operation.failed') {
-            cleanup();
+            reply.sse.close();
           }
         },
       });
     } catch {
-      cleanup();
+      reply.sse.close();
       return;
     }
+    reply.sse.onClose(() => unsubscribe());
 
     if (snapshot.status === 'completed' || snapshot.status === 'failed') {
-      cleanup();
-      return;
-    }
-
-    if (!isEnded) {
-      keepAlive = setInterval(() => {
-        if (isEnded) {
-          clearInterval(keepAlive);
-          return;
-        }
-        try {
-          response.write(': keep-alive\n\n');
-        } catch {
-          cleanup();
-        }
-      }, 20_000);
+      reply.sse.close();
     }
   });
 
   // Draining open SSE connections is a Fastify request-lifecycle concern —
-  // `preClose` (see events/routes.mjs's own comment for why), which always
+  // `preClose` (see specs/events.mjs's own comment for why), which always
   // runs before any `onClose` hook, guaranteeing this drains before the
   // shared runtime itself shuts down (and, more importantly, before the
   // specs capability's own `onClose`-independent `preClose` hook that aborts
@@ -159,10 +116,8 @@ export default async function operationRoutes(fastify) {
   // The runtime's own shutdown is NOT this capability's job to call — app.mjs
   // constructed it, so app.mjs owns tearing it down (see its own comment).
   fastify.addHook('preClose', async () => {
-    for (const close of Array.from(activeConnections)) {
-      try {
-        close();
-      } catch {}
+    for (const sse of Array.from(activeConnections)) {
+      try { sse.close(); } catch {}
     }
     activeConnections.clear();
   });

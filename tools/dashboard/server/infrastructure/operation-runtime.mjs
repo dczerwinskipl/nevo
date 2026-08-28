@@ -1,4 +1,8 @@
-// tools/dashboard/server/operations/runtime.mjs — operation runtime, snapshot & resumable SSE transport
+// tools/dashboard/server/infrastructure/operation-runtime.mjs — operation
+// runtime, snapshot & resumable SSE replay/subscribe semantics. Genuinely
+// shared application infrastructure: specs' actions write to it, operations
+// reads/streams it (see app.mjs's and operations/routes.mjs's own comments)
+// — neither slice alone owns both consumers.
 
 import { randomUUID } from 'node:crypto';
 import { parseProgressLine } from '../../../lib/operation-progress.mjs';

@@ -11,7 +11,7 @@ import aiRoutes from '../../server/ai/routes.mjs';
 // which test file — inside or outside this project — imports it.
 export async function buildAiTestApp({ service, accessPolicy } = {}) {
   const app = Fastify({ bodyLimit: 4096, exposeHeadRoutes: false });
-  registerGlobalHttpInfrastructure(app);
+  await registerGlobalHttpInfrastructure(app);
   await app.register(aiRoutes, { service, accessPolicy });
   return app;
 }
