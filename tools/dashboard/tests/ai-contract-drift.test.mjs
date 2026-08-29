@@ -4,11 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
-import { createAiAdapterRegistry } from '../../ai/registry.mjs';
-import { createAiSessionService } from '../../ai/service.mjs';
-import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
+import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
+import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { listen } from '../server/index.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
@@ -27,13 +27,13 @@ function control(body) {
 }
 
 async function createServer() {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['contract-task'] });
-  const registry = createAiAdapterRegistry([adapter]);
+  const provider = createMockAgentProvider({ specId, taskIds: ['contract-task'] });
+  const registry = createAgentProviderRegistry([provider]);
   // Isolated real disk path — never the repo's own `.nevo-ai-local/`, which boot-time
   // reconciliation now actually scans (`listPersistedSessions`).
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`) });
-  const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-  const aiService = createAiSessionService({ registry, turnRuntime, transcriptCache });
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache });
   const server = await buildAiTestApp({ service: aiService });
   return { server, aiService };
 }

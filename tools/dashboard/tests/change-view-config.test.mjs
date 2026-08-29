@@ -52,7 +52,7 @@ test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard Server, Dashboar
   const { assignGroup } = await import('../ui/components/changes-panel/changes-grouping.ts');
   assert.equal(assignGroup('tools/dashboard/ui/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard UI');
   assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Server');
-  assert.equal(assignGroup('tools/ai/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
+  assert.equal(assignGroup('tools/dashboard/server/ai/sessions/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.claude/skills/demo.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.cursor/rules/main.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('tools/specs.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Specs');

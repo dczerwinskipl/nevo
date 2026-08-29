@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dashboardNetworkConfig } from '../server/infrastructure/network-config.mjs';
+import { dashboardNetworkConfig } from '../config/network.mjs';
 
 test('uses loopback and the standard ports by default', () => {
   assert.deepEqual(dashboardNetworkConfig({ argv: [], env: {} }), {

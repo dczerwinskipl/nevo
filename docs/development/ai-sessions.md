@@ -6,7 +6,7 @@ status: current
 read_when:
   - working on dashboard AI sessions
   - verifying the provider-neutral AI runtime
-  - adding an AI provider adapter
+  - adding an AI provider
 summary: >
   Provider-neutral dashboard AI sessions, mock-mode setup, runtime boundaries,
   trusted-network access, and Part 1 verification.
@@ -72,7 +72,7 @@ this mode to the UI and keeps the access decision behind a replaceable policy se
 - A future local registry may store correlation evidence under `/.nevo-ai-local/`.
   That directory is local operator state, ignored by Git, and is not provider history.
 
-## Provider adapters
+## Agent providers
  
 ### Claude Code integration
  
@@ -85,20 +85,20 @@ Claude Code (version >= 2.1.89) is integrated through non-interactive process in
 
 ### Antigravity / Gemini CLI integration
 
-The Antigravity CLI adapter spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
+The Antigravity provider spawns `agy` in headless streaming mode (`--output-format stream-json`). Turns are resumed using `--resume <providerSessionId>`. Capabilities are declared honestly:
 - `interactiveQuestions: true`: single-choice and multi-choice question prompts are supported.
 - `interactivePermissions: false`: Antigravity relies on autonomous execution policy; interactive permission hooks throw `CapabilityNotSupportedError` if requested directly.
-- `diagnostic raw capture`: exact raw stdout and stderr lines can be recorded before any adapter
+- `diagnostic raw capture`: exact raw stdout and stderr lines can be recorded before any provider
   processing for protocol analysis.
 
-### Local AI adapter configuration
+### Local AI provider configuration
 
-AI adapter enablement is workstation-local. Configure the adapters that the dashboard may
-register in the ignored `.nevo-ai-local/ai-adapters.yaml` file:
+AI provider enablement is workstation-local. Configure the providers that the dashboard may
+register in the ignored `.nevo-ai-local/ai-providers.yaml` file:
 
   ```yaml
   version: 1
-  adapters:
+  providers:
     claude:
       enabled: true
     antigravity:
@@ -115,8 +115,8 @@ register in the ignored `.nevo-ai-local/ai-adapters.yaml` file:
 
 The file is the complete local allow-list: only entries present with `enabled: true` are
 registered, in file order. If the file is missing, empty, or contains no enabled entries, no AI
-adapter is registered. The dashboard's session-creation surfaces explain where to enable an
-adapter, while a previously recorded session whose adapter is no longer enabled remains
+provider is registered. The dashboard's session-creation surfaces explain where to enable a
+provider, while a previously recorded session whose provider is no longer enabled remains
 visible but cannot start another turn. The configuration is read when the dashboard AI service
 starts, so restart the dashboard after editing it.
 
@@ -132,15 +132,15 @@ data. To clear the default recordings, remove `.nevo-ai-local/antigravity_raw`.
 
 ### OpenAI Codex integration
 
-The Codex adapter uses one lazily started, persistent
+The Codex provider uses one lazily started, persistent
 `codex app-server --listen stdio://` process per dashboard AI service. A narrow JSONL
 client owns initialization, request correlation, server requests, failure fan-out, and
-bounded disposal. The provider adapter keeps Codex thread, turn, item, and protocol
+bounded disposal. The Codex provider keeps Codex thread, turn, item, and protocol
 request IDs private and exposes only the existing provider-neutral runtime contracts.
 
 Codex `thread.id` is the sole `providerSessionId`. New sessions call `thread/start`;
 recorded sessions are loaded once per app-server process with `thread/resume`, and a
-failed resume never creates replacement history. The adapter supports resumable
+failed resume never creates replacement history. The provider supports resumable
 sessions, cancellation, interactive command/file/permission requests, user questions,
 tool lifecycle, readable reasoning, and token usage. `steerTurn` and `planUpdates` are
 reported as `false` in the first implementation and have no hidden HTTP or transcript
@@ -150,7 +150,7 @@ Codex output retains its protocol meaning. An `agentMessage` with
 `phase: final_answer` becomes normal assistant transcript text; `phase: commentary`
 becomes the neutral ordered `progress.delta` activity event and is not projected into
 the conversation; reasoning items remain the separate `reasoning.delta`/reasoning view.
-Agent-message deltas carry no phase, so the adapter routes them through private item
+Agent-message deltas carry no phase, so the provider routes them through private item
 correlation. Phase is optional: a later authoritative completed item may supply it;
 otherwise superseded completed messages become progress and the final remaining
 unphased message is the legacy final answer only when no explicit final answer exists.
@@ -178,25 +178,26 @@ Execution modes use schema-verified Codex fields:
   user approval and then continue the same live turn. The restricted network default
   remains unchanged.
 
-Execution mode and permission policy remain partially coupled in this first adapter.
+Execution mode and permission policy remain partially coupled in this first provider.
 FU-002 records the later provider-neutral split between ASK/EDIT/AGENT intent and
 read-only/workspace-with-escalation/full-access policy, including possible allow-once
 versus remembered session rules. No remembered approval rule is implemented here.
 
 The client opts into the experimental API so it can receive the required
-`item/tool/requestUserInput` interaction; the adapter consumes no unrelated
+`item/tool/requestUserInput` interaction; the provider consumes no unrelated
 experimental methods. Approval grants are turn-scoped; Nevo does not expose or select
 Codex session-scoped grants. Provider-global notifications are accepted outside turns
-and ignored unless the adapter consumes them. Codex approvals and questions use
+and ignored unless the provider consumes them. Codex approvals and questions use
 `resumePolicy: live-operation` because their private app-server request correlation
 cannot be reconstructed after the owning process or connection disappears.
 
 The compact compatibility inventory is stored in
-`tools/ai/codex-protocol-baseline.json`; the full generated schema is never committed.
-Refresh the inventory only after inspecting a selected Codex version, then verify it:
+`tools/dashboard/server/ai/providers/codex/protocol-baseline.json`; the full generated
+schema is never committed. Refresh the inventory only after inspecting a selected Codex
+version, then verify it:
 
 ```bash
-node tools/ai/verify-codex-schema.mjs --strict
+node tools/dashboard/server/ai/providers/codex/verify-schema.mjs --strict
 ```
 
 The verifier generates schemas under the OS temporary directory, compares every
@@ -215,7 +216,7 @@ ignore-rule checks:
 node --test tools/tests/*.test.mjs
 npm --prefix tools/dashboard test
 npm --prefix tools/dashboard run build
-node tools/ai/verify-codex-schema.mjs
+node tools/dashboard/server/ai/providers/codex/verify-schema.mjs
 node tools/specs.mjs check
 node tools/docs.mjs check
 git check-ignore .nevo-ai-local/probe

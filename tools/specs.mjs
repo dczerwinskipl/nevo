@@ -6,7 +6,11 @@ import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 
 import { RecoveryError } from './lib/cli-errors.mjs';
-import { readAgentExecutionContext, createAgentSessionBindingService } from './ai/binding-service.mjs';
+// Session-binding is dashboard-AI-owned (tools/dashboard/server/ai/sessions/) — this CLI
+// reaches into it because `agent-session attach` and auto-binding are the one genuine
+// non-dashboard consumer of that capability (an externally-run agent session, not one
+// created by the dashboard, binding itself to a spec/task from the terminal).
+import { readAgentExecutionContext, createAgentSessionBindingService } from './dashboard/server/ai/sessions/binding-service.mjs';
 import { isValidSpecId } from './specs/identity.mjs';
 import {
   setTaskSuspension,

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 
 import { buildDashboardApp, listen } from '../server/index.mjs';
-import { dashboardNetworkConfig } from '../server/infrastructure/network-config.mjs';
+import { dashboardNetworkConfig } from '../config/network.mjs';
 
 // Package/process orchestration for local development: starts the Fastify
 // API (server/) and the Vite dev server (ui/) and wires the UI's dev-server

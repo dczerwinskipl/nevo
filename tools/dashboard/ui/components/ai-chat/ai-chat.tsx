@@ -24,7 +24,7 @@ import { useNevoAssistantRuntime } from './nevo-assistant-runtime';
 import { ChatMessage } from '@/components/conversation/chat-message';
 import { PermissionPrompt, QuestionPrompt } from '@/components/ai-interaction-prompt';
 import { useDeleteAiSession } from './ai-chat-queries';
-import { AI_ADAPTERS_CONFIG_PATH } from '@/lib/ai-adapter-config';
+import { AI_PROVIDERS_CONFIG_PATH } from '@/lib/ai-provider-config';
 import { projectChat } from './chat-projection';
 import { useScrollFollow } from './use-scroll-follow';
 import { useInitialDispatch } from './use-initial-dispatch';
@@ -75,7 +75,7 @@ export function AiChatPage({
   const isProviderAvailable = Boolean(providerInfo && providerInfo.available !== false);
   const providerUnavailableReason = providerInfo
     ? (providerInfo.unavailableReason || 'Brak wymaganego narzędzia CLI w zmiennej środowiskowej PATH. Nie można wysyłać kolejnych wiadomości.')
-    : `Adapter '${provider}' nie jest włączony w ${AI_ADAPTERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
+    : `Provider '${provider}' nie jest włączony w ${AI_PROVIDERS_CONFIG_PATH}. Włącz go i uruchom dashboard ponownie.`;
 
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 

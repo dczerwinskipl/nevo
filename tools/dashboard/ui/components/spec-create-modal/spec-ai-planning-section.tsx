@@ -1,7 +1,7 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { ProviderBadge } from '@/components/ai-session-list';
 import type { AgentExecutionMode, AiProviderDescriptor } from '@/lib/types';
-import { AI_ADAPTERS_ENABLE_MESSAGE } from '@/lib/ai-adapter-config';
+import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/lib/ai-provider-config';
 
 export interface SpecAiPlanningSectionProps {
   startAiSession: boolean;
@@ -67,7 +67,7 @@ export function SpecAiPlanningSection({
               </div>
             ) : !enabledProviders.length ? (
               <p className="mt-2 rounded-lg border border-[var(--warning-border)] bg-[var(--warning-muted)] p-3 text-xs text-[var(--warning-strong)]">
-                {AI_ADAPTERS_ENABLE_MESSAGE}
+                {AI_PROVIDERS_ENABLE_MESSAGE}
               </p>
             ) : (
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">

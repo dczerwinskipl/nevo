@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { buildDashboardApp } from './app.mjs';
-import { dashboardNetworkConfig } from './infrastructure/network-config.mjs';
+import { dashboardNetworkConfig } from '../config/network.mjs';
 
 export { buildDashboardApp };
 

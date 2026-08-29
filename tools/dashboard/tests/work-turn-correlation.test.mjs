@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { applyAgentEvent } from '../ui/components/ai-chat/agent-event-reducer.ts';
 import { projectChat } from '../ui/components/ai-chat/chat-projection.ts';
 import { visibleWorkItemsWhileRunning } from '../ui/components/work/work-visibility.ts';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 
 // Required coverage E (follow-up review, Finding 4): a terminal event for one turn must
 // never mutate a still-running tool belonging to a different turn.

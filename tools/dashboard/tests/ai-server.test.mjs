@@ -5,14 +5,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
-import { createAiAdapterRegistry } from '../../ai/registry.mjs';
-import { createAiSessionService } from '../../ai/service.mjs';
-import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
-import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
+import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
+import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
 import { listen } from '../server/index.mjs';
-import { createDefaultDashboardAiService } from '../server/ai/services.mjs';
+import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
@@ -26,14 +26,14 @@ function isolatedTranscriptCache() {
 }
 
 function createStack(options = {}) {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
-  const registry = createAiAdapterRegistry([adapter]);
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
   const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService(
     options.storageDir ? { storageDir: options.storageDir } : (options.storageFile ? { storageFile: options.storageFile } : {})
   );
-  const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-  return { adapter, service: createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
 }
 
 function control(body, extra = {}) {
@@ -123,7 +123,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(sessionBody.status, 'idle');
     assert.ok(sessionBody.messages.length >= 2);
     assert.ok(sessionBody.lastEventSeq > 0);
-    // Regression guard: registry.get(provider) returns { adapter, descriptor }, not the
+    // Regression guard: registry.get(provider) returns { provider, descriptor }, not the
     // descriptor itself — a session snapshot must still surface the provider's real
     // declared capabilities (this is what drives the chat UI's cancel-button visibility).
     assert.equal(sessionBody.capabilities.cancelTurn, true);
@@ -182,11 +182,11 @@ test('Agent session routes expose the complete provider-neutral session and turn
   }
 });
 
-test('default dashboard AI service registers only adapters enabled in the local config', async () => {
+test('default dashboard AI service registers only providers enabled in the local config', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-config-'));
-  const adapterConfigPath = join(configDir, 'ai-adapters.yaml');
-  await writeFile(adapterConfigPath, `version: 1
-adapters:
+  const providerConfigPath = join(configDir, 'ai-providers.yaml');
+  await writeFile(providerConfigPath, `version: 1
+providers:
   codex:
     enabled: true
   claude:
@@ -196,7 +196,7 @@ adapters:
   mock:
     enabled: true
 `, 'utf8');
-  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }), adapterConfigPath });
+  const service = createDefaultAgentSessionService({ dataLoader: () => ({ active: [] }), providerConfigPath });
   try {
     assert.deepEqual(service.registry.list(), ['codex', 'claude', 'mock']);
     const descriptor = service.registry.get('codex').descriptor;
@@ -210,7 +210,7 @@ adapters:
   }
 });
 
-test('durable session history remains readable after its adapter is disabled', async () => {
+test('durable session history remains readable after its provider is disabled', async () => {
   const { service } = createStack();
   const server = await buildAiTestApp({ service, accessPolicy: () => true });
   const baseUrl = await listen(server, { port: 0 });
@@ -236,7 +236,7 @@ test('durable session history remains readable after its adapter is disabled', a
 
     const newTurn = await fetch(
       `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
-      control({ message: 'must remain blocked while the adapter is disabled' })
+      control({ message: 'must remain blocked while the provider is disabled' })
     );
     assert.equal(newTurn.status, 404);
   } finally {
@@ -244,11 +244,11 @@ test('durable session history remains readable after its adapter is disabled', a
   }
 });
 
-test('default dashboard AI service registers no adapters when the local config is absent', async () => {
+test('default dashboard AI service registers no providers when the local config is absent', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-missing-config-'));
-  const service = createDefaultDashboardAiService({
+  const service = createDefaultAgentSessionService({
     dataLoader: () => ({ active: [] }),
-    adapterConfigPath: join(configDir, 'missing.yaml'),
+    providerConfigPath: join(configDir, 'missing.yaml'),
   });
   try {
     assert.deepEqual(service.registry.list(), []);
@@ -473,14 +473,14 @@ test('session control endpoints enforce strict correlation between provider, ses
 });
 
 test('pending interaction can be resolved after server restart retaining persisted transcript state with strict correlation', async () => {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
-  const registry = createAiAdapterRegistry([adapter]);
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
   const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService();
 
   // Phase 1: Server 1 runs, turn reaches waitingForUser
-  const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
-  const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
+  const turnRuntime1 = createAgentTurnRuntime({ registry, transcriptCache });
+  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
   const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
 
@@ -510,8 +510,8 @@ test('pending interaction can be resolved after server restart retaining persist
   }
 
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
-  const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
-  const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
+  const turnRuntime2 = createAgentTurnRuntime({ registry, transcriptCache });
+  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
   const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
 
@@ -572,23 +572,23 @@ test('Session mode preference persistence across server restarts and snapshot ex
   const transcriptDir = join(tmpDir, 'transcripts');
 
   let lastExecutedMode = null;
-  const customAdapter = createMockAiAdapter({
+  const customProvider = createMockAgentProvider({
     specId,
     taskIds: ['task-mode'],
     streamDelayMs: 1,
   });
-  const originalStartTurn = customAdapter.startTurn.bind(customAdapter);
-  customAdapter.startTurn = (params) => {
+  const originalStartTurn = customProvider.startTurn.bind(customProvider);
+  customProvider.startTurn = (params) => {
     lastExecutedMode = params.mode;
     return originalStartTurn(params);
   };
 
   const createTestServer = async () => {
-    const registry = createAiAdapterRegistry([customAdapter]);
+    const registry = createAgentProviderRegistry([customProvider]);
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
-    const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-    const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
     const server = await buildAiTestApp({ service });
     return { server, service, bindingService };
   };
@@ -632,7 +632,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
       // 4. Returned session mode is 'agent'
       assert.equal(getAgentData.session.mode, 'agent');
 
-      // 5. Starting a subsequent turn without explicit override invokes adapter with 'agent'
+      // 5. Starting a subsequent turn without explicit override invokes provider with 'agent'
       lastExecutedMode = null;
       const turn1Res = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}/turns`, control({
         message: 'continue in restored mode',

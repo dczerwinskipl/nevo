@@ -5,7 +5,7 @@ import { ProviderBadge } from '@/components/ai-session-list';
 import { useAiProviders, useCreateAiSession } from '@/components/ai-chat/ai-chat-queries';
 import { initialPromptWithTaskContext } from '@/components/ai-chat/ai-chat-helpers';
 import { AI_MODES } from '@/lib/ai-mode-meta';
-import { AI_ADAPTERS_ENABLE_MESSAGE } from '@/lib/ai-adapter-config';
+import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/lib/ai-provider-config';
 import type { AiSession, DashboardChange, AgentExecutionMode } from '@/lib/types';
 
 export interface AiSessionCreateModalProps {
@@ -126,7 +126,7 @@ export function AiSessionCreateModal({
           </div>
         ) : !enabledProviders.length ? (
           <div className="mt-6 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-muted)] p-4 text-sm text-[var(--warning-strong)]">
-            {AI_ADAPTERS_ENABLE_MESSAGE}
+            {AI_PROVIDERS_ENABLE_MESSAGE}
           </div>
         ) : (
           <>
