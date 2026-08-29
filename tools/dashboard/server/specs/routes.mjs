@@ -7,6 +7,7 @@ import {
 } from '../../../specs/identity.mjs';
 import { HttpError } from './http-utils.mjs';
 import specEventRoutes from './events.mjs';
+import { resolveSpecsPaths } from './paths.mjs';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const SOURCES = new Set(['active', 'archive']);
@@ -37,19 +38,24 @@ function rejectSource(reply, source, allowed) {
  * usage never passes one, so `createSpecActionsCapability`'s own default
  * (the real `executeSpecificationAction`) applies. `watcher` is the same
  * kind of local override, forwarded to the spec-events sub-plugin (see
- * events.mjs's own comment) — `config` is forwarded alongside it so the
- * watcher resolves the same `activeDir`/`archiveDir` this capability does,
- * rather than a separately-derived default.
+ * events.mjs's own comment).
+ *
+ * `resolveSpecsPaths(config)` (see paths.mjs) resolves this capability's
+ * whole filesystem context exactly once, here, at the Specs route
+ * boundary — both `createSpecsCapability` (reads/writes/actions) and the
+ * spec-events sub-plugin (the watcher) derive their paths from that same
+ * `paths` object, so a custom Specs directory configuration is what every
+ * Specs operation uses, not just some of them.
  */
 export default async function specsRoutes(fastify, { config = {}, actionExecutor, watcher } = {}) {
+  const paths = resolveSpecsPaths(config);
   const service = createSpecsCapability({
     operationRuntime: fastify.operationRuntime,
     actionExecutor,
-    activeDir: config.activeDir,
-    root: config.root,
+    ...paths,
   });
 
-  await fastify.register(specEventRoutes, { config, watcher });
+  await fastify.register(specEventRoutes, { paths, watcher });
 
   fastify.get('/api/dashboard', async (request, reply) => {
     try {
