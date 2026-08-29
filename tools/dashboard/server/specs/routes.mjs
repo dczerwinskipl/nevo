@@ -37,7 +37,9 @@ function rejectSource(reply, source, allowed) {
  * usage never passes one, so `createSpecActionsCapability`'s own default
  * (the real `executeSpecificationAction`) applies. `watcher` is the same
  * kind of local override, forwarded to the spec-events sub-plugin (see
- * events.mjs's own comment).
+ * events.mjs's own comment) — `config` is forwarded alongside it so the
+ * watcher resolves the same `activeDir`/`archiveDir` this capability does,
+ * rather than a separately-derived default.
  */
 export default async function specsRoutes(fastify, { config = {}, actionExecutor, watcher } = {}) {
   const service = createSpecsCapability({
@@ -47,7 +49,7 @@ export default async function specsRoutes(fastify, { config = {}, actionExecutor
     root: config.root,
   });
 
-  await fastify.register(specEventRoutes, { watcher });
+  await fastify.register(specEventRoutes, { config, watcher });
 
   fastify.get('/api/dashboard', async (request, reply) => {
     try {
