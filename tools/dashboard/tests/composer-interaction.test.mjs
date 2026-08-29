@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readComposerSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/composer/composer.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/composer/composer.tsx', import.meta.url)), 'utf8');
 }
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 import {
@@ -17,7 +17,7 @@ import {
   resolveComposerKeyAction,
   COMPOSER_COMPACT_CLASSES,
   COMPOSER_EDIT_CLASSES,
-} from '../src/components/composer/composer-sizing.ts';
+} from '../ui/components/composer/composer-sizing.ts';
 
 test('Composer interaction mode: usehooks-ts useMediaQuery determines prefersTouchInteraction without UA sniffing or viewport hacks', () => {
   const source = readComposerSource();

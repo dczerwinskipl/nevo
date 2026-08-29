@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
 }
 
 test('Item 1 (Task 04): ChatComposer uses canonical AI_MODES metadata with no duplicate MODE_METAS', () => {

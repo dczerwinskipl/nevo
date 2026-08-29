@@ -143,4 +143,4 @@ combined.
 | RT-13 | tools/*.mjs | docs/development/node-tooling-guidelines.md |
 | RT-14 | tools/specs/** | docs/development/node-tooling-guidelines.md |
 | RT-15 | tools/dashboard/server/** | docs/development/node-tooling-guidelines.md |
-| RT-16 | tools/dashboard/src/** | docs/development/react-component-guidelines.md |
+| RT-16 | tools/dashboard/ui/** | docs/development/react-component-guidelines.md |

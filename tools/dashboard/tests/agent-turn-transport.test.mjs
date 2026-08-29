@@ -5,7 +5,7 @@ import {
   postCancelTurn,
   postRespondInteraction,
   postStartTurn,
-} from '../src/components/ai-chat/agent-turn-transport.ts';
+} from '../ui/components/ai-chat/agent-turn-transport.ts';
 
 test('postStartTurn posts message/idempotencyKey/mode and returns the assigned turnId', async () => {
   const calls = [];

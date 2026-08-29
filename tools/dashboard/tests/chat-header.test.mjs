@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readChatHeaderSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/chat-header/chat-header.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/chat-header/chat-header.tsx', import.meta.url)), 'utf8');
 }
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 test('Task 05 / Issue 4: ChatHeader component contains only essentials (back, title, compact status, details)', () => {

@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev": "node server/dev.mjs",
+    "dev": "node scripts/dev.mjs",
     "dev:ui": "vite --host 127.0.0.1 --port 4317",
     "build": "tsc -b && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",

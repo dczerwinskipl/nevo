@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { stageForStatus } from '../shared/status-stages.js';
+import { stageForStatus } from '../server/specs/status-stages.mjs';
 
 test('maps canonical task statuses to the simplified dashboard lanes', () => {
   assert.equal(stageForStatus('draft'), 'design');

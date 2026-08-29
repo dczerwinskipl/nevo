@@ -8,12 +8,12 @@ import {
   shouldRenderChatMessage,
   visibleWorkItemsWhenTerminal,
   visibleWorkItemsWhileRunning,
-} from '../src/components/work/work-visibility.ts';
-import { activityLabelFor } from '../src/components/ai-chat/tool-activity-labels.ts';
-import { projectChat } from '../src/components/ai-chat/chat-projection.ts';
+} from '../ui/components/work/work-visibility.ts';
+import { activityLabelFor } from '../ui/components/ai-chat/tool-activity-labels.ts';
+import { projectChat } from '../ui/components/ai-chat/chat-projection.ts';
 
 function readWorkSummarySource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
 }
 
 function item(id, status, overrides = {}) {
@@ -228,7 +228,7 @@ test('L: failed tool + turnError are independently inspectable in Work projectio
 // Source check: TurnErrorRow must exist in work-summary.tsx and must render the turnError
 // fields, not a string-matched hardcoded message.
 test('L: work-summary.tsx source contains TurnErrorRow that renders turnError fields', () => {
-  const source = readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  const source = readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
   assert.match(source, /const TurnErrorRow/, 'TurnErrorRow component must exist');
   assert.match(source, /turnError\.message/, 'must render turnError.message');
   assert.match(source, /turnError\.code/, 'must render turnError.code as secondary info');
@@ -253,7 +253,7 @@ test('Finding 3: visibleWorkItemsWhileRunning retains older running tools when m
 });
 
 test('Finding 3: WorkSummary does not independently rederive current activity with find', () => {
-  const source = readFileSync(fileURLToPath(new URL('../src/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  const source = readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
   assert.match(source, /work\.currentActivity/, 'WorkSummary must consume work.currentActivity from projection');
   assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'WorkSummary must not use find(status === running)');
 });

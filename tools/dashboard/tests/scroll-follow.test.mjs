@@ -12,14 +12,14 @@ import {
   handleUserReturnToBottom,
   handleUserUpwardGesture,
   handleScrollEvent,
-} from '../src/components/ai-chat/use-scroll-follow.ts';
+} from '../ui/components/ai-chat/use-scroll-follow.ts';
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 function readUseScrollFollowSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/use-scroll-follow.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/use-scroll-follow.ts', import.meta.url)), 'utf8');
 }
 
 test('Task 08: calculateMaxScrollTop correctly determines maximum scrollTop in viewport coordinate system', () => {

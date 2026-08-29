@@ -7,7 +7,7 @@ import {
   groupFiles,
   isGeneratedFile,
   isLockfile,
-} from '../src/components/changes-panel/changes-grouping.ts';
+} from '../ui/components/changes-panel/changes-grouping.ts';
 
 const changeView = {
   groups: [

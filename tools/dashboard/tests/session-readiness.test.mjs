@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import {
   pendingDispatchStore,
   InitialDispatchController,
-} from '../src/components/ai-chat/pending-dispatch-store.ts';
+} from '../ui/components/ai-chat/pending-dispatch-store.ts';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
 }
 
 // In-memory sessionStorage polyfill for Node test environment

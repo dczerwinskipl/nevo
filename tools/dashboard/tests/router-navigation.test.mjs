@@ -6,10 +6,10 @@ import { createMemoryHistory } from '@tanstack/react-router';
 import {
   createAppRouter,
   routeTree,
-} from '../src/router-tree.ts';
+} from '../ui/router-tree.ts';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
 }
 
 test('1. Route tree: Only spec and spec session routes exist (no /ai/sessions/... or alias redirects)', async () => {

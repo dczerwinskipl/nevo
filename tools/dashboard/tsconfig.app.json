@@ -17,8 +17,8 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./ui/*"]
     }
   },
-  "include": ["src"]
+  "include": ["ui"]
 }

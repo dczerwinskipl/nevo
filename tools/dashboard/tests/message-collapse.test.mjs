@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { shouldCollapseMessage } from '../src/components/conversation/message-collapse.ts';
+import { shouldCollapseMessage } from '../ui/components/conversation/message-collapse.ts';
 
 // Task 02, AC4: short messages remain naturally sized — never collapsed.
 test('a short message never collapses', () => {

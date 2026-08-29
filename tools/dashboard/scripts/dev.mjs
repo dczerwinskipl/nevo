@@ -3,9 +3,15 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer } from 'vite';
 
-import { buildDashboardApp, listen } from './index.mjs';
-import { dashboardNetworkConfig } from './infrastructure/network-config.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
+import { dashboardNetworkConfig } from '../server/infrastructure/network-config.mjs';
 
+// Package/process orchestration for local development: starts the Fastify
+// API (server/) and the Vite dev server (ui/) and wires the UI's dev-server
+// proxy at the API's actual (ephemeral-safe) URL. Not server-owned code —
+// server/ contains only server-owned runtime/application code — and not a
+// generic service container either: it only ever orchestrates these two
+// application boundaries.
 const dashboardRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { host, port: uiPort, apiPort } = dashboardNetworkConfig();
 
@@ -16,7 +22,7 @@ process.env.NEVO_DASHBOARD_API_URL = apiUrl;
 let vite;
 try {
   vite = await createViteServer({
-    root: dashboardRoot,
+    // No `root` override here — vite.config.ts's own `root` (ui/) applies.
     configFile: resolve(dashboardRoot, 'vite.config.ts'),
     server: { host, port: uiPort, strictPort: true },
   });

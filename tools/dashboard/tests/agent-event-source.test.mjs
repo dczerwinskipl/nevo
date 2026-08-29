@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { connectAgentEventStream, resolveEventSeq } from '../src/components/ai-chat/agent-event-source.ts';
+import { connectAgentEventStream, resolveEventSeq } from '../ui/components/ai-chat/agent-event-source.ts';
 
 // Minimal standard-compliant EventTarget mock — same shape as the browser EventSource
 // contract this stream connects to. Nothing here touches React or @assistant-ui/react,

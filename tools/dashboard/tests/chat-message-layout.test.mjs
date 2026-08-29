@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readChatMessageSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/conversation/chat-message.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/conversation/chat-message.tsx', import.meta.url)), 'utf8');
 }
 
 test('Finding 2: Intermediate user wrapper is full-width (w-full) ensuring stable containing block for percentage sizing', () => {

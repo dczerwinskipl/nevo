@@ -1,10 +1,5 @@
-import {
-  ACTIVE_DIR,
-  ARCHIVE_DIR,
-  ACTIVE_INDEX_MD,
-  ARCHIVE_INDEX_MD,
-  INDEX_JSON,
-} from '../../../specs/store.mjs';
+import { resolve } from 'node:path';
+
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 /**
@@ -16,23 +11,35 @@ import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
  * configured Specs capability cannot end up operating on different
  * physical directories depending on which operation is called.
  *
- * The global `ACTIVE_DIR`/`ARCHIVE_DIR`/index constants are used only as
- * defaults, here, once — nothing deeper in the Specs slice re-reads them.
+ * One coherent base determines every default: a custom `root` implies a
+ * `specsDir` of `<root>/specs`, and every child path (`activeDir`,
+ * `archiveDir`, the generated indexes) defaults from that same `specsDir` —
+ * never independently from the real repository's own `specs/` tree. Only
+ * `REPOSITORY_ROOT` is a module-level default (the top of the chain); a
+ * leaf may still be overridden individually (a local test seam, or a
+ * genuinely relocated single file), but overriding `root` alone is enough
+ * to relocate the whole Specs capability, exactly as `resolveSpecsPaths`'s
+ * own callers expect.
  */
 export function resolveSpecsPaths({
   root,
+  specsDir,
   activeDir,
   archiveDir,
   activeIndexMd,
   archiveIndexMd,
   indexJson,
 } = {}) {
+  const resolvedRoot = root ?? REPOSITORY_ROOT;
+  const resolvedSpecsDir = specsDir ?? resolve(resolvedRoot, 'specs');
+
   return Object.freeze({
-    root: root ?? REPOSITORY_ROOT,
-    activeDir: activeDir ?? ACTIVE_DIR,
-    archiveDir: archiveDir ?? ARCHIVE_DIR,
-    activeIndexMd: activeIndexMd ?? ACTIVE_INDEX_MD,
-    archiveIndexMd: archiveIndexMd ?? ARCHIVE_INDEX_MD,
-    indexJson: indexJson ?? INDEX_JSON,
+    root: resolvedRoot,
+    specsDir: resolvedSpecsDir,
+    activeDir: activeDir ?? resolve(resolvedSpecsDir, 'active'),
+    archiveDir: archiveDir ?? resolve(resolvedSpecsDir, 'archive'),
+    activeIndexMd: activeIndexMd ?? resolve(resolvedSpecsDir, 'active.generated.md'),
+    archiveIndexMd: archiveIndexMd ?? resolve(resolvedSpecsDir, 'archive.generated.md'),
+    indexJson: indexJson ?? resolve(resolvedSpecsDir, 'index.generated.json'),
   });
 }

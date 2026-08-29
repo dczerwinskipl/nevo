@@ -4,15 +4,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readTypesSource() {
-  return readFileSync(fileURLToPath(new URL('../src/lib/types.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/lib/types.ts', import.meta.url)), 'utf8');
 }
 
 function readAiSessionListSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-session-list.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-session-list.tsx', import.meta.url)), 'utf8');
 }
 
 function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
 }
 
 test('Task 09: AiSessionStatus type is narrowed to exactly idle | running | waitingForUser', () => {

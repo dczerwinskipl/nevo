@@ -1,13 +1,18 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import { fileURLToPath, URL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+
+const dashboardRoot = fileURLToPath(new URL('.', import.meta.url));
+const uiRoot = resolve(dashboardRoot, 'ui');
 
 export default defineConfig({
+  root: uiRoot,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': uiRoot,
     },
   },
   server: {
@@ -22,7 +27,12 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist',
+    // `root` is now `ui/` — outDir must be given relative to the dashboard
+    // package root explicitly (an absolute path), otherwise Vite would
+    // resolve the default `'dist'` relative to `ui/` and nest the build
+    // output at `ui/dist` instead of the package-level `dist/` the
+    // production server (index.mjs) actually serves.
+    outDir: resolve(dashboardRoot, 'dist'),
     emptyOutDir: true,
     sourcemap: true,
   },

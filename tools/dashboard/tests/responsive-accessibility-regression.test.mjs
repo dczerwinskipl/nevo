@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL(`../src/${relative}`, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL(`../ui/${relative}`, import.meta.url)), 'utf8');
 }
 
 test('AC1 & AC2: Header and conversation layouts prevent horizontal overflow across responsive widths', () => {

@@ -15,11 +15,10 @@ const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
 
 // A capability's HTTP entry point is always `<capability>/routes.mjs`,
 // directly under `server/` — matches nothing else at the server root
-// (`app.mjs`, `index.mjs`, `dev.mjs`) and nothing under `infrastructure/`
-// (which has no `routes.mjs` of its own, so it's never treated as a
-// capability). `dev.mjs` in particular runs side-effecting top-level code
-// on import (it starts a dev server) — this filter must exclude it, not
-// merely rely on autoload's "doesn't look like a plugin" fallback.
+// (`app.mjs`, `index.mjs`) and nothing under `infrastructure/` (which has
+// no `routes.mjs` of its own, so it's never treated as a capability).
+// Development orchestration (starting Vite, proxying to the API) lives in
+// scripts/dev.mjs, outside server/ entirely, so autoload never even scans it.
 const CAPABILITY_ROUTES_PATTERN = /^\/[^/]+\/routes\.mjs$/;
 
 function registerStaticAssets(app, distDir) {

@@ -16,8 +16,8 @@ import {
   isCompletedStatus,
   isTerminalStatus,
   stageForStatus,
-} from '../../shared/status-stages.js';
-import { DEFAULT_SPEC_SECTIONS } from '../../shared/spec-sections.js';
+} from './status-stages.mjs';
+import { DEFAULT_SPEC_SECTIONS } from './spec-sections.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 
 export function stripFrontMatter(markdown) {

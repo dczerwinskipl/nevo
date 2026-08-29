@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSheetSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/ui/sheet.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/ui/sheet.tsx', import.meta.url)), 'utf8');
 }
 
 function readSessionDetailsSource() {
-  return readFileSync(fileURLToPath(new URL('../src/components/session-details/session-details.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/components/session-details/session-details.tsx', import.meta.url)), 'utf8');
 }
 
 test('Finding 3: Sheet primitive is safe-area aware on mobile while preserving desktop spacing', () => {

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
 }
 
 test('neutral foundation tokens do not derive from the interaction accent', () => {
