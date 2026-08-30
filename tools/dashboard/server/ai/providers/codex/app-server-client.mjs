@@ -104,6 +104,7 @@ export class CodexAppServerClient {
   #failure = null;
   #nextRequestId = 1;
   #pendingRequests = new Map();
+  #activeServerRequests = new Map();
   #notificationSubscribers = new Set();
   #serverRequestSubscribers = new Set();
   #waiters = new Set();
@@ -243,6 +244,12 @@ export class CodexAppServerClient {
     this.#tripFailure(disposalError);
 
     this.#disposePromise = (async () => {
+      try {
+        await this.#rawCapture.flushAllRawCapture();
+      } catch (err) {
+        console.warn(`[codex] [raw-capture] Failed to flush raw capture on client dispose: ${err?.message || err}`);
+      }
+
       const child = this.#child;
       if (!child) return;
 
@@ -340,19 +347,6 @@ export class CodexAppServerClient {
       const lines = this.#stdoutBuffer.split(/\r?\n/);
       this.#stdoutBuffer = lines.pop() ?? '';
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          let parsed;
-          try { parsed = JSON.parse(trimmed); } catch {}
-          const sessionId = parsed?.params?.threadId
-            || (parsed?.id ? String(parsed.id) : null)
-            || 'global';
-          this.#rawCapture.recordRawEvent({
-            sessionId,
-            stream: 'stdout',
-            line,
-          });
-        }
         this.#processingQueue = this.#processingQueue
           .then(() => this.#processLine(line))
           .catch(error => this.#tripFailure(error));
@@ -362,9 +356,9 @@ export class CodexAppServerClient {
       const text = chunk.toString('utf8');
       this.#stderr = `${this.#stderr}${text}`.slice(-this.#maxStderrBytes);
       this.#rawCapture.recordRawEvent({
-        sessionId: 'global',
+        sessionId: null,
         stream: 'stderr',
-        line: text,
+        rawText: text,
       });
     };
     const onError = error => {
@@ -399,11 +393,22 @@ export class CodexAppServerClient {
   #sendRequest(method, params) {
     this.#assertUsable();
     const id = `nevo-${this.#nextRequestId++}`;
+    const threadId = params?.threadId || null;
+    const turnId = params?.turnId || null;
     return new Promise((resolve, reject) => {
-      this.#pendingRequests.set(id, { method, resolve, reject });
+      this.#pendingRequests.set(id, {
+        method,
+        params,
+        threadId,
+        turnId,
+        resolve,
+        reject,
+        sentAt: new Date().toISOString(),
+      });
       try {
         this.#writeEnvelope({ method, params, id });
       } catch (error) {
+        this.#pendingRequests.delete(id);
         const failure = error instanceof AiError
           ? error
           : providerFailure('AI_PROVIDER_WRITE_ERROR', 'Failed to write to Codex app-server.', undefined, error);
@@ -418,14 +423,39 @@ export class CodexAppServerClient {
     if (!stdin || stdin.destroyed || stdin.writableEnded) {
       throw providerFailure('AI_PROVIDER_WRITE_ERROR', 'Codex app-server stdin is not writable.');
     }
-    const sessionId = envelope?.params?.threadId
-      || (envelope?.id ? String(envelope.id) : null)
-      || 'global';
-    this.#rawCapture.recordRawEvent({
-      sessionId,
-      stream: 'stdin',
-      raw: envelope,
-    });
+
+    if (own(envelope, 'method')) {
+      const requestId = envelope.id !== undefined ? envelope.id : null;
+      const threadId = envelope.params?.threadId || null;
+      const turnId = envelope.params?.turnId || null;
+      this.#rawCapture.recordRawEvent({
+        sessionId: threadId,
+        turnId,
+        requestId,
+        stream: 'stdin',
+        raw: envelope,
+      });
+    } else if (own(envelope, 'id')) {
+      const serverRequestId = envelope.id;
+      const serverReq = this.#activeServerRequests.get(serverRequestId);
+      const threadId = serverReq?.threadId || null;
+      const turnId = serverReq?.turnId || null;
+      this.#activeServerRequests.delete(serverRequestId);
+      this.#rawCapture.recordRawEvent({
+        sessionId: threadId,
+        turnId,
+        serverRequestId,
+        stream: 'stdin',
+        raw: envelope,
+      });
+    } else {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        stream: 'stdin',
+        raw: envelope,
+      });
+    }
+
     stdin.write(`${JSON.stringify(envelope)}\n`);
   }
 
@@ -437,10 +467,27 @@ export class CodexAppServerClient {
     try {
       envelope = JSON.parse(line);
     } catch {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        stream: 'stdout',
+        rawText: line,
+      });
       throw protocolError('Codex app-server emitted malformed JSON.');
     }
-    if (!isObject(envelope)) throw protocolError('Codex app-server envelope must be an object.');
+    if (!isObject(envelope)) {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        stream: 'stdout',
+        rawText: line,
+      });
+      throw protocolError('Codex app-server envelope must be an object.');
+    }
     if (own(envelope, 'jsonrpc') && envelope.jsonrpc !== '2.0') {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        stream: 'stdout',
+        raw: envelope,
+      });
       throw protocolError("Codex app-server envelope has an invalid 'jsonrpc' member.");
     }
 
@@ -457,20 +504,82 @@ export class CodexAppServerClient {
       if (hasResult || hasError) throw protocolError('Codex method envelope cannot contain result or error.');
       if (hasId) {
         if (!validateRequestId(envelope.id)) throw protocolError('Codex server request has an invalid id.');
+        const serverRequestId = envelope.id;
+        const threadId = envelope.params?.threadId || null;
+        const turnId = envelope.params?.turnId || envelope.params?.turn?.id || null;
+        this.#activeServerRequests.set(serverRequestId, {
+          method: envelope.method,
+          threadId,
+          turnId,
+        });
+        this.#rawCapture.recordRawEvent({
+          sessionId: threadId,
+          turnId,
+          serverRequestId,
+          stream: 'stdout',
+          raw: envelope,
+        });
         await this.#dispatchServerRequest(envelope);
       } else {
+        const threadId = envelope.params?.threadId || null;
+        const turnId = envelope.params?.turnId || envelope.params?.turn?.id || null;
+        this.#rawCapture.recordRawEvent({
+          sessionId: threadId,
+          turnId,
+          stream: 'stdout',
+          raw: envelope,
+        });
         await this.#dispatchNotification(envelope);
       }
       return;
     }
 
     if (!hasId || !validateRequestId(envelope.id) || hasResult === hasError) {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        stream: 'stdout',
+        raw: envelope,
+      });
       throw protocolError('Codex response must have a valid id and exactly one of result or error.');
     }
     const id = String(envelope.id);
     const pending = this.#pendingRequests.get(id);
-    if (!pending) throw protocolError(`Codex response has an unknown or duplicate id '${id}'.`);
+    if (!pending) {
+      this.#rawCapture.recordRawEvent({
+        sessionId: null,
+        requestId: envelope.id,
+        stream: 'stdout',
+        raw: envelope,
+      });
+      throw protocolError(`Codex response has an unknown or duplicate id '${id}'.`);
+    }
     this.#pendingRequests.delete(id);
+
+    if (pending.method === 'thread/start' && envelope.result?.thread?.id) {
+      const allocatedThreadId = envelope.result.thread.id;
+      this.#rawCapture.recordRawEvent({
+        sessionId: allocatedThreadId,
+        requestId: envelope.id,
+        stream: 'stdin',
+        raw: { method: 'thread/start', params: pending.params, id: envelope.id },
+      });
+      this.#rawCapture.recordRawEvent({
+        sessionId: allocatedThreadId,
+        requestId: envelope.id,
+        stream: 'stdout',
+        raw: envelope,
+      });
+    } else {
+      const sessionId = pending.threadId || null;
+      const turnId = pending.turnId || envelope.result?.turn?.id || null;
+      this.#rawCapture.recordRawEvent({
+        sessionId,
+        turnId,
+        requestId: envelope.id,
+        stream: 'stdout',
+        raw: envelope,
+      });
+    }
 
     if (hasError) {
       if (!isObject(envelope.error)) throw protocolError('Codex response error must be an object.');

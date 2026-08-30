@@ -852,3 +852,13 @@ test('Codex raw capture: returns resolved capture path when enabled and null whe
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Codex raw capture: CodexAgentProvider.dispose flushes raw diagnostics and disposes client', async () => {
+  const client = standardClient();
+  let clientDisposed = false;
+  client.dispose = async () => { clientDisposed = true; };
+
+  const provider = createCodexAgentProvider({ client, rawCaptureEnabled: true });
+  await provider.dispose();
+  assert.equal(clientDisposed, true);
+});

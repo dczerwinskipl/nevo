@@ -105,7 +105,7 @@ export class RawCaptureRecorder {
   }
 
   resolveSessionDirName(sessionId) {
-    if (!sessionId) return null;
+    if (!sessionId || sessionId === '_global') return '_global';
     let dirName = this.#sessionDirMap.get(sessionId);
     if (!dirName) {
       const lowerSession = sessionId.toLowerCase();
@@ -133,15 +133,16 @@ export class RawCaptureRecorder {
   }
 
   getRawCapturePath(sessionId) {
-    if (!sessionId || !this.#rawCaptureDir) return null;
+    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir) return null;
     const sessionDir = this.resolveSessionDirName(sessionId);
     return join(this.#rawCaptureDir, sessionDir, 'raw.ndjson');
   }
 
   logCapturePathOnce(sessionId, customLabel = null) {
-    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId) return;
-    if (!this.#loggedSessions.has(sessionId)) {
-      this.#loggedSessions.add(sessionId);
+    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir) return;
+    const key = (sessionId && sessionId !== '_global') ? sessionId : '_global';
+    if (!this.#loggedSessions.has(key)) {
+      this.#loggedSessions.add(key);
       const sessionDirName = this.resolveSessionDirName(sessionId);
       const filePath = join(this.#rawCaptureDir, sessionDirName, 'raw.ndjson');
       const label = customLabel || (this.#providerId.charAt(0).toUpperCase() + this.#providerId.slice(1));
@@ -149,65 +150,61 @@ export class RawCaptureRecorder {
     }
   }
 
-  recordRawEvent({ sessionId, turnId, stream, line, raw, rawText, suppressConsoleLog = false }) {
-    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir || !sessionId) {
+  recordRawEvent({
+    sessionId = null,
+    turnId = null,
+    requestId = null,
+    serverRequestId = null,
+    stream,
+    line,
+    raw,
+    rawText,
+    suppressConsoleLog = false,
+  }) {
+    if (!this.#rawCaptureEnabled || !this.#rawCaptureDir) {
       return;
     }
     if (typeof line !== 'string' && raw === undefined && rawText === undefined) {
       return;
     }
 
+    const effectiveSessionId = (sessionId && sessionId !== '_global') ? sessionId : null;
+    const queueKey = effectiveSessionId || '_global';
     const capturedAt = new Date().toISOString();
-    let record;
+
+    let record = {
+      capturedAt,
+      stream,
+      providerSessionId: effectiveSessionId,
+      ...(turnId ? { turnId } : {}),
+      ...(requestId !== null && requestId !== undefined ? { requestId } : {}),
+      ...(serverRequestId !== null && serverRequestId !== undefined ? { serverRequestId } : {}),
+    };
+
     if (raw !== undefined) {
-      record = {
-        capturedAt,
-        stream,
-        providerSessionId: sessionId,
-        ...(turnId ? { turnId } : {}),
-        raw,
-      };
+      record.raw = raw;
     } else if (typeof rawText === 'string') {
-      record = {
-        capturedAt,
-        stream,
-        providerSessionId: sessionId,
-        ...(turnId ? { turnId } : {}),
-        rawText,
-      };
+      record.rawText = rawText;
     } else {
       const trimmed = line.trim();
       if (!trimmed) return;
       try {
-        const parsed = JSON.parse(trimmed);
-        record = {
-          capturedAt,
-          stream,
-          providerSessionId: sessionId,
-          ...(turnId ? { turnId } : {}),
-          raw: parsed,
-        };
+        record.raw = JSON.parse(trimmed);
       } catch {
-        record = {
-          capturedAt,
-          stream,
-          providerSessionId: sessionId,
-          ...(turnId ? { turnId } : {}),
-          rawText: line,
-        };
+        record.rawText = line;
       }
     }
 
-    const sessionDirName = this.resolveSessionDirName(sessionId);
+    const sessionDirName = this.resolveSessionDirName(effectiveSessionId);
     const sessionDir = join(this.#rawCaptureDir, sessionDirName);
     const filePath = join(sessionDir, 'raw.ndjson');
 
     if (!suppressConsoleLog) {
-      this.logCapturePathOnce(sessionId);
+      this.logCapturePathOnce(effectiveSessionId);
     }
 
     const ndjsonLine = JSON.stringify(record) + '\n';
-    let queue = this.#sessionWriteQueues.get(sessionId) || Promise.resolve();
+    let queue = this.#sessionWriteQueues.get(queueKey) || Promise.resolve();
     queue = queue
       .then(async () => {
         try {
@@ -216,26 +213,31 @@ export class RawCaptureRecorder {
           }
           const sessionMetadataPath = join(sessionDir, 'session.json');
           if (!existsSync(sessionMetadataPath)) {
-            const metadata = JSON.stringify({
-              provider: this.#providerId,
-              providerSessionId: sessionId,
-            }, null, 2);
+            const metadata = effectiveSessionId
+              ? JSON.stringify({
+                  provider: this.#providerId,
+                  providerSessionId: effectiveSessionId,
+                }, null, 2)
+              : JSON.stringify({
+                  provider: this.#providerId,
+                  global: true,
+                }, null, 2);
             await writeFile(sessionMetadataPath, metadata, 'utf8');
           }
           await appendFile(filePath, ndjsonLine, 'utf8');
         } catch (err) {
-          console.warn(`[${this.#providerId}] [raw-capture] Failed to append raw event for session ${sessionId}: ${err?.message || err}`);
+          console.warn(`[${this.#providerId}] [raw-capture] Failed to append raw event for ${queueKey}: ${err?.message || err}`);
         }
       })
       .catch(err => {
         console.warn(`[${this.#providerId}] [raw-capture] Unexpected error in raw capture queue: ${err?.message || err}`);
       });
-    this.#sessionWriteQueues.set(sessionId, queue);
+    this.#sessionWriteQueues.set(queueKey, queue);
   }
 
   async flushRawCapture(sessionId) {
-    if (!sessionId) return;
-    const queue = this.#sessionWriteQueues.get(sessionId);
+    const queueKey = (sessionId && sessionId !== '_global') ? sessionId : '_global';
+    const queue = this.#sessionWriteQueues.get(queueKey);
     if (queue) await queue;
   }
 
@@ -264,10 +266,10 @@ export class RawCaptureRecorder {
   }
 
   async flushRawCaptureBounded(sessionId) {
-    if (!sessionId) return;
+    const queueKey = (sessionId && sessionId !== '_global') ? sessionId : '_global';
     await this.#awaitRawCaptureBoundary(
-      this.#sessionWriteQueues.get(sessionId),
-      `session ${sessionId}`,
+      this.#sessionWriteQueues.get(queueKey),
+      sessionId ? `session ${sessionId}` : 'global diagnostics',
     );
   }
 

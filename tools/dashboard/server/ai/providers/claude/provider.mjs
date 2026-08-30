@@ -659,6 +659,14 @@ export class ClaudeAgentProvider {
       throw new AiError('AI_PROCESS_TERMINATION_FAILED', 'Failed to terminate Claude CLI process within bounded timeout.', { status: 500 });
     }
   }
+
+  async dispose() {
+    try {
+      await this.#rawCapture.flushAllRawCapture();
+    } catch (err) {
+      console.warn(`[claude] [raw-capture] Failed to flush raw diagnostics on dispose: ${err?.message || err}`);
+    }
+  }
 }
 
 export function createClaudeAgentProvider(options) {

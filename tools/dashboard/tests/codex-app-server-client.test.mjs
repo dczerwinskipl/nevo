@@ -396,14 +396,59 @@ test('dispose escalates through the shared bounded termination helper when stdin
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
 });
 
-test('CodexAppServerClient raw capture: records sent envelopes and received notifications to ndjson', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-client-raw-'));
+test('CodexAppServerClient raw capture: JSON-RPC ID is not session ID and global unscoped events go to _global', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-norpcid-'));
   try {
     const child = createFakeProcess({
       onEnvelope(envelope, process) {
         respondToInitialize(envelope, process);
-        if (envelope.method === 'turn/start') {
-          process.send({ id: envelope.id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
+      },
+    });
+    const client = createCodexAppServerClient({
+      executable: 'fake-codex',
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    await client.initialize();
+    child.stderr.write('Codex app-server booting...\n');
+    await tick();
+    await client.flushRawCapture('_global');
+
+    const globalPath = client.getRawCapturePath(null);
+    assert.equal(globalPath, join(tmpDir, '_global', 'raw.ndjson'));
+    const content = await readFile(globalPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+
+    assert.ok(lines.length >= 2, 'Expected initialize request, initialize response, or stderr');
+    for (const record of lines) {
+      assert.equal(record.providerSessionId, null, 'Unscoped events must NOT have a fake providerSessionId');
+    }
+
+    const { existsSync } = await import('node:fs');
+    assert.equal(existsSync(join(tmpDir, 'nevo-1')), false, 'JSON-RPC id nevo-1 must NOT become a session directory');
+
+    const globalMeta = JSON.parse(await readFile(join(tmpDir, '_global', 'session.json'), 'utf8'));
+    assert.equal(globalMeta.provider, 'codex');
+    assert.equal(globalMeta.global, true);
+
+    await client.dispose();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('CodexAppServerClient raw capture: thread/start correlates response and request to allocated threadId', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-threadstart-'));
+  try {
+    const child = createFakeProcess({
+      onEnvelope(envelope, process) {
+        respondToInitialize(envelope, process);
+        if (envelope.method === 'thread/start') {
+          process.send({
+            id: envelope.id,
+            result: { thread: { id: 'thread-alpha-123' } },
+          });
         }
       },
     });
@@ -414,18 +459,153 @@ test('CodexAppServerClient raw capture: records sent envelopes and received noti
       rawCaptureDir: tmpDir,
     });
     await client.initialize();
-    await client.request('turn/start', { threadId: 'thread-capture-1', input: [] });
-    child.send({ method: 'item/started', params: { threadId: 'thread-capture-1', item: { id: 'msg-1' } } });
-    await tick();
-    await client.flushRawCapture('thread-capture-1');
+    const threadResult = await client.request('thread/start', { model: 'o3-mini' });
+    assert.equal(threadResult.thread.id, 'thread-alpha-123');
 
-    const rawPath = client.getRawCapturePath('thread-capture-1');
-    assert.ok(rawPath);
+    await client.flushRawCapture('thread-alpha-123');
+    const rawPath = client.getRawCapturePath('thread-alpha-123');
+    assert.equal(rawPath, join(tmpDir, 'thread-alpha-123', 'raw.ndjson'));
+
     const content = await readFile(rawPath, 'utf8');
     const lines = content.trim().split('\n').map(l => JSON.parse(l));
-    assert.ok(lines.some(l => l.stream === 'stdin' && l.raw?.method === 'turn/start'));
-    assert.ok(lines.some(l => l.stream === 'stdout' && l.raw?.method === 'item/started'));
+
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0].stream, 'stdin');
+    assert.equal(lines[0].providerSessionId, 'thread-alpha-123');
+    assert.equal(lines[0].requestId, 'nevo-2');
+    assert.equal(lines[0].raw.method, 'thread/start');
+
+    assert.equal(lines[1].stream, 'stdout');
+    assert.equal(lines[1].providerSessionId, 'thread-alpha-123');
+    assert.equal(lines[1].requestId, 'nevo-2');
+    assert.equal(lines[1].raw.result.thread.id, 'thread-alpha-123');
+
+    const sessionMeta = JSON.parse(await readFile(join(tmpDir, 'thread-alpha-123', 'session.json'), 'utf8'));
+    assert.equal(sessionMeta.provider, 'codex');
+    assert.equal(sessionMeta.providerSessionId, 'thread-alpha-123');
+
     await client.dispose();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('CodexAppServerClient raw capture: captures turn-scoped events and server-request permission lifecycle', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-turnperm-'));
+  try {
+    let serverRequestHandled = false;
+    const child = createFakeProcess({
+      onEnvelope(envelope, process) {
+        respondToInitialize(envelope, process);
+        if (envelope.method === 'turn/start') {
+          process.send({ id: envelope.id, result: { turn: { id: 'turn-beta-99', status: 'inProgress' } } });
+        }
+      },
+    });
+    const client = createCodexAppServerClient({
+      executable: 'fake-codex',
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    client.onServerRequest(async request => {
+      serverRequestHandled = true;
+      request.respond({ decision: 'allow' });
+    });
+
+    await client.initialize();
+    await client.request('turn/start', { threadId: 'thread-beta-456', turnId: 'turn-beta-99', input: [] });
+
+    child.send({
+      id: 777,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'thread-beta-456', turnId: 'turn-beta-99', command: 'npm test' },
+    });
+    await tick();
+    assert.ok(serverRequestHandled);
+
+    child.send({
+      method: 'item/completed',
+      params: { threadId: 'thread-beta-456', turnId: 'turn-beta-99', item: { id: 'item-1', status: 'completed' } },
+    });
+    child.send({
+      method: 'turn/completed',
+      params: { threadId: 'thread-beta-456', turn: { id: 'turn-beta-99', status: 'completed' } },
+    });
+
+    await client.flushRawCapture('thread-beta-456');
+    const rawPath = client.getRawCapturePath('thread-beta-456');
+    const content = await readFile(rawPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+
+    const turnStartReq = lines.find(l => l.stream === 'stdin' && l.raw?.method === 'turn/start');
+    assert.ok(turnStartReq);
+    assert.equal(turnStartReq.providerSessionId, 'thread-beta-456');
+    assert.equal(turnStartReq.turnId, 'turn-beta-99');
+
+    const turnStartRes = lines.find(l => l.stream === 'stdout' && l.raw?.result?.turn?.id === 'turn-beta-99');
+    assert.ok(turnStartRes);
+    assert.equal(turnStartRes.providerSessionId, 'thread-beta-456');
+    assert.equal(turnStartRes.turnId, 'turn-beta-99');
+
+    const serverReq = lines.find(l => l.stream === 'stdout' && l.serverRequestId === 777);
+    assert.ok(serverReq);
+    assert.equal(serverReq.providerSessionId, 'thread-beta-456');
+    assert.equal(serverReq.turnId, 'turn-beta-99');
+    assert.equal(serverReq.raw.method, 'item/commandExecution/requestApproval');
+
+    const serverRes = lines.find(l => l.stream === 'stdin' && l.serverRequestId === 777);
+    assert.ok(serverRes);
+    assert.equal(serverRes.providerSessionId, 'thread-beta-456');
+    assert.equal(serverRes.turnId, 'turn-beta-99');
+    assert.deepEqual(serverRes.raw.result, { decision: 'allow' });
+
+    const itemDone = lines.find(l => l.stream === 'stdout' && l.raw?.method === 'item/completed');
+    assert.ok(itemDone);
+    assert.equal(itemDone.providerSessionId, 'thread-beta-456');
+    assert.equal(itemDone.turnId, 'turn-beta-99');
+
+    const turnDone = lines.find(l => l.stream === 'stdout' && l.raw?.method === 'turn/completed');
+    assert.ok(turnDone);
+    assert.equal(turnDone.providerSessionId, 'thread-beta-456');
+    assert.equal(turnDone.turnId, 'turn-beta-99');
+
+    await client.dispose();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('CodexAppServerClient raw capture: graceful shutdown flushes pending raw diagnostics', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-shutdown-'));
+  try {
+    const child = createFakeProcess({
+      onEnvelope(envelope, process) {
+        respondToInitialize(envelope, process);
+      },
+    });
+    const client = createCodexAppServerClient({
+      executable: 'fake-codex',
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    await client.initialize();
+
+    child.send({
+      method: 'item/agentMessage/delta',
+      params: { threadId: 'thread-shutdown-1', turnId: 'turn-s-1', delta: 'tail log' },
+    });
+    await tick();
+
+    // Directly dispose without manual flush
+    await client.dispose();
+
+    const rawPath = client.getRawCapturePath('thread-shutdown-1');
+    const content = await readFile(rawPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+
+    assert.ok(lines.some(l => l.providerSessionId === 'thread-shutdown-1' && l.raw?.params?.delta === 'tail log'));
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

@@ -932,3 +932,36 @@ test('Claude raw capture: disabled by default does not write raw files', async (
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-dispose-'));
+  try {
+    const stdoutLines = [
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Finishing' }] }, session_id: 'claude-sess-dispose' }),
+      JSON.stringify({ type: 'result', result: 'Finishing', session_id: 'claude-sess-dispose' }),
+    ];
+
+    const child = createMockProcess(stdoutLines, { sessionId: 'claude-sess-dispose' });
+    const provider = createClaudeAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+
+    await provider.startTurn({
+      turnId: 'turn-dispose-1',
+      providerSessionId: 'claude-sess-dispose',
+      message: 'Hi',
+    });
+
+    await provider.dispose();
+
+    const rawPath = provider.getRawCapturePath('claude-sess-dispose');
+    const content = await readFile(rawPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+
+    assert.ok(lines.some(l => l.providerSessionId === 'claude-sess-dispose' && l.raw?.type === 'result'));
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
