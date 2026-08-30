@@ -1,0 +1,103 @@
+# Specification manifest for ai-session-issues-and-diagnostics
+id: ai-session-issues-and-diagnostics
+title: "AI session issues and diagnostics"
+type: architectural
+status: draft
+priority: 10
+created: 2026-08-30
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: claude-protocol-evidence
+    order: 1
+    file: tasks/01-claude-protocol-evidence.md
+    status: draft
+
+  - id: codex-protocol-evidence
+    order: 2
+    file: tasks/02-codex-protocol-evidence.md
+    status: draft
+
+  - id: antigravity-protocol-evidence
+    order: 3
+    file: tasks/03-antigravity-protocol-evidence.md
+    status: draft
+
+  - id: canonical-turn-work-contract
+    order: 4
+    file: tasks/04-canonical-turn-work-contract.md
+    status: draft
+    depends_on:
+      - claude-protocol-evidence
+      - codex-protocol-evidence
+      - antigravity-protocol-evidence
+
+  - id: neutral-lifecycle-diagnostics
+    order: 5
+    file: tasks/05-neutral-lifecycle-diagnostics.md
+    status: draft
+    depends_on:
+      - canonical-turn-work-contract
+
+  - id: lifecycle-coordinator-and-timeouts
+    order: 6
+    file: tasks/06-lifecycle-coordinator-and-timeouts.md
+    status: draft
+    depends_on:
+      - neutral-lifecycle-diagnostics
+
+  - id: canonical-persistence-and-server-projection
+    order: 7
+    file: tasks/07-canonical-persistence-and-server-projection.md
+    status: draft
+    depends_on:
+      - lifecycle-coordinator-and-timeouts
+
+  - id: claude-neutral-mapping
+    order: 8
+    file: tasks/08-claude-neutral-mapping.md
+    status: draft
+    depends_on:
+      - lifecycle-coordinator-and-timeouts
+
+  - id: codex-neutral-mapping
+    order: 9
+    file: tasks/09-codex-neutral-mapping.md
+    status: draft
+    depends_on:
+      - lifecycle-coordinator-and-timeouts
+
+  - id: antigravity-neutral-mapping
+    order: 10
+    file: tasks/10-antigravity-neutral-mapping.md
+    status: draft
+    depends_on:
+      - lifecycle-coordinator-and-timeouts
+
+  - id: semantic-work-chat-v2
+    order: 11
+    file: tasks/11-semantic-work-chat-v2.md
+    status: draft
+    depends_on:
+      - canonical-persistence-and-server-projection
+
+  - id: cross-provider-lifecycle-validation
+    order: 12
+    file: tasks/12-cross-provider-lifecycle-validation.md
+    status: draft
+    depends_on:
+      - claude-neutral-mapping
+      - codex-neutral-mapping
+      - antigravity-neutral-mapping
+      - semantic-work-chat-v2
+
+  - id: canonical-cutover-and-cleanup
+    order: 13
+    file: tasks/13-canonical-cutover-and-cleanup.md
+    status: draft
+    depends_on:
+      - cross-provider-lifecycle-validation
+spec_id: 4f26584c-9abc-4421-ae9a-2897a1647c79
