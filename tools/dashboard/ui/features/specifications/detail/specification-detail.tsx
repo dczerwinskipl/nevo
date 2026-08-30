@@ -9,8 +9,9 @@ import type { ComponentType } from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
-  DashboardChange,
-  DashboardTask,
+  SpecificationSummary,
+  SpecificationTask,
+  SpecificationSource,
 } from '../types';
 import type { AgentSession } from '@/features/agent-sessions/types';
 import { cn, formatDate, formatStatus } from '@/lib/utils';
@@ -18,9 +19,9 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { FinalizeDialog, RepositoryActionsCard } from '../actions/spec-actions';
 import { TaskDialog } from '../tasks/task-dialog';
-import { OperationModal } from '@/components/operation-progress';
+import { OperationModal } from '@/features/operations/operation-modal';
 import { StageProgress } from '../stage-progress';
-import { statusTone } from '@/components/status-label';
+import { statusTone } from '@/shared/ui/status-label';
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { Link } from '@tanstack/react-router';
 
@@ -30,7 +31,11 @@ import { useSpecWorkflowActions } from '../actions/use-spec-workflow-actions';
 import { OverviewPanel } from './overview-panel';
 import { DocumentationPanel } from './documentation-panel';
 
-const ChangesPanel = lazy(() => import('@/components/changes-panel').then(module => ({ default: module.ChangesPanel })));
+const PullRequestsPanel = lazy(() =>
+  import('@/features/pull-requests/panel/pull-requests-panel').then((module) => ({
+    default: module.PullRequestsPanel,
+  }))
+);
 
 const TAB_ICON: Record<SpecTabId, ComponentType<{ className?: string }>> = {
   overview: LayoutDashboard,
@@ -54,10 +59,10 @@ export function SpecificationDetail({
   onCreateSession,
   onNavigateMode,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   onOpenSession: (session: AgentSession) => void;
   onCreateSession: () => void;
-  onNavigateMode?: (mode: 'active' | 'archive') => void;
+  onNavigateMode?: (mode: SpecificationSource) => void;
 }) {
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -86,7 +91,7 @@ export function SpecificationDetail({
     setVisitedTabs(new Set(['overview']));
   }, [change.slug]);
 
-  const openTask = useCallback((task: DashboardTask, trigger: HTMLElement) => {
+  const openTask = useCallback((task: SpecificationTask, trigger: HTMLElement) => {
     taskTriggerRef.current = trigger;
     actionsQuery.resetExecution();
     setSelectedTaskId(task.id);
@@ -260,7 +265,7 @@ export function SpecificationDetail({
             className={cn(activeTab !== 'changes' && 'hidden')}
           >
             <Suspense fallback={<ContentLoading />}>
-              <ChangesPanel change={change} />
+              <PullRequestsPanel change={change} />
             </Suspense>
           </div>
         )}

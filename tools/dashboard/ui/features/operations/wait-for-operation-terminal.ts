@@ -1,4 +1,4 @@
-import type { OperationSnapshot } from '@/lib/types';
+import type { OperationSnapshot } from './types';
 import { OPERATION_SSE_EVENT_TYPES, applyOperationEvent, fetchOperationSnapshot } from './operation-snapshot.ts';
 
 /**

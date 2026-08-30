@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { ReasoningView } from './reasoning-view';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TurnWorkSummary } from '../turn-work/turn-work-summary';
 import { hasVisibleProse, shouldRenderTranscriptMessage } from '../turn-work/turn-work-visibility';
 import { shouldCollapseMessage } from './message-collapse';

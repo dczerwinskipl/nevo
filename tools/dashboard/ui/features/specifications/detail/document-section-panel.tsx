@@ -1,8 +1,8 @@
 import { FileCode2, LoaderCircle } from 'lucide-react';
-import type { DashboardChange } from '../types';
+import type { SpecificationSummary } from '../types';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { useSpecificationDocument } from './spec-detail-queries';
 
 function ContentLoading() {
@@ -52,7 +52,7 @@ export function DocumentSectionPanel({
   emptyTitle,
   emptyDetail,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   docId: string;
   fallbackPath?: string | null;
   fallbackTitle?: string;

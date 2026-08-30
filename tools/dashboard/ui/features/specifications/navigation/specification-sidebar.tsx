@@ -7,22 +7,22 @@ import {
   X,
 } from 'lucide-react';
 
-import type { DashboardChange } from '../types';
+import type { SpecificationSummary, SpecificationSource } from '../types';
 import { cn, formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StageProgress } from '../stage-progress';
 import { Link } from '@tanstack/react-router';
 
-export type DashboardMode = 'active' | 'archive';
+export type { SpecificationSource };
 
-interface AppSidebarProps {
-  mode: DashboardMode;
-  active: DashboardChange[];
-  archive: DashboardChange[];
-  changes: DashboardChange[];
+export interface SpecificationSidebarProps {
+  mode: SpecificationSource;
+  active: SpecificationSummary[];
+  archive: SpecificationSummary[];
+  changes: SpecificationSummary[];
   selectedSlug: string | null;
-  onSelect?: (change: DashboardChange) => void;
+  onSelect?: (change: SpecificationSummary) => void;
   onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -35,7 +35,7 @@ function SpecNavigationItem({
   selected,
   onClick,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   selected: boolean;
   onClick?: () => void;
 }) {
@@ -91,7 +91,7 @@ function SpecNavigationItem({
   );
 }
 
-export function AppSidebar({
+export function SpecificationSidebar({
   mode,
   active,
   archive,
@@ -103,7 +103,7 @@ export function AppSidebar({
   onSearchChange,
   open,
   onClose,
-}: AppSidebarProps) {
+}: SpecificationSidebarProps) {
   const visible = changes;
 
   return (
@@ -254,3 +254,7 @@ export function AppSidebar({
     </>
   );
 }
+
+// Backward compat alias if needed
+export const AppSidebar = SpecificationSidebar;
+export type DashboardMode = SpecificationSource;

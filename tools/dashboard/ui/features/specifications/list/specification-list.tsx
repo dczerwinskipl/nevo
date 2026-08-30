@@ -1,6 +1,6 @@
 import { Archive, ArrowRight, FileStack, Inbox } from 'lucide-react';
 
-import type { DashboardChange } from '../types';
+import type { SpecificationSummary, SpecificationSource } from '../types';
 import { formatDate, formatStatus, pluralizeTasks } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -13,9 +13,9 @@ export function SpecificationList({
   changes,
   onSelect,
 }: {
-  mode: 'active' | 'archive';
-  changes: DashboardChange[];
-  onSelect?: (change: DashboardChange) => void;
+  mode: SpecificationSource;
+  changes: SpecificationSummary[];
+  onSelect?: (change: SpecificationSummary) => void;
 }) {
   const archive = mode === 'archive';
   return (

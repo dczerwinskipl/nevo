@@ -1,12 +1,12 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 
-import { LoadingScreen } from '@/components/loading-screen';
+import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { StatusCard } from '@/components/ui/status-card';
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { pendingDispatchStore } from '@/features/agent-sessions/runtime/pending-dispatch-store';
 import { specRoute } from '@/router-tree';
-import type { DashboardChange } from '../types';
+import type { SpecificationSummary, SpecificationSource } from '../types';
 import { useSpecificationIndex } from '../queries';
 import { SpecificationDetail } from './specification-detail';
 
@@ -18,12 +18,12 @@ import { SpecificationDetail } from './specification-detail';
  */
 export function SpecificationRoute() {
   const params = specRoute.useParams();
-  const source = params.source as 'active' | 'archive';
+  const source = params.source as SpecificationSource;
   const slug = params.slug;
 
   const { data, loading, error, refresh } = useSpecificationIndex();
   const navigate = useNavigate();
-  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
+  const [createChange, setCreateChange] = useState<SpecificationSummary | null>(null);
 
   const selected = useMemo(() => {
     if (!data) return null;
@@ -33,7 +33,7 @@ export function SpecificationRoute() {
 
   const fallbackSpec = useMemo(() => {
     if (!data || selected) return null;
-    const oppositeSource = source === 'active' ? 'archive' : 'active';
+    const oppositeSource: SpecificationSource = source === 'active' ? 'archive' : 'active';
     const oppositeCollection = source === 'active' ? data.archive : data.active;
     const match = oppositeCollection.find((c) => c.slug === slug);
     return match ? { change: match, oppositeSource } : null;

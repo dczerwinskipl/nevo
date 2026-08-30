@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
-  DashboardChange,
+  SpecificationSummary,
   SpecificationActionResult,
   SpecificationActionsPayload,
   SpecificationDocument,
@@ -14,18 +14,19 @@ import {
   invalidateSpecificationQueries,
   MANIFEST_QUERY_KEY,
 } from '../queries';
+import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 
-async function fetchSpecificationManifest(change: DashboardChange) {
+async function fetchSpecificationManifest(change: SpecificationSummary) {
   const response = await fetch(`/api/specs/${change.source}/${encodeURIComponent(change.slug)}/content`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Specification manifest API: ${response.status}`);
-  return await response.json() as SpecificationManifest;
+  return (await response.json()) as SpecificationManifest;
 }
 
 // Manifest is metadata-only (no markdown bodies) — event-driven invalidation
 // only, no refetchInterval (area dashboard-data-loading-contracts).
-export function useSpecificationManifest(change: DashboardChange, enabled = true) {
+export function useSpecificationManifest(change: SpecificationSummary, enabled = true) {
   const query = useQuery({
     queryKey: [...MANIFEST_QUERY_KEY, change.source, change.slug],
     queryFn: () => fetchSpecificationManifest(change),
@@ -43,19 +44,19 @@ export function useSpecificationManifest(change: DashboardChange, enabled = true
   };
 }
 
-async function fetchSpecificationDocument(change: DashboardChange, docId: string) {
+async function fetchSpecificationDocument(change: SpecificationSummary, docId: string) {
   const response = await fetch(
     `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/content/${encodeURIComponent(docId)}`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Specification document API: ${response.status}`);
-  return await response.json() as SpecificationDocument;
+  return (await response.json()) as SpecificationDocument;
 }
 
 // One document's body, fetched only once it's actually opened, cached with
 // effectively-infinite staleness and invalidated only by the specs-changed
 // SSE event naming its own file (area dashboard-data-loading-contracts).
-export function useSpecificationDocument(change: DashboardChange, docId: string | null, enabled = true) {
+export function useSpecificationDocument(change: SpecificationSummary, docId: string | null, enabled = true) {
   const active = enabled && Boolean(docId);
   const query = useQuery({
     queryKey: [...DOCUMENT_QUERY_KEY, change.source, change.slug, docId ?? ''],
@@ -74,13 +75,13 @@ export function useSpecificationDocument(change: DashboardChange, docId: string 
   };
 }
 
-async function fetchSpecificationActions(change: DashboardChange) {
+async function fetchSpecificationActions(change: SpecificationSummary) {
   const response = await fetch(`/api/specs/active/${encodeURIComponent(change.slug)}/actions`, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Specification actions API: ${response.status}`);
-  return await response.json() as SpecificationActionsPayload;
+  return (await response.json()) as SpecificationActionsPayload;
 }
 
-async function executeSpecificationAction(change: DashboardChange, request: {
+async function executeSpecificationAction(change: SpecificationSummary, request: {
   action: SpecificationOwnerAction;
   taskId?: string;
   confirmed?: boolean;
@@ -93,12 +94,12 @@ async function executeSpecificationAction(change: DashboardChange, request: {
     },
     body: JSON.stringify(request),
   });
-  const payload = await response.json() as SpecificationActionResult | { error?: string };
+  const payload = (await response.json()) as SpecificationActionResult | { error?: string };
   if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : `Specification action API: ${response.status}`);
   return payload as SpecificationActionResult;
 }
 
-export function useSpecificationActions(change: DashboardChange, enabled = true) {
+export function useSpecificationActions(change: SpecificationSummary, enabled = true) {
   const queryClient = useQueryClient();
   const active = enabled && change.source === 'active';
   const query = useQuery({
@@ -119,7 +120,10 @@ export function useSpecificationActions(change: DashboardChange, enabled = true)
       // until the operation reaches terminal status (operation.completed / operation.failed).
       // If no operationId was returned (direct synchronous legacy), invalidate immediately.
       if (!result?.operationId) {
-        await invalidateSpecificationQueries(queryClient);
+        await Promise.all([
+          invalidateSpecificationQueries(queryClient),
+          invalidatePullRequestQueries(queryClient),
+        ]);
       }
     },
   });

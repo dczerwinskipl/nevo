@@ -8,7 +8,7 @@
  *         ↑
  *   useBatchQueries ← generic hook + BatchQueriesManager; manages batcher scope & lifecycle
  *         ↑
- *   usePullRequestFileDiffs ← domain adapter (see use-dashboard-data.ts)
+ *   usePullRequestFileDiffs ← domain adapter
  *         ↑
  *   dashboard UI
  */

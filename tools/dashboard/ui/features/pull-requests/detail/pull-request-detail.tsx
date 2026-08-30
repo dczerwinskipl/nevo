@@ -1,19 +1,19 @@
 import { AlertTriangle, ChevronDown, Eye, EyeOff, ExternalLink, Files, GitBranch, GitCommitHorizontal, Layers, List, LoaderCircle, UserRound } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
-import type { AvailablePullRequest, PullRequestFileManifestEntry } from '@/lib/types';
-import type { DashboardChange } from '@/features/specifications/types';
+import type { AvailablePullRequest, PullRequestFileManifestEntry } from '../types';
+import type { SpecificationSummary } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { computeVisibility, groupFiles } from './changes-grouping';
-import type { GroupByMode } from './changes-grouping';
-import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, useProgressiveDiffPreload } from './changes-queries';
-import type { FileDiffRequest } from './changes-queries';
-import { FileChange, isContentUnchangedRename } from './file-change';
-import type { DiffViewMode } from './file-change';
-import { stateLabel, stateTone } from './pull-request-status';
+import { computeVisibility, groupFiles } from '../changes/grouping';
+import type { GroupByMode } from '../changes/grouping';
+import { useFullDiff, usePullRequestFileDiffs, usePullRequestFiles, useProgressiveDiffPreload } from '../queries';
+import type { FileDiffRequest } from '../queries';
+import { FileChange, isContentUnchangedRename } from '../changes/file-change';
+import type { DiffViewMode } from '../changes/file-change';
+import { stateLabel, stateTone } from '../changes/status';
 
 const GROUP_MODE_OPTIONS: Array<{ id: GroupByMode; label: string; icon: typeof Layers }> = [
   { id: 'area', label: 'Obszar', icon: Layers },
@@ -47,7 +47,7 @@ function IncompleteDiffIndicator({
   );
 }
 
-export function PullRequestCard({ change, pullRequest, mode }: { change: DashboardChange; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
+export function PullRequestCard({ change, pullRequest, mode }: { change: SpecificationSummary; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
   const [groupMode, setGroupMode] = useState<GroupByMode>('area');
   const [hideGenerated, setHideGenerated] = useState(true);

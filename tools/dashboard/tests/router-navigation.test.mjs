@@ -244,20 +244,20 @@ test('7. Session creation: creating session for spec X navigates using returned 
   );
 });
 
-test('8. No global session fetch: AppLayout and AppSidebar do not load global sessions', () => {
-  const appLayoutSource = readSource('app/app-layout.tsx');
-  const sidebarSource = readSource('features/specifications/navigation/app-sidebar.tsx');
+test('8. No global session fetch: SpecificationConsoleLayout and SpecificationSidebar do not load global sessions', () => {
+  const appLayoutSource = readSource('features/specifications/specification-console-layout.tsx');
+  const sidebarSource = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
-  // AppLayout does not query global sessions
-  assert.ok(!appLayoutSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
-  assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'AppSidebar must not render global session list');
+  // SpecificationConsoleLayout does not query global sessions
+  assert.ok(!appLayoutSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'SpecificationConsoleLayout must not query all AI sessions globally');
+  assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'SpecificationSidebar must not render global session list');
 });
 
 test('9. No reverse spec resolution: AgentSessionPage receives spec directly, without searching all specs', () => {
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  assert.ok(agentSessionPageSource.includes('spec: DashboardChange'), 'AgentSessionPage receives spec directly');
-  assert.ok(!agentSessionPageSource.includes('changes: DashboardChange[]'), 'AgentSessionPage must not receive changes array to reverse search');
+  assert.ok(agentSessionPageSource.includes('spec: SpecificationSummary'), 'AgentSessionPage receives spec directly');
+  assert.ok(!agentSessionPageSource.includes('changes: SpecificationSummary[]'), 'AgentSessionPage must not receive changes array to reverse search');
   assert.ok(!agentSessionPageSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
 });
 

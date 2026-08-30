@@ -8,23 +8,26 @@ export interface SpecSearch {}
 
 export const rootRoute = createRootRoute();
 
-export const appLayoutRoute = createRoute({
+export const specificationLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
-  id: 'app-layout',
+  id: 'specification-layout',
 });
 
+// Alias for any existing router references
+export const appLayoutRoute = specificationLayoutRoute;
+
 export const indexRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
+  getParentRoute: () => specificationLayoutRoute,
   path: '/',
 });
 
 export const archiveRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
+  getParentRoute: () => specificationLayoutRoute,
   path: '/archive',
 });
 
 export const specRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
+  getParentRoute: () => specificationLayoutRoute,
   path: '/specs/$source/$slug',
   validateSearch: (): SpecSearch => ({}),
 });
@@ -35,7 +38,7 @@ export const agentSessionRoute = createRoute({
 });
 
 export const routeTree = rootRoute.addChildren([
-  appLayoutRoute.addChildren([
+  specificationLayoutRoute.addChildren([
     indexRoute,
     archiveRoute,
     specRoute,

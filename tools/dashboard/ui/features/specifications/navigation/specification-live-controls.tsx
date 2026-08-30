@@ -2,10 +2,11 @@ import { Radio } from 'lucide-react';
 
 import { RetryButton } from '@/components/ui/status-card';
 import { cn } from '@/lib/utils';
+import type { LiveConnectionStatus } from '../queries';
 
-export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'unknown';
+export type { LiveConnectionStatus };
 
-export function ConnectivityControls({
+export function SpecificationLiveControls({
   live,
   status,
   refreshing,
@@ -70,3 +71,6 @@ export function ConnectivityControls({
     </div>
   );
 }
+
+// Backward-compat alias if needed
+export const ConnectivityControls = SpecificationLiveControls;

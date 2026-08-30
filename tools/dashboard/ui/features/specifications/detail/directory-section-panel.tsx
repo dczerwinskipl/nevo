@@ -11,13 +11,13 @@ import type { ComponentType } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
 import type {
-  DashboardChange,
+  SpecificationSummary,
   SpecificationManifestDirectorySection,
 } from '../types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { useSpecificationDocument } from './spec-detail-queries';
 
 function ContentLoading() {
@@ -81,7 +81,7 @@ export function DirectorySectionPanel({
   section,
   enabled,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   section: SpecificationManifestDirectorySection;
   enabled: boolean;
 }) {

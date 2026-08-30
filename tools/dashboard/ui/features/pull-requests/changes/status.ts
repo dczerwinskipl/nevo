@@ -1,4 +1,4 @@
-import type { AvailablePullRequest, PullRequestResult } from '@/lib/types';
+import type { AvailablePullRequest, PullRequestResult } from '../types';
 
 export function stateLabel(pullRequest: AvailablePullRequest) {
   if (pullRequest.draft) return 'Draft';

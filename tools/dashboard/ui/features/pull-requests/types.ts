@@ -1,8 +1,3 @@
-// Specification (Specs domain: dashboard index, manifest/document, task-status,
-// and owner-action types) live in features/specifications/types.ts — this file
-// only keeps types shared by the remaining, not-yet-migrated dashboard features
-// (Pull Requests, Operations).
-
 export interface PullRequestReference {
   provider: string;
   baseUrl: string;
@@ -112,48 +107,4 @@ export interface PullRequestsPayload {
   slug: string;
   source: 'active' | 'archive';
   pullRequests: PullRequestResult[];
-}
-
-export type OperationStatus = 'running' | 'completed' | 'failed';
-export type OperationStepStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-export interface OperationStep {
-  id: string;
-  label: string;
-  status: OperationStepStatus;
-  current?: number;
-  total?: number;
-  detail?: string;
-  error?: { message: string; code?: string };
-}
-
-export interface OperationEvent {
-  id: number;
-  type: string;
-  operationId: string;
-  timestamp: string;
-  [key: string]: unknown;
-}
-
-export interface OperationSnapshot {
-  id: string;
-  type: string;
-  status: OperationStatus;
-  startedAt: string;
-  completedAt?: string;
-  lastEventId: number;
-  steps: OperationStep[];
-  result?: unknown;
-  error?: { message: string; code?: string };
-  events: OperationEvent[];
-}
-
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
 }

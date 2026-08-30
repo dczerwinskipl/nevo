@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
 import type {
-  DashboardChange,
+  SpecificationSummary,
   SpecificationTaskDocument,
 } from '../types';
 import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { TaskActionFooter } from '../actions/spec-actions';
 import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 // Imported directly from the detail feature's own module, not through
@@ -18,7 +18,7 @@ import { useSpecificationDocument, useSpecificationActions } from '../detail/spe
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 
 export interface TaskDialogProps {
-  change: DashboardChange;
+  change: SpecificationSummary;
   taskId: string;
   onClose: () => void;
   onOpenSession?: (session: AgentSession, taskId?: string | null) => void;

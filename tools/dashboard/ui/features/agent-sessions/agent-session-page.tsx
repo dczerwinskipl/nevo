@@ -16,7 +16,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { AgentSessionHeader } from './agent-session-header';
-import { formatSessionStatus } from '@/components/status-label';
+import { formatSessionStatus } from '@/shared/ui/status-label';
 import { AgentSessionDetails } from './agent-session-details';
 import { AgentSessionComposer } from './composer/agent-session-composer';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
@@ -36,7 +36,7 @@ import type {
   AgentSession,
   TaskNavigationTarget,
 } from './types';
-import type { DashboardChange } from '@/features/specifications/types';
+import type { SpecificationSummary } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 
 import { useAgentProviders } from './queries';
@@ -49,7 +49,7 @@ export function AgentSessionPage({
   backLabel = 'Wróć do specyfikacji',
   onSwitchSession,
 }: {
-  spec: DashboardChange;
+  spec: SpecificationSummary;
   session: AgentSession;
   onBack: () => void;
   backLabel?: string;

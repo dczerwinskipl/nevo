@@ -5,7 +5,7 @@
 
 import picomatch from 'picomatch';
 
-import type { ChangeViewConfig, GeneratedFilesConfig } from '@/lib/types';
+import type { ChangeViewConfig, GeneratedFilesConfig } from '../types';
 
 export type GroupByMode = 'area' | 'directory' | 'flat';
 

@@ -1,9 +1,9 @@
 import { AlertTriangle, ChevronRight, Files, GitBranch, GitPullRequest, UserRound } from 'lucide-react';
 
-import type { AvailablePullRequest, UnavailablePullRequest } from '@/lib/types';
+import type { AvailablePullRequest, UnavailablePullRequest } from '../types';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { stateLabel, stateTone } from './pull-request-status';
+import { stateLabel, stateTone } from '../changes/status';
 
 export function PullRequestSummaryCard({
   pullRequest,
@@ -59,10 +59,7 @@ export function UnavailableCard({ result }: { result: UnavailablePullRequest }) 
             <Badge>{result.reference.provider}</Badge>
             <span className="text-[11px] text-[var(--muted)]">{result.reference.repository} #{result.reference.number}</span>
           </div>
-          <h2 className="mt-3 text-sm font-semibold text-[var(--foreground)]">
-            {result.availability === 'unsupported' ? 'Provider nie jest jeszcze obsługiwany' : 'Nie udało się pobrać pull requesta'}
-          </h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">{result.message}</p>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{result.message}</p>
         </div>
       </div>
     </Card>

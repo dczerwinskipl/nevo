@@ -94,7 +94,7 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
-  const connectivityControlsSource = readSource('app/connectivity-controls.tsx');
+  const connectivityControlsSource = readSource('features/specifications/navigation/specification-live-controls.tsx');
 
   // Indicator is icon-only in header with role=status, tabIndex=0, title, aria-label
   assert.ok(connectivityControlsSource.includes('role="status"'));
@@ -133,7 +133,7 @@ test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compac
 });
 
 test('Item 6: AppSidebar cleanup of unused task/delete handlers', () => {
-  const sidebarSource = readSource('features/specifications/navigation/app-sidebar.tsx');
+  const sidebarSource = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
   assert.ok(!sidebarSource.includes('useDeleteAgentSession'), 'useDeleteAgentSession must be removed from AppSidebar');
   assert.ok(!sidebarSource.includes('handleDeleteSession'), 'handleDeleteSession must be removed from AppSidebar');
@@ -157,7 +157,7 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
 });
 
 test('Item 8 (Task 18): Shared status label component and consistent session status labels across all 5 sites', () => {
-  const statusLabelSource = readSource('components/status-label.tsx');
+  const statusLabelSource = readSource('shared/ui/status-label.tsx');
   const stageProgressSource = readSource('features/specifications/stage-progress.tsx');
   const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
   const sessionListSource = readSource('features/agent-sessions/agent-session-list.tsx');
@@ -170,20 +170,20 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
   assert.ok(statusLabelSource.includes('formatSessionStatus'), 'Shared formatSessionStatus exported');
 
   // 2. Site 1: stage-progress stage labels use StatusLabel
-  assert.ok(stageProgressSource.includes("import { StatusLabel } from '@/components/status-label'"), 'stage-progress imports StatusLabel');
+  assert.ok(stageProgressSource.includes("import { StatusLabel } from '@/shared/ui/status-label'") || stageProgressSource.includes("from '@/shared/ui/status-label'"), 'stage-progress imports StatusLabel');
   assert.ok(stageProgressSource.includes('<StatusLabel className="truncate">{stage.label}</StatusLabel>'), 'stage-progress renders StatusLabel');
 
   // 3. Status-board lane headers and exact task statuses use the shared label primitive
-  assert.ok(statusBoardSource.includes("from '@/components/status-label'"), 'status-board imports StatusLabel');
+  assert.ok(statusBoardSource.includes("from '@/shared/ui/status-label'"), 'status-board imports StatusLabel');
   assert.ok(statusBoardSource.includes('<StatusLabel className="text-[var(--muted-strong)]">{lane.shortLabel}</StatusLabel>'), 'status-board lane header renders StatusLabel');
   assert.ok(statusBoardSource.includes('<StatusLabel kind="task" status={task.status}'), 'task cards render the exact domain status as lightweight metadata');
 
   // 4. Site 4: agent-session-list session status uses StatusLabel
-  assert.ok(sessionListSource.includes("from '@/components/status-label'"), 'agent-session-list imports from status-label');
+  assert.ok(sessionListSource.includes("from '@/shared/ui/status-label'"), 'agent-session-list imports from status-label');
   assert.ok(sessionListSource.includes('<StatusLabel kind="session" status={session.status} />'), 'agent-session-list renders StatusLabel');
 
   // 5. Site 5: agent session header status uses StatusLabel
-  assert.ok(agentSessionHeaderSource.includes("import { StatusLabel } from '@/components/status-label'"), 'agent-session-header imports StatusLabel');
+  assert.ok(agentSessionHeaderSource.includes("import { StatusLabel } from '@/shared/ui/status-label'"), 'agent-session-header imports StatusLabel');
   assert.ok(agentSessionHeaderSource.includes('<StatusLabel>{status}</StatusLabel>'), 'agent-session-header renders StatusLabel');
   assert.ok(agentSessionPageSource.includes('formatSessionStatus(assistant.activity)'), 'agent-session-page passes formatSessionStatus to header');
 });

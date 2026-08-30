@@ -1,13 +1,13 @@
 import { Outlet } from '@tanstack/react-router';
 
-import { AppLayout } from './app-layout';
+import { SpecificationConsoleLayout } from '@/features/specifications/specification-console-layout';
 import { ActiveSpecificationsRoute } from '@/features/specifications/list/active-specifications-route';
 import { ArchiveSpecificationsRoute } from '@/features/specifications/list/archive-specifications-route';
 import { SpecificationRoute } from '@/features/specifications/detail/specification-route';
 import { AgentSessionRoute } from '@/features/agent-sessions/agent-session-route';
 import {
   rootRoute,
-  appLayoutRoute,
+  specificationLayoutRoute,
   indexRoute,
   archiveRoute,
   specRoute,
@@ -19,7 +19,7 @@ import {
 // components. This file is intentionally just composition — it owns no
 // Specification or Agent Session logic itself.
 rootRoute.update({ component: () => <Outlet /> });
-appLayoutRoute.update({ component: AppLayout });
+specificationLayoutRoute.update({ component: SpecificationConsoleLayout });
 indexRoute.update({ component: ActiveSpecificationsRoute });
 archiveRoute.update({ component: ArchiveSpecificationsRoute });
 specRoute.update({ component: SpecificationRoute });

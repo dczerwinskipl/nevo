@@ -12,10 +12,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { AgentSession, TaskNavigationTarget } from './types';
-import type { DashboardTask } from '@/features/specifications/types';
+import type { SpecificationTask } from '@/features/specifications/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
+import { StatusLabel, formatSessionStatus, statusTone } from '@/shared/ui/status-label';
 import { useAgentProviders, useDeleteAgentSession } from './queries';
 
 function sessionTitle(session: AgentSession) {
@@ -40,8 +41,6 @@ export function sortSessionsByRecency(sessions: AgentSession[]): AgentSession[] 
     return bTime - aTime;
   });
 }
-
-import { StatusLabel, formatSessionStatus, statusTone } from '@/components/status-label';
 
 export function statusLabel(status: AgentSession['status']) {
   return formatSessionStatus(status);
@@ -81,7 +80,7 @@ export function AgentSessionRow({
   showDelete = true,
 }: {
   session: AgentSession;
-  tasks?: DashboardTask[];
+  tasks?: SpecificationTask[];
   onOpen: (session: AgentSession) => void;
   onDelete?: (session: AgentSession) => void | Promise<void>;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
@@ -229,7 +228,7 @@ export function AgentSessionList({
   limit,
 }: {
   sessions: AgentSession[];
-  tasks?: DashboardTask[];
+  tasks?: SpecificationTask[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;

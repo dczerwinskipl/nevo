@@ -10,8 +10,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import test from 'node:test';
 import { QueryClient, QueryObserver, QueriesObserver } from '@tanstack/react-query';
 
-import { createBatchQueriesManager } from '../ui/hooks/use-batch-queries.ts';
-import { ApiError } from '../ui/lib/types.ts';
+import { createBatchQueriesManager } from '../ui/features/pull-requests/use-batch-queries.ts';
+import { ApiError } from '../ui/features/pull-requests/queries.ts';
 
 function createTestQueryClient() {
   return new QueryClient({

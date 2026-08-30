@@ -15,11 +15,11 @@ import {
 import type { ComponentType } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
-import type { DashboardChange, SpecificationManifest } from '../types';
+import type { SpecificationSummary, SpecificationManifest } from '../types';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { StatusCard } from '@/components/ui/status-card';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MarkdownContent } from '@/shared/markdown/markdown-content';
 import { useSpecificationDocument } from './spec-detail-queries';
 import { buildDocGroups, type DocItem } from './documentation-projection';
 
@@ -84,7 +84,7 @@ export function DocumentationPanel({
   manifest,
   enabled,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   manifest: SpecificationManifest | null | undefined;
   enabled: boolean;
 }) {

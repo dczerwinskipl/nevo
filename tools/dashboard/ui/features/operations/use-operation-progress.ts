@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import type { OperationEvent, OperationSnapshot } from '@/lib/types';
+import type { OperationEvent, OperationSnapshot } from './types';
 import { OPERATION_SSE_EVENT_TYPES, applyOperationEvent, fetchOperationSnapshot } from './operation-snapshot.ts';
 
 export interface UseOperationProgressResult {

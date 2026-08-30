@@ -1,4 +1,4 @@
-import type { OperationSnapshot, OperationEvent } from '@/lib/types';
+import type { OperationSnapshot, OperationEvent } from './types';
 
 /**
  * Framework-free core for "what is this operation's current state, and has it reached

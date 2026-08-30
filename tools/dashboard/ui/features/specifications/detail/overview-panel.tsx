@@ -5,8 +5,8 @@ import {
 } from 'lucide-react';
 
 import type {
-  DashboardChange,
-  DashboardTask,
+  SpecificationSummary,
+  SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
 } from '../types';
@@ -32,8 +32,8 @@ export function OverviewPanel({
   onCreateSession,
   onOpenTask,
 }: {
-  change: DashboardChange;
-  onTaskSelect: (task: DashboardTask, trigger: HTMLElement) => void;
+  change: SpecificationSummary;
+  onTaskSelect: (task: SpecificationTask, trigger: HTMLElement) => void;
   sessions: AgentSession[];
   sessionsLoading: boolean;
   sessionsError: string | null;
@@ -41,8 +41,8 @@ export function OverviewPanel({
   onOpenSession: (session: AgentSession) => void;
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
-  onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
-  onBatchTaskAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
+  onDirectTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
+  onBatchTaskAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
   onCreateSession: () => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
 }) {

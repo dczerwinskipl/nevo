@@ -1,9 +1,9 @@
 import type {
-  DashboardTask,
+  SpecificationTask,
   SpecificationActionResult,
   SpecificationOwnerAction,
 } from '../types';
-import type { OperationWaitOutcome } from '@/hooks/wait-for-operation-terminal';
+import type { OperationWaitOutcome } from '@/features/operations/wait-for-operation-terminal';
 
 /**
  * Pure task-workflow orchestration — no React, no DOM, no sessionStorage. Injected
@@ -38,7 +38,7 @@ export function describeBatchStopReason(outcome: Exclude<OperationWaitOutcome, {
 
 export async function runDirectTaskAction(
   deps: Pick<WorkflowActionDeps, 'execute' | 'onOperationStarted'>,
-  task: DashboardTask,
+  task: SpecificationTask,
   actionName: SpecificationOwnerAction,
 ): Promise<void> {
   try {
@@ -65,7 +65,7 @@ export async function runDirectTaskAction(
  */
 export async function runBatchTaskAction(
   deps: WorkflowActionDeps,
-  tasks: DashboardTask[],
+  tasks: SpecificationTask[],
   actionName: SpecificationOwnerAction,
 ): Promise<void> {
   for (let i = 0; i < tasks.length; i++) {

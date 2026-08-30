@@ -1,6 +1,6 @@
 import { ArrowLeft, Info, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { StatusLabel } from '@/components/status-label';
+import { StatusLabel } from '@/shared/ui/status-label';
 import { cn } from '@/lib/utils';
 
 import type { LiveConnectionStatus } from './types';

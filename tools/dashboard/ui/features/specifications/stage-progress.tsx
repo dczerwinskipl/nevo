@@ -1,6 +1,6 @@
-import type { DashboardChange, StageId } from './types';
+import type { SpecificationSummary, StageId } from './types';
 import { cn } from '@/lib/utils';
-import { StatusLabel } from '@/components/status-label';
+import { StatusLabel } from '@/shared/ui/status-label';
 
 const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
   { id: 'done', label: 'Gotowe', color: 'bg-[var(--success)]' },
@@ -16,7 +16,7 @@ export function StageProgress({
   className,
   legend = false,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   className?: string;
   legend?: boolean;
 }) {

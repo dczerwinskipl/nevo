@@ -1,16 +1,16 @@
 import { ArrowLeft, GitPullRequest, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { DashboardChange } from '@/features/specifications/types';
+import type { SpecificationSummary } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { StatusCard, RetryButton } from '@/components/ui/status-card';
-import { usePullRequests } from './changes-queries';
-import type { DiffViewMode } from './file-change';
-import { PullRequestCard } from './pull-request-detail';
-import { PullRequestSummaryCard, UnavailableCard } from './pull-request-cards';
-import { pullRequestKey } from './pull-request-status';
+import { usePullRequests } from '../queries';
+import type { DiffViewMode } from '../changes/file-change';
+import { PullRequestCard } from '../detail/pull-request-detail';
+import { PullRequestSummaryCard, UnavailableCard } from '../detail/pull-request-cards';
+import { pullRequestKey } from '../changes/status';
 
 function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mode: DiffViewMode) => void }) {
   return (
@@ -33,7 +33,7 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-export function ChangesPanel({ change }: { change: DashboardChange }) {
+export function PullRequestsPanel({ change }: { change: SpecificationSummary }) {
   const query = usePullRequests(change, true);
   const [mode, setMode] = useState<DiffViewMode>(() => (
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1100px)').matches ? 'split' : 'unified'
@@ -144,3 +144,6 @@ export function ChangesPanel({ change }: { change: DashboardChange }) {
     </div>
   );
 }
+
+// Backward compatibility alias for any transient consumer
+export const ChangesPanel = PullRequestsPanel;

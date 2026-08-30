@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import type { DashboardChange, DashboardTask, SpecificationOwnerAction } from '../types';
+import type { SpecificationSummary, SpecificationTask, SpecificationOwnerAction } from '../types';
 import { invalidateSpecificationQueries } from '../queries';
-import { waitForOperationTerminal } from '@/hooks/wait-for-operation-terminal';
+import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
+import { waitForOperationTerminal } from '@/features/operations/wait-for-operation-terminal';
 import type { useSpecificationActions } from '../detail/spec-detail-queries';
 import { describeBatchStopReason, runBatchTaskAction, runDirectTaskAction, runFinalizeAction } from './spec-workflow-actions';
 
@@ -34,7 +35,7 @@ function readSessionStorage(key: string): string | null {
  * state and UI, not run an operation loop itself (area
  * spec-detail-and-workflow-feature-slice, task 05).
  */
-export function useSpecWorkflowActions(change: DashboardChange, actionsQuery: ActionsQuery) {
+export function useSpecWorkflowActions(change: SpecificationSummary, actionsQuery: ActionsQuery) {
   const queryClient = useQueryClient();
 
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => (
@@ -70,10 +71,13 @@ export function useSpecWorkflowActions(change: DashboardChange, actionsQuery: Ac
   }, [change.slug]);
 
   const handleOperationTerminal = useCallback(async () => {
-    await invalidateSpecificationQueries(queryClient);
+    await Promise.all([
+      invalidateSpecificationQueries(queryClient),
+      invalidatePullRequestQueries(queryClient),
+    ]);
   }, [queryClient]);
 
-  const executeDirectTaskAction = useCallback((task: DashboardTask, actionName: SpecificationOwnerAction) => (
+  const executeDirectTaskAction = useCallback((task: SpecificationTask, actionName: SpecificationOwnerAction) => (
     runDirectTaskAction(
       { execute: actionsQuery.execute, onOperationStarted: updateActiveOperation },
       task,
@@ -81,7 +85,7 @@ export function useSpecWorkflowActions(change: DashboardChange, actionsQuery: Ac
     )
   ), [actionsQuery, updateActiveOperation]);
 
-  const executeBatchTaskAction = useCallback((tasks: DashboardTask[], actionName: SpecificationOwnerAction) => (
+  const executeBatchTaskAction = useCallback((tasks: SpecificationTask[], actionName: SpecificationOwnerAction) => (
     runBatchTaskAction(
       {
         execute: actionsQuery.execute,

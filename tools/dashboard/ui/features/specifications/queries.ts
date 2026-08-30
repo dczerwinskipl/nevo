@@ -3,24 +3,21 @@ import type { QueryKey, QueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import {
-  DashboardChange,
-  DashboardPayload,
+  SpecificationSummary,
+  SpecificationIndex,
   SpecificationManifest,
   TaskStatusesPayload,
 } from './types';
 
-const SPECIFICATION_INDEX_QUERY_KEY = ['nevo-dashboard'] as const;
+export const SPECIFICATION_INDEX_QUERY_KEY = ['nevo-specification-index'] as const;
 // Exported: owned here only because the cross-domain SSE invalidation
 // (handleSpecsChanged/invalidateSpecificationQueries) below needs them — the
 // queries and mutations that build on these keys live feature-locally in
-// detail/specification-detail-queries.ts.
+// detail/spec-detail-queries.ts.
 export const MANIFEST_QUERY_KEY = ['nevo-spec-manifest'] as const;
 export const DOCUMENT_QUERY_KEY = ['nevo-spec-document'] as const;
 export const ACTIONS_QUERY_KEY = ['nevo-spec-actions'] as const;
-const TASK_STATUSES_QUERY_KEY = ['nevo-spec-task-statuses'] as const;
-// Exported for the same reason as MANIFEST/DOCUMENT/ACTIONS above — owned by
-// invalidateSpecificationQueries here, consumed by changes-panel/changes-queries.ts.
-export const PULL_REQUEST_QUERY_KEY = ['nevo-spec-pull-requests'] as const;
+export const TASK_STATUSES_QUERY_KEY = ['nevo-spec-task-statuses'] as const;
 
 // `/api/dashboard`'s own safety-refresh backstop (minutes, not seconds) —
 // specs-changed SSE invalidation is the real trigger; this only guards
@@ -32,8 +29,8 @@ type SpecsChangedEvent = { type: 'specs-changed'; at: string; eventType?: string
 
 async function fetchSpecificationIndex() {
   const response = await fetch('/api/dashboard', { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Dashboard API: ${response.status}`);
-  return await response.json() as DashboardPayload;
+  if (!response.ok) throw new Error(`Specification index API: ${response.status}`);
+  return (await response.json()) as SpecificationIndex;
 }
 
 export function handleSpecsChanged(queryClient: ReturnType<typeof useQueryClient>, event: SpecsChangedEvent) {
@@ -119,19 +116,19 @@ export function useSpecificationIndex() {
   };
 }
 
-async function fetchTaskStatuses(change: DashboardChange) {
+async function fetchTaskStatuses(change: SpecificationSummary) {
   const response = await fetch(`/api/specs/${change.source}/${encodeURIComponent(change.slug)}/task-statuses`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Task statuses API: ${response.status}`);
-  return await response.json() as TaskStatusesPayload;
+  return (await response.json()) as TaskStatusesPayload;
 }
 
 // Small enough to poll every few seconds regardless of specs-changed —
 // deliberately not event-driven (area dashboard-data-loading-contracts: "not
 // worth the added complexity of event-driven invalidation for a payload this
 // small").
-export function useTaskStatuses(change: DashboardChange, enabled = true) {
+export function useTaskStatuses(change: SpecificationSummary, enabled = true) {
   const query = useQuery({
     queryKey: [...TASK_STATUSES_QUERY_KEY, change.source, change.slug],
     queryFn: () => fetchTaskStatuses(change),
@@ -157,7 +154,6 @@ export async function invalidateSpecificationQueries(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: MANIFEST_QUERY_KEY }),
     queryClient.invalidateQueries({ queryKey: DOCUMENT_QUERY_KEY }),
     queryClient.invalidateQueries({ queryKey: TASK_STATUSES_QUERY_KEY }),
-    queryClient.invalidateQueries({ queryKey: PULL_REQUEST_QUERY_KEY }),
     queryClient.invalidateQueries({ queryKey: ACTIONS_QUERY_KEY }),
   ]);
 }
@@ -173,7 +169,7 @@ export type CreateSpecificationResult = {
   ok: boolean;
   slug: string;
   specId: string;
-  change: DashboardChange;
+  change: SpecificationSummary;
 };
 
 export function useCreateSpecification() {

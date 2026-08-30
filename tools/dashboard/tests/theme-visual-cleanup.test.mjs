@@ -46,19 +46,19 @@ test('theme exposes interaction and semantic token families', () => {
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
-  const appLayout = readSource('app/app-layout.tsx');
+  const appLayout = readSource('features/specifications/specification-console-layout.tsx');
 
   assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
   assert.ok(appLayout.includes('fixed right-4 top-3 z-40 hidden rounded-xl'));
   assert.ok(appLayout.includes('backdrop-blur-xl lg:flex'));
-  assert.ok(appLayout.includes('<ConnectivityControls live={live}'));
+  assert.ok(appLayout.includes('<SpecificationLiveControls live={live}') || appLayout.includes('<ConnectivityControls live={live}'));
 });
 
 test('workflow and session states follow the semantic color contract', () => {
   const board = readSource('features/specifications/detail/status-board.tsx');
   const lanes = readSource('features/specifications/detail/lane-presentation.ts');
   const progress = readSource('features/specifications/stage-progress.tsx');
-  const labels = readSource('components/status-label.tsx');
+  const labels = readSource('shared/ui/status-label.tsx');
   const tools = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
   const sessions = readSource('features/agent-sessions/agent-session-list.tsx');
 
@@ -76,7 +76,7 @@ test('workflow and session states follow the semantic color contract', () => {
 });
 
 test('sidebar hierarchy and mode switch stay neutral with a clear primary selection', () => {
-  const sidebar = readSource('features/specifications/navigation/app-sidebar.tsx');
+  const sidebar = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
   assert.ok(sidebar.includes('border-r border-[var(--border)] bg-[var(--surface-raised)]'));
   assert.ok(sidebar.includes('rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1'));

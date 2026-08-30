@@ -8,29 +8,29 @@ import {
 import { useMemo, useState } from 'react';
 import { Menu } from 'lucide-react';
 
-import { LoadingScreen } from '@/components/loading-screen';
+import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { AppSidebar, type DashboardMode } from '@/features/specifications/navigation/app-sidebar';
-import { useSpecificationIndex } from '@/features/specifications/queries';
-import { CreateSpecificationDialog } from '@/features/specifications/create/create-specification-dialog';
-import type { DashboardChange } from '@/features/specifications/types';
-import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
+import { SpecificationSidebar } from './navigation/specification-sidebar';
+import { SpecificationLiveControls } from './navigation/specification-live-controls';
+import { useSpecificationIndex } from './queries';
+import { CreateSpecificationDialog } from './create/create-specification-dialog';
+import type { SpecificationSource } from './types';
 import { pendingDispatchStore } from '@/features/agent-sessions/runtime/pending-dispatch-store';
-import { ConnectivityControls } from './connectivity-controls';
 
-export function AppLayout() {
+export function SpecificationConsoleLayout() {
   const { data, error, loading, refreshing, live, connectionStatus, refresh } = useSpecificationIndex();
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [createChange, setCreateChange] = useState<DashboardChange | null>(null);
   const [createSpecOpen, setCreateSpecOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const matches = useMatches();
 
-  const mode: DashboardMode = useMemo(() => {
-    const specMatch = matches.find((m) => m.routeId === '/app-layout/specs/$source/$slug');
+  const mode: SpecificationSource = useMemo(() => {
+    const specMatch = matches.find((m) =>
+      m.routeId === '/specification-layout/specs/$source/$slug'
+    );
     if (specMatch) {
       const source = (specMatch.params as { source?: string }).source;
       return source === 'archive' ? 'archive' : 'active';
@@ -42,7 +42,9 @@ export function AppLayout() {
   }, [location.pathname, matches]);
 
   const selectedSlug = useMemo(() => {
-    const specMatch = matches.find((m) => m.routeId === '/app-layout/specs/$source/$slug');
+    const specMatch = matches.find((m) =>
+      m.routeId === '/specification-layout/specs/$source/$slug'
+    );
     return specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null;
   }, [matches]);
 
@@ -85,10 +87,10 @@ export function AppLayout() {
             </div>
           </Link>
         </div>
-        <ConnectivityControls live={live} status={connectionStatus} refreshing={refreshing} onRefresh={() => void refresh()} />
+        <SpecificationLiveControls live={live} status={connectionStatus} refreshing={refreshing} onRefresh={() => void refresh()} />
       </header>
 
-      <ConnectivityControls
+      <SpecificationLiveControls
         live={live}
         status={connectionStatus}
         refreshing={refreshing}
@@ -116,7 +118,7 @@ export function AppLayout() {
       </main>
 
       {data && (
-        <AppSidebar
+        <SpecificationSidebar
           mode={mode}
           active={data.active}
           archive={data.archive}
@@ -154,29 +156,6 @@ export function AppLayout() {
                 params: { source: 'active', slug: spec.slug },
               });
             }
-          }}
-        />
-      )}
-
-      {createChange && (
-        <CreateAgentSessionDialog
-          change={createChange}
-          onClose={() => setCreateChange(null)}
-          onCreated={(session, initialMessage) => {
-            const targetChange = createChange;
-            setCreateChange(null);
-            if (initialMessage) {
-              pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialMessage);
-            }
-            navigate({
-              to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
-              params: {
-                source: targetChange.source,
-                slug: targetChange.slug,
-                provider: session.provider,
-                providerSessionId: session.providerSessionId,
-              },
-            });
           }}
         />
       )}

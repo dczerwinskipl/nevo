@@ -1,6 +1,8 @@
 export type StageId = 'new' | 'design' | 'ready' | 'implementation' | 'review' | 'done';
 
-export interface DashboardTask {
+export type SpecificationSource = 'active' | 'archive';
+
+export interface SpecificationTask {
   id: string;
   title: string;
   status: string;
@@ -13,29 +15,29 @@ export interface DashboardTask {
   file: string | null;
 }
 
-export interface DashboardLane {
+export interface SpecificationLane {
   id: StageId;
   label: string;
   shortLabel: string;
-  tasks: DashboardTask[];
+  tasks: SpecificationTask[];
 }
 
-export interface DashboardChange {
+export interface SpecificationSummary {
   id: string;
   specId: string | null;
   slug: string;
   title: string;
   status: string;
-  source: 'active' | 'archive';
+  source: SpecificationSource;
   priority: number | null;
   created: string | null;
   updatedAt: string;
   path: string | null;
   overviewFile: string | null;
   summary: string;
-  tasks: DashboardTask[];
-  lanes: DashboardLane[];
-  nextTask: DashboardTask | null;
+  tasks: SpecificationTask[];
+  lanes: SpecificationLane[];
+  nextTask: SpecificationTask | null;
   metrics: {
     total: number;
     actionable: number;
@@ -49,11 +51,11 @@ export interface DashboardChange {
   };
 }
 
-export interface DashboardPayload {
+export interface SpecificationIndex {
   generatedAt: string;
   counts: { active: number; archived: number };
-  active: DashboardChange[];
-  archive: DashboardChange[];
+  active: SpecificationSummary[];
+  archive: SpecificationSummary[];
 }
 
 export type SpecificationDocumentKind = 'overview' | 'area' | 'task' | string;
@@ -110,7 +112,7 @@ export interface SpecificationManifest {
   specId: string | null;
   slug: string;
   title: string;
-  source: 'active' | 'archive';
+  source: SpecificationSource;
   path: string | null;
   overview: SpecificationManifestDocument;
   areas: SpecificationManifestDocument[];
@@ -149,7 +151,7 @@ export interface TaskStatusSummary {
 export interface TaskStatusesPayload {
   id: string;
   slug: string;
-  source: 'active' | 'archive';
+  source: SpecificationSource;
   revision: string;
   tasks: TaskStatusSummary[];
 }

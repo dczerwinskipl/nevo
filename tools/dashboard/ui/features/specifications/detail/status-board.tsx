@@ -2,15 +2,15 @@ import { CheckCircle2, GitBranch, LockKeyhole, Play } from 'lucide-react';
 import type { CSSProperties } from 'react';
 
 import type {
-  DashboardChange,
-  DashboardTask,
+  SpecificationSummary,
+  SpecificationTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
 } from '../types';
 import { cn } from '@/lib/utils';
 import { lanePresentation } from './lane-presentation';
 import { Button } from '@/components/ui/button';
-import { StatusLabel } from '@/components/status-label';
+import { StatusLabel } from '@/shared/ui/status-label';
 
 function TaskCard({
   task,
@@ -18,10 +18,10 @@ function TaskCard({
   onSelect,
   onAction,
 }: {
-  task: DashboardTask;
+  task: SpecificationTask;
   actionGate?: SpecificationTaskActionGate | null;
-  onSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
-  onAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
+  onSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
+  onAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
 }) {
   const hasAction = actionGate?.enabled;
 
@@ -97,11 +97,11 @@ export function StatusBoard({
   onTaskAction,
   onBatchAction,
 }: {
-  change: DashboardChange;
+  change: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
-  onTaskSelect?: (task: DashboardTask, trigger: HTMLElement) => void;
-  onTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
-  onBatchAction?: (tasks: DashboardTask[], action: SpecificationOwnerAction) => void;
+  onTaskSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
+  onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
+  onBatchAction?: (tasks: SpecificationTask[], action: SpecificationOwnerAction) => void;
 }) {
   return (
     <section aria-labelledby="workflow-heading">

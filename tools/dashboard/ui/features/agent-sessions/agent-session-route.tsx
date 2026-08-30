@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
-import { LoadingScreen } from '@/components/loading-screen';
+import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
 import { agentSessionRoute } from '@/router-tree';
 import type { AgentSession } from './types';
