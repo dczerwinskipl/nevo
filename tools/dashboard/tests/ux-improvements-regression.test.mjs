@@ -67,25 +67,25 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
   assert.ok(agentSessionPageSource.includes('tasks={sessionTaskItems}'));
 });
 
-test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecDetail and AgentSessionPage without leaveChat()', () => {
-  const taskDialogSource = readSource('components/task-dialog.tsx');
-  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
+test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from both SpecificationDetail and AgentSessionPage without leaveChat()', () => {
+  const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
+  const specDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  // TaskDialog is a reusable component in components/task-dialog.tsx
+  // TaskDialog is a reusable component in features/specifications/tasks/task-dialog.tsx
   assert.ok(taskDialogSource.includes('export function TaskDialog('));
   assert.ok(taskDialogSource.includes('export interface TaskDialogProps'));
   assert.ok(taskDialogSource.includes('useSpecificationDocument('));
   assert.ok(taskDialogSource.includes('useSpecificationActions('));
   assert.ok(taskDialogSource.includes('useAgentSessions('));
 
-  // SpecDetail imports and mounts TaskDialog
-  assert.ok(specDetailSource.includes("import { TaskDialog } from '@/components/task-dialog';"));
+  // SpecificationDetail imports and mounts TaskDialog
+  assert.ok(specDetailSource.includes("import { TaskDialog } from '../tasks/task-dialog';"));
   assert.ok(specDetailSource.includes('<TaskDialog'));
   assert.ok(specDetailSource.includes('taskId={selectedTask.id}'));
 
   // AgentSessionPage imports and mounts TaskDialog locally as an overlay without calling leaveChat()
-  assert.ok(agentSessionPageSource.includes("import { TaskDialog } from '@/components/task-dialog';"));
+  assert.ok(agentSessionPageSource.includes("import { TaskDialog } from '@/features/specifications/tasks/task-dialog';"));
   assert.ok(agentSessionPageSource.includes('const [inspectedTaskId, setInspectedTaskId] = useState<string | null>(null);'));
   assert.ok(agentSessionPageSource.includes('setInspectedTaskId(taskId);'));
   assert.ok(agentSessionPageSource.includes('<TaskDialog'));
@@ -94,20 +94,21 @@ test('Item 2C, 2D & Item 9B/9C: Reusable TaskDialog component is mounted from bo
 });
 
 test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic state', () => {
-  const routerSource = readSource('router.tsx');
+  const connectivityControlsSource = readSource('app/connectivity-controls.tsx');
 
   // Indicator is icon-only in header with role=status, tabIndex=0, title, aria-label
-  assert.ok(routerSource.includes('role="status"'));
-  assert.ok(routerSource.includes('tabIndex={0}'));
-  assert.ok(routerSource.includes("aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}"));
-  assert.ok(routerSource.includes("title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}"));
-  assert.ok(routerSource.includes("? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'"));
-  assert.ok(routerSource.includes(": 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'"));
-  assert.ok(!routerSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
+  assert.ok(connectivityControlsSource.includes('role="status"'));
+  assert.ok(connectivityControlsSource.includes('tabIndex={0}'));
+  assert.ok(connectivityControlsSource.includes('Połączenie na żywo aktywne (SSE: Połączono)'));
+  assert.ok(connectivityControlsSource.includes('SSE: Połączono (aktualizacje na żywo aktywne)'));
+  assert.ok(connectivityControlsSource.includes('border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'));
+  assert.ok(connectivityControlsSource.includes('border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'));
+  assert.ok(connectivityControlsSource.includes('border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]'));
+  assert.ok(!connectivityControlsSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 
 test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compact metadata, and a separate action footer', () => {
-  const statusBoardSource = readSource('components/status-board.tsx');
+  const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
 
   // 1. Outer card is non-interactive div without role=button or tabIndex=0
   assert.ok(!statusBoardSource.includes('role="button"'), 'TaskCard outer div must not have role=button');
@@ -131,7 +132,7 @@ test('Item 5 (Task 14 AC1 & Finding 2): TaskCard uses a full-width title, compac
 });
 
 test('Item 6: AppSidebar cleanup of unused task/delete handlers', () => {
-  const sidebarSource = readSource('components/app-sidebar.tsx');
+  const sidebarSource = readSource('features/specifications/navigation/app-sidebar.tsx');
 
   assert.ok(!sidebarSource.includes('useDeleteAgentSession'), 'useDeleteAgentSession must be removed from AppSidebar');
   assert.ok(!sidebarSource.includes('handleDeleteSession'), 'handleDeleteSession must be removed from AppSidebar');
@@ -156,8 +157,8 @@ test('Item 7 (Task 17): CreateAgentSessionDialog provider group uses semantic fi
 
 test('Item 8 (Task 18): Shared status label component and consistent session status labels across all 5 sites', () => {
   const statusLabelSource = readSource('components/status-label.tsx');
-  const stageProgressSource = readSource('components/stage-progress.tsx');
-  const statusBoardSource = readSource('components/status-board.tsx');
+  const stageProgressSource = readSource('features/specifications/stage-progress.tsx');
+  const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
   const sessionListSource = readSource('features/agent-sessions/agent-session-list.tsx');
   const agentSessionHeaderSource = readSource('features/agent-sessions/agent-session-header.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
@@ -187,8 +188,8 @@ test('Item 8 (Task 18): Shared status label component and consistent session sta
 });
 
 test('Item 9 (Task 19): Standardize H2 scale on spec-detail to text-xl', () => {
-  const specDetailSource = readSource('components/spec-detail/overview-panel.tsx');
-  const statusBoardSource = readSource('components/status-board.tsx');
+  const specDetailSource = readSource('features/specifications/detail/overview-panel.tsx');
+  const statusBoardSource = readSource('features/specifications/detail/status-board.tsx');
 
   // Both section h2 headings use text-xl
   assert.ok(specDetailSource.includes('<h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2>'));

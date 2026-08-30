@@ -3,7 +3,7 @@ interface BrowserCrypto {
   getRandomValues?: (values: Uint32Array) => Uint32Array;
 }
 
-export interface DisplayChatMessage {
+export interface DisplayTranscriptMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -86,8 +86,8 @@ export function initialPromptWithTaskContext(
   return contextHeader ? `${contextHeader}\n\n${request}` : request;
 }
 
-export function composeChatMessages(
-  persisted: DisplayChatMessage[],
+export function composeTranscriptMessages(
+  persisted: DisplayTranscriptMessage[],
   optimisticUser: string | null,
   liveDeltas: Readonly<Record<string, string>>,
 ) {

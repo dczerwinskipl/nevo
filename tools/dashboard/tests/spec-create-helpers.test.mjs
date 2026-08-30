@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { slugifyTitle, resolveDefaultPlanningMode, SPEC_TYPES_OPTIONS } from '../ui/lib/spec-create-helpers.ts';
+import { slugifyTitle, resolveDefaultPlanningMode, SPEC_TYPES_OPTIONS } from '../ui/features/specifications/create/create-specification-helpers.ts';
 
 test('slugifyTitle converts titles to canonical kebab-case slugs', () => {
   assert.equal(slugifyTitle('Multi-Provider Agent Sessions'), 'multi-provider-agent-sessions');

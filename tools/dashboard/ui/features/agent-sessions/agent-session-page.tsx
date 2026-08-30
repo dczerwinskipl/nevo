@@ -28,7 +28,7 @@ import { AI_PROVIDERS_CONFIG_PATH } from './provider-config';
 import { projectTranscript } from './transcript/projection';
 import { useScrollFollow } from './transcript/use-scroll-follow';
 import { useInitialDispatch } from './runtime/use-initial-dispatch';
-import { TaskDialog } from '@/components/task-dialog';
+import { TaskDialog } from '@/features/specifications/tasks/task-dialog';
 import type {
   AgentExecutionMode,
   AgentInteraction,
@@ -36,7 +36,7 @@ import type {
   AgentSession,
   TaskNavigationTarget,
 } from './types';
-import type { DashboardChange } from '@/lib/types';
+import type { DashboardChange } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 
 import { useAgentProviders } from './queries';
@@ -56,7 +56,7 @@ export function AgentSessionPage({
   onSwitchSession: (session: AgentSession) => void;
 }) {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const chatViewport = useVisualViewport();
+  const visualViewport = useVisualViewport();
 
   const provider = session.provider;
   const sessionId = session.providerSessionId || session.sessionId;
@@ -190,10 +190,10 @@ export function AgentSessionPage({
   }, [provider, sessionId]);
 
   useEffect(() => {
-    if (!chatViewport.keyboardOpen || !isFollowing) return;
+    if (!visualViewport.keyboardOpen || !isFollowing) return;
     window.scrollTo(0, 0);
     scrollToBottom('auto');
-  }, [chatViewport.height, chatViewport.keyboardOpen, isFollowing, scrollToBottom]);
+  }, [visualViewport.height, visualViewport.keyboardOpen, isFollowing, scrollToBottom]);
 
   const { deleteSession, deleting } = useDeleteAgentSession();
 
@@ -220,10 +220,10 @@ export function AgentSessionPage({
   }, [assistant.canStartTurn, assistant.sendTurn, currentMode, isProviderAvailable, scrollToBottom]);
 
   const shellClassName = 'fixed inset-x-0 top-0 flex h-[100dvh] min-h-0 flex-col overflow-hidden overscroll-none bg-[var(--background)]';
-  const shellStyle = chatViewport.height
+  const shellStyle = visualViewport.height
     ? {
-        height: `${chatViewport.height}px`,
-        transform: `translateY(${chatViewport.offsetTop}px)`,
+        height: `${visualViewport.height}px`,
+        transform: `translateY(${visualViewport.offsetTop}px)`,
       }
     : undefined;
 
@@ -241,6 +241,7 @@ export function AgentSessionPage({
       title={headerTitle}
       status={session ? formatSessionStatus(assistant.activity) : undefined}
       live={assistant.live}
+      connectionStatus={assistant.connectionStatus}
       onBack={onBack}
       backLabel={backLabel}
       onOpenDetails={() => setIsSessionDetailsOpen(true)}
@@ -415,7 +416,7 @@ export function AgentSessionPage({
           </div>
         </div>
 
-        <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', chatViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
+        <footer className={cn('shrink-0 border-t border-[var(--border)] bg-[var(--background)] px-3 pt-2 sm:px-6', visualViewport.keyboardOpen ? 'pb-2' : 'pb-[max(0.5rem,env(safe-area-inset-bottom))]')}>
           <div className="mx-auto max-w-4xl">
             <AgentSessionComposer
               key={sessionId}

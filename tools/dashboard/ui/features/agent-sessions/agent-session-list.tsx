@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { AgentSession, TaskNavigationTarget } from './types';
-import type { DashboardTask } from '@/lib/types';
+import type { DashboardTask } from '@/features/specifications/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';

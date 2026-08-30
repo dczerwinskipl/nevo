@@ -5,6 +5,7 @@ import type {
   AgentSessionSnapshot,
   AgentSessionStatus,
   AgentInteraction,
+  LiveConnectionStatus,
   NormalizedMessage,
 } from '../types.ts';
 import {
@@ -49,6 +50,7 @@ export function useAgentSessionRuntime({
   const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
+  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('reconnecting');
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -88,6 +90,7 @@ export function useAgentSessionRuntime({
       const identity = `${provider}:${providerSessionId}`;
       setLoadError(null);
       setLoadErrorIdentity(null);
+      setConnectionStatus('reconnecting');
 
       try {
         const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId);
@@ -138,6 +141,8 @@ export function useAgentSessionRuntime({
           setLoadedIdentity(null);
           setLoadErrorIdentity(identity);
           setLoadError(classified);
+          setConnectionStatus('disconnected');
+          setLive(false);
           // Note: Handled snapshot load failures do not invoke onError (separated error domain)
         }
       }
@@ -165,11 +170,23 @@ export function useAgentSessionRuntime({
     let active = true;
 
     const disconnect = connectAgentEventStream(url, {
-      onOpen: () => { if (active) setLive(true); },
-      onError: () => { if (active) setLive(false); },
+      onOpen: () => {
+        if (active) {
+          setLive(true);
+          setConnectionStatus('connected');
+        }
+      },
+      onError: (source) => {
+        if (active) {
+          setLive(false);
+          const readyState = (source as { readyState?: number })?.readyState;
+          setConnectionStatus(readyState === 2 ? 'disconnected' : 'reconnecting');
+        }
+      },
       onEvent: (event) => {
         if (!active) return;
         setLive(true);
+        setConnectionStatus('connected');
         const seq = resolveEventSeq(event);
         if (seq <= lastSeqRef.current) return; // Deduplication cursor check
 
@@ -371,7 +388,12 @@ export function useAgentSessionRuntime({
     ? { ...sessionDetails, status: exposedActivity }
     : null;
   const exposedLoadError = isErrorForCurrentIdentity ? loadError : null;
-  const exposedLive = isSnapshotLoaded && !exposedLoadError ? live : false;
+  const exposedConnectionStatus: LiveConnectionStatus = isSnapshotLoaded && !exposedLoadError
+    ? connectionStatus
+    : exposedLoadError
+      ? 'disconnected'
+      : 'reconnecting';
+  const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
   const exposedCanStartTurn = exposedIsReady;
@@ -396,6 +418,7 @@ export function useAgentSessionRuntime({
     contentRevision: exposedContentRevision,
     isLoading: exposedIsLoading,
     live: exposedLive,
+    connectionStatus: exposedConnectionStatus,
     isReady: exposedIsReady,
     canStartTurn: exposedCanStartTurn,
     isSnapshotLoaded,

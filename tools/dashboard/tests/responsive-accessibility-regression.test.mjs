@@ -26,9 +26,9 @@ test('AC1 & AC2: Header and transcript layouts prevent horizontal overflow acros
 });
 
 test('Documentation layout constrains both grid tracks and rendered Markdown to the viewport', () => {
-  const specDetailSource = readSource('components/spec-detail/documentation-panel.tsx');
-  const documentSectionSource = readSource('components/document-section-panel.tsx');
-  const directorySectionSource = readSource('components/directory-section-panel.tsx');
+  const specDetailSource = readSource('features/specifications/detail/documentation-panel.tsx');
+  const documentSectionSource = readSource('features/specifications/detail/document-section-panel.tsx');
+  const directorySectionSource = readSource('features/specifications/detail/directory-section-panel.tsx');
   const stylesSource = readSource('index.css');
 
   assert.match(specDetailSource, /lg:grid-cols-\[minmax\(0,280px\)_minmax\(0,1fr\)\]/);

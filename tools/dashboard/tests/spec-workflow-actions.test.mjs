@@ -6,7 +6,7 @@ import {
   runBatchTaskAction,
   runDirectTaskAction,
   runFinalizeAction,
-} from '../ui/components/spec-detail/spec-workflow-actions.ts';
+} from '../ui/features/specifications/actions/spec-workflow-actions.ts';
 
 function task(id) {
   return { id, title: id, status: 'ready', order: 1, dependsOn: [], blockedBy: [] };

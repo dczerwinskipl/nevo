@@ -267,16 +267,19 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routerTreeSource = readSource('router-tree.ts');
-  const routerSource = readSource('router.tsx');
+  const appLayoutSource = readSource('app/app-layout.tsx');
+  const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 
   // router-tree.ts does not declare initialPrompt in ChatSearch
   assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
-  // router.tsx uses pendingDispatchStore and does not pass initialPrompt in search
-  assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
-  assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
+  // app-layout.tsx and specification-route.tsx use pendingDispatchStore and do not pass initialPrompt in search
+  assert.ok(appLayoutSource.includes('pendingDispatchStore.setPending'));
+  assert.ok(specificationRouteSource.includes('pendingDispatchStore.setPending'));
+  assert.ok(!appLayoutSource.includes('initialPrompt: initialPrompt'));
+  assert.ok(!specificationRouteSource.includes('initialPrompt: initialPrompt'));
 
   // agent-session-page.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
   assert.ok(agentSessionPageSource.includes('useInitialDispatch'));

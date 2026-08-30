@@ -7,7 +7,7 @@ import { initialPromptWithTaskContext } from './create-agent-session-helpers';
 import { AI_MODES } from './mode-meta';
 import { AI_PROVIDERS_ENABLE_MESSAGE } from './provider-config';
 import type { AgentSession, AgentExecutionMode } from './types';
-import type { DashboardChange } from '@/lib/types';
+import type { DashboardChange } from '@/features/specifications/types';
 
 export interface CreateAgentSessionDialogProps {
   change: DashboardChange;

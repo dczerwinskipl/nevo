@@ -4,7 +4,6 @@ import { useBatchQueries } from '@/hooks/use-batch-queries';
 import type { BatchQueriesHandle } from '@/hooks/use-batch-queries';
 import type {
   AvailablePullRequest,
-  DashboardChange,
   PullRequestFile,
   PullRequestFileDiffsPayload,
   PullRequestFilesPayload,
@@ -12,8 +11,9 @@ import type {
   PullRequestsPayload,
 } from '@/lib/types';
 import { ApiError } from '@/lib/types';
+import type { DashboardChange } from '@/features/specifications/types';
 import { useQuery } from '@tanstack/react-query';
-import { PULL_REQUEST_QUERY_KEY } from '@/hooks/use-dashboard-data';
+import { PULL_REQUEST_QUERY_KEY } from '@/features/specifications/queries';
 
 const PULL_REQUEST_FILES_QUERY_KEY = ['nevo-spec-pull-request-files'] as const;
 const PULL_REQUEST_FULL_DIFF_QUERY_KEY = ['nevo-spec-pull-request-full-diff'] as const;

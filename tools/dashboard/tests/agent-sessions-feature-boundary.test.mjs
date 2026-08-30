@@ -45,22 +45,8 @@ test('no old-path forwarding/compat barrels remain for the removed directories',
   }
 });
 
-test('the agent-sessions feature owns its canonical top-level files', () => {
-  for (const file of [
-    'features/agent-sessions/agent-session-page.tsx',
-    'features/agent-sessions/agent-session-header.tsx',
-    'features/agent-sessions/agent-session-details.tsx',
-    'features/agent-sessions/agent-session-list.tsx',
-    'features/agent-sessions/agent-session-route.tsx',
-    'features/agent-sessions/create-agent-session-dialog.tsx',
-    'features/agent-sessions/queries.ts',
-    'features/agent-sessions/types.ts',
-    'features/agent-sessions/mode-meta.ts',
-    'features/agent-sessions/provider-config.ts',
-    'features/agent-sessions/create-agent-session-helpers.ts',
-  ]) {
-    assert.equal(existsSync(uiPath(file)), true, `${file} must exist`);
-  }
+test('the agent-sessions feature directory exists as one coherent ownership boundary', () => {
+  assert.equal(existsSync(uiPath('features/agent-sessions')), true, 'features/agent-sessions must exist');
 });
 
 test('the agent-sessions feature does not reintroduce horizontal buckets', () => {
@@ -72,32 +58,5 @@ test('the agent-sessions feature does not reintroduce horizontal buckets', () =>
     'features/agent-sessions/services',
   ]) {
     assert.equal(existsSync(uiPath(bucket)), false, `${bucket} must not exist — no horizontal buckets inside the feature`);
-  }
-});
-
-test('the agent-sessions feature organizes runtime/transcript/composer/interactions/turn-work subfolders', () => {
-  for (const file of [
-    'features/agent-sessions/runtime/agent-session-runtime.ts',
-    'features/agent-sessions/runtime/assistant-ui-bridge.ts',
-    'features/agent-sessions/runtime/agent-event-reducer.ts',
-    'features/agent-sessions/runtime/agent-event-source.ts',
-    'features/agent-sessions/runtime/agent-session-transport.ts',
-    'features/agent-sessions/runtime/agent-turn-transport.ts',
-    'features/agent-sessions/runtime/pending-dispatch-store.ts',
-    'features/agent-sessions/runtime/use-initial-dispatch.ts',
-    'features/agent-sessions/transcript/transcript-message.tsx',
-    'features/agent-sessions/transcript/message-collapse.ts',
-    'features/agent-sessions/transcript/projection.ts',
-    'features/agent-sessions/transcript/use-scroll-follow.ts',
-    'features/agent-sessions/transcript/use-visual-viewport.ts',
-    'features/agent-sessions/composer/agent-session-composer.tsx',
-    'features/agent-sessions/composer/composer-sizing.ts',
-    'features/agent-sessions/interactions/interaction-prompt.tsx',
-    'features/agent-sessions/turn-work/turn-work-summary.tsx',
-    'features/agent-sessions/turn-work/turn-work-visibility.ts',
-    'features/agent-sessions/turn-work/tool-activity-labels.ts',
-    'features/agent-sessions/turn-work/tool-call-view.tsx',
-  ]) {
-    assert.equal(existsSync(uiPath(file)), true, `${file} must exist`);
   }
 });

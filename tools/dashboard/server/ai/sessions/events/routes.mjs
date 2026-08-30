@@ -29,6 +29,10 @@ export default async function aiEventRoutes(fastify, { service, accessPolicy }) 
     console.log(`[ai] [sse:connect] provider=${provider} session=${providerSessionId} after=${afterSequence}`);
 
     reply.sse.keepAlive();
+    reply.sse.sendHeaders();
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
     activeConnections.add(reply.sse);
     reply.sse.onClose(() => activeConnections.delete(reply.sse));
 

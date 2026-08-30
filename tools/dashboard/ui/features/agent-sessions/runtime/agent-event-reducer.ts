@@ -22,7 +22,7 @@ export function createTurnIdempotencyKey(prefix = 'turn'): string {
  *     (e.g. `tool.started`/`tool.completed`, which must attach to the existing turn
  *     message regardless of which prose message owns the turn).
  *
- * Work de-duplication is NOT done here — the projection layer (`chat-projection.ts`)
+ * Work de-duplication is NOT done here — the projection layer (`transcript/projection.ts`)
  * aggregates all messages sharing a `turnId` into exactly one `TurnWork`.
  *
  * Returns the existing message index, or -1 if no message exists yet for this event.

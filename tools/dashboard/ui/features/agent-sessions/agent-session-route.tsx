@@ -4,26 +4,27 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
 import { LoadingScreen } from '@/components/loading-screen';
-import { useDashboardData } from '@/hooks/use-dashboard-data';
-import { specChatRoute } from '@/router-tree';
+import { useSpecificationIndex } from '@/features/specifications/queries';
+import { agentSessionRoute } from '@/router-tree';
 import type { AgentSession } from './types';
 import { useAgentSessions } from './queries';
 import { AgentSessionPage } from './agent-session-page';
 
 /**
  * Agent Session route (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
- * resolves the owning specification and the session itself from already-fetched
- * dashboard data, then hands off to `AgentSessionPage`. The central router only
- * binds this component to `specChatRoute` — it owns no Agent Session logic itself.
+ * resolves the owning specification (via the Specifications feature's own index
+ * query — AgentSession belongs to / is attached to a Specification) and the
+ * session itself, then hands off to `AgentSessionPage`. The central router only
+ * binds this component to `agentSessionRoute` — it owns no Agent Session logic itself.
  */
 export function AgentSessionRoute() {
-  const params = specChatRoute.useParams();
+  const params = agentSessionRoute.useParams();
   const source = params.source as 'active' | 'archive';
   const slug = params.slug;
   const provider = params.provider;
   const providerSessionId = params.providerSessionId;
 
-  const { data, loading: dataLoading, error: dataError } = useDashboardData();
+  const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
   const navigate = useNavigate();
 
   const selectedSpec = useMemo(() => {

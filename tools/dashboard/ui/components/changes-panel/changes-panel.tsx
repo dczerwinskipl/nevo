@@ -1,7 +1,7 @@
 import { ArrowLeft, GitPullRequest, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { DashboardChange } from '@/lib/types';
+import type { DashboardChange } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';

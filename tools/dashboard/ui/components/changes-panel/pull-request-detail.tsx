@@ -1,7 +1,8 @@
 import { AlertTriangle, ChevronDown, Eye, EyeOff, ExternalLink, Files, GitBranch, GitCommitHorizontal, Layers, List, LoaderCircle, UserRound } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
-import type { AvailablePullRequest, DashboardChange, PullRequestFileManifestEntry } from '@/lib/types';
+import type { AvailablePullRequest, PullRequestFileManifestEntry } from '@/lib/types';
+import type { DashboardChange } from '@/features/specifications/types';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

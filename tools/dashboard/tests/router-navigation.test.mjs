@@ -245,11 +245,11 @@ test('7. Session creation: creating session for spec X navigates using returned 
 });
 
 test('8. No global session fetch: AppLayout and AppSidebar do not load global sessions', () => {
-  const routerSource = readSource('router.tsx');
-  const sidebarSource = readSource('components/app-sidebar.tsx');
+  const appLayoutSource = readSource('app/app-layout.tsx');
+  const sidebarSource = readSource('features/specifications/navigation/app-sidebar.tsx');
 
-  // AppLayoutComponent does not query global sessions
-  assert.ok(!routerSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
+  // AppLayout does not query global sessions
+  assert.ok(!appLayoutSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
   assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'AppSidebar must not render global session list');
 });
 
@@ -329,25 +329,25 @@ test('11. Session switching: Switching sessions inside same spec uses replace to
 });
 
 test('12. Fallback routing: Archived spec accessed via /specs/active/... or active spec via /specs/archive/... resolves fallback without 404', () => {
-  const routerSource = readSource('router.tsx');
+  const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
   const agentSessionRouteSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
-  // SpecDetail fallback routing logic
-  assert.ok(routerSource.includes('const fallbackSpec = useMemo('), 'SpecDetail defines fallbackSpec lookup');
-  assert.ok(routerSource.includes('oppositeSource'), 'SpecDetail uses alternate source for fallback');
-  assert.ok(routerSource.includes('effectiveSpec'), 'SpecDetail renders effectiveSpec');
+  // SpecificationRoute fallback routing logic
+  assert.ok(specificationRouteSource.includes('const fallbackSpec = useMemo('), 'SpecificationRoute defines fallbackSpec lookup');
+  assert.ok(specificationRouteSource.includes('oppositeSource'), 'SpecificationRoute uses alternate source for fallback');
+  assert.ok(specificationRouteSource.includes('effectiveSpec'), 'SpecificationRoute renders effectiveSpec');
 
   // AgentSessionRoute fallback routing logic
   assert.ok(agentSessionRouteSource.includes('effectiveSource = effectiveSpec?.source || source'), 'AgentSessionRoute derives effectiveSource from effectiveSpec');
 });
 
-test('13. Archived spec sessions: spec-detail and task-dialog enable useAgentSessions for archived specs with specId', () => {
-  const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
-  const taskDialogSource = readSource('components/task-dialog.tsx');
+test('13. Archived spec sessions: specification-detail and task-dialog enable useAgentSessions for archived specs with specId', () => {
+  const specificationDetailSource = readSource('features/specifications/detail/specification-detail.tsx');
+  const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
 
   assert.ok(
-    specDetailSource.includes("useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
-    'SpecDetail must not restrict useAgentSessions to change.source === active'
+    specificationDetailSource.includes("useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
+    'SpecificationDetail must not restrict useAgentSessions to change.source === active'
   );
   assert.ok(
     taskDialogSource.includes("enabled: Boolean(change.specId)"),

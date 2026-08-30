@@ -3,10 +3,13 @@ import { Button } from '@/components/ui/button';
 import { StatusLabel } from '@/components/status-label';
 import { cn } from '@/lib/utils';
 
+import type { LiveConnectionStatus } from './types';
+
 export interface AgentSessionHeaderProps {
   title: string;
   status?: string;
   live?: boolean;
+  connectionStatus?: LiveConnectionStatus;
   onBack: () => void;
   backLabel: string;
   onOpenDetails: () => void;
@@ -16,10 +19,16 @@ export function AgentSessionHeader({
   title,
   status,
   live,
+  connectionStatus,
   onBack,
   backLabel,
   onOpenDetails,
 }: AgentSessionHeaderProps) {
+  const resolvedStatus: LiveConnectionStatus | undefined =
+    connectionStatus ?? (live !== undefined ? (live ? 'connected' : 'reconnecting') : undefined);
+  const isConnected = resolvedStatus === 'connected';
+  const isReconnecting = resolvedStatus === 'reconnecting';
+
   return (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5 lg:pr-24">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
@@ -46,17 +55,29 @@ export function AgentSessionHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {live !== undefined && (
+          {resolvedStatus !== undefined && (
             <div
               role="status"
               tabIndex={0}
-              aria-label={live ? 'Połączenie na żywo aktywne (SSE: Połączono)' : 'Brak połączenia na żywo (SSE: Rozłączono)'}
-              title={live ? 'SSE: Połączono (aktualizacje na żywo aktywne)' : 'SSE: Rozłączono (ponawianie połączenia)'}
+              aria-label={
+                isConnected
+                  ? 'Połączenie na żywo aktywne (SSE: Połączono)'
+                  : isReconnecting
+                    ? 'Ponawianie połączenia na żywo (SSE: Ponawianie)'
+                    : 'Brak połączenia na żywo (SSE: Rozłączono)'
+              }
+              title={
+                isConnected
+                  ? 'SSE: Połączono (aktualizacje na żywo aktywne)'
+                  : isReconnecting
+                    ? 'SSE: Rozłączono (ponawianie połączenia)'
+                    : 'SSE: Rozłączono (brak połączenia)'
+              }
               className={cn(
                 'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default lg:hidden',
-                live
-                  ? 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'
-                  : 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
+                isConnected && 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
+                isReconnecting && 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
+                !isConnected && !isReconnecting && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
               )}
             >
               <span className="relative flex size-3.5 items-center justify-center">
@@ -64,7 +85,7 @@ export function AgentSessionHeader({
                 <span
                   className={cn(
                     'absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current',
-                    !live && 'animate-ping'
+                    isReconnecting && 'animate-ping'
                   )}
                 />
               </span>

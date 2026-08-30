@@ -29,7 +29,7 @@ export const specRoute = createRoute({
   validateSearch: (): SpecSearch => ({}),
 });
 
-export const specChatRoute = createRoute({
+export const agentSessionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
 });
@@ -40,7 +40,7 @@ export const routeTree = rootRoute.addChildren([
     archiveRoute,
     specRoute,
   ]),
-  specChatRoute,
+  agentSessionRoute,
 ]);
 
 export function createAppRouter(history?: any) {

@@ -70,7 +70,7 @@ export function resolveEventSeq(event: Pick<AgentEvent, 'seq' | 'id'>): number {
 export interface AgentEventStreamHandlers {
   onEvent: (event: AgentEvent) => void;
   onOpen?: () => void;
-  onError?: () => void;
+  onError?: (eventSource?: AgentEventSourceLike) => void;
 }
 
 /**
@@ -88,6 +88,6 @@ export function connectAgentEventStream(
 ): () => void {
   const eventSource = createEventSource(url);
   eventSource.onopen = () => handlers.onOpen?.();
-  eventSource.onerror = () => handlers.onError?.();
+  eventSource.onerror = () => handlers.onError?.(eventSource);
   return subscribeAgentEventSource(eventSource, handlers.onEvent);
 }

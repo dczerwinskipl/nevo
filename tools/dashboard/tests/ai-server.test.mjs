@@ -901,3 +901,26 @@ test('ai slice: registered service is shut down when the app closes', async () =
 
   assert.equal(shutdownCalled, true, 'AI service was shut down when the app closed');
 });
+
+test('ai events SSE: connecting to an idle session sends headers immediately and keeps connection alive', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const controller = new AbortController();
+    const stream = await fetch(`${baseUrl}/api/agent-sessions/mock/idle-session/events?after=0`, {
+      headers: { accept: 'text/event-stream' },
+      signal: controller.signal,
+    });
+
+    assert.equal(stream.status, 200);
+    assert.equal(stream.headers.get('content-type'), 'text/event-stream');
+    assert.equal(stream.headers.get('cache-control'), 'no-cache');
+    assert.equal(stream.headers.get('connection'), 'keep-alive');
+
+    controller.abort();
+  } finally {
+    await closeServer(server);
+  }
+});
