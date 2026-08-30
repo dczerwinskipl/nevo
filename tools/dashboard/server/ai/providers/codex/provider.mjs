@@ -404,14 +404,7 @@ export class CodexAgentProvider {
     for (const operation of this.#operationsByThread.values()) this.#rejectOperation(operation, error);
     this.#unsubscribeNotification?.();
     this.#unsubscribeServerRequest?.();
-    this.#disposePromise = (async () => {
-      try {
-        await this.#rawCapture.flushAllRawCapture();
-      } catch (err) {
-        console.warn(`[codex] [raw-capture] Failed to flush raw diagnostics on dispose: ${err?.message || err}`);
-      }
-      return this.#client.dispose();
-    })();
+    this.#disposePromise = Promise.resolve(this.#client.dispose());
     return this.#disposePromise;
   }
 

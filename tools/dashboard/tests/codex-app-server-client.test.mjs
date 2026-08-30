@@ -484,6 +484,10 @@ test('CodexAppServerClient raw capture: thread/start correlates response and req
     assert.equal(sessionMeta.provider, 'codex');
     assert.equal(sessionMeta.providerSessionId, 'thread-alpha-123');
 
+    // Verify backfill marker
+    assert.equal(lines[0].backfill, true, 'Backfilled thread/start request must be explicitly marked with backfill: true');
+    assert.equal(lines[1].backfill, undefined, 'Physical stdout response must not be marked as backfill');
+
     await client.dispose();
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
@@ -576,36 +580,59 @@ test('CodexAppServerClient raw capture: captures turn-scoped events and server-r
   }
 });
 
-test('CodexAppServerClient raw capture: graceful shutdown flushes pending raw diagnostics', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-shutdown-'));
+test('CodexAppServerClient raw capture: captures stdout and stderr emitted during child shutdown without mutating settled runtime', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-lateshutdown-'));
   try {
+    let notificationsReceivedAfterDispose = 0;
+    let lateChildRef = null;
+
     const child = createFakeProcess({
       onEnvelope(envelope, process) {
         respondToInitialize(envelope, process);
       },
     });
+    lateChildRef = child;
+
     const client = createCodexAppServerClient({
       executable: 'fake-codex',
       spawnProcess: () => child,
       rawCaptureEnabled: true,
       rawCaptureDir: tmpDir,
+      disposeGraceMs: 50,
     });
+
+    client.onNotification(() => {
+      notificationsReceivedAfterDispose++;
+    });
+
     await client.initialize();
 
+    // Start dispose
+    const disposePromise = client.dispose();
+
+    // While disposal is underway and child is draining/exiting, emit late stdout and stderr
     child.send({
       method: 'item/agentMessage/delta',
-      params: { threadId: 'thread-shutdown-1', turnId: 'turn-s-1', delta: 'tail log' },
+      params: { threadId: 'thread-late-shutdown', turnId: 'turn-ls-1', delta: 'late shutdown stdout' },
     });
-    await tick();
+    child.stderr.write('late shutdown stderr diagnostic\n');
 
-    // Directly dispose without manual flush
-    await client.dispose();
+    await disposePromise;
 
-    const rawPath = client.getRawCapturePath('thread-shutdown-1');
-    const content = await readFile(rawPath, 'utf8');
-    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    // 1. Verify late notification was NOT dispatched to listener (runtime state not mutated)
+    assert.equal(notificationsReceivedAfterDispose, 0, 'Late events during/after dispose must not trigger semantic dispatch');
 
-    assert.ok(lines.some(l => l.providerSessionId === 'thread-shutdown-1' && l.raw?.params?.delta === 'tail log'));
+    // 2. Verify late stdout was recorded in thread diagnostics
+    const threadRawPath = client.getRawCapturePath('thread-late-shutdown');
+    const threadContent = await readFile(threadRawPath, 'utf8');
+    const threadLines = threadContent.trim().split('\n').map(l => JSON.parse(l));
+    assert.ok(threadLines.some(l => l.providerSessionId === 'thread-late-shutdown' && l.raw?.params?.delta === 'late shutdown stdout'));
+
+    // 3. Verify late stderr was recorded in global diagnostics
+    const globalRawPath = client.getRawCapturePath(null);
+    const globalContent = await readFile(globalRawPath, 'utf8');
+    const globalLines = globalContent.trim().split('\n').map(l => JSON.parse(l));
+    assert.ok(globalLines.some(l => l.stream === 'stderr' && l.rawText?.includes('late shutdown stderr diagnostic')));
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

@@ -155,6 +155,7 @@ export class RawCaptureRecorder {
     turnId = null,
     requestId = null,
     serverRequestId = null,
+    backfill = false,
     stream,
     line,
     raw,
@@ -179,6 +180,7 @@ export class RawCaptureRecorder {
       ...(turnId ? { turnId } : {}),
       ...(requestId !== null && requestId !== undefined ? { requestId } : {}),
       ...(serverRequestId !== null && serverRequestId !== undefined ? { serverRequestId } : {}),
+      ...(backfill ? { backfill: true } : {}),
     };
 
     if (raw !== undefined) {
