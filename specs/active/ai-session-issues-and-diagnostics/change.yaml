@@ -14,17 +14,17 @@ tasks:
   - id: claude-protocol-evidence
     order: 1
     file: tasks/01-claude-protocol-evidence.md
-    status: draft
+    status: verified
 
   - id: codex-protocol-evidence
     order: 2
     file: tasks/02-codex-protocol-evidence.md
-    status: draft
+    status: verified
 
   - id: antigravity-protocol-evidence
     order: 3
     file: tasks/03-antigravity-protocol-evidence.md
-    status: draft
+    status: verified
 
   - id: canonical-turn-work-contract
     order: 4

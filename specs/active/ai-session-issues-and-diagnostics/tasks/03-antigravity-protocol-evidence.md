@@ -1,6 +1,6 @@
 ---
 id: ai-session-issues-and-diagnostics.antigravity-protocol-evidence
-status: draft
+status: verified
 change: ai-session-issues-and-diagnostics
 context:
   required:
