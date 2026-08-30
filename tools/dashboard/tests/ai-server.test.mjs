@@ -924,3 +924,55 @@ test('ai events SSE: connecting to an idle session sends headers immediately and
     await closeServer(server);
   }
 });
+
+test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const sseUrl = `${baseUrl}/api/agent-sessions/mock/session-test-live/events?after=0`;
+    const controller = new AbortController();
+    const response = await fetch(sseUrl, {
+      headers: { accept: 'text/event-stream' },
+      signal: controller.signal,
+    });
+
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    const eventsPromise = (async () => {
+      let fullText = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value);
+        fullText += text;
+        if (fullText.includes('event: interaction.requested')) {
+          break;
+        }
+      }
+      return fullText;
+    })();
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const startRes = await fetch(`${baseUrl}/api/agent-sessions/mock/session-test-live/turns`, control({
+      message: 'permission please',
+    }));
+    assert.equal(startRes.status, 202);
+
+    const receivedText = await Promise.race([
+      eventsPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 3000)),
+    ]);
+
+    assert.ok(receivedText.includes('event: turn.started'));
+    assert.ok(receivedText.includes('event: interaction.requested'));
+    controller.abort();
+  } finally {
+    await closeServer(server);
+  }
+});
+
