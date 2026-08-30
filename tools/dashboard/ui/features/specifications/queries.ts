@@ -74,11 +74,11 @@ export function handleSpecsChanged(queryClient: ReturnType<typeof useQueryClient
   });
 }
 
-export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'unknown';
 
 export function useSpecificationIndex() {
   const queryClient = useQueryClient();
-  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('reconnecting');
+  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
   const query = useQuery({
     queryKey: SPECIFICATION_INDEX_QUERY_KEY,
     queryFn: fetchSpecificationIndex,

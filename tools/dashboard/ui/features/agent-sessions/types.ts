@@ -1,6 +1,6 @@
 export type AgentSessionStatus = 'idle' | 'running' | 'waitingForUser';
 
-export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+export type LiveConnectionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'unknown';
 
 export type AgentExecutionMode = 'ask' | 'edit' | 'agent';
 

@@ -104,6 +104,7 @@ test('Item 4 (Task 12): Compact icon-only connectivity indicator uses semantic s
   assert.ok(connectivityControlsSource.includes('border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]'));
   assert.ok(connectivityControlsSource.includes('border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]'));
   assert.ok(connectivityControlsSource.includes('border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]'));
+  assert.ok(connectivityControlsSource.includes('border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]'));
   assert.ok(!connectivityControlsSource.includes('<span className="hidden sm:inline">{live ? \'SSE: Połączono\' : \'SSE: Rozłączono\'}</span>'), 'Text pill must not remain in header');
 });
 

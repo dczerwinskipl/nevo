@@ -25,9 +25,11 @@ export function AgentSessionHeader({
   onOpenDetails,
 }: AgentSessionHeaderProps) {
   const resolvedStatus: LiveConnectionStatus | undefined =
-    connectionStatus ?? (live !== undefined ? (live ? 'connected' : 'reconnecting') : undefined);
+    connectionStatus ?? (live !== undefined ? (live ? 'connected' : 'disconnected') : undefined);
   const isConnected = resolvedStatus === 'connected';
   const isReconnecting = resolvedStatus === 'reconnecting';
+  const isDisconnected = resolvedStatus === 'disconnected';
+  const isUnknown = resolvedStatus === 'unknown';
 
   return (
     <header className="shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_92%,transparent)] px-3 py-2.5 backdrop-blur-xl sm:px-5 lg:pr-24">
@@ -64,20 +66,25 @@ export function AgentSessionHeader({
                   ? 'Połączenie na żywo aktywne (SSE: Połączono)'
                   : isReconnecting
                     ? 'Ponawianie połączenia na żywo (SSE: Ponawianie)'
-                    : 'Brak połączenia na żywo (SSE: Rozłączono)'
+                    : isDisconnected
+                      ? 'Brak połączenia na żywo (SSE: Rozłączono)'
+                      : 'Stan połączenia nieznany (SSE: Nieznany)'
               }
               title={
                 isConnected
                   ? 'SSE: Połączono (aktualizacje na żywo aktywne)'
                   : isReconnecting
                     ? 'SSE: Rozłączono (ponawianie połączenia)'
-                    : 'SSE: Rozłączono (brak połączenia)'
+                    : isDisconnected
+                      ? 'SSE: Rozłączono (brak połączenia)'
+                      : 'SSE: Stan nieznany (brak aktywnego połączenia)'
               }
               className={cn(
                 'flex size-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] cursor-default lg:hidden',
                 isConnected && 'border-[var(--success-border)] bg-[var(--success-muted)] text-[var(--success)]',
                 isReconnecting && 'border-[var(--warning-border)] bg-[var(--warning-muted)] text-[var(--warning)]',
-                !isConnected && !isReconnecting && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
+                isDisconnected && 'border-[var(--danger-border)] bg-[var(--danger-muted)] text-[var(--danger)]',
+                isUnknown && 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]',
               )}
             >
               <span className="relative flex size-3.5 items-center justify-center">

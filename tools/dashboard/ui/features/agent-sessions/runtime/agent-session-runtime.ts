@@ -50,7 +50,7 @@ export function useAgentSessionRuntime({
   const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
-  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('reconnecting');
+  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -90,7 +90,7 @@ export function useAgentSessionRuntime({
       const identity = `${provider}:${providerSessionId}`;
       setLoadError(null);
       setLoadErrorIdentity(null);
-      setConnectionStatus('reconnecting');
+      setConnectionStatus('unknown');
 
       try {
         const snapshot = await fetchAgentSessionSnapshot(provider, providerSessionId);
@@ -392,7 +392,7 @@ export function useAgentSessionRuntime({
     ? connectionStatus
     : exposedLoadError
       ? 'disconnected'
-      : 'reconnecting';
+      : 'unknown';
   const exposedLive = exposedConnectionStatus === 'connected';
   const exposedIsLoading = isSnapshotLoaded ? false : Boolean(provider && providerSessionId && !exposedLoadError);
   const exposedIsReady = Boolean(isSnapshotLoaded && !exposedLoadError && activity === 'idle');
