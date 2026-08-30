@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { activityLabelFor } from '../ui/components/ai-chat/tool-activity-labels.ts';
+import { activityLabelFor } from '../ui/features/agent-sessions/turn-work/tool-activity-labels.ts';
 
 // AC1: tier 1 wins when present, even when tier 2 could also produce a label.
 test('an explicit structured description wins over a tier-2-derivable label', () => {

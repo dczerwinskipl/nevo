@@ -1,4 +1,4 @@
-import type { AgentExecutionMode } from './types';
+import type { AgentExecutionMode } from '@/features/agent-sessions/types';
 
 export const SPEC_TYPES_OPTIONS = [
   { id: 'standard', label: 'Standard (T)', desc: 'Typowa zmiana / nowe moduły' },

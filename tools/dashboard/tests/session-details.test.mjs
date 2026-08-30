@@ -8,7 +8,7 @@ function readSheetSource() {
 }
 
 function readSessionDetailsSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/session-details/session-details.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-details.tsx', import.meta.url)), 'utf8');
 }
 
 test('Finding 3: Sheet primitive is safe-area aware on mobile while preserving desktop spacing', () => {
@@ -29,7 +29,7 @@ test('Finding 3: Sheet primitive is safe-area aware on mobile while preserving d
   assert.match(source, /sm:right-4 sm:top-4/);
 });
 
-test('Task 06: SessionDetails component exposes context, tasks, provider, mode, and delete confirmation', () => {
+test('Task 06: AgentSessionDetails component exposes context, tasks, provider, mode, and delete confirmation', () => {
   const source = readSessionDetailsSource();
 
   // Displays spec title and ID

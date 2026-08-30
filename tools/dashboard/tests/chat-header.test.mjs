@@ -3,16 +3,16 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-function readChatHeaderSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/chat-header/chat-header.tsx', import.meta.url)), 'utf8');
+function readAgentSessionHeaderSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-header.tsx', import.meta.url)), 'utf8');
 }
 
-function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+function readAgentSessionPageSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
-test('Task 05 / Issue 4: ChatHeader component contains only essentials (back, title, compact status, details)', () => {
-  const source = readChatHeaderSource();
+test('Task 05 / Issue 4: AgentSessionHeader component contains only essentials (back, title, compact status, details)', () => {
+  const source = readAgentSessionHeaderSource();
 
   // Navigation (back button)
   assert.match(source, /onClick=\{onBack\}/);
@@ -28,14 +28,14 @@ test('Task 05 / Issue 4: ChatHeader component contains only essentials (back, ti
   assert.match(source, /onClick=\{onOpenDetails\}/);
   assert.match(source, /Info/);
 
-  // Stop/Cancel is NOT in the header — primary cancel affordance lives in ChatComposer
+  // Stop/Cancel is NOT in the header — primary cancel affordance lives in AgentSessionComposer
   assert.doesNotMatch(source, /CircleStop/);
   assert.doesNotMatch(source, /Przerwij/);
   assert.doesNotMatch(source, /onCancel/);
 });
 
-test('Task 05: ChatHeader does NOT include removed controls (mode switcher, delete, dead UI, metadata subtitle)', () => {
-  const headerSource = readChatHeaderSource();
+test('Task 05: AgentSessionHeader does NOT include removed controls (mode switcher, delete, dead UI, metadata subtitle)', () => {
+  const headerSource = readAgentSessionHeaderSource();
 
   // Mode switcher must not be present in the header
   assert.doesNotMatch(headerSource, /onModeChange/);
@@ -52,22 +52,22 @@ test('Task 05: ChatHeader does NOT include removed controls (mode switcher, dele
   assert.doesNotMatch(headerSource, /usage/i);
   assert.doesNotMatch(headerSource, /modelSelector/i);
 
-  // No multiline metadata subtitle in ChatHeader
+  // No multiline metadata subtitle in AgentSessionHeader
   assert.doesNotMatch(headerSource, /cała specyfikacja/);
 });
 
-test('Task 05: AiChatPage delegates header rendering to ChatHeader and controls SessionDetails Sheet', () => {
-  const chatSource = readAiChatSource();
+test('Task 05: AgentSessionPage delegates header rendering to AgentSessionHeader and controls AgentSessionDetails Sheet', () => {
+  const chatSource = readAgentSessionPageSource();
 
-  // Imports and renders ChatHeader
-  assert.match(chatSource, /import \{ ChatHeader \} from '@/);
-  assert.match(chatSource, /<ChatHeader/);
+  // Imports and renders AgentSessionHeader
+  assert.match(chatSource, /import \{ AgentSessionHeader \} from '\.\//);
+  assert.match(chatSource, /<AgentSessionHeader/);
 
-  // Details sheet trigger opens SessionDetails
+  // Details sheet trigger opens AgentSessionDetails
   assert.match(chatSource, /onOpenDetails=\{/);
-  assert.match(chatSource, /<SessionDetails/);
+  assert.match(chatSource, /<AgentSessionDetails/);
   assert.match(chatSource, /<Sheet open=\{isSessionDetailsOpen\}/);
 
-  // Header in AiChatPage has no inline Trash or mode switcher
+  // Header in AgentSessionPage has no inline Trash or mode switcher
   assert.doesNotMatch(chatSource, /Trash2/);
 });

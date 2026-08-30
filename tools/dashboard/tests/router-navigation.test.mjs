@@ -249,20 +249,20 @@ test('8. No global session fetch: AppLayout and AppSidebar do not load global se
   const sidebarSource = readSource('components/app-sidebar.tsx');
 
   // AppLayoutComponent does not query global sessions
-  assert.ok(!routerSource.includes('useAiSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
+  assert.ok(!routerSource.includes('useAgentSessions({ enabled: Boolean(data) })'), 'AppLayout must not query all AI sessions globally');
   assert.ok(!sidebarSource.includes('Ostatnie sesje'), 'AppSidebar must not render global session list');
 });
 
-test('9. No reverse spec resolution: AiChatPage receives spec directly, without searching all specs', () => {
-  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
+test('9. No reverse spec resolution: AgentSessionPage receives spec directly, without searching all specs', () => {
+  const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
 
-  assert.ok(aiChatSource.includes('spec: DashboardChange'), 'AiChatPage receives spec directly');
-  assert.ok(!aiChatSource.includes('changes: DashboardChange[]'), 'AiChatPage must not receive changes array to reverse search');
-  assert.ok(!aiChatSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
+  assert.ok(agentSessionPageSource.includes('spec: DashboardChange'), 'AgentSessionPage receives spec directly');
+  assert.ok(!agentSessionPageSource.includes('changes: DashboardChange[]'), 'AgentSessionPage must not receive changes array to reverse search');
+  assert.ok(!agentSessionPageSource.includes('resolveSessionDestination'), 'No resolveSessionDestination helper');
 });
 
-test('10. SpecChatRouteComponent: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
-  const routerSource = readSource('router.tsx');
+test('10. AgentSessionRoute: Fatal initial load error blocks with StatusCard; background refresh error retains active chat', () => {
+  const routerSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
   // Fatal initial error: error && !data renders blocking StatusCard with retry and back fallback
   assert.ok(routerSource.includes('if (sessionsQuery.error && !sessionsQuery.data) {'), 'Fatal error requires error && !data');
@@ -286,7 +286,7 @@ test('10. SpecChatRouteComponent: Fatal initial load error blocks with StatusCar
 });
 
 test('11. Session switching: Switching sessions inside same spec uses replace to preserve Spec -> Session history hierarchy', async () => {
-  const routerSource = readSource('router.tsx');
+  const routerSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
   // Verify production handleSwitchSession uses replace: true
   assert.ok(
@@ -330,27 +330,28 @@ test('11. Session switching: Switching sessions inside same spec uses replace to
 
 test('12. Fallback routing: Archived spec accessed via /specs/active/... or active spec via /specs/archive/... resolves fallback without 404', () => {
   const routerSource = readSource('router.tsx');
+  const agentSessionRouteSource = readSource('features/agent-sessions/agent-session-route.tsx');
 
   // SpecDetail fallback routing logic
   assert.ok(routerSource.includes('const fallbackSpec = useMemo('), 'SpecDetail defines fallbackSpec lookup');
   assert.ok(routerSource.includes('oppositeSource'), 'SpecDetail uses alternate source for fallback');
   assert.ok(routerSource.includes('effectiveSpec'), 'SpecDetail renders effectiveSpec');
 
-  // SpecChat fallback routing logic
-  assert.ok(routerSource.includes('effectiveSource = effectiveSpec?.source || source'), 'SpecChat derives effectiveSource from effectiveSpec');
+  // AgentSessionRoute fallback routing logic
+  assert.ok(agentSessionRouteSource.includes('effectiveSource = effectiveSpec?.source || source'), 'AgentSessionRoute derives effectiveSource from effectiveSpec');
 });
 
-test('13. Archived spec sessions: spec-detail and task-dialog enable useAiSessions for archived specs with specId', () => {
+test('13. Archived spec sessions: spec-detail and task-dialog enable useAgentSessions for archived specs with specId', () => {
   const specDetailSource = readSource('components/spec-detail/spec-detail.tsx');
   const taskDialogSource = readSource('components/task-dialog.tsx');
 
   assert.ok(
-    specDetailSource.includes("useAiSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
-    'SpecDetail must not restrict useAiSessions to change.source === active'
+    specDetailSource.includes("useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
+    'SpecDetail must not restrict useAgentSessions to change.source === active'
   );
   assert.ok(
     taskDialogSource.includes("enabled: Boolean(change.specId)"),
-    'TaskDialog must not restrict useAiSessions to change.source === active'
+    'TaskDialog must not restrict useAgentSessions to change.source === active'
   );
 });
 

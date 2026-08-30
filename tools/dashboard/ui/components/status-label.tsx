@@ -1,7 +1,10 @@
-import type { AiSessionStatus } from '@/lib/types';
 import { cn, formatStatus } from '@/lib/utils';
 
-export function formatSessionStatus(status?: AiSessionStatus | string | null): string {
+// A generic shared status-label component (used for spec stages, tasks, and
+// Agent Session status alike) — the session status literals are inlined here
+// rather than imported from features/agent-sessions/types, since this file
+// must stay usable independently of any one feature.
+export function formatSessionStatus(status?: 'idle' | 'running' | 'waitingForUser' | string | null): string {
   switch (status) {
     case 'running':
       return 'Aktywna';

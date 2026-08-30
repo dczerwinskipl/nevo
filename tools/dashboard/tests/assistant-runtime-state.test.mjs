@@ -10,18 +10,18 @@ import {
   applyCancelTurnResponse,
   shouldSurfaceCancelError,
   shouldSurfaceTurnError,
-} from '../ui/components/ai-chat/agent-event-reducer.ts';
+} from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
 import {
   pendingDispatchStore,
   InitialDispatchController,
-} from '../ui/components/ai-chat/pending-dispatch-store.ts';
+} from '../ui/features/agent-sessions/runtime/pending-dispatch-store.ts';
 
 function readRuntimeSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/nevo-assistant-runtime.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/agent-session-runtime.ts', import.meta.url)), 'utf8');
 }
 
-function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+function readAgentSessionPageSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
 test('Issue 1: resolveSnapshotActivity extracts authoritative activity and preserves waitingForUser across reload', () => {
@@ -331,13 +331,13 @@ test('Cancel Turn: shouldSurfaceCancelError behaviorally suppresses late network
   );
 });
 
-test('AiChatPage disables normal composer send when session cannot start turn', () => {
-  const chatSource = readAiChatSource();
+test('AgentSessionPage disables normal composer send when session cannot start turn', () => {
+  const chatSource = readAgentSessionPageSource();
 
   // submitMessage requires assistant.canStartTurn
   assert.match(chatSource, /!assistant\.canStartTurn/);
 
-  // ChatComposer has disabled and placeholder configured
+  // AgentSessionComposer has disabled and placeholder configured
   assert.match(chatSource, /disabled=\{!assistant\.canStartTurn \|\| !isProviderAvailable\}/);
   assert.match(chatSource, /placeholder=\{assistant\.activity === 'waitingForUser' \? 'Odpowiedz na pytanie powyżej…' : undefined\}/);
 });
@@ -356,10 +356,10 @@ test('Finding 1: Runtime exposes explicit readiness contract and rejects send wh
 });
 
 test('Finding 1: Initial prompt delivery waits for session readiness, delivers exactly once, and handles failures', () => {
-  const chatSource = readAiChatSource();
-  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/pending-dispatch-store.ts', import.meta.url)), 'utf8');
+  const chatSource = readAgentSessionPageSource();
+  const initialDispatchSource = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/runtime/pending-dispatch-store.ts', import.meta.url)), 'utf8');
 
-  // AiChatPage uses useInitialDispatch
+  // AgentSessionPage uses useInitialDispatch
   assert.match(chatSource, /useInitialDispatch/);
 
   // Initial message effect checks assistant.isReady and pendingDispatchStore
@@ -409,10 +409,10 @@ test('Cancel Turn: shouldSurfaceTurnError suppresses user-facing onError for exp
   assert.equal(shouldSurfaceTurnError(undefined), false);
 });
 
-test('BLOCKING: AiChatPage and useNevoAssistantRuntime wire user-visible error channel for cancel, interaction, and turn failures', async () => {
-  const chatSource = readAiChatSource();
+test('BLOCKING: AgentSessionPage and useAgentSessionRuntime wire user-visible error channel for cancel, interaction, and turn failures', async () => {
+  const chatSource = readAgentSessionPageSource();
 
-  // AiChatPage must wire onError into useNevoAssistantRuntime and maintain user-visible runtimeError
+  // AgentSessionPage must wire onError into useAgentSessionRuntime and maintain user-visible runtimeError
   assert.match(chatSource, /onError:\s*\(err\)\s*=>\s*\{\s*setRuntimeError\(err\.message\);\s*\}/);
   assert.match(chatSource, /const displayError = initialDispatch\.displayError \|\| runtimeError \|\| null;/);
 
@@ -489,7 +489,7 @@ test('BLOCKING: Action/error lifecycle: Initial dispatch retry clears stale runt
   assert.equal(runtimeError, 'API error: 500 Internal Server Error');
   assert.equal(controller.displayError, 'API error: 500 Internal Server Error');
 
-  // Unified displayError in AiChatPage before retry
+  // Unified displayError in AgentSessionPage before retry
   let displayError = controller.displayError || runtimeError || null;
   assert.equal(displayError, 'API error: 500 Internal Server Error');
 
@@ -565,9 +565,9 @@ test('BLOCKING: Action/error lifecycle: Recovery action failing again clears old
 });
 
 test('BLOCKING: Action/error lifecycle: Cancel and interaction retry clear previous runtime error on explicit attempt (C)', async () => {
-  const chatSource = readAiChatSource();
+  const chatSource = readAgentSessionPageSource();
 
-  // Verify AiChatPage wires action wrappers that clear runtimeError before starting
+  // Verify AgentSessionPage wires action wrappers that clear runtimeError before starting
   assert.match(chatSource, /const handleCancelTurn = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);
   assert.match(chatSource, /const handleRespondInteraction = useCallback\(async \(interactionId: string, response: unknown\) => \{\s*setRuntimeError\(null\);/);
   assert.match(chatSource, /const handleReload = useCallback\(async \(\) => \{\s*setRuntimeError\(null\);/);

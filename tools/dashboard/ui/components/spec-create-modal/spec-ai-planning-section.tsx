@@ -1,13 +1,13 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
-import { ProviderBadge } from '@/components/ai-session-list';
-import type { AgentExecutionMode, AiProviderDescriptor } from '@/lib/types';
-import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/lib/ai-provider-config';
+import { ProviderBadge } from '@/features/agent-sessions/agent-session-list';
+import type { AgentExecutionMode, AgentProviderDescriptor } from '@/features/agent-sessions/types';
+import { AI_PROVIDERS_ENABLE_MESSAGE } from '@/features/agent-sessions/provider-config';
 
 export interface SpecAiPlanningSectionProps {
   startAiSession: boolean;
   onToggleAiSession: (enabled: boolean) => void;
   providersLoading: boolean;
-  enabledProviders: AiProviderDescriptor[];
+  enabledProviders: AgentProviderDescriptor[];
   selectedProviderId: string;
   onProviderChange: (providerId: string) => void;
   supportedModes: AgentExecutionMode[];

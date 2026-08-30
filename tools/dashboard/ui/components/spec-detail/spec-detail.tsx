@@ -9,10 +9,10 @@ import type { ComponentType } from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
-  AiSession,
   DashboardChange,
   DashboardTask,
 } from '@/lib/types';
+import type { AgentSession } from '@/features/agent-sessions/types';
 import { cn, formatDate, formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -21,7 +21,7 @@ import { TaskDialog } from '@/components/task-dialog';
 import { OperationModal } from '@/components/operation-progress';
 import { StageProgress } from '@/components/stage-progress';
 import { statusTone } from '@/components/status-label';
-import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
+import { useAgentSessions } from '@/features/agent-sessions/queries';
 import { Link } from '@tanstack/react-router';
 
 import { useSpecificationActions, useSpecificationManifest } from './spec-detail-queries';
@@ -55,7 +55,7 @@ export function SpecDetail({
   onNavigateMode,
 }: {
   change: DashboardChange;
-  onOpenSession: (session: AiSession) => void;
+  onOpenSession: (session: AgentSession) => void;
   onCreateSession: () => void;
   onNavigateMode?: (mode: 'active' | 'archive') => void;
 }) {
@@ -64,7 +64,7 @@ export function SpecDetail({
   const taskTriggerRef = useRef<HTMLElement | null>(null);
   const manifestQuery = useSpecificationManifest(change, true);
   const actionsQuery = useSpecificationActions(change, change.source === 'active');
-  const sessionsQuery = useAiSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) });
+  const sessionsQuery = useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) });
   const workflow = useSpecWorkflowActions(change, actionsQuery);
   const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
 

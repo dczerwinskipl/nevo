@@ -1,7 +1,7 @@
 import { Bot, FilePlus2, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { CreateSpecificationResult } from '@/hooks/use-dashboard-data';
-import type { AiSession } from '@/lib/types';
+import type { AgentSession } from '@/features/agent-sessions/types';
 
 import { useSpecCreateForm } from './use-spec-create-form';
 import { SpecCreateErrorBanner } from './spec-create-error-banner';
@@ -12,7 +12,7 @@ export interface SpecCreateModalProps {
   onClose: () => void;
   onCreated: (
     spec: CreateSpecificationResult,
-    session?: AiSession | null,
+    session?: AgentSession | null,
     initialPrompt?: string | null,
   ) => void;
 }

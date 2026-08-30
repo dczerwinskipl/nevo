@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readComposerSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/composer/composer.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/composer/agent-session-composer.tsx', import.meta.url)), 'utf8');
 }
 
-function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+function readAgentSessionPageSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
 import {
@@ -17,7 +17,7 @@ import {
   resolveComposerKeyAction,
   COMPOSER_COMPACT_CLASSES,
   COMPOSER_EDIT_CLASSES,
-} from '../ui/components/composer/composer-sizing.ts';
+} from '../ui/features/agent-sessions/composer/composer-sizing.ts';
 
 test('Composer interaction mode: usehooks-ts useMediaQuery determines prefersTouchInteraction without UA sniffing or viewport hacks', () => {
   const source = readComposerSource();
@@ -206,7 +206,7 @@ test('Finding 1: Full focus -> 20-line edit -> blur -> re-focus cycle preserves 
 });
 
 test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface without breaking interactive controls', () => {
-  const source = readAiChatSource();
+  const source = readAgentSessionPageSource();
 
   // Scoped handler on transcript container, not document
   assert.match(source, /handleTranscriptPointerDown/);
@@ -219,14 +219,14 @@ test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface wi
 
 test('AC8 & AC9: Mode control is located inside the composer, not in the chat header, with no dead UI controls', () => {
   const composerSource = readComposerSource();
-  const aiChatSource = readAiChatSource();
+  const agentSessionPageSource = readAgentSessionPageSource();
 
   // Composer contains mode switcher buttons using canonical AI_MODES
   assert.match(composerSource, /AI_MODES\.map/);
   assert.match(composerSource, /onModeChange\(modeMeta\.id\)/);
 
-  // Header in ai-chat.tsx does not contain the duplicate mode switcher
-  const headerSection = aiChatSource.slice(aiChatSource.indexOf('const header = ('), aiChatSource.indexOf('return ('));
+  // Header in agent-session-page.tsx does not contain the duplicate mode switcher
+  const headerSection = agentSessionPageSource.slice(agentSessionPageSource.indexOf('const header = ('), agentSessionPageSource.indexOf('return ('));
   assert.ok(!headerSection.includes('AI_MODES.map') && !headerSection.includes("(['ask', 'edit', 'agent'] as const)"), 'Header must not contain duplicate mode switcher');
 
   // No non-functional placeholder model/usage controls

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { projectChat } from '../ui/components/ai-chat/chat-projection.ts';
+import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 
 function userMsg(id, text, createdAt = '2026-08-22T10:00:00Z') {
   return { id, role: 'user', text, createdAt };
@@ -20,7 +20,7 @@ function assistantMsg({ id, turnId, text = '', reasoning, toolCalls, turnError, 
   };
 }
 
-test('projectChat groups a multi-tool-call turn into one Work entry, not one per tool', () => {
+test('projectTranscript groups a multi-tool-call turn into one Work entry, not one per tool', () => {
   const messages = [
     userMsg('u1', 'do the thing'),
     assistantMsg({
@@ -34,14 +34,14 @@ test('projectChat groups a multi-tool-call turn into one Work entry, not one per
     }),
   ];
 
-  const { workByTurn } = projectChat(messages);
+  const { workByTurn } = projectTranscript(messages);
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].turnId, 'turn-1');
   assert.equal(workByTurn[0].items.length, 2);
   assert.equal(workByTurn[0].status, 'completed');
 });
 
-test('projectChat marks a turn current while its active tool is still running, and surfaces it as currentActivity', () => {
+test('projectTranscript marks a turn current while its active tool is still running, and surfaces it as currentActivity', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({
@@ -54,12 +54,12 @@ test('projectChat marks a turn current while its active tool is still running, a
     }),
   ];
 
-  const { workByTurn, currentActivity } = projectChat(messages, { activeTurnId: 'turn-1' });
+  const { workByTurn, currentActivity } = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(workByTurn[0].status, 'current');
   assert.equal(currentActivity?.toolId, 't2');
 });
 
-test('projectChat flags a turn with any failed tool call with severity warning and hasFailures true', () => {
+test('projectTranscript flags a turn with any failed tool call with severity warning and hasFailures true', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({
@@ -72,26 +72,26 @@ test('projectChat flags a turn with any failed tool call with severity warning a
     }),
   ];
 
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed', 'turn completed its execution');
   assert.equal(workByTurn[0].severity, 'warning', 'tool failure is a warning, not a turn error');
   assert.equal(workByTurn[0].hasFailures, true);
 });
 
-test('projectChat surfaces a turn that failed with no tool calls at all via turnError, not silently dropped', () => {
+test('projectTranscript surfaces a turn that failed with no tool calls at all via turnError, not silently dropped', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({ id: 'm1', turnId: 'turn-1', turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'process crashed' } }),
   ];
 
-  const { workByTurn, turnOutcome } = projectChat(messages);
+  const { workByTurn, turnOutcome } = projectTranscript(messages);
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].status, 'failed');
   assert.deepEqual(workByTurn[0].turnError, { code: 'AI_PROVIDER_EXIT_ERROR', message: 'process crashed' });
   assert.deepEqual(turnOutcome, { turnId: 'turn-1', turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'process crashed' } });
 });
 
-test('projectChat does not merge Work from two unrelated turns', () => {
+test('projectTranscript does not merge Work from two unrelated turns', () => {
   const messages = [
     userMsg('u1', 'first'),
     assistantMsg({ id: 'm1', turnId: 'turn-1', toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'completed' }] }),
@@ -99,34 +99,34 @@ test('projectChat does not merge Work from two unrelated turns', () => {
     assistantMsg({ id: 'm2', turnId: 'turn-2', toolCalls: [{ id: 't2', name: 'Bash', input: {}, status: 'completed' }] }),
   ];
 
-  const { workByTurn } = projectChat(messages);
+  const { workByTurn } = projectTranscript(messages);
   assert.equal(workByTurn.length, 2);
   assert.deepEqual(workByTurn.map(w => w.turnId), ['turn-1', 'turn-2']);
   assert.equal(workByTurn[0].items[0].toolId, 't1');
   assert.equal(workByTurn[1].items[0].toolId, 't2');
 });
 
-test('projectChat reports the most recent non-active turn outcome as successful when it has no turnError', () => {
+test('projectTranscript reports the most recent non-active turn outcome as successful when it has no turnError', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({ id: 'm1', turnId: 'turn-1', toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'completed' }] }),
   ];
 
-  const { turnOutcome } = projectChat(messages, { activeTurnId: null });
+  const { turnOutcome } = projectTranscript(messages, { activeTurnId: null });
   assert.deepEqual(turnOutcome, { turnId: 'turn-1', turnError: null });
 });
 
-test('projectChat excludes the currently active turn from turnOutcome', () => {
+test('projectTranscript excludes the currently active turn from turnOutcome', () => {
   const messages = [
     userMsg('u1', 'go'),
     assistantMsg({ id: 'm1', turnId: 'turn-1', toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'running' }] }),
   ];
 
-  const { turnOutcome } = projectChat(messages, { activeTurnId: 'turn-1' });
+  const { turnOutcome } = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(turnOutcome, null);
 });
 
-test('projectChat preserves raw technical detail (toolName, input, output, duration, status) on Work items', () => {
+test('projectTranscript preserves raw technical detail (toolName, input, output, duration, status) on Work items', () => {
   const messages = [
     assistantMsg({
       id: 'm1',
@@ -135,7 +135,7 @@ test('projectChat preserves raw technical detail (toolName, input, output, durat
     }),
   ];
 
-  const { workByTurn } = projectChat(messages);
+  const { workByTurn } = projectTranscript(messages);
   assert.deepEqual(workByTurn[0].items[0], {
     toolId: 't1',
     toolName: 'Bash',
@@ -163,7 +163,7 @@ test('A: an active turn with a mix of completed, failed, and running actions sta
     }),
   ];
 
-  const { workByTurn, currentActivity } = projectChat(messages, { activeTurnId: 'turn-1' });
+  const { workByTurn, currentActivity } = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].status, 'current', 'lifecycle stays current despite the earlier failure');
   assert.equal(workByTurn[0].hasFailures, true, 'failure information is retained');
@@ -186,7 +186,7 @@ test('C: a terminal turn with a failed action reports status completed, severity
     }),
   ];
 
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed', 'turn completed its execution');
   assert.equal(workByTurn[0].severity, 'warning', 'tool failure is a warning, not an error');
   assert.equal(workByTurn[0].hasFailures, true);
@@ -206,7 +206,7 @@ test('Severity matrix 1: turn completed + 0 failed tools -> severity normal', ()
       ],
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed');
   assert.equal(workByTurn[0].severity, 'normal');
   assert.equal(workByTurn[0].hasFailures, false);
@@ -224,7 +224,7 @@ test('Severity matrix 2: turn completed + 1 failed tool -> severity warning', ()
       ],
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed');
   assert.equal(workByTurn[0].severity, 'warning');
   assert.equal(workByTurn[0].hasFailures, true);
@@ -243,7 +243,7 @@ test('Severity matrix 3: turn completed + several failed tools -> severity warni
       ],
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed');
   assert.equal(workByTurn[0].severity, 'warning');
   assert.equal(workByTurn[0].hasFailures, true);
@@ -261,7 +261,7 @@ test('Severity matrix 4: turn.failed AI_PROVIDER_ERROR + 0 failed tools -> sever
       turnError: { code: 'AI_PROVIDER_ERROR', message: 'Model service unavailable' },
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'failed');
   assert.equal(workByTurn[0].severity, 'error');
   assert.equal(workByTurn[0].hasFailures, true);
@@ -279,7 +279,7 @@ test('Severity matrix 5: turn.failed AI_PROVIDER_ERROR + failed tool exists too 
       turnError: { code: 'AI_PROVIDER_ERROR', message: 'Process crashed' },
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'failed');
   assert.equal(workByTurn[0].severity, 'error');
   assert.equal(workByTurn[0].hasFailures, true);
@@ -297,7 +297,7 @@ test('Severity matrix 6: AI_TURN_CANCELLED -> non-error (severity normal)', () =
       turnError: { code: 'AI_TURN_CANCELLED', message: 'Turn was cancelled by user' },
     }),
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].status, 'completed');
   assert.equal(workByTurn[0].severity, 'normal', 'cancellation must not be treated as error');
   assert.equal(workByTurn[0].hasFailures, false);
@@ -325,14 +325,14 @@ test('Severity matrix 7: stale Antigravity ERROR compatibility case + valid resp
       // No turnError attached because non-empty response completed successfully
     }),
   ];
-  const { workByTurn, conversation } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn, entries } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1, 'Only turn-1 had tool calls');
   assert.equal(workByTurn[0].turnId, 'turn-1');
   assert.equal(workByTurn[0].status, 'completed');
   assert.equal(workByTurn[0].severity, 'warning', 'turn-1 has warning because of failed edit tool');
   
   // Turn 2 is completely clean
-  assert.equal(conversation.find(c => c.id === 'm2')?.text, 'Second answer explaining error cleanly');
+  assert.equal(entries.find(c => c.id === 'm2')?.text, 'Second answer explaining error cleanly');
 });
 
 // Required coverage H (follow-up review): one turn with both tool activity and
@@ -348,14 +348,14 @@ test('H: a turn with both tool activity and assistant prose produces one Work gr
     }),
   ];
 
-  const { workByTurn, conversation } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn, entries } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].turnId, 'turn-1');
-  const assistantEntry = conversation.find(entry => entry.id === 'm1');
+  const assistantEntry = entries.find(entry => entry.id === 'm1');
   assert.equal(assistantEntry.text, 'Here is what I found.');
 });
 
-test('projectChat carries turnId onto conversation entries without merging distinct turns', () => {
+test('projectTranscript carries turnId onto transcript entries without merging distinct turns', () => {
   const messages = [
     userMsg('u1', 'first'),
     assistantMsg({ id: 'm1', turnId: 'turn-1', text: 'first reply' }),
@@ -363,12 +363,12 @@ test('projectChat carries turnId onto conversation entries without merging disti
     assistantMsg({ id: 'm2', turnId: 'turn-2', text: 'second reply' }),
   ];
 
-  const { conversation } = projectChat(messages);
-  assert.deepEqual(conversation.map(entry => entry.turnId), [undefined, 'turn-1', undefined, 'turn-2']);
-  assert.deepEqual(conversation.map(entry => entry.text), ['first', 'first reply', 'second', 'second reply']);
+  const { entries } = projectTranscript(messages);
+  assert.deepEqual(entries.map(entry => entry.turnId), [undefined, 'turn-1', undefined, 'turn-2']);
+  assert.deepEqual(entries.map(entry => entry.text), ['first', 'first reply', 'second', 'second reply']);
 });
 
-test('projectChat selects the newest started running tool as currentActivity when multiple are running', () => {
+test('projectTranscript selects the newest started running tool as currentActivity when multiple are running', () => {
   const messages = [
     userMsg('u1', 'run both'),
     assistantMsg({
@@ -381,7 +381,7 @@ test('projectChat selects the newest started running tool as currentActivity whe
     }),
   ];
 
-  const { workByTurn, currentActivity } = projectChat(messages, { activeTurnId: 'turn-1' });
+  const { workByTurn, currentActivity } = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].status, 'current');
   assert.equal(workByTurn[0].currentActivity?.toolId, 't2', 'turn currentActivity must be the newest running tool t2');

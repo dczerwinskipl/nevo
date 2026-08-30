@@ -5,15 +5,15 @@ import { fileURLToPath } from 'node:url';
 
 import {
   hasVisibleProse,
-  shouldRenderChatMessage,
+  shouldRenderTranscriptMessage,
   visibleWorkItemsWhenTerminal,
   visibleWorkItemsWhileRunning,
-} from '../ui/components/work/work-visibility.ts';
-import { activityLabelFor } from '../ui/components/ai-chat/tool-activity-labels.ts';
-import { projectChat } from '../ui/components/ai-chat/chat-projection.ts';
+} from '../ui/features/agent-sessions/turn-work/turn-work-visibility.ts';
+import { activityLabelFor } from '../ui/features/agent-sessions/turn-work/tool-activity-labels.ts';
+import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 
 function readWorkSummarySource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
 }
 
 function item(id, status, overrides = {}) {
@@ -33,7 +33,7 @@ test('a turn with 5+ successful tool calls collapses to one Work group, not one 
       toolCalls: Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, name: 'Read', input: {}, status: 'completed' })),
     },
   ];
-  const { workByTurn } = projectChat(messages);
+  const { workByTurn } = projectTranscript(messages);
   assert.equal(workByTurn.length, 1);
   assert.equal(workByTurn[0].items.length, 6);
 });
@@ -101,7 +101,7 @@ test('a new tool call becomes the sole currentActivity, replacing the previous o
       ],
     },
   ];
-  const { currentActivity, workByTurn } = projectChat(messages, { activeTurnId: 'turn-1' });
+  const { currentActivity, workByTurn } = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(currentActivity?.toolId, 't2');
   assert.equal(workByTurn[0].status, 'current');
 });
@@ -112,7 +112,7 @@ test('two sequential turns each with tool calls produce two separate Work groups
     { id: 'm1', role: 'assistant', text: '', turnId: 'turn-1', createdAt: '2026-08-22T10:00:00Z', toolCalls: [{ id: 't1', name: 'Read', input: {}, status: 'completed' }] },
     { id: 'm2', role: 'assistant', text: '', turnId: 'turn-2', createdAt: '2026-08-22T10:01:00Z', toolCalls: [{ id: 't2', name: 'Bash', input: {}, status: 'completed' }] },
   ];
-  const { workByTurn } = projectChat(messages);
+  const { workByTurn } = projectTranscript(messages);
   assert.equal(workByTurn.length, 2);
 });
 
@@ -133,7 +133,7 @@ test('B: eight successful actions collapse to one Work summary, no cards while c
 });
 
 // Required coverage D (follow-up review, Finding 3): current activity uses Task 04's
-// human-readable normalization, never the raw provider tool name. `work-summary.tsx`
+// human-readable normalization, never the raw provider tool name. `turn-work-summary.tsx`
 // cannot be imported into this test runner (JSX, no loader for it here — see G below),
 // so this combines (1) proving the normalization itself never renders a raw tool name
 // for a realistic running item, with (2) a source check that `WorkCurrentActivity`
@@ -148,7 +148,7 @@ test('D: current activity label uses Task 04 normalization, not the raw tool nam
 
   const source = readWorkSummarySource();
   const currentActivityMatch = source.match(/const WorkCurrentActivity[\s\S]*?\n\}\);/);
-  assert.ok(currentActivityMatch, 'WorkCurrentActivity must exist in work-summary.tsx');
+  assert.ok(currentActivityMatch, 'WorkCurrentActivity must exist in turn-work-summary.tsx');
   assert.match(currentActivityMatch[0], /activityLabelFor\(/, 'must call the Task 04 normalization function');
   assert.doesNotMatch(currentActivityMatch[0], />\{item\.toolName\}</, 'must not render the raw tool name directly');
 });
@@ -159,18 +159,18 @@ test('D: current activity label uses Task 04 normalization, not the raw tool nam
 test('F: a Work-only assistant message renders (has Work), an empty one does not', () => {
   const workOnlyMessage = { role: 'assistant', text: '', reasoning: undefined };
   assert.equal(hasVisibleProse(workOnlyMessage), false);
-  assert.equal(shouldRenderChatMessage(workOnlyMessage, true), true, 'Work alone is enough to render');
-  assert.equal(shouldRenderChatMessage(workOnlyMessage, false), false, 'no prose and no Work renders nothing — no empty placeholder');
+  assert.equal(shouldRenderTranscriptMessage(workOnlyMessage, true), true, 'Work alone is enough to render');
+  assert.equal(shouldRenderTranscriptMessage(workOnlyMessage, false), false, 'no prose and no Work renders nothing — no empty placeholder');
 
   const proseMessage = { role: 'assistant', text: 'Hello', reasoning: undefined };
-  assert.equal(shouldRenderChatMessage(proseMessage, false), true, 'prose alone is enough to render');
+  assert.equal(shouldRenderTranscriptMessage(proseMessage, false), true, 'prose alone is enough to render');
 
   const userMessage = { role: 'user', text: '', reasoning: undefined };
-  assert.equal(shouldRenderChatMessage(userMessage, false), true, 'a user message always renders');
+  assert.equal(shouldRenderTranscriptMessage(userMessage, false), true, 'a user message always renders');
 });
 
 // Required coverage G (follow-up review, Finding 6): collapsed Work renders as a
-// lightweight transcript row, not a card/bubble container. `work-summary.tsx` cannot be
+// lightweight transcript row, not a card/bubble container. `turn-work-summary.tsx` cannot be
 // rendered in this test runner (no jsdom/RTL, and Node's loader does not transform
 // JSX), so this asserts the component-structure invariant the way it exists here: the
 // collapsed row's own class list carries no card chrome (border/rounded-xl/background),
@@ -178,7 +178,7 @@ test('F: a Work-only assistant message renders (has Work), an empty one does not
 test('G: the collapsed Work row source carries no card container styling', () => {
   const source = readWorkSummarySource();
   const collapsedSummaryMatch = source.match(/const WorkCollapsedSummary[\s\S]*?\n\}\);/);
-  assert.ok(collapsedSummaryMatch, 'WorkCollapsedSummary must exist in work-summary.tsx');
+  assert.ok(collapsedSummaryMatch, 'WorkCollapsedSummary must exist in turn-work-summary.tsx');
   const collapsedSummarySource = collapsedSummaryMatch[0];
   assert.doesNotMatch(collapsedSummarySource, /rounded-xl/, 'no large rounded card container');
   assert.doesNotMatch(collapsedSummarySource, /\bborder\b/, 'no prominent border');
@@ -195,7 +195,7 @@ test('L: a turnError-only Work group — no failed tools — surfaces turnError 
       toolCalls: [{ id: 't1', name: 'Read', input: { path: 'a.ts' }, output: 'ok', status: 'completed' }],
       turnError: { code: 'AI_SESSION_LIMIT', message: "You've hit your session limit" } },
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1, 'Work exists');
   assert.equal(workByTurn[0].status, 'failed', 'turn is terminal and failed');
   assert.equal(workByTurn[0].hasFailures, true, 'hasFailures reflects turnError presence');
@@ -215,7 +215,7 @@ test('L: failed tool + turnError are independently inspectable in Work projectio
       ],
       turnError: { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' } },
   ];
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn[0].hasFailures, true);
   // Each tool retains its own status — the failed tool is still failed,
   // the completed tool is still completed.
@@ -225,10 +225,10 @@ test('L: failed tool + turnError are independently inspectable in Work projectio
   assert.deepEqual(workByTurn[0].turnError, { code: 'AI_PROVIDER_EXIT_ERROR', message: 'Process exited with code 1' });
 });
 
-// Source check: TurnErrorRow must exist in work-summary.tsx and must render the turnError
+// Source check: TurnErrorRow must exist in turn-work-summary.tsx and must render the turnError
 // fields, not a string-matched hardcoded message.
-test('L: work-summary.tsx source contains TurnErrorRow that renders turnError fields', () => {
-  const source = readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
+test('L: turn-work-summary.tsx source contains TurnErrorRow that renders turnError fields', () => {
+  const source = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
   assert.match(source, /const TurnErrorRow/, 'TurnErrorRow component must exist');
   assert.match(source, /turnError\.message/, 'must render turnError.message');
   assert.match(source, /turnError\.code/, 'must render turnError.code as secondary info');
@@ -252,8 +252,8 @@ test('Finding 3: visibleWorkItemsWhileRunning retains older running tools when m
   assert.equal(expanded[0].toolId, 't1');
 });
 
-test('Finding 3: WorkSummary does not independently rederive current activity with find', () => {
-  const source = readFileSync(fileURLToPath(new URL('../ui/components/work/work-summary.tsx', import.meta.url)), 'utf8');
-  assert.match(source, /work\.currentActivity/, 'WorkSummary must consume work.currentActivity from projection');
-  assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'WorkSummary must not use find(status === running)');
+test('Finding 3: TurnWorkSummary does not independently rederive current activity with find', () => {
+  const source = readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/turn-work/turn-work-summary.tsx', import.meta.url)), 'utf8');
+  assert.match(source, /work\.currentActivity/, 'TurnWorkSummary must consume work.currentActivity from projection');
+  assert.doesNotMatch(source, /items\.find\([^)]*status === ['"]running['"]\)/, 'TurnWorkSummary must not use find(status === running)');
 });

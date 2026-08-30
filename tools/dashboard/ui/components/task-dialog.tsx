@@ -2,28 +2,26 @@ import { useCallback, useEffect, useRef } from 'react';
 import { MessagesSquare, LoaderCircle, X, AlertCircle } from 'lucide-react';
 import type {
   DashboardChange,
-  AiSession,
   SpecificationTaskDocument,
-  TaskNavigationTarget,
 } from '@/lib/types';
+import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MarkdownContent } from '@/components/markdown-content';
 import { TaskActionFooter } from '@/components/spec-actions';
-import { AiSessionList } from '@/components/ai-session-list';
-// Imported directly from each feature's own module, not their `@/components/spec-detail`
-// / `@/components/ai-chat` barrels — those barrels also export SpecDetail / AiChatPage,
-// which import TaskDialog itself, and going through them here would create a circular
-// module import.
+import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
+// Imported directly from each feature's own module, not the `@/components/spec-detail`
+// barrel — that barrel also exports SpecDetail, which imports TaskDialog itself, and
+// going through it here would create a circular module import.
 import { useSpecificationDocument, useSpecificationActions } from '@/components/spec-detail/spec-detail-queries';
-import { useAiSessions } from '@/components/ai-chat/ai-chat-queries';
+import { useAgentSessions } from '@/features/agent-sessions/queries';
 
 export interface TaskDialogProps {
   change: DashboardChange;
   taskId: string;
   onClose: () => void;
-  onOpenSession?: (session: AiSession, taskId?: string | null) => void;
+  onOpenSession?: (session: AgentSession, taskId?: string | null) => void;
   onOpenTask?: (target: TaskNavigationTarget | string) => void;
   onOperationStarted?: (operationId: string, label: string) => void;
 }
@@ -44,7 +42,7 @@ export function TaskDialog({
   const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(taskId));
   const taskDocument = taskId ? (taskDocumentQuery.data as SpecificationTaskDocument | null) : null;
 
-  const sessionsQuery = useAiSessions({
+  const sessionsQuery = useAgentSessions({
     specId: change.specId || undefined,
     enabled: Boolean(change.specId),
   });
@@ -156,7 +154,7 @@ export function TaskDialog({
               <MessagesSquare className="size-4 text-[var(--accent)]" />
               <h3 className="text-sm font-semibold text-[var(--foreground)]">Powiązane sesje</h3>
             </div>
-            <AiSessionList
+            <AgentSessionList
               sessions={filteredSessions}
               tasks={change.tasks}
               loading={sessionsQuery.loading}

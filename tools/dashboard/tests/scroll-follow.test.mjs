@@ -12,14 +12,14 @@ import {
   handleUserReturnToBottom,
   handleUserUpwardGesture,
   handleScrollEvent,
-} from '../ui/components/ai-chat/use-scroll-follow.ts';
+} from '../ui/features/agent-sessions/transcript/use-scroll-follow.ts';
 
-function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+function readAgentSessionPageSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
 function readUseScrollFollowSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/use-scroll-follow.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/use-scroll-follow.ts', import.meta.url)), 'utf8');
 }
 
 test('Task 08: calculateMaxScrollTop correctly determines maximum scrollTop in viewport coordinate system', () => {
@@ -272,8 +272,8 @@ test('Task 08: Production hook implementation uses calculateMaxScrollTop and uni
   assert.match(source, /handleScrollEvent/);
 });
 
-test('Task 08: AiChatPage uses assistant.contentRevision and renders new-content affordance', () => {
-  const chatSource = readAiChatSource();
+test('Task 08: AgentSessionPage uses assistant.contentRevision and renders new-content affordance', () => {
+  const chatSource = readAgentSessionPageSource();
   assert.match(chatSource, /useScrollFollow/);
   assert.match(chatSource, /contentKey:\s*scrollContentKey/);
   assert.match(chatSource, /assistant\.contentRevision/);

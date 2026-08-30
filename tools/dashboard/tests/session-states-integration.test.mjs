@@ -4,23 +4,23 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readTypesSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/lib/types.ts', import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/types.ts', import.meta.url)), 'utf8');
 }
 
-function readAiSessionListSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-session-list.tsx', import.meta.url)), 'utf8');
+function readAgentSessionListSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-list.tsx', import.meta.url)), 'utf8');
 }
 
-function readAiChatSource() {
-  return readFileSync(fileURLToPath(new URL('../ui/components/ai-chat/ai-chat.tsx', import.meta.url)), 'utf8');
+function readAgentSessionPageSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
-test('Task 09: AiSessionStatus type is narrowed to exactly idle | running | waitingForUser', () => {
+test('Task 09: AgentSessionStatus type is narrowed to exactly idle | running | waitingForUser', () => {
   const typesSource = readTypesSource();
 
-  // AiSessionStatus definition contains only live states
-  const sessionStatusMatch = typesSource.match(/export type AiSessionStatus = ([^;]+);/);
-  assert.ok(sessionStatusMatch, 'AiSessionStatus definition found');
+  // AgentSessionStatus definition contains only live states
+  const sessionStatusMatch = typesSource.match(/export type AgentSessionStatus = ([^;]+);/);
+  assert.ok(sessionStatusMatch, 'AgentSessionStatus definition found');
   const sessionStatusDef = sessionStatusMatch[1];
   assert.equal(sessionStatusDef, "'idle' | 'running' | 'waitingForUser'");
   assert.doesNotMatch(sessionStatusDef, /'completed'/);
@@ -28,8 +28,8 @@ test('Task 09: AiSessionStatus type is narrowed to exactly idle | running | wait
   assert.doesNotMatch(sessionStatusDef, /'stopped'/);
 });
 
-test('Task 09: ai-session-list.tsx removed dead completed branches and list grouping', () => {
-  const sessionListSource = readAiSessionListSource();
+test('Task 09: agent-session-list.tsx removed dead completed branches and list grouping', () => {
+  const sessionListSource = readAgentSessionListSource();
 
   // statusLabel handles running, waitingForUser, and default Bezczynna — no completed case
   assert.match(sessionListSource, /status === 'running'/);
@@ -45,8 +45,8 @@ test('Task 09: ai-session-list.tsx removed dead completed branches and list grou
   assert.doesNotMatch(sessionListSource, /CheckCircle2/);
 });
 
-test('Task 09: ai-chat.tsx removed dead session.status === completed check on composer', () => {
-  const chatSource = readAiChatSource();
+test('Task 09: agent-session-page.tsx removed dead session.status === completed check on composer', () => {
+  const chatSource = readAgentSessionPageSource();
 
   // Composer is not disabled by dead session.status === 'completed'
   assert.doesNotMatch(chatSource, /session\?\.status === 'completed'/);

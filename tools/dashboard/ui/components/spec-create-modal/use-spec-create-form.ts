@@ -3,24 +3,24 @@ import {
   useCreateSpecification,
   type CreateSpecificationResult,
 } from '@/hooks/use-dashboard-data';
-import { useAiProviders, useCreateAiSession } from '@/components/ai-chat/ai-chat-queries';
+import { useAgentProviders, useCreateAgentSession } from '@/features/agent-sessions/queries';
 import { slugifyTitle, resolveDefaultPlanningMode } from '@/lib/spec-create-helpers';
-import { initialPromptWithTaskContext } from '@/components/ai-chat/ai-chat-helpers';
-import type { AiSession, AgentExecutionMode } from '@/lib/types';
+import { initialPromptWithTaskContext } from '@/features/agent-sessions/create-agent-session-helpers';
+import type { AgentSession, AgentExecutionMode } from '@/features/agent-sessions/types';
 
 export interface UseSpecCreateFormOptions {
   onClose: () => void;
   onCreated: (
     spec: CreateSpecificationResult,
-    session?: AiSession | null,
+    session?: AgentSession | null,
     initialPrompt?: string | null,
   ) => void;
 }
 
 export function useSpecCreateForm({ onClose, onCreated }: UseSpecCreateFormOptions) {
-  const providers = useAiProviders();
+  const providers = useAgentProviders();
   const specMutation = useCreateSpecification();
-  const createAiSession = useCreateAiSession();
+  const createAiSession = useCreateAgentSession();
 
   const enabledProviders = (providers.data?.providers.filter((p) => p.enabled) ?? []).sort(
     (a, b) => {

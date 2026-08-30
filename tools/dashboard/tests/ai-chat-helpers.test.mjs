@@ -7,8 +7,8 @@ import {
   composeChatMessages,
   createTurnIdempotencyKey,
   initialPromptWithTaskContext,
-} from '../ui/components/ai-chat/ai-chat-helpers.ts';
-import { useNevoAssistantRuntime } from '../ui/components/ai-chat/nevo-assistant-runtime.ts';
+} from '../ui/features/agent-sessions/create-agent-session-helpers.ts';
+import { useAgentSessionRuntime } from '../ui/features/agent-sessions/runtime/agent-session-runtime.ts';
 
 test('turn idempotency keys work when randomUUID is unavailable on an HTTP VPN origin', () => {
   assert.equal(createTurnIdempotencyKey({
@@ -85,8 +85,8 @@ test('persisted assistant messages replace their streamed version by stable mess
 });
 
 test('browser EventSource dispatches named SSE events only to addEventListener, not onmessage', async () => {
-  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } = await import('../ui/components/ai-chat/agent-event-source.ts');
-  const { applyAgentEvent } = await import('../ui/components/ai-chat/agent-event-reducer.ts');
+  const { subscribeAgentEventSource, SUPPORTED_AGENT_EVENT_TYPES } = await import('../ui/features/agent-sessions/runtime/agent-event-source.ts');
+  const { applyAgentEvent } = await import('../ui/features/agent-sessions/runtime/agent-event-reducer.ts');
 
   // Minimal standard-compliant EventTarget mock for browser EventSource
   class MockEventSource {
@@ -167,7 +167,7 @@ test('browser EventSource dispatches named SSE events only to addEventListener, 
 });
 
 test('classifySessionLoadError distinguishes network, 404 not found, and general HTTP failures', async () => {
-  const { classifySessionLoadError, AgentSessionLoadError } = await import('../ui/components/ai-chat/agent-session-transport.ts');
+  const { classifySessionLoadError, AgentSessionLoadError } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Network / fetch failures
   const netErr1 = classifySessionLoadError(new TypeError('Failed to fetch'), 'claude', 'sess-1');
@@ -196,7 +196,7 @@ test('classifySessionLoadError distinguishes network, 404 not found, and general
 });
 
 test('fetchAgentSessionSnapshot parses snapshots and wraps HTTP and network errors with exact classification', async () => {
-  const { fetchAgentSessionSnapshot } = await import('../ui/components/ai-chat/agent-session-transport.ts');
+  const { fetchAgentSessionSnapshot } = await import('../ui/features/agent-sessions/runtime/agent-session-transport.ts');
 
   // 1. Successful snapshot
   const mockFetchSuccess = async (url) => {
@@ -321,7 +321,7 @@ function createHookHarness() {
   let currentProps = null;
 
   function TestComponent(props) {
-    currentResult = useNevoAssistantRuntime(props);
+    currentResult = useAgentSessionRuntime(props);
     return null;
   }
 
@@ -357,7 +357,7 @@ function createHookHarness() {
   };
 }
 
-test('real useNevoAssistantRuntime mounting: EventSource lifecycle during snapshot failure and retry', async () => {
+test('real useAgentSessionRuntime mounting: EventSource lifecycle during snapshot failure and retry', async () => {
   const sseEvents = [];
   globalThis.EventSource = class MockEventSource {
     constructor(url) {
@@ -443,7 +443,7 @@ test('real useNevoAssistantRuntime mounting: EventSource lifecycle during snapsh
   assert.equal(harness.result.loadError, null);
 });
 
-test('real useNevoAssistantRuntime mounting: session switch A -> failed B -> retry B prevents stale state and manages EventSource', async () => {
+test('real useAgentSessionRuntime mounting: session switch A -> failed B -> retry B prevents stale state and manages EventSource', async () => {
   const sseEvents = [];
   globalThis.EventSource = class MockEventSource {
     constructor(url) {
@@ -540,7 +540,7 @@ test('real useNevoAssistantRuntime mounting: session switch A -> failed B -> ret
   assert.ok(sseEvents[2].url.includes('sess-B') && sseEvents[2].url.includes('after=5'));
 });
 
-test('real useNevoAssistantRuntime mounting: error domain separation between snapshot failures and turn execution failures', async () => {
+test('real useAgentSessionRuntime mounting: error domain separation between snapshot failures and turn execution failures', async () => {
   const errorsReceived = [];
   const harness = createHookHarness();
 

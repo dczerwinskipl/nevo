@@ -5,17 +5,16 @@ import {
 } from 'lucide-react';
 
 import type {
-  AiSession,
   DashboardChange,
   DashboardTask,
   SpecificationOwnerAction,
   SpecificationTaskActionGate,
-  TaskNavigationTarget,
 } from '@/lib/types';
+import type { AgentSession, TaskNavigationTarget } from '@/features/agent-sessions/types';
 import { formatStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { AiSessionList } from '@/components/ai-session-list';
+import { AgentSessionList } from '@/features/agent-sessions/agent-session-list';
 import { StatusBoard } from '@/components/status-board';
 
 export function OverviewPanel({
@@ -35,11 +34,11 @@ export function OverviewPanel({
 }: {
   change: DashboardChange;
   onTaskSelect: (task: DashboardTask, trigger: HTMLElement) => void;
-  sessions: AiSession[];
+  sessions: AgentSession[];
   sessionsLoading: boolean;
   sessionsError: string | null;
   onSessionsRetry: () => void;
-  onOpenSession: (session: AiSession) => void;
+  onOpenSession: (session: AgentSession) => void;
   actions: React.ReactNode;
   taskActions?: Record<string, SpecificationTaskActionGate>;
   onDirectTaskAction?: (task: DashboardTask, action: SpecificationOwnerAction) => void;
@@ -51,7 +50,7 @@ export function OverviewPanel({
     <>
       <section className="mb-9" aria-label="Ostatnie sesje specyfikacji">
         <div className="mb-4 flex items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Sesje AI</p><h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Ostatnie rozmowy</h2></div>{change.source === 'active' && change.specId && <Button size="sm" onClick={onCreateSession}><MessageSquarePlus className="mr-1.5 size-3.5" />Nowa sesja</Button>}</div>
-        <AiSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
+        <AgentSessionList sessions={sessions} tasks={change.tasks} loading={sessionsLoading} error={sessionsError} onRetry={onSessionsRetry} onOpen={onOpenSession} onOpenTask={onOpenTask} limit={8} emptyLabel="Brak sesji dla tej specyfikacji." />
       </section>
       {actions}
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   pendingDispatchStore,
   InitialDispatchController,
-} from '../ui/components/ai-chat/pending-dispatch-store.ts';
+} from '../ui/features/agent-sessions/runtime/pending-dispatch-store.ts';
 
 function readSource(relative) {
   return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
@@ -268,8 +268,8 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
   const routerTreeSource = readSource('router-tree.ts');
   const routerSource = readSource('router.tsx');
-  const aiChatSource = readSource('components/ai-chat/ai-chat.tsx');
-  const pendingDispatchStoreSource = readSource('components/ai-chat/pending-dispatch-store.ts');
+  const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
+  const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 
   // router-tree.ts does not declare initialPrompt in ChatSearch
   assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
@@ -278,24 +278,24 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   assert.ok(routerSource.includes('pendingDispatchStore.setPending'));
   assert.ok(!routerSource.includes('initialPrompt: initialPrompt'));
 
-  // ai-chat.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
-  assert.ok(aiChatSource.includes('useInitialDispatch'));
+  // agent-session-page.tsx and pending-dispatch-store.ts enforce explicit pending status and production retry
+  assert.ok(agentSessionPageSource.includes('useInitialDispatch'));
   assert.ok(pendingDispatchStoreSource.includes("pending.status !== 'pending'"));
   assert.ok(pendingDispatchStoreSource.includes('retryPending('));
   assert.ok(pendingDispatchStoreSource.includes('clearPending('));
 });
 
 test('Finding 3: Tool card layout and pre blocks are constrained to chat width and support horizontal scroll', () => {
-  const toolViewSource = readSource('components/ai-tool-view.tsx');
-  const workSummarySource = readSource('components/work/work-summary.tsx');
-  const chatMessageSource = readSource('components/conversation/chat-message.tsx');
+  const toolCallViewSource = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
+  const turnWorkSummarySource = readSource('features/agent-sessions/turn-work/turn-work-summary.tsx');
+  const transcriptMessageSource = readSource('features/agent-sessions/transcript/transcript-message.tsx');
 
-  // AiToolView is constrained with min-w-0 max-w-full and pre blocks use overflow-auto whitespace-pre
-  assert.ok(toolViewSource.includes('w-full min-w-0 max-w-full'));
-  assert.ok(toolViewSource.includes('overflow-auto'));
-  assert.ok(toolViewSource.includes('whitespace-pre'));
+  // ToolCallView is constrained with min-w-0 max-w-full and pre blocks use overflow-auto whitespace-pre
+  assert.ok(toolCallViewSource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(toolCallViewSource.includes('overflow-auto'));
+  assert.ok(toolCallViewSource.includes('whitespace-pre'));
 
-  // WorkSummary and ChatMessage containers allow flex shrinking with min-w-0 max-w-full
-  assert.ok(workSummarySource.includes('w-full min-w-0 max-w-full'));
-  assert.ok(chatMessageSource.includes('w-full min-w-0 max-w-full'));
+  // TurnWorkSummary and TranscriptMessage containers allow flex shrinking with min-w-0 max-w-full
+  assert.ok(turnWorkSummarySource.includes('w-full min-w-0 max-w-full'));
+  assert.ok(transcriptMessageSource.includes('w-full min-w-0 max-w-full'));
 });

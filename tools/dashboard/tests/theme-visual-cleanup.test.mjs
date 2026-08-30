@@ -59,8 +59,8 @@ test('workflow and session states follow the semantic color contract', () => {
   const lanes = readSource('lib/lane-presentation.ts');
   const progress = readSource('components/stage-progress.tsx');
   const labels = readSource('components/status-label.tsx');
-  const tools = readSource('components/ai-tool-view.tsx');
-  const sessions = readSource('components/ai-session-list.tsx');
+  const tools = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
+  const sessions = readSource('features/agent-sessions/agent-session-list.tsx');
 
   assert.ok(lanes.includes("implementation: { accent: 'var(--lane-implementation)' }"));
   assert.ok(lanes.includes("review: { accent: 'var(--lane-review)' }"));

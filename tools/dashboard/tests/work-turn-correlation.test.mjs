@@ -4,9 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { applyAgentEvent } from '../ui/components/ai-chat/agent-event-reducer.ts';
-import { projectChat } from '../ui/components/ai-chat/chat-projection.ts';
-import { visibleWorkItemsWhileRunning } from '../ui/components/work/work-visibility.ts';
+import { applyAgentEvent } from '../ui/features/agent-sessions/runtime/agent-event-reducer.ts';
+import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
+import { visibleWorkItemsWhileRunning } from '../ui/features/agent-sessions/turn-work/turn-work-visibility.ts';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 
 // Required coverage E (follow-up review, Finding 4): a terminal event for one turn must
@@ -55,7 +55,7 @@ test('I: one turn with reasoning, text, and multiple tool calls produces exactly
   assert.equal(assistantMessages[0].text, 'Here is what I found.');
   assert.equal(assistantMessages[0].toolCalls.length, 2);
 
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1, 'exactly one Work summary must be rendered for this turn');
   assert.equal(workByTurn[0].items.length, 2, 'expanding the one Work group exposes all actions for the turn');
 });
@@ -86,7 +86,7 @@ test('J: a current-schema turn with multiple actions survives reload/reprojectio
     const assistantMessages = reloaded.messages.filter(m => m.role === 'assistant');
     assert.equal(assistantMessages.length, 1, 'Work survives as exactly one assistant message after reload');
 
-    const { workByTurn } = projectChat(reloaded.messages, { activeTurnId: null });
+    const { workByTurn } = projectTranscript(reloaded.messages, { activeTurnId: null });
     assert.equal(workByTurn.length, 1, 'exactly one Work projection for the turn after reload');
     assert.equal(workByTurn[0].turnId, 'turn-1', 'turn correlation survives reload');
     assert.equal(workByTurn[0].items.length, 2, 'action count survives reload');
@@ -135,7 +135,7 @@ test('K: tools distributed across two messages in the same turn aggregate into o
   assert.equal(assistantMessages.find(m => m.id === 'msg-B')?.text, 'Now editing.');
 
   // But Work aggregates into exactly one TurnWork with all actions.
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1, 'exactly one TurnWork regardless of how many messages');
   assert.equal(workByTurn[0].items.length, 2, 'all actions included regardless of which message carried them');
   assert.ok(workByTurn[0].items.find(i => i.toolId === 't1'), 'tool from message-A included');
@@ -152,7 +152,7 @@ test('K: Work anchors at the first message with tool activity for the turn', () 
   messages = applyAgentEvent(messages, { id: 4, seq: 4, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-B', text: 'Done.' });
   messages = applyAgentEvent(messages, { id: 5, seq: 5, type: 'turn.completed', turnId: 'turn-1' });
 
-  const { workByTurn } = projectChat(messages, { activeTurnId: null });
+  const { workByTurn } = projectTranscript(messages, { activeTurnId: null });
   assert.equal(workByTurn.length, 1);
   // msg-A was first; tool.started had no explicit messageId so attached to msg-A via turnId fallback.
   assert.equal(workByTurn[0].messageId, 'msg-A', 'anchor is the message that actually carries the tool calls');
@@ -221,11 +221,11 @@ test('Finding 2: distinct explicit messageIds in same turn survive transcript ca
     assert.equal(assistantMessages.find(m => m.id === 'msg-B')?.text, 'Second message.');
 
     // Verify both project into exactly one TurnWork
-    const { workByTurn, conversation } = projectChat(reloaded.messages, { activeTurnId: null });
+    const { workByTurn, entries } = projectTranscript(reloaded.messages, { activeTurnId: null });
     assert.equal(workByTurn.length, 1, 'aggregates into exactly one TurnWork for the turn');
     assert.equal(workByTurn[0].items.length, 1);
     assert.equal(workByTurn[0].items[0].toolId, 't1');
-    assert.equal(conversation.filter(c => c.role === 'assistant').length, 2);
+    assert.equal(entries.filter(c => c.role === 'assistant').length, 2);
   } finally {
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -249,7 +249,7 @@ test('Finding 3: with multiple running tool calls, newest running is currentActi
     },
   ];
 
-  const projection = projectChat(messages, { activeTurnId: 'turn-1' });
+  const projection = projectTranscript(messages, { activeTurnId: 'turn-1' });
   assert.equal(projection.workByTurn.length, 1);
   assert.equal(projection.workByTurn[0].status, 'current');
   assert.equal(projection.workByTurn[0].currentActivity?.toolId, 't2', 'newest running tool t2 must be currentActivity');
