@@ -1,6 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { AiError, AiValidationError, validateAgentExecutionMode } from '../../contracts.mjs';
 import { createCodexAppServerClient, resolveCodexCommand } from './app-server-client.mjs';
+import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+
+export { rawCaptureSessionDirectory };
 
 export const CODEX_CAPABILITIES = Object.freeze({
   interactivePermissions: true,
@@ -179,6 +183,7 @@ export class CodexAgentProvider {
   #disposePromise = null;
   #unsubscribeNotification;
   #unsubscribeServerRequest;
+  #rawCapture;
 
   constructor({
     executable = 'codex',
@@ -186,14 +191,40 @@ export class CodexAgentProvider {
     client,
     clientFactory = createCodexAppServerClient,
     probeExecutable,
+    rawCaptureDir = null,
+    rawCaptureEnabled = false,
+    rawFlushTimeoutMs = 2_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
-    this.#client = client ?? clientFactory({ executable, cwd });
+    this.#rawCapture = client?.rawCapture ?? new RawCaptureRecorder({
+      providerId: 'codex',
+      rawCaptureDir: rawCaptureEnabled
+        ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'codex_raw'))
+        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
+      rawCaptureEnabled,
+      rawFlushTimeoutMs,
+    });
+    this.#client = client ?? clientFactory({
+      executable,
+      cwd,
+      rawCaptureDir,
+      rawCaptureEnabled,
+      rawFlushTimeoutMs,
+      rawCaptureRecorder: this.#rawCapture,
+    });
     this.#probeExecutable = probeExecutable ?? (client ? () => true : defaultProbeCodexExecutable);
     this.#unsubscribeNotification = this.#client.onNotification(notification => this.#handleNotification(notification));
     this.#unsubscribeServerRequest = this.#client.onServerRequest(request => this.#handleServerRequest(request));
     this.descriptor = CODEX_DESCRIPTOR;
+  }
+
+  getRawCapturePath(sessionId) {
+    return this.#rawCapture.getRawCapturePath(sessionId);
+  }
+
+  async flushRawCapture(sessionId) {
+    return this.#rawCapture.flushRawCapture(sessionId);
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
@@ -255,6 +286,8 @@ export class CodexAgentProvider {
       await this.#ensureThreadLoaded(threadId, validatedMode);
     }
 
+    this.#rawCapture.logCapturePathOnce(threadId);
+
     if (this.#operationsByThread.has(threadId)) {
       throw new AiError('AI_TURN_CONFLICT', 'Codex thread already has an active turn.', { status: 409 });
     }
@@ -306,6 +339,7 @@ export class CodexAgentProvider {
       operation.watchAbort.abort();
       this.#operationsByThread.delete(threadId);
       this.#clearOperationInteractions(operation);
+      await this.#rawCapture.flushRawCaptureBounded(threadId);
     }
   }
 

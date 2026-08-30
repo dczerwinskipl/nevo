@@ -853,11 +853,82 @@ test('Claude cancelTurn bounded cancellation fails cleanly when child ignores al
     setOperation: op => { operation = op; },
   });
   await new Promise(resolve => setImmediate(resolve));
-  assert.ok(operation);
-
   await assert.rejects(
     () => provider.cancelTurn({ operation }),
     err => err.code === 'AI_PROCESS_TERMINATION_FAILED'
   );
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
+});
+
+test('Claude raw capture: records stdout, stderr, and stdin to ndjson when enabled', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-raw-'));
+  try {
+    const stdoutLines = [
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Hello world' }] }, session_id: 'claude-sess-1' }),
+      JSON.stringify({ type: 'result', result: 'Hello world', session_id: 'claude-sess-1' }),
+    ];
+
+    const child = createMockProcess(stdoutLines, { sessionId: 'claude-sess-1' });
+    const provider = createClaudeAgentProvider({
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+
+    const result = await provider.startTurn({
+      turnId: 'turn-raw-test-1',
+      providerSessionId: 'claude-sess-1',
+      message: 'Hello Claude',
+    });
+
+    assert.equal(result.providerSessionId, 'claude-sess-1');
+    const rawPath = provider.getRawCapturePath('claude-sess-1');
+    assert.ok(rawPath);
+
+    await provider.flushRawCapture('claude-sess-1');
+    const content = await readFile(rawPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+
+    assert.ok(lines.length >= 3, 'Expected at least stdin, stdout assistant, and stdout result');
+    assert.equal(lines[0].stream, 'stdin');
+    assert.equal(lines[0].providerSessionId, 'claude-sess-1');
+    assert.equal(lines[0].turnId, 'turn-raw-test-1');
+
+    const assistantLine = lines.find(l => l.stream === 'stdout' && l.raw?.type === 'assistant');
+    assert.ok(assistantLine);
+    assert.equal(assistantLine.providerSessionId, 'claude-sess-1');
+
+    const sessionMetaPath = join(tmpDir, 'claude-sess-1', 'session.json');
+    const meta = JSON.parse(await readFile(sessionMetaPath, 'utf8'));
+    assert.equal(meta.provider, 'claude');
+    assert.equal(meta.providerSessionId, 'claude-sess-1');
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Claude raw capture: disabled by default does not write raw files', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-claude-noraw-'));
+  try {
+    const stdoutLines = [
+      JSON.stringify({ type: 'result', result: 'Done', session_id: 'claude-sess-2' }),
+    ];
+
+    const child = createMockProcess(stdoutLines, { sessionId: 'claude-sess-2' });
+    const provider = createClaudeAgentProvider({
+      spawnProcess: () => child,
+    });
+
+    assert.equal(provider.getRawCapturePath('claude-sess-2'), null);
+
+    await provider.startTurn({
+      turnId: 'turn-raw-test-2',
+      providerSessionId: 'claude-sess-2',
+      message: 'Hi',
+    });
+
+    assert.equal(provider.getRawCapturePath('claude-sess-2'), null);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });

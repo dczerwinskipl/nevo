@@ -7,6 +7,8 @@ import { join, resolve } from 'node:path';
 import {
   DEFAULT_AI_PROVIDERS_CONFIG_PATH,
   DEFAULT_ANTIGRAVITY_RAW_DIRECTORY,
+  DEFAULT_CLAUDE_RAW_DIRECTORY,
+  DEFAULT_CODEX_RAW_DIRECTORY,
   loadAgentProvidersConfig,
 } from '../server/ai/providers/config.mjs';
 
@@ -19,13 +21,21 @@ test('AI provider config disables every provider and raw capture when the local 
       configured: false,
       providerOrder: [],
       providers: {
-        claude: { enabled: false },
+        claude: {
+          enabled: false,
+          rawCaptureEnabled: false,
+          rawCaptureDir: resolve(repoRoot, DEFAULT_CLAUDE_RAW_DIRECTORY),
+        },
         antigravity: {
           enabled: false,
           rawCaptureEnabled: false,
           rawCaptureDir: resolve(repoRoot, DEFAULT_ANTIGRAVITY_RAW_DIRECTORY),
         },
-        codex: { enabled: false },
+        codex: {
+          enabled: false,
+          rawCaptureEnabled: false,
+          rawCaptureDir: resolve(repoRoot, DEFAULT_CODEX_RAW_DIRECTORY),
+        },
         mock: { enabled: false },
       },
     });
@@ -42,6 +52,10 @@ test('AI provider config reads the enabled provider list and Antigravity diagnos
 providers:
   claude:
     enabled: true
+    diagnostics:
+      raw_responses:
+        enabled: true
+        directory: .nevo-ai-local/provider-raw/claude
   antigravity:
     enabled: true
     diagnostics:
@@ -50,6 +64,10 @@ providers:
         directory: .nevo-ai-local/provider-raw/antigravity
   codex:
     enabled: false
+    diagnostics:
+      raw_responses:
+        enabled: true
+        directory: .nevo-ai-local/provider-raw/codex
   mock:
     enabled: true
 `, 'utf8');
@@ -61,10 +79,20 @@ providers:
       Object.fromEntries(Object.entries(config.providers).map(([id, value]) => [id, value.enabled])),
       { claude: true, antigravity: true, codex: false, mock: true },
     );
+    assert.equal(config.providers.claude.rawCaptureEnabled, true);
+    assert.equal(
+      config.providers.claude.rawCaptureDir,
+      resolve(repoRoot, '.nevo-ai-local/provider-raw/claude'),
+    );
     assert.equal(config.providers.antigravity.rawCaptureEnabled, true);
     assert.equal(
       config.providers.antigravity.rawCaptureDir,
       resolve(repoRoot, '.nevo-ai-local/provider-raw/antigravity'),
+    );
+    assert.equal(config.providers.codex.rawCaptureEnabled, true);
+    assert.equal(
+      config.providers.codex.rawCaptureDir,
+      resolve(repoRoot, '.nevo-ai-local/provider-raw/codex'),
     );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });

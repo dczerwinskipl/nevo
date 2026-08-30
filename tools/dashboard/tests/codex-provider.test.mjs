@@ -832,3 +832,23 @@ test('default dashboard service registers Codex without starting a live app-serv
     await rm(configDir, { recursive: true, force: true });
   }
 });
+
+test('Codex raw capture: returns resolved capture path when enabled and null when disabled', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-raw-'));
+  try {
+    const client = standardClient();
+    const provider = createCodexAgentProvider({
+      client,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+
+    const rawPath = provider.getRawCapturePath('thread-raw-1');
+    assert.equal(rawPath, join(tmpDir, 'thread-raw-1', 'raw.ndjson'));
+
+    const disabledProvider = createCodexAgentProvider({ client });
+    assert.equal(disabledProvider.getRawCapturePath('thread-raw-1'), null);
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});

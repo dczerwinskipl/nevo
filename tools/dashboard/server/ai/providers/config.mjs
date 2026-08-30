@@ -3,6 +3,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { parseYamlFile } from '../../../../lib/yaml.mjs';
 
 export const DEFAULT_ANTIGRAVITY_RAW_DIRECTORY = '.nevo-ai-local/antigravity_raw';
+export const DEFAULT_CLAUDE_RAW_DIRECTORY = '.nevo-ai-local/claude_raw';
+export const DEFAULT_CODEX_RAW_DIRECTORY = '.nevo-ai-local/codex_raw';
 export const DEFAULT_AI_PROVIDERS_CONFIG_PATH = '.nevo-ai-local/ai-providers.yaml';
 export const SUPPORTED_AGENT_PROVIDERS = Object.freeze(['claude', 'antigravity', 'codex', 'mock']);
 
@@ -18,8 +20,7 @@ function requireObject(value, field) {
   return value;
 }
 
-function resolveRepositoryDirectory(repoRoot, configuredDirectory) {
-  const field = 'providers.antigravity.diagnostics.raw_responses.directory';
+function resolveRepositoryDirectory(repoRoot, configuredDirectory, field = 'providers.antigravity.diagnostics.raw_responses.directory') {
   if (typeof configuredDirectory !== 'string' || !configuredDirectory.trim()) {
     throw configError(field, 'expected a non-empty repository-relative path.');
   }
@@ -33,6 +34,29 @@ function resolveRepositoryDirectory(repoRoot, configuredDirectory) {
     throw configError(field, 'path must stay inside the repository root.');
   }
   return resolvedDirectory;
+}
+
+function parseRawCapture(providerId, providerObj, defaultDir, repoRoot) {
+  const diagnostics = requireObject(providerObj.diagnostics, `providers.${providerId}.diagnostics`);
+  const rawResponses = requireObject(
+    diagnostics.raw_responses,
+    `providers.${providerId}.diagnostics.raw_responses`,
+  );
+
+  const rawCaptureEnabled = rawResponses.enabled ?? false;
+  if (typeof rawCaptureEnabled !== 'boolean') {
+    throw configError(`providers.${providerId}.diagnostics.raw_responses.enabled`, 'expected true or false.');
+  }
+
+  const directory = rawResponses.directory ?? defaultDir;
+  return {
+    rawCaptureEnabled,
+    rawCaptureDir: resolveRepositoryDirectory(
+      repoRoot,
+      directory,
+      `providers.${providerId}.diagnostics.raw_responses.directory`,
+    ),
+  };
 }
 
 export function loadAgentProvidersConfig({ repoRoot, filePath } = {}) {
@@ -56,17 +80,9 @@ export function loadAgentProvidersConfig({ repoRoot, filePath } = {}) {
     }
   }
 
-  const antigravity = requireObject(providers.antigravity, 'providers.antigravity');
-  const diagnostics = requireObject(antigravity.diagnostics, 'providers.antigravity.diagnostics');
-  const rawResponses = requireObject(
-    diagnostics.raw_responses,
-    'providers.antigravity.diagnostics.raw_responses',
-  );
-
-  const rawCaptureEnabled = rawResponses.enabled ?? false;
-  if (typeof rawCaptureEnabled !== 'boolean') {
-    throw configError('providers.antigravity.diagnostics.raw_responses.enabled', 'expected true or false.');
-  }
+  const claudeRaw = parseRawCapture('claude', providers.claude ?? {}, DEFAULT_CLAUDE_RAW_DIRECTORY, repoRoot);
+  const antigravityRaw = parseRawCapture('antigravity', providers.antigravity ?? {}, DEFAULT_ANTIGRAVITY_RAW_DIRECTORY, repoRoot);
+  const codexRaw = parseRawCapture('codex', providers.codex ?? {}, DEFAULT_CODEX_RAW_DIRECTORY, repoRoot);
 
   const providerConfig = {};
   for (const providerId of SUPPORTED_AGENT_PROVIDERS) {
@@ -78,17 +94,23 @@ export function loadAgentProvidersConfig({ repoRoot, filePath } = {}) {
     providerConfig[providerId] = { enabled };
   }
 
-  const directory = rawResponses.directory ?? DEFAULT_ANTIGRAVITY_RAW_DIRECTORY;
   return {
     configPath: effectiveFilePath,
     configured,
     providerOrder: Object.keys(providers),
     providers: {
       ...providerConfig,
+      claude: {
+        ...providerConfig.claude,
+        ...claudeRaw,
+      },
       antigravity: {
         ...providerConfig.antigravity,
-        rawCaptureEnabled,
-        rawCaptureDir: resolveRepositoryDirectory(repoRoot, directory),
+        ...antigravityRaw,
+      },
+      codex: {
+        ...providerConfig.codex,
+        ...codexRaw,
       },
     },
   };

@@ -42,18 +42,26 @@ export function createDefaultAgentSessionService({ root = REPOSITORY_ROOT, dataL
     if (!providerConfig.providers[providerId].enabled) continue;
     switch (providerId) {
       case 'claude':
-        providers.push(new ClaudeAgentProvider({ cwd: root }));
+        providers.push(new ClaudeAgentProvider({
+          cwd: root,
+          rawCaptureEnabled: providerConfig.providers.claude?.rawCaptureEnabled,
+          rawCaptureDir: providerConfig.providers.claude?.rawCaptureDir,
+        }));
         break;
       case 'antigravity':
         providers.push(new AntigravityAgentProvider({
           cwd: root,
           mappingFilePath: resolve(root, '.nevo-ai-local', 'antigravity-sessions.json'),
-          rawCaptureEnabled: providerConfig.providers.antigravity.rawCaptureEnabled,
-          rawCaptureDir: providerConfig.providers.antigravity.rawCaptureDir,
+          rawCaptureEnabled: providerConfig.providers.antigravity?.rawCaptureEnabled,
+          rawCaptureDir: providerConfig.providers.antigravity?.rawCaptureDir,
         }));
         break;
       case 'codex':
-        providers.push(new CodexAgentProvider({ cwd: root }));
+        providers.push(new CodexAgentProvider({
+          cwd: root,
+          rawCaptureEnabled: providerConfig.providers.codex?.rawCaptureEnabled,
+          rawCaptureDir: providerConfig.providers.codex?.rawCaptureDir,
+        }));
         break;
       case 'mock':
         providers.push(createMockAgentProvider(demonstration ? {

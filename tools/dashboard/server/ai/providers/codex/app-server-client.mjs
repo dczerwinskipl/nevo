@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { AiError } from '../../contracts.mjs';
 import { terminateChildProcess, waitForChildExit } from '../process-termination.mjs';
+import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+
+export { rawCaptureSessionDirectory };
 
 const DEFAULT_CLIENT_INFO = Object.freeze({
   name: 'nevo',
@@ -111,6 +114,7 @@ export class CodexAppServerClient {
   #disposeGraceMs;
   #forceGraceMs;
   #listeners = null;
+  #rawCapture;
 
   constructor({
     executable = 'codex',
@@ -123,6 +127,10 @@ export class CodexAppServerClient {
     disposeGraceMs = 500,
     forceGraceMs = 2_000,
     commandResolver = resolveCodexCommand,
+    rawCaptureDir = null,
+    rawCaptureEnabled = false,
+    rawFlushTimeoutMs = 2_000,
+    rawCaptureRecorder = null,
   } = {}) {
     const command = commandResolver(executable);
     this.#executable = command.executable;
@@ -135,6 +143,26 @@ export class CodexAppServerClient {
     this.#maxStderrBytes = maxStderrBytes;
     this.#disposeGraceMs = disposeGraceMs;
     this.#forceGraceMs = forceGraceMs;
+    this.#rawCapture = rawCaptureRecorder ?? new RawCaptureRecorder({
+      providerId: 'codex',
+      rawCaptureDir: rawCaptureEnabled
+        ? (rawCaptureDir || resolve(cwd, '.nevo-ai-local', 'codex_raw'))
+        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
+      rawCaptureEnabled,
+      rawFlushTimeoutMs,
+    });
+  }
+
+  get rawCapture() {
+    return this.#rawCapture;
+  }
+
+  getRawCapturePath(sessionId) {
+    return this.#rawCapture.getRawCapturePath(sessionId);
+  }
+
+  async flushRawCapture(sessionId) {
+    return this.#rawCapture.flushRawCapture(sessionId);
   }
 
   get pendingRequestCount() {
@@ -312,13 +340,32 @@ export class CodexAppServerClient {
       const lines = this.#stdoutBuffer.split(/\r?\n/);
       this.#stdoutBuffer = lines.pop() ?? '';
       for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          let parsed;
+          try { parsed = JSON.parse(trimmed); } catch {}
+          const sessionId = parsed?.params?.threadId
+            || (parsed?.id ? String(parsed.id) : null)
+            || 'global';
+          this.#rawCapture.recordRawEvent({
+            sessionId,
+            stream: 'stdout',
+            line,
+          });
+        }
         this.#processingQueue = this.#processingQueue
           .then(() => this.#processLine(line))
           .catch(error => this.#tripFailure(error));
       }
     };
     const onStderrData = chunk => {
-      this.#stderr = `${this.#stderr}${chunk.toString('utf8')}`.slice(-this.#maxStderrBytes);
+      const text = chunk.toString('utf8');
+      this.#stderr = `${this.#stderr}${text}`.slice(-this.#maxStderrBytes);
+      this.#rawCapture.recordRawEvent({
+        sessionId: 'global',
+        stream: 'stderr',
+        line: text,
+      });
     };
     const onError = error => {
       this.#tripFailure(providerFailure(
@@ -371,6 +418,14 @@ export class CodexAppServerClient {
     if (!stdin || stdin.destroyed || stdin.writableEnded) {
       throw providerFailure('AI_PROVIDER_WRITE_ERROR', 'Codex app-server stdin is not writable.');
     }
+    const sessionId = envelope?.params?.threadId
+      || (envelope?.id ? String(envelope.id) : null)
+      || 'global';
+    this.#rawCapture.recordRawEvent({
+      sessionId,
+      stream: 'stdin',
+      raw: envelope,
+    });
     stdin.write(`${JSON.stringify(envelope)}\n`);
   }
 

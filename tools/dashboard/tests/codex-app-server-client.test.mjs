@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -393,4 +394,39 @@ test('dispose escalates through the shared bounded termination helper when stdin
   await client.initialize();
   await client.dispose();
   assert.deepEqual(child.killCalls, ['SIGINT', 'SIGKILL']);
+});
+
+test('CodexAppServerClient raw capture: records sent envelopes and received notifications to ndjson', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-codex-client-raw-'));
+  try {
+    const child = createFakeProcess({
+      onEnvelope(envelope, process) {
+        respondToInitialize(envelope, process);
+        if (envelope.method === 'turn/start') {
+          process.send({ id: envelope.id, result: { turn: { id: 'turn-1', status: 'inProgress' } } });
+        }
+      },
+    });
+    const client = createCodexAppServerClient({
+      executable: 'fake-codex',
+      spawnProcess: () => child,
+      rawCaptureEnabled: true,
+      rawCaptureDir: tmpDir,
+    });
+    await client.initialize();
+    await client.request('turn/start', { threadId: 'thread-capture-1', input: [] });
+    child.send({ method: 'item/started', params: { threadId: 'thread-capture-1', item: { id: 'msg-1' } } });
+    await tick();
+    await client.flushRawCapture('thread-capture-1');
+
+    const rawPath = client.getRawCapturePath('thread-capture-1');
+    assert.ok(rawPath);
+    const content = await readFile(rawPath, 'utf8');
+    const lines = content.trim().split('\n').map(l => JSON.parse(l));
+    assert.ok(lines.some(l => l.stream === 'stdin' && l.raw?.method === 'turn/start'));
+    assert.ok(lines.some(l => l.stream === 'stdout' && l.raw?.method === 'item/started'));
+    await client.dispose();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });

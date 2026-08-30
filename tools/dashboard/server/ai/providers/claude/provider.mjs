@@ -1,7 +1,7 @@
 import { spawn, execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync, unlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import {
@@ -11,6 +11,9 @@ import {
 } from '../../contracts.mjs';
 import { createClaudeContinuationStore } from './continuation-store.mjs';
 import { terminateChildProcess } from '../process-termination.mjs';
+import { RawCaptureRecorder, rawCaptureSessionDirectory } from '../raw-capture.mjs';
+
+export { rawCaptureSessionDirectory };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,6 +51,7 @@ export class ClaudeAgentProvider {
   #cancelGraceMs;
   #forceGraceMs;
   #probeExecutable;
+  #rawCapture;
 
   constructor({
     executable = 'claude',
@@ -58,6 +62,9 @@ export class ClaudeAgentProvider {
     cancelGraceMs = 5_000,
     forceGraceMs = 2_000,
     probeExecutable,
+    rawCaptureDir = null,
+    rawCaptureEnabled = false,
+    rawFlushTimeoutMs = 2_000,
   } = {}) {
     this.#executable = executable;
     this.#cwd = cwd;
@@ -67,6 +74,14 @@ export class ClaudeAgentProvider {
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeClaudeExecutable);
+    this.#rawCapture = new RawCaptureRecorder({
+      providerId: 'claude',
+      rawCaptureDir: rawCaptureEnabled
+        ? (rawCaptureDir || resolve(this.#cwd, '.nevo-ai-local', 'claude_raw'))
+        : (rawCaptureDir ? resolve(rawCaptureDir) : null),
+      rawCaptureEnabled,
+      rawFlushTimeoutMs,
+    });
     this.descriptor = Object.freeze({
       id: 'claude',
       label: 'Claude Code',
@@ -75,6 +90,14 @@ export class ClaudeAgentProvider {
       supportedModes: ['ask', 'edit', 'agent'],
       defaultMode: 'edit',
     });
+  }
+
+  getRawCapturePath(sessionId) {
+    return this.#rawCapture.getRawCapturePath(sessionId);
+  }
+
+  async flushRawCapture(sessionId) {
+    return this.#rawCapture.flushRawCapture(sessionId);
   }
 
   isAvailable({ ttlMs = 30_000 } = {}) {
@@ -190,9 +213,10 @@ export class ClaudeAgentProvider {
       '--permission-mode', permissionMode,
     ];
 
-    console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
-    return new Promise((resolve, reject) => {
-      let child;
+      console.log(`[claude] spawning CLI: ${this.#executable} ${args.join(' ')}`);
+      this.#rawCapture.logCapturePathOnce(effectiveSessionId);
+      return new Promise((resolve, reject) => {
+        let child;
       try {
         child = this.#spawnProcess(this.#executable, args, {
           cwd: this.#cwd,
@@ -436,6 +460,12 @@ export class ClaudeAgentProvider {
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
         for (const line of lines) {
+          this.#rawCapture.recordRawEvent({
+            sessionId: effectiveSessionId,
+            turnId,
+            stream: 'stdout',
+            line,
+          });
           processingQueue = processingQueue.then(() => processLine(line)).catch(err => {
             cleanupSettings();
             reject(err);
@@ -447,6 +477,12 @@ export class ClaudeAgentProvider {
       child.stderr?.on('data', chunk => {
         const text = chunk.toString();
         stderrOutput += text;
+        this.#rawCapture.recordRawEvent({
+          sessionId: effectiveSessionId,
+          turnId,
+          stream: 'stderr',
+          line: text,
+        });
         console.warn(`[claude] [stderr] ${text.trim()}`);
       });
 
@@ -466,9 +502,16 @@ export class ClaudeAgentProvider {
         }
         cleanupSettings();
         if (lineBuffer.trim()) {
+          this.#rawCapture.recordRawEvent({
+            sessionId: effectiveSessionId,
+            turnId,
+            stream: 'stdout',
+            line: lineBuffer,
+          });
           try { await processLine(lineBuffer); } catch (e) { return reject(e); }
         }
 
+        await this.#rawCapture.flushRawCaptureBounded(effectiveSessionId);
 
         if (operation.cancelled) {
           return reject(new AiError('AI_TURN_CANCELLED', 'Claude turn was cancelled.', { status: 409 }));
@@ -531,6 +574,12 @@ export class ClaudeAgentProvider {
             role: 'user',
             content: userPrompt,
           },
+        });
+        this.#rawCapture.recordRawEvent({
+          sessionId: effectiveSessionId,
+          turnId,
+          stream: 'stdin',
+          line: inputMessage,
         });
         child.stdin?.write(`${inputMessage}\n`);
         child.stdin?.end();
