@@ -47,12 +47,12 @@ function IncompleteDiffIndicator({
   );
 }
 
-export function PullRequestCard({ change, pullRequest, mode }: { change: SpecificationSummary; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
+export function PullRequestCard({ specification, pullRequest, mode }: { specification: SpecificationSummary; pullRequest: AvailablePullRequest; mode: DiffViewMode }) {
   const [open, setOpen] = useState(true);
   const [groupMode, setGroupMode] = useState<GroupByMode>('area');
   const [hideGenerated, setHideGenerated] = useState(true);
   const [openGroupNames, setOpenGroupNames] = useState<Set<string>>(() => new Set());
-  const filesQuery = usePullRequestFiles(change, pullRequest, open);
+  const filesQuery = usePullRequestFiles(specification, pullRequest, open);
   const files = filesQuery.data?.files ?? [];
   const filesByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
 
@@ -96,7 +96,7 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Specifi
     return stats;
   }, [groups, filesByPath]);
 
-  const diffHandle = usePullRequestFileDiffs(change, pullRequest);
+  const diffHandle = usePullRequestFileDiffs(specification, pullRequest);
 
   // Derive the FileDiffRequest for a manifest entry.
   const toRequest = useCallback(
@@ -136,7 +136,7 @@ export function PullRequestCard({ change, pullRequest, mode }: { change: Specifi
 
   useProgressiveDiffPreload(open, activePreloadRequests, diffHandle);
 
-  const fullDiffQuery = useFullDiff(change, pullRequest);
+  const fullDiffQuery = useFullDiff(specification, pullRequest);
   const collapseFilesInitially = files.length > 50;
 
   return (

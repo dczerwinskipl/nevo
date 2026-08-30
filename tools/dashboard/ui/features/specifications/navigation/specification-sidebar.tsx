@@ -20,9 +20,9 @@ export interface SpecificationSidebarProps {
   mode: SpecificationSource;
   active: SpecificationSummary[];
   archive: SpecificationSummary[];
-  changes: SpecificationSummary[];
+  specifications: SpecificationSummary[];
   selectedSlug: string | null;
-  onSelect?: (change: SpecificationSummary) => void;
+  onSelect?: (specification: SpecificationSummary) => void;
   onOpenCreateSpec?: () => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -31,18 +31,18 @@ export interface SpecificationSidebarProps {
 }
 
 function SpecNavigationItem({
-  change,
+  specification,
   selected,
   onClick,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   selected: boolean;
   onClick?: () => void;
 }) {
   return (
     <Link
       to="/specs/$source/$slug"
-      params={{ source: change.source, slug: change.slug }}
+      params={{ source: specification.source, slug: specification.slug }}
       onClick={onClick}
       aria-current={selected ? 'page' : undefined}
       className={cn(
@@ -65,25 +65,25 @@ function SpecNavigationItem({
         </div>
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-sm font-semibold leading-5 text-[var(--foreground)]">
-            {change.title}
+            {specification.title}
           </p>
           <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--muted)]">
-            <span>{change.metrics.total} {pluralizeTasks(change.metrics.total)}</span>
-            {change.source === 'active' && (
+            <span>{specification.metrics.total} {pluralizeTasks(specification.metrics.total)}</span>
+            {specification.source === 'active' && (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{formatStatus(change.status)}</span>
+                <span>{formatStatus(specification.status)}</span>
               </>
             )}
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <StageProgress change={change} className="flex-1" />
+            <StageProgress specification={specification} className="flex-1" />
             <span className="text-[10px] font-bold tabular-nums text-[var(--muted)]">
-              {change.metrics.progress}%
+              {specification.metrics.progress}%
             </span>
           </div>
-          {change.source === 'archive' && (
-            <p className="mt-2 text-[10px] text-[var(--muted)]">{formatDate(change.updatedAt)}</p>
+          {specification.source === 'archive' && (
+            <p className="mt-2 text-[10px] text-[var(--muted)]">{formatDate(specification.updatedAt)}</p>
           )}
         </div>
       </div>
@@ -95,7 +95,7 @@ export function SpecificationSidebar({
   mode,
   active,
   archive,
-  changes,
+  specifications,
   selectedSlug,
   onSelect,
   onOpenCreateSpec,
@@ -104,7 +104,7 @@ export function SpecificationSidebar({
   open,
   onClose,
 }: SpecificationSidebarProps) {
-  const visible = changes;
+  const visible = specifications;
 
   return (
     <>
@@ -229,13 +229,13 @@ export function SpecificationSidebar({
             <span className="text-[10px] text-[var(--muted)]">{visible.length}</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
-            {visible.map(change => (
-              <div key={`${change.source}:${change.slug}`} className="py-1.5 first:pt-0 last:pb-0">
+            {visible.map(spec => (
+              <div key={`${spec.source}:${spec.slug}`} className="py-1.5 first:pt-0 last:pb-0">
                 <SpecNavigationItem
-                  change={change}
-                  selected={selectedSlug === change.slug}
+                  specification={spec}
+                  selected={selectedSlug === spec.slug}
                   onClick={() => {
-                    onSelect?.(change);
+                    onSelect?.(spec);
                     onClose();
                   }}
                 />
@@ -254,7 +254,3 @@ export function SpecificationSidebar({
     </>
   );
 }
-
-// Backward compat alias if needed
-export const AppSidebar = SpecificationSidebar;
-export type DashboardMode = SpecificationSource;

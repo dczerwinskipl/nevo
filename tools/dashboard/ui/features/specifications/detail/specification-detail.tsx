@@ -54,12 +54,12 @@ function ContentLoading() {
 }
 
 export function SpecificationDetail({
-  change,
+  specification,
   onOpenSession,
   onCreateSession,
   onNavigateMode,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   onOpenSession: (session: AgentSession) => void;
   onCreateSession: () => void;
   onNavigateMode?: (mode: SpecificationSource) => void;
@@ -67,11 +67,11 @@ export function SpecificationDetail({
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const taskTriggerRef = useRef<HTMLElement | null>(null);
-  const manifestQuery = useSpecificationManifest(change, true);
-  const actionsQuery = useSpecificationActions(change, change.source === 'active');
-  const sessionsQuery = useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) });
-  const workflow = useSpecWorkflowActions(change, actionsQuery);
-  const selectedTask = selectedTaskId ? change.tasks.find(task => task.id === selectedTaskId) ?? null : null;
+  const manifestQuery = useSpecificationManifest(specification, true);
+  const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
+  const sessionsQuery = useAgentSessions({ specId: specification.specId || undefined, enabled: Boolean(specification.specId) });
+  const workflow = useSpecWorkflowActions(specification, actionsQuery);
+  const selectedTask = selectedTaskId ? specification.tasks.find(task => task.id === selectedTaskId) ?? null : null;
 
   const visibleTabs = useMemo(() => computeVisibleTabs(manifestQuery.data), [manifestQuery.data]);
 
@@ -89,7 +89,7 @@ export function SpecificationDetail({
   useEffect(() => {
     setActiveTab('overview');
     setVisitedTabs(new Set(['overview']));
-  }, [change.slug]);
+  }, [specification.slug]);
 
   const openTask = useCallback((task: SpecificationTask, trigger: HTMLElement) => {
     taskTriggerRef.current = trigger;
@@ -126,13 +126,13 @@ export function SpecificationDetail({
         </Link>
         <span>/</span>
         <Link
-          to={change.source === 'archive' ? '/archive' : '/'}
+          to={specification.source === 'archive' ? '/archive' : '/'}
           className="hover:text-[var(--foreground)] transition-colors"
         >
-          {change.source === 'active' ? 'Aktualne' : 'Archiwum'}
+          {specification.source === 'active' ? 'Aktualne' : 'Archiwum'}
         </Link>
         <span>/</span>
-        <span className="max-w-[240px] truncate text-[var(--foreground)] font-medium">{change.slug}</span>
+        <span className="max-w-[240px] truncate text-[var(--foreground)] font-medium">{specification.slug}</span>
       </nav>
 
       <header className="mt-7 grid gap-7 xl:grid-cols-[1fr_340px] xl:items-end">
@@ -140,21 +140,21 @@ export function SpecificationDetail({
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={cn(
               'bg-[var(--surface-raised)]',
-              (change.status === 'verified' || change.status === 'archived') && 'border-[var(--success-border)] bg-[var(--success-muted)]',
-              change.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
-              change.status === 'in-implementation' && 'border-[var(--accent-border)] bg-[var(--accent-muted)]',
-              statusTone(change.status),
+              (specification.status === 'verified' || specification.status === 'archived') && 'border-[var(--success-border)] bg-[var(--success-muted)]',
+              specification.status === 'implemented' && 'border-[var(--warning-border)] bg-[var(--warning-muted)]',
+              specification.status === 'in-implementation' && 'border-[var(--accent-border)] bg-[var(--accent-muted)]',
+              statusTone(specification.status),
             )}>
-              <span className="mr-1.5 size-1.5 rounded-full bg-current" />{formatStatus(change.status)}
+              <span className="mr-1.5 size-1.5 rounded-full bg-current" />{formatStatus(specification.status)}
             </Badge>
-            {change.priority !== null && <Badge>Priorytet {change.priority}</Badge>}
-            <Badge>{change.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>
+            {specification.priority !== null && <Badge>Priorytet {specification.priority}</Badge>}
+            <Badge>{specification.source === 'active' ? 'Aktualna' : 'Archiwalna'}</Badge>
           </div>
-          <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{change.title}</h1>
-          <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">{change.summary}</p>
+          <h1 className="mt-5 max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.035em] text-[var(--foreground)] sm:text-5xl">{specification.title}</h1>
+          <p className="mt-5 max-w-3xl text-sm leading-7 text-[var(--muted-strong)] sm:text-[15px]">{specification.summary}</p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[var(--muted)]">
-            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-[var(--accent)]" /> {formatDate(change.updatedAt)}</span>
-            {change.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5 text-[var(--accent)]" /> {change.path}</span>}
+            <span className="inline-flex items-center gap-1.5"><CalendarClock className="size-3.5 text-[var(--accent)]" /> {formatDate(specification.updatedAt)}</span>
+            {specification.path && <span className="inline-flex items-center gap-1.5"><FileCode2 className="size-3.5 text-[var(--accent)]" /> {specification.path}</span>}
           </div>
         </div>
 
@@ -163,11 +163,11 @@ export function SpecificationDetail({
             <div className="flex items-end justify-between">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">Postęp ukończenia</p>
-                <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{change.metrics.progress}%</p>
+                <p className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-[var(--foreground)]">{specification.metrics.progress}%</p>
               </div>
-              <div className="text-right text-[11px] text-[var(--muted)]"><p>{change.metrics.completed}/{change.metrics.actionable}</p><p>w „Gotowe”</p></div>
+              <div className="text-right text-[11px] text-[var(--muted)]"><p>{specification.metrics.completed}/{specification.metrics.actionable}</p><p>w „Gotowe”</p></div>
             </div>
-            <StageProgress change={change} className="mt-5" legend />
+            <StageProgress specification={specification} className="mt-5" legend />
           </Card>
         </div>
       </header>
@@ -209,7 +209,7 @@ export function SpecificationDetail({
           className={cn(activeTab !== 'overview' && 'hidden')}
         >
           <OverviewPanel
-            change={change}
+            specification={specification}
             onTaskSelect={openTask}
             sessions={sessionsQuery.sessions}
             sessionsLoading={sessionsQuery.loading}
@@ -225,7 +225,7 @@ export function SpecificationDetail({
               setSelectedTaskId(nextTaskId);
             }}
             actions={
-              change.source === 'active' ? (
+              specification.source === 'active' ? (
                 <div className="mb-9 max-w-xl">
                   <RepositoryActionsCard
                     data={actionsQuery.data}
@@ -250,7 +250,7 @@ export function SpecificationDetail({
             className={cn(activeTab !== 'docs' && 'hidden')}
           >
             <DocumentationPanel
-              change={change}
+              specification={specification}
               manifest={manifestQuery.data}
               enabled={visitedTabs.has('docs')}
             />
@@ -265,7 +265,7 @@ export function SpecificationDetail({
             className={cn(activeTab !== 'changes' && 'hidden')}
           >
             <Suspense fallback={<ContentLoading />}>
-              <PullRequestsPanel change={change} />
+              <PullRequestsPanel specification={specification} />
             </Suspense>
           </div>
         )}
@@ -273,7 +273,7 @@ export function SpecificationDetail({
 
       {selectedTask && (
         <TaskDialog
-          change={change}
+          specification={specification}
           taskId={selectedTask.id}
           onOpenSession={onOpenSession}
           onOpenTask={(target) => {

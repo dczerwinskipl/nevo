@@ -12,19 +12,19 @@ const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
 ];
 
 export function StageProgress({
-  change,
+  specification,
   className,
   legend = false,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   className?: string;
   legend?: boolean;
 }) {
-  const total = change.metrics.actionable;
+  const total = specification.metrics.actionable;
   const description = total
     ? visibleStages
-      .filter(stage => change.metrics.stageCounts[stage.id] > 0)
-      .map(stage => `${stage.label}: ${change.metrics.stageCounts[stage.id]}`)
+      .filter(stage => specification.metrics.stageCounts[stage.id] > 0)
+      .map(stage => `${stage.label}: ${specification.metrics.stageCounts[stage.id]}`)
       .join(', ')
     : 'Brak zadań';
 
@@ -36,7 +36,7 @@ export function StageProgress({
         aria-label={`Rozkład etapów. ${description}.`}
       >
         {visibleStages.map(stage => {
-          const count = change.metrics.stageCounts[stage.id];
+          const count = specification.metrics.stageCounts[stage.id];
           if (!count || !total) return null;
 
           return (
@@ -56,7 +56,7 @@ export function StageProgress({
             <div key={stage.id} className="flex min-w-0 items-center gap-2 text-[9px] text-[var(--muted)]">
               <span className={cn('size-1.5 shrink-0 rounded-full', stage.color)} />
               <StatusLabel className="truncate">{stage.label}</StatusLabel>
-              <span className="ml-auto tabular-nums text-[var(--muted-strong)]">{change.metrics.stageCounts[stage.id]}</span>
+              <span className="ml-auto tabular-nums text-[var(--muted-strong)]">{specification.metrics.stageCounts[stage.id]}</span>
             </div>
           ))}
         </div>

@@ -10,12 +10,12 @@ import { Link } from '@tanstack/react-router';
 
 export function SpecificationList({
   mode,
-  changes,
+  specifications,
   onSelect,
 }: {
   mode: SpecificationSource;
-  changes: SpecificationSummary[];
-  onSelect?: (change: SpecificationSummary) => void;
+  specifications: SpecificationSummary[];
+  onSelect?: (specification: SpecificationSummary) => void;
 }) {
   const archive = mode === 'archive';
   return (
@@ -36,13 +36,13 @@ export function SpecificationList({
       </p>
 
       <div className="mt-10 space-y-2">
-        {changes.map(change => {
+        {specifications.map(specification => {
           return (
             <Link
-              key={change.slug}
+              key={specification.slug}
               to="/specs/$source/$slug"
-              params={{ source: change.source, slug: change.slug }}
-              onClick={() => onSelect?.(change)}
+              params={{ source: specification.source, slug: specification.slug }}
+              onClick={() => onSelect?.(specification)}
               className="group block w-full text-left"
             >
               <Card className="p-5 transition-colors group-hover:border-[var(--border-strong)] group-hover:bg-[var(--surface-raised)]">
@@ -52,15 +52,15 @@ export function SpecificationList({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-sm font-semibold text-[var(--foreground)]">{change.title}</h2>
-                      {!archive && <Badge>{formatStatus(change.status)}</Badge>}
+                      <h2 className="text-sm font-semibold text-[var(--foreground)]">{specification.title}</h2>
+                      {!archive && <Badge>{formatStatus(specification.status)}</Badge>}
                     </div>
-                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{change.summary}</p>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{specification.summary}</p>
                     <div className="mt-4 flex flex-wrap items-center gap-3 text-[10px] text-[var(--muted)]">
-                      <span>{change.metrics.total} {pluralizeTasks(change.metrics.total)}</span>
-                      <span>Aktualizacja: {formatDate(change.updatedAt)}</span>
-                      <StageProgress change={change} className="w-28" />
-                      <span className="font-semibold tabular-nums">{change.metrics.progress}%</span>
+                      <span>{specification.metrics.total} {pluralizeTasks(specification.metrics.total)}</span>
+                      <span>Aktualizacja: {formatDate(specification.updatedAt)}</span>
+                      <StageProgress specification={specification} className="w-28" />
+                      <span className="font-semibold tabular-nums">{specification.metrics.progress}%</span>
                     </div>
                   </div>
                   <ArrowRight className="mt-3 size-4 shrink-0 text-[var(--accent)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--accent-strong)]" />
@@ -70,7 +70,7 @@ export function SpecificationList({
           );
         })}
 
-        {changes.length === 0 && (
+        {specifications.length === 0 && (
           <div className="rounded-2xl border border-dashed border-[var(--border)] py-20 text-center">
             <Inbox className="mx-auto size-7 text-[var(--accent)]" />
             <p className="mt-4 text-sm font-semibold text-[var(--foreground)]">Tutaj jest pusto</p>

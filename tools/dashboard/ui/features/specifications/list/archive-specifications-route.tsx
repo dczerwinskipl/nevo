@@ -3,7 +3,7 @@ import { SpecificationList } from './specification-list';
 
 export function ArchiveSpecificationsRoute() {
   const { data } = useSpecificationIndex();
-  const changes = data?.archive ?? [];
+  const specifications = data?.archive ?? [];
 
-  return <SpecificationList mode="archive" changes={changes} />;
+  return <SpecificationList mode="archive" specifications={specifications} />;
 }

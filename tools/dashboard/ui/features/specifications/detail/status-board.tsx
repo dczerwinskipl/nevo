@@ -91,13 +91,13 @@ function TaskCard({
 }
 
 export function StatusBoard({
-  change,
+  specification,
   actions,
   onTaskSelect,
   onTaskAction,
   onBatchAction,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   actions?: Record<string, SpecificationTaskActionGate>;
   onTaskSelect?: (task: SpecificationTask, trigger: HTMLElement) => void;
   onTaskAction?: (task: SpecificationTask, action: SpecificationOwnerAction) => void;
@@ -115,7 +115,7 @@ export function StatusBoard({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        {change.lanes.map(lane => {
+        {specification.lanes.map(lane => {
           const presentation = lanePresentation[lane.id];
           const actionableTasks = lane.tasks.filter(task => actions?.[task.id]?.enabled);
           const firstAction = actionableTasks.length > 0 ? actions?.[actionableTasks[0].id]?.action : null;

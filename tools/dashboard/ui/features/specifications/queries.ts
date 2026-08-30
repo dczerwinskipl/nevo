@@ -116,8 +116,8 @@ export function useSpecificationIndex() {
   };
 }
 
-async function fetchTaskStatuses(change: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${change.source}/${encodeURIComponent(change.slug)}/task-statuses`, {
+async function fetchTaskStatuses(specification: SpecificationSummary) {
+  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/task-statuses`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Task statuses API: ${response.status}`);
@@ -128,10 +128,10 @@ async function fetchTaskStatuses(change: SpecificationSummary) {
 // deliberately not event-driven (area dashboard-data-loading-contracts: "not
 // worth the added complexity of event-driven invalidation for a payload this
 // small").
-export function useTaskStatuses(change: SpecificationSummary, enabled = true) {
+export function useTaskStatuses(specification: SpecificationSummary, enabled = true) {
   const query = useQuery({
-    queryKey: [...TASK_STATUSES_QUERY_KEY, change.source, change.slug],
-    queryFn: () => fetchTaskStatuses(change),
+    queryKey: [...TASK_STATUSES_QUERY_KEY, specification.source, specification.slug],
+    queryFn: () => fetchTaskStatuses(specification),
     enabled,
     staleTime: TASK_STATUS_POLL_MS,
     refetchInterval: enabled ? TASK_STATUS_POLL_MS : false,

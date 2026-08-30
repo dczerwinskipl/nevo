@@ -18,7 +18,7 @@ import { useSpecificationDocument, useSpecificationActions } from '../detail/spe
 import { useAgentSessions } from '@/features/agent-sessions/queries';
 
 export interface TaskDialogProps {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   taskId: string;
   onClose: () => void;
   onOpenSession?: (session: AgentSession, taskId?: string | null) => void;
@@ -27,7 +27,7 @@ export interface TaskDialogProps {
 }
 
 export function TaskDialog({
-  change,
+  specification,
   taskId,
   onClose,
   onOpenSession,
@@ -37,16 +37,16 @@ export function TaskDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const task = change.tasks.find((t) => t.id === taskId);
+  const task = specification.tasks.find((t) => t.id === taskId);
   const taskDocId = taskId ? `task:${taskId}` : null;
-  const taskDocumentQuery = useSpecificationDocument(change, taskDocId, Boolean(taskId));
+  const taskDocumentQuery = useSpecificationDocument(specification, taskDocId, Boolean(taskId));
   const taskDocument = taskId ? (taskDocumentQuery.data as SpecificationTaskDocument | null) : null;
 
   const sessionsQuery = useAgentSessions({
-    specId: change.specId || undefined,
-    enabled: Boolean(change.specId),
+    specId: specification.specId || undefined,
+    enabled: Boolean(specification.specId),
   });
-  const actionsQuery = useSpecificationActions(change, change.source === 'active');
+  const actionsQuery = useSpecificationActions(specification, specification.source === 'active');
   const actionGate = taskId && actionsQuery.data?.tasks ? actionsQuery.data.tasks[taskId] ?? null : null;
 
   const executeTaskAction = useCallback(async () => {
@@ -156,7 +156,7 @@ export function TaskDialog({
             </div>
             <AgentSessionList
               sessions={filteredSessions}
-              tasks={change.tasks}
+              tasks={specification.tasks}
               loading={sessionsQuery.loading}
               error={sessionsQuery.error}
               onRetry={() => void sessionsQuery.refresh()}

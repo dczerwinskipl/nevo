@@ -13,9 +13,6 @@ export const specificationLayoutRoute = createRoute({
   id: 'specification-layout',
 });
 
-// Alias for any existing router references
-export const appLayoutRoute = specificationLayoutRoute;
-
 export const indexRoute = createRoute({
   getParentRoute: () => specificationLayoutRoute,
   path: '/',

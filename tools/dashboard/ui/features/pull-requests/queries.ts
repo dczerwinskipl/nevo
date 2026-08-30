@@ -33,8 +33,8 @@ export const PULL_REQUEST_FULL_DIFF_QUERY_KEY = ['nevo-spec-pull-request-full-di
 // interval well above the old 30s, plus refetch-on-focus/explicit refresh.
 const PULL_REQUEST_SAFETY_REFRESH_MS = 5 * 60_000;
 
-async function fetchPullRequests(change: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests`, {
+async function fetchPullRequests(specification: SpecificationSummary) {
+  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Pull request API: ${response.status}`);
@@ -44,10 +44,10 @@ async function fetchPullRequests(change: SpecificationSummary) {
 // PR-list metadata refresh is independent of specs-changed (D5): initial
 // fetch + refetch-on-window-focus + explicit refresh + a slow safety
 // interval, never the SSE watcher (it structurally can't see a GitHub push).
-export function usePullRequests(change: SpecificationSummary, enabled = true) {
+export function usePullRequests(specification: SpecificationSummary, enabled = true) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_QUERY_KEY, change.source, change.slug],
-    queryFn: () => fetchPullRequests(change),
+    queryKey: [...PULL_REQUEST_QUERY_KEY, specification.source, specification.slug],
+    queryFn: () => fetchPullRequests(specification),
     enabled,
     staleTime: 60_000,
     refetchInterval: enabled ? PULL_REQUEST_SAFETY_REFRESH_MS : false,
@@ -65,9 +65,9 @@ export function usePullRequests(change: SpecificationSummary, enabled = true) {
   };
 }
 
-async function fetchPullRequestFiles(change: SpecificationSummary, number: number) {
+async function fetchPullRequestFiles(specification: SpecificationSummary, number: number) {
   const response = await fetch(
-    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/files`,
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/files`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Pull request files API: ${response.status}`);
@@ -78,10 +78,10 @@ async function fetchPullRequestFiles(change: SpecificationSummary, number: numbe
 // isn't headSha-scoped) — a new PR version simply gets a fresh cache entry,
 // so "re-open the same PR at the same headSha costs nothing" holds without
 // any extra invalidation wiring (area pull-request-file-and-diff-loading).
-export function usePullRequestFiles(change: SpecificationSummary, pullRequest: AvailablePullRequest, enabled = true) {
+export function usePullRequestFiles(specification: SpecificationSummary, pullRequest: AvailablePullRequest, enabled = true) {
   const query = useQuery({
-    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, change.source, change.slug, pullRequest.number, pullRequest.headSha],
-    queryFn: () => fetchPullRequestFiles(change, pullRequest.number),
+    queryKey: [...PULL_REQUEST_FILES_QUERY_KEY, specification.source, specification.slug, pullRequest.number, pullRequest.headSha],
+    queryFn: () => fetchPullRequestFiles(specification, pullRequest.number),
     enabled,
     staleTime: Infinity,
     retry: 2,
@@ -96,9 +96,9 @@ export function usePullRequestFiles(change: SpecificationSummary, pullRequest: A
   };
 }
 
-async function fetchFileDiffsBatch(change: SpecificationSummary, number: number, paths: string[], headSha: string | null) {
+async function fetchFileDiffsBatch(specification: SpecificationSummary, number: number, paths: string[], headSha: string | null) {
   const response = await fetch(
-    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/file-diffs`,
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/file-diffs`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -144,7 +144,7 @@ export interface FileDiffRequest {
  *     dedup for items still in the previous set (bug #3 fix).
  */
 export function usePullRequestFileDiffs(
-  change: SpecificationSummary,
+  specification: SpecificationSummary,
   pullRequest: AvailablePullRequest,
 ): BatchQueriesHandle<FileDiffRequest, PullRequestFile | null> {
   return useBatchQueries<FileDiffRequest, PullRequestFile[], PullRequestFile | null>({
@@ -166,7 +166,7 @@ export function usePullRequestFileDiffs(
     ],
     fetchBatch: (requests) =>
       fetchFileDiffsBatch(
-        change,
+        specification,
         pullRequest.number,
         requests.map((r) => r.path),
         pullRequest.headSha,
@@ -218,9 +218,9 @@ export function useProgressiveDiffPreload(
   }, [enabled, requests, preload, load, batchSize]);
 }
 
-async function fetchFullDiff(change: SpecificationSummary, number: number) {
+async function fetchFullDiff(specification: SpecificationSummary, number: number) {
   const response = await fetch(
-    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/pull-requests/${number}/diff`,
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/pull-requests/${number}/diff`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Pull request diff API: ${response.status}`);
@@ -233,16 +233,16 @@ async function fetchFullDiff(change: SpecificationSummary, number: number) {
 //
 // headSha is included in the query key (bug #2 fix) — a new push to the same PR
 // produces a different headSha → different cache entry → stale diff is never shown.
-export function useFullDiff(change: SpecificationSummary, pullRequest: AvailablePullRequest) {
+export function useFullDiff(specification: SpecificationSummary, pullRequest: AvailablePullRequest) {
   const query = useQuery({
     queryKey: [
       ...PULL_REQUEST_FULL_DIFF_QUERY_KEY,
-      change.source,
-      change.slug,
+      specification.source,
+      specification.slug,
       pullRequest.number,
       pullRequest.headSha ?? '',
     ],
-    queryFn: () => fetchFullDiff(change, pullRequest.number),
+    queryFn: () => fetchFullDiff(specification, pullRequest.number),
     enabled: false,
     staleTime: Infinity,
     retry: 1,

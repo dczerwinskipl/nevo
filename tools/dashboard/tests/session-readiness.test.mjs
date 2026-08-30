@@ -275,9 +275,9 @@ test('Finding 1: Source inspection confirms prompt text is removed from ChatSear
   // router-tree.ts does not declare initialPrompt in ChatSearch
   assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
-  // app-layout.tsx and specification-route.tsx use pendingDispatchStore and do not pass initialPrompt in search
-  assert.ok(appLayoutSource.includes('pendingDispatchStore.setPending'));
-  assert.ok(specificationRouteSource.includes('pendingDispatchStore.setPending'));
+  // specification-console-layout.tsx and specification-route.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
+  assert.ok(appLayoutSource.includes('queueAgentSessionInitialDispatch'));
+  assert.ok(specificationRouteSource.includes('queueAgentSessionInitialDispatch'));
   assert.ok(!appLayoutSource.includes('initialPrompt: initialPrompt'));
   assert.ok(!specificationRouteSource.includes('initialPrompt: initialPrompt'));
 

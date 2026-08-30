@@ -77,11 +77,11 @@ function formatItemCount(count: number, label: string, singularLabel?: string): 
 }
 
 export function DirectorySectionPanel({
-  change,
+  specification,
   section,
   enabled,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   section: SpecificationManifestDirectorySection;
   enabled: boolean;
 }) {
@@ -93,7 +93,7 @@ export function DirectorySectionPanel({
     : null;
 
   const documentQuery = useSpecificationDocument(
-    change,
+    specification,
     selectedDoc?.docId ?? null,
     enabled && Boolean(selectedDoc),
   );

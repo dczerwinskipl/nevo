@@ -35,14 +35,14 @@ function readSessionStorage(key: string): string | null {
  * state and UI, not run an operation loop itself (area
  * spec-detail-and-workflow-feature-slice, task 05).
  */
-export function useSpecWorkflowActions(change: SpecificationSummary, actionsQuery: ActionsQuery) {
+export function useSpecWorkflowActions(specification: SpecificationSummary, actionsQuery: ActionsQuery) {
   const queryClient = useQueryClient();
 
   const [activeOperationId, setActiveOperationId] = useState<string | null>(() => (
-    readSessionStorage(activeOperationStorageKey(change.slug))
+    readSessionStorage(activeOperationStorageKey(specification.slug))
   ));
   const [operationTitle, setOperationTitle] = useState<string>(() => (
-    readSessionStorage(activeOperationTitleStorageKey(change.slug)) || 'Przebieg operacji'
+    readSessionStorage(activeOperationTitleStorageKey(specification.slug)) || 'Przebieg operacji'
   ));
   const [finalizeOpen, setFinalizeOpen] = useState(false);
 
@@ -52,23 +52,23 @@ export function useSpecWorkflowActions(change: SpecificationSummary, actionsQuer
     try {
       if (typeof sessionStorage !== 'undefined') {
         if (opId) {
-          sessionStorage.setItem(activeOperationStorageKey(change.slug), opId);
-          if (title) sessionStorage.setItem(activeOperationTitleStorageKey(change.slug), title);
+          sessionStorage.setItem(activeOperationStorageKey(specification.slug), opId);
+          if (title) sessionStorage.setItem(activeOperationTitleStorageKey(specification.slug), title);
         } else {
-          sessionStorage.removeItem(activeOperationStorageKey(change.slug));
-          sessionStorage.removeItem(activeOperationTitleStorageKey(change.slug));
+          sessionStorage.removeItem(activeOperationStorageKey(specification.slug));
+          sessionStorage.removeItem(activeOperationTitleStorageKey(specification.slug));
         }
       }
     } catch {}
-  }, [change.slug]);
+  }, [specification.slug]);
 
-  // Restore this change's own persisted operation (if any) whenever the page switches
+  // Restore this specification's own persisted operation (if any) whenever the page switches
   // to a different spec — never carry a previous spec's active operation across.
   useEffect(() => {
     setFinalizeOpen(false);
-    setActiveOperationId(readSessionStorage(activeOperationStorageKey(change.slug)));
-    setOperationTitle(readSessionStorage(activeOperationTitleStorageKey(change.slug)) || 'Przebieg operacji');
-  }, [change.slug]);
+    setActiveOperationId(readSessionStorage(activeOperationStorageKey(specification.slug)));
+    setOperationTitle(readSessionStorage(activeOperationTitleStorageKey(specification.slug)) || 'Przebieg operacji');
+  }, [specification.slug]);
 
   const handleOperationTerminal = useCallback(async () => {
     await Promise.all([

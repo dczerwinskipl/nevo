@@ -3,7 +3,7 @@ import { SpecificationList } from './specification-list';
 
 export function ActiveSpecificationsRoute() {
   const { data } = useSpecificationIndex();
-  const changes = data?.active ?? [];
+  const specifications = data?.active ?? [];
 
-  return <SpecificationList mode="active" changes={changes} />;
+  return <SpecificationList mode="active" specifications={specifications} />;
 }

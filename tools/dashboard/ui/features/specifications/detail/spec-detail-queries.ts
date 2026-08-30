@@ -16,8 +16,8 @@ import {
 } from '../queries';
 import { invalidatePullRequestQueries } from '@/features/pull-requests/queries';
 
-async function fetchSpecificationManifest(change: SpecificationSummary) {
-  const response = await fetch(`/api/specs/${change.source}/${encodeURIComponent(change.slug)}/content`, {
+async function fetchSpecificationManifest(specification: SpecificationSummary) {
+  const response = await fetch(`/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/content`, {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`Specification manifest API: ${response.status}`);
@@ -26,10 +26,10 @@ async function fetchSpecificationManifest(change: SpecificationSummary) {
 
 // Manifest is metadata-only (no markdown bodies) — event-driven invalidation
 // only, no refetchInterval (area dashboard-data-loading-contracts).
-export function useSpecificationManifest(change: SpecificationSummary, enabled = true) {
+export function useSpecificationManifest(specification: SpecificationSummary, enabled = true) {
   const query = useQuery({
-    queryKey: [...MANIFEST_QUERY_KEY, change.source, change.slug],
-    queryFn: () => fetchSpecificationManifest(change),
+    queryKey: [...MANIFEST_QUERY_KEY, specification.source, specification.slug],
+    queryFn: () => fetchSpecificationManifest(specification),
     enabled,
     staleTime: Infinity,
     retry: 2,
@@ -44,9 +44,9 @@ export function useSpecificationManifest(change: SpecificationSummary, enabled =
   };
 }
 
-async function fetchSpecificationDocument(change: SpecificationSummary, docId: string) {
+async function fetchSpecificationDocument(specification: SpecificationSummary, docId: string) {
   const response = await fetch(
-    `/api/specs/${change.source}/${encodeURIComponent(change.slug)}/content/${encodeURIComponent(docId)}`,
+    `/api/specs/${specification.source}/${encodeURIComponent(specification.slug)}/content/${encodeURIComponent(docId)}`,
     { cache: 'no-store' },
   );
   if (!response.ok) throw new Error(`Specification document API: ${response.status}`);
@@ -56,11 +56,11 @@ async function fetchSpecificationDocument(change: SpecificationSummary, docId: s
 // One document's body, fetched only once it's actually opened, cached with
 // effectively-infinite staleness and invalidated only by the specs-changed
 // SSE event naming its own file (area dashboard-data-loading-contracts).
-export function useSpecificationDocument(change: SpecificationSummary, docId: string | null, enabled = true) {
+export function useSpecificationDocument(specification: SpecificationSummary, docId: string | null, enabled = true) {
   const active = enabled && Boolean(docId);
   const query = useQuery({
-    queryKey: [...DOCUMENT_QUERY_KEY, change.source, change.slug, docId ?? ''],
-    queryFn: () => fetchSpecificationDocument(change, docId as string),
+    queryKey: [...DOCUMENT_QUERY_KEY, specification.source, specification.slug, docId ?? ''],
+    queryFn: () => fetchSpecificationDocument(specification, docId as string),
     enabled: active,
     staleTime: Infinity,
     retry: 2,
@@ -75,18 +75,18 @@ export function useSpecificationDocument(change: SpecificationSummary, docId: st
   };
 }
 
-async function fetchSpecificationActions(change: SpecificationSummary) {
-  const response = await fetch(`/api/specs/active/${encodeURIComponent(change.slug)}/actions`, { cache: 'no-store' });
+async function fetchSpecificationActions(specification: SpecificationSummary) {
+  const response = await fetch(`/api/specs/active/${encodeURIComponent(specification.slug)}/actions`, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Specification actions API: ${response.status}`);
   return (await response.json()) as SpecificationActionsPayload;
 }
 
-async function executeSpecificationAction(change: SpecificationSummary, request: {
+async function executeSpecificationAction(specification: SpecificationSummary, request: {
   action: SpecificationOwnerAction;
   taskId?: string;
   confirmed?: boolean;
 }) {
-  const response = await fetch(`/api/specs/active/${encodeURIComponent(change.slug)}/actions`, {
+  const response = await fetch(`/api/specs/active/${encodeURIComponent(specification.slug)}/actions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -99,12 +99,12 @@ async function executeSpecificationAction(change: SpecificationSummary, request:
   return payload as SpecificationActionResult;
 }
 
-export function useSpecificationActions(change: SpecificationSummary, enabled = true) {
+export function useSpecificationActions(specification: SpecificationSummary, enabled = true) {
   const queryClient = useQueryClient();
-  const active = enabled && change.source === 'active';
+  const active = enabled && specification.source === 'active';
   const query = useQuery({
-    queryKey: [...ACTIONS_QUERY_KEY, change.slug],
-    queryFn: () => fetchSpecificationActions(change),
+    queryKey: [...ACTIONS_QUERY_KEY, specification.slug],
+    queryFn: () => fetchSpecificationActions(specification),
     enabled: active,
     staleTime: 30_000,
     refetchInterval: active ? 30_000 : false,
@@ -113,7 +113,7 @@ export function useSpecificationActions(change: SpecificationSummary, enabled = 
   });
   const mutation = useMutation({
     mutationFn: (request: { action: SpecificationOwnerAction; taskId?: string; confirmed?: boolean }) => (
-      executeSpecificationAction(change, request)
+      executeSpecificationAction(specification, request)
     ),
     onSuccess: async (result) => {
       // If the action returned an async operationId, invalidation is deferred

@@ -10,13 +10,13 @@ import type { AgentSession, AgentExecutionMode } from './types';
 import type { SpecificationSummary } from '@/features/specifications/types';
 
 export interface CreateAgentSessionDialogProps {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   onClose: () => void;
   onCreated: (session: AgentSession, initialMessage: string | null) => void;
 }
 
 export function CreateAgentSessionDialog({
-  change,
+  specification,
   onClose,
   onCreated,
 }: CreateAgentSessionDialogProps) {
@@ -70,18 +70,18 @@ export function CreateAgentSessionDialog({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!change.specId || !provider || !isSelectedProviderAvailable) return;
+    if (!specification.specId || !provider || !isSelectedProviderAvailable) return;
     const session = await createSession.create({
       provider,
-      specId: change.specId,
+      specId: specification.specId,
       taskIds,
       mode,
       ...(title.trim() ? { title: title.trim() } : {}),
     });
     const promptToSend = initialPromptWithTaskContext(initialMessage, taskIds, {
-      slug: change.slug,
-      title: change.title,
-      tasks: change.tasks,
+      slug: specification.slug,
+      title: specification.title,
+      tasks: specification.tasks,
     });
     onCreated(session, promptToSend);
   };
@@ -100,7 +100,7 @@ export function CreateAgentSessionDialog({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">
-              {change.title}
+              {specification.title}
             </p>
             <h2 className="mt-2 text-xl font-semibold">Nowa sesja AI</h2>
           </div>
@@ -206,13 +206,13 @@ export function CreateAgentSessionDialog({
               />
             </label>
 
-            {change.tasks && change.tasks.length > 0 && (
+            {specification.tasks && specification.tasks.length > 0 && (
               <fieldset className="mt-5">
                 <legend className="text-xs font-semibold">
                   Kontekst zadań <span className="font-normal text-[var(--muted)]">(zero lub wiele)</span>
                 </legend>
                 <div className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2">
-                  {change.tasks.map((task) => {
+                  {specification.tasks.map((task) => {
                     const checked = taskIds.includes(task.id);
                     return (
                       <label

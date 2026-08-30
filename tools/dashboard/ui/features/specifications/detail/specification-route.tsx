@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { StatusCard } from '@/components/ui/status-card';
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
-import { pendingDispatchStore } from '@/features/agent-sessions/runtime/pending-dispatch-store';
+import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
 import { specRoute } from '@/router-tree';
 import type { SpecificationSummary, SpecificationSource } from '../types';
 import { useSpecificationIndex } from '../queries';
 import { SpecificationDetail } from './specification-detail';
 
 /**
- * Specification detail route (`/specs/:source/:slug`): resolves the change from
+ * Specification detail route (`/specs/:source/:slug`): resolves the specification from
  * the Specifications index, redirects on a source mismatch (active/archive
  * fallback), and hosts spec-scoped Agent Session creation. The central router
  * only binds this component to `specRoute` — it owns no Specification logic itself.
@@ -23,7 +23,7 @@ export function SpecificationRoute() {
 
   const { data, loading, error, refresh } = useSpecificationIndex();
   const navigate = useNavigate();
-  const [createChange, setCreateChange] = useState<SpecificationSummary | null>(null);
+  const [sessionSpecification, setSessionSpecification] = useState<SpecificationSummary | null>(null);
 
   const selected = useMemo(() => {
     if (!data) return null;
@@ -36,7 +36,7 @@ export function SpecificationRoute() {
     const oppositeSource: SpecificationSource = source === 'active' ? 'archive' : 'active';
     const oppositeCollection = source === 'active' ? data.archive : data.active;
     const match = oppositeCollection.find((c) => c.slug === slug);
-    return match ? { change: match, oppositeSource } : null;
+    return match ? { specification: match, oppositeSource } : null;
   }, [data, selected, source, slug]);
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export function SpecificationRoute() {
     }
   }, [fallbackSpec, navigate, slug]);
 
-  const effectiveSpec = selected || fallbackSpec?.change || null;
+  const effectiveSpec = selected || fallbackSpec?.specification || null;
 
   if (loading && !data) return <LoadingScreen />;
   if (error && !data) {
@@ -89,7 +89,7 @@ export function SpecificationRoute() {
   return (
     <>
       <SpecificationDetail
-        change={effectiveSpec}
+        specification={effectiveSpec}
         onOpenSession={(session) => {
           navigate({
             to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
@@ -101,24 +101,28 @@ export function SpecificationRoute() {
             },
           });
         }}
-        onCreateSession={() => setCreateChange(effectiveSpec)}
+        onCreateSession={() => setSessionSpecification(effectiveSpec)}
         onNavigateMode={(m) => navigate({ to: m === 'archive' ? '/archive' : '/' })}
       />
-      {createChange && (
+      {sessionSpecification && (
         <CreateAgentSessionDialog
-          change={createChange}
-          onClose={() => setCreateChange(null)}
+          specification={sessionSpecification}
+          onClose={() => setSessionSpecification(null)}
           onCreated={(session, initialMessage) => {
-            const targetChange = createChange;
-            setCreateChange(null);
+            const targetSpecification = sessionSpecification;
+            setSessionSpecification(null);
             if (initialMessage) {
-              pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialMessage);
+              queueAgentSessionInitialDispatch({
+                provider: session.provider,
+                providerSessionId: session.providerSessionId,
+                prompt: initialMessage,
+              });
             }
             navigate({
               to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',
               params: {
-                source: targetChange.source,
-                slug: targetChange.slug,
+                source: targetSpecification.source,
+                slug: targetSpecification.slug,
                 provider: session.provider,
                 providerSessionId: session.providerSessionId,
               },

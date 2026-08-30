@@ -435,9 +435,9 @@ export function AgentSessionPage({
           </div>
         </footer>
 
-        {inspectedTaskId && change && (
+        {inspectedTaskId && spec && (
           <TaskDialog
-            change={change}
+            specification={spec}
             taskId={inspectedTaskId}
             onOpenSession={(s) => {
               try {

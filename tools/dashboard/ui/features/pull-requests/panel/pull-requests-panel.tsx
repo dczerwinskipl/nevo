@@ -33,8 +33,8 @@ function DiffModeControl({ mode, onChange }: { mode: DiffViewMode; onChange: (mo
   );
 }
 
-export function PullRequestsPanel({ change }: { change: SpecificationSummary }) {
-  const query = usePullRequests(change, true);
+export function PullRequestsPanel({ specification }: { specification: SpecificationSummary }) {
+  const query = usePullRequests(specification, true);
   const [mode, setMode] = useState<DiffViewMode>(() => (
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1100px)').matches ? 'split' : 'unified'
   ));
@@ -50,7 +50,7 @@ export function PullRequestsPanel({ change }: { change: SpecificationSummary }) 
 
   useEffect(() => {
     setSelectedPullRequestKey(null);
-  }, [change.id, change.source]);
+  }, [specification.id, specification.source]);
 
   if (query.loading) {
     return (
@@ -139,11 +139,8 @@ export function PullRequestsPanel({ change }: { change: SpecificationSummary }) 
       </div>
 
       {detailPullRequest.availability === 'available'
-        ? <PullRequestCard change={change} pullRequest={detailPullRequest} mode={mode} />
+        ? <PullRequestCard specification={specification} pullRequest={detailPullRequest} mode={mode} />
         : <UnavailableCard result={detailPullRequest} />}
     </div>
   );
 }
-
-// Backward compatibility alias for any transient consumer
-export const ChangesPanel = PullRequestsPanel;

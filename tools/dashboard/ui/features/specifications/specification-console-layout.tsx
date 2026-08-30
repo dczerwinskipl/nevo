@@ -16,7 +16,7 @@ import { SpecificationLiveControls } from './navigation/specification-live-contr
 import { useSpecificationIndex } from './queries';
 import { CreateSpecificationDialog } from './create/create-specification-dialog';
 import type { SpecificationSource } from './types';
-import { pendingDispatchStore } from '@/features/agent-sessions/runtime/pending-dispatch-store';
+import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
 
 export function SpecificationConsoleLayout() {
   const { data, error, loading, refreshing, live, connectionStatus, refresh } = useSpecificationIndex();
@@ -48,15 +48,15 @@ export function SpecificationConsoleLayout() {
     return specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null;
   }, [matches]);
 
-  const filteredChanges = useMemo(() => {
+  const filteredSpecifications = useMemo(() => {
     if (!data) return [];
     const source = mode === 'active' ? data.active : data.archive;
     const query = search.trim().toLocaleLowerCase('pl');
     return source.filter(
-      (change) =>
+      (spec) =>
         !query ||
-        change.title.toLocaleLowerCase('pl').includes(query) ||
-        change.slug.includes(query)
+        spec.title.toLocaleLowerCase('pl').includes(query) ||
+        spec.slug.includes(query)
     );
   }, [data, mode, search]);
 
@@ -122,7 +122,7 @@ export function SpecificationConsoleLayout() {
           mode={mode}
           active={data.active}
           archive={data.archive}
-          changes={filteredChanges}
+          specifications={filteredSpecifications}
           selectedSlug={selectedSlug}
           onOpenCreateSpec={() => setCreateSpecOpen(true)}
           search={search}
@@ -139,7 +139,11 @@ export function SpecificationConsoleLayout() {
             setCreateSpecOpen(false);
             if (session) {
               if (initialPrompt) {
-                pendingDispatchStore.setPending(session.provider, session.providerSessionId, initialPrompt);
+                queueAgentSessionInitialDispatch({
+                  provider: session.provider,
+                  providerSessionId: session.providerSessionId,
+                  prompt: initialPrompt,
+                });
               }
               navigate({
                 to: '/specs/$source/$slug/sessions/$provider/$providerSessionId',

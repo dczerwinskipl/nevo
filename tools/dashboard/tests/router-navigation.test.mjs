@@ -346,12 +346,12 @@ test('13. Archived spec sessions: specification-detail and task-dialog enable us
   const taskDialogSource = readSource('features/specifications/tasks/task-dialog.tsx');
 
   assert.ok(
-    specificationDetailSource.includes("useAgentSessions({ specId: change.specId || undefined, enabled: Boolean(change.specId) })"),
-    'SpecificationDetail must not restrict useAgentSessions to change.source === active'
+    specificationDetailSource.includes("useAgentSessions({ specId: specification.specId || undefined, enabled: Boolean(specification.specId) })"),
+    'SpecificationDetail must not restrict useAgentSessions to specification.source === active'
   );
   assert.ok(
-    taskDialogSource.includes("enabled: Boolean(change.specId)"),
-    'TaskDialog must not restrict useAgentSessions to change.source === active'
+    taskDialogSource.includes("enabled: Boolean(specification.specId)"),
+    'TaskDialog must not restrict useAgentSessions to specification.source === active'
   );
 });
 

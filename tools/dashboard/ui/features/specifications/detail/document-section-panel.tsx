@@ -44,7 +44,7 @@ function EmptyDocument({ title, detail }: { title: string; detail: string }) {
 }
 
 export function DocumentSectionPanel({
-  change,
+  specification,
   docId,
   fallbackPath,
   fallbackTitle,
@@ -52,7 +52,7 @@ export function DocumentSectionPanel({
   emptyTitle,
   emptyDetail,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   docId: string;
   fallbackPath?: string | null;
   fallbackTitle?: string;
@@ -60,7 +60,7 @@ export function DocumentSectionPanel({
   emptyTitle?: string;
   emptyDetail?: string;
 }) {
-  const documentQuery = useSpecificationDocument(change, docId, enabled);
+  const documentQuery = useSpecificationDocument(specification, docId, enabled);
 
   if (documentQuery.loading) return <ContentLoading />;
   if (documentQuery.error) {

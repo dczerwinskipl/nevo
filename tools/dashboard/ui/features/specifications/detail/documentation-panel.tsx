@@ -80,11 +80,11 @@ function EmptyDocument({ title, detail }: { title: string; detail: string }) {
 }
 
 export function DocumentationPanel({
-  change,
+  specification,
   manifest,
   enabled,
 }: {
-  change: SpecificationSummary;
+  specification: SpecificationSummary;
   manifest: SpecificationManifest | null | undefined;
   enabled: boolean;
 }) {
@@ -105,7 +105,7 @@ export function DocumentationPanel({
   const selectedDoc = allDocs.find((d) => d.docId === selectedDocId) || allDocs[0] || null;
 
   const documentQuery = useSpecificationDocument(
-    change,
+    specification,
     selectedDoc?.docId ?? null,
     enabled && Boolean(selectedDoc),
   );
