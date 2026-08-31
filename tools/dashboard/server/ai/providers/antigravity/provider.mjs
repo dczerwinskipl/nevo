@@ -139,6 +139,83 @@ export function extractFinalResponse(raw) {
   return null;
 }
 
+export function mapAntigravityTool(toolName, parameters = {}) {
+  const name = String(toolName || 'tool');
+  const params = parameters && typeof parameters === 'object' ? parameters : {};
+
+  switch (name) {
+    case 'run_command':
+      return {
+        toolName: 'run_command',
+        kind: 'command',
+        title: params.CommandLine ? `Run ${params.CommandLine.slice(0, 100)}` : 'Run command',
+        description: params.Cwd || undefined,
+      };
+    case 'view_file':
+      return {
+        toolName: 'view_file',
+        kind: 'file_operation',
+        title: params.AbsolutePath ? `View ${params.AbsolutePath}` : 'View file',
+        description: params.AbsolutePath || undefined,
+      };
+    case 'write_to_file':
+      return {
+        toolName: 'write_to_file',
+        kind: 'file_operation',
+        title: params.TargetFile ? `Write ${params.TargetFile}` : 'Write to file',
+        description: params.TargetFile || undefined,
+      };
+    case 'replace_file_content':
+      return {
+        toolName: 'replace_file_content',
+        kind: 'file_operation',
+        title: params.TargetFile ? `Edit ${params.TargetFile}` : 'Replace file content',
+        description: params.TargetFile || undefined,
+      };
+    case 'find_by_name':
+      return {
+        toolName: 'find_by_name',
+        kind: 'search',
+        title: params.Pattern ? `Find ${params.Pattern}${params.SearchDirectory ? ` in ${params.SearchDirectory}` : ''}` : 'Find files',
+        description: params.SearchDirectory || undefined,
+      };
+    case 'grep_search':
+      return {
+        toolName: 'grep_search',
+        kind: 'search',
+        title: params.Query ? `Grep ${params.Query}` : 'Search files (grep)',
+        description: params.SearchPath || undefined,
+      };
+    case 'list_dir':
+      return {
+        toolName: 'list_dir',
+        kind: 'file_operation',
+        title: params.DirectoryPath ? `List ${params.DirectoryPath}` : 'List directory',
+        description: params.DirectoryPath || undefined,
+      };
+    case 'read_url_content':
+    case 'search_web':
+      return {
+        toolName: name,
+        kind: 'web',
+        title: params.Url || params.query ? `Web: ${params.Url || params.query}` : 'Web search / fetch',
+        description: params.Url || params.query || undefined,
+      };
+    case 'ask_question':
+      return {
+        toolName: 'ask_question',
+        kind: 'question',
+        title: 'Ask question',
+      };
+    default:
+      return {
+        toolName: name,
+        kind: 'other',
+        title: name,
+      };
+  }
+}
+
 export class AntigravityAgentProvider {
   #executable;
   #cwd;
@@ -150,6 +227,7 @@ export class AntigravityAgentProvider {
   #availabilityCache = { checkedAt: 0, result: null };
   #cancelGraceMs;
   #forceGraceMs;
+  #printTimeoutSeconds;
   #probeExecutable;
   #rawCaptureDir;
   #rawCaptureEnabled;
@@ -164,6 +242,7 @@ export class AntigravityAgentProvider {
     spawnProcess = spawn,
     cancelGraceMs = 5_000,
     forceGraceMs = 2_000,
+    printTimeoutSeconds = 600,
     probeExecutable,
     materializedSessions,
     mappingFilePath = null,
@@ -176,6 +255,9 @@ export class AntigravityAgentProvider {
     this.#spawnProcess = spawnProcess;
     this.#cancelGraceMs = cancelGraceMs;
     this.#forceGraceMs = forceGraceMs;
+    this.#printTimeoutSeconds = Number.isFinite(printTimeoutSeconds) && printTimeoutSeconds > 0
+      ? printTimeoutSeconds
+      : 600;
     this.#probeExecutable = probeExecutable ?? (spawnProcess !== spawn ? () => true : defaultProbeAntigravityExecutable);
     this.#mappingFilePath = mappingFilePath;
     this.#rawCaptureEnabled = Boolean(rawCaptureEnabled);
@@ -434,7 +516,7 @@ export class AntigravityAgentProvider {
     };
 
     return new Promise((resolve, reject) => {
-      let activeTool = null;
+      const activeTools = new Map();
       let lineBuffer = '';
       let isDone = false;
       let isResolved = false;
@@ -443,6 +525,7 @@ export class AntigravityAgentProvider {
       const args = [
         '--add-dir', this.#cwd,
         '--output-format', 'stream-json',
+        '--print-timeout', String(this.#printTimeoutSeconds),
       ];
 
       if (mode === 'ask') {
@@ -689,13 +772,17 @@ export class AntigravityAgentProvider {
             const toolId = payload.toolId || `tool-${payload.step_index ?? randomUUID()}`;
             const toolName = payload.tool_name || payload.toolName || payload.tool_info?.name || 'tool';
             const input = payload.tool_info?.parameters || payload.input || payload.args || {};
+            const mapped = mapAntigravityTool(toolName, input);
 
             if (payload.state === 'ACTIVE') {
-              activeTool = { id: toolId, name: toolName, input };
+              activeTools.set(toolId, { id: toolId, ...mapped, input });
               if (emitToolStarted) {
                 emitToolStarted({
                   toolId,
-                  toolName,
+                  toolName: mapped.toolName,
+                  kind: mapped.kind,
+                  title: mapped.title,
+                  description: mapped.description,
                   input,
                 });
               }
@@ -712,9 +799,7 @@ export class AntigravityAgentProvider {
                   durationMs: payload.duration_seconds ? Math.round(payload.duration_seconds * 1000) : undefined,
                 });
               }
-              if (activeTool && activeTool.id === toolId) {
-                activeTool = null;
-              }
+              activeTools.delete(toolId);
             }
           }
           if (payload.usage && emitUsageUpdated) {
@@ -747,28 +832,34 @@ export class AntigravityAgentProvider {
           case 'tool_use':
           case 'tool.started':
           case 'call': {
-            activeTool = {
-              id: raw.toolId || raw.id || `tool-${randomUUID()}`,
-              name: raw.toolName || raw.name || 'tool',
-              input: raw.input || raw.args || {},
-            };
+            const toolId = raw.toolId || raw.id || `tool-${randomUUID()}`;
+            const toolName = raw.toolName || raw.name || 'tool';
+            const input = raw.input || raw.args || {};
+            const mapped = mapAntigravityTool(toolName, input);
+            activeTools.set(toolId, { id: toolId, ...mapped, input });
             if (emitToolStarted) {
               emitToolStarted({
-                toolId: activeTool.id,
-                toolName: activeTool.name,
-                input: activeTool.input,
+                toolId,
+                toolName: mapped.toolName,
+                kind: mapped.kind,
+                title: mapped.title,
+                description: mapped.description,
+                input,
               });
             }
             break;
           }
 
           case 'tool.updated': {
-            if (emitToolUpdated && (raw.toolId || activeTool)) {
-              emitToolUpdated({
-                toolId: raw.toolId || activeTool?.id,
-                status: raw.status || 'running',
-                input: raw.input,
-              });
+            if (emitToolUpdated) {
+              const toolId = raw.toolId || (activeTools.size > 0 ? activeTools.keys().next().value : null);
+              if (toolId) {
+                emitToolUpdated({
+                  toolId,
+                  status: raw.status || 'running',
+                  input: raw.input,
+                });
+              }
             }
             break;
           }
@@ -776,7 +867,7 @@ export class AntigravityAgentProvider {
           case 'tool_result':
           case 'tool.completed':
           case 'tool_use_result': {
-            const toolId = raw.toolId || raw.tool_use_id || activeTool?.id;
+            const toolId = raw.toolId || raw.tool_use_id || (activeTools.size > 0 ? activeTools.keys().next().value : null);
             const status = raw.is_error || raw.status === 'failed' ? 'failed' : 'completed';
             const output = raw.output
               ?? raw.content
@@ -790,8 +881,8 @@ export class AntigravityAgentProvider {
                 durationMs: raw.durationMs,
               });
             }
-            if (activeTool && activeTool.id === toolId) {
-              activeTool = null;
+            if (toolId) {
+              activeTools.delete(toolId);
             }
             break;
           }
@@ -830,15 +921,12 @@ export class AntigravityAgentProvider {
           case 'result':
           case 'done':
           case 'turn.completed': {
-            if (activeTool) {
-              // Reaching a normal completion signal while this tool never received its
-              // own real terminal outcome is not evidence it succeeded (owner-decisions.md
-              // D6) — resolves to 'failed', not 'completed'.
+            for (const [toolId, tool] of activeTools.entries()) {
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
+                emitToolCompleted({ toolId, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
               }
-              activeTool = null;
             }
+            activeTools.clear();
             const finalText = extractFinalResponse(raw);
             const hasFinalResponse = typeof finalText === 'string' && finalText.trim().length > 0;
             if (hasFinalResponse) {
@@ -863,14 +951,18 @@ export class AntigravityAgentProvider {
 
             const statusValue = payload?.status || raw.status;
             const statusIndicatesError = typeof statusValue === 'string'
-              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED');
+              && (statusValue.toUpperCase() === 'ERROR' || statusValue.toUpperCase() === 'FAILED' || statusValue.toUpperCase() === 'TIMEOUT');
             const explicitErrorFlag = payload?.is_error === true || raw.is_error === true;
             const isTerminalError = statusIndicatesError || explicitErrorFlag;
 
             if (isTerminalError && !hasFinalResponse) {
               const rawErr = payload?.error ?? raw.error;
               const errorMessage = (typeof rawErr === 'string' ? rawErr : (rawErr?.message || payload?.message || raw.message)) || 'Antigravity turn failed.';
-              await failAuthoritativeTerminal(new AiError('AI_PROVIDER_ERROR', errorMessage));
+              const isTimeout = statusValue?.toUpperCase() === 'TIMEOUT' || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMessage);
+              const errorObj = isTimeout
+                ? new AiError('AI_PROVIDER_TIMEOUT', errorMessage, { status: 504 })
+                : new AiError('AI_PROVIDER_ERROR', errorMessage);
+              await failAuthoritativeTerminal(errorObj);
               break;
             }
 
@@ -884,7 +976,12 @@ export class AntigravityAgentProvider {
           }
 
           case 'error': {
-            await failTurn(new AiError('AI_PROVIDER_ERROR', raw.error?.message || raw.message || 'Antigravity turn failed.'));
+            const errorMsg = raw.error?.message || raw.message || 'Antigravity turn failed.';
+            const isTimeout = /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(errorMsg);
+            const errorObj = isTimeout
+              ? new AiError('AI_PROVIDER_TIMEOUT', errorMsg, { status: 504 })
+              : new AiError('AI_PROVIDER_ERROR', errorMsg);
+            await failTurn(errorObj);
             break;
           }
 
@@ -1028,12 +1125,12 @@ export class AntigravityAgentProvider {
         const wasCancelled = operation.cancelled;
         const hadNonZeroExit = exitCode !== 0 && !isDone;
 
-        if (activeTool) {
+        for (const [toolId, tool] of activeTools.entries()) {
           if (emitToolCompleted) {
-            emitToolCompleted({ toolId: activeTool.id, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
+            emitToolCompleted({ toolId, output: UNKNOWN_TOOL_RESULT_OUTPUT, status: 'failed' });
           }
-          activeTool = null;
         }
+        activeTools.clear();
 
         if (wasCancelled) {
           return failTurn(new AiError('AI_TURN_CANCELLED', 'Antigravity turn was cancelled.', { status: 409 }));
@@ -1049,6 +1146,10 @@ export class AntigravityAgentProvider {
 
         if (hadNonZeroExit) {
           const detail = stderrBuffer.trim() ? `: ${stderrBuffer.trim()}` : '.';
+          const isTimeout = exitCode === 124 || /timeout|timed out|deadline exceeded|ETIMEDOUT/i.test(stderrBuffer);
+          if (isTimeout) {
+            return failTurn(new AiError('AI_PROVIDER_TIMEOUT', `Antigravity CLI process timed out (--print-timeout exceeded)${detail}`, { status: 504 }));
+          }
           return failTurn(new AiError('AI_PROVIDER_EXIT_ERROR', `Antigravity process exited with non-zero code ${exitCode}${detail}`));
         }
 

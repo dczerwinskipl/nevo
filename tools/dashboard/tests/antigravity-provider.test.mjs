@@ -9,8 +9,10 @@ import {
   AntigravityAgentProvider,
   ANTIGRAVITY_CAPABILITIES,
   extractFinalResponse,
+  mapAntigravityTool,
   rawCaptureSessionDirectory,
 } from '../server/ai/providers/antigravity/provider.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { CapabilityNotSupportedError } from '../server/ai/contracts.mjs';
 
@@ -2057,3 +2059,250 @@ test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error
 
   assert.equal(result.status, 'completed');
 });
+
+test('mapAntigravityTool maps standard tools to canonical kind, title, and description', () => {
+  const t1 = mapAntigravityTool('run_command', { CommandLine: 'git status', Cwd: 'D:\\repos\\git\\nevo' });
+  assert.equal(t1.kind, 'command');
+  assert.equal(t1.title, 'Run git status');
+  assert.equal(t1.description, 'D:\\repos\\git\\nevo');
+
+  const t2 = mapAntigravityTool('view_file', { AbsolutePath: 'D:\\repos\\git\\nevo\\package.json' });
+  assert.equal(t2.kind, 'file_operation');
+  assert.equal(t2.title, 'View D:\\repos\\git\\nevo\\package.json');
+
+  const t3 = mapAntigravityTool('write_to_file', { TargetFile: 'D:\\repos\\git\\nevo\\README.md' });
+  assert.equal(t3.kind, 'file_operation');
+  assert.equal(t3.title, 'Write D:\\repos\\git\\nevo\\README.md');
+
+  const t4 = mapAntigravityTool('replace_file_content', { TargetFile: 'D:\\repos\\git\\nevo\\src\\index.ts' });
+  assert.equal(t4.kind, 'file_operation');
+  assert.equal(t4.title, 'Edit D:\\repos\\git\\nevo\\src\\index.ts');
+
+  const t5 = mapAntigravityTool('find_by_name', { Pattern: '*.md', SearchDirectory: 'specs/active' });
+  assert.equal(t5.kind, 'search');
+  assert.equal(t5.title, 'Find *.md in specs/active');
+
+  const t6 = mapAntigravityTool('grep_search', { Query: 'TurnLifecycle', SearchPath: 'tools/dashboard' });
+  assert.equal(t6.kind, 'search');
+  assert.equal(t6.title, 'Grep TurnLifecycle');
+
+  const t7 = mapAntigravityTool('list_dir', { DirectoryPath: 'specs/active' });
+  assert.equal(t7.kind, 'file_operation');
+  assert.equal(t7.title, 'List specs/active');
+
+  const t8 = mapAntigravityTool('read_url_content', { Url: 'https://example.com' });
+  assert.equal(t8.kind, 'web');
+
+  const t9 = mapAntigravityTool('custom_tool', {});
+  assert.equal(t9.kind, 'other');
+  assert.equal(t9.title, 'custom_tool');
+});
+
+test('explicit --print-timeout argument is passed to spawned CLI process', async () => {
+  let capturedArgs = [];
+  const spawnMock = (cmd, args) => {
+    capturedArgs = args;
+    return createMockProcess([
+      JSON.stringify({ type: 'init', conversation_id: 'conv-timeout-check' }),
+      JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'ok' } }),
+    ]);
+  };
+
+  const provider = createAntigravityAgentProvider({
+    printTimeoutSeconds: 300,
+    spawnProcess: spawnMock,
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-timeout-check',
+    providerSessionId: 'conv-timeout-check',
+    message: 'test timeout flag',
+  });
+
+  assert.ok(capturedArgs.includes('--print-timeout'), 'args includes --print-timeout');
+  const timeoutIndex = capturedArgs.indexOf('--print-timeout');
+  assert.equal(capturedArgs[timeoutIndex + 1], '300');
+});
+
+test('Antigravity timeout classification: process exit with timeout error maps to AI_PROVIDER_TIMEOUT', async () => {
+  const spawnMock = () => {
+    return createMockProcess([], {
+      exitCode: 124,
+      events: [
+        { stream: 'stderr', line: 'Command timed out after 600 seconds' },
+      ],
+    });
+  };
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: spawnMock });
+
+  await assert.rejects(
+    async () => {
+      await provider.startTurn({
+        turnId: 'turn-timeout-err',
+        providerSessionId: 'conv-timeout-err',
+        message: 'test timeout error',
+      });
+    },
+    (err) => {
+      assert.equal(err.code, 'AI_PROVIDER_TIMEOUT');
+      assert.match(err.message, /timed out/i);
+      assert.equal(err.status, 504);
+      return true;
+    }
+  );
+});
+
+test('Antigravity independent active tool tracking: parallel tools do not overwrite each other', async () => {
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const lines = [
+    JSON.stringify({ type: 'init', conversation_id: 'conv-parallel-tools' }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        state: 'ACTIVE',
+        step_type: 'tool',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: 'a.txt' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        state: 'ACTIVE',
+        step_type: 'tool',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: 'b.txt' } },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 1,
+        state: 'DONE',
+        step_type: 'tool',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: 'a.txt' }, output: 'content A' },
+      },
+    }),
+    JSON.stringify({
+      event: 'step_update',
+      step_update: {
+        step_index: 2,
+        state: 'DONE',
+        step_type: 'tool',
+        tool_name: 'view_file',
+        tool_info: { name: 'view_file', parameters: { AbsolutePath: 'b.txt' }, output: 'content B' },
+      },
+    }),
+    JSON.stringify({
+      event: 'result',
+      result: { status: 'SUCCESS', response: 'Both files read.' },
+    }),
+  ];
+
+  const provider = createAntigravityAgentProvider({ spawnProcess: () => createMockProcess(lines) });
+
+  await provider.startTurn({
+    turnId: 'turn-parallel-tools',
+    providerSessionId: 'conv-parallel-tools',
+    message: 'read both',
+    emitToolStarted: tool => toolsStarted.push(tool),
+    emitToolCompleted: tool => toolsCompleted.push(tool),
+  });
+
+  assert.equal(toolsStarted.length, 2);
+  assert.equal(toolsStarted[0].toolId, 'tool-1');
+  assert.equal(toolsStarted[0].title, 'View a.txt');
+  assert.equal(toolsStarted[1].toolId, 'tool-2');
+  assert.equal(toolsStarted[1].title, 'View b.txt');
+
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].toolId, 'tool-1');
+  assert.equal(toolsCompleted[0].output, 'content A');
+  assert.equal(toolsCompleted[1].toolId, 'tool-2');
+  assert.equal(toolsCompleted[1].output, 'content B');
+});
+
+test('Antigravity evidence replay: maps full protocol capture from fixture to canonical model', async () => {
+  const evidencePath = new URL('./fixtures/evidence/antigravity-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: evidence.turnId,
+    provider: 'antigravity',
+    providerSessionId: evidence.sessionId,
+    mode: 'agent',
+  });
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+  const textDeltas = [];
+  const reasoningDeltas = [];
+  const usages = [];
+
+  const provider = createAntigravityAgentProvider({
+    spawnProcess: () => createMockProcess(evidence.rawEvents.map(e => JSON.stringify(e))),
+  });
+
+  await provider.startTurn({
+    turnId: evidence.turnId,
+    providerSessionId: evidence.sessionId,
+    message: 'verify status and specs',
+    mode: 'agent',
+    emitTextDelta: text => {
+      textDeltas.push(text);
+      coordinator.recordTextDelta(text);
+    },
+    emitReasoningDelta: text => {
+      reasoningDeltas.push(text);
+      coordinator.recordReasoningDelta(text);
+    },
+    emitToolStarted: tool => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: tool => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+    emitUsageUpdated: usage => {
+      usages.push(usage);
+    },
+  });
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(snapshot.provider, 'antigravity');
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+
+  // Verify tools executed in exact evidenced order with canonical metadata
+  assert.equal(toolsStarted.length, 2);
+  assert.equal(toolsStarted[0].toolName, 'run_command');
+  assert.equal(toolsStarted[0].kind, 'command');
+  assert.equal(toolsStarted[0].title, 'Run git status');
+  assert.equal(toolsStarted[1].toolName, 'find_by_name');
+  assert.equal(toolsStarted[1].kind, 'search');
+  assert.equal(toolsStarted[1].title, 'Find * in specs/active');
+
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.equal(toolsCompleted[0].durationMs, 250);
+  assert.equal(toolsCompleted[1].status, 'completed');
+  assert.equal(toolsCompleted[1].durationMs, 20);
+
+  // Verify final response streamed
+  assert.ok(textDeltas.some(t => t.includes('Working tree is clean')), 'Final response contains clean working tree message');
+
+  // Verify no raw payloads or private IDs leak in serialized model
+  const serialized = JSON.stringify(snapshot);
+  assert.ok(!serialized.includes('conversation_id'));
+  assert.ok(!serialized.includes('rawEvents'));
+});
+

@@ -199,9 +199,11 @@ tasks:
   - id: antigravity-neutral-mapping
     order: 10
     file: tasks/10-antigravity-neutral-mapping.md
-    status: approved
+    status: in-implementation
     depends_on:
       - lifecycle-coordinator-and-timeouts
+    implementation:
+      baseline_revision: 203d6e09c568c61beac043943934dced66ff19fe
 
   - id: semantic-work-chat-v2
     order: 11
