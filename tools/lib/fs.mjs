@@ -107,6 +107,13 @@ export function moveDir(from, to, operations = {}) {
     }
     rename(temporaryPath, to);
   } catch (cause) {
+    if (['EPERM', 'EXDEV', 'EACCES'].includes(cause?.code) && !exists(to)) {
+      try {
+        copy(temporaryPath, to, { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true });
+        remove(temporaryPath, { recursive: true, force: true });
+        return;
+      } catch {}
+    }
     let rollbackError;
     try {
       copy(temporaryPath, from, { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true });
