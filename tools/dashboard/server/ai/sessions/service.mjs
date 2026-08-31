@@ -106,6 +106,78 @@ export function computeWorkSummary(turn) {
   };
 }
 
+/**
+ * Pure projection of canonical Turns to V1 Messages for backwards compatibility.
+ */
+export function projectChatV1(turns = []) {
+  const messages = [];
+  for (const turn of turns) {
+    if (turn.prompt) {
+      messages.push({
+        id: `user-${turn.id}`,
+        role: 'user',
+        text: turn.prompt,
+        createdAt: turn.startedAt || turn.createdAt || new Date().toISOString(),
+      });
+    }
+
+    const commentaryParts = [];
+    let reasoning = '';
+    const toolCalls = [];
+    let interaction = null;
+
+    if (Array.isArray(turn.work)) {
+      for (const item of turn.work) {
+        if (item.type === 'commentary') {
+          if (item.text) commentaryParts.push(item.text);
+        } else if (item.type === 'reasoning') {
+          if (item.text) reasoning += item.text;
+        } else if (item.type === 'tool') {
+          const status = item.status === 'active' ? 'running' : (item.status === 'completed' ? 'completed' : 'failed');
+          toolCalls.push({
+            id: item.id,
+            name: item.toolName || 'tool',
+            input: item.input,
+            output: item.output,
+            status,
+            ...(typeof item.durationMs === 'number' ? { durationMs: item.durationMs } : {}),
+            ...(item.actions && item.actions.length > 0 ? { actions: structuredClone(item.actions) } : {}),
+          });
+        } else if (item.type === 'interaction') {
+          interaction = structuredClone(item.interaction);
+          if (item.response !== undefined) {
+            interaction.response = structuredClone(item.response);
+          }
+        }
+      }
+    }
+
+    const text = turn.finalAnswer?.text ?? commentaryParts.join('');
+
+    let turnError = undefined;
+    if (turn.status?.status === 'terminal' && turn.status.outcome !== 'completed') {
+      turnError = {
+        code: turn.status.cause || (turn.status.outcome === 'cancelled' ? 'AI_TURN_CANCELLED' : 'AI_TURN_FAILED'),
+        message: turn.status.error?.message || 'The turn did not complete successfully.',
+      };
+    }
+
+    const assistantMsg = {
+      id: `message-${turn.id}`,
+      role: 'assistant',
+      text,
+      turnId: turn.id,
+      createdAt: turn.completedAt || turn.updatedAt || turn.startedAt || new Date().toISOString(),
+      ...(reasoning ? { reasoning } : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(interaction ? { interaction } : {}),
+      ...(turnError ? { turnError } : {}),
+    };
+    messages.push(assistantMsg);
+  }
+  return messages;
+}
+
 export class AgentSessionService {
   constructor({ registry, turnRuntime, transcriptCache, bindingService } = {}) {
     this.registry = registry;
@@ -250,23 +322,24 @@ export class AgentSessionService {
       return logicalSessions.map(session => ({
         ...session,
         status: 'idle',
-        readiness: { status: 'ready', reason: 'idle' },
+        activeTurn: null,
+        pendingInteraction: null,
       }));
     }
 
     return Promise.all(logicalSessions.map(async (session) => {
       try {
         const transcript = await this.transcriptCache.getTranscript(session.provider, session.providerSessionId);
+        if (transcript?.health === 'corrupt') {
+          return {
+            ...session,
+            status: 'unavailable',
+            activeTurn: null,
+            pendingInteraction: null,
+          };
+        }
         const { status, activeTurn, pendingInteraction } = this.resolveSessionActivity(transcript);
-        const descriptor = this.registry?.has(session.provider) ? this.registry.get(session.provider).descriptor : undefined;
-        const readiness = resolveSessionReadiness({
-          descriptor,
-          binding: session,
-          transcript,
-          activeTurn,
-        });
-
-        const hasRecordedActivity = Boolean(transcript?.messages?.length || transcript?.turns?.length || transcript?.lastEventSeq || transcript?.activeTurn);
+        const hasRecordedActivity = Boolean(transcript?.turns?.length || transcript?.messages?.length || transcript?.lastEventSeq || transcript?.activeTurn);
         return {
           ...session,
           lastActivityAt: (hasRecordedActivity && transcript?.updatedAt) || session.lastSeenAt,
@@ -274,10 +347,12 @@ export class AgentSessionService {
           activeTurn,
           pendingInteraction,
         };
-      } catch (err) {
+      } catch {
         return {
           ...session,
-          status: 'idle',
+          status: 'unavailable',
+          activeTurn: null,
+          pendingInteraction: null,
         };
       }
     }));
@@ -299,7 +374,11 @@ export class AgentSessionService {
           pendingInteraction = turnSnapshot.pendingInteraction || pendingInteraction;
         }
       } catch {
-        activeTurn = null;
+        activeTurn = {
+          turnId: transcript.activeTurn.turnId,
+          startedAt: transcript.activeTurn.startedAt,
+          status: transcript.pendingInteraction ? 'waitingForUser' : 'running',
+        };
       }
     }
 
@@ -368,17 +447,20 @@ export class AgentSessionService {
     });
 
     const turns = Array.isArray(transcript?.turns) ? transcript.turns : [];
-    const activeOrLatestTurn = (activeTurn?.turnId && (turnSnapshot?.turn || turns.find(t => t.id === activeTurn.turnId)))
-      || (turns.length > 0 ? turns.at(-1) : null);
+    const activeCanonical = activeTurn?.turnId ? this.getCanonicalTurn(activeTurn.turnId) : null;
+    const combinedTurns = turns.map(t => (t.id === activeTurn?.turnId && activeCanonical ? activeCanonical : t));
+    if (activeTurn?.turnId && activeCanonical && !combinedTurns.some(t => t.id === activeTurn.turnId)) {
+      combinedTurns.push(activeCanonical);
+    }
+
+    const activeOrLatestTurn = activeCanonical || (combinedTurns.length > 0 ? combinedTurns.at(-1) : null);
     const workSummary = computeWorkSummary(activeOrLatestTurn);
 
-    return {
+    const baseSession = {
       provider,
       providerSessionId,
       sessionId: providerSessionId,
-      status,
-      readiness,
-      workSummary,
+      status: readiness.status === 'unavailable' ? 'unavailable' : status,
       capabilities,
       mode: resolvedMode,
       specId: specId ?? binding?.specId,
@@ -391,10 +473,33 @@ export class AgentSessionService {
       lastActivityAt: binding?.lastSeenAt || transcript?.updatedAt || new Date().toISOString(),
       activeTurn,
       pendingInteraction,
-      turns,
-      messages: transcript?.messages || [],
       lastEventSeq: transcript?.lastEventSeq || 0,
       updatedAt: transcript?.updatedAt || new Date().toISOString(),
+    };
+
+    const representation = options.representation;
+    if (representation === 'v1') {
+      return {
+        ...baseSession,
+        messages: projectChatV1(combinedTurns),
+      };
+    }
+
+    if (representation === 'v2') {
+      return {
+        ...baseSession,
+        readiness,
+        workSummary,
+        turns: combinedTurns,
+      };
+    }
+
+    return {
+      ...baseSession,
+      readiness,
+      workSummary,
+      turns: combinedTurns,
+      messages: projectChatV1(combinedTurns),
     };
   }
 
@@ -413,7 +518,10 @@ export class AgentSessionService {
     validateAgentIdentity({ provider, providerSessionId });
     if (this.transcriptCache) {
       const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      return transcript.messages || [];
+      if (Array.isArray(transcript?.turns) && transcript.turns.length > 0) {
+        return projectChatV1(transcript.turns);
+      }
+      return transcript?.messages || [];
     }
     return [];
   }
@@ -532,6 +640,11 @@ export class AgentSessionService {
   resolveInteraction(turnId, interactionId, response, options) {
     if (!this.turnRuntime) throw new Error('No turn runtime configured.');
     return this.turnRuntime.resolveInteraction(turnId, interactionId, response, options);
+  }
+
+  setFinalAnswer(turnId, finalAnswerData) {
+    if (!this.turnRuntime) throw new Error('No turn runtime configured.');
+    return this.turnRuntime.setFinalAnswer(turnId, finalAnswerData);
   }
 
   async shutdown() {

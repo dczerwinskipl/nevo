@@ -980,8 +980,38 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
 test('Task 07: Live application and fresh reload produce semantically equal Turn status, ordered Work, and FinalAnswer', async () => {
   const cacheDir = join(tmpdir(), `nevo-ai-reload-test-${randomUUID()}`);
   const transcriptCache1 = createTranscriptCacheService({ baseDir: cacheDir });
-  const provider1 = createMockAgentProvider({ specId, taskIds: ['task-a'], streamDelayMs: 1 });
-  const registry1 = createAgentProviderRegistry([provider1]);
+
+  let completeTurnPromiseResolve;
+  const completeTurnPromise = new Promise(r => { completeTurnPromiseResolve = r; });
+
+  const richTurnProvider1 = {
+    descriptor: Object.freeze({
+      id: 'mock',
+      label: 'Mock Rich Provider',
+      enabled: true,
+      capabilities: { cancelTurn: true, toolCalls: true, reasoning: true, usage: true },
+      supportedModes: ['ask', 'edit', 'agent'],
+      defaultMode: 'edit',
+    }),
+    isAvailable() { return { available: true }; },
+    async startTurn({ turnId, providerSessionId, emitTextDelta, emitToolStarted, emitToolCompleted }) {
+      emitTextDelta('Initial commentary step.\n');
+
+      emitToolStarted({ toolId: 'tool-exec-1', toolName: 'RunBuild', input: { script: 'build' } });
+      emitToolCompleted({ toolId: 'tool-exec-1', output: { success: true }, durationMs: 42, status: 'completed' });
+
+      emitTextDelta('Intermediate analysis commentary.\n');
+
+      emitToolStarted({ toolId: 'tool-exec-2', toolName: 'RunTests', input: { suite: 'unit' } });
+      emitToolCompleted({ toolId: 'tool-exec-2', output: { passed: 5 }, durationMs: 88, status: 'completed' });
+
+      await completeTurnPromise;
+      return { providerSessionId };
+    },
+    async cancelTurn() {},
+  };
+
+  const registry1 = createAgentProviderRegistry([richTurnProvider1]);
   const bindingService1 = createAgentSessionBindingService();
   const turnRuntime1 = createAgentTurnRuntime({ registry: registry1, transcriptCache: transcriptCache1 });
   const service1 = createAgentSessionService({ registry: registry1, turnRuntime: turnRuntime1, transcriptCache: transcriptCache1, bindingService: bindingService1 });
@@ -990,14 +1020,43 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
 
   let turnId;
   const sessionId = 'session-reload-canonical';
+  let liveTurn;
 
   try {
     const startRes = await fetch(`${baseUrl1}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/turns`, control({
-      message: 'Run full turn for reload verification',
+      message: 'Run rich turn for reload verification',
     }));
     assert.equal(startRes.status, 202);
     const body = await startRes.json();
     turnId = body.turnId;
+
+    // Add nested ToolAction to tool-exec-1 and set separate FinalAnswer through coordinator
+    const coordinator = turnRuntime1.getCoordinator(turnId);
+    assert.ok(coordinator);
+    coordinator.addToolAction('tool-exec-1', {
+      id: 'action-1',
+      title: 'Compile TS',
+      kind: 'execute',
+      status: 'completed',
+      output: '0 errors',
+      durationMs: 25,
+    });
+    coordinator.addToolAction('tool-exec-1', {
+      id: 'action-2',
+      title: 'Bundle assets',
+      kind: 'write',
+      status: 'completed',
+      output: 'bundle.js created',
+      durationMs: 17,
+    });
+
+    service1.setFinalAnswer(turnId, {
+      id: 'final-answer-turn-1',
+      text: 'Build and tests completed successfully.',
+      status: 'completed',
+    });
+
+    completeTurnPromiseResolve();
 
     await waitFor(service1, turnId, t => t.status === 'completed');
     await transcriptCache1.flushAll();
@@ -1006,17 +1065,35 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     assert.equal(liveDetails.status, 200);
     const liveBody = await liveDetails.json();
     assert.equal(liveBody.turns.length, 1);
-    assert.equal(liveBody.turns[0].id, turnId);
-    assert.equal(liveBody.turns[0].status.outcome, 'completed');
-    assert.ok(liveBody.turns[0].work.length > 0);
+    liveTurn = liveBody.turns[0];
+
+    assert.equal(liveTurn.id, turnId);
+    assert.equal(liveTurn.status.outcome, 'completed');
+    assert.equal(liveTurn.finalAnswer.id, 'final-answer-turn-1');
+    assert.equal(liveTurn.finalAnswer.text, 'Build and tests completed successfully.');
+    assert.equal(liveTurn.work.length, 4);
+    assert.equal(liveTurn.work[0].type, 'commentary');
+    assert.equal(liveTurn.work[1].type, 'tool');
+    assert.equal(liveTurn.work[1].id, 'tool-exec-1');
+    assert.equal(liveTurn.work[1].actions.length, 2);
+    assert.equal(liveTurn.work[1].actions[0].id, 'action-1');
+    assert.equal(liveTurn.work[1].actions[1].id, 'action-2');
+    assert.equal(liveTurn.work[2].type, 'commentary');
+    assert.equal(liveTurn.work[3].type, 'tool');
+    assert.equal(liveTurn.work[3].id, 'tool-exec-2');
   } finally {
     await closeServer(server1);
   }
 
   // Phase 2: Start new server instance from same persisted cacheDir (simulating fresh reload)
   const transcriptCache2 = createTranscriptCacheService({ baseDir: cacheDir });
-  const provider2 = createMockAgentProvider({ specId, taskIds: ['task-a'], streamDelayMs: 1 });
-  const registry2 = createAgentProviderRegistry([provider2]);
+  const richTurnProvider2 = {
+    descriptor: richTurnProvider1.descriptor,
+    isAvailable() { return { available: true }; },
+    async startTurn() {},
+    async cancelTurn() {},
+  };
+  const registry2 = createAgentProviderRegistry([richTurnProvider2]);
   const bindingService2 = createAgentSessionBindingService();
   const turnRuntime2 = createAgentTurnRuntime({ registry: registry2, transcriptCache: transcriptCache2 });
   const service2 = createAgentSessionService({ registry: registry2, turnRuntime: turnRuntime2, transcriptCache: transcriptCache2, bindingService: bindingService2 });
@@ -1028,9 +1105,16 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
     assert.equal(reloadedDetails.status, 200);
     const reloadedBody = await reloadedDetails.json();
     assert.equal(reloadedBody.turns.length, 1);
-    assert.equal(reloadedBody.turns[0].id, turnId);
-    assert.equal(reloadedBody.turns[0].status.outcome, 'completed');
-    assert.ok(reloadedBody.turns[0].work.length > 0);
+    const reloadedTurn = reloadedBody.turns[0];
+
+    // Deep semantic assertions comparing live coordinator canonical Turn vs reloaded Turn
+    assert.deepStrictEqual(reloadedTurn, liveTurn);
+    assert.equal(reloadedTurn.finalAnswer.id, 'final-answer-turn-1');
+    assert.equal(reloadedTurn.finalAnswer.text, 'Build and tests completed successfully.');
+    assert.equal(reloadedTurn.work.length, 4);
+    assert.equal(reloadedTurn.work[1].actions.length, 2);
+    assert.equal(reloadedTurn.work[1].actions[0].title, 'Compile TS');
+    assert.equal(reloadedTurn.work[1].actions[1].title, 'Bundle assets');
     assert.equal(reloadedBody.readiness.status, 'ready');
     assert.equal(reloadedBody.workSummary.status, 'completed');
   } finally {
@@ -1091,6 +1175,7 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
   const provider = createMockAgentProvider({ specId, taskIds: ['task-a'] });
   const registry = createAgentProviderRegistry([provider]);
   const bindingService = createAgentSessionBindingService();
+  await bindingService.bindSession({ provider: 'mock', providerSessionId: 'corrupt-session', specId, purpose: 'corrupt test' });
   const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
   const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
   const server = await buildAiTestApp({ service });
@@ -1102,10 +1187,20 @@ test('Task 07: Corrupt/unreadable persistence state does not become empty ready/
   await writeFile(corruptFilePath, '{ invalid json content !!!', 'utf8');
 
   try {
+    // 1. Session listing check
+    const listRes = await fetch(`${baseUrl}/api/agent-sessions`);
+    assert.equal(listRes.status, 200);
+    const listBody = await listRes.json();
+    const listedSession = listBody.sessions.find(s => s.providerSessionId === sessionId);
+    assert.ok(listedSession);
+    assert.equal(listedSession.status, 'unavailable');
+
+    // 2. Direct session details check
     const detailsResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}`);
     assert.equal(detailsResponse.status, 200);
     const details = (await detailsResponse.json()).session;
 
+    assert.equal(details.status, 'unavailable');
     assert.equal(details.readiness.status, 'unavailable');
     assert.equal(details.readiness.reason, 'persistence_corrupt');
   } finally {
@@ -1128,14 +1223,17 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
     const { turnId } = await startRes.json();
     await waitFor(service, turnId, t => t.status === 'completed');
 
-    // 1. Query with representation=v1
+    // 1. Query with representation=v1 -> Must return messages, must NOT return turns or workSummary or readiness
     const v1Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v1`);
     assert.equal(v1Res.status, 200);
     const v1Body = (await v1Res.json()).session;
     assert.ok(Array.isArray(v1Body.messages));
     assert.ok(v1Body.messages.length >= 2);
+    assert.equal(v1Body.turns, undefined);
+    assert.equal(v1Body.workSummary, undefined);
+    assert.equal(v1Body.readiness, undefined);
 
-    // 2. Query with representation=v2
+    // 2. Query with representation=v2 -> Must return turns, workSummary, readiness, must NOT return messages
     const v2Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v2`);
     assert.equal(v2Res.status, 200);
     const v2Body = (await v2Res.json()).session;
@@ -1143,6 +1241,7 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
     assert.equal(v2Body.turns.length, 1);
     assert.ok(v2Body.workSummary);
     assert.equal(v2Body.readiness.status, 'ready');
+    assert.equal(v2Body.messages, undefined);
 
     // 3. Query /chat endpoint
     const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
@@ -1152,6 +1251,15 @@ test('Task 07: V1 and V2 can project the same session and representation switchi
     assert.equal(chatBody.turns.length, 1);
     assert.equal(chatBody.turns[0].id, turnId);
     assert.equal(chatBody.workSummary.status, 'completed');
+
+    // 4. Repeated representation queries do not alter session turns count or status
+    const repeatV1 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v1`);
+    const repeatV2 = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v2`);
+    assert.equal(repeatV1.status, 200);
+    assert.equal(repeatV2.status, 200);
+    const postTurns = await service.listTurns('mock', sessionId);
+    assert.equal(postTurns.length, 1);
+    assert.equal(postTurns[0].status.outcome, 'completed');
   } finally {
     await closeServer(server);
   }

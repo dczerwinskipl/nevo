@@ -187,6 +187,13 @@ export class AgentTurnRuntime {
         providerSessionId: providerSessionId || null,
         mode: validatedMode,
         traceSink: this.traceSink,
+        onTurnUpdated: (turnSnapshot) => {
+          const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
+          if (sessId && this.transcriptCache?.recordCanonicalTurn) {
+            turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
+            this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
+          }
+        },
       });
       coordinator.touchActivity(this.clock().getTime());
 
@@ -228,11 +235,12 @@ export class AgentTurnRuntime {
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
           this.#eventStream.bindSession(state.turnId, { provider: state.provider, providerSessionId: allocatedSessionId });
+          if (this.transcriptCache?.recordCanonicalTurn) {
+            const snap = state.coordinator.getCanonicalSnapshot();
+            snap.prompt = inputMessage;
+            this.transcriptCache.recordCanonicalTurn(state.provider, allocatedSessionId, snap);
+          }
           if (this.transcriptCache) {
-            this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
-              text: inputMessage,
-              createdAt: state.startedAt,
-            });
             for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
               this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
             }
@@ -498,6 +506,7 @@ export class AgentTurnRuntime {
       cached,
       registry: this.registry,
       clock: this.clock,
+      transcriptCache: this.transcriptCache,
     });
 
     this.#eventStream.registerTurn({
@@ -718,13 +727,20 @@ export class AgentTurnRuntime {
   }
 
   getCanonicalTurn(turnId) {
+    const state = this.#turns.get(turnId);
+    return state?.coordinator?.turn ?? null;
+  }
+
+  setFinalAnswer(turnId, finalAnswerData) {
     const state = this.#get(turnId);
-    return state.coordinator?.turn ?? null;
+    const answer = state.coordinator.setFinalAnswer(finalAnswerData);
+    this.#notifyProviderState(state);
+    return answer;
   }
 
   getCoordinator(turnId) {
-    const state = this.#get(turnId);
-    return state.coordinator ?? null;
+    const state = this.#turns.get(turnId);
+    return state?.coordinator ?? null;
   }
 
   getEvents(turnId, afterSequence = 0) {

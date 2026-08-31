@@ -42,11 +42,12 @@ test('turn-recovery: reconstructTurnState builds canonical in-memory waiting tur
   assert.equal(state.turnId, 'turn-cached-1');
   assert.equal(state.provider, 'fake');
   assert.equal(state.providerSessionId, 'sess-recon');
-  assert.equal(state.status, 'waitingForUser');
+  assert.equal(state.coordinator.status.status, 'requiresAttention');
   assert.equal(state.mode, 'edit');
   assert.equal(state.events, undefined, 'Runtime state must not contain events array');
   assert.equal(state.subscribers, undefined, 'Runtime state must not contain subscribers Set');
-  assert.deepEqual(state.pendingInteraction, cached.pendingInteraction);
+  assert.equal(state.coordinator.pendingInteraction?.id, cached.pendingInteraction.id);
+  assert.equal(state.coordinator.pendingInteraction?.kind, cached.pendingInteraction.kind);
   assert.ok(state.abortController);
 });
 

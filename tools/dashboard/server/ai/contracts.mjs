@@ -270,7 +270,7 @@ export function normalizeInteraction(value, { assignIds = false, idFactory = ran
       return {
         ...base,
         title: requiredString(value.title ?? 'Confirm Action', 'interaction.title', { opaque: true, max: 200 }),
-        message: requiredString(value.message, 'interaction.message', { opaque: true, max: 2_000 }),
+        message: requiredString(value.message ?? value.prompt, 'interaction.message', { opaque: true, max: 2_000 }),
         ...(value.details == null ? {} : { details: optionalString(value.details, 'interaction.details', 2_000) }),
         ...(value.payload === undefined ? {} : { payload: structuredClone(value.payload) }),
       };
@@ -500,6 +500,78 @@ export function validateProviderDescriptor(value) {
 export function publicAiError(error) {
   if (error instanceof AiError) return error;
   return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
+}
+
+/**
+ * Pure projection of canonical Turns to V1 Messages for backwards compatibility.
+ */
+export function projectChatV1(turns = []) {
+  const messages = [];
+  for (const turn of turns) {
+    if (turn.prompt) {
+      messages.push({
+        id: `user-${turn.id}`,
+        role: 'user',
+        text: turn.prompt,
+        createdAt: turn.startedAt || turn.createdAt || new Date().toISOString(),
+      });
+    }
+
+    const commentaryParts = [];
+    let reasoning = '';
+    const toolCalls = [];
+    let interaction = null;
+
+    if (Array.isArray(turn.work)) {
+      for (const item of turn.work) {
+        if (item.type === 'commentary') {
+          if (item.text) commentaryParts.push(item.text);
+        } else if (item.type === 'reasoning') {
+          if (item.text) reasoning += item.text;
+        } else if (item.type === 'tool') {
+          const status = item.status === 'active' ? 'running' : (item.status === 'completed' ? 'completed' : 'failed');
+          toolCalls.push({
+            id: item.id,
+            name: item.toolName || 'tool',
+            input: item.input,
+            output: item.output,
+            status,
+            ...(typeof item.durationMs === 'number' ? { durationMs: item.durationMs } : {}),
+            ...(item.actions && item.actions.length > 0 ? { actions: structuredClone(item.actions) } : {}),
+          });
+        } else if (item.type === 'interaction') {
+          interaction = structuredClone(item.interaction);
+          if (item.response !== undefined) {
+            interaction.response = structuredClone(item.response);
+          }
+        }
+      }
+    }
+
+    const text = turn.finalAnswer?.text ?? (turn.status?.outcome === 'interrupted' ? (turn.status?.error?.message || 'Interrupted by server restart.') : commentaryParts.join(''));
+
+    let turnError = undefined;
+    if (turn.status?.status === 'terminal' && turn.status.outcome !== 'completed') {
+      turnError = {
+        code: turn.status.cause || (turn.status.outcome === 'cancelled' ? 'AI_TURN_CANCELLED' : 'AI_TURN_FAILED'),
+        message: turn.status.error?.message || 'The turn did not complete successfully.',
+      };
+    }
+
+    const assistantMsg = {
+      id: `message-${turn.id}`,
+      role: 'assistant',
+      text,
+      turnId: turn.id,
+      createdAt: turn.completedAt || turn.updatedAt || turn.startedAt || new Date().toISOString(),
+      ...(reasoning ? { reasoning } : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(interaction ? { interaction } : {}),
+      ...(turnError ? { turnError } : {}),
+    };
+    messages.push(assistantMsg);
+  }
+  return messages;
 }
 
 export * from './model/index.mjs';

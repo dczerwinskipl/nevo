@@ -31,6 +31,7 @@ export class TurnLifecycleCoordinator {
   #cancellationRequested = false;
   #cancellationInitiator = null;
   #cancellationCause = null;
+  #onTurnUpdated = null;
 
   constructor({
     turnId,
@@ -39,15 +40,28 @@ export class TurnLifecycleCoordinator {
     providerSessionId = null,
     mode = 'edit',
     traceSink = null,
+    turn = null,
+    onTurnUpdated = null,
   }) {
+    this.#onTurnUpdated = onTurnUpdated;
     const effectiveSessionId = sessionId || turnId;
-    this.#turn = createCanonicalTurn({
+    this.#turn = turn ? structuredClone(turn) : createCanonicalTurn({
       id: turnId,
       sessionId: effectiveSessionId,
       provider,
       providerSessionId: providerSessionId || null,
       mode,
     });
+
+    if (turn && Array.isArray(turn.work)) {
+      for (const item of turn.work) {
+        if (item.type === 'tool' && (item.status === 'active' || item.status === 'queued')) {
+          this.#openToolIds.add(item.id);
+        } else if (item.type === 'interaction' && item.status === 'pending') {
+          this.#pendingInteractionId = item.id;
+        }
+      }
+    }
 
     const sink = traceSink ?? getGlobalTraceSink();
     this.#tracer = sink?.createTurnTracer?.({
@@ -63,6 +77,19 @@ export class TurnLifecycleCoordinator {
       disposition: 'accepted',
       afterStatus: this.#turn.status,
     });
+    this.#notifyTurnUpdated();
+  }
+
+  #notifyTurnUpdated() {
+    if (typeof this.#onTurnUpdated === 'function') {
+      try {
+        this.#onTurnUpdated(this.getCanonicalSnapshot());
+      } catch {}
+    }
+  }
+
+  getCanonicalSnapshot() {
+    return structuredClone(this.#turn);
   }
 
   get turn() {
@@ -128,6 +155,7 @@ export class TurnLifecycleCoordinator {
       subjectId: allocatedSessionId,
       disposition: 'accepted',
     });
+    this.#notifyTurnUpdated();
     return allocatedSessionId;
   }
 
@@ -173,6 +201,7 @@ export class TurnLifecycleCoordinator {
       cause: after.cause,
     });
 
+    this.#notifyTurnUpdated();
     return after;
   }
 
@@ -251,6 +280,7 @@ export class TurnLifecycleCoordinator {
       metadata: { seq: item.seq, type: item.type },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -292,6 +322,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: item.status },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -307,7 +338,10 @@ export class TurnLifecycleCoordinator {
       : null;
 
     if (!currentItem) {
-      this.#activeCommentaryId = messageId || `commentary-${Date.now()}`;
+      const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
+        ? messageId
+        : `commentary-${this.#turn.id}-${this.#turn.work.length + 1}`;
+      this.#activeCommentaryId = generatedId;
       currentItem = appendWorkItem(this.#turn, {
         id: this.#activeCommentaryId,
         type: 'commentary',
@@ -326,6 +360,7 @@ export class TurnLifecycleCoordinator {
         status: 'streaming',
       });
     }
+    this.#notifyTurnUpdated();
     return currentItem;
   }
 
@@ -341,7 +376,10 @@ export class TurnLifecycleCoordinator {
       : null;
 
     if (!currentItem) {
-      this.#activeReasoningId = messageId || `reasoning-${Date.now()}`;
+      const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
+        ? messageId
+        : `reasoning-${this.#turn.id}-${this.#turn.work.length + 1}`;
+      this.#activeReasoningId = generatedId;
       currentItem = appendWorkItem(this.#turn, {
         id: this.#activeReasoningId,
         type: 'reasoning',
@@ -361,6 +399,7 @@ export class TurnLifecycleCoordinator {
         status: 'streaming',
       });
     }
+    this.#notifyTurnUpdated();
     return currentItem;
   }
 
@@ -377,6 +416,19 @@ export class TurnLifecycleCoordinator {
         metadata: { toolName },
       });
       return null;
+    }
+
+    if (this.#activeCommentaryId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeCommentaryId, { status: 'completed' });
+      } catch {}
+      this.#activeCommentaryId = null;
+    }
+    if (this.#activeReasoningId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeReasoningId, { status: 'completed' });
+      } catch {}
+      this.#activeReasoningId = null;
     }
 
     this.touchActivity();
@@ -406,6 +458,7 @@ export class TurnLifecycleCoordinator {
       metadata: { toolName },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -440,6 +493,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: normalizedStatus },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -487,6 +541,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: validStatus, durationMs },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -496,6 +551,19 @@ export class TurnLifecycleCoordinator {
   recordInteractionRequested({ interaction }) {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
+
+    if (this.#activeCommentaryId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeCommentaryId, { status: 'completed' });
+      } catch {}
+      this.#activeCommentaryId = null;
+    }
+    if (this.#activeReasoningId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeReasoningId, { status: 'completed' });
+      } catch {}
+      this.#activeReasoningId = null;
+    }
 
     const item = appendWorkItem(this.#turn, {
       id: interaction.id,
@@ -520,6 +588,7 @@ export class TurnLifecycleCoordinator {
       metadata: { kind: interaction.kind },
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -562,6 +631,7 @@ export class TurnLifecycleCoordinator {
       afterStatus: this.#turn.status,
     });
 
+    this.#notifyTurnUpdated();
     return item;
   }
 
@@ -585,6 +655,7 @@ export class TurnLifecycleCoordinator {
       metadata: { actionId: action.id, kind: action.kind },
     });
 
+    this.#notifyTurnUpdated();
     return action;
   }
 
@@ -600,6 +671,7 @@ export class TurnLifecycleCoordinator {
       disposition: 'accepted',
       metadata: { status: answer.status },
     });
+    this.#notifyTurnUpdated();
     return answer;
   }
 
@@ -636,6 +708,7 @@ export class TurnLifecycleCoordinator {
       afterStatus: this.#turn.status,
     });
 
+    this.#notifyTurnUpdated();
     return true;
   }
 
@@ -805,6 +878,7 @@ export class TurnLifecycleCoordinator {
       cause: effectiveCause,
     });
 
+    this.#notifyTurnUpdated();
     return terminalStatus;
   }
 
