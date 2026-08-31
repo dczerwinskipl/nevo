@@ -176,9 +176,11 @@ tasks:
   - id: codex-neutral-mapping
     order: 9
     file: tasks/09-codex-neutral-mapping.md
-    status: approved
+    status: in-implementation
     depends_on:
       - lifecycle-coordinator-and-timeouts
+    implementation:
+      baseline_revision: 462715bf9eab37c8bc8dff8f4e60989a9c0574dd
 
   - id: antigravity-neutral-mapping
     order: 10

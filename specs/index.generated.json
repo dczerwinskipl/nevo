@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T19:16:34.617Z",
+  "generated": "2026-08-31T19:27:20.716Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -220,10 +220,13 @@
           "id": "codex-neutral-mapping",
           "order": 9,
           "file": "tasks/09-codex-neutral-mapping.md",
-          "status": "approved",
+          "status": "in-implementation",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "462715bf9eab37c8bc8dff8f4e60989a9c0574dd"
+          }
         },
         {
           "id": "antigravity-neutral-mapping",

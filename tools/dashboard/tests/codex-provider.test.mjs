@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
@@ -9,7 +9,9 @@ import {
   CODEX_CAPABILITIES,
   CodexAgentProvider,
   createCodexAgentProvider,
+  mapCodexCommandActions,
 } from '../server/ai/providers/codex/provider.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
 
 function tick() {
@@ -144,9 +146,18 @@ function directTurn(provider, values = {}) {
       emitted.reasoning.push({ text, messageId });
       emitted.timeline.push({ type: 'reasoning.delta', text, id: messageId });
     },
-    emitToolStarted: value => emitted.started.push(value),
-    emitToolUpdated: value => emitted.updated.push(value),
-    emitToolCompleted: value => emitted.completed.push(value),
+    emitToolStarted: value => {
+      emitted.started.push(value);
+      values.emitToolStarted?.(value);
+    },
+    emitToolUpdated: value => {
+      emitted.updated.push(value);
+      values.emitToolUpdated?.(value);
+    },
+    emitToolCompleted: value => {
+      emitted.completed.push(value);
+      values.emitToolCompleted?.(value);
+    },
     emitUsageUpdated: value => emitted.usage.push(value),
     emitEvent: (type, value) => {
       emitted.events.push({ type, ...value });
@@ -862,3 +873,200 @@ test('Codex raw capture: CodexAgentProvider.dispose flushes raw diagnostics and 
   await provider.dispose();
   assert.equal(clientDisposed, true);
 });
+
+test('mapCodexCommandActions maps structured actions to normalized kinds, titles, and targets', () => {
+  const input = [
+    { type: 'read', path: 'src/index.ts', title: 'Read entrypoint' },
+    { type: 'write', path: 'dist/bundle.js', title: 'Write bundle' },
+    { type: 'edit', path: 'package.json', title: 'Edit package manifest' },
+    { type: 'list', path: 'specs/active', title: 'List specs' },
+    { type: 'search', pattern: 'TurnLifecycle', title: 'Search coordinator' },
+    { type: 'execute', command: 'git status', title: 'Check git status' },
+    { type: 'fetch', url: 'https://example.com', title: 'Fetch URL' },
+    { type: 'unknown', command: 'node tools/specs.mjs next' },
+  ];
+
+  const mapped = mapCodexCommandActions(input);
+  assert.equal(mapped.length, 8);
+  assert.equal(mapped[0].kind, 'read');
+  assert.equal(mapped[0].target, 'src/index.ts');
+  assert.equal(mapped[1].kind, 'write');
+  assert.equal(mapped[1].target, 'dist/bundle.js');
+  assert.equal(mapped[2].kind, 'edit');
+  assert.equal(mapped[2].target, 'package.json');
+  assert.equal(mapped[3].kind, 'list');
+  assert.equal(mapped[3].target, 'specs/active');
+  assert.equal(mapped[4].kind, 'search');
+  assert.equal(mapped[4].target, 'TurnLifecycle');
+  assert.equal(mapped[5].kind, 'execute');
+  assert.equal(mapped[5].target, 'git status');
+  assert.equal(mapped[6].kind, 'fetch');
+  assert.equal(mapped[6].target, 'https://example.com');
+  assert.equal(mapped[7].kind, 'other');
+  assert.equal(mapped[7].title, 'node tools/specs.mjs next');
+});
+
+test('compound Codex commandExecution produces one ToolInvocation with ordered nested ToolActions', async () => {
+  const client = standardClient();
+  const provider = createCodexAgentProvider({ client });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-compound-1',
+    provider: 'codex',
+    providerSessionId: 'thread-compound-1',
+    mode: 'edit',
+  });
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const turn = directTurn(provider, {
+    turnId: 'turn-compound-1',
+    providerSessionId: 'thread-compound-1',
+    emitToolStarted: tool => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: tool => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  await waitFor(() => turn.operation, Boolean);
+
+  await client.emitNotification('item/started', {
+    threadId: 'thread-compound-1',
+    turnId: 'codex-turn-1',
+    startedAtMs: 100,
+    item: {
+      id: 'cmd-01',
+      type: 'commandExecution',
+      command: 'node tools/specs.mjs check',
+      cwd: 'D:\\repos\\git\\nevo',
+      commandActions: [
+        { type: 'list', path: 'specs/active', title: 'List active changes' },
+        { type: 'read', path: 'specs/active/ai-session-issues-and-diagnostics/change.yaml', title: 'Read manifest' },
+      ],
+      status: 'inProgress',
+    },
+  });
+
+  await client.emitNotification('item/completed', {
+    threadId: 'thread-compound-1',
+    turnId: 'codex-turn-1',
+    completedAtMs: 450,
+    item: {
+      id: 'cmd-01',
+      type: 'commandExecution',
+      command: 'node tools/specs.mjs check',
+      cwd: 'D:\\repos\\git\\nevo',
+      commandActions: [
+        { type: 'list', path: 'specs/active', title: 'List active changes', status: 'completed' },
+        { type: 'read', path: 'specs/active/ai-session-issues-and-diagnostics/change.yaml', title: 'Read manifest', status: 'completed' },
+      ],
+      status: 'completed',
+      aggregatedOutput: 'Validated 21 changes',
+      exitCode: 0,
+      durationMs: 350,
+    },
+  });
+
+  await completeTurn(client, 'thread-compound-1', 'codex-turn-1');
+  await turn.promise;
+
+  assert.equal(toolsStarted.length, 1);
+  assert.equal(toolsStarted[0].kind, 'command');
+  assert.equal(toolsStarted[0].actions.length, 2);
+  assert.equal(toolsStarted[0].actions[0].kind, 'list');
+  assert.equal(toolsStarted[0].actions[1].kind, 'read');
+
+  assert.equal(toolsCompleted.length, 1);
+  assert.equal(toolsCompleted[0].status, 'completed');
+  assert.equal(toolsCompleted[0].durationMs, 350);
+  assert.equal(toolsCompleted[0].output.output, 'Validated 21 changes');
+  assert.equal(toolsCompleted[0].output.actions.length, 2);
+});
+
+test('Codex evidence replay: maps full diagnostic turn with reasoning, commentary, command, and final answer', async () => {
+  const evidencePath = new URL('./fixtures/evidence/codex-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+
+  const client = standardClient({ threadId: evidence.sessionId, turnId: evidence.turnId });
+  const provider = createCodexAgentProvider({ client });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-codex-evidence',
+    provider: 'codex',
+    providerSessionId: evidence.sessionId,
+    mode: 'edit',
+  });
+
+  const emitted = {
+    text: [],
+    progress: [],
+    reasoning: [],
+    toolsStarted: [],
+    toolsCompleted: [],
+  };
+
+  const turn = provider.startTurn({
+    turnId: 'turn-codex-evidence',
+    providerSessionId: evidence.sessionId,
+    message: 'Run diagnostic check',
+    mode: 'edit',
+    emitTextDelta: (text, messageId) => {
+      emitted.text.push({ text, messageId });
+      coordinator.recordTextDelta(text, messageId);
+    },
+    emitProgressDelta: (text, progressId) => {
+      emitted.progress.push({ text, progressId });
+      coordinator.recordTextDelta(text, progressId);
+    },
+    emitReasoningDelta: (text, messageId) => {
+      emitted.reasoning.push({ text, messageId });
+      coordinator.recordReasoningDelta(text, messageId);
+    },
+    emitToolStarted: tool => {
+      emitted.toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: tool => {
+      emitted.toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  await waitFor(() => client.calls, calls => calls.some(c => c.method === 'turn/start'), 'turn/start');
+
+  // Playback all raw events from captured fixture
+  for (const event of evidence.rawEvents) {
+    await client.emitNotification(event.method, event.params);
+  }
+
+  await turn;
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(snapshot.provider, 'codex');
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+
+  // Check that tools were mapped as independent invocations with correct outcomes
+  assert.equal(emitted.toolsStarted.length, 2);
+  assert.equal(emitted.toolsCompleted.length, 2);
+  assert.equal(emitted.toolsCompleted[0].status, 'failed'); // exec-01 failed with exit code 1
+  assert.equal(emitted.toolsCompleted[0].durationMs, 1200);
+  assert.equal(emitted.toolsCompleted[1].status, 'completed'); // exec-02 succeeded
+  assert.equal(emitted.toolsCompleted[1].durationMs, 350);
+
+  // Check that commentary and final answer were recorded in Work
+  const commentaryItems = snapshot.work.filter(w => w.type === 'commentary');
+  assert.ok(commentaryItems.length >= 2, 'Expected commentary items before each tool execution');
+
+  // Verify no private Codex IDs or raw payloads leaked in public model
+  const serialized = JSON.stringify(snapshot);
+  assert.ok(!serialized.includes('rawPayload'));
+  assert.ok(!serialized.includes('providerRequestId'));
+});
+
