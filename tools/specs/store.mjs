@@ -51,6 +51,7 @@ export async function loadChangeAsync(slug, baseDir = ACTIVE_DIR) {
 export function listChanges(dir = ACTIVE_DIR) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
+    .sort((a, b) => a.localeCompare(b))
     .filter(name => {
       const full = join(dir, name);
       return statSync(full).isDirectory() && existsSync(join(full, 'change.yaml'));
@@ -66,6 +67,7 @@ export async function listChangesAsync(dir = ACTIVE_DIR) {
   } catch {
     return [];
   }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   const results = await Promise.all(
     entries
       .filter(entry => entry.isDirectory())
