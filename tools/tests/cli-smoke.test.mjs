@@ -42,7 +42,7 @@ describe('tools/specs.mjs CLI smoke tests', () => {
 
   test('check exits 0 when generated indexes are current', () => {
     const r = run(SPECS_CLI, ['check']);
-    assert.equal(r.code, 0);
+    assert.equal(r.code, 0, `check failed:\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
     assert.match(r.stdout, /current/);
   });
 
