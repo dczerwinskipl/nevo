@@ -769,8 +769,18 @@ export class AgentTurnRuntime {
     }
     const transcriptFlushes = [];
     for (const state of this.#turns.values()) {
-      if (this.#isTerminal(state)) continue;
-      if (state.coordinator.status.status === 'requiresAttention' && state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation') continue;
+      if (this.#isTerminal(state)) {
+        if (state.provider && state.providerSessionId && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        }
+        continue;
+      }
+      if (state.coordinator.status.status === 'requiresAttention' && state.coordinator.pendingInteraction?.resumePolicy !== 'live-operation') {
+        if (state.provider && state.providerSessionId && this.transcriptCache) {
+          transcriptFlushes.push(this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {}));
+        }
+        continue;
+      }
       state.abortController.abort();
       transcriptFlushes.push(
         this.#finish(
@@ -780,6 +790,9 @@ export class AgentTurnRuntime {
           { outcome: 'interrupted', initiator: 'shutdown' },
         ),
       );
+    }
+    if (this.transcriptCache?.flushAll) {
+      transcriptFlushes.push(this.transcriptCache.flushAll().catch(() => {}));
     }
     this.#shutdownPromise = Promise.all(transcriptFlushes).then(() => this.registry?.dispose?.());
     return this.#shutdownPromise;
@@ -810,11 +823,12 @@ export class AgentTurnRuntime {
       this.#turns.delete(evicted);
       this.#eventStream.releaseTurn(evicted);
     }
+    let flushPromise = Promise.resolve();
     if (this.transcriptCache && state.provider && state.providerSessionId) {
-      this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+      flushPromise = this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
     }
-    state.coordinator.flushTrace().catch(() => {});
-    return Promise.resolve();
+    const tracePromise = state.coordinator.flushTrace().catch(() => {});
+    return Promise.all([flushPromise, tracePromise]).then(() => {});
   }
 
   #emit(state, type, data = {}) {

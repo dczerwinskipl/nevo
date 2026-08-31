@@ -3,8 +3,9 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
+import { projectChatV1 } from '../server/ai/contracts.mjs';
 import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
@@ -1288,6 +1289,205 @@ test('Task 07: API and SSE serialization contain no provider-private IDs or diag
   } finally {
     await closeServer(server);
   }
+});
+
+test('Task 07: Protocol silence timeout terminalization preserves canonical state across reload and restart reconciliation', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-timeout-term-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const silentProvider = {
+    descriptor: { id: 'silent', label: 'Silent Provider', capabilities: { streaming: true, cancelTurn: true } },
+    async startTurn({ signal }) {
+      // Simulate hung provider that never resolves until aborted
+      return new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('Turn aborted')), { once: true });
+      });
+    },
+    async cancelTurn() {},
+  };
+  const registry = createAgentProviderRegistry([silentProvider]);
+  let currentTime = 1000;
+  const clock = () => new Date(currentTime);
+
+  const turnRuntime = createAgentTurnRuntime({
+    registry,
+    transcriptCache,
+    idleTimeoutMs: 50,
+    idleCheckIntervalMs: 10,
+    clock,
+  });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    const { turnId } = await service.startTurn('silent', 'sess-silence-test', {
+      prompt: 'Hang and timeout',
+    });
+
+    // Advance time past the idle timeout window and trigger check
+    currentTime += 100;
+    await new Promise(r => setTimeout(r, 60));
+
+    // 1. In-memory turn is terminal/failed with timeout cause
+    const inMemoryTurn = turnRuntime.getCanonicalTurn(turnId);
+    assert.equal(inMemoryTurn.status.status, 'terminal');
+    assert.equal(inMemoryTurn.status.outcome, 'failed');
+    assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
+
+    // 2. Persisted state on disk is exactly the same terminal state
+    await transcriptCache.flush('silent', 'sess-silence-test');
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('silent', 'sess-silence-test');
+    assert.equal(persisted.turns.length, 1);
+    assert.equal(persisted.turns[0].status.status, 'terminal');
+    assert.equal(persisted.turns[0].status.outcome, 'failed');
+    assert.equal(persisted.turns[0].status.cause, 'timeout/protocol-silence');
+
+    // 3. Restart reconciliation on fresh runtime leaves terminal timeout turn untouched
+    const freshRuntime = createAgentTurnRuntime({ registry, transcriptCache: diskCache });
+    const { reconciledCount } = await freshRuntime.reconcileOrphanedTurns();
+    assert.equal(reconciledCount, 0);
+
+    const afterRecon = await diskCache.getTranscript('silent', 'sess-silence-test');
+    assert.equal(afterRecon.turns[0].status.outcome, 'failed');
+    assert.equal(afterRecon.turns[0].status.cause, 'timeout/protocol-silence');
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: Terminal persistence flush is awaitable and persists before graceful shutdown finishes', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-term-flush-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 50 });
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    const { turnId } = await service.startTurn('mock', 'sess-term-flush', {
+      prompt: 'Active turn to be interrupted on shutdown',
+    });
+    // Do not wait for turn to complete; shut down immediately
+    await turnRuntime.shutdown();
+
+    // Fresh transcript cache reading directly from disk
+    const freshCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const transcript = await freshCache.getTranscript('mock', 'sess-term-flush');
+    assert.equal(transcript.turns.length, 1);
+    assert.equal(transcript.turns[0].id, turnId);
+    assert.equal(transcript.turns[0].status.status, 'terminal');
+    assert.equal(transcript.turns[0].status.outcome, 'interrupted');
+    assert.ok(['turn_interrupted', 'AI_TURN_INTERRUPTED'].includes(transcript.turns[0].status.cause));
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: Single V1 projector produces identical assistant message across all V1 read paths for interrupted turn', async () => {
+  const interruptedTurn = {
+    id: 'turn-int-proj-1',
+    providerSessionId: 'sess-proj',
+    mode: 'agent',
+    status: {
+      status: 'terminal',
+      outcome: 'interrupted',
+      initiator: 'shutdown',
+      cause: 'turn_interrupted',
+      error: { message: 'Interrupted by server restart.' },
+    },
+    work: [
+      { id: 'c1', type: 'commentary', text: 'Partial text before crash', status: 'completed' },
+    ],
+    startedAt: '2026-08-31T10:00:00.000Z',
+    completedAt: '2026-08-31T10:00:05.000Z',
+  };
+
+  // 1. Direct projectChatV1 call
+  const fromDirectProjector = projectChatV1([interruptedTurn]);
+
+  // 2. TranscriptCache getTranscript() messages
+  const cacheDir = join(tmpdir(), `nevo-test-proj-v1-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  transcriptCache.recordCanonicalTurn('mock', 'sess-proj', interruptedTurn);
+  await transcriptCache.flush('mock', 'sess-proj');
+
+  const transcript = await transcriptCache.getTranscript('mock', 'sess-proj');
+  const fromCache = transcript.messages;
+
+  // 3. AgentSessionService listMessages()
+  const provider = createMockAgentProvider({ specId });
+  const registry = createAgentProviderRegistry([provider]);
+  const service = createAgentSessionService({ registry, transcriptCache });
+  const fromService = await service.listMessages('mock', 'sess-proj');
+
+  assert.deepEqual(fromDirectProjector, fromCache);
+  assert.deepEqual(fromDirectProjector, fromService);
+  assert.equal(fromDirectProjector[0].text, 'Interrupted by server restart.');
+
+  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+});
+
+test('Task 07: Explicit schema validation rejects unsupported schema version as corrupt/unavailable', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-unsupported-schema-${randomUUID()}`);
+  const filePath = join(cacheDir, 'mock', 'sess-unsupported.json');
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify({
+    schemaVersion: 99,
+    provider: 'mock',
+    providerSessionId: 'sess-unsupported',
+    turns: [{ id: 't1' }],
+  }), 'utf-8');
+
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const transcript = await transcriptCache.getTranscript('mock', 'sess-unsupported');
+
+  assert.equal(transcript.health, 'corrupt');
+  assert.ok(transcript.error.includes('Unsupported schema version: 99'));
+
+  const provider = createMockAgentProvider({ specId });
+  const registry = createAgentProviderRegistry([provider]);
+  const service = createAgentSessionService({ registry, transcriptCache });
+
+  const session = await service.getSessionDetails('mock', 'sess-unsupported');
+  assert.equal(session.status, 'unavailable');
+  assert.equal(session.readiness.status, 'unavailable');
+  assert.equal(session.readiness.reason, 'persistence_corrupt');
+
+  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+});
+
+test('Task 07: Per-session write serialization guarantees newest snapshot wins', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-write-ser-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  // Rapid fire updates to canonical Turn snapshots
+  const turnV1 = { id: 'turn-seq', providerSessionId: 'sess-ser', status: { status: 'active' }, work: [], count: 1 };
+  const turnV2 = { id: 'turn-seq', providerSessionId: 'sess-ser', status: { status: 'active' }, work: [], count: 2 };
+  const turnV3 = { id: 'turn-seq', providerSessionId: 'sess-ser', status: { status: 'terminal', outcome: 'completed' }, work: [], count: 3 };
+
+  transcriptCache.recordCanonicalTurn('mock', 'sess-ser', turnV1);
+  const p1 = transcriptCache.flush('mock', 'sess-ser');
+
+  transcriptCache.recordCanonicalTurn('mock', 'sess-ser', turnV2);
+  const p2 = transcriptCache.flush('mock', 'sess-ser');
+
+  transcriptCache.recordCanonicalTurn('mock', 'sess-ser', turnV3);
+  const p3 = transcriptCache.flush('mock', 'sess-ser');
+
+  await Promise.all([p1, p2, p3]);
+
+  // Read back directly from disk
+  const freshCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const diskState = await freshCache.getTranscript('mock', 'sess-ser');
+
+  assert.equal(diskState.turns.length, 1);
+  assert.equal(diskState.turns[0].count, 3);
+  assert.equal(diskState.turns[0].status.outcome, 'completed');
+
+  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
 });
 
 

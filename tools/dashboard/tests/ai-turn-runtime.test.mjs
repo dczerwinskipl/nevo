@@ -1081,6 +1081,7 @@ test('protocol silence watchdog: suppressed during long tool execution and pendi
   check = await coordinator.checkProtocolSilence(pastTime + 400_000, 300_000);
   assert.equal(check.fired, true);
   assert.equal(check.cause, 'timeout/protocol-silence');
+  await coordinator.settleTerminal({ outcome: 'failed', cause: check.cause, initiator: 'runtime' });
   assert.equal(coordinator.isTerminal, true);
   assert.equal(coordinator.status.status, 'terminal');
   assert.equal(coordinator.status.outcome, 'failed');
@@ -1174,6 +1175,7 @@ test('timeout versus user cancellation race: timeout persists failed with timeou
   const past = Date.now() + 600_000;
   const timeoutResult = await coordinator.checkProtocolSilence(past, 300_000);
   assert.equal(timeoutResult.fired, true);
+  await coordinator.settleTerminal({ outcome: 'failed', cause: timeoutResult.cause, initiator: 'runtime' });
   assert.equal(coordinator.status.status, 'terminal');
   assert.equal(coordinator.status.outcome, 'failed');
   assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
@@ -1498,6 +1500,7 @@ test('regression: terminal arbitration: timeout suppresses late user cancel and 
   // 1. Timeout fires
   const check = coordinator.checkProtocolSilence(Date.now() + 600_000, 300_000);
   assert.equal(check.fired, true);
+  coordinator.settleTerminal({ outcome: 'failed', cause: check.cause, initiator: 'runtime' });
   assert.equal(coordinator.status.status, 'terminal');
   assert.equal(coordinator.status.outcome, 'failed');
   assert.equal(coordinator.status.cause, 'timeout/protocol-silence');

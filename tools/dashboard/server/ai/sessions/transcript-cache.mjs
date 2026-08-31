@@ -54,6 +54,7 @@ export class SessionTranscriptCacheService {
   #inMemory = new Map();
   #dirty = new Set();
   #flushTimers = new Map();
+  #writeQueues = new Map();
   #flushDebounceMs;
 
   constructor({ baseDir = resolve(process.cwd(), '.nevo-ai-local/transcripts'), flushDebounceMs = 50 } = {}) {
@@ -206,6 +207,32 @@ export class SessionTranscriptCacheService {
       try {
         const data = await readFile(filePath, 'utf-8');
         const parsed = JSON.parse(data);
+
+        // Explicit canonical schema and version validation
+        const isUnsupportedSchema = parsed?.schemaVersion !== 2;
+        const isMalformedStructure = typeof parsed !== 'object' || parsed === null ||
+          typeof parsed.provider !== 'string' ||
+          typeof parsed.providerSessionId !== 'string' ||
+          (parsed.turns !== undefined && !Array.isArray(parsed.turns));
+
+        if (isUnsupportedSchema || isMalformedStructure) {
+          const reason = isUnsupportedSchema
+            ? `Unsupported schema version: ${parsed?.schemaVersion}`
+            : 'Malformed canonical transcript structure';
+          const invalidState = {
+            schemaVersion: parsed?.schemaVersion ?? 2,
+            provider,
+            providerSessionId,
+            turns: [],
+            lastEventSeq: 0,
+            health: 'corrupt',
+            error: reason,
+            updatedAt: new Date().toISOString(),
+          };
+          this.#inMemory.set(key, invalidState);
+          return structuredClone(invalidState);
+        }
+
         if (!Array.isArray(parsed.turns)) parsed.turns = [];
         parsed.health = parsed.health || 'healthy';
         this.#inMemory.set(key, parsed);
@@ -313,7 +340,7 @@ export class SessionTranscriptCacheService {
     }
   }
 
-  async flush(provider, providerSessionId) {
+  flush(provider, providerSessionId) {
     const key = this.#key(provider, providerSessionId);
     const timer = this.#flushTimers.get(key);
     if (timer) {
@@ -321,32 +348,45 @@ export class SessionTranscriptCacheService {
       this.#flushTimers.delete(key);
     }
 
-    const state = this.#inMemory.get(key);
-    if (!state) return;
+    const previousPromise = this.#writeQueues.get(key) || Promise.resolve();
+    const currentPromise = previousPromise
+      .catch(() => {})
+      .then(async () => {
+        const state = this.#inMemory.get(key);
+        if (!state) return;
 
-    this.#dirty.delete(key);
+        this.#dirty.delete(key);
 
-    const filePath = this.#getFilePath(provider, providerSessionId);
-    await mkdir(dirname(filePath), { recursive: true });
+        const filePath = this.#getFilePath(provider, providerSessionId);
+        await mkdir(dirname(filePath), { recursive: true });
 
-    const content = JSON.stringify(state, null, 2);
-    const tempPath = `${filePath}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, content, 'utf-8');
-    try {
-      await rename(tempPath, filePath);
-    } catch (renameErr) {
-      if (process.platform === 'win32') {
-        await new Promise(r => setTimeout(r, 10));
+        const content = JSON.stringify(state, null, 2);
+        const tempPath = `${filePath}.${randomUUID()}.tmp`;
+        await writeFile(tempPath, content, 'utf-8');
         try {
           await rename(tempPath, filePath);
-        } catch {
-          await writeFile(filePath, content, 'utf-8');
-          await unlink(tempPath).catch(() => {});
+        } catch (renameErr) {
+          if (process.platform === 'win32') {
+            await new Promise(r => setTimeout(r, 10));
+            try {
+              await rename(tempPath, filePath);
+            } catch {
+              await writeFile(filePath, content, 'utf-8');
+              await unlink(tempPath).catch(() => {});
+            }
+          } else {
+            throw renameErr;
+          }
         }
-      } else {
-        throw renameErr;
-      }
-    }
+      })
+      .finally(() => {
+        if (this.#writeQueues.get(key) === currentPromise) {
+          this.#writeQueues.delete(key);
+        }
+      });
+
+    this.#writeQueues.set(key, currentPromise);
+    return currentPromise;
   }
 
   async flushAll() {

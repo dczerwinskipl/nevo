@@ -774,31 +774,16 @@ export class TurnLifecycleCoordinator {
     // 2. Deadline evaluation
     const elapsedSinceActivity = now - this.#lastQualifyingActivityAt;
     if (elapsedSinceActivity >= timeoutMs) {
-      this.#isTerminal = true;
-      this.#closeDanglingTools('failed', 'timeout/protocol-silence');
-      if (this.#pendingInteractionId) {
-        try {
-          updateWorkItem(this.#turn, this.#pendingInteractionId, { status: 'denied' });
-        } catch {}
-        this.#pendingInteractionId = null;
-      }
-      setTurnStatus(this.#turn, {
-        status: 'terminal',
-        outcome: 'failed',
-        initiator: 'runtime',
-        cause: 'timeout/protocol-silence',
-      });
-
       this.#tracer?.record?.({
         source: 'coordinator',
         event: 'timeout.fired',
         disposition: 'accepted',
         initiator: 'runtime',
         cause: 'timeout/protocol-silence',
-        afterStatus: this.#turn.status,
         timeout: {
           kind: 'protocol-silence',
           deadlineMs: timeoutMs,
+          elapsedMs: elapsedSinceActivity,
         },
       });
 
