@@ -199,11 +199,23 @@ tasks:
   - id: antigravity-neutral-mapping
     order: 10
     file: tasks/10-antigravity-neutral-mapping.md
-    status: in-implementation
+    status: verified
     depends_on:
       - lifecycle-coordinator-and-timeouts
     implementation:
       baseline_revision: 203d6e09c568c61beac043943934dced66ff19fe
+      review_revision: 8933bd1cf050a244635aff728749645452ec7c48
+      changed_paths:
+        - tools/dashboard/server/ai/providers/antigravity/provider.mjs
+        - tools/dashboard/tests/antigravity-provider.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 24935212e3fb56591990d38187c3922525d2080357121ca3ba552bfe86891eba
+      revision: 8933bd1cf050a244635aff728749645452ec7c48
+      commands:
+        - command: node --test tools/dashboard/tests/antigravity-provider.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: semantic-work-chat-v2
     order: 11
