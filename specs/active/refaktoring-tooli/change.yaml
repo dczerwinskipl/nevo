@@ -510,50 +510,156 @@ tasks:
   - id: dashboard-fastify-http-adapter-migration
     order: 9
     file: tasks/09-dashboard-fastify-http-adapter-migration.md
-    status: in-implementation
+    status: verified
     depends_on:
       - dashboard-server-runtime-and-routes
       - e2e-verification-and-guidelines-audit
     implementation:
       baseline_revision: 50e7b07aa452a8ca451a98ae98a66b96316de7d9
-      review_revision: 82964ca447cd37b62477f3326ded55786002f9b9
+      review_revision: 14904c0714ebfdc0ea3071c67f81cc874fe9a807
       changed_paths:
         - tools/dashboard/package-lock.json
         - tools/dashboard/package.json
+        - tools/dashboard/server/ai-adapters-config.mjs
         - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/ai/access-policy.mjs
+        - tools/dashboard/server/ai/contracts.mjs
+        - tools/dashboard/server/ai/providers/antigravity/provider.mjs
+        - tools/dashboard/server/ai/providers/claude/continuation-store.mjs
+        - tools/dashboard/server/ai/providers/claude/hook.mjs
+        - tools/dashboard/server/ai/providers/claude/provider.mjs
+        - tools/dashboard/server/ai/providers/codex/app-server-client.mjs
+        - tools/dashboard/server/ai/providers/codex/protocol-baseline.json
+        - tools/dashboard/server/ai/providers/codex/provider.mjs
+        - tools/dashboard/server/ai/providers/codex/verify-schema.mjs
+        - tools/dashboard/server/ai/providers/config.mjs
+        - tools/dashboard/server/ai/providers/mock/provider.mjs
+        - tools/dashboard/server/ai/providers/process-termination.mjs
+        - tools/dashboard/server/ai/providers/raw-capture.mjs
+        - tools/dashboard/server/ai/providers/registry.mjs
+        - tools/dashboard/server/ai/providers/routes.mjs
+        - tools/dashboard/server/ai/routes.mjs
+        - tools/dashboard/server/ai/sessions/binding-service.mjs
+        - tools/dashboard/server/ai/sessions/events/routes.mjs
+        - tools/dashboard/server/ai/sessions/http.mjs
+        - tools/dashboard/server/ai/sessions/interactions/routes.mjs
+        - tools/dashboard/server/ai/sessions/routes.mjs
+        - tools/dashboard/server/ai/sessions/service.mjs
+        - tools/dashboard/server/ai/sessions/transcript-cache.mjs
+        - tools/dashboard/server/ai/sessions/turns/routes.mjs
+        - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
         - tools/dashboard/server/app.mjs
-        - tools/dashboard/server/dev.mjs
-        - tools/dashboard/server/http-compat.mjs
+        - tools/dashboard/server/health/routes.mjs
         - tools/dashboard/server/http-utils.mjs
         - tools/dashboard/server/index.mjs
+        - tools/dashboard/server/infrastructure/http.mjs
+        - tools/dashboard/server/infrastructure/operation-runtime.mjs
+        - tools/dashboard/server/infrastructure/paths.mjs
+        - tools/dashboard/server/operations/routes.mjs
+        - tools/dashboard/server/providers/service.mjs
+        - tools/dashboard/server/pull-requests/change-view-config.mjs
+        - tools/dashboard/server/pull-requests/github.mjs
+        - tools/dashboard/server/pull-requests/routes.mjs
+        - tools/dashboard/server/pull-requests/service.mjs
         - tools/dashboard/server/routes/ai.mjs
-        - tools/dashboard/server/routes/ai/events.mjs
-        - tools/dashboard/server/routes/ai/index.mjs
-        - tools/dashboard/server/routes/ai/interactions.mjs
-        - tools/dashboard/server/routes/ai/providers.mjs
-        - tools/dashboard/server/routes/ai/sessions.mjs
-        - tools/dashboard/server/routes/ai/shared.mjs
-        - tools/dashboard/server/routes/ai/turns.mjs
         - tools/dashboard/server/routes/events.mjs
         - tools/dashboard/server/routes/health.mjs
         - tools/dashboard/server/routes/operations.mjs
         - tools/dashboard/server/routes/pull-requests.mjs
         - tools/dashboard/server/routes/specs.mjs
+        - tools/dashboard/server/specs/actions.mjs
+        - tools/dashboard/server/specs/data.mjs
+        - tools/dashboard/server/specs/events.mjs
+        - tools/dashboard/server/specs/http-utils.mjs
+        - tools/dashboard/server/specs/paths.mjs
+        - tools/dashboard/server/specs/routes.mjs
+        - tools/dashboard/server/specs/service.mjs
+        - tools/dashboard/server/specs/spec-sections.mjs
+        - tools/dashboard/server/specs/status-stages.mjs
+        - tools/dashboard/server/specs/watcher.mjs
+        - tools/dashboard/server/watcher.mjs
+        - tools/dashboard/tests/actions.test.mjs
+        - tools/dashboard/tests/agent-event-source.test.mjs
+        - tools/dashboard/tests/agent-session-header.test.mjs
+        - tools/dashboard/tests/agent-session-runtime-state.test.mjs
+        - tools/dashboard/tests/agent-sessions-feature-boundary.test.mjs
+        - tools/dashboard/tests/agent-turn-transport.test.mjs
+        - tools/dashboard/tests/ai-adapters-config.test.mjs
         - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-contracts.test.mjs
+        - tools/dashboard/tests/ai-custom-root.test.mjs
+        - tools/dashboard/tests/ai-providers-config.test.mjs
         - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/ai-turn-runtime.test.mjs
+        - tools/dashboard/tests/antigravity-provider.test.mjs
+        - tools/dashboard/tests/binding-service.test.mjs
+        - tools/dashboard/tests/change-view-config.test.mjs
+        - tools/dashboard/tests/changes-grouping.test.mjs
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/claude-deferral-discovery.test.mjs
+        - tools/dashboard/tests/claude-hook.test.mjs
+        - tools/dashboard/tests/claude-interaction.test.mjs
+        - tools/dashboard/tests/claude-provider.test.mjs
+        - tools/dashboard/tests/codex-app-server-client.test.mjs
+        - tools/dashboard/tests/codex-provider.test.mjs
+        - tools/dashboard/tests/codex-schema-compat.test.mjs
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/create-agent-session-helpers.test.mjs
+        - tools/dashboard/tests/data.test.mjs
+        - tools/dashboard/tests/diff-hydration-queue.test.mjs
         - tools/dashboard/tests/events.test.mjs
         - tools/dashboard/tests/fastify-architecture.test.mjs
         - tools/dashboard/tests/fastify-migration.test.mjs
+        - tools/dashboard/tests/fixtures/claude/ask-user-question-deferred.json
+        - tools/dashboard/tests/fixtures/claude/ask-user-question-resumed.json
+        - tools/dashboard/tests/fixtures/claude/parallel-tool-calls.json
+        - tools/dashboard/tests/fixtures/claude/permission-prompt-deferred.json
+        - tools/dashboard/tests/fixtures/codex-app-server/provider-global-notifications.jsonl
         - tools/dashboard/tests/health.test.mjs
+        - tools/dashboard/tests/helpers/ai-test-app.mjs
+        - tools/dashboard/tests/message-collapse.test.mjs
+        - tools/dashboard/tests/mock-provider.test.mjs
+        - tools/dashboard/tests/network-config.test.mjs
+        - tools/dashboard/tests/operations-ui.test.mjs
         - tools/dashboard/tests/operations.test.mjs
+        - tools/dashboard/tests/process-termination.test.mjs
+        - tools/dashboard/tests/pull-requests-service.test.mjs
         - tools/dashboard/tests/pull-requests.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/router-navigation.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
         - tools/dashboard/tests/server.test.mjs
+        - tools/dashboard/tests/session-details.test.mjs
+        - tools/dashboard/tests/session-readiness.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
         - tools/dashboard/tests/spec-create-api.test.mjs
+        - tools/dashboard/tests/spec-create-helpers.test.mjs
+        - tools/dashboard/tests/spec-detail-documentation-projection.test.mjs
+        - tools/dashboard/tests/spec-watcher.test.mjs
+        - tools/dashboard/tests/spec-workflow-actions.test.mjs
+        - tools/dashboard/tests/specs-events.test.mjs
+        - tools/dashboard/tests/specs-paths-resolver.test.mjs
+        - tools/dashboard/tests/specs-paths.test.mjs
         - tools/dashboard/tests/specs.test.mjs
+        - tools/dashboard/tests/status-stages.test.mjs
+        - tools/dashboard/tests/theme-visual-cleanup.test.mjs
+        - tools/dashboard/tests/tool-activity-labels.test.mjs
+        - tools/dashboard/tests/transcript-message-layout.test.mjs
+        - tools/dashboard/tests/transcript-projection.test.mjs
+        - tools/dashboard/tests/turn-event-stream.test.mjs
+        - tools/dashboard/tests/turn-recovery.test.mjs
+        - tools/dashboard/tests/turn-work-correlation.test.mjs
+        - tools/dashboard/tests/turn-work-summary.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/tests/wait-for-operation-terminal.test.mjs
+        - tools/dashboard/tests/watcher.test.mjs
       worktree_patch_fingerprint: null
     self_check:
       fingerprint: ac444c6e1b81251ddce93c62551be48a0f0e11be05d1eaff68b0a46352345a91
-      revision: 82964ca447cd37b62477f3326ded55786002f9b9
+      revision: 14904c0714ebfdc0ea3071c67f81cc874fe9a807
       commands:
         - command: npm --prefix tools/dashboard test
           exit_code: 0
