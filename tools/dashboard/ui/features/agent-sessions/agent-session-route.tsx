@@ -1,11 +1,10 @@
-import { useNavigate, useRouter } from '@tanstack/react-router';
+import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { StatusCard } from '@/components/ui/status-card';
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { useSpecificationIndex } from '@/features/specifications/queries';
-import { agentSessionRoute } from '@/router-tree';
 import type { AgentSession } from './types';
 import { useAgentSessions } from './queries';
 import { AgentSessionPage } from './agent-session-page';
@@ -14,15 +13,14 @@ import { AgentSessionPage } from './agent-session-page';
  * Agent Session route (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
  * resolves the owning specification (via the Specifications feature's own index
  * query — AgentSession belongs to / is attached to a Specification) and the
- * session itself, then hands off to `AgentSessionPage`. The central router only
- * binds this component to `agentSessionRoute` — it owns no Agent Session logic itself.
+ * session itself, then hands off to `AgentSessionPage`.
  */
 export function AgentSessionRoute() {
-  const params = agentSessionRoute.useParams();
-  const source = params.source as 'active' | 'archive';
-  const slug = params.slug;
-  const provider = params.provider;
-  const providerSessionId = params.providerSessionId;
+  const params = useParams({ strict: false });
+  const source = (params.source || 'active') as 'active' | 'archive';
+  const slug = params.slug!;
+  const provider = params.provider!;
+  const providerSessionId = params.providerSessionId!;
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
   const navigate = useNavigate();

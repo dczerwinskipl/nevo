@@ -380,3 +380,83 @@ test('classifyUpstreamError maps timeouts to 504 and connection drops to 503', (
   const genericErr = classifyUpstreamError(new Error('API error 500'));
   assert.equal(genericErr.status, 502);
 });
+
+test('createPullRequestService: custom root relocates specs directory without falling back to real repo', async () => {
+  const tempRoot = join(tmpdir(), `nevo-pr-root-test-${Date.now()}`);
+  const activeDir = join(tempRoot, 'specs', 'active');
+  const specDir = join(activeDir, 'custom-spec');
+  mkdirSync(specDir, { recursive: true });
+
+  writeFileSync(
+    join(specDir, 'change.yaml'),
+    'id: custom-spec\npull_requests:\n  - provider: github\n    base_url: https://github.example.com\n    repository: owner/repo\n    number: 99\n',
+  );
+
+  const mockProvider = {
+    id: 'github',
+    load: async (rootPath, ref) => {
+      assert.equal(rootPath, tempRoot, 'Provider must receive resolved rootPath');
+      return { availability: 'available', number: ref.number, title: 'Custom root PR' };
+    },
+    loadFiles: async (rootPath) => {
+      assert.equal(rootPath, tempRoot);
+      return [];
+    },
+    loadFileDiffs: async (rootPath) => {
+      assert.equal(rootPath, tempRoot);
+      return [];
+    },
+    loadFullDiff: async (rootPath) => {
+      assert.equal(rootPath, tempRoot);
+      return { diff: '' };
+    },
+  };
+
+  try {
+    const service = createPullRequestService({
+      provider: mockProvider,
+      root: tempRoot,
+    });
+
+    const result = await service.loadPullRequests({ source: 'active', slug: 'custom-spec' });
+    assert.ok(result);
+    assert.equal(result.slug, 'custom-spec');
+    assert.equal(result.pullRequests.length, 1);
+    assert.equal(result.pullRequests[0].number, 99);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('createPullRequestService: explicit activeDir/archiveDir overrides override root-derived directories', async () => {
+  const tempRoot = join(tmpdir(), `nevo-pr-override-root-${Date.now()}`);
+  const explicitActive = join(tmpdir(), `nevo-pr-explicit-active-${Date.now()}`);
+  const specDir = join(explicitActive, 'override-spec');
+  mkdirSync(specDir, { recursive: true });
+
+  writeFileSync(
+    join(specDir, 'change.yaml'),
+    'id: override-spec\npull_requests:\n  - provider: github\n    base_url: https://github.example.com\n    repository: owner/repo\n    number: 101\n',
+  );
+
+  const mockProvider = {
+    id: 'github',
+    load: async (rootPath, ref) => ({ availability: 'available', number: ref.number }),
+  };
+
+  try {
+    const service = createPullRequestService({
+      provider: mockProvider,
+      root: tempRoot,
+      activeDir: explicitActive,
+    });
+
+    const result = await service.loadPullRequests({ source: 'active', slug: 'override-spec' });
+    assert.ok(result);
+    assert.equal(result.slug, 'override-spec');
+    assert.equal(result.pullRequests[0].number, 101);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(explicitActive, { recursive: true, force: true });
+  }
+});

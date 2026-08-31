@@ -29,7 +29,7 @@ export function SpecificationConsoleLayout() {
 
   const mode: SpecificationSource = useMemo(() => {
     const specMatch = matches.find((m) =>
-      m.routeId === '/specification-layout/specs/$source/$slug'
+      m.routeId.includes('specs/$source/$slug')
     );
     if (specMatch) {
       const source = (specMatch.params as { source?: string }).source;
@@ -43,7 +43,7 @@ export function SpecificationConsoleLayout() {
 
   const selectedSlug = useMemo(() => {
     const specMatch = matches.find((m) =>
-      m.routeId === '/specification-layout/specs/$source/$slug'
+      m.routeId.includes('specs/$source/$slug')
     );
     return specMatch ? ((specMatch.params as { slug?: string }).slug ?? null) : null;
   }, [matches]);

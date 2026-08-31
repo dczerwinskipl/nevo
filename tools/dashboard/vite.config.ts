@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -9,7 +10,17 @@ const uiRoot = resolve(dashboardRoot, 'ui');
 
 export default defineConfig({
   root: uiRoot,
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    TanStackRouterVite({
+      routesDirectory: resolve(uiRoot, 'routes'),
+      generatedRouteTree: resolve(uiRoot, 'routeTree.gen.ts'),
+      target: 'react',
+      autoCodeSplitting: false,
+      addExtensions: true,
+    }),
+    react(),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       '@': uiRoot,
@@ -27,11 +38,6 @@ export default defineConfig({
     },
   },
   build: {
-    // `root` is now `ui/` — outDir must be given relative to the dashboard
-    // package root explicitly (an absolute path), otherwise Vite would
-    // resolve the default `'dist'` relative to `ui/` and nest the build
-    // output at `ui/dist` instead of the package-level `dist/` the
-    // production server (index.mjs) actually serves.
     outDir: resolve(dashboardRoot, 'dist'),
     emptyOutDir: true,
     sourcemap: true,

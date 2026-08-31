@@ -30,8 +30,10 @@ function rejectUnknownSource(reply, source) {
 export default async function pullRequestRoutes(fastify, { config = {}, provider } = {}) {
   const service = createPullRequestService({
     provider: provider ?? createGitHubPullRequestProvider(),
-    activeDir: config.activeDir,
     root: config.root,
+    specsDir: config.specsDir,
+    activeDir: config.activeDir,
+    archiveDir: config.archiveDir,
   });
 
   fastify.get('/api/specs/:source/:slug/pull-requests', async (request, reply) => {

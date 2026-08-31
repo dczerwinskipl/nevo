@@ -1,4 +1,5 @@
-import { ACTIVE_DIR, ARCHIVE_DIR, loadChange } from '../../../specs/store.mjs';
+import { resolve } from 'node:path';
+import { loadChange } from '../../../specs/store.mjs';
 import { REPOSITORY_ROOT } from '../infrastructure/paths.mjs';
 import { loadChangeViewConfig } from './change-view-config.mjs';
 import { createGitHubPullRequestProvider } from './github.mjs';
@@ -49,13 +50,23 @@ function resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir 
  * provider's `id` (e.g. a hypothetical future non-GitHub reference) still
  * degrades to `{ availability: 'unsupported' }` per-reference, exactly as
  * the previous registry-backed lookup did.
+ *
+ * Filesystem context derives hierarchically from `root`:
+ * `root` -> `specsDir` (<root>/specs) -> `activeDir` / `archiveDir`.
+ * Explicit leaf overrides (`activeDir`, `archiveDir`) remain supported.
  */
 export function createPullRequestService({
   provider = createGitHubPullRequestProvider(),
-  activeDir = ACTIVE_DIR,
-  archiveDir = ARCHIVE_DIR,
-  root = REPOSITORY_ROOT,
+  root,
+  specsDir,
+  activeDir,
+  archiveDir,
 } = {}) {
+  const resolvedRoot = root ?? REPOSITORY_ROOT;
+  const resolvedSpecsDir = specsDir ?? resolve(resolvedRoot, 'specs');
+  const resolvedActiveDir = activeDir ?? resolve(resolvedSpecsDir, 'active');
+  const resolvedArchiveDir = archiveDir ?? resolve(resolvedSpecsDir, 'archive');
+
   async function resolveReferences(references) {
     return Promise.all(references.map(async (reference) => {
       if (reference.provider !== provider.id) {
@@ -66,7 +77,7 @@ export function createPullRequestService({
         };
       }
       try {
-        return await provider.load(root, reference);
+        return await provider.load(resolvedRoot, reference);
       } catch {
         return {
           availability: 'error',
@@ -78,13 +89,13 @@ export function createPullRequestService({
   }
 
   async function loadPullRequests({ source, slug }) {
-    let baseDir = sourceDirectory(source, activeDir, archiveDir);
+    let baseDir = sourceDirectory(source, resolvedActiveDir, resolvedArchiveDir);
     if (!baseDir || typeof slug !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(slug)) return null;
     let actualSource = source;
     let change = loadChange(slug, baseDir);
     if (!change) {
       const fallbackSource = source === 'active' ? 'archive' : 'active';
-      const fallbackBaseDir = sourceDirectory(fallbackSource, activeDir, archiveDir);
+      const fallbackBaseDir = sourceDirectory(fallbackSource, resolvedActiveDir, resolvedArchiveDir);
       if (fallbackBaseDir) {
         const fallbackChange = loadChange(slug, fallbackBaseDir);
         if (fallbackChange) {
@@ -106,27 +117,27 @@ export function createPullRequestService({
   }
 
   async function loadFiles({ source, slug, number }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir });
+    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
-    const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: root });
-    const files = await provider.loadFiles(root, lookup.reference);
+    const { changeView, generatedFiles } = loadChangeViewConfig({ repoRoot: resolvedRoot });
+    const files = await provider.loadFiles(resolvedRoot, lookup.reference);
     return { number: Number(number), files, changeView, generatedFiles };
   }
 
   async function loadFileDiffs({ source, slug, number, paths, headSha }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir });
+    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
-    const diffs = await provider.loadFileDiffs(root, lookup.reference, paths, headSha);
+    const diffs = await provider.loadFileDiffs(resolvedRoot, lookup.reference, paths, headSha);
     return { number: Number(number), headSha, diffs };
   }
 
   async function loadFullDiff({ source, slug, number }) {
-    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir, archiveDir });
+    const lookup = resolvePullRequestLookup({ source, slug, number, activeDir: resolvedActiveDir, archiveDir: resolvedArchiveDir });
     if (!lookup || lookup.reference.provider !== provider.id) return null;
 
-    const result = await provider.loadFullDiff(root, lookup.reference);
+    const result = await provider.loadFullDiff(resolvedRoot, lookup.reference);
     return { number: Number(number), ...result };
   }
 

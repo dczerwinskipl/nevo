@@ -1,11 +1,10 @@
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 
 import { LoadingScreen } from '@/shared/ui/loading-screen';
 import { StatusCard } from '@/components/ui/status-card';
 import { CreateAgentSessionDialog } from '@/features/agent-sessions/create-agent-session-dialog';
 import { queueAgentSessionInitialDispatch } from '@/features/agent-sessions/initial-dispatch';
-import { specRoute } from '@/router-tree';
 import type { SpecificationSummary, SpecificationSource } from '../types';
 import { useSpecificationIndex } from '../queries';
 import { SpecificationDetail } from './specification-detail';
@@ -13,13 +12,12 @@ import { SpecificationDetail } from './specification-detail';
 /**
  * Specification detail route (`/specs/:source/:slug`): resolves the specification from
  * the Specifications index, redirects on a source mismatch (active/archive
- * fallback), and hosts spec-scoped Agent Session creation. The central router
- * only binds this component to `specRoute` — it owns no Specification logic itself.
+ * fallback), and hosts spec-scoped Agent Session creation.
  */
 export function SpecificationRoute() {
-  const params = specRoute.useParams();
-  const source = params.source as SpecificationSource;
-  const slug = params.slug;
+  const params = useParams({ strict: false });
+  const source = (params.source || 'active') as SpecificationSource;
+  const slug = params.slug!;
 
   const { data, loading, error, refresh } = useSpecificationIndex();
   const navigate = useNavigate();

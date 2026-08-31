@@ -266,14 +266,14 @@ test('Finding 2b (Behavioral): Persisted in-flight state -> reload/new runtime -
 });
 
 test('Finding 1: Source inspection confirms prompt text is removed from ChatSearch and URL schemas', () => {
-  const routerTreeSource = readSource('router-tree.ts');
+  const routeTreeSource = readSource('routeTree.gen.ts');
   const appLayoutSource = readSource('features/specifications/specification-console-layout.tsx');
   const specificationRouteSource = readSource('features/specifications/detail/specification-route.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const pendingDispatchStoreSource = readSource('features/agent-sessions/runtime/pending-dispatch-store.ts');
 
-  // router-tree.ts does not declare initialPrompt in ChatSearch
-  assert.ok(!routerTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
+  // routeTree.gen.ts does not declare initialPrompt in route search schemas
+  assert.ok(!routeTreeSource.includes('initialPrompt?: string;'), 'initialPrompt must be removed from ChatSearch');
 
   // specification-console-layout.tsx and specification-route.tsx use queueAgentSessionInitialDispatch and do not pass initialPrompt in search
   assert.ok(appLayoutSource.includes('queueAgentSessionInitialDispatch'));
