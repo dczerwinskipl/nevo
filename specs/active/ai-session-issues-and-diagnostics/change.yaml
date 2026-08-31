@@ -155,7 +155,7 @@ tasks:
   - id: claude-neutral-mapping
     order: 8
     file: tasks/08-claude-neutral-mapping.md
-    status: draft
+    status: approved
     depends_on:
       - lifecycle-coordinator-and-timeouts
 

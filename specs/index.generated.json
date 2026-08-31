@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T19:10:50.100Z",
+  "generated": "2026-08-31T19:12:54.165Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -191,7 +191,7 @@
           "id": "claude-neutral-mapping",
           "order": 8,
           "file": "tasks/08-claude-neutral-mapping.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
           ]
