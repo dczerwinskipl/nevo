@@ -176,11 +176,25 @@ tasks:
   - id: codex-neutral-mapping
     order: 9
     file: tasks/09-codex-neutral-mapping.md
-    status: in-implementation
+    status: verified
     depends_on:
       - lifecycle-coordinator-and-timeouts
     implementation:
       baseline_revision: 462715bf9eab37c8bc8dff8f4e60989a9c0574dd
+      review_revision: 48cb19092061e0ddce7d9459a3d1bddfe6d9bb06
+      changed_paths:
+        - tools/dashboard/server/ai/providers/codex/provider.mjs
+        - tools/dashboard/tests/codex-provider.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: ad62a80d3e9b67d75f2a009952dbd445d15fa6f24eb825ad8bab06728610a5a0
+      revision: 48cb19092061e0ddce7d9459a3d1bddfe6d9bb06
+      commands:
+        - command: node --test tools/dashboard/tests/codex-schema-compat.test.mjs
+            tools/dashboard/tests/codex-provider.test.mjs
+            tools/dashboard/tests/codex-app-server-client.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: antigravity-neutral-mapping
     order: 10
