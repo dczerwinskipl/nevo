@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDocGroups, computeVisibleTabs } from '../src/components/spec-detail/documentation-projection.ts';
+import { buildDocGroups, computeVisibleTabs } from '../ui/features/specifications/detail/documentation-projection.ts';
 
 function baseManifest(overrides = {}) {
   return {

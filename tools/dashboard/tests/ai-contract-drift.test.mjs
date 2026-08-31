@@ -4,12 +4,13 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
-import { createAiAdapterRegistry } from '../../ai/registry.mjs';
-import { createAiSessionService } from '../../ai/service.mjs';
-import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
-import { createDashboardServer, listen } from '../server/index.mjs';
+import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
+import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
+import { listen } from '../server/index.mjs';
+import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
 
@@ -25,25 +26,24 @@ function control(body) {
   };
 }
 
-function createServer() {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['contract-task'] });
-  const registry = createAiAdapterRegistry([adapter]);
+async function createServer() {
+  const provider = createMockAgentProvider({ specId, taskIds: ['contract-task'] });
+  const registry = createAgentProviderRegistry([provider]);
   // Isolated real disk path — never the repo's own `.nevo-ai-local/`, which boot-time
   // reconciliation now actually scans (`listPersistedSessions`).
   const transcriptCache = createTranscriptCacheService({ baseDir: join(tmpdir(), `nevo-contract-drift-test-${randomUUID()}`) });
-  const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-  const aiService = createAiSessionService({ registry, turnRuntime, transcriptCache });
-  return createDashboardServer({
-    aiService,
-    eventHub: { subscribe: () => () => {}, close: () => {} },
-    distDir: 'Z:/does-not-exist',
-  });
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const aiService = createAgentSessionService({ registry, turnRuntime, transcriptCache });
+  const server = await buildAiTestApp({ service: aiService });
+  return { server, aiService };
 }
 
-async function waitForTurn(baseUrl, turnId, predicate) {
+// Polls the AI service directly (in-process) — the dashboard's HTTP surface
+// has no "get turn by ID alone" endpoint; the canonical, session-correlated
+// API doesn't need one, and `aiService` is already right here.
+async function waitForTurn(aiService, turnId, predicate) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const response = await fetch(`${baseUrl}/api/ai/turns/${turnId}`);
-    const { turn } = await response.json();
+    const turn = aiService.getTurn(turnId);
     if (predicate(turn)) return turn;
     await new Promise(resolve => setTimeout(resolve, 5));
   }
@@ -51,12 +51,13 @@ async function waitForTurn(baseUrl, turnId, predicate) {
 }
 
 async function closeServer(server) {
-  server.closeAllConnections?.();
-  await new Promise(resolve => server.close(resolve));
+  server?.server?.closeAllConnections?.();
+  server?.closeAllConnections?.();
+  await server?.close?.();
 }
 
 test('dashboard AI payload field and event names stay aligned with the neutral browser contract', async () => {
-  const server = createServer();
+  const { server, aiService } = await createServer();
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -78,7 +79,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       control({ provider: 'mock', specId, taskId: 'contract-task', message: 'permission contract' }),
     )).json();
     exactKeys(permissionStart, ['turnId', 'providerSessionId', 'idempotent']);
-    const permissionTurn = await waitForTurn(baseUrl, permissionStart.turnId, turn => turn.pendingInteraction);
+    const permissionTurn = await waitForTurn(aiService, permissionStart.turnId, turn => turn.pendingInteraction);
     exactKeys(permissionTurn, [
       'turnId', 'provider', 'providerSessionId', 'status', 'startedAt',
       'lastEventId', 'pendingInteraction', 'events',
@@ -92,13 +93,13 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       `${baseUrl}/api/agent-sessions/mock/${permissionStart.providerSessionId}/interactions/${permissionTurn.pendingInteraction.id}/respond`,
       control({ decision: 'allow' }),
     );
-    await waitForTurn(baseUrl, permissionStart.turnId, turn => turn.status === 'completed');
+    await waitForTurn(aiService, permissionStart.turnId, turn => turn.status === 'completed');
 
     const questionStart = await (await fetch(
       `${baseUrl}/api/agent-sessions/turns`,
       control({ provider: 'mock', specId, taskId: 'contract-task', message: 'question contract' }),
     )).json();
-    const questionTurn = await waitForTurn(baseUrl, questionStart.turnId, turn => turn.pendingInteraction);
+    const questionTurn = await waitForTurn(aiService, questionStart.turnId, turn => turn.pendingInteraction);
     exactKeys(questionTurn.pendingInteraction, ['id', 'kind', 'resumePolicy', 'questions']);
     exactKeys(questionTurn.pendingInteraction.questions[0], [
       'id', 'question', 'header', 'options', 'multiSelect',
@@ -114,7 +115,7 @@ test('dashboard AI payload field and event names stay aligned with the neutral b
       `${baseUrl}/api/agent-sessions/mock/${questionStart.providerSessionId}/interactions/${questionTurn.pendingInteraction.id}/respond`,
       control({ answers }),
     );
-    const completed = await waitForTurn(baseUrl, questionStart.turnId, turn => turn.status === 'completed');
+    const completed = await waitForTurn(aiService, questionStart.turnId, turn => turn.status === 'completed');
     exactKeys(completed, [
       'turnId', 'provider', 'providerSessionId', 'status', 'startedAt',
       'completedAt', 'lastEventId', 'pendingInteraction', 'events',

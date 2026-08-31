@@ -1,21 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleHealthRoute } from '../server/routes/health.mjs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 
-test('health route adapter: returns false for non-health URLs', () => {
-  const handled = handleHealthRoute({
-    request: {},
-    response: {},
-    method: 'GET',
-    url: new URL('http://127.0.0.1/api/specs'),
-  });
-  assert.equal(handled, false);
-});
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
-test('serves GET /api/health with status ok and rejects non-GET with 405', async () => {
-  const server = createDashboardServer({
-    distDir: 'Z:/does-not-exist',
+test('serves GET /api/health with status ok and rejects unsupported methods with the generic API 404', async () => {
+  const server = await buildDashboardApp({
+    config: { distDir: NONEXISTENT_DIST },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -25,9 +18,12 @@ test('serves GET /api/health with status ok and rejects non-GET with 405', async
     const body = await res.json();
     assert.deepEqual(body, { status: 'ok' });
 
+    // No custom 405 machinery: an unsupported method on a known API path
+    // falls through to the same generic `/api/*` 404 as an unknown route —
+    // no dashboard consumer ever distinguished the two.
     const postRes = await fetch(`${baseUrl}/api/health`, { method: 'POST' });
-    assert.equal(postRes.status, 405);
-    assert.deepEqual(await postRes.json(), { error: 'Method not allowed' });
+    assert.equal(postRes.status, 404);
+    assert.deepEqual(await postRes.json(), { error: 'API route not found' });
   } finally {
     await new Promise(resolvePromise => server.close(resolvePromise));
   }

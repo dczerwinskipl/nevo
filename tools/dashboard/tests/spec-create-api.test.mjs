@@ -3,27 +3,19 @@ import test from 'node:test';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 
-import { createDashboardServer } from '../server/index.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 import { ACTIVE_DIR } from '../../specs/store.mjs';
 import { refreshSpecsIndexes } from '../../specs/indexes.mjs';
 
-function fakeHub() {
-  return { subscribe: () => () => {}, close: () => {} };
-}
-
 async function startTestServer() {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-  });
+  const server = await buildDashboardApp({ config: {} });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const baseUrl = await listen(server, { port: 0 });
 
   return {
     baseUrl,
     close: async () => {
-      await new Promise((resolve) => server.close(resolve));
+      await server.close();
     },
   };
 }
@@ -98,13 +90,13 @@ test('POST /api/specs rejects duplicate slug with 409 Conflict', async () => {
   }
 });
 
-test('POST /api/specs rejects non-POST methods with 405 Method Not Allowed', async () => {
+test('GET /api/specs (no matching route) falls through to the generic API 404', async () => {
   const env = await startTestServer();
   try {
     const res = await fetch(`${env.baseUrl}/api/specs`, {
       method: 'GET',
     });
-    assert.equal(res.status, 405);
+    assert.equal(res.status, 404);
   } finally {
     await env.close();
   }

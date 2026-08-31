@@ -31,9 +31,11 @@ export function buildSpecsIndexes({ activeDir = ACTIVE_DIR, archiveDir = ARCHIVE
     const sa = STATUS_ORDER.indexOf(a.status);
     const sb = STATUS_ORDER.indexOf(b.status);
     if (sa !== sb) return sa - sb;
-    return (a.priority ?? 999) - (b.priority ?? 999);
+    const pa = (a.priority ?? 999) - (b.priority ?? 999);
+    if (pa !== 0) return pa;
+    return a.id.localeCompare(b.id);
   });
-  const archive = listChanges(archiveDir);
+  const archive = listChanges(archiveDir).sort((a, b) => a.id.localeCompare(b.id));
 
   const header = '| ID | Title | Status | Priority | Created |\n|---|---|---|---|---|\n';
 
@@ -76,12 +78,13 @@ export function checkSpecsIndexes({
 } = {}) {
   const built = buildSpecsIndexes({ activeDir, archiveDir });
   const problems = [];
+  const normalizeLf = (s) => (s || '').replace(/\r\n/g, '\n');
 
   if (!existsSync(activeIndexMd)) problems.push('missing: specs/active.generated.md');
-  else if (readUtf8(activeIndexMd) !== built.activeMd) problems.push('stale: specs/active.generated.md');
+  else if (normalizeLf(readUtf8(activeIndexMd)) !== normalizeLf(built.activeMd)) problems.push('stale: specs/active.generated.md');
 
   if (!existsSync(archiveIndexMd)) problems.push('missing: specs/archive.generated.md');
-  else if (readUtf8(archiveIndexMd) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
+  else if (normalizeLf(readUtf8(archiveIndexMd)) !== normalizeLf(built.archiveMd)) problems.push('stale: specs/archive.generated.md');
 
   if (!existsSync(indexJson)) {
     problems.push('missing: specs/index.generated.json');

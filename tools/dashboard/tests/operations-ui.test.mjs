@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createOperationRuntime } from '../server/operations.mjs';
+import { createOperationRuntime } from '../server/infrastructure/operation-runtime.mjs';
 
 test('Dashboard Operations UI Integration and Contract (Task 07)', async (t) => {
   await t.test('operation runtime supports snapshot recovery for fast completed operations', () => {

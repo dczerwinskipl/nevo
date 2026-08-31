@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T13:06:15.363Z",
+  "generated": "2026-08-29T16:18:10.896Z",
   "docs": [
     {
       "file": "docs/development/README.md",
@@ -292,7 +292,7 @@
       "read_when": [
         "working on dashboard AI sessions",
         "verifying the provider-neutral AI runtime",
-        "adding an AI provider adapter"
+        "adding an AI provider"
       ],
       "summary": "Provider-neutral dashboard AI sessions, mock-mode setup, runtime boundaries, trusted-network access, and Part 1 verification.",
       "related": [

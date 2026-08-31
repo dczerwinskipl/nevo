@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25T13:06:15.364Z",
+  "generated": "2026-08-29T16:18:10.897Z",
   "rules": [
     {
       "rule_id": "CIM-01",
@@ -171,7 +171,7 @@
     },
     {
       "rule_id": "RT-16",
-      "path_glob": "tools/dashboard/src/**",
+      "path_glob": "tools/dashboard/ui/**",
       "doc_ref": "docs/development/react-component-guidelines.md",
       "source": "docs/ai/task-routing.md"
     }

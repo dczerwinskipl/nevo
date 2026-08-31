@@ -1,223 +1,19 @@
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { dirname, extname, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { dashboardNetworkConfig } from './network-config.mjs';
-import { createSpecEventHub } from './watcher.mjs';
-import { createOperationRuntime } from './operations.mjs';
-import { sendJson } from './http-utils.mjs';
-import { handleHealthRoute } from './routes/health.mjs';
-import { createEventsRouteAdapter } from './routes/events.mjs';
-import { createOperationRouteAdapter } from './routes/operations.mjs';
-import { createSpecsRouteAdapter } from './routes/specs.mjs';
-import { handlePullRequestRoute } from './routes/pull-requests.mjs';
-import { createAiRouteAdapter } from './routes/ai.mjs';
+import { buildDashboardApp } from './app.mjs';
+import { dashboardNetworkConfig } from '../config/network.mjs';
 
-const DASHBOARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
+export { buildDashboardApp };
 
-const CONTENT_TYPES = new Map([
-  ['.css', 'text/css; charset=utf-8'],
-  ['.html', 'text/html; charset=utf-8'],
-  ['.ico', 'image/x-icon'],
-  ['.js', 'text/javascript; charset=utf-8'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.map', 'application/json; charset=utf-8'],
-  ['.png', 'image/png'],
-  ['.svg', 'image/svg+xml'],
-  ['.woff2', 'font/woff2'],
-  ['.woff', 'font/woff'],
-]);
-
-function safeStaticPath(distDir, pathname) {
-  let decoded;
-  try {
-    decoded = decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-  const candidate = resolve(distDir, decoded.replace(/^\/+/, ''));
-  return candidate === distDir || candidate.startsWith(`${distDir}${sep}`) ? candidate : null;
-}
-
-function serveStatic(response, pathname, distDir) {
-  if (!existsSync(distDir)) return false;
-  let filePath = safeStaticPath(distDir, pathname === '/' ? '/index.html' : pathname);
-  if (!filePath) return false;
-
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    if (extname(pathname)) return false;
-    filePath = resolve(distDir, 'index.html');
-  }
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) return false;
-
-  response.writeHead(200, {
-    'content-type': CONTENT_TYPES.get(extname(filePath).toLowerCase()) || 'application/octet-stream',
-    'cache-control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
-  });
-  createReadStream(filePath).pipe(response);
-  return true;
-}
-
-export function createDashboardServer({
-  eventHub = createSpecEventHub(),
-  aiService,
-  aiServiceFactory,
-  aiAccessPolicy,
-  operationRuntime = createOperationRuntime(),
-  actionExecutor,
-  activeDir,
-  root,
-  distDir = DEFAULT_DIST_DIR,
-} = {}) {
-  const aiAdapter = createAiRouteAdapter({
-    aiService,
-    aiServiceFactory,
-    aiAccessPolicy,
-  });
-
-  const specsAdapter = createSpecsRouteAdapter({
-    operationRuntime,
-    actionExecutor,
-    activeDir,
-    root,
-  });
-
-  const eventsAdapter = createEventsRouteAdapter({
-    eventHub,
-  });
-
-  const operationAdapter = createOperationRouteAdapter({
-    operationRuntime,
-  });
-
-  const server = createServer(async (request, response) => {
-    const method = request.method || 'GET';
-    const url = new URL(request.url || '/', 'http://127.0.0.1');
-
-    if (handleHealthRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (eventsAdapter.handleEventsRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (operationAdapter.handleOperationRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (await specsAdapter.handleSpecsRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (await handlePullRequestRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (await aiAdapter.handleAiRoute({ request, response, method, url })) {
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/')) {
-      sendJson(response, 404, { error: 'API route not found' });
-      return;
-    }
-
-    if (!serveStatic(response, url.pathname, distDir)) {
-      sendJson(response, 404, {
-        error: 'Dashboard assets not found',
-        detail: 'Run the dashboard build before starting the production server.',
-      });
-    }
-  });
-
-  let shutdownPromise = null;
-  const performShutdown = async () => {
-    if (!shutdownPromise) {
-      shutdownPromise = (async () => {
-        // 1 & 2. Abort and await running specification actions
-        try {
-          await specsAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down specs adapter:', err);
-        }
-
-        // 3. Close active SSE connections / subscriptions
-        try {
-          eventsAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down events adapter:', err);
-        }
-        try {
-          operationAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down operations adapter:', err);
-        }
-
-        // 4. Shut down AI resources
-        try {
-          await aiAdapter.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down AI adapter:', err);
-        }
-
-        // 5. Shut down OperationRuntime
-        try {
-          operationRuntime.shutdown?.();
-        } catch (err) {
-          console.error('[server] error shutting down operation runtime:', err);
-        }
-
-        // 6. Close event hub watcher
-        try {
-          eventHub?.close?.();
-        } catch (err) {
-          console.error('[server] error closing event hub:', err);
-        }
-      })();
-    }
-    return shutdownPromise;
-  };
-
-  const originalClose = server.close.bind(server);
-  server.close = function (callback) {
-    const closePromise = new Promise((resolveClose, rejectClose) => {
-      originalClose((err) => {
-        if (err) rejectClose(err);
-        else resolveClose();
-      });
-    });
-
-    const fullShutdown = (async () => {
-      await performShutdown();
-      await closePromise;
-    })();
-
-    if (typeof callback === 'function') {
-      fullShutdown.then(() => callback(null), (err) => callback(err));
-    }
-
-    return server;
-  };
-
-  server.on('close', () => {
-    void performShutdown();
-  });
-  server.shutdown = performShutdown;
-  return server;
-}
-
-export function listen(server, { port = 4317, host = '127.0.0.1' } = {}) {
-  return new Promise((resolvePromise, reject) => {
-    server.once('error', reject);
-    server.listen(port, host, () => {
-      server.off('error', reject);
-      const address = server.address();
-      resolvePromise(`http://${host}:${address.port}`);
-    });
-  });
+/**
+ * Runtime boundary: turns a configured Fastify app (from `buildDashboardApp`)
+ * into a listening server. Kept separate from application construction so
+ * tests can build and `inject()` against an app without ever binding a port.
+ */
+export async function listen(app, { port = 4317, host = '127.0.0.1' } = {}) {
+  const address = await app.listen({ port, host });
+  return address;
 }
 
 const isDirectRun = process.argv[1]
@@ -225,8 +21,8 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
   const { host, port } = dashboardNetworkConfig();
-  const server = createDashboardServer();
-  const url = await listen(server, { port, host });
+  const app = await buildDashboardApp();
+  const url = await listen(app, { port, host });
   console.log(`NEvo dashboard: ${url}`);
   console.log(`NEvo dashboard API: ${url}/api/dashboard`);
   console.warn('AI access mode: trusted network (VPN boundary); requests are not identity-authenticated.');

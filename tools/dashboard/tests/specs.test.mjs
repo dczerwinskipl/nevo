@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleSpecsRoute } from '../server/routes/specs.mjs';
-function fakeHub() { return { subscribe: () => () => {}, close: () => {} }; }
-test('specs route adapter: returns false for non-specs URLs', async () => {
-  const handled = await handleSpecsRoute({ request: {}, response: {}, method: 'GET', url: new URL('http://127.0.0.1/api/health') });
-  assert.equal(handled, false);
-});
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Fastify from 'fastify';
+import { buildDashboardApp, listen } from '../server/index.mjs';
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import specsRoutes from '../server/specs/routes.mjs';
+
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
@@ -17,13 +18,13 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
     assert.ok(data.counts.active >= 1);
     assert.ok(Array.isArray(data.active));
     const mutation = await fetch(`${baseUrl}/api/dashboard`, { method: 'POST' });
-   assert.equal(mutation.status, 405);
+   assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
@@ -35,13 +36,13 @@ test('serves exact specification manifest routes without leaking lookup failures
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification content not found' });
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
@@ -53,13 +54,13 @@ test('serves exact per-document content routes without leaking lookup failures',
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: 'Specification document not found' });
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
@@ -71,13 +72,13 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
     const missing = await fetch(`${baseUrl}/api/specs/active/missing-nonexistent-slug/task-statuses`);
     assert.equal(missing.status, 404);
     const mutation = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`, { method: 'POST' });
-    assert.equal(mutation.status, 405);
+    assert.equal(mutation.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
 });
 test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = createDashboardServer({ eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);
@@ -110,7 +111,7 @@ test('serves active-only lifecycle gates and executes explicit validated actions
     });
     assert.equal(unknownAction.status, 400);
     const archived = await fetch(`${baseUrl}/api/specs/archive/refaktoring-tooli/actions`, { method: 'POST' });
-    assert.equal(archived.status, 405);
+    assert.equal(archived.status, 404);
   } finally {
     await new Promise(r => server.close(r));
   }
@@ -136,10 +137,21 @@ test('specs route adapter manages AbortController and completion settlement duri
     },
   };
 
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-    operationRuntime: fakeOperationRuntime,
+  // `operationRuntime` here mirrors app.mjs's own decoration + onClose
+  // shutdown hook exactly (see app.mjs's own comment) — this test verifies
+  // the cross-cutting Fastify guarantee (every `preClose` hook across every
+  // plugin runs before any `onClose` hook, regardless of registration
+  // order) that ordering actually depends on, without needing the full
+  // composed app. `actionExecutor` is specs/routes.mjs's own local override
+  // option (see its own comment).
+  const server = Fastify({ bodyLimit: 4096 });
+  await registerGlobalHttpInfrastructure(server);
+  server.decorate('operationRuntime', fakeOperationRuntime);
+  server.addHook('onClose', async () => {
+    fakeOperationRuntime.shutdown();
+  });
+  await server.register(specsRoutes, {
+    config: {},
     actionExecutor: ({ slug, action, taskId, signal, onFinished }) => {
       capturedSignal = signal;
       const wrappedCompletion = (async () => {
@@ -159,7 +171,7 @@ test('specs route adapter manages AbortController and completion settlement duri
     },
   });
 
-  const baseUrl = await listen(server, { port: 0 });
+  const baseUrl = await server.listen({ port: 0 });
 
   try {
     const res = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`, {
@@ -185,13 +197,22 @@ test('specs route adapter manages AbortController and completion settlement duri
     });
     assert.equal(conflictRes.status, 409);
 
-    // Trigger server shutdown
+    // Trigger server shutdown — the real production close path: specs'
+    // preClose hook (abort/await in-flight actions) is registered before
+    // operations' preClose hook (operationRuntime.shutdown), so Fastify's
+    // sequential preClose execution gives the same ordering guarantee the
+    // old hand-rolled shutdown chain gave explicitly.
     let shutdownSettled = false;
-    const shutdownPromise = server.shutdown().then(() => {
+    const shutdownPromise = server.close().then(() => {
       shutdownSettled = true;
     });
 
-    // Verify signal is aborted
+    // Fastify's own close() sequencing (avvio) invokes the first preClose
+    // hook via a macrotask, not synchronously or even within a microtask —
+    // unlike the old hand-rolled `server.close` override, which ran the
+    // abort() call synchronously within the same tick. A single
+    // `setImmediate` tick is enough to observe it having started.
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(capturedSignal.aborted, true, 'AbortSignal was aborted on server shutdown');
 
     // Give microtasks a cycle to prove shutdown is STILL waiting for the action to settle
@@ -213,7 +234,10 @@ test('specs route adapter manages AbortController and completion settlement duri
       { type: 'runtime-shutdown', afterActionSettled: true },
     ]);
   } finally {
-    try { await server.shutdown(); } catch {}
-    try { await new Promise(r => server.close(r)); } catch {}
+    settleActionPromise?.();
+    try {
+      server?.server?.closeAllConnections?.();
+      await server.close();
+    } catch {}
   }
 });

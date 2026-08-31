@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { waitForOperationTerminal } from '../src/hooks/wait-for-operation-terminal.ts';
+import { waitForOperationTerminal } from '../ui/features/operations/wait-for-operation-terminal.ts';
 
 class MockEventSource {
   constructor(url) {

@@ -1,0 +1,66 @@
+import type { SpecificationSummary, StageId } from './types';
+import { cn } from '@/lib/utils';
+import { StatusLabel } from '@/shared/ui/status-label';
+
+const visibleStages: Array<{ id: StageId; label: string; color: string }> = [
+  { id: 'done', label: 'Gotowe', color: 'bg-[var(--success)]' },
+  { id: 'review', label: 'Review', color: 'bg-[color-mix(in_srgb,var(--warning)_60%,transparent)]' },
+  { id: 'implementation', label: 'Implementacja', color: 'bg-[var(--accent)]' },
+  { id: 'ready', label: 'Ready', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  { id: 'design', label: 'Projekt', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+  { id: 'new', label: 'Nowe', color: 'bg-[color-mix(in_srgb,var(--muted)_25%,transparent)]' },
+];
+
+export function StageProgress({
+  specification,
+  className,
+  legend = false,
+}: {
+  specification: SpecificationSummary;
+  className?: string;
+  legend?: boolean;
+}) {
+  const total = specification.metrics.actionable;
+  const description = total
+    ? visibleStages
+      .filter(stage => specification.metrics.stageCounts[stage.id] > 0)
+      .map(stage => `${stage.label}: ${specification.metrics.stageCounts[stage.id]}`)
+      .join(', ')
+    : 'Brak zadań';
+
+  return (
+    <div className={className}>
+      <div
+        className="flex h-2 w-full overflow-hidden rounded-full bg-white/7"
+        role="img"
+        aria-label={`Rozkład etapów. ${description}.`}
+      >
+        {visibleStages.map(stage => {
+          const count = specification.metrics.stageCounts[stage.id];
+          if (!count || !total) return null;
+
+          return (
+            <span
+              key={stage.id}
+              className={cn('h-full border-r border-black/25 last:border-r-0', stage.color)}
+              style={{ width: `${(count / total) * 100}%` }}
+              title={`${stage.label}: ${count}/${total}`}
+            />
+          );
+        })}
+      </div>
+
+      {legend && (
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2">
+          {visibleStages.map(stage => (
+            <div key={stage.id} className="flex min-w-0 items-center gap-2 text-[9px] text-[var(--muted)]">
+              <span className={cn('size-1.5 shrink-0 rounded-full', stage.color)} />
+              <StatusLabel className="truncate">{stage.label}</StatusLabel>
+              <span className="ml-auto tabular-nums text-[var(--muted-strong)]">{specification.metrics.stageCounts[stage.id]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

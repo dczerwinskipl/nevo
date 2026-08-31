@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { DEFAULT_CHANGE_VIEW, DEFAULT_GENERATED_FILES, loadChangeViewConfig } from '../server/change-view-config.mjs';
+import { DEFAULT_CHANGE_VIEW, DEFAULT_GENERATED_FILES, loadChangeViewConfig } from '../server/pull-requests/change-view-config.mjs';
 
 test('falls back to this repo\'s own reasonable default when no project config file exists', () => {
   const root = join(tmpdir(), `nevo-dashboard-changeview-${process.pid}-${Date.now()}`);
@@ -49,10 +49,10 @@ test('a malformed config file falls back to defaults rather than throwing', () =
 });
 
 test('DEFAULT_CHANGE_VIEW separates tooling per tool (Dashboard Server, Dashboard UI, AI, Specs, Docs, Tests, Other)', async () => {
-  const { assignGroup } = await import('../src/components/changes-panel/changes-grouping.ts');
-  assert.equal(assignGroup('tools/dashboard/src/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard UI');
+  const { assignGroup } = await import('../ui/features/pull-requests/changes/grouping.ts');
+  assert.equal(assignGroup('tools/dashboard/ui/App.tsx', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard UI');
   assert.equal(assignGroup('tools/dashboard/server/index.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Dashboard Server');
-  assert.equal(assignGroup('tools/ai/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
+  assert.equal(assignGroup('tools/dashboard/server/ai/sessions/service.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.claude/skills/demo.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('.cursor/rules/main.md', DEFAULT_CHANGE_VIEW), 'Tooling: AI');
   assert.equal(assignGroup('tools/specs.mjs', DEFAULT_CHANGE_VIEW), 'Tooling: Specs');

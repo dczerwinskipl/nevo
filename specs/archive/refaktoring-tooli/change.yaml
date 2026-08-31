@@ -1,0 +1,680 @@
+# Specification manifest for refaktoring-tooli
+id: refaktoring-tooli
+title: "Tools refactoring according to Node and React guidelines"
+type: architectural
+status: archived
+priority: 10
+created: 2026-08-25
+spec_id: 7405b472-f237-4a52-a64c-3af1c1d5d1cc
+
+branch:
+  mode: per-change
+  prefix: feature
+
+tasks:
+  - id: shared-specs-workflow-operations
+    order: 1
+    file: tasks/01-shared-specs-workflow-operations.md
+    status: verified
+    implementation:
+      baseline_revision: 5f9652827bcb63515dbadfadf2404704d543ff72
+      review_revision: 62b1e98fcb080d5b13fc11735895157ebeb80706
+      changed_paths:
+        - tools/dashboard/server/actions.mjs
+        - tools/dashboard/tests/actions.test.mjs
+        - tools/dashboard/tests/change-view-config.test.mjs
+        - tools/dashboard/tests/data.test.mjs
+        - tools/dashboard/tests/events.test.mjs
+        - tools/dashboard/tests/health.test.mjs
+        - tools/dashboard/tests/operations.test.mjs
+        - tools/dashboard/tests/pull-requests.test.mjs
+        - tools/dashboard/tests/server.test.mjs
+        - tools/dashboard/tests/spec-create-api.test.mjs
+        - tools/dashboard/tests/specs.test.mjs
+        - tools/specs/gates.mjs
+        - tools/specs/operations/approve.mjs
+        - tools/specs/operations/finalize.mjs
+        - tools/specs/operations/index.mjs
+        - tools/specs/operations/verify.mjs
+        - tools/specs/service.mjs
+      worktree_patch_fingerprint: bd40c324f2f0ecfa2ea6b9b7eaf61dc5ee623e540c9480489c796bb47ddfaa0a
+    self_check:
+      fingerprint: 531a004b687d7dc54e32894e3c9f2e026eca40c513417058437312c113fc9457
+      revision: 62b1e98fcb080d5b13fc11735895157ebeb80706
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: specs-lifecycle-and-storage-capabilities
+    order: 2
+    file: tasks/02-specs-lifecycle-and-storage-capabilities.md
+    status: verified
+    depends_on:
+      - shared-specs-workflow-operations
+    implementation:
+      baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      review_revision: 953459d1a7fa6028314bddfce9b6984a7afcd3df
+      changed_paths:
+        - tools/specs/agent-session.mjs
+        - tools/specs/approve/cli.mjs
+        - tools/specs/approve/index.mjs
+        - tools/specs/approve/operation.mjs
+        - tools/specs/archive/cli.mjs
+        - tools/specs/archive/index.mjs
+        - tools/specs/archive/operation.mjs
+        - tools/specs/backfill-spec-id/cli.mjs
+        - tools/specs/backfill-spec-id/index.mjs
+        - tools/specs/backfill-spec-id/operation.mjs
+        - tools/specs/batch/cli.mjs
+        - tools/specs/batch/index.mjs
+        - tools/specs/batch/operation.mjs
+        - tools/specs/check/cli.mjs
+        - tools/specs/check/index.mjs
+        - tools/specs/check/operation.mjs
+        - tools/specs/comments/cli.mjs
+        - tools/specs/comments/index.mjs
+        - tools/specs/comments/operation.mjs
+        - tools/specs/complete/cli.mjs
+        - tools/specs/complete/index.mjs
+        - tools/specs/complete/operation.mjs
+        - tools/specs/context.mjs
+        - tools/specs/finalize/cli.mjs
+        - tools/specs/finalize/index.mjs
+        - tools/specs/finalize/operation.mjs
+        - tools/specs/fingerprint.mjs
+        - tools/specs/follow-up-commands.mjs
+        - tools/specs/follow-ups.mjs
+        - tools/specs/gates.mjs
+        - tools/specs/generate/cli.mjs
+        - tools/specs/generate/index.mjs
+        - tools/specs/generate/operation.mjs
+        - tools/specs/identity.mjs
+        - tools/specs/indexes.mjs
+        - tools/specs/lifecycle.mjs
+        - tools/specs/lifecycle/batch.mjs
+        - tools/specs/lifecycle/index.mjs
+        - tools/specs/lifecycle/provenance.mjs
+        - tools/specs/lifecycle/recovery.mjs
+        - tools/specs/lifecycle/reviews.mjs
+        - tools/specs/lifecycle/stage.mjs
+        - tools/specs/operations/index.mjs
+        - tools/specs/provenance/cli.mjs
+        - tools/specs/provenance/index.mjs
+        - tools/specs/provenance/operation.mjs
+        - tools/specs/pull-request-add/cli.mjs
+        - tools/specs/pull-request-add/index.mjs
+        - tools/specs/pull-request-add/operation.mjs
+        - tools/specs/pull-requests.mjs
+        - tools/specs/query.mjs
+        - tools/specs/reviews/cli.mjs
+        - tools/specs/reviews/index.mjs
+        - tools/specs/reviews/operation.mjs
+        - tools/specs/self-check/cli.mjs
+        - tools/specs/self-check/index.mjs
+        - tools/specs/self-check/operation.mjs
+        - tools/specs/service.mjs
+        - tools/specs/start/cli.mjs
+        - tools/specs/start/index.mjs
+        - tools/specs/start/operation.mjs
+        - tools/specs/status/cli.mjs
+        - tools/specs/status/index.mjs
+        - tools/specs/status/operation.mjs
+        - tools/specs/store.mjs
+        - tools/specs/validation.mjs
+        - tools/specs/verify/cli.mjs
+        - tools/specs/verify/index.mjs
+        - tools/specs/verify/operation.mjs
+        - tools/tests/agent-binding.test.mjs
+        - tools/tests/approve-git-sync.test.mjs
+        - tools/tests/batch-review-progress.test.mjs
+        - tools/tests/batch.test.mjs
+        - tools/tests/cli-step-instrumentation.test.mjs
+        - tools/tests/context.test.mjs
+        - tools/tests/e2e-workflow.test.mjs
+        - tools/tests/finalize.test.mjs
+        - tools/tests/fingerprint.test.mjs
+        - tools/tests/follow-ups.test.mjs
+        - tools/tests/handler-testability.test.mjs
+        - tools/tests/implementation-review.test.mjs
+        - tools/tests/index-generation.test.mjs
+        - tools/tests/mechanical-task.test.mjs
+        - tools/tests/owner-workflow-acceptance.test.mjs
+        - tools/tests/process.test.mjs
+        - tools/tests/provenance.test.mjs
+        - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/recovery.test.mjs
+        - tools/tests/refactoring-review-findings.test.mjs
+        - tools/tests/review-compaction.test.mjs
+        - tools/tests/scoped-spec-review.test.mjs
+        - tools/tests/semantic-integration.test.mjs
+        - tools/tests/spec-identity.test.mjs
+        - tools/tests/spec-scaffolding.test.mjs
+        - tools/tests/start.test.mjs
+        - tools/tests/status-dependency-aware.test.mjs
+        - tools/tests/task-lifecycle.test.mjs
+        - tools/tests/unowned-drift.test.mjs
+        - tools/tests/validation.test.mjs
+        - tools/tests/verification-command.test.mjs
+      worktree_patch_fingerprint: 62576a6ae3506ae991d56c7d03a9f83abcc6b710e8ff49021104f6d1cfde9e47
+    self_check:
+      fingerprint: e37ac9538373fd2127fb8361cf899f6aa723adac26d8cb5d7883b0f925253429
+      revision: 953459d1a7fa6028314bddfce9b6984a7afcd3df
+      commands:
+        - command: node --test tools/tests/task-lifecycle.test.mjs
+            tools/tests/gates.test.mjs tools/tests/workflow-*.test.mjs
+            tools/tests/recovery.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: specs-cli-entrypoint-and-command-boundary
+    order: 3
+    file: tasks/03-specs-cli-entrypoint-and-command-boundary.md
+    status: verified
+    depends_on:
+      - specs-lifecycle-and-storage-capabilities
+    implementation:
+      baseline_revision: 97e397ed87cc8af0e945db1208457a642e918e38
+      review_revision: 953459d1a7fa6028314bddfce9b6984a7afcd3df
+      changed_paths:
+        - tools/specs.mjs
+        - tools/specs/agent-session.mjs
+        - tools/specs/approve/cli.mjs
+        - tools/specs/approve/index.mjs
+        - tools/specs/approve/operation.mjs
+        - tools/specs/archive/cli.mjs
+        - tools/specs/archive/index.mjs
+        - tools/specs/archive/operation.mjs
+        - tools/specs/backfill-spec-id/cli.mjs
+        - tools/specs/backfill-spec-id/index.mjs
+        - tools/specs/backfill-spec-id/operation.mjs
+        - tools/specs/batch/cli.mjs
+        - tools/specs/batch/index.mjs
+        - tools/specs/batch/operation.mjs
+        - tools/specs/check/cli.mjs
+        - tools/specs/check/index.mjs
+        - tools/specs/check/operation.mjs
+        - tools/specs/comments/cli.mjs
+        - tools/specs/comments/index.mjs
+        - tools/specs/comments/operation.mjs
+        - tools/specs/complete/cli.mjs
+        - tools/specs/complete/index.mjs
+        - tools/specs/complete/operation.mjs
+        - tools/specs/context.mjs
+        - tools/specs/finalize/cli.mjs
+        - tools/specs/finalize/index.mjs
+        - tools/specs/finalize/operation.mjs
+        - tools/specs/fingerprint.mjs
+        - tools/specs/follow-up-commands.mjs
+        - tools/specs/follow-ups.mjs
+        - tools/specs/gates.mjs
+        - tools/specs/generate/cli.mjs
+        - tools/specs/generate/index.mjs
+        - tools/specs/generate/operation.mjs
+        - tools/specs/identity.mjs
+        - tools/specs/indexes.mjs
+        - tools/specs/lifecycle.mjs
+        - tools/specs/lifecycle/batch.mjs
+        - tools/specs/lifecycle/index.mjs
+        - tools/specs/lifecycle/provenance.mjs
+        - tools/specs/lifecycle/recovery.mjs
+        - tools/specs/lifecycle/reviews.mjs
+        - tools/specs/lifecycle/stage.mjs
+        - tools/specs/operations/index.mjs
+        - tools/specs/provenance/cli.mjs
+        - tools/specs/provenance/index.mjs
+        - tools/specs/provenance/operation.mjs
+        - tools/specs/pull-request-add/cli.mjs
+        - tools/specs/pull-request-add/index.mjs
+        - tools/specs/pull-request-add/operation.mjs
+        - tools/specs/pull-requests.mjs
+        - tools/specs/query.mjs
+        - tools/specs/reviews/cli.mjs
+        - tools/specs/reviews/index.mjs
+        - tools/specs/reviews/operation.mjs
+        - tools/specs/self-check/cli.mjs
+        - tools/specs/self-check/index.mjs
+        - tools/specs/self-check/operation.mjs
+        - tools/specs/service.mjs
+        - tools/specs/start/cli.mjs
+        - tools/specs/start/index.mjs
+        - tools/specs/start/operation.mjs
+        - tools/specs/status/cli.mjs
+        - tools/specs/status/index.mjs
+        - tools/specs/status/operation.mjs
+        - tools/specs/store.mjs
+        - tools/specs/validation.mjs
+        - tools/specs/verify/cli.mjs
+        - tools/specs/verify/index.mjs
+        - tools/specs/verify/operation.mjs
+        - tools/tests/agent-binding.test.mjs
+        - tools/tests/approve-git-sync.test.mjs
+        - tools/tests/batch-review-progress.test.mjs
+        - tools/tests/batch.test.mjs
+        - tools/tests/cli-step-instrumentation.test.mjs
+        - tools/tests/context.test.mjs
+        - tools/tests/e2e-workflow.test.mjs
+        - tools/tests/finalize.test.mjs
+        - tools/tests/fingerprint.test.mjs
+        - tools/tests/follow-ups.test.mjs
+        - tools/tests/handler-testability.test.mjs
+        - tools/tests/implementation-review.test.mjs
+        - tools/tests/index-generation.test.mjs
+        - tools/tests/mechanical-task.test.mjs
+        - tools/tests/owner-workflow-acceptance.test.mjs
+        - tools/tests/process.test.mjs
+        - tools/tests/provenance.test.mjs
+        - tools/tests/pull-request-metadata.test.mjs
+        - tools/tests/recovery.test.mjs
+        - tools/tests/refactoring-review-findings.test.mjs
+        - tools/tests/review-compaction.test.mjs
+        - tools/tests/scoped-spec-review.test.mjs
+        - tools/tests/semantic-integration.test.mjs
+        - tools/tests/spec-identity.test.mjs
+        - tools/tests/spec-scaffolding.test.mjs
+        - tools/tests/start.test.mjs
+        - tools/tests/status-dependency-aware.test.mjs
+        - tools/tests/task-lifecycle.test.mjs
+        - tools/tests/unowned-drift.test.mjs
+        - tools/tests/validation.test.mjs
+        - tools/tests/verification-command.test.mjs
+      worktree_patch_fingerprint: 1c7f9d1f8cefd292bc68d7505ea3a21f97fa6cc1f633816d7435a0344546853b
+    self_check:
+      fingerprint: b70bf2284fd94fab214f472f40af7116a429d4de24bc9cf45da246c7c9032c29
+      revision: 953459d1a7fa6028314bddfce9b6984a7afcd3df
+      commands:
+        - command: node --test tools/tests/cli-*.test.mjs
+            tools/tests/handler-testability.test.mjs
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: dashboard-server-runtime-and-routes
+    order: 4
+    file: tasks/04-dashboard-server-runtime-and-routes.md
+    status: verified
+    depends_on:
+      - shared-specs-workflow-operations
+    implementation:
+      baseline_revision: 5f9652827bcb63515dbadfadf2404704d543ff72
+      review_revision: 62b1e98fcb080d5b13fc11735895157ebeb80706
+      changed_paths:
+        - tools/dashboard/server/actions.mjs
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/change-view-config.mjs
+        - tools/dashboard/server/data.mjs
+        - tools/dashboard/server/http-utils.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/server/routes/ai.mjs
+        - tools/dashboard/server/routes/events.mjs
+        - tools/dashboard/server/routes/health.mjs
+        - tools/dashboard/server/routes/operations.mjs
+        - tools/dashboard/server/routes/pull-requests.mjs
+        - tools/dashboard/server/routes/specs.mjs
+        - tools/dashboard/tests/actions.test.mjs
+        - tools/dashboard/tests/change-view-config.test.mjs
+        - tools/dashboard/tests/data.test.mjs
+        - tools/dashboard/tests/events.test.mjs
+        - tools/dashboard/tests/health.test.mjs
+        - tools/dashboard/tests/operations.test.mjs
+        - tools/dashboard/tests/pull-requests.test.mjs
+        - tools/dashboard/tests/server.test.mjs
+        - tools/dashboard/tests/spec-create-api.test.mjs
+        - tools/dashboard/tests/specs.test.mjs
+      worktree_patch_fingerprint: bdecd3f3b0b95de72df6b831770c385dd77d6ad611f36538960741b5dcb1117c
+    self_check:
+      fingerprint: 82519f27b420910913fba182f1986fbf956145adc65cb3ac9a4bdc4e3c84b0db
+      revision: 62b1e98fcb080d5b13fc11735895157ebeb80706
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: spec-detail-and-workflow-feature-slice
+    order: 5
+    file: tasks/05-spec-detail-and-workflow-feature-slice.md
+    status: verified
+    implementation:
+      baseline_revision: 23226096ef88dcc8f33783d655a9c6d3b9c79be1
+      review_revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+      changed_paths:
+        - tools/dashboard/src/components/directory-section-panel.tsx
+        - tools/dashboard/src/components/document-section-panel.tsx
+        - tools/dashboard/src/components/spec-detail.tsx
+        - tools/dashboard/src/components/spec-detail/documentation-panel.tsx
+        - tools/dashboard/src/components/spec-detail/documentation-projection.ts
+        - tools/dashboard/src/components/spec-detail/index.tsx
+        - tools/dashboard/src/components/spec-detail/overview-panel.tsx
+        - tools/dashboard/src/components/spec-detail/spec-detail-queries.ts
+        - tools/dashboard/src/components/spec-detail/spec-detail.tsx
+        - tools/dashboard/src/components/spec-detail/spec-workflow-actions.ts
+        - tools/dashboard/src/components/spec-detail/use-spec-workflow-actions.ts
+        - tools/dashboard/src/components/task-dialog.tsx
+        - tools/dashboard/src/hooks/operation-snapshot.ts
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/hooks/use-operation-progress.ts
+        - tools/dashboard/src/hooks/wait-for-operation-terminal.ts
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/router-navigation.test.mjs
+        - tools/dashboard/tests/spec-detail-documentation-projection.test.mjs
+        - tools/dashboard/tests/spec-workflow-actions.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/tests/wait-for-operation-terminal.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 4c5e0e53915a5a76cce648a58e3e2806e367e3340504cb47867c5ad95412ce7e
+      revision: 14c50b583962ac3eff3956b2d598d214647fdded
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: changes-and-pr-diff-feature-slice
+    order: 6
+    file: tasks/06-changes-and-pr-diff-feature-slice.md
+    status: verified
+    depends_on:
+      - spec-detail-and-workflow-feature-slice
+    implementation:
+      baseline_revision: d454f626d66ae57f5fb9280ed5023f025673c8ff
+      review_revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+      changed_paths:
+        - tools/dashboard/src/components/changes-panel.tsx
+        - tools/dashboard/src/components/changes-panel/changes-grouping.ts
+        - tools/dashboard/src/components/changes-panel/changes-panel.tsx
+        - tools/dashboard/src/components/changes-panel/changes-queries.ts
+        - tools/dashboard/src/components/changes-panel/file-change.tsx
+        - tools/dashboard/src/components/changes-panel/index.tsx
+        - tools/dashboard/src/components/changes-panel/pull-request-cards.tsx
+        - tools/dashboard/src/components/changes-panel/pull-request-detail.tsx
+        - tools/dashboard/src/components/changes-panel/pull-request-status.ts
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/tests/change-view-config.test.mjs
+        - tools/dashboard/tests/changes-grouping.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 32a74bea3590a43011e75b641f2f930b0db1c435e2965d6cf692a835a0575651
+      revision: 5b24b64dae91cf784816dd7f12da6485d4d9b17f
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: ai-assistant-chat-and-runtime-feature-slice
+    order: 7
+    file: tasks/07-ai-assistant-chat-and-runtime-feature-slice.md
+    status: verified
+    depends_on:
+      - changes-and-pr-diff-feature-slice
+    implementation:
+      baseline_revision: 1650ed8d138586d6451d35e4b7827f4555d90ed7
+      review_revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+      changed_paths:
+        - tools/dashboard/src/components/ai-chat/agent-event-reducer.ts
+        - tools/dashboard/src/components/ai-chat/agent-event-source.ts
+        - tools/dashboard/src/components/ai-chat/agent-session-transport.ts
+        - tools/dashboard/src/components/ai-chat/agent-turn-transport.ts
+        - tools/dashboard/src/components/ai-chat/ai-chat-helpers.ts
+        - tools/dashboard/src/components/ai-chat/ai-chat-queries.ts
+        - tools/dashboard/src/components/ai-chat/ai-chat.tsx
+        - tools/dashboard/src/components/ai-chat/chat-projection.ts
+        - tools/dashboard/src/components/ai-chat/create-ai-session-dialog.tsx
+        - tools/dashboard/src/components/ai-chat/index.tsx
+        - tools/dashboard/src/components/ai-chat/nevo-assistant-runtime.ts
+        - tools/dashboard/src/components/ai-chat/pending-dispatch-store.ts
+        - tools/dashboard/src/components/ai-chat/tool-activity-labels.ts
+        - tools/dashboard/src/components/ai-chat/use-assistant-ui-bridge.ts
+        - tools/dashboard/src/components/ai-chat/use-chat-visual-viewport.ts
+        - tools/dashboard/src/components/ai-chat/use-initial-dispatch.ts
+        - tools/dashboard/src/components/ai-chat/use-scroll-follow.ts
+        - tools/dashboard/src/components/ai-session-create-modal.tsx
+        - tools/dashboard/src/components/ai-session-list.tsx
+        - tools/dashboard/src/components/ai-tool-view.tsx
+        - tools/dashboard/src/components/conversation/chat-message.tsx
+        - tools/dashboard/src/components/spec-create-modal/use-spec-create-form.ts
+        - tools/dashboard/src/components/spec-detail/spec-detail.tsx
+        - tools/dashboard/src/components/task-dialog.tsx
+        - tools/dashboard/src/components/work/work-summary.tsx
+        - tools/dashboard/src/components/work/work-visibility.ts
+        - tools/dashboard/src/hooks/use-dashboard-data.ts
+        - tools/dashboard/src/lib/nevo-assistant-runtime.ts
+        - tools/dashboard/tests/agent-event-source.test.mjs
+        - tools/dashboard/tests/agent-turn-transport.test.mjs
+        - tools/dashboard/tests/ai-chat-helpers.test.mjs
+        - tools/dashboard/tests/assistant-runtime-state.test.mjs
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/chat-projection.test.mjs
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/router-navigation.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/session-readiness.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
+        - tools/dashboard/tests/tool-activity-labels.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/tests/work-summary.test.mjs
+        - tools/dashboard/tests/work-turn-correlation.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: 15a9aafe5a7ef2898211705f0af56e1706b40ac7bab2b246b883781eee8c7bde
+      revision: 5b24b64dae91cf784816dd7f12da6485d4d9b17f
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+  - id: e2e-verification-and-guidelines-audit
+    order: 8
+    file: tasks/08-e2e-verification-and-guidelines-audit.md
+    status: verified
+    depends_on:
+      - specs-cli-entrypoint-and-command-boundary
+      - dashboard-server-runtime-and-routes
+      - ai-assistant-chat-and-runtime-feature-slice
+    implementation:
+      baseline_revision: 14c50b583962ac3eff3956b2d598d214647fdded
+      review_revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+      changed_paths:
+        - specs/active/refaktoring-tooli/follow-ups.yaml
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+      worktree_patch_fingerprint: 0c2be76d07a41acb055cb7511ff5ec80c5be4a6adddc68129f355e6d1c2a5099
+    self_check:
+      fingerprint: 50415d013bc9d61d55f80368a64fc92b52d9ce532449bda5e3d3ddae8f7b5db1
+      revision: bbc4536e5bc3e78bceda845575e0c87df90aeeca
+      commands:
+        - command: npm test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs check
+          exit_code: 0
+        - command: node tools/docs.mjs check
+          exit_code: 0
+      status: passed
+  - id: dashboard-fastify-http-adapter-migration
+    order: 9
+    file: tasks/09-dashboard-fastify-http-adapter-migration.md
+    status: verified
+    depends_on:
+      - dashboard-server-runtime-and-routes
+      - e2e-verification-and-guidelines-audit
+    implementation:
+      baseline_revision: 50e7b07aa452a8ca451a98ae98a66b96316de7d9
+      review_revision: 14904c0714ebfdc0ea3071c67f81cc874fe9a807
+      changed_paths:
+        - tools/dashboard/package-lock.json
+        - tools/dashboard/package.json
+        - tools/dashboard/server/ai-adapters-config.mjs
+        - tools/dashboard/server/ai-routes.mjs
+        - tools/dashboard/server/ai-services.mjs
+        - tools/dashboard/server/ai/access-policy.mjs
+        - tools/dashboard/server/ai/contracts.mjs
+        - tools/dashboard/server/ai/providers/antigravity/provider.mjs
+        - tools/dashboard/server/ai/providers/claude/continuation-store.mjs
+        - tools/dashboard/server/ai/providers/claude/hook.mjs
+        - tools/dashboard/server/ai/providers/claude/provider.mjs
+        - tools/dashboard/server/ai/providers/codex/app-server-client.mjs
+        - tools/dashboard/server/ai/providers/codex/protocol-baseline.json
+        - tools/dashboard/server/ai/providers/codex/provider.mjs
+        - tools/dashboard/server/ai/providers/codex/verify-schema.mjs
+        - tools/dashboard/server/ai/providers/config.mjs
+        - tools/dashboard/server/ai/providers/mock/provider.mjs
+        - tools/dashboard/server/ai/providers/process-termination.mjs
+        - tools/dashboard/server/ai/providers/raw-capture.mjs
+        - tools/dashboard/server/ai/providers/registry.mjs
+        - tools/dashboard/server/ai/providers/routes.mjs
+        - tools/dashboard/server/ai/routes.mjs
+        - tools/dashboard/server/ai/sessions/binding-service.mjs
+        - tools/dashboard/server/ai/sessions/events/routes.mjs
+        - tools/dashboard/server/ai/sessions/http.mjs
+        - tools/dashboard/server/ai/sessions/interactions/routes.mjs
+        - tools/dashboard/server/ai/sessions/routes.mjs
+        - tools/dashboard/server/ai/sessions/service.mjs
+        - tools/dashboard/server/ai/sessions/transcript-cache.mjs
+        - tools/dashboard/server/ai/sessions/turns/routes.mjs
+        - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-event-stream.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
+        - tools/dashboard/server/app.mjs
+        - tools/dashboard/server/health/routes.mjs
+        - tools/dashboard/server/http-utils.mjs
+        - tools/dashboard/server/index.mjs
+        - tools/dashboard/server/infrastructure/http.mjs
+        - tools/dashboard/server/infrastructure/operation-runtime.mjs
+        - tools/dashboard/server/infrastructure/paths.mjs
+        - tools/dashboard/server/operations/routes.mjs
+        - tools/dashboard/server/providers/service.mjs
+        - tools/dashboard/server/pull-requests/change-view-config.mjs
+        - tools/dashboard/server/pull-requests/github.mjs
+        - tools/dashboard/server/pull-requests/routes.mjs
+        - tools/dashboard/server/pull-requests/service.mjs
+        - tools/dashboard/server/routes/ai.mjs
+        - tools/dashboard/server/routes/events.mjs
+        - tools/dashboard/server/routes/health.mjs
+        - tools/dashboard/server/routes/operations.mjs
+        - tools/dashboard/server/routes/pull-requests.mjs
+        - tools/dashboard/server/routes/specs.mjs
+        - tools/dashboard/server/specs/actions.mjs
+        - tools/dashboard/server/specs/data.mjs
+        - tools/dashboard/server/specs/events.mjs
+        - tools/dashboard/server/specs/http-utils.mjs
+        - tools/dashboard/server/specs/paths.mjs
+        - tools/dashboard/server/specs/routes.mjs
+        - tools/dashboard/server/specs/service.mjs
+        - tools/dashboard/server/specs/spec-sections.mjs
+        - tools/dashboard/server/specs/status-stages.mjs
+        - tools/dashboard/server/specs/watcher.mjs
+        - tools/dashboard/server/watcher.mjs
+        - tools/dashboard/tests/actions.test.mjs
+        - tools/dashboard/tests/agent-event-source.test.mjs
+        - tools/dashboard/tests/agent-session-header.test.mjs
+        - tools/dashboard/tests/agent-session-runtime-state.test.mjs
+        - tools/dashboard/tests/agent-sessions-feature-boundary.test.mjs
+        - tools/dashboard/tests/agent-turn-transport.test.mjs
+        - tools/dashboard/tests/ai-adapters-config.test.mjs
+        - tools/dashboard/tests/ai-contract-drift.test.mjs
+        - tools/dashboard/tests/ai-contracts.test.mjs
+        - tools/dashboard/tests/ai-custom-root.test.mjs
+        - tools/dashboard/tests/ai-providers-config.test.mjs
+        - tools/dashboard/tests/ai-server.test.mjs
+        - tools/dashboard/tests/ai-turn-runtime.test.mjs
+        - tools/dashboard/tests/antigravity-provider.test.mjs
+        - tools/dashboard/tests/binding-service.test.mjs
+        - tools/dashboard/tests/change-view-config.test.mjs
+        - tools/dashboard/tests/changes-grouping.test.mjs
+        - tools/dashboard/tests/chat-header.test.mjs
+        - tools/dashboard/tests/claude-deferral-discovery.test.mjs
+        - tools/dashboard/tests/claude-hook.test.mjs
+        - tools/dashboard/tests/claude-interaction.test.mjs
+        - tools/dashboard/tests/claude-provider.test.mjs
+        - tools/dashboard/tests/codex-app-server-client.test.mjs
+        - tools/dashboard/tests/codex-provider.test.mjs
+        - tools/dashboard/tests/codex-schema-compat.test.mjs
+        - tools/dashboard/tests/composer-interaction.test.mjs
+        - tools/dashboard/tests/create-agent-session-helpers.test.mjs
+        - tools/dashboard/tests/data.test.mjs
+        - tools/dashboard/tests/diff-hydration-queue.test.mjs
+        - tools/dashboard/tests/events.test.mjs
+        - tools/dashboard/tests/fastify-architecture.test.mjs
+        - tools/dashboard/tests/fastify-migration.test.mjs
+        - tools/dashboard/tests/fixtures/claude/ask-user-question-deferred.json
+        - tools/dashboard/tests/fixtures/claude/ask-user-question-resumed.json
+        - tools/dashboard/tests/fixtures/claude/parallel-tool-calls.json
+        - tools/dashboard/tests/fixtures/claude/permission-prompt-deferred.json
+        - tools/dashboard/tests/fixtures/codex-app-server/provider-global-notifications.jsonl
+        - tools/dashboard/tests/health.test.mjs
+        - tools/dashboard/tests/helpers/ai-test-app.mjs
+        - tools/dashboard/tests/message-collapse.test.mjs
+        - tools/dashboard/tests/mock-provider.test.mjs
+        - tools/dashboard/tests/network-config.test.mjs
+        - tools/dashboard/tests/operations-ui.test.mjs
+        - tools/dashboard/tests/operations.test.mjs
+        - tools/dashboard/tests/process-termination.test.mjs
+        - tools/dashboard/tests/pull-requests-service.test.mjs
+        - tools/dashboard/tests/pull-requests.test.mjs
+        - tools/dashboard/tests/responsive-accessibility-regression.test.mjs
+        - tools/dashboard/tests/router-navigation.test.mjs
+        - tools/dashboard/tests/scroll-follow.test.mjs
+        - tools/dashboard/tests/server.test.mjs
+        - tools/dashboard/tests/session-details.test.mjs
+        - tools/dashboard/tests/session-readiness.test.mjs
+        - tools/dashboard/tests/session-states-integration.test.mjs
+        - tools/dashboard/tests/spec-create-api.test.mjs
+        - tools/dashboard/tests/spec-create-helpers.test.mjs
+        - tools/dashboard/tests/spec-detail-documentation-projection.test.mjs
+        - tools/dashboard/tests/spec-watcher.test.mjs
+        - tools/dashboard/tests/spec-workflow-actions.test.mjs
+        - tools/dashboard/tests/specs-events.test.mjs
+        - tools/dashboard/tests/specs-paths-resolver.test.mjs
+        - tools/dashboard/tests/specs-paths.test.mjs
+        - tools/dashboard/tests/specs.test.mjs
+        - tools/dashboard/tests/status-stages.test.mjs
+        - tools/dashboard/tests/theme-visual-cleanup.test.mjs
+        - tools/dashboard/tests/tool-activity-labels.test.mjs
+        - tools/dashboard/tests/transcript-message-layout.test.mjs
+        - tools/dashboard/tests/transcript-projection.test.mjs
+        - tools/dashboard/tests/turn-event-stream.test.mjs
+        - tools/dashboard/tests/turn-recovery.test.mjs
+        - tools/dashboard/tests/turn-work-correlation.test.mjs
+        - tools/dashboard/tests/turn-work-summary.test.mjs
+        - tools/dashboard/tests/ux-improvements-regression.test.mjs
+        - tools/dashboard/tests/wait-for-operation-terminal.test.mjs
+        - tools/dashboard/tests/watcher.test.mjs
+      worktree_patch_fingerprint: null
+    self_check:
+      fingerprint: ac444c6e1b81251ddce93c62551be48a0f0e11be05d1eaff68b0a46352345a91
+      revision: 14904c0714ebfdc0ea3071c67f81cc874fe9a807
+      commands:
+        - command: npm --prefix tools/dashboard test
+          exit_code: 0
+        - command: npm --prefix tools/dashboard run build
+          exit_code: 0
+        - command: node tools/specs.mjs validate
+          exit_code: 0
+      status: passed
+
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 39
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 40

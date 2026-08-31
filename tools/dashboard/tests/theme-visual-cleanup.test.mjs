@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 function readSource(relative) {
-  return readFileSync(fileURLToPath(new URL('../src/' + relative, import.meta.url)), 'utf8');
+  return readFileSync(fileURLToPath(new URL('../ui/' + relative, import.meta.url)), 'utf8');
 }
 
 test('neutral foundation tokens do not derive from the interaction accent', () => {
@@ -46,21 +46,21 @@ test('theme exposes interaction and semantic token families', () => {
 });
 
 test('desktop shell removes the full-width brand header and keeps floating utilities', () => {
-  const router = readSource('router.tsx');
+  const appLayout = readSource('features/specifications/specification-console-layout.tsx');
 
-  assert.ok(router.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
-  assert.ok(router.includes('fixed right-4 top-3 z-40 hidden rounded-xl'));
-  assert.ok(router.includes('backdrop-blur-xl lg:flex'));
-  assert.ok(router.includes('<ConnectivityControls live={live}'));
+  assert.ok(appLayout.includes('backdrop-blur-xl sm:px-7 lg:hidden'));
+  assert.ok(appLayout.includes('fixed right-4 top-3 z-40 hidden rounded-xl'));
+  assert.ok(appLayout.includes('backdrop-blur-xl lg:flex'));
+  assert.ok(appLayout.includes('<SpecificationLiveControls live={live}') || appLayout.includes('<ConnectivityControls live={live}'));
 });
 
 test('workflow and session states follow the semantic color contract', () => {
-  const board = readSource('components/status-board.tsx');
-  const lanes = readSource('lib/lane-presentation.ts');
-  const progress = readSource('components/stage-progress.tsx');
-  const labels = readSource('components/status-label.tsx');
-  const tools = readSource('components/ai-tool-view.tsx');
-  const sessions = readSource('components/ai-session-list.tsx');
+  const board = readSource('features/specifications/detail/status-board.tsx');
+  const lanes = readSource('features/specifications/detail/lane-presentation.ts');
+  const progress = readSource('features/specifications/stage-progress.tsx');
+  const labels = readSource('shared/ui/status-label.tsx');
+  const tools = readSource('features/agent-sessions/turn-work/tool-call-view.tsx');
+  const sessions = readSource('features/agent-sessions/agent-session-list.tsx');
 
   assert.ok(lanes.includes("implementation: { accent: 'var(--lane-implementation)' }"));
   assert.ok(lanes.includes("review: { accent: 'var(--lane-review)' }"));
@@ -76,7 +76,7 @@ test('workflow and session states follow the semantic color contract', () => {
 });
 
 test('sidebar hierarchy and mode switch stay neutral with a clear primary selection', () => {
-  const sidebar = readSource('components/app-sidebar.tsx');
+  const sidebar = readSource('features/specifications/navigation/specification-sidebar.tsx');
 
   assert.ok(sidebar.includes('border-r border-[var(--border)] bg-[var(--surface-raised)]'));
   assert.ok(sidebar.includes('rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1'));
@@ -94,8 +94,8 @@ test('sidebar hierarchy and mode switch stay neutral with a clear primary select
 });
 
 test('overview avoids duplicate metric cards and board lanes use neutral surfaces', () => {
-  const overview = readSource('components/spec-detail/overview-panel.tsx');
-  const board = readSource('components/status-board.tsx');
+  const overview = readSource('features/specifications/detail/overview-panel.tsx');
+  const board = readSource('features/specifications/detail/status-board.tsx');
 
   assert.doesNotMatch(overview, /function MetricCard|aria-label="Podsumowanie specyfikacji"/);
   assert.ok(board.includes('border border-[var(--border)] bg-[var(--surface)]'));

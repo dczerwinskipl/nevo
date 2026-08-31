@@ -20,4 +20,5 @@
 | `nevo-spec-dashboard-refinement` | Specification dashboard documents and GitHub changes | archived | 20 | 2026-08-14 |
 | `openai-codex-provider-support` | OpenAI Codex provider support | archived | 10 | 2026-08-22 |
 | `query-support-and-handler-registration-hardening` | Query support and handler-registration hardening | archived | 10 | 2026-08-08 |
+| `refaktoring-tooli` | Tools refactoring according to Node and React guidelines | archived | 10 | 2026-08-25 |
 | `ux-improvements-version-1` | UX Improvements version 1 | archived | 10 | 2026-08-19 |

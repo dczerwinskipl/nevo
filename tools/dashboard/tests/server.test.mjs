@@ -4,20 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createDashboardServer, listen } from '../server/index.mjs';
+import { buildDashboardApp, listen } from '../server/index.mjs';
 
-function fakeHub() {
-  return {
-    subscribe: () => () => {},
-    close: () => {},
-  };
-}
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
 test('composed server routes all major capability route groups', async () => {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -41,10 +33,7 @@ test('composed server routes all major capability route groups', async () => {
 });
 
 test('handles unknown /api/* fallback with 404 JSON', async () => {
-  const server = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -65,10 +54,7 @@ test('handles unknown /api/* fallback with 404 JSON', async () => {
 });
 
 test('handles static asset serving and missing distDir fallback', async () => {
-  const serverMissing = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
+  const serverMissing = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrlMissing = await listen(serverMissing, { port: 0 });
 
   try {
@@ -85,10 +71,7 @@ test('handles static asset serving and missing distDir fallback', async () => {
   writeFileSync(join(tmpDist, 'index.html'), '<!doctype html><html><body>Test</body></html>');
   writeFileSync(join(tmpDist, 'app.js'), 'console.log("app");');
 
-  const serverWithDist = createDashboardServer({
-    eventHub: fakeHub(),
-    distDir: tmpDist,
-  });
+  const serverWithDist = await buildDashboardApp({ config: { distDir: tmpDist } });
   const baseUrlWithDist = await listen(serverWithDist, { port: 0 });
 
   try {
@@ -105,45 +88,40 @@ test('handles static asset serving and missing distDir fallback', async () => {
     const spaFallback = await fetch(`${baseUrlWithDist}/specs/active/refaktoring-tooli`);
     assert.equal(spaFallback.status, 200);
     assert.match(spaFallback.headers.get('content-type'), /text\/html/);
+
+    // Regression guard: a rebuild that lands new hashed asset filenames
+    // while the server is still running (no restart) must still be served —
+    // `wildcard: false` would glob distDir once at plugin-registration time
+    // and 404 on anything added after that snapshot.
+    writeFileSync(join(tmpDist, 'app.newhash123.js'), 'console.log("rebuilt");');
+    const rebuiltRes = await fetch(`${baseUrlWithDist}/app.newhash123.js`);
+    assert.equal(rebuiltRes.status, 200);
+    assert.match(await rebuiltRes.text(), /rebuilt/);
   } finally {
     await new Promise(resolvePromise => serverWithDist.close(resolvePromise));
     rmSync(tmpDist, { recursive: true, force: true });
   }
 });
 
-test('server shutdown lifecycle cleans up eventHub, ai service, and operation runtime', async () => {
-  let eventHubClosed = false;
-  let aiShutdown = false;
-  let opRuntimeShutdown = false;
+// The one root-level resource: app.mjs decorates the real app instance with
+// it (see app.mjs's own comment), so its shutdown wiring is a genuine
+// full-app HTTP-integration concern — verified here by reading the public
+// `operationRuntime` decoration directly, with no fake/mock and no config
+// injection. What `.shutdown()` itself does to the runtime is already
+// covered by operations.test.mjs's own unit tests; this only confirms
+// app.mjs actually calls it when the app closes. Each other capability's own
+// shutdown wiring (eventHub, AI service) is covered by that capability's own
+// slice-level tests (events.test.mjs, ai-server.test.mjs).
+test('the shared operationRuntime decoration is shut down when the app closes', async () => {
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
+  const runtime = server.operationRuntime;
+  assert.ok(runtime, 'operationRuntime is decorated on the app instance');
 
-  const mockHub = {
-    subscribe: () => () => {},
-    close: () => { eventHubClosed = true; },
-  };
-  const mockAiService = {
-    shutdown: () => { aiShutdown = true; },
-    listProviders: () => [],
-  };
-  const mockOpRuntime = {
-    shutdown: () => { opRuntimeShutdown = true; },
-    getSnapshot: () => null,
-  };
+  await server.close();
 
-  const server = createDashboardServer({
-    eventHub: mockHub,
-    aiService: mockAiService,
-    operationRuntime: mockOpRuntime,
-    distDir: 'Z:/does-not-exist',
-  });
-
-  const baseUrl = await listen(server, { port: 0 });
-  await fetch(`${baseUrl}/api/health`);
-
-  await new Promise(resolvePromise => server.close(resolvePromise));
-
-  assert.equal(eventHubClosed, true);
-  assert.equal(aiShutdown, true);
-  assert.equal(opRuntimeShutdown, true);
+  assert.throws(
+    () => runtime.createOperation(),
+    err => err.status === 503,
+    'operationRuntime was shut down when the app closed',
+  );
 });
-
-

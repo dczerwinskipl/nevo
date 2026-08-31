@@ -6,10 +6,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createOperationRuntime, OperationNotFoundError } from '../server/operations.mjs';
-import { executeSpecificationAction } from '../server/actions.mjs';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { handleOperationRoute } from '../server/routes/operations.mjs';
+import Fastify from 'fastify';
+import { createOperationRuntime, OperationNotFoundError } from '../server/infrastructure/operation-runtime.mjs';
+import { executeSpecificationAction } from '../server/specs/actions.mjs';
+import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
+import specsRoutes from '../server/specs/routes.mjs';
+import operationRoutes from '../server/operations/routes.mjs';
 import { computeChangeFingerprint, computeTaskFingerprint } from '../../specs/fingerprint.mjs';
 
 function createMockChildProcess() {
@@ -344,12 +346,20 @@ test('executeSpecificationAction — in-process single execution runner', async 
 });
 
 test('Dashboard server — action concurrency & /api/operations routes', async (t) => {
+  // Cross-slice by nature (specs' actions write to `operationRuntime`,
+  // operations reads/streams it), so this registers both slices directly on
+  // a bare Fastify instance — decorating `operationRuntime` the same way
+  // app.mjs does — rather than going through `buildDashboardApp()`.
+  // `actionExecutor` is specs/routes.mjs's own local override option (see
+  // its own comment).
   let activeChild = null;
   const runtime = createOperationRuntime({ idFactory: () => 'srv-op-1' });
   const sample = fixture();
-  const server = createDashboardServer({
-    operationRuntime: runtime,
-    activeDir: sample.activeDir,
+  const server = Fastify({ bodyLimit: 4096 });
+  await registerGlobalHttpInfrastructure(server);
+  server.decorate('operationRuntime', runtime);
+  await server.register(specsRoutes, {
+    config: { activeDir: sample.activeDir },
     actionExecutor: ({ slug, action, taskId, onFinished }) => {
       activeChild = createMockChildProcess();
       const opId = runtime.createOperation({ type: `spec-action-${action}` });
@@ -360,10 +370,12 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
       return { ok: true, operationId: opId, action, taskId };
     },
   });
-  const baseUrl = await listen(server, { port: 0 });
+  await server.register(operationRoutes);
+  const baseUrl = await server.listen({ port: 0 });
 
-  t.after(() => {
-    server.close();
+  t.after(async () => {
+    server?.server?.closeAllConnections?.();
+    await server.close();
     sample.cleanup();
   });
 
@@ -416,7 +428,8 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
     // Test SSE endpoint
     const eventsRes = await fetch(`${baseUrl}/api/operations/${opId}/events`);
     assert.equal(eventsRes.status, 200);
-    assert.equal(eventsRes.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    // @fastify/sse's own header shape (no charset param).
+    assert.equal(eventsRes.headers.get('content-type'), 'text/event-stream');
 
     const reader = eventsRes.body.getReader();
     const decoder = new TextDecoder();
@@ -511,83 +524,72 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
   });
 });
 
-test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)', async () => {
-  let subscribeCallCount = 0;
-  let unsubscribeCallCount = 0;
-  let activeSubscribers = 0;
+// Real Fastify instances (with @fastify/sse actually registered, via
+// registerGlobalHttpInfrastructure) — exercises `operationRoutes` over a
+// real listening port with the same deterministic subscribe/unsubscribe
+// -count assertions the old hand-rolled request/reply doubles used. Those
+// doubles no longer make sense once SSE framing/headers/close-detection are
+// @fastify/sse's job, not something a fake `reply.raw` can stand in for.
+async function buildOperationsTestApp(runtime) {
+  const app = Fastify({ bodyLimit: 4096 });
+  await registerGlobalHttpInfrastructure(app);
+  app.decorate('operationRuntime', runtime);
+  await app.register(operationRoutes);
+  return app;
+}
 
-  const mockRuntime = {
-    getSnapshot: (id) => ({
-      id,
-      type: 'test-op',
-      status: 'running',
-      steps: [],
-      lastEventId: 0,
-      startedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }),
-    subscribe: (id, { afterSequence, onEvent }) => {
-      subscribeCallCount++;
-      activeSubscribers++;
-      let unsubscribed = false;
-      return () => {
-        if (!unsubscribed) {
-          unsubscribed = true;
-          unsubscribeCallCount++;
-          activeSubscribers--;
-        }
-      };
-    },
-  };
+test('operation SSE route lifecycle guarantees (deterministic verification)', async (t) => {
+  await t.test('single registration and cleanup on client disconnect', async () => {
+    let subscribeCallCount = 0;
+    let unsubscribeCallCount = 0;
+    let activeSubscribers = 0;
+    const mockRuntime = {
+      getSnapshot: (id) => ({
+        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }),
+      subscribe: () => {
+        subscribeCallCount++;
+        activeSubscribers++;
+        let unsubscribed = false;
+        return () => {
+          if (!unsubscribed) {
+            unsubscribed = true;
+            unsubscribeCallCount++;
+            activeSubscribers--;
+          }
+        };
+      },
+    };
+    const app = await buildOperationsTestApp(mockRuntime);
+    const baseUrl = await app.listen({ port: 0 });
+    try {
+      const controller = new AbortController();
+      const res = await fetch(`${baseUrl}/api/operations/op-1/events`, { signal: controller.signal });
+      assert.equal(res.status, 200);
+      const reader = res.body.getReader();
+      await reader.read(); // consume the initial snapshot event
+      assert.equal(subscribeCallCount, 1, 'subscription registration occurs once');
+      assert.equal(activeSubscribers, 1);
 
-  // Test 1: single registration and cleanup on client disconnect (request 'close')
-  {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
+      controller.abort();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.equal(unsubscribeCallCount, 1, 'cleanup/unsubscribe occurs exactly once');
+      assert.equal(activeSubscribers, 0, 'no listener/subscription remains after connection termination');
+    } finally {
+      await app.close();
+    }
+  });
 
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
-
-    const handled = handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-1/events'),
-      operationRuntime: mockRuntime,
-    });
-    assert.equal(handled, true);
-    assert.equal(subscribeCallCount, 1, 'subscription registration occurs once');
-    assert.equal(activeSubscribers, 1);
-
-    // Simulate client disconnect
-    req.emit('close');
-    assert.equal(unsubscribeCallCount, 1, 'cleanup/unsubscribe occurs exactly once');
-    assert.equal(activeSubscribers, 0, 'no listener/subscription remains after connection termination');
-
-    // Simulate duplicate disconnect / close
-    req.emit('close');
-    assert.equal(unsubscribeCallCount, 1, 'client disconnect does not double-clean');
-  }
-
-  // Test 2: terminal completion ends SSE and unsubscribes exactly once
-  {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
-
+  await t.test('terminal completion ends SSE and unsubscribes exactly once', async () => {
+    let subscribeCallCount = 0;
+    let unsubscribeCallCount = 0;
+    let activeSubscribers = 0;
     let capturedOnEvent = null;
     const runtimeWithCallback = {
       getSnapshot: (id) => ({
-        id,
-        type: 'test-op',
-        status: 'running',
-        steps: [],
-        lastEventId: 0,
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        id, type: 'test-op', status: 'running', steps: [], lastEventId: 0,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }),
       subscribe: (id, { onEvent }) => {
         subscribeCallCount++;
@@ -599,74 +601,68 @@ test('handleOperationRoute SSE lifecycle guarantees (deterministic verification)
         };
       },
     };
+    const app = await buildOperationsTestApp(runtimeWithCallback);
+    const baseUrl = await app.listen({ port: 0 });
+    try {
+      const res = await fetch(`${baseUrl}/api/operations/op-2/events`);
+      assert.equal(res.status, 200);
+      const reader = res.body.getReader();
+      await reader.read(); // consume the initial snapshot event
 
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
+      assert.equal(subscribeCallCount, 1);
+      assert.equal(activeSubscribers, 1);
 
-    handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-2/events'),
-      operationRuntime: runtimeWithCallback,
-    });
+      capturedOnEvent({ id: 1, type: 'operation.completed', data: { ok: true } });
+      const drainPromise = (async () => {
+        let done = false;
+        while (!done) {
+          ({ done } = await reader.read());
+        }
+      })();
+      await Promise.race([
+        drainPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for terminal stream completion')), 5000)),
+      ]);
+      assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
+      assert.equal(activeSubscribers, 0);
+    } finally {
+      app?.server?.closeAllConnections?.();
+      await app.close();
+    }
+  });
 
-    assert.equal(subscribeCallCount, 1);
-    assert.equal(activeSubscribers, 1);
-
-    // Emit terminal completed event
-    capturedOnEvent({ id: 1, type: 'operation.completed', data: { ok: true } });
-    assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
-    assert.equal(activeSubscribers, 0);
-
-    // Ensure closing request after completion does not double clean
-    req.emit('close');
-    assert.equal(unsubscribeCallCount, 1, 'no duplicate terminal handling');
-  }
-
-  // Test 3: terminal replay on already-completed operation does not leave a subscriber registered
-  {
-    subscribeCallCount = 0;
-    unsubscribeCallCount = 0;
-    activeSubscribers = 0;
-
+  await t.test('terminal replay on already-completed operation does not leave a subscriber registered', async () => {
+    let subscribeCallCount = 0;
     const completedRuntime = {
       getSnapshot: (id) => ({
-        id,
-        type: 'test-op',
-        status: 'completed',
-        steps: [],
-        lastEventId: 5,
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        id, type: 'test-op', status: 'completed', steps: [], lastEventId: 5,
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }),
       subscribe: () => {
         subscribeCallCount++;
-        activeSubscribers++;
-        return () => {
-          unsubscribeCallCount++;
-          activeSubscribers--;
-        };
+        return () => {};
       },
     };
-
-    const req = new EventEmitter();
-    req.headers = {};
-    const res = new PassThrough();
-    res.writeHead = () => {};
-
-    // Replay with cursor at latest event (no new events to wait for)
-    handleOperationRoute({
-      request: req,
-      response: res,
-      method: 'GET',
-      url: new URL('http://127.0.0.1/api/operations/op-3/events?after=5'),
-      operationRuntime: completedRuntime,
-    });
-
-    assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
-    assert.equal(activeSubscribers, 0, 'terminal replay does not leave a subscriber registered');
-  }
+    const app = await buildOperationsTestApp(completedRuntime);
+    const baseUrl = await app.listen({ port: 0 });
+    try {
+      const res = await fetch(`${baseUrl}/api/operations/op-3/events?after=5`);
+      assert.equal(res.status, 200);
+      const reader = res.body.getReader();
+      const drainPromise = (async () => {
+        let done = false;
+        while (!done) {
+          ({ done } = await reader.read());
+        }
+      })();
+      await Promise.race([
+        drainPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for replay stream completion')), 5000)),
+      ]);
+      assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
+    } finally {
+      app?.server?.closeAllConnections?.();
+      await app.close();
+    }
+  });
 });

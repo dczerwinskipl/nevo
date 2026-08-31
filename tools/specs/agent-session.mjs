@@ -1,6 +1,8 @@
 import { resolveCanonicalSpec } from './identity.mjs';
 import { requireTask } from './store.mjs';
-import { createAgentSessionBindingService } from '../ai/binding-service.mjs';
+// Dashboard-AI-owned capability (tools/dashboard/server/ai/sessions/) — this CLI command
+// is the one genuine non-dashboard consumer of session binding (see tools/specs.mjs).
+import { createAgentSessionBindingService } from '../dashboard/server/ai/sessions/binding-service.mjs';
 
 export async function handleAgentSessionAttach(opts) {
   const specInfo = resolveCanonicalSpec(opts.spec);

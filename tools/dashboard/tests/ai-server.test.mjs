@@ -5,20 +5,17 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createMockAiAdapter } from '../../ai/mock-adapter.mjs';
-import { createAiAdapterRegistry } from '../../ai/registry.mjs';
-import { createAiSessionService } from '../../ai/service.mjs';
-import { createAiTurnRuntime } from '../../ai/turn-runtime.mjs';
-import { createTranscriptCacheService } from '../../ai/transcript-cache.mjs';
-import { createAgentSessionBindingService } from '../../ai/binding-service.mjs';
-import { createDashboardServer, listen } from '../server/index.mjs';
-import { createDefaultDashboardAiService } from '../server/ai-services.mjs';
+import { createMockAgentProvider } from '../server/ai/providers/mock/provider.mjs';
+import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
+import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
+import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
+import { createAgentSessionBindingService } from '../server/ai/sessions/binding-service.mjs';
+import { listen } from '../server/index.mjs';
+import { createDefaultAgentSessionService } from '../server/ai/routes.mjs';
+import { buildAiTestApp } from './helpers/ai-test-app.mjs';
 
 const specId = '70609aaf-bb62-40bf-a25e-bec65c583495';
-
-function fakeHub() {
-  return { subscribe: () => () => {}, close: () => {} };
-}
 
 // Real disk paths, isolated per call — never the repo's own `.nevo-ai-local/`, which
 // boot-time reconciliation now actually scans (`listPersistedSessions`), so leftover
@@ -29,14 +26,14 @@ function isolatedTranscriptCache() {
 }
 
 function createStack(options = {}) {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
-  const registry = createAiAdapterRegistry([adapter]);
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
   const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService(
     options.storageDir ? { storageDir: options.storageDir } : (options.storageFile ? { storageFile: options.storageFile } : {})
   );
-  const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-  return { adapter, service: createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  return { provider, service: createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService }) };
 }
 
 function control(body, extra = {}) {
@@ -47,14 +44,18 @@ function control(body, extra = {}) {
   };
 }
 
-async function waitFor(baseUrl, turnId, predicate) {
+// Polls the AI service directly (in-process) rather than through HTTP: the
+// dashboard's HTTP surface has no "get turn by ID alone" endpoint (the
+// canonical, session-correlated API doesn't need one — this test
+// infrastructure is the only thing that ever wanted raw turn-by-ID
+// polling), and `service` is already right here.
+async function waitFor(service, turnId, predicate) {
   for (let index = 0; index < 100; index += 1) {
-    const response = await fetch(`${baseUrl}/api/ai/turns/${encodeURIComponent(turnId)}`);
-    const turn = (await response.json()).turn;
+    const turn = service.getTurn(turnId);
     if (predicate(turn)) return turn;
     await new Promise(resolve => setTimeout(resolve, 5));
   }
-  assert.fail('Timed out waiting for API turn state.');
+  assert.fail('Timed out waiting for turn state.');
 }
 
 async function waitForSession(baseUrl, provider, providerSessionId, predicate) {
@@ -68,18 +69,17 @@ async function waitForSession(baseUrl, provider, providerSessionId, predicate) {
 }
 
 async function closeServer(server) {
-  server.closeAllConnections?.();
-  await new Promise(resolve => server.close(resolve));
+  server?.server?.closeAllConnections?.();
+  server?.closeAllConnections?.();
+  await server?.close?.();
 }
 
 test('Agent session routes expose the complete provider-neutral session and turn lifecycle', async () => {
   const policyCalls = [];
   const { service } = createStack();
-  const server = createDashboardServer({
-    aiService: service,
-    aiAccessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
+  const server = await buildAiTestApp({
+    service,
+    accessPolicy: ({ capability }) => { policyCalls.push(capability); return true; },
   });
   const baseUrl = await listen(server, { port: 0 });
 
@@ -104,7 +104,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.ok(providerSessionId);
 
     // Wait for first turn completion
-    const completedTurn = await waitFor(baseUrl, turnId, turn => turn.status === 'completed');
+    const completedTurn = await waitFor(service, turnId, turn => turn.status === 'completed');
     assert.equal(completedTurn.events[0].type, 'turn.started');
     assert.equal(completedTurn.events.at(-1).type, 'turn.completed');
 
@@ -124,7 +124,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     assert.equal(sessionBody.status, 'idle');
     assert.ok(sessionBody.messages.length >= 2);
     assert.ok(sessionBody.lastEventSeq > 0);
-    // Regression guard: registry.get(provider) returns { adapter, descriptor }, not the
+    // Regression guard: registry.get(provider) returns { provider, descriptor }, not the
     // descriptor itself — a session snapshot must still surface the provider's real
     // declared capabilities (this is what drives the chat UI's cancel-button visibility).
     assert.equal(sessionBody.capabilities.cancelTurn, true);
@@ -137,7 +137,7 @@ test('Agent session routes expose the complete provider-neutral session and turn
     );
     assert.equal(secondTurnResponse.status, 202);
     const { turnId: secondTurnId } = await secondTurnResponse.json();
-    await waitFor(baseUrl, secondTurnId, turn => turn.status === 'completed');
+    await waitFor(service, secondTurnId, turn => turn.status === 'completed');
 
     // 6. Messages list
     const messagesResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(providerSessionId)}/messages`);
@@ -183,11 +183,11 @@ test('Agent session routes expose the complete provider-neutral session and turn
   }
 });
 
-test('default dashboard AI service registers only adapters enabled in the local config', async () => {
+test('default dashboard AI service registers only providers enabled in the local config', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-config-'));
-  const adapterConfigPath = join(configDir, 'ai-adapters.yaml');
-  await writeFile(adapterConfigPath, `version: 1
-adapters:
+  const providerConfigPath = join(configDir, 'ai-providers.yaml');
+  await writeFile(providerConfigPath, `version: 1
+providers:
   codex:
     enabled: true
   claude:
@@ -197,7 +197,7 @@ adapters:
   mock:
     enabled: true
 `, 'utf8');
-  const service = createDefaultDashboardAiService({ dataLoader: () => ({ active: [] }), adapterConfigPath });
+  const service = createDefaultAgentSessionService({ dataLoader: () => ({ active: [] }), providerConfigPath });
   try {
     assert.deepEqual(service.registry.list(), ['codex', 'claude', 'mock']);
     const descriptor = service.registry.get('codex').descriptor;
@@ -211,14 +211,9 @@ adapters:
   }
 });
 
-test('durable session history remains readable after its adapter is disabled', async () => {
+test('durable session history remains readable after its provider is disabled', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({
-    aiService: service,
-    aiAccessPolicy: () => true,
-    eventHub: fakeHub(),
-    distDir: 'Z:/does-not-exist',
-  });
+  const server = await buildAiTestApp({ service, accessPolicy: () => true });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -242,7 +237,7 @@ test('durable session history remains readable after its adapter is disabled', a
 
     const newTurn = await fetch(
       `${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(session.providerSessionId)}/turns`,
-      control({ message: 'must remain blocked while the adapter is disabled' })
+      control({ message: 'must remain blocked while the provider is disabled' })
     );
     assert.equal(newTurn.status, 404);
   } finally {
@@ -250,11 +245,11 @@ test('durable session history remains readable after its adapter is disabled', a
   }
 });
 
-test('default dashboard AI service registers no adapters when the local config is absent', async () => {
+test('default dashboard AI service registers no providers when the local config is absent', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'nevo-ai-service-missing-config-'));
-  const service = createDefaultDashboardAiService({
+  const service = createDefaultAgentSessionService({
     dataLoader: () => ({ active: [] }),
-    adapterConfigPath: join(configDir, 'missing.yaml'),
+    providerConfigPath: join(configDir, 'missing.yaml'),
   });
   try {
     assert.deepEqual(service.registry.list(), []);
@@ -267,7 +262,7 @@ test('default dashboard AI service registers no adapters when the local config i
 
 test('Session SSE replays events, preserves pending interaction, and resolves via session endpoint', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -276,7 +271,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
       idempotencyKey: 'permission-1',
     }));
     const { turnId } = await start.json();
-    const pendingTurn = await waitFor(baseUrl, turnId, turn => turn.pendingInteraction);
+    const pendingTurn = await waitFor(service, turnId, turn => turn.pendingInteraction);
 
     // Subscribe to session SSE stream
     const controller = new AbortController();
@@ -303,7 +298,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
     );
     assert.equal(resolved.status, 200);
 
-    const completed = await waitFor(baseUrl, turnId, turn => turn.status === 'completed');
+    const completed = await waitFor(service, turnId, turn => turn.status === 'completed');
     assert.ok(completed.events.some(event => event.type === 'interaction.resolved'));
 
     // Replay SSE after sequence
@@ -325,7 +320,7 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
 
 test('single-active-turn and stable question correlation are enforced through HTTP', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -334,7 +329,7 @@ test('single-active-turn and stable question correlation are enforced through HT
       idempotencyKey: 'q-1',
     }));
     const first = await firstResponse.json();
-    await waitFor(baseUrl, first.turnId, turn => turn.pendingInteraction);
+    await waitFor(service, first.turnId, turn => turn.pendingInteraction);
 
     const retryResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-1/turns`, control({
       message: 'ask a question',
@@ -351,7 +346,7 @@ test('single-active-turn and stable question correlation are enforced through HT
     const conflict = await conflictResponse.json();
     assert.equal(conflict.turnId, first.turnId);
 
-    const turn = await waitFor(baseUrl, first.turnId, value => value.pendingInteraction);
+    const turn = await waitFor(service, first.turnId, value => value.pendingInteraction);
     const [one, two] = turn.pendingInteraction.questions;
     const wrong = await fetch(
       `${baseUrl}/api/agent-sessions/mock/demo-task-b-1/interactions/${turn.pendingInteraction.id}/respond`,
@@ -375,11 +370,11 @@ test('single-active-turn and stable question correlation are enforced through HT
 
 test('AI controls validate methods, guards, traversal, malformed and oversized input, and explicit cancellation', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
-    assert.equal((await fetch(`${baseUrl}/api/agent-providers`, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(`${baseUrl}/api/agent-providers`, { method: 'POST' })).status, 404);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions`, { method: 'POST', body: '{}' })).status, 403);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions`, control({ provider: 'mock', specId, providerSessionId: 'x' }, { origin: 'https://attacker.example' }))).status, 403);
     assert.equal((await fetch(`${baseUrl}/api/agent-sessions/%2e%2e/%2e%2e/messages`)).status, 404);
@@ -391,7 +386,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
     const start = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-2/turns`, control({ message: 'permission before cancel' }));
     const { turnId } = await start.json();
-    await waitFor(baseUrl, turnId, turn => turn.pendingInteraction);
+    await waitFor(service, turnId, turn => turn.pendingInteraction);
     const cancelled = await fetch(`${baseUrl}/api/agent-sessions/mock/demo-task-b-2/turns/${turnId}/cancel`, control({}));
     assert.equal(cancelled.status, 200);
     assert.equal((await cancelled.json()).turn.events.at(-1).error.code, 'AI_TURN_CANCELLED');
@@ -409,7 +404,7 @@ test('AI controls validate methods, guards, traversal, malformed and oversized i
 
 test('session control endpoints enforce strict correlation between provider, session, turn, and interaction', async () => {
   const { service } = createStack();
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -419,14 +414,14 @@ test('session control endpoints enforce strict correlation between provider, ses
       idempotencyKey: 'key-alpha',
     }));
     const { turnId: turnIdA } = await startA.json();
-    const turnA = await waitFor(baseUrl, turnIdA, t => t.pendingInteraction);
+    const turnA = await waitFor(service, turnIdA, t => t.pendingInteraction);
 
     const startB = await fetch(`${baseUrl}/api/agent-sessions/mock/session-beta/turns`, control({
       message: 'permission on beta',
       idempotencyKey: 'key-beta',
     }));
     const { turnId: turnIdB } = await startB.json();
-    const turnB = await waitFor(baseUrl, turnIdB, t => t.pendingInteraction);
+    const turnB = await waitFor(service, turnIdB, t => t.pendingInteraction);
 
     // 2. Cross-session cancel attempt: trying to cancel turnIdA using session-beta route
     const crossCancel = await fetch(
@@ -438,8 +433,8 @@ test('session control endpoints enforce strict correlation between provider, ses
     assert.equal(crossCancelJson.error.code, 'AI_NOT_FOUND');
 
     // Verify session-alpha turn is still waitingForUser and NOT cancelled
-    const checkTurnA = await (await fetch(`${baseUrl}/api/ai/turns/${turnIdA}`)).json();
-    assert.equal(checkTurnA.turn.status, 'waitingForUser');
+    const checkTurnA = service.getTurn(turnIdA);
+    assert.equal(checkTurnA.status, 'waitingForUser');
 
     // 3. Cross-session interaction response: trying to resolve turnA's interaction using session-beta route
     const crossRespond = await fetch(
@@ -463,7 +458,7 @@ test('session control endpoints enforce strict correlation between provider, ses
       control({ decision: 'allow' }),
     );
     assert.equal(validRespond.status, 200);
-    const completedA = await waitFor(baseUrl, turnIdA, t => t.status === 'completed');
+    const completedA = await waitFor(service, turnIdA, t => t.status === 'completed');
     assert.equal(completedA.status, 'completed');
 
     const validCancel = await fetch(
@@ -471,7 +466,7 @@ test('session control endpoints enforce strict correlation between provider, ses
       control({}),
     );
     assert.equal(validCancel.status, 200);
-    const cancelledB = await waitFor(baseUrl, turnIdB, t => t.status === 'failed');
+    const cancelledB = await waitFor(service, turnIdB, t => t.status === 'failed');
     assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
   } finally {
     await closeServer(server);
@@ -479,15 +474,15 @@ test('session control endpoints enforce strict correlation between provider, ses
 });
 
 test('pending interaction can be resolved after server restart retaining persisted transcript state with strict correlation', async () => {
-  const adapter = createMockAiAdapter({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
-  const registry = createAiAdapterRegistry([adapter]);
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-a', 'task-b'], streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
   const transcriptCache = isolatedTranscriptCache();
   const bindingService = createAgentSessionBindingService();
 
   // Phase 1: Server 1 runs, turn reaches waitingForUser
-  const turnRuntime1 = createAiTurnRuntime({ registry, transcriptCache });
-  const service1 = createAiSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
-  const server1 = createDashboardServer({ aiService: service1, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const turnRuntime1 = createAgentTurnRuntime({ registry, transcriptCache });
+  const service1 = createAgentSessionService({ registry, turnRuntime: turnRuntime1, transcriptCache, bindingService });
+  const server1 = await buildAiTestApp({ service: service1 });
   const baseUrl1 = await listen(server1, { port: 0 });
 
   let turnIdAlpha;
@@ -501,7 +496,7 @@ test('pending interaction can be resolved after server restart retaining persist
     }));
     const resA = await startA.json();
     turnIdAlpha = resA.turnId;
-    const turnA = await waitFor(baseUrl1, turnIdAlpha, t => t.pendingInteraction);
+    const turnA = await waitFor(service1, turnIdAlpha, t => t.pendingInteraction);
     interactionIdAlpha = turnA.pendingInteraction.id;
 
     const startB = await fetch(`${baseUrl1}/api/agent-sessions/mock/restart-beta/turns`, control({
@@ -510,15 +505,15 @@ test('pending interaction can be resolved after server restart retaining persist
     }));
     const resB = await startB.json();
     turnIdBeta = resB.turnId;
-    await waitFor(baseUrl1, turnIdBeta, t => t.pendingInteraction);
+    await waitFor(service1, turnIdBeta, t => t.pendingInteraction);
   } finally {
     await closeServer(server1);
   }
 
   // Phase 2: Server 2 starts with a fresh turnRuntime (simulating restart) sharing persisted transcriptCache
-  const turnRuntime2 = createAiTurnRuntime({ registry, transcriptCache });
-  const service2 = createAiSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
-  const server2 = createDashboardServer({ aiService: service2, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const turnRuntime2 = createAgentTurnRuntime({ registry, transcriptCache });
+  const service2 = createAgentSessionService({ registry, turnRuntime: turnRuntime2, transcriptCache, bindingService });
+  const server2 = await buildAiTestApp({ service: service2 });
   const baseUrl2 = await listen(server2, { port: 0 });
 
   try {
@@ -556,7 +551,7 @@ test('pending interaction can be resolved after server restart retaining persist
       control({ decision: 'allow' }),
     );
     assert.equal(validRespond.status, 200);
-    const completedA = await waitFor(baseUrl2, turnIdAlpha, t => t.status === 'completed');
+    const completedA = await waitFor(service2, turnIdAlpha, t => t.status === 'completed');
     assert.equal(completedA.status, 'completed');
 
     // 6. Cancel on restart-beta also works after restart
@@ -565,7 +560,7 @@ test('pending interaction can be resolved after server restart retaining persist
       control({}),
     );
     assert.equal(cancelRes.status, 200);
-    const cancelledB = await waitFor(baseUrl2, turnIdBeta, t => t.status === 'failed');
+    const cancelledB = await waitFor(service2, turnIdBeta, t => t.status === 'failed');
     assert.equal(cancelledB.events.at(-1).error.code, 'AI_TURN_CANCELLED');
   } finally {
     await closeServer(server2);
@@ -578,33 +573,29 @@ test('Session mode preference persistence across server restarts and snapshot ex
   const transcriptDir = join(tmpDir, 'transcripts');
 
   let lastExecutedMode = null;
-  const customAdapter = createMockAiAdapter({
+  const customProvider = createMockAgentProvider({
     specId,
     taskIds: ['task-mode'],
     streamDelayMs: 1,
   });
-  const originalStartTurn = customAdapter.startTurn.bind(customAdapter);
-  customAdapter.startTurn = (params) => {
+  const originalStartTurn = customProvider.startTurn.bind(customProvider);
+  customProvider.startTurn = (params) => {
     lastExecutedMode = params.mode;
     return originalStartTurn(params);
   };
 
-  const createTestServer = () => {
-    const registry = createAiAdapterRegistry([customAdapter]);
+  const createTestServer = async () => {
+    const registry = createAgentProviderRegistry([customProvider]);
     const bindingService = createAgentSessionBindingService({ storageDir });
     const transcriptCache = createTranscriptCacheService({ baseDir: transcriptDir, flushDebounceMs: 0 });
-    const turnRuntime = createAiTurnRuntime({ registry, transcriptCache });
-    const service = createAiSessionService({ registry, turnRuntime, transcriptCache, bindingService });
-    const server = createDashboardServer({
-      aiService: service,
-      eventHub: fakeHub(),
-      distDir: 'Z:/does-not-exist',
-    });
+    const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+    const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+    const server = await buildAiTestApp({ service });
     return { server, service, bindingService };
   };
 
   // 1. Start Server 1: Create session with mode 'agent' and another with 'ask'
-  const stack1 = createTestServer();
+  const stack1 = await createTestServer();
   const baseUrl1 = await listen(stack1.server, { port: 0 });
 
   try {
@@ -631,7 +622,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
     // 2. Restart server (simulating reload of binding/service state)
     await closeServer(stack1.server);
 
-    const stack2 = createTestServer();
+    const stack2 = await createTestServer();
     const baseUrl2 = await listen(stack2.server, { port: 0 });
 
     try {
@@ -642,7 +633,7 @@ test('Session mode preference persistence across server restarts and snapshot ex
       // 4. Returned session mode is 'agent'
       assert.equal(getAgentData.session.mode, 'agent');
 
-      // 5. Starting a subsequent turn without explicit override invokes adapter with 'agent'
+      // 5. Starting a subsequent turn without explicit override invokes provider with 'agent'
       lastExecutedMode = null;
       const turn1Res = await fetch(`${baseUrl2}/api/agent-sessions/mock/${agentSessionId}/turns`, control({
         message: 'continue in restored mode',
@@ -697,7 +688,7 @@ test('AC7 & AC8: Multi-task session creation returns complete taskIds[] and list
   const specId = 'a1111111-1111-4111-a111-111111111111';
 
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -747,7 +738,7 @@ test('AC9: Cross-spec session binding isolation (D10) never produces merged task
   const sharedSessionId = 'shared-agent-session-42';
 
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -833,7 +824,7 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-patch-mode-spec-'));
   const storageDir = join(tmpDir, 'sessions');
   const { service } = createStack({ storageDir });
-  const server = createDashboardServer({ aiService: service, eventHub: fakeHub(), distDir: 'Z:/does-not-exist' });
+  const server = await buildAiTestApp({ service });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -894,4 +885,95 @@ test('Finding 2: PATCH session mode updates only the current spec rows and does 
   }
 });
 
+
+
+test('ai slice: registered service is shut down when the app closes', async () => {
+  let shutdownCalled = false;
+  const { service } = createStack();
+  const originalShutdown = service.shutdown.bind(service);
+  service.shutdown = async () => {
+    shutdownCalled = true;
+    await originalShutdown();
+  };
+
+  const server = await buildAiTestApp({ service });
+  await server.listen({ port: 0 });
+  await server.close();
+
+  assert.equal(shutdownCalled, true, 'AI service was shut down when the app closed');
+});
+
+test('ai events SSE: connecting to an idle session sends headers immediately and keeps connection alive', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const controller = new AbortController();
+    const stream = await fetch(`${baseUrl}/api/agent-sessions/mock/idle-session/events?after=0`, {
+      headers: { accept: 'text/event-stream' },
+      signal: controller.signal,
+    });
+
+    assert.equal(stream.status, 200);
+    assert.equal(stream.headers.get('content-type'), 'text/event-stream');
+    assert.equal(stream.headers.get('cache-control'), 'no-cache');
+    assert.equal(stream.headers.get('connection'), 'keep-alive');
+
+    controller.abort();
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('ai events SSE: live SSE stream delivers interaction.requested events in real-time to already connected client', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  try {
+    const sseUrl = `${baseUrl}/api/agent-sessions/mock/session-test-live/events?after=0`;
+    const controller = new AbortController();
+    const response = await fetch(sseUrl, {
+      headers: { accept: 'text/event-stream' },
+      signal: controller.signal,
+    });
+
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    const eventsPromise = (async () => {
+      let fullText = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value);
+        fullText += text;
+        if (fullText.includes('event: interaction.requested')) {
+          break;
+        }
+      }
+      return fullText;
+    })();
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const startRes = await fetch(`${baseUrl}/api/agent-sessions/mock/session-test-live/turns`, control({
+      message: 'permission please',
+    }));
+    assert.equal(startRes.status, 202);
+
+    const receivedText = await Promise.race([
+      eventsPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for interaction.requested over SSE!')), 3000)),
+    ]);
+
+    assert.ok(receivedText.includes('event: turn.started'));
+    assert.ok(receivedText.includes('event: interaction.requested'));
+    controller.abort();
+  } finally {
+    await closeServer(server);
+  }
+});
 
