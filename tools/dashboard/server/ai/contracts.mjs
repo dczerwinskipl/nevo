@@ -501,3 +501,6 @@ export function publicAiError(error) {
   if (error instanceof AiError) return error;
   return new AiError('AI_PROVIDER_ERROR', 'The AI provider operation failed.', { status: 502 });
 }
+
+export * from './model/index.mjs';
+export * from './diagnostics/index.mjs';

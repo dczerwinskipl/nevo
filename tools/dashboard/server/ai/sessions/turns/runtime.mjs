@@ -10,6 +10,7 @@ import {
   validateAgentIdentity,
   validateAgentExecutionMode,
   validateInteractionResponse,
+  getGlobalTraceSink,
 } from '../../contracts.mjs';
 import { createTranscriptCacheService } from '../transcript-cache.mjs';
 import { TurnEventStream, sessionKey } from './turn-event-stream.mjs';
@@ -61,9 +62,11 @@ export class AgentTurnRuntime {
     clock = () => new Date(),
     idleTimeoutMs = 5 * 60 * 1000,
     idleCheckIntervalMs = Math.min(idleTimeoutMs > 0 ? idleTimeoutMs : 30_000, 30_000),
+    traceSink = null,
   } = {}) {
     this.registry = registry;
     this.transcriptCache = transcriptCache ?? createTranscriptCacheService();
+    this.traceSink = traceSink ?? getGlobalTraceSink();
     this.maxEventsPerTurn = maxEventsPerTurn;
     this.maxRetainedTurns = maxRetainedTurns;
     this.idFactory = idFactory;
@@ -80,6 +83,14 @@ export class AgentTurnRuntime {
       this.#idleWatchdogTimer = setInterval(() => this.#checkIdleTurns(), this.idleCheckIntervalMs);
       this.#idleWatchdogTimer.unref?.();
     }
+  }
+
+  getTrace(turnId) {
+    return this.traceSink?.getTrace(turnId) ?? [];
+  }
+
+  exportTrace(turnId) {
+    return this.traceSink?.exportTrace(turnId) ?? { turnId, recordCount: 0, records: [] };
   }
 
   async startTurn({ provider, providerSessionId, sessionId, message, prompt, mode, idempotencyKey, onSessionEstablished } = {}) {
@@ -220,6 +231,18 @@ export class AgentTurnRuntime {
       if (!isNewSession) {
         this.#activeBySession.set(key, turnId);
       }
+      state.tracer = this.traceSink?.createTurnTracer?.({
+        turnId,
+        sessionId: providerSessionId || turnId,
+        provider,
+        providerSessionId,
+      });
+      state.tracer?.record?.({
+        source: 'runtime',
+        event: 'turn.started',
+        disposition: 'accepted',
+        afterStatus: { status: 'active', detail: 'startup' },
+      });
       this.#notifyProviderState(state);
       this.#emit(state, 'turn.started', {
         mode: state.mode,
@@ -559,6 +582,13 @@ export class AgentTurnRuntime {
       }
     }
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
+    state.tracer?.record?.({
+      source: 'runtime',
+      event: 'turn.cancel_requested',
+      initiator: 'user',
+      disposition: 'accepted',
+      afterStatus: { status: 'cancelling', initiator: 'user' },
+    });
     if (state.status === 'waitingForUser') {
       const error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 });
       if (state.privateOperation) {
@@ -575,9 +605,11 @@ export class AgentTurnRuntime {
   /**
    * Explicit-cancel termination path — mirrors the pre-watchdog `cancelTurn` behavior
    * exactly: the provider must declare `cancelTurn` capability (throws
-   * `CapabilityNotSupportedError` otherwise, before anything is aborted/finished).
+   * `CapabilityNotSupportedError` when missing), and provider-level cancellation errors
+   * bubble directly to the caller.
    */
   async #cancelRunningTurn(state, error) {
+    state.abortController.abort();
     const agentProvider = this.registry.require(state.provider, 'cancelTurn', 'cancelTurn');
     if (state.privateOperation) {
       await agentProvider.cancelTurn({
@@ -587,7 +619,6 @@ export class AgentTurnRuntime {
         operation: state.privateOperation,
       });
     }
-    state.abortController.abort();
     this.#finish(state, 'turn.failed', error);
   }
 
@@ -598,6 +629,16 @@ export class AgentTurnRuntime {
    */
   async #timeoutRunningTurn(state, error) {
     if (this.#isTerminal(state)) return;
+    state.tracer?.record?.({
+      source: 'coordinator',
+      event: 'timeout.fired',
+      initiator: 'runtime',
+      cause: 'timeout/protocol-silence',
+      timeout: {
+        kind: 'protocol-silence',
+        deadlineMs: this.idleTimeoutMs,
+      },
+    });
     const entry = this.registry.get(state.provider);
     if (state.privateOperation && entry?.provider?.cancelTurn) {
       try {
@@ -718,8 +759,9 @@ export class AgentTurnRuntime {
       this.#eventStream.releaseTurn(evicted);
     }
     if (this.transcriptCache && state.provider && state.providerSessionId) {
-      return this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
+      this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
     }
+    state.tracer?.flush?.().catch?.(() => {});
     return Promise.resolve();
   }
 
@@ -727,6 +769,27 @@ export class AgentTurnRuntime {
     const event = this.#eventStream.emit(state.turnId, type, data);
     if (TURN_ACTIVITY_EVENT_TYPES.has(type)) {
       state.lastActivityAt = this.clock().getTime();
+    }
+    if (state?.tracer) {
+      if (type === 'tool.started') {
+        state.tracer.record({ source: 'tool', event: 'tool.started', subjectId: data.toolId, metadata: { toolName: data.toolName } });
+      } else if (type === 'tool.updated') {
+        state.tracer.record({ source: 'tool', event: 'tool.updated', subjectId: data.toolId, metadata: { status: data.status } });
+      } else if (type === 'tool.completed') {
+        state.tracer.record({ source: 'tool', event: 'tool.completed', subjectId: data.toolId, disposition: data.status === 'completed' ? 'accepted' : 'ignored', metadata: { status: data.status, durationMs: data.durationMs } });
+      } else if (type === 'interaction.requested') {
+        state.tracer.record({ source: 'runtime', event: 'interaction.requested', subjectId: data.interaction?.id, afterStatus: { status: 'requiresAttention', reason: data.interaction?.kind, interactionId: data.interaction?.id }, metadata: { kind: data.interaction?.kind } });
+      } else if (type === 'interaction.resolved') {
+        state.tracer.record({ source: 'runtime', event: 'interaction.resolved', subjectId: data.interactionId, disposition: 'accepted' });
+      } else if (type === 'turn.completed' || type === 'turn.failed') {
+        state.tracer.record({
+          source: 'coordinator',
+          event: type,
+          disposition: 'accepted',
+          afterStatus: { status: 'terminal', outcome: type === 'turn.completed' ? 'completed' : 'failed', initiator: 'provider' },
+          cause: data.error?.code,
+        });
+      }
     }
     return event;
   }

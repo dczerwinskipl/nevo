@@ -10,6 +10,31 @@ import {
   validateProviderDescriptor,
   validateInteractionResponse,
   normalizeCapabilities,
+  validateTurnStatus,
+  createTurnStatus,
+  validateWorkItem,
+  validateCommentaryWorkItem,
+  validateReasoningWorkItem,
+  validateToolInvocationWorkItem,
+  validateToolAction,
+  validateInteractionWorkItem,
+  validateFinalAnswer,
+  createFinalAnswer,
+  validateCanonicalTurn,
+  createCanonicalTurn,
+  appendWorkItem,
+  updateWorkItem,
+  addToolAction,
+  setFinalAnswer,
+  setTurnStatus,
+  computeCurrentActivity,
+  serializePublicTurn,
+  buildClaudeScenarioTurn,
+  buildCodexScenarioTurn,
+  buildAntigravityScenarioTurn,
+  assertValidCanonicalTurn,
+  assertWorkOrderIntegrity,
+  assertToolActionHierarchy,
 } from '../server/ai/contracts.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
 import { createAgentSessionService } from '../server/ai/sessions/service.mjs';
@@ -423,4 +448,368 @@ test('Execution mode precedence: turn.mode > session.mode > provider.defaultMode
   assert.equal(executedMode, 'agent');
   // And persisted session mode was updated to 'agent'
   assert.equal(fakeBindings.get('sess-ask').mode, 'agent');
+});
+
+test('canonical TurnStatus validates all discriminated union variants and rejects invalid shapes', () => {
+  // 1. active
+  const activeStatus = validateTurnStatus({ status: 'active', detail: 'tool_execution', subjectId: 'tool-1' });
+  assert.equal(activeStatus.status, 'active');
+  assert.equal(activeStatus.detail, 'tool_execution');
+  assert.equal(activeStatus.subjectId, 'tool-1');
+  assert.ok(activeStatus.since);
+
+  // 2. waiting
+  const waitingStatus = validateTurnStatus({ status: 'waiting', reason: 'provider_response' });
+  assert.equal(waitingStatus.status, 'waiting');
+  assert.equal(waitingStatus.reason, 'provider_response');
+
+  // 3. requiresAttention (requires interactionId)
+  const attentionStatus = validateTurnStatus({ status: 'requiresAttention', reason: 'permission', interactionId: 'int-1' });
+  assert.equal(attentionStatus.status, 'requiresAttention');
+  assert.equal(attentionStatus.interactionId, 'int-1');
+  assert.throws(() => validateTurnStatus({ status: 'requiresAttention', reason: 'permission' }), { name: 'AiValidationError' });
+
+  // 4. cancelling
+  const cancellingStatus = validateTurnStatus({ status: 'cancelling', initiator: 'user' });
+  assert.equal(cancellingStatus.status, 'cancelling');
+  assert.equal(cancellingStatus.initiator, 'user');
+
+  // 5. terminal
+  const terminalStatus = validateTurnStatus({
+    status: 'terminal',
+    outcome: 'completed',
+    initiator: 'provider',
+    finishReason: 'stop',
+  });
+  assert.equal(terminalStatus.status, 'terminal');
+  assert.equal(terminalStatus.outcome, 'completed');
+  assert.throws(() => validateTurnStatus({ status: 'terminal', outcome: 'invalid_outcome' }), { name: 'AiValidationError' });
+
+  // 6. unknown
+  const unknownStatus = validateTurnStatus({ status: 'unknown', reason: 'unproven_state' });
+  assert.equal(unknownStatus.status, 'unknown');
+  assert.equal(unknownStatus.reason, 'unproven_state');
+
+  // Invalid status
+  assert.throws(() => validateTurnStatus({ status: 'inactive' }), { name: 'AiValidationError' });
+  assert.throws(() => validateTurnStatus({ status: 'idle' }), { name: 'AiValidationError' });
+  assert.throws(() => validateTurnStatus(null), { name: 'AiValidationError' });
+});
+
+test('canonical WorkItem types validate correctly and enforce semantic separation', () => {
+  // Commentary
+  const commentary = validateWorkItem({
+    id: 'work-1',
+    type: 'commentary',
+    seq: 1,
+    text: 'Analyzing codebase...',
+    status: 'completed',
+  });
+  assert.equal(commentary.type, 'commentary');
+  assert.equal(commentary.text, 'Analyzing codebase...');
+  assert.equal(commentary.seq, 1);
+
+  // Reasoning with representation
+  const reasoning = validateWorkItem({
+    id: 'work-2',
+    type: 'reasoning',
+    seq: 2,
+    representation: 'raw_text',
+    text: 'Checking directory paths.',
+    status: 'completed',
+  });
+  assert.equal(reasoning.type, 'reasoning');
+  assert.equal(reasoning.representation, 'raw_text');
+  assert.equal(reasoning.seq, 2);
+
+  // Tool invocation
+  const tool = validateWorkItem({
+    id: 'work-3',
+    type: 'tool',
+    seq: 3,
+    toolName: 'readFile',
+    kind: 'file_operation',
+    title: 'Read specification',
+    status: 'completed',
+    input: { path: 'specs/active/test.md' },
+    output: 'content',
+  });
+  assert.equal(tool.type, 'tool');
+  assert.equal(tool.kind, 'file_operation');
+  assert.equal(tool.seq, 3);
+
+  // Interaction
+  const interaction = validateWorkItem({
+    id: 'work-4',
+    type: 'interaction',
+    seq: 4,
+    interaction: {
+      id: 'int-1',
+      kind: 'permission',
+      toolName: 'shell',
+      input: { command: 'git status' },
+    },
+    status: 'pending',
+  });
+  assert.equal(interaction.type, 'interaction');
+  assert.equal(interaction.status, 'pending');
+  assert.equal(interaction.seq, 4);
+
+  // Rejection of invalid types and missing required fields
+  assert.throws(() => validateWorkItem({ id: 'work-x', type: 'unknown_type', seq: 1 }), { name: 'AiValidationError' });
+  assert.throws(() => validateWorkItem({ id: 'work-x', type: 'commentary', seq: 0 }), { name: 'AiValidationError' });
+});
+
+test('FinalAnswer has independent lifecycle and cannot alias Commentary or Reasoning', () => {
+  const finalAnswer = createFinalAnswer({
+    id: 'final-answer',
+    text: 'Here is the summary of the work.',
+    status: 'completed',
+    confidence: 'authoritative',
+  });
+  assert.equal(finalAnswer.id, 'final-answer');
+  assert.equal(finalAnswer.text, 'Here is the summary of the work.');
+  assert.equal(finalAnswer.status, 'completed');
+  assert.equal(finalAnswer.confidence, 'authoritative');
+
+  // Rejects invalid status
+  assert.throws(() => validateFinalAnswer({ status: 'invalid_status' }), { name: 'AiValidationError' });
+});
+
+test('ordered Work sequence: monotonic sequence assignment and in-place delta updates', () => {
+  const turn = createCanonicalTurn({
+    id: 'turn-test-1',
+    sessionId: 'sess-1',
+    provider: 'codex',
+    providerSessionId: 'thread-1',
+  });
+
+  assert.equal(turn.work.length, 0);
+  assert.equal(turn.activityCount, 0);
+
+  // Append items
+  const item1 = appendWorkItem(turn, {
+    id: 'w-1',
+    type: 'commentary',
+    text: 'Starting work',
+    status: 'streaming',
+  });
+  assert.equal(item1.seq, 1);
+  assert.equal(turn.activityCount, 1);
+
+  const item2 = appendWorkItem(turn, {
+    id: 'w-2',
+    type: 'tool',
+    toolName: 'exec',
+    kind: 'command',
+    title: 'Run build',
+    status: 'active',
+  });
+  assert.equal(item2.seq, 2);
+  assert.equal(turn.activityCount, 2);
+
+  // In-place update: delta text update does not alter sequence or position
+  const updated1 = updateWorkItem(turn, 'w-1', {
+    text: 'Starting work now completed',
+    status: 'completed',
+  });
+  assert.equal(updated1.seq, 1);
+  assert.equal(turn.work[0].text, 'Starting work now completed');
+  assert.equal(turn.work[0].status, 'completed');
+
+  // Invariant C3: updating seq or type is rejected
+  assert.throws(() => updateWorkItem(turn, 'w-1', { seq: 5 }), { name: 'AiValidationError' });
+  assert.throws(() => updateWorkItem(turn, 'w-1', { type: 'tool' }), { name: 'AiValidationError' });
+
+  // Invariant: completed items cannot return to streaming/active
+  assert.throws(() => updateWorkItem(turn, 'w-1', { status: 'streaming' }), { name: 'AiValidationError' });
+
+  assertValidCanonicalTurn(turn);
+});
+
+test('compound operation: multiple ToolActions remain nested and do not increase top-level activityCount', () => {
+  const turn = createCanonicalTurn({
+    id: 'turn-test-compound',
+    sessionId: 'sess-1',
+    provider: 'codex',
+    providerSessionId: 'thread-1',
+  });
+
+  const toolItem = appendWorkItem(turn, {
+    id: 'w-compound',
+    type: 'tool',
+    toolName: 'commandExecution',
+    kind: 'command',
+    title: 'Execute test suite and checks',
+    status: 'active',
+  });
+
+  assert.equal(turn.activityCount, 1);
+
+  // Add 3 nested actions
+  const act1 = addToolAction(toolItem, { id: 'act-1', kind: 'list', title: 'List files in tests/' });
+  assert.equal(act1.seq, 1);
+  assert.equal(toolItem.actions.length, 1);
+  assert.equal(turn.activityCount, 1); // Remains 1!
+
+  const act2 = addToolAction(toolItem, { id: 'act-2', kind: 'read', title: 'Read config' });
+  assert.equal(act2.seq, 2);
+  assert.equal(toolItem.actions.length, 2);
+  assert.equal(turn.activityCount, 1); // Remains 1!
+
+  const act3 = addToolAction(toolItem, { id: 'act-3', kind: 'execute', title: 'Run tests' });
+  assert.equal(act3.seq, 3);
+  assert.equal(toolItem.actions.length, 3);
+  assert.equal(turn.activityCount, 1); // Remains 1!
+
+  assertToolActionHierarchy(toolItem);
+  assertValidCanonicalTurn(turn);
+});
+
+test('requiresAttention invariant: cannot set requiresAttention without matching pending interaction', () => {
+  const turn = createCanonicalTurn({
+    id: 'turn-attention-test',
+    sessionId: 'sess-1',
+    provider: 'claude',
+    providerSessionId: 'claude-1',
+  });
+
+  // Attempting to set requiresAttention without any interaction throws
+  assert.throws(
+    () => setTurnStatus(turn, { status: 'requiresAttention', reason: 'permission', interactionId: 'int-missing' }),
+    { name: 'AiValidationError' },
+  );
+
+  // Add interaction
+  appendWorkItem(turn, {
+    id: 'int-valid',
+    type: 'interaction',
+    status: 'pending',
+    interaction: {
+      id: 'int-valid',
+      kind: 'permission',
+      toolName: 'shell',
+    },
+  });
+
+  // Now setting status with matching interactionId succeeds
+  setTurnStatus(turn, { status: 'requiresAttention', reason: 'permission', interactionId: 'int-valid' });
+  assert.equal(turn.status.status, 'requiresAttention');
+  assert.equal(turn.status.interactionId, 'int-valid');
+
+  assertValidCanonicalTurn(turn);
+});
+
+test('computeCurrentActivity resolves semantic activity and titles for all turn phases', () => {
+  const turn = createCanonicalTurn({
+    id: 'turn-activity-test',
+    sessionId: 'sess-1',
+    provider: 'claude',
+    providerSessionId: 'claude-1',
+  });
+
+  // 1. Startup
+  let act = computeCurrentActivity(turn);
+  assert.equal(act.status, 'active');
+  assert.equal(act.kind, 'startup');
+
+  // 2. Active Tool
+  const tool = appendWorkItem(turn, {
+    id: 'tool-act',
+    type: 'tool',
+    toolName: 'searchRepo',
+    kind: 'search',
+    title: 'Search repository',
+    status: 'active',
+  });
+  act = computeCurrentActivity(turn);
+  assert.equal(act.kind, 'search');
+  assert.equal(act.title, 'Search repository');
+  assert.equal(act.status, 'active');
+  assert.equal(act.subjectId, 'tool-act');
+
+  // 3. Tool completed -> Waiting for model response
+  updateWorkItem(turn, 'tool-act', { status: 'completed' });
+  setTurnStatus(turn, { status: 'waiting', reason: 'provider_response' });
+  act = computeCurrentActivity(turn);
+  assert.equal(act.kind, 'waiting');
+  assert.equal(act.title, 'Waiting for model response');
+
+  // 4. Requires attention
+  appendWorkItem(turn, {
+    id: 'int-q',
+    type: 'interaction',
+    status: 'pending',
+    interaction: {
+      id: 'int-q',
+      kind: 'question',
+      questions: [{ id: 'q1', question: 'Select mode' }],
+    },
+  });
+  setTurnStatus(turn, { status: 'requiresAttention', reason: 'question', interactionId: 'int-q' });
+  act = computeCurrentActivity(turn);
+  assert.equal(act.kind, 'attention');
+  assert.equal(act.status, 'requiresAttention');
+  assert.equal(act.subjectId, 'int-q');
+
+  // 5. Terminal completed
+  updateWorkItem(turn, 'int-q', { status: 'resolved', response: { answers: [{ questionId: 'q1', value: 'auto' }] } });
+  setTurnStatus(turn, { status: 'terminal', outcome: 'completed', initiator: 'provider', finishReason: 'stop' });
+  act = computeCurrentActivity(turn);
+  assert.equal(act.status, 'completed');
+});
+
+test('representative provider fixture builders conform to canonical invariants', () => {
+  // Claude scenario
+  const claudeTurn = buildClaudeScenarioTurn();
+  assertValidCanonicalTurn(claudeTurn);
+  assert.equal(claudeTurn.provider, 'claude');
+  assert.equal(claudeTurn.work.length, 3); // commentary, tool, reasoning
+  assert.ok(claudeTurn.finalAnswer);
+
+  // Codex scenario (with nested actions)
+  const codexTurn = buildCodexScenarioTurn();
+  assertValidCanonicalTurn(codexTurn);
+  assert.equal(codexTurn.provider, 'codex');
+  assert.equal(codexTurn.work.length, 2); // commentary, tool (with 3 nested actions)
+  assert.equal(codexTurn.work[1].actions.length, 3);
+  assert.ok(codexTurn.finalAnswer);
+
+  // Antigravity scenario (with interaction)
+  const agTurn = buildAntigravityScenarioTurn();
+  assertValidCanonicalTurn(agTurn);
+  assert.equal(agTurn.provider, 'antigravity');
+  assert.equal(agTurn.work.length, 2); // reasoning, interaction
+  assert.ok(agTurn.finalAnswer);
+});
+
+test('public serialization strips provider-private fields and enforces clean DTO shape', () => {
+  const turn = createCanonicalTurn({
+    id: 'turn-strip-test',
+    sessionId: 'sess-1',
+    provider: 'codex',
+    providerSessionId: 'thread-private-123',
+  });
+
+  appendWorkItem(turn, {
+    id: 'w-1',
+    type: 'tool',
+    toolName: 'exec',
+    kind: 'command',
+    title: 'Run cmd',
+    status: 'completed',
+    input: { command: 'echo hello' },
+  });
+
+  // Serialization succeeds
+  const pub = serializePublicTurn(turn);
+  assert.equal(pub.id, 'turn-strip-test');
+  assert.equal(pub.provider, 'codex');
+  assert.equal(pub.activityCount, 1);
+  assert.equal('providerRequestId' in pub, false);
+  assert.equal('rawPayload' in pub, false);
+
+  // Validating turn containing private fields directly throws
+  assert.throws(() => validateCanonicalTurn({ ...turn, providerRequestId: 'secret-123' }), { name: 'AiValidationError' });
+  assert.throws(() => validateCanonicalTurn({ ...turn, work: [{ ...turn.work[0], rawPayload: {} }] }), { name: 'AiValidationError' });
 });

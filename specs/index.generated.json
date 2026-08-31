@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T11:46:25.193Z",
+  "generated": "2026-08-31T12:50:38.782Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -40,30 +40,114 @@
           "id": "canonical-turn-work-contract",
           "order": 4,
           "file": "tasks/04-canonical-turn-work-contract.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "claude-protocol-evidence",
             "codex-protocol-evidence",
             "antigravity-protocol-evidence"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/final-answer.mjs",
+              "tools/dashboard/server/ai/model/fixtures.mjs",
+              "tools/dashboard/server/ai/model/index.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/turn-status.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/tests/ai-contracts.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "d0216f6daca236151a37df3b37456f54016cc822bf0000b5491bae54c34a1b4d"
+          },
+          "self_check": {
+            "fingerprint": "c4f0a777a7d95f56fb9a72d8f481ea7cbe03096a040257bf2b1020e51be605f4",
+            "revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-contracts.test.mjs tools/dashboard/tests/ai-contract-drift.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "neutral-lifecycle-diagnostics",
           "order": 5,
           "file": "tasks/05-neutral-lifecycle-diagnostics.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "canonical-turn-work-contract"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/index.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "a6f120228e106449c4988f99f5661fab6ab3b666d769649aeea5ce03c31edcd9"
+          },
+          "self_check": {
+            "fingerprint": "c5bfafb2ef6ca5f80b88f96336c84c83adb9614e00f4038f1542a4e13578f488",
+            "revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "lifecycle-coordinator-and-timeouts",
           "order": 6,
           "file": "tasks/06-lifecycle-coordinator-and-timeouts.md",
-          "status": "draft",
+          "status": "implemented",
           "depends_on": [
             "neutral-lifecycle-diagnostics"
-          ]
+          ],
+          "implementation": {
+            "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "review_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "changed_paths": [
+              "tools/dashboard/server/ai/contracts.mjs",
+              "tools/dashboard/server/ai/diagnostics/index.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
+              "tools/dashboard/server/ai/diagnostics/trace-sink.mjs",
+              "tools/dashboard/server/ai/model/canonical-turn.mjs",
+              "tools/dashboard/server/ai/model/final-answer.mjs",
+              "tools/dashboard/server/ai/model/fixtures.mjs",
+              "tools/dashboard/server/ai/model/index.mjs",
+              "tools/dashboard/server/ai/model/serialization.mjs",
+              "tools/dashboard/server/ai/model/turn-status.mjs",
+              "tools/dashboard/server/ai/model/work-items.mjs",
+              "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
+              "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
+              "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
+              "tools/dashboard/tests/ai-turn-runtime.test.mjs"
+            ],
+            "worktree_patch_fingerprint": "e7b32602008f9d330f3a74e1216f6d8a0d04549015ef4eb879bea77fa79e6960"
+          },
+          "self_check": {
+            "fingerprint": "0894626c45a9ca6a11551e6633c1b656b985a9bad47da3fcdb9297163cf26ac8",
+            "revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
+            "commands": [
+              {
+                "command": "node --test tools/dashboard/tests/ai-turn-runtime.test.mjs tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs tools/dashboard/tests/session-states-integration.test.mjs",
+                "exit_code": 0
+              }
+            ],
+            "status": "passed"
+          }
         },
         {
           "id": "canonical-persistence-and-server-projection",

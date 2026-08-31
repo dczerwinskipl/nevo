@@ -10,6 +10,8 @@ import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { AntigravityAgentProvider } from '../server/ai/providers/antigravity/provider.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
+import { LifecycleTraceSink } from '../server/ai/diagnostics/index.mjs';
 
 
 const capabilities = Object.freeze({
@@ -950,6 +952,240 @@ test('Antigravity full path: error result with non-empty response -> text.delta 
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
+});
+
+test('TurnLifecycleCoordinator: legal and illegal status transitions and invariants', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-trans-1',
+    sessionId: 'sess-1',
+    provider: 'claude',
+  });
+
+  // Initial status is active (startup)
+  assert.equal(coordinator.status.status, 'active');
+  assert.equal(coordinator.status.detail, 'startup');
+
+  // 1. Transition active -> waiting
+  let status = await coordinator.requestStatusTransition({
+    status: 'waiting',
+    reason: 'provider_response',
+  });
+  assert.equal(status.status, 'waiting');
+  assert.equal(status.reason, 'provider_response');
+
+  // 2. Add interaction and transition to requiresAttention
+  const interactionItem = await coordinator.appendWork({
+    id: 'int-1',
+    type: 'interaction',
+    status: 'pending',
+    interaction: { id: 'int-1', kind: 'permission', toolName: 'Shell' },
+  });
+  assert.equal(interactionItem.seq, 1);
+
+  status = await coordinator.requestStatusTransition({
+    status: 'requiresAttention',
+    reason: 'permission',
+    interactionId: 'int-1',
+  });
+  assert.equal(status.status, 'requiresAttention');
+  assert.equal(status.interactionId, 'int-1');
+
+  // 3. Resolve interaction -> back to active
+  await coordinator.updateWork('int-1', { status: 'resolved' });
+  status = await coordinator.requestStatusTransition({
+    status: 'active',
+    detail: 'model_response',
+  });
+  assert.equal(status.status, 'active');
+
+  // 4. Request cancellation -> cancelling
+  const cancelled = await coordinator.requestCancellation({ initiator: 'user' });
+  assert.equal(cancelled, true);
+  assert.equal(coordinator.status.status, 'cancelling');
+
+  // 5. Settle terminal -> completed/failed
+  status = await coordinator.settleTerminal({ outcome: 'cancelled', initiator: 'user' });
+  assert.equal(status.status, 'terminal');
+  assert.equal(status.outcome, 'cancelled');
+  assert.equal(coordinator.isTerminal, true);
+
+  // 6. Subsequent transition attempts are safely ignored without mutating terminal outcome
+  const lateStatus = await coordinator.requestStatusTransition({
+    status: 'active',
+    detail: 'startup',
+  });
+  assert.equal(lateStatus.status, 'terminal');
+  assert.equal(lateStatus.outcome, 'cancelled');
+
+  // Late work addition is ignored
+  const lateWork = await coordinator.appendWork({
+    id: 'w-late',
+    type: 'commentary',
+    text: 'late commentary',
+  });
+  assert.equal(lateWork, null);
+});
+
+test('protocol silence watchdog: suppressed during long tool execution and pending interaction', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-watchdog-1',
+    sessionId: 'sess-1',
+    provider: 'codex',
+  });
+
+  // 1. Add active tool
+  const tool = await coordinator.appendWork({
+    id: 'tool-slow',
+    type: 'tool',
+    toolName: 'slowBash',
+    kind: 'command',
+    title: 'Run slow build',
+    status: 'active',
+  });
+  assert.equal(tool.seq, 1);
+  assert.equal(coordinator.hasOpenTools, true);
+
+  // Evaluate watchdog with past timestamp (e.g. 10 minutes elapsed)
+  const pastTime = Date.now() + 600_000;
+  let check = await coordinator.checkProtocolSilence(pastTime, 300_000);
+  assert.equal(check.fired, false);
+  assert.equal(check.suppressed, 'open_tools');
+  assert.equal(coordinator.isTerminal, false);
+
+  // 2. Complete tool -> hasOpenTools becomes false
+  await coordinator.updateWork('tool-slow', { status: 'completed' });
+  assert.equal(coordinator.hasOpenTools, false);
+
+  // 3. Add pending interaction -> suppressed by pending_interaction
+  await coordinator.appendWork({
+    id: 'int-q',
+    type: 'interaction',
+    status: 'pending',
+    interaction: { id: 'int-q', kind: 'question', questions: [{ id: 'q1', question: 'confirm?' }] },
+  });
+  await coordinator.requestStatusTransition({
+    status: 'requiresAttention',
+    reason: 'question',
+    interactionId: 'int-q',
+  });
+
+  check = await coordinator.checkProtocolSilence(pastTime, 300_000);
+  assert.equal(check.fired, false);
+  assert.equal(check.suppressed, 'pending_interaction');
+  assert.equal(coordinator.isTerminal, false);
+
+  // 4. Resolve interaction -> now without activity, watchdog fires
+  await coordinator.updateWork('int-q', { status: 'resolved' });
+  await coordinator.requestStatusTransition({ status: 'waiting', reason: 'provider_response' });
+
+  check = await coordinator.checkProtocolSilence(pastTime + 400_000, 300_000);
+  assert.equal(check.fired, true);
+  assert.equal(check.cause, 'timeout/protocol-silence');
+  assert.equal(coordinator.isTerminal, true);
+  assert.equal(coordinator.status.status, 'terminal');
+  assert.equal(coordinator.status.outcome, 'failed');
+  assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
+});
+
+test('failed tool followed by subsequent Work finishes with completed Turn and preserved order', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-tool-fail-1',
+    sessionId: 'sess-1',
+    provider: 'claude',
+  });
+
+  // 1. Initial commentary
+  await coordinator.appendWork({
+    id: 'c-1',
+    type: 'commentary',
+    text: 'Attempting file read',
+    status: 'completed',
+  });
+
+  // 2. Tool that fails
+  await coordinator.appendWork({
+    id: 't-1',
+    type: 'tool',
+    toolName: 'readFile',
+    kind: 'file_operation',
+    title: 'Read missing file',
+    status: 'active',
+  });
+  await coordinator.updateWork('t-1', {
+    status: 'failed',
+    output: 'FileNotFoundException',
+  });
+
+  // 3. Subsequent commentary recovering from failure
+  await coordinator.appendWork({
+    id: 'c-2',
+    type: 'commentary',
+    text: 'File missing, falling back to directory search',
+    status: 'completed',
+  });
+
+  // 4. Successful fallback tool with nested actions
+  const tool2 = await coordinator.appendWork({
+    id: 't-2',
+    type: 'tool',
+    toolName: 'searchDir',
+    kind: 'search',
+    title: 'Search files',
+    status: 'active',
+  });
+  await coordinator.addToolAction('t-2', {
+    id: 'act-1',
+    kind: 'search',
+    title: 'Search in specs/',
+  });
+  await coordinator.updateWork('t-2', {
+    status: 'completed',
+    output: ['spec.md'],
+  });
+
+  // 5. Final answer
+  await coordinator.setFinalAnswer({
+    id: 'final-ans',
+    text: 'Operation completed successfully via fallback.',
+    status: 'completed',
+  });
+
+  // 6. Turn completes successfully
+  const terminal = await coordinator.settleTerminal({ outcome: 'completed' });
+  assert.equal(terminal.outcome, 'completed');
+  assert.equal(coordinator.turn.work.length, 4);
+  assert.equal(coordinator.turn.work[0].seq, 1);
+  assert.equal(coordinator.turn.work[1].seq, 2);
+  assert.equal(coordinator.turn.work[1].status, 'failed');
+  assert.equal(coordinator.turn.work[2].seq, 3);
+  assert.equal(coordinator.turn.work[3].seq, 4);
+  assert.equal(coordinator.turn.work[3].status, 'completed');
+  assert.equal(coordinator.turn.work[3].actions.length, 1);
+});
+
+test('timeout versus user cancellation race: timeout persists failed with timeout/protocol-silence', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-race-1',
+    sessionId: 'sess-1',
+    provider: 'mock',
+  });
+
+  // Fire timeout first
+  const past = Date.now() + 600_000;
+  const timeoutResult = await coordinator.checkProtocolSilence(past, 300_000);
+  assert.equal(timeoutResult.fired, true);
+  assert.equal(coordinator.status.status, 'terminal');
+  assert.equal(coordinator.status.outcome, 'failed');
+  assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
+
+  // Attempt user cancel after timeout
+  const cancelResult = await coordinator.requestCancellation({ initiator: 'user' });
+  assert.equal(cancelResult, false);
+
+  // Terminal status is intact
+  assert.equal(coordinator.status.status, 'terminal');
+  assert.equal(coordinator.status.outcome, 'failed');
+  assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
 });
 
 
