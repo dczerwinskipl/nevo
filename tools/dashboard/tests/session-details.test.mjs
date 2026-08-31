@@ -48,3 +48,29 @@ test('Task 06: AgentSessionDetails component exposes context, tasks, provider, m
   assert.match(source, /onDelete/);
   assert.match(source, /Usuń sesję/);
 });
+
+test('resolveSessionTaskItems correctly maps taskIds and single taskId against spec tasks', async () => {
+  const { resolveSessionTaskItems } = await import('../ui/features/agent-sessions/session-tasks.ts');
+
+  const specTasks = [
+    { id: 'task-1', title: 'First Task' },
+    { id: 'task-2', title: 'Second Task' },
+  ];
+
+  // Multiple taskIds
+  const items1 = resolveSessionTaskItems({ taskIds: ['task-1', 'task-unknown'] }, specTasks);
+  assert.deepEqual(items1, [
+    { id: 'task-1', title: 'First Task', isClickable: true },
+    { id: 'task-unknown', title: 'task-unknown', isClickable: false },
+  ]);
+
+  // Single taskId fallback
+  const items2 = resolveSessionTaskItems({ taskId: 'task-2' }, specTasks);
+  assert.deepEqual(items2, [
+    { id: 'task-2', title: 'Second Task', isClickable: true },
+  ]);
+
+  // Empty / null session
+  assert.deepEqual(resolveSessionTaskItems(null, specTasks), []);
+  assert.deepEqual(resolveSessionTaskItems({}, specTasks), []);
+});

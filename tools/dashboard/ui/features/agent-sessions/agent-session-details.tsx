@@ -8,6 +8,8 @@ export interface SessionTaskItem {
   isClickable?: boolean;
 }
 
+export { resolveSessionTaskItems } from './session-tasks';
+
 export interface AgentSessionDetailsProps {
   specTitle?: string;
   specId?: string | null;

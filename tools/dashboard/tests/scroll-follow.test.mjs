@@ -18,6 +18,10 @@ function readAgentSessionPageSource() {
   return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/agent-session-page.tsx', import.meta.url)), 'utf8');
 }
 
+function readTranscriptSource() {
+  return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/agent-session-transcript.tsx', import.meta.url)), 'utf8');
+}
+
 function readUseScrollFollowSource() {
   return readFileSync(fileURLToPath(new URL('../ui/features/agent-sessions/transcript/use-scroll-follow.ts', import.meta.url)), 'utf8');
 }
@@ -274,12 +278,13 @@ test('Task 08: Production hook implementation uses calculateMaxScrollTop and uni
 
 test('Task 08: AgentSessionPage uses assistant.contentRevision and renders new-content affordance', () => {
   const chatSource = readAgentSessionPageSource();
-  assert.match(chatSource, /useScrollFollow/);
-  assert.match(chatSource, /contentKey:\s*scrollContentKey/);
-  assert.match(chatSource, /assistant\.contentRevision/);
-  assert.match(chatSource, /hasUnseenContent && !isFollowing/);
-  assert.match(chatSource, /Nowe wiadomości/);
-  assert.match(chatSource, /scrollToBottom\('smooth'\)/);
+  const transcriptSource = readTranscriptSource();
+  assert.match(chatSource, /contentRevision=\{assistant\.contentRevision\}/);
+  assert.match(transcriptSource, /useScrollFollow/);
+  assert.match(transcriptSource, /contentKey:\s*scrollContentKey/);
+  assert.match(transcriptSource, /hasUnseenContent && !isFollowing/);
+  assert.match(transcriptSource, /Nowe wiadomości/);
+  assert.match(transcriptSource, /scrollToBottom\('smooth'\)/);
 });
 
 test('Performance / Finding 3: Repeated scroll events while detached do not alter visible state flags', () => {

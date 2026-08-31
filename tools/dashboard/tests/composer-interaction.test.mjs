@@ -210,7 +210,7 @@ test('AC5 & AC6: Scoped blur-on-outside-tap is attached to transcript surface wi
 
   // Scoped handler on transcript container, not document
   assert.match(source, /handleTranscriptPointerDown/);
-  assert.match(source, /ref=\{transcriptRef\}\s+onPointerDown=\{handleTranscriptPointerDown\}/);
+  assert.match(source, /onPointerDown=\{handleTranscriptPointerDown\}/);
 
   // Guards interactive elements (button, a, input, etc.)
   assert.match(source, /closest\(['"]button, a, input, textarea/);

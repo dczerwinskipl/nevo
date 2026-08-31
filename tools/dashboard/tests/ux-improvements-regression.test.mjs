@@ -60,10 +60,10 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
   assert.ok(sessionDetailsSource.includes('onOpenTask?: (target: TaskNavigationTarget) => void'));
   assert.ok(sessionDetailsSource.includes('onOpenTask?.({ taskId: taskItem.id, specSlug })'));
 
-  // AgentSessionPage resolves rawTaskIds against change.tasks and passes specSlug
+  // AgentSessionPage resolves rawTaskIds against spec.tasks and passes specSlug
   assert.ok(agentSessionPageSource.includes('const sessionTaskItems = useMemo('));
-  assert.ok(agentSessionPageSource.includes('change?.tasks?.find'));
-  assert.ok(agentSessionPageSource.includes('specSlug={change?.slug}'));
+  assert.ok(agentSessionPageSource.includes('resolveSessionTaskItems'));
+  assert.ok(agentSessionPageSource.includes('spec={spec}'));
   assert.ok(agentSessionPageSource.includes('tasks={sessionTaskItems}'));
 });
 

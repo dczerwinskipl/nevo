@@ -63,10 +63,9 @@ test('Task 05: AgentSessionPage delegates header rendering to AgentSessionHeader
   assert.match(agentSessionPageSource, /import \{ AgentSessionHeader \} from '\.\//);
   assert.match(agentSessionPageSource, /<AgentSessionHeader/);
 
-  // Details sheet trigger opens AgentSessionDetails
+  // Details sheet trigger opens AgentSessionDetailsSheet
   assert.match(agentSessionPageSource, /onOpenDetails=\{/);
-  assert.match(agentSessionPageSource, /<AgentSessionDetails/);
-  assert.match(agentSessionPageSource, /<Sheet open=\{isSessionDetailsOpen\}/);
+  assert.match(agentSessionPageSource, /<AgentSessionDetailsSheet\s+open=\{isSessionDetailsOpen\}/);
 
   // Header in AgentSessionPage has no inline Trash or mode switcher
   assert.doesNotMatch(agentSessionPageSource, /Trash2/);
