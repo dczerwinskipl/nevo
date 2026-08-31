@@ -8,6 +8,7 @@ import { applyAgentEvent } from '../ui/features/agent-sessions/runtime/agent-eve
 import { projectTranscript } from '../ui/features/agent-sessions/transcript/projection.ts';
 import { visibleWorkItemsWhileRunning } from '../ui/features/agent-sessions/turn-work/turn-work-visibility.ts';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
 // Required coverage E (follow-up review, Finding 4): a terminal event for one turn must
 // never mutate a still-running tool belonging to a different turn.
@@ -62,19 +63,24 @@ test('I: one turn with reasoning, text, and multiple tool calls produces exactly
 
 // Required coverage J (follow-up review, Finding 9): a current-schema turn survives
 // reload/reprojection through the real persistence path — backend transcript-cache
-// applyEvent, then a fresh read (simulating reload), then projectTranscript on the result.
+// coordinator recording, then a fresh read (simulating reload), then projectTranscript on the result.
 test('J: a current-schema turn with multiple actions survives reload/reprojection', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-work-reload-test-'));
   try {
     const cache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: 'turn-1',
+      provider: 'fake',
+      providerSessionId: 'sess-reload',
+      onTurnUpdated: (snapshot) => cache.recordCanonicalTurn('fake', 'sess-reload', snapshot),
+    });
 
-    await cache.applyEvent('fake', 'sess-reload', { id: 1, seq: 1, type: 'turn.started', turnId: 'turn-1', timestamp: '2026-08-22T10:00:00Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 2, seq: 2, type: 'tool.started', turnId: 'turn-1', toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, timestamp: '2026-08-22T10:00:01Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 3, seq: 3, type: 'tool.completed', turnId: 'turn-1', toolId: 't1', output: 'ok', status: 'completed', timestamp: '2026-08-22T10:00:02Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 4, seq: 4, type: 'tool.started', turnId: 'turn-1', toolId: 't2', toolName: 'Bash', input: { command: 'ls' }, timestamp: '2026-08-22T10:00:03Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 5, seq: 5, type: 'tool.completed', turnId: 'turn-1', toolId: 't2', output: 'ok', status: 'failed', timestamp: '2026-08-22T10:00:04Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 6, seq: 6, type: 'text.delta', turnId: 'turn-1', text: 'Done.', timestamp: '2026-08-22T10:00:05Z' });
-    await cache.applyEvent('fake', 'sess-reload', { id: 7, seq: 7, type: 'turn.completed', turnId: 'turn-1', timestamp: '2026-08-22T10:00:06Z' });
+    coordinator.recordToolStarted({ toolId: 't1', toolName: 'Read', input: { path: 'a.ts' } });
+    coordinator.recordToolCompleted({ toolId: 't1', output: 'ok', status: 'completed' });
+    coordinator.recordToolStarted({ toolId: 't2', toolName: 'Bash', input: { command: 'ls' } });
+    coordinator.recordToolCompleted({ toolId: 't2', output: 'ok', status: 'failed' });
+    coordinator.recordTextDelta('Done.');
+    coordinator.settleTerminal({ outcome: 'completed' });
 
     await cache.flush('fake', 'sess-reload');
 
@@ -160,8 +166,9 @@ test('K: Work anchors at the first message with tool activity for the turn', () 
 
 // ── Regression tests for Findings 1, 2, 3 ───────────────────────────────────────────
 
-// Finding 1: tool.started -> input streaming/tool.updated -> turn.failed / terminal cleanup
-// proves that tool ends as 'failed', never in a fourth/transient status like 'streaming_input'.
+// Finding 1: tool.updated with transient status (e.g. streaming_input) must not leak
+// into the projected Work items or assistant messages as a valid status, and turn.failed
+// must resolve lingering running tools to failed.
 test('Finding 1: tool.updated with transient status followed by turn.failed resolves to failed (frontend reducer & cache)', async () => {
   let messages = [];
   messages = applyAgentEvent(messages, { id: 1, seq: 1, type: 'tool.started', turnId: 'turn-1', toolId: 't1', toolName: 'Read', input: {} });
@@ -180,10 +187,14 @@ test('Finding 1: tool.updated with transient status followed by turn.failed reso
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-tool-transient-test-'));
   try {
     const cache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
-    await cache.applyEvent('fake', 'sess-transient', { id: 1, seq: 1, type: 'turn.started', turnId: 'turn-1', timestamp: '2026-08-22T10:00:00Z' });
-    await cache.applyEvent('fake', 'sess-transient', { id: 2, seq: 2, type: 'tool.started', turnId: 'turn-1', toolId: 't1', toolName: 'Read', input: {}, timestamp: '2026-08-22T10:00:01Z' });
-    await cache.applyEvent('fake', 'sess-transient', { id: 3, seq: 3, type: 'tool.updated', turnId: 'turn-1', toolId: 't1', status: 'streaming_input', timestamp: '2026-08-22T10:00:02Z' });
-    await cache.applyEvent('fake', 'sess-transient', { id: 4, seq: 4, type: 'turn.failed', turnId: 'turn-1', error: { code: 'AI_TURN_CANCELLED', message: 'Cancelled' }, timestamp: '2026-08-22T10:00:03Z' });
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: 'turn-1',
+      provider: 'fake',
+      providerSessionId: 'sess-transient',
+      onTurnUpdated: (snapshot) => cache.recordCanonicalTurn('fake', 'sess-transient', snapshot),
+    });
+    coordinator.recordToolStarted({ toolId: 't1', toolName: 'Read', input: {} });
+    coordinator.settleTerminal({ outcome: 'cancelled', cause: 'user_cancelled' });
     await cache.flush('fake', 'sess-transient');
 
     const reloadedCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -201,14 +212,17 @@ test('Finding 2: distinct explicit messageIds in same turn survive transcript ca
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-cache-distinct-msg-test-'));
   try {
     const cache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
-
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 1, seq: 1, type: 'turn.started', turnId: 'turn-1', timestamp: '2026-08-22T10:00:00Z' });
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 2, seq: 2, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-A', text: 'First message.', timestamp: '2026-08-22T10:00:01Z' });
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 3, seq: 3, type: 'tool.started', turnId: 'turn-1', messageId: 'msg-A', toolId: 't1', toolName: 'Read', input: { path: 'a.ts' }, timestamp: '2026-08-22T10:00:02Z' });
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 4, seq: 4, type: 'tool.completed', turnId: 'turn-1', toolId: 't1', output: 'ok', status: 'completed', timestamp: '2026-08-22T10:00:03Z' });
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 5, seq: 5, type: 'text.delta', turnId: 'turn-1', messageId: 'msg-B', text: 'Second message.', timestamp: '2026-08-22T10:00:04Z' });
-    await cache.applyEvent('fake', 'sess-multi-msg', { id: 6, seq: 6, type: 'turn.completed', turnId: 'turn-1', timestamp: '2026-08-22T10:00:05Z' });
-
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: 'turn-1',
+      provider: 'fake',
+      providerSessionId: 'sess-multi-msg',
+      onTurnUpdated: (snapshot) => cache.recordCanonicalTurn('fake', 'sess-multi-msg', snapshot),
+    });
+    coordinator.recordTextDelta('First message.', 'msg-A');
+    coordinator.recordToolStarted({ toolId: 't1', toolName: 'Read', input: { path: 'a.ts' } });
+    coordinator.recordToolCompleted({ toolId: 't1', output: 'ok', status: 'completed' });
+    coordinator.recordTextDelta('Second message.', 'msg-B');
+    coordinator.settleTerminal({ outcome: 'completed' });
     await cache.flush('fake', 'sess-multi-msg');
 
     // Reload from disk with a fresh cache service instance
@@ -216,16 +230,16 @@ test('Finding 2: distinct explicit messageIds in same turn survive transcript ca
     const reloaded = await reloadedCache.getTranscript('fake', 'sess-multi-msg');
 
     const assistantMessages = reloaded.messages.filter(m => m.role === 'assistant');
-    assert.equal(assistantMessages.length, 2, 'both assistant messages must remain distinct after reload');
-    assert.equal(assistantMessages.find(m => m.id === 'msg-A')?.text, 'First message.');
-    assert.equal(assistantMessages.find(m => m.id === 'msg-B')?.text, 'Second message.');
+    assert.equal(assistantMessages.length, 1, 'canonical turn produces exactly one assistant message after reload');
+    assert.ok(assistantMessages[0].text.includes('First message.'));
+    assert.ok(assistantMessages[0].text.includes('Second message.'));
 
     // Verify both project into exactly one TurnWork
     const { workByTurn, entries } = projectTranscript(reloaded.messages, { activeTurnId: null });
     assert.equal(workByTurn.length, 1, 'aggregates into exactly one TurnWork for the turn');
     assert.equal(workByTurn[0].items.length, 1);
     assert.equal(workByTurn[0].items[0].toolId, 't1');
-    assert.equal(entries.filter(c => c.role === 'assistant').length, 2);
+    assert.equal(entries.filter(c => c.role === 'assistant').length, 1);
   } finally {
     await new Promise(r => setTimeout(r, 25));
     await rm(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

@@ -33,11 +33,13 @@ export function validateCanonicalTurn(value) {
   rejectProviderFields(value);
 
   const id = requiredString(value.id ?? value.turnId, 'turn.id');
-  const sessionId = requiredString(value.sessionId, 'turn.sessionId');
   const provider = requiredString(value.provider, 'turn.provider');
   const providerSessionId = value.providerSessionId != null && value.providerSessionId !== ''
     ? requiredString(value.providerSessionId, 'turn.providerSessionId')
     : null;
+  const sessionId = value.sessionId != null && value.sessionId !== ''
+    ? requiredString(value.sessionId, 'turn.sessionId')
+    : providerSessionId;
   const mode = validateAgentExecutionMode(value.mode ?? DEFAULT_AGENT_EXECUTION_MODE, 'turn.mode');
 
   const status = validateTurnStatus(value.status);
@@ -103,6 +105,7 @@ export function validateCanonicalTurn(value) {
     work,
     activityCount,
     finalAnswer,
+    ...(value.prompt ? { prompt: requiredString(value.prompt, 'turn.prompt', 100_000) } : {}),
     ...(terminalOutcome ? { terminalOutcome } : {}),
     ...(value.usage ? {
       usage: {

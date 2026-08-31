@@ -293,7 +293,7 @@ test('progressive hydration: large list is not all fetched at once; runs in sequ
     queryKey: (req) => ['nevo-file-diff', req.path],
     fetchBatch: async (requests) => {
       batchCalls.push(requests.map((r) => r.path));
-      await sleep(30); // simulate network latency
+      await sleep(80); // simulate network latency
       return requests.map((r) => ({ path: r.path, patch: `diff-${r.path}` }));
     },
     resolve: (files, req) => files.find((f) => f.path === req.path) ?? null,

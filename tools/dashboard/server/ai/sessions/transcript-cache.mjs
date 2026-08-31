@@ -268,8 +268,8 @@ export class SessionTranscriptCacheService {
     }
 
     const cloned = structuredClone(state);
-    if (!Array.isArray(cloned.messages) && Array.isArray(cloned.turns) && cloned.turns.length > 0) {
-      cloned.messages = projectChatV1(cloned.turns);
+    if (!Array.isArray(cloned.messages)) {
+      cloned.messages = Array.isArray(cloned.turns) ? projectChatV1(cloned.turns) : [];
     }
     return cloned;
   }
@@ -319,7 +319,12 @@ export class SessionTranscriptCacheService {
       state.lastEventSeq = eventSeq;
     }
     state.updatedAt = event.timestamp;
-    this.#markDirty(provider, providerSessionId);
+
+    if (event.type === 'turn.updated' && event.turn) {
+      this.recordCanonicalTurn(provider, providerSessionId, event.turn);
+    } else {
+      this.#markDirty(provider, providerSessionId);
+    }
 
     if (flush) {
       return this.flush(provider, providerSessionId);
@@ -393,11 +398,13 @@ export class SessionTranscriptCacheService {
     const entries = [...this.#dirty];
     for (const key of entries) {
       const [provider, providerSessionId] = key.split('\u0000');
-      await this.flush(provider, providerSessionId);
+      this.flush(provider, providerSessionId);
     }
+    const pendingWrites = [...this.#writeQueues.values()];
+    await Promise.all(pendingWrites);
   }
 
-  async deleteTranscript(provider, providerSessionId) {
+  deleteTranscript(provider, providerSessionId) {
     const key = this.#key(provider, providerSessionId);
     const timer = this.#flushTimers.get(key);
     if (timer) {
@@ -407,10 +414,25 @@ export class SessionTranscriptCacheService {
     this.#inMemory.delete(key);
     this.#dirty.delete(key);
 
-    const filePath = this.#getFilePath(provider, providerSessionId);
-    try {
-      await rm(filePath, { force: true });
-    } catch {}
+    const previousPromise = this.#writeQueues.get(key) || Promise.resolve();
+    const currentPromise = previousPromise
+      .catch(() => {})
+      .then(async () => {
+        this.#inMemory.delete(key);
+        this.#dirty.delete(key);
+        const filePath = this.#getFilePath(provider, providerSessionId);
+        try {
+          await rm(filePath, { force: true });
+        } catch {}
+      })
+      .finally(() => {
+        if (this.#writeQueues.get(key) === currentPromise) {
+          this.#writeQueues.delete(key);
+        }
+      });
+
+    this.#writeQueues.set(key, currentPromise);
+    return currentPromise;
   }
 }
 

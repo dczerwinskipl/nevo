@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -308,8 +308,13 @@ test('Session SSE replays events, preserves pending interaction, and resolves vi
       signal: replayController.signal,
     });
     const replayReader = replayStream.body.getReader();
-    const { value: replayChunk } = await replayReader.read();
-    const replayText = new TextDecoder().decode(replayChunk);
+    let replayText = '';
+    while (true) {
+      const { value: chunk, done } = await replayReader.read();
+      if (done || !chunk) break;
+      replayText += new TextDecoder().decode(chunk);
+      if (replayText.includes('event: turn.completed')) break;
+    }
     replayController.abort();
     await replayReader.cancel().catch(() => {});
     assert.match(replayText, /event: text\.delta/);
@@ -1489,5 +1494,333 @@ test('Task 07: Per-session write serialization guarantees newest snapshot wins',
 
   await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
 });
+
+test('Task 07: Timeout terminal arbitration: accepted timeout intent prevails over concurrent provider completion during deferred cleanup', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-timeout-arb-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  let finishProviderPromise;
+  const slowCancelProvider = {
+    descriptor: { id: 'slow-cancel', label: 'Slow Cancel Provider', capabilities: { streaming: true, cancelTurn: true } },
+    async startTurn() {
+      return new Promise((resolve) => {
+        finishProviderPromise = resolve;
+      });
+    },
+    async cancelTurn() {
+      // While cancelTurn is awaiting, provider completes
+      if (finishProviderPromise) {
+        finishProviderPromise({ providerSessionId: 'sess-arb-1' });
+      }
+      await new Promise(r => setTimeout(r, 20));
+    },
+  };
+  const registry = createAgentProviderRegistry([slowCancelProvider]);
+  let currentTime = 1000;
+  const clock = () => new Date(currentTime);
+
+  const turnRuntime = createAgentTurnRuntime({
+    registry,
+    transcriptCache,
+    idleTimeoutMs: 50,
+    idleCheckIntervalMs: 10,
+    clock,
+  });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    const { turnId } = await service.startTurn('slow-cancel', 'sess-arb-1', {
+      prompt: 'Test timeout arbitration vs completion',
+    });
+
+    // Advance clock to trigger watchdog timeout
+    currentTime += 100;
+    await new Promise(r => setTimeout(r, 60));
+
+    // 1. In-memory turn is terminal failed with timeout cause (NOT completed!)
+    const inMemoryTurn = turnRuntime.getCanonicalTurn(turnId);
+    assert.equal(inMemoryTurn.status.status, 'terminal');
+    assert.equal(inMemoryTurn.status.outcome, 'failed');
+    assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
+
+    // 2. Persisted state is failed with timeout/protocol-silence
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('slow-cancel', 'sess-arb-1');
+    assert.equal(persisted.turns.length, 1);
+    assert.equal(persisted.turns[0].status.status, 'terminal');
+    assert.equal(persisted.turns[0].status.outcome, 'failed');
+    assert.equal(persisted.turns[0].status.cause, 'timeout/protocol-silence');
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: Timeout terminal arbitration: provider cancellation failure does not replace timeout cause', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-timeout-fail-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  const failingCancelProvider = {
+    descriptor: { id: 'fail-cancel', label: 'Fail Cancel Provider', capabilities: { streaming: true, cancelTurn: true } },
+    async startTurn({ signal }) {
+      return new Promise((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('Turn aborted by signal')), { once: true });
+      });
+    },
+    async cancelTurn() {
+      throw new Error('Provider cancellation connection reset');
+    },
+  };
+  const registry = createAgentProviderRegistry([failingCancelProvider]);
+  let currentTime = 1000;
+  const clock = () => new Date(currentTime);
+
+  const turnRuntime = createAgentTurnRuntime({
+    registry,
+    transcriptCache,
+    idleTimeoutMs: 50,
+    idleCheckIntervalMs: 10,
+    clock,
+  });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    const { turnId } = await service.startTurn('fail-cancel', 'sess-arb-2', {
+      prompt: 'Test timeout arbitration vs cancellation error',
+    });
+
+    currentTime += 100;
+    await new Promise(r => setTimeout(r, 60));
+
+    const inMemoryTurn = turnRuntime.getCanonicalTurn(turnId);
+    assert.equal(inMemoryTurn.status.status, 'terminal');
+    assert.equal(inMemoryTurn.status.outcome, 'failed');
+    assert.equal(inMemoryTurn.status.cause, 'timeout/protocol-silence');
+
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('fail-cancel', 'sess-arb-2');
+    assert.equal(persisted.turns[0].status.outcome, 'failed');
+    assert.equal(persisted.turns[0].status.cause, 'timeout/protocol-silence');
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Work, nested ToolActions, and FinalAnswer', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-v2-sse-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  const manualProvider = {
+    descriptor: { id: 'manual', label: 'Manual Provider', capabilities: { streaming: true, cancelTurn: true } },
+    async startTurn(ctx) {
+      // 1. Commentary
+      ctx.emitDelta('I will inspect files.\n');
+      // 2. Tool with nested actions
+      const tool = { toolId: 'tool-read-1', toolName: 'readFile', input: { path: 'file.txt' }, status: 'running' };
+      ctx.emitToolStarted(tool);
+      const coord = turnRuntime.getCoordinator(ctx.turnId);
+      coord.addToolAction('tool-read-1', { id: 'act-1', kind: 'search', title: 'Check file size' });
+      coord.addToolAction('tool-read-1', { id: 'act-2', kind: 'read', title: 'Read bytes' });
+      ctx.emitToolCompleted({ toolId: 'tool-read-1', status: 'completed', output: 'content' });
+      // 3. Second commentary
+      ctx.emitDelta('File inspected successfully.\n');
+      // 4. Final Answer
+      coord.setFinalAnswer({ id: 'fa-1', text: 'All done and verified.', status: 'completed' });
+
+      return { providerSessionId: 'sess-v2-test' };
+    },
+    async cancelTurn() {},
+  };
+  const registry = createAgentProviderRegistry([manualProvider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  const liveV2Updates = [];
+  try {
+    // Subscribe to live session stream before starting turn
+    const unsubscribe = turnRuntime.subscribeToSession({ provider: 'manual', providerSessionId: 'sess-v2-test' }, {
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          liveV2Updates.push(ev.turn);
+        }
+      },
+    });
+
+    const { turnId } = await service.startTurn('manual', 'sess-v2-test', {
+      prompt: 'V2 canonical stream test',
+    });
+
+    await new Promise(r => setTimeout(r, 20));
+    unsubscribe();
+
+    // 1. Live stream received turn.updated events including nested ToolActions and FinalAnswer
+    assert.ok(liveV2Updates.length > 0);
+    const lastLiveTurn = liveV2Updates[liveV2Updates.length - 1];
+    const liveTool = lastLiveTurn.work.find(w => w.id === 'tool-read-1');
+    assert.ok(liveTool);
+    assert.equal(liveTool.actions.length, 2);
+    assert.equal(liveTool.actions[0].id, 'act-1');
+    assert.equal(liveTool.actions[1].id, 'act-2');
+    assert.equal(lastLiveTurn.finalAnswer?.text, 'All done and verified.');
+
+    // 2. Reconnect / replay with afterSequence = 0 recovers identical canonical snapshots
+    const replayV2Updates = [];
+    turnRuntime.subscribeToSession({ provider: 'manual', providerSessionId: 'sess-v2-test' }, {
+      afterSequence: 0,
+      onEvent: (ev) => {
+        if (ev.type === 'turn.updated') {
+          replayV2Updates.push(ev.turn);
+        }
+      },
+    })();
+    const lastReplayTurn = replayV2Updates[replayV2Updates.length - 1];
+    assert.deepEqual(lastReplayTurn.work, lastLiveTurn.work);
+    assert.deepEqual(lastReplayTurn.finalAnswer, lastLiveTurn.finalAnswer);
+
+    // 3. HTTP V2 read / in-memory canonical turn converges with persisted reload
+    const inMemTurn = turnRuntime.getCanonicalTurn(turnId);
+    assert.equal(inMemTurn.work.length, 3);
+    assert.equal(inMemTurn.work[1].actions.length, 2);
+    assert.deepEqual(inMemTurn.finalAnswer, lastLiveTurn.finalAnswer);
+
+    // 4. Persisted reload from disk converges to exact same semantic Turn
+    await transcriptCache.flush('manual', 'sess-v2-test');
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('manual', 'sess-v2-test');
+    const persistedTurn = persisted.turns[0];
+    assert.deepEqual(persistedTurn.work, inMemTurn.work);
+    assert.deepEqual(persistedTurn.finalAnswer, lastLiveTurn.finalAnswer);
+    assert.equal(persistedTurn.work[1].actions.length, 2);
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: flushAll() completion guarantee awaits all dirty and queued writes', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-flushall-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 100 });
+
+  const turnA = { id: 'turn-a', providerSessionId: 'sess-a', status: { status: 'active' }, work: [] };
+  const turnB = { id: 'turn-b', providerSessionId: 'sess-b', status: { status: 'active' }, work: [] };
+
+  transcriptCache.recordCanonicalTurn('mock', 'sess-a', turnA);
+  transcriptCache.recordCanonicalTurn('mock', 'sess-b', turnB);
+
+  // Both are dirty; flushAll must flush and wait for disk writes of both sessions
+  await transcriptCache.flushAll();
+
+  const freshCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+  const docA = await freshCache.getTranscript('mock', 'sess-a');
+  const docB = await freshCache.getTranscript('mock', 'sess-b');
+
+  assert.equal(docA.turns.length, 1);
+  assert.equal(docA.turns[0].id, 'turn-a');
+  assert.equal(docB.turns.length, 1);
+  assert.equal(docB.turns[0].id, 'turn-b');
+
+  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+});
+
+test('Task 07: deleteTranscript() serializes with in-progress writes and guarantees transcript file is deleted', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-del-ser-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  const turn = { id: 'turn-del', providerSessionId: 'sess-del', status: { status: 'active' }, work: [] };
+  transcriptCache.recordCanonicalTurn('mock', 'sess-del', turn);
+
+  // Start flush, then immediately request deleteTranscript while flush is queued/in progress
+  const flushPromise = transcriptCache.flush('mock', 'sess-del');
+  const deletePromise = transcriptCache.deleteTranscript('mock', 'sess-del');
+
+  await Promise.all([flushPromise, deletePromise]);
+
+  const filePath = join(cacheDir, 'mock', 'sess-del.json');
+  let exists = true;
+  try {
+    await stat(filePath);
+  } catch (err) {
+    if (err.code === 'ENOENT') exists = false;
+  }
+  assert.equal(exists, false, 'Transcript file must remain deleted and not recreated by queued write');
+
+  await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+});
+
+test('Task 07: V1 queued tool status compatibility maps queued to running instead of failed', () => {
+  const queuedToolTurn = {
+    id: 'turn-q-1',
+    providerSessionId: 'sess-q',
+    status: { status: 'active' },
+    work: [
+      { id: 'tool-q', type: 'tool', toolName: 'build', status: 'queued' },
+      { id: 'tool-r', type: 'tool', toolName: 'test', status: 'active' },
+      { id: 'tool-c', type: 'tool', toolName: 'lint', status: 'completed' },
+      { id: 'tool-f', type: 'tool', toolName: 'deploy', status: 'failed' },
+    ],
+  };
+
+  const messages = projectChatV1([queuedToolTurn]);
+  assert.equal(messages.length, 1);
+  const toolCalls = messages[0].toolCalls;
+  assert.equal(toolCalls.length, 4);
+  assert.equal(toolCalls[0].status, 'running', 'queued status must map to running in V1 projection');
+  assert.equal(toolCalls[1].status, 'running', 'active status must map to running in V1 projection');
+  assert.equal(toolCalls[2].status, 'completed');
+  assert.equal(toolCalls[3].status, 'failed');
+});
+
+test('Task 07: CanonicalTurn session identity invariant holds across first turn and subsequent turns', async () => {
+  const cacheDir = join(tmpdir(), `nevo-test-sess-inv-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+
+  const provider = createMockAgentProvider({ specId, streamDelayMs: 1 });
+  const registry = createAgentProviderRegistry([provider]);
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const bindingService = createAgentSessionBindingService();
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+
+  try {
+    // 1. Turn 1 (session creation)
+    const turn1Result = await service.startTurn('mock', null, { specId, prompt: 'First turn' });
+    const providerSessionId = turn1Result.providerSessionId;
+    assert.ok(providerSessionId);
+    await waitFor(service, turn1Result.turnId, t => t.status === 'completed');
+
+    // Turn 1 canonical in-memory state
+    const turn1Snap = turnRuntime.getCanonicalTurn(turn1Result.turnId);
+    assert.equal(turn1Snap.providerSessionId, providerSessionId);
+    assert.equal(turn1Snap.sessionId, providerSessionId);
+    assert.notEqual(turn1Snap.sessionId, turn1Result.turnId, 'sessionId must never fabricate turnId');
+
+    // 2. Turn 2 in the established session
+    const turn2Result = await service.startTurn('mock', providerSessionId, { specId, prompt: 'Second turn' });
+    assert.equal(turn2Result.providerSessionId, providerSessionId);
+    await waitFor(service, turn2Result.turnId, t => t.status === 'completed');
+
+    const turn2Snap = turnRuntime.getCanonicalTurn(turn2Result.turnId);
+    assert.equal(turn2Snap.providerSessionId, providerSessionId);
+    assert.equal(turn2Snap.sessionId, providerSessionId);
+    assert.notEqual(turn2Snap.sessionId, turn2Result.turnId, 'sessionId must never fabricate turnId');
+
+    // 3. Persisted transcript turns
+    await transcriptCache.flush('mock', providerSessionId);
+    const diskCache = createTranscriptCacheService({ baseDir: cacheDir, flushDebounceMs: 0 });
+    const persisted = await diskCache.getTranscript('mock', providerSessionId);
+    assert.equal(persisted.turns.length, 2);
+    assert.equal(persisted.turns[0].providerSessionId, providerSessionId);
+    assert.equal(persisted.turns[0].sessionId, providerSessionId);
+    assert.equal(persisted.turns[1].providerSessionId, providerSessionId);
+    assert.equal(persisted.turns[1].sessionId, providerSessionId);
+  } finally {
+    await turnRuntime.shutdown();
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 
 

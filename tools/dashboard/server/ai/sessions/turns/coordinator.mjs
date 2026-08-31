@@ -31,6 +31,9 @@ export class TurnLifecycleCoordinator {
   #cancellationRequested = false;
   #cancellationInitiator = null;
   #cancellationCause = null;
+  #timeoutRequested = false;
+  #timeoutInitiator = null;
+  #timeoutCause = null;
   #onTurnUpdated = null;
 
   constructor({
@@ -39,19 +42,22 @@ export class TurnLifecycleCoordinator {
     provider,
     providerSessionId = null,
     mode = 'edit',
+    prompt = null,
     traceSink = null,
     turn = null,
     onTurnUpdated = null,
   }) {
     this.#onTurnUpdated = onTurnUpdated;
-    const effectiveSessionId = sessionId || turnId;
     this.#turn = turn ? structuredClone(turn) : createCanonicalTurn({
       id: turnId,
-      sessionId: effectiveSessionId,
+      sessionId: sessionId || providerSessionId || null,
       provider,
       providerSessionId: providerSessionId || null,
       mode,
     });
+    if (prompt && !this.#turn.prompt) {
+      this.#turn.prompt = prompt;
+    }
 
     if (turn && Array.isArray(turn.work)) {
       for (const item of turn.work) {
@@ -66,9 +72,9 @@ export class TurnLifecycleCoordinator {
     const sink = traceSink ?? getGlobalTraceSink();
     this.#tracer = sink?.createTurnTracer?.({
       turnId,
-      sessionId: effectiveSessionId,
+      sessionId: this.#turn.sessionId,
       provider,
-      providerSessionId: providerSessionId || null,
+      providerSessionId: this.#turn.providerSessionId,
     });
 
     this.#tracer?.record?.({
@@ -80,10 +86,10 @@ export class TurnLifecycleCoordinator {
     this.#notifyTurnUpdated();
   }
 
-  #notifyTurnUpdated() {
+  #notifyTurnUpdated({ semantic = false } = {}) {
     if (typeof this.#onTurnUpdated === 'function') {
       try {
-        this.#onTurnUpdated(this.getCanonicalSnapshot());
+        this.#onTurnUpdated(this.getCanonicalSnapshot(), { semantic });
       } catch {}
     }
   }
@@ -201,7 +207,7 @@ export class TurnLifecycleCoordinator {
       cause: after.cause,
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return after;
   }
 
@@ -655,7 +661,7 @@ export class TurnLifecycleCoordinator {
       metadata: { actionId: action.id, kind: action.kind },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return action;
   }
 
@@ -671,12 +677,59 @@ export class TurnLifecycleCoordinator {
       disposition: 'accepted',
       metadata: { status: answer.status },
     });
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return answer;
   }
 
   /**
-   * Request user cancellation.
+   * Late-bind the provider session ID to this Turn aggregate.
+   */
+  bindProviderSessionId(providerSessionId) {
+    if (this.#turn.providerSessionId && this.#turn.providerSessionId !== providerSessionId) {
+      throw new AiValidationError(
+        `Cannot re-bind providerSessionId to '${providerSessionId}' when already bound to '${this.#turn.providerSessionId}'.`,
+      );
+    }
+    this.#turn.providerSessionId = providerSessionId;
+    this.#turn.sessionId = providerSessionId;
+    this.#notifyTurnUpdated({ semantic: true });
+    return true;
+  }
+
+  /**
+   * Request timeout intent. Sets timeout intention without marking turn terminal prematurely,
+   * guaranteeing that timeout outcome arbitrates over subsequent provider completion.
+   */
+  requestTimeoutIntent({ initiator = 'runtime', cause = 'timeout/protocol-silence' } = {}) {
+    if (this.isTerminal) {
+      this.#tracer?.record?.({
+        source: 'runtime',
+        event: 'timeout.intent_ignored',
+        disposition: 'ignored',
+        initiator,
+        cause,
+      });
+      return false;
+    }
+
+    this.#timeoutRequested = true;
+    this.#timeoutInitiator = initiator;
+    this.#timeoutCause = cause;
+
+    this.#tracer?.record?.({
+      source: 'runtime',
+      event: 'timeout.intent_accepted',
+      disposition: 'accepted',
+      initiator,
+      cause,
+    });
+
+    this.#notifyTurnUpdated({ semantic: true });
+    return true;
+  }
+
+  /**
+   * Request cancellation of the turn.
    */
   requestCancellation({ initiator = 'user', cause = 'user_cancelled' } = {}) {
     if (this.isTerminal) {
@@ -708,7 +761,7 @@ export class TurnLifecycleCoordinator {
       afterStatus: this.#turn.status,
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return true;
   }
 
@@ -797,7 +850,8 @@ export class TurnLifecycleCoordinator {
    * Settle the terminal state of the turn.
    * Applies deterministic terminal arbitration:
    * 1. If turn is already terminal -> ignored.
-   * 2. If cancellation was accepted (status === 'cancelling' or #cancellationRequested) ->
+   * 2. If timeout was requested -> timeout PREVAILS over provider completion or cleanup failure.
+   * 3. If cancellation was accepted (status === 'cancelling' or #cancellationRequested) ->
    *    cancellation PREVAILS over provider completion or provider cleanup failure.
    */
   settleTerminal({ outcome = 'completed', initiator = 'provider', cause, finishReason, error } = {}) {
@@ -815,8 +869,12 @@ export class TurnLifecycleCoordinator {
     let effectiveInitiator = initiator;
     let effectiveCause = cause;
 
-    // Terminal arbitration: Cancellation intent prevails over normal provider completion or failure
-    if (this.#cancellationRequested || this.#turn.status.status === 'cancelling') {
+    // Terminal arbitration: Timeout and cancellation intents prevail over normal provider completion or failure
+    if (this.#timeoutRequested) {
+      effectiveOutcome = 'failed';
+      effectiveInitiator = this.#timeoutInitiator || 'runtime';
+      effectiveCause = this.#timeoutCause || 'timeout/protocol-silence';
+    } else if (this.#cancellationRequested || this.#turn.status.status === 'cancelling') {
       if (outcome === 'completed' || outcome === 'failed') {
         effectiveOutcome = 'cancelled';
         effectiveInitiator = this.#cancellationInitiator || 'user';
@@ -863,7 +921,7 @@ export class TurnLifecycleCoordinator {
       cause: effectiveCause,
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: false });
     return terminalStatus;
   }
 

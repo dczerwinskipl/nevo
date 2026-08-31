@@ -182,16 +182,20 @@ export class AgentTurnRuntime {
 
       const coordinator = new TurnLifecycleCoordinator({
         turnId,
-        sessionId: providerSessionId || turnId,
+        sessionId: providerSessionId || null,
         provider,
         providerSessionId: providerSessionId || null,
         mode: validatedMode,
+        prompt: inputMessage,
         traceSink: this.traceSink,
-        onTurnUpdated: (turnSnapshot) => {
+        onTurnUpdated: (turnSnapshot, { semantic = false } = {}) => {
           const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
           if (sessId && this.transcriptCache?.recordCanonicalTurn) {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
             this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
+          }
+          if (state && semantic) {
+            this.#emit(state, 'turn.updated', { turn: turnSnapshot });
           }
         },
       });
@@ -658,6 +662,7 @@ export class AgentTurnRuntime {
    */
   async #timeoutRunningTurn(state, error) {
     if (state.finished) return;
+    state.coordinator.requestTimeoutIntent({ cause: 'timeout/protocol-silence', initiator: 'runtime' });
     const entry = this.registry.get(state.provider);
     if (state.privateOperation && entry?.provider?.cancelTurn) {
       try {
@@ -670,7 +675,7 @@ export class AgentTurnRuntime {
       } catch {}
     }
     state.abortController.abort();
-    this.#finish(state, 'turn.failed', error, { outcome: 'failed', initiator: 'runtime', cause: 'timeout/protocol-silence' });
+    await this.#finish(state, 'turn.failed', error, { outcome: 'failed', initiator: 'runtime', cause: 'timeout/protocol-silence' });
   }
 
   #checkIdleTurns() {

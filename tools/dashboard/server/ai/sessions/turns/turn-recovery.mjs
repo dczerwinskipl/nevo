@@ -18,7 +18,7 @@ export function reconstructTurnState({ cached, registry, clock, transcriptCache 
 
   const coordinator = new TurnLifecycleCoordinator({
     turnId: cached.activeTurn.turnId,
-    sessionId: cached.providerSessionId || cached.activeTurn.turnId,
+    sessionId: cached.providerSessionId || null,
     provider: cached.provider,
     providerSessionId: cached.providerSessionId,
     mode: restoredMode,

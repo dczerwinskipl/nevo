@@ -110,7 +110,8 @@ export function validateTraceRecord(record) {
   if (typeof record.turnId !== 'string' || record.turnId.length === 0) {
     throw new AiValidationError("LifecycleTraceRecord 'turnId' must be a non-empty string.", { field: 'turnId' });
   }
-  if (typeof record.sessionId !== 'string' || record.sessionId.length === 0) {
+  const effectiveSessionId = record.sessionId || record.providerSessionId || record.turnId;
+  if (typeof effectiveSessionId !== 'string' || effectiveSessionId.length === 0) {
     throw new AiValidationError("LifecycleTraceRecord 'sessionId' must be a non-empty string.", { field: 'sessionId' });
   }
   if (typeof record.provider !== 'string' || record.provider.length === 0) {
@@ -139,7 +140,7 @@ export function validateTraceRecord(record) {
     timestamp,
     elapsedMs,
     turnId: record.turnId,
-    sessionId: record.sessionId,
+    sessionId: effectiveSessionId,
     provider: record.provider,
     ...(record.providerSessionId ? { providerSessionId: String(record.providerSessionId) } : {}),
     source,

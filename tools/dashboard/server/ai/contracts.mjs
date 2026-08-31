@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { validateCanonicalTurn } from './model/canonical-turn.mjs';
 
 export const AGENT_CAPABILITIES = Object.freeze([
   'interactivePermissions',
@@ -28,6 +29,7 @@ export const DEFAULT_AGENT_CAPABILITIES = Object.freeze({
 
 export const AGENT_EVENT_TYPES = Object.freeze([
   'turn.started',
+  'turn.updated',
   'message.started',
   'text.delta',
   'progress.delta',
@@ -450,6 +452,12 @@ export function validateAgentEvent(value) {
         ...(value.messageId ? { messageId: requiredString(value.messageId, 'messageId') } : {}),
       };
 
+    case 'turn.updated':
+      return {
+        ...base,
+        ...(value.turn ? { turn: validateCanonicalTurn(value.turn) } : {}),
+      };
+
     default:
       return {
         ...base,
@@ -529,7 +537,7 @@ export function projectChatV1(turns = []) {
         } else if (item.type === 'reasoning') {
           if (item.text) reasoning += item.text;
         } else if (item.type === 'tool') {
-          const status = item.status === 'active' ? 'running' : (item.status === 'completed' ? 'completed' : 'failed');
+          const status = item.status === 'completed' ? 'completed' : ((item.status === 'active' || item.status === 'queued') ? 'running' : 'failed');
           toolCalls.push({
             id: item.id,
             name: item.toolName || 'tool',
