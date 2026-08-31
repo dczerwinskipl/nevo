@@ -170,3 +170,8 @@ tasks:
     depends_on:
       - cross-provider-lifecycle-validation
 spec_id: 4f26584c-9abc-4421-ae9a-2897a1647c79
+pull_requests:
+  - provider: github
+    base_url: https://github.com
+    repository: dczerwinskipl/nevo
+    number: 41
