@@ -9,7 +9,9 @@ import {
   ClaudeAgentProvider,
   createClaudeAgentProvider,
   CLAUDE_CAPABILITIES,
+  mapClaudeTool,
 } from '../server/ai/providers/claude/provider.mjs';
+import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 
 function createMockProcess(stdoutLines = [], { exitCode = 0, delayMs = 5, sessionId, ignoreSignal = false } = {}) {
   const child = new EventEmitter();
@@ -965,3 +967,297 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('mapClaudeTool maps tools to normalized kinds, titles, and descriptions', () => {
+  assert.deepEqual(mapClaudeTool('Bash', { command: 'git status' }), {
+    kind: 'command',
+    title: 'Bash',
+    description: 'git status',
+  });
+  assert.deepEqual(mapClaudeTool('Read', { file_path: 'path/to/file.ts' }), {
+    kind: 'file_operation',
+    title: 'Read',
+    description: 'path/to/file.ts',
+  });
+  assert.deepEqual(mapClaudeTool('Glob', { pattern: 'specs/**/*' }), {
+    kind: 'search',
+    title: 'Glob',
+    description: 'specs/**/*',
+  });
+  assert.deepEqual(mapClaudeTool('WebSearch', { url: 'https://example.com' }), {
+    kind: 'web',
+    title: 'WebSearch',
+    description: 'https://example.com',
+  });
+  assert.deepEqual(mapClaudeTool('mcp__github__search_issues', { q: 'bug' }), {
+    kind: 'mcp',
+    title: 'mcp__github__search_issues',
+    description: undefined,
+  });
+  assert.deepEqual(mapClaudeTool('CustomWidgetTool', { foo: 'bar' }), {
+    kind: 'other',
+    title: 'CustomWidgetTool',
+    description: undefined,
+  });
+});
+
+test('Claude parallel tool calls from fixture are tracked independently and do not complete on content_block_stop', async () => {
+  const fixturePath = new URL('./fixtures/claude/parallel-tool-calls.json', import.meta.url);
+  const fixtureContent = await readFile(fixturePath, 'utf8');
+  const lines = fixtureContent.trim().split('\n').filter(Boolean);
+
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-parallel-1',
+    provider: 'claude',
+    providerSessionId: 'sess-parallel-1',
+    mode: 'edit',
+  });
+
+  await provider.startTurn({
+    turnId: 'turn-parallel-1',
+    providerSessionId: 'sess-parallel-1',
+    message: 'Read two files in parallel',
+    emitToolStarted: tool => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: tool => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  assert.equal(toolsStarted.length, 2);
+  assert.equal(toolsStarted[0].toolId, 'toolu_parallel_01');
+  assert.equal(toolsStarted[0].toolName, 'Read');
+  assert.equal(toolsStarted[0].kind, 'file_operation');
+  assert.equal(toolsStarted[1].toolId, 'toolu_parallel_02');
+  assert.equal(toolsStarted[1].toolName, 'Read');
+  assert.equal(toolsStarted[1].kind, 'file_operation');
+
+  // Both tools were closed as failed/inferred_closed on result event since no tool_result arrived
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].toolId, 'toolu_parallel_01');
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.equal(toolsCompleted[1].toolId, 'toolu_parallel_02');
+  assert.equal(toolsCompleted[1].status, 'failed');
+});
+
+test('Claude evidence replay: Turn 1 (429 rate limit error) maps to authoritative failure', async () => {
+  const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  const turn1Events = evidence.turns[0].rawEvents.map(e => JSON.stringify(e));
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(turn1Events, { sessionId: extractSessionId(args) }),
+  });
+
+  await assert.rejects(
+    () => provider.startTurn({
+      turnId: 'turn-evidence-1',
+      providerSessionId: evidence.sessionId,
+      message: evidence.turns[0].userMessage,
+    }),
+    err => {
+      assert.equal(err.code, 'AI_PROVIDER_ERROR');
+      return true;
+    }
+  );
+});
+
+test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, durations, and terminal completion', async () => {
+  const evidencePath = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
+  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  const turn2Events = evidence.turns[1].rawEvents.map(e => JSON.stringify(e));
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(turn2Events, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-evidence-2',
+    provider: 'claude',
+    providerSessionId: evidence.sessionId,
+    mode: 'edit',
+  });
+
+  const textDeltas = [];
+  const reasoningDeltas = [];
+  const toolsStarted = [];
+  const toolsCompleted = [];
+
+  const result = await provider.startTurn({
+    turnId: 'turn-evidence-2',
+    providerSessionId: evidence.sessionId,
+    message: evidence.turns[1].userMessage,
+    emitTextDelta: text => {
+      textDeltas.push(text);
+      coordinator.recordTextDelta(text);
+    },
+    emitReasoningDelta: reasoning => {
+      reasoningDeltas.push(reasoning);
+      coordinator.recordReasoningDelta(reasoning);
+    },
+    emitToolStarted: tool => {
+      toolsStarted.push(tool);
+      coordinator.recordToolStarted(tool);
+    },
+    emitToolCompleted: tool => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(snapshot.provider, 'claude');
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+
+  // Verify Work items order
+  assert.ok(snapshot.work.length >= 5, `Expected at least 5 work items, got ${snapshot.work.length}`);
+  // 1: Commentary before tools
+  assert.equal(snapshot.work[0].type, 'commentary');
+  assert.ok(snapshot.work[0].text.includes('Starting diagnostic check'));
+
+  // 2 & 3: Parallel tools Bash & Glob
+  assert.equal(snapshot.work[1].type, 'tool');
+  assert.equal(snapshot.work[1].id, 'toolu_01Bash');
+  assert.equal(snapshot.work[1].kind, 'command');
+  assert.equal(snapshot.work[1].status, 'completed');
+  assert.equal(snapshot.work[1].durationMs, 350);
+
+  assert.equal(snapshot.work[2].type, 'tool');
+  assert.equal(snapshot.work[2].id, 'toolu_02Glob');
+  assert.equal(snapshot.work[2].kind, 'search');
+  assert.equal(snapshot.work[2].status, 'completed');
+  assert.equal(snapshot.work[2].durationMs, 220);
+
+  // 4: Commentary between tools
+  assert.equal(snapshot.work[3].type, 'commentary');
+  assert.ok(snapshot.work[3].text.includes('Repository is clean'));
+
+  // 5: Read tool
+  assert.equal(snapshot.work[4].type, 'tool');
+  assert.equal(snapshot.work[4].id, 'toolu_03Read');
+  assert.equal(snapshot.work[4].kind, 'file_operation');
+  assert.equal(snapshot.work[4].status, 'completed');
+  assert.equal(snapshot.work[4].durationMs, 45);
+
+  // 6: Final commentary text
+  assert.equal(snapshot.work[5].type, 'commentary');
+  assert.ok(snapshot.work[5].text.includes('Diagnostic test complete'));
+
+  // Ensure no Claude-private IDs leaked in public model fields
+  const serialized = JSON.stringify(snapshot);
+  assert.ok(!serialized.includes('rawPayload'));
+  assert.ok(!serialized.includes('providerRequestId'));
+});
+
+test('Claude tool failure followed by recovery completes turn successfully', async () => {
+  const lines = [
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'tool_fail_1', name: 'Bash', input: { command: 'cat missing.txt' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 0 }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_fail_1', is_error: true, content: 'cat: missing.txt: No such file or directory' }],
+      },
+    }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'tool_use', id: 'tool_recover_2', name: 'Bash', input: { command: 'echo "recovered"' } },
+    }),
+    JSON.stringify({ type: 'content_block_stop', index: 1 }),
+    JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tool_recover_2', is_error: false, content: 'recovered\n' }],
+      },
+    }),
+    JSON.stringify({
+      type: 'content_block_start',
+      index: 2,
+      content_block: { type: 'text', text: 'Recovered successfully.' },
+    }),
+    JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }),
+    JSON.stringify({ type: 'result', subtype: 'success', terminal_reason: 'completed' }),
+  ];
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-recover-1',
+    provider: 'claude',
+    providerSessionId: 'sess-recover-1',
+    mode: 'edit',
+  });
+
+  const toolsCompleted = [];
+
+  await provider.startTurn({
+    turnId: 'turn-recover-1',
+    providerSessionId: 'sess-recover-1',
+    message: 'Try reading missing file then recover',
+    emitTextDelta: text => coordinator.recordTextDelta(text),
+    emitToolStarted: tool => coordinator.recordToolStarted(tool),
+    emitToolCompleted: tool => {
+      toolsCompleted.push(tool);
+      coordinator.recordToolCompleted(tool);
+    },
+  });
+
+  coordinator.settleTerminal({ outcome: 'completed' });
+  const snapshot = coordinator.getCanonicalSnapshot();
+
+  assert.equal(toolsCompleted.length, 2);
+  assert.equal(toolsCompleted[0].toolId, 'tool_fail_1');
+  assert.equal(toolsCompleted[0].status, 'failed');
+  assert.equal(toolsCompleted[1].toolId, 'tool_recover_2');
+  assert.equal(toolsCompleted[1].status, 'completed');
+
+  assert.equal(snapshot.status.status, 'terminal');
+  assert.equal(snapshot.status.outcome, 'completed');
+});
+
+test('Claude permission deferral maps to kind permission with decoupled interaction ID', async () => {
+  const fixturePath = new URL('./fixtures/claude/permission-prompt-deferred.json', import.meta.url);
+  const fixtureContent = await readFile(fixturePath, 'utf8');
+  const lines = fixtureContent.trim().split('\n').filter(Boolean);
+
+  const provider = createClaudeAgentProvider({
+    spawnProcess: (executable, args) => createMockProcess(lines, { sessionId: extractSessionId(args) }),
+  });
+
+  const result = await provider.startTurn({
+    turnId: 'turn-perm-1',
+    providerSessionId: 'sess-perm-1',
+    message: 'Run npm build',
+  });
+
+  assert.equal(result.isDeferred, true);
+  assert.ok(result.interaction);
+  assert.equal(result.interaction.kind, 'permission');
+  assert.equal(result.interaction.toolName, 'Bash');
+  assert.equal(result.interaction.input?.command, 'npm --prefix tools/dashboard run build');
+  assert.ok(result.interaction.id.startsWith('int-'));
+  assert.notEqual(result.interaction.id, 'toolu_perm_01');
+});
+

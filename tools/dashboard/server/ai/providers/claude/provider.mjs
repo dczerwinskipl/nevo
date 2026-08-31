@@ -30,6 +30,57 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   usage: true,
 });
 
+export function mapClaudeTool(toolName = '', input = {}) {
+  const name = String(toolName || '').trim();
+  const lower = name.toLowerCase();
+
+  if (['bash', 'terminal', 'executecommand', 'command'].includes(lower)) {
+    return {
+      kind: 'command',
+      title: name || 'Bash',
+      description: typeof input?.command === 'string' ? input.command : undefined,
+    };
+  }
+
+  if (['read', 'view', 'write', 'edit', 'multiedit', 'notebookread', 'notebookedit', 'fileedit', 'createfile', 'deletefile', 'movefile'].includes(lower)) {
+    return {
+      kind: 'file_operation',
+      title: name || 'File Operation',
+      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+    };
+  }
+
+  if (['glob', 'grep', 'find', 'search', 'filesearch'].includes(lower)) {
+    return {
+      kind: 'search',
+      title: name || 'Search',
+      description: typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : undefined),
+    };
+  }
+
+  if (['websearch', 'webfetch', 'browser', 'fetch'].includes(lower)) {
+    return {
+      kind: 'web',
+      title: name || 'Web',
+      description: typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined),
+    };
+  }
+
+  if (lower.startsWith('mcp__') || lower.startsWith('mcp_')) {
+    return {
+      kind: 'mcp',
+      title: name,
+      description: undefined,
+    };
+  }
+
+  return {
+    kind: 'other',
+    title: name || 'Tool',
+    description: undefined,
+  };
+}
+
 export function defaultProbeClaudeExecutable(executable) {
   try {
     const probe = process.platform === 'win32' ? `where.exe "${executable}"` : `which "${executable}"`;
@@ -246,7 +297,7 @@ export class ClaudeAgentProvider {
 
       let lineBuffer = '';
       let activeThinking = false;
-      let activeTool = null;
+      const activeTools = new Map();
       let isDeferred = false;
       let deferredPayload = null;
       let isMaterialized = sessionFlag === '--resume';
@@ -295,33 +346,40 @@ export class ClaudeAgentProvider {
 
         switch (event.type) {
           case 'assistant': {
-            const message = event.message;
-            if (message && Array.isArray(message.content)) {
-              for (const block of message.content) {
-                if (block.type === 'thinking' && block.thinking) {
-                  if (emitReasoningDelta) emitReasoningDelta(block.thinking);
-                } else if (block.type === 'text' && block.text) {
-                  sendTextDelta(block.text);
-                } else if (block.type === 'tool_use') {
-                  activeTool = {
-                    id: block.id,
-                    name: block.name,
-                    input: block.input || {},
-                  };
-                  if (emitToolStarted) {
-                    emitToolStarted({
-                      toolId: activeTool.id,
-                      toolName: activeTool.name,
-                      input: activeTool.input,
-                    });
-                  }
+            const contentBlocks = Array.isArray(event.content)
+              ? event.content
+              : (Array.isArray(event.message?.content) ? event.message.content : []);
+
+            for (const block of contentBlocks) {
+              if (block.type === 'thinking' && block.thinking) {
+                if (emitReasoningDelta) emitReasoningDelta(block.thinking);
+              } else if (block.type === 'text' && block.text) {
+                sendTextDelta(block.text);
+              } else if (block.type === 'tool_use') {
+                const toolId = block.id;
+                const toolName = block.name;
+                const input = block.input || {};
+                const { kind, title, description } = mapClaudeTool(toolName, input);
+                activeTools.set(toolId, { id: toolId, name: toolName, kind, title, description, input });
+                if (emitToolStarted) {
+                  emitToolStarted({
+                    toolId,
+                    toolName,
+                    input,
+                    kind,
+                    title,
+                    description,
+                    status: 'active',
+                  });
                 }
               }
             }
-            if (message?.usage && emitUsageUpdated) {
+
+            const usage = event.usage || event.message?.usage;
+            if (usage && emitUsageUpdated) {
               emitUsageUpdated({
-                tokensIn: message.usage.input_tokens,
-                tokensOut: message.usage.output_tokens,
+                tokensIn: usage.input_tokens,
+                tokensOut: usage.output_tokens,
               });
             }
             break;
@@ -338,16 +396,20 @@ export class ClaudeAgentProvider {
                 sendTextDelta(event.content_block.text);
               }
             } else if (event.content_block?.type === 'tool_use') {
-              activeTool = {
-                id: event.content_block.id,
-                name: event.content_block.name,
-                input: event.content_block.input || {},
-              };
+              const toolId = event.content_block.id;
+              const toolName = event.content_block.name;
+              const input = event.content_block.input || {};
+              const { kind, title, description } = mapClaudeTool(toolName, input);
+              activeTools.set(toolId, { id: toolId, name: toolName, kind, title, description, input, index: event.index });
               if (emitToolStarted) {
                 emitToolStarted({
-                  toolId: activeTool.id,
-                  toolName: activeTool.name,
-                  input: activeTool.input,
+                  toolId,
+                  toolName,
+                  input,
+                  kind,
+                  title,
+                  description,
+                  status: 'active',
                 });
               }
             }
@@ -362,9 +424,21 @@ export class ClaudeAgentProvider {
               if (event.delta.text) {
                 sendTextDelta(event.delta.text);
               }
-            } else if (event.delta?.type === 'input_json_delta' && activeTool) {
-              if (emitToolUpdated) {
-                emitToolUpdated({ toolId: activeTool.id });
+            } else if (event.delta?.type === 'input_json_delta') {
+              let targetTool = null;
+              if (typeof event.index === 'number') {
+                for (const t of activeTools.values()) {
+                  if (t.index === event.index) {
+                    targetTool = t;
+                    break;
+                  }
+                }
+              }
+              if (!targetTool && activeTools.size === 1) {
+                targetTool = Array.from(activeTools.values())[0];
+              }
+              if (targetTool && emitToolUpdated) {
+                emitToolUpdated({ toolId: targetTool.id, status: 'active' });
               }
             }
             break;
@@ -382,7 +456,7 @@ export class ClaudeAgentProvider {
           case 'message_delta': {
             if (event.delta?.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || activeTool;
+              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || (activeTools.size > 0 ? Array.from(activeTools.values())[0] : null);
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -393,43 +467,53 @@ export class ClaudeAgentProvider {
             break;
           }
           case 'user': {
-            const message = event.message;
-            if (message && Array.isArray(message.content)) {
-              for (const block of message.content) {
-                if (block.type === 'tool_result' && block.tool_use_id) {
-                  if (emitToolCompleted) {
-                    const output = event.tool_use_result?.stdout
-                      || (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))
-                      || 'executed';
-                    emitToolCompleted({
-                      toolId: block.tool_use_id,
-                      output,
-                      status: block.is_error ? 'failed' : 'completed',
-                    });
-                  }
-                  if (activeTool && activeTool.id === block.tool_use_id) {
-                    activeTool = null;
-                  }
+            const userContent = Array.isArray(event.content)
+              ? event.content
+              : (Array.isArray(event.message?.content) ? event.message.content : []);
+
+            for (const block of userContent) {
+              if (block.type === 'tool_result' && block.tool_use_id) {
+                const toolId = block.tool_use_id;
+                const isError = Boolean(block.is_error);
+                const status = isError ? 'failed' : 'completed';
+                const durationMs = block.tool_use_result?.durationMs ?? event.tool_use_result?.durationMs ?? undefined;
+                const output = event.tool_use_result?.stdout
+                  || (typeof block.content === 'string' ? block.content : (block.content !== undefined ? JSON.stringify(block.content) : (isError ? 'Tool execution failed' : 'executed')));
+
+                if (emitToolCompleted) {
+                  emitToolCompleted({
+                    toolId,
+                    output,
+                    durationMs,
+                    status,
+                  });
                 }
+                activeTools.delete(toolId);
               }
             }
             break;
           }
 
           case 'result': {
-            if (activeTool) {
+            for (const [toolId, tool] of activeTools.entries()) {
               // The turn ended without a real `tool_result` ever arriving for this
               // toolId — it never received a successful terminal signal, so it
               // resolves to 'failed' regardless of the turn's own outcome
               // (owner-decisions.md D6).
               if (emitToolCompleted) {
-                emitToolCompleted({ toolId: activeTool.id, output: 'executed', status: 'failed' });
+                emitToolCompleted({ toolId, output: 'executed', status: 'failed', closureReason: 'turn_completed' });
               }
-              activeTool = null;
             }
+            activeTools.clear();
+
             if (event.terminal_reason === 'tool_deferred' || event.stop_reason === 'tool_deferred') {
               isDeferred = true;
-              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload || activeTool;
+              deferredPayload = event.deferred_tool_use || event.delta?.deferred_tool_use || deferredPayload;
+            }
+            if (event.subtype === 'error' || event.is_error === true) {
+              cleanupSettings();
+              reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.'));
+              return;
             }
             if (event.result && typeof event.result === 'string' && !emittedAnyText && !isDeferred) {
               sendTextDelta(event.result);
@@ -511,6 +595,18 @@ export class ClaudeAgentProvider {
           try { await processLine(lineBuffer); } catch (e) { return reject(e); }
         }
 
+        for (const [toolId, tool] of activeTools.entries()) {
+          if (emitToolCompleted) {
+            emitToolCompleted({
+              toolId,
+              output: 'executed',
+              status: 'failed',
+              closureReason: exitCode === 0 ? 'turn_completed' : 'process_exit',
+            });
+          }
+        }
+        activeTools.clear();
+
         await this.#rawCapture.flushRawCaptureBounded(effectiveSessionId);
 
         if (operation.cancelled) {
@@ -519,17 +615,30 @@ export class ClaudeAgentProvider {
 
         if (isDeferred && deferredPayload) {
           const publicInteractionId = `int-${randomUUID()}`;
-          const interaction = {
-            id: publicInteractionId,
-            kind: 'question',
-            questions: deferredPayload.input?.questions?.map((q, idx) => ({
-              id: `q-${idx + 1}`,
-              question: q.question,
-              header: q.header,
-              options: q.options,
-              multiSelect: q.multiSelect,
-            })) || [],
-          };
+          const isQuestion = deferredPayload.name === 'AskUserQuestion' || Array.isArray(deferredPayload.input?.questions);
+
+          let interaction;
+          if (isQuestion) {
+            interaction = {
+              id: publicInteractionId,
+              kind: 'question',
+              questions: deferredPayload.input?.questions?.map((q, idx) => ({
+                id: `q-${idx + 1}`,
+                question: q.question,
+                header: q.header,
+                options: q.options,
+                multiSelect: Boolean(q.multiSelect),
+              })) || [],
+            };
+          } else {
+            interaction = {
+              id: publicInteractionId,
+              kind: 'permission',
+              toolName: deferredPayload.name || 'tool',
+              input: deferredPayload.input || {},
+              ...(deferredPayload.input?.command ? { details: `Execute command: ${deferredPayload.input.command}` } : {}),
+            };
+          }
 
           // Durable persistence of private Claude continuation metadata
           try {
@@ -539,7 +648,7 @@ export class ClaudeAgentProvider {
               toolUseId: deferredPayload.id,
               toolName: deferredPayload.name,
               toolInput: deferredPayload.input,
-              kind: 'question',
+              kind: interaction.kind,
             });
           } catch (persistErr) {
             return reject(persistErr);

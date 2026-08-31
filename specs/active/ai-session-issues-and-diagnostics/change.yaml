@@ -155,9 +155,23 @@ tasks:
   - id: claude-neutral-mapping
     order: 8
     file: tasks/08-claude-neutral-mapping.md
-    status: approved
+    status: implemented
     depends_on:
       - lifecycle-coordinator-and-timeouts
+    implementation:
+      baseline_revision: 3b58aa48d9a20381057777ffeb5569a4fc7b61af
+      review_revision: 3b58aa48d9a20381057777ffeb5569a4fc7b61af
+      changed_paths:
+        - tools/dashboard/server/ai/providers/claude/provider.mjs
+        - tools/dashboard/tests/claude-provider.test.mjs
+      worktree_patch_fingerprint: f732c6de8605329dae5eecad912c5b5c4f816e933319833e691a60ed9f3a18ea
+    self_check:
+      fingerprint: c387e99026f79c33096d8896ec86f24686aed144332b1ac448757182a93e8f09
+      revision: 3b58aa48d9a20381057777ffeb5569a4fc7b61af
+      commands:
+        - command: node --test tools/dashboard/tests/claude-provider.test.mjs
+          exit_code: 0
+      status: passed
 
   - id: codex-neutral-mapping
     order: 9
