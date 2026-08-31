@@ -336,13 +336,14 @@ export class CodexAgentProvider {
     prompt,
     mode = 'edit',
     setOperation,
-    emitTextDelta,
-    emitDelta,
-    emitProgressDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     emitEvent,
     requestInteraction,
@@ -370,12 +371,14 @@ export class CodexAgentProvider {
     const operation = this.#createOperation({
       turnId,
       threadId,
-      emitTextDelta: emitTextDelta ?? emitDelta,
-      emitProgressDelta,
+      emitCommentaryDelta,
       emitReasoningDelta,
+      emitFinalAnswerDelta,
+      setFinalAnswer,
       emitToolStarted,
       emitToolUpdated,
       emitToolCompleted,
+      addToolAction,
       emitUsageUpdated,
       emitEvent,
       requestInteraction,
@@ -672,8 +675,8 @@ export class CodexAgentProvider {
     }
     const delta = requireString(params.delta, 'agent message delta');
     item.streamedText += delta;
-    if (item.publishedAs === 'final_answer') operation.emitTextDelta?.(delta, item.publicId);
-    if (item.publishedAs === 'commentary') operation.emitProgressDelta?.(delta, item.progressId);
+    if (item.publishedAs === 'final_answer') operation.emitFinalAnswerDelta?.(delta, 'final-answer');
+    if (item.publishedAs === 'commentary') operation.emitCommentaryDelta?.(delta, item.publicId);
   }
 
   #reasoningDelta(operation, params) {
@@ -716,10 +719,12 @@ export class CodexAgentProvider {
       return;
     }
     if (TOOL_TYPES.has(state.type)) {
+      const finalActions = mapCodexCommandActions(finalItem.actions || finalItem.commandActions);
       operation.emitToolCompleted?.({
         toolId: state.publicId,
         output: toolOutput(finalItem),
         ...(typeof finalItem.durationMs === 'number' ? { durationMs: finalItem.durationMs } : {}),
+        ...(Array.isArray(finalActions) && finalActions.length > 0 ? { actions: finalActions } : {}),
         status: isToolSuccess(finalItem) ? 'completed' : 'failed',
       });
     }
@@ -813,8 +818,8 @@ export class CodexAgentProvider {
   }
 
   #emitAgentMessageText(operation, state, text) {
-    if (state.publishedAs === 'final_answer') operation.emitTextDelta?.(text, state.publicId);
-    else operation.emitProgressDelta?.(text, state.progressId);
+    if (state.publishedAs === 'final_answer') operation.emitFinalAnswerDelta?.(text, 'final-answer');
+    else operation.emitCommentaryDelta?.(text, state.publicId);
   }
 
   #publishSupersededUnphasedMessages(operation) {

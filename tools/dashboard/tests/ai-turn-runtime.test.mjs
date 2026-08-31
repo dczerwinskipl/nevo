@@ -35,7 +35,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
   let releasePersistentTurn;
   const provider = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitDelta, emitTextDelta, emitProgressDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, requestInteraction, signal }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, setOperation, emitCommentaryDelta, emitFinalAnswerDelta, emitReasoningDelta, emitToolStarted, emitToolCompleted, emitUsageUpdated, emitEvent, requestInteraction, signal }) {
       if (!providerSessionId && setProviderSessionId) {
         setProviderSessionId('sess-auto-allocated');
       }
@@ -43,7 +43,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
 
       if (sessionLookupGate) await sessionLookupGate;
       starts += 1;
-      emitDelta('one ');
+      emitFinalAnswerDelta?.('one ');
       if (message === 'permission') {
         return {
           isDeferred: true,
@@ -60,7 +60,7 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
         emitToolCompleted({ toolId: 't1', output: ['file.txt'], durationMs: 40, status: 'completed' });
         emitUsageUpdated({ tokensIn: 50, tokensOut: 20 });
       } else if (message === 'progress-only') {
-        emitProgressDelta('checking...', 'progress-1');
+        emitEvent?.('progress.delta', { progressId: 'progress-1', text: 'checking...' });
       } else if (message === 'lingering-tool') {
         // owner-decisions.md D6, required scenario 17: a turn reaching normal
         // turn.completed while a different tool call in the same turn is still
@@ -87,19 +87,19 @@ function createFixture({ sessionLookupGate, transcriptCache, runtimeOptions } = 
       } else if (message === 'slow-drip') {
         for (let i = 0; i < 4; i += 1) {
           await new Promise(resolve => setTimeout(resolve, 15));
-          emitDelta(`chunk${i} `);
+          emitFinalAnswerDelta?.(`chunk${i} `);
         }
       }
-      emitDelta('two');
+      emitFinalAnswerDelta?.('two');
     },
-    async respondInteraction({ interaction, response, emitDelta }) {
+    async respondInteraction({ interaction, response, emitCommentaryDelta, emitFinalAnswerDelta }) {
       continuations += 1;
       if (interaction?.kind === 'permission') {
-        emitDelta(response.decision);
+        emitFinalAnswerDelta?.(response.decision);
       } else if (interaction?.kind === 'question') {
-        emitDelta(response.answers.map(a => a.value).join(','));
+        emitFinalAnswerDelta?.(response.answers.map(a => a.value).join(','));
       }
-      emitDelta('two');
+      emitFinalAnswerDelta?.('two');
       if (interaction?.toolName === 'PersistentShell') return { continuesTurn: true };
     },
     async cancelTurn() { cancels += 1; },
@@ -492,9 +492,8 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
     assert.equal(assistantMsg.toolCalls[0].status, 'completed');
 
     // Invariant check: lastEventSeq matches highest sequence
-    assert.equal(transcript.lastEventSeq > 0, true);
-    assert.equal(transcript.lastEventSeq, 14);
     const snapshot = fixture.runtime.getSnapshot(turnId);
+    assert.equal(transcript.lastEventSeq > 0, true);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
   } finally {
     await new Promise(r => setTimeout(r, 25));
@@ -1194,12 +1193,12 @@ test('regression: long-running tool suppresses protocol silence timeout through 
   let finishTool;
   const toolHoldingProvider = {
     descriptor: { id: 'tool-holder', label: 'Tool Holder', capabilities },
-    async startTurn({ emitDelta, emitToolStarted, emitToolCompleted, signal }) {
-      emitDelta('starting');
+    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolCompleted, signal }) {
+      emitCommentaryDelta('starting');
       emitToolStarted({ toolId: 't-long', toolName: 'heavyBuild' });
       await new Promise(resolve => { finishTool = resolve; });
       emitToolCompleted({ toolId: 't-long', status: 'completed', durationMs: 100 });
-      emitDelta('finished');
+      emitFinalAnswerDelta('finished');
     },
     async cancelTurn() {},
   };
@@ -1413,13 +1412,13 @@ test('regression: resolving interaction after turn cancellation throws AiNotFoun
 test('regression: Antigravity transitional tool statuses (running, in_progress, success, error) normalized without validation errors', async () => {
   const agyMockProvider = {
     descriptor: { id: 'agy-mock', label: 'Antigravity Mock', capabilities },
-    async startTurn({ emitDelta, emitToolStarted, emitToolUpdated, emitToolCompleted }) {
-      emitDelta('Starting task...');
+    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitToolStarted, emitToolUpdated, emitToolCompleted }) {
+      emitCommentaryDelta('Starting task...');
       // Antigravity emits status: 'running' on updates
       emitToolStarted({ toolId: 'tool-agy-1', toolName: 'run_command', input: { command: 'npm test' } });
       emitToolUpdated({ toolId: 'tool-agy-1', output: 'running tests...', status: 'running' });
       emitToolCompleted({ toolId: 'tool-agy-1', output: 'all tests passed', status: 'success', durationMs: 42 });
-      emitDelta('Task finished.');
+      emitFinalAnswerDelta('Task finished.');
     },
     async cancelTurn() {},
   };
@@ -1614,15 +1613,15 @@ test('regression: cross-provider smoke test for Claude, Codex, and Antigravity e
   const eventsCaptured = [];
   const multiProvider = {
     descriptor: { id: 'multi-test', label: 'Multi Provider', capabilities },
-    async startTurn({ emitDelta, emitReasoningDelta, emitProgressDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, emitUsageUpdated }) {
+    async startTurn({ emitCommentaryDelta, emitFinalAnswerDelta, emitReasoningDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, emitUsageUpdated }) {
       emitReasoningDelta('Thinking about architecture...');
-      emitProgressDelta('Analyzing files...');
-      emitDelta('Here is the plan.');
+      emitCommentaryDelta('Analyzing files...');
+      emitCommentaryDelta('Here is the plan.');
       emitToolStarted({ toolId: 't-multi', toolName: 'search_files', input: { query: 'test' } });
       emitToolUpdated({ toolId: 't-multi', output: '3 files found', status: 'active' });
       emitToolCompleted({ toolId: 't-multi', output: ['a.js', 'b.js'], durationMs: 50, status: 'completed' });
       emitUsageUpdated({ tokensIn: 100, tokensOut: 200, cost: 0.005 });
-      emitDelta('Done.');
+      emitFinalAnswerDelta('Done.');
     },
     async cancelTurn() {},
   };

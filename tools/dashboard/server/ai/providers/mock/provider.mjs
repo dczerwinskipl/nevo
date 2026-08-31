@@ -47,9 +47,10 @@ export class MockAgentProvider {
     identity,
     message,
     prompt,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolCompleted,
     emitUsageUpdated,
@@ -64,13 +65,13 @@ export class MockAgentProvider {
       throw new AiValidationError('A valid message/prompt is required.');
     }
 
-
     const operation = { cancelled: false };
     if (setOperation) setOperation(operation);
 
     const normalized = inputMessage.toLowerCase();
     const messageId = `assistant-${providerSessionId}-${turnId || '1'}`;
-    const emit = emitTextDelta || emitDelta || (() => {});
+    const emitCommentary = emitCommentaryDelta || (() => {});
+    const emitFinalAnswer = emitFinalAnswerDelta || (() => {});
 
     if (normalized.includes('tools') || normalized.includes('reasoning')) {
       if (emitReasoningDelta) emitReasoningDelta('Thinking through the problem...', messageId);
@@ -88,7 +89,7 @@ export class MockAgentProvider {
       'tak jak provider korzystający ze streamu zdarzeń.\n\n',
     ];
     let interactionSummary = '';
-    await this.#emitChunks(parts, messageId, emit, signal);
+    await this.#emitChunks(parts, messageId, normalized.includes('tools') ? emitCommentary : emitFinalAnswer, signal);
 
     if (normalized.includes('permission') || normalized.includes('zgod')) {
       const interaction = {
@@ -149,7 +150,7 @@ export class MockAgentProvider {
       'a pełna odpowiedź trafia do historii dopiero po zakończeniu. ',
       'Mock turn jest gotowy.',
     ];
-    await this.#emitChunks(ending, messageId, emit, signal);
+    await this.#emitChunks(ending, messageId, emitFinalAnswer, signal);
     return { providerSessionId: effectiveSessionId };
   }
 
@@ -161,10 +162,10 @@ export class MockAgentProvider {
     response,
     signal,
     setOperation,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
+    emitFinalAnswerDelta,
   } = {}) {
-    const emit = emitTextDelta || emitDelta || (() => {});
+    const emit = emitFinalAnswerDelta || emitCommentaryDelta || (() => {});
     const messageId = `assistant-${providerSessionId}-${turnId || '1'}`;
     let summary = '';
     if (interaction?.kind === 'permission') {

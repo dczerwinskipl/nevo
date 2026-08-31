@@ -556,7 +556,9 @@ export function projectChatV1(turns = []) {
       }
     }
 
-    const text = turn.finalAnswer?.text ?? (turn.status?.outcome === 'interrupted' ? (turn.status?.error?.message || 'Interrupted by server restart.') : commentaryParts.join(''));
+    const text = (turn.status?.outcome === 'interrupted' && turn.finalAnswer?.status !== 'completed')
+      ? (turn.status?.error?.message || 'Interrupted by server restart.')
+      : (turn.finalAnswer?.text ?? (turn.status?.outcome === 'interrupted' ? (turn.status?.error?.message || 'Interrupted by server restart.') : commentaryParts.join('')));
 
     let turnError = undefined;
     if (turn.status?.status === 'terminal' && turn.status.outcome !== 'completed') {

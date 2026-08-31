@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T19:52:28.724Z",
+  "generated": "2026-08-31T21:34:31.567Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -160,7 +160,7 @@
           ],
           "implementation": {
             "baseline_revision": "56cc0d54e192280f2e18ef713864462f725ddcf2",
-            "review_revision": "a3fe85e544f2b678c1aa0e8a9070c91e2fe1f3f7",
+            "review_revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "changed_paths": [
               "tools/dashboard/server/ai/contracts.mjs",
               "tools/dashboard/server/ai/diagnostics/trace-record.mjs",
@@ -171,13 +171,14 @@
               "tools/dashboard/server/ai/sessions/turns/coordinator.mjs",
               "tools/dashboard/server/ai/sessions/turns/runtime.mjs",
               "tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs",
+              "tools/dashboard/tests/ai-contracts.test.mjs",
               "tools/dashboard/tests/ai-server.test.mjs"
             ],
-            "worktree_patch_fingerprint": "2e24529614175d670810beccd64378f04cc73e3283fde9d67ad0503ab60bc7f6"
+            "worktree_patch_fingerprint": "cacea8ea4cd71788a782a0d73d164d7dc446db0d80f8d7c62042e340a95067c0"
           },
           "self_check": {
             "fingerprint": "ba73497dc34110bf99c2d92004fb1605e57e7f5228c95c893ee17aa514e3a248",
-            "revision": "a3fe85e544f2b678c1aa0e8a9070c91e2fe1f3f7",
+            "revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "commands": [
               {
                 "command": "node --experimental-strip-types --test tools/dashboard/tests/ai-server.test.mjs tools/dashboard/tests/session-states-integration.test.mjs tools/dashboard/tests/session-readiness.test.mjs tools/dashboard/tests/transcript-projection.test.mjs",
@@ -197,16 +198,16 @@
           ],
           "implementation": {
             "baseline_revision": "3b58aa48d9a20381057777ffeb5569a4fc7b61af",
-            "review_revision": "ce0816a459c75276d0c0f99ce35f2644899301e4",
+            "review_revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "changed_paths": [
               "tools/dashboard/server/ai/providers/claude/provider.mjs",
               "tools/dashboard/tests/claude-provider.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "69b5581d2affe29740ccab9d1a1b5d70bc768d35048046172da230dfd8815298"
           },
           "self_check": {
             "fingerprint": "c387e99026f79c33096d8896ec86f24686aed144332b1ac448757182a93e8f09",
-            "revision": "ce0816a459c75276d0c0f99ce35f2644899301e4",
+            "revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/claude-provider.test.mjs",
@@ -226,16 +227,16 @@
           ],
           "implementation": {
             "baseline_revision": "462715bf9eab37c8bc8dff8f4e60989a9c0574dd",
-            "review_revision": "48cb19092061e0ddce7d9459a3d1bddfe6d9bb06",
+            "review_revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "changed_paths": [
               "tools/dashboard/server/ai/providers/codex/provider.mjs",
               "tools/dashboard/tests/codex-provider.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "08796365b0c9f3b8b10f0967685d54209640d0ed1d5ef707a277fcabf6024d7b"
           },
           "self_check": {
             "fingerprint": "ad62a80d3e9b67d75f2a009952dbd445d15fa6f24eb825ad8bab06728610a5a0",
-            "revision": "48cb19092061e0ddce7d9459a3d1bddfe6d9bb06",
+            "revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/codex-schema-compat.test.mjs tools/dashboard/tests/codex-provider.test.mjs tools/dashboard/tests/codex-app-server-client.test.mjs",
@@ -255,16 +256,16 @@
           ],
           "implementation": {
             "baseline_revision": "203d6e09c568c61beac043943934dced66ff19fe",
-            "review_revision": "8933bd1cf050a244635aff728749645452ec7c48",
+            "review_revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "changed_paths": [
               "tools/dashboard/server/ai/providers/antigravity/provider.mjs",
               "tools/dashboard/tests/antigravity-provider.test.mjs"
             ],
-            "worktree_patch_fingerprint": null
+            "worktree_patch_fingerprint": "4286e623bb7de4dafaf8ef4ef40f6ea405432919dfa65fa964ce63623a81c9c4"
           },
           "self_check": {
             "fingerprint": "24935212e3fb56591990d38187c3922525d2080357121ca3ba552bfe86891eba",
-            "revision": "8933bd1cf050a244635aff728749645452ec7c48",
+            "revision": "b7689b886d4ac7436615b898020c052fcfaac1a9",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/antigravity-provider.test.mjs",

@@ -1000,13 +1000,13 @@ test('Task 07: Live application and fresh reload produce semantically equal Turn
       defaultMode: 'edit',
     }),
     isAvailable() { return { available: true }; },
-    async startTurn({ turnId, providerSessionId, emitTextDelta, emitToolStarted, emitToolCompleted }) {
-      emitTextDelta('Initial commentary step.\n');
+    async startTurn({ turnId, providerSessionId, emitCommentaryDelta, emitToolStarted, emitToolCompleted }) {
+      emitCommentaryDelta('Initial commentary step.\n');
 
       emitToolStarted({ toolId: 'tool-exec-1', toolName: 'RunBuild', input: { script: 'build' } });
       emitToolCompleted({ toolId: 'tool-exec-1', output: { success: true }, durationMs: 42, status: 'completed' });
 
-      emitTextDelta('Intermediate analysis commentary.\n');
+      emitCommentaryDelta('Intermediate analysis commentary.\n');
 
       emitToolStarted({ toolId: 'tool-exec-2', toolName: 'RunTests', input: { suite: 'unit' } });
       emitToolCompleted({ toolId: 'tool-exec-2', output: { passed: 5 }, durationMs: 88, status: 'completed' });
@@ -1617,18 +1617,17 @@ test('Task 07: Canonical V2 SSE streaming and replay deliver exact canonical Wor
     descriptor: { id: 'manual', label: 'Manual Provider', capabilities: { streaming: true, cancelTurn: true } },
     async startTurn(ctx) {
       // 1. Commentary
-      ctx.emitDelta('I will inspect files.\n');
+      ctx.emitCommentaryDelta('I will inspect files.\n');
       // 2. Tool with nested actions
       const tool = { toolId: 'tool-read-1', toolName: 'readFile', input: { path: 'file.txt' }, status: 'running' };
       ctx.emitToolStarted(tool);
-      const coord = turnRuntime.getCoordinator(ctx.turnId);
-      coord.addToolAction('tool-read-1', { id: 'act-1', kind: 'search', title: 'Check file size' });
-      coord.addToolAction('tool-read-1', { id: 'act-2', kind: 'read', title: 'Read bytes' });
+      ctx.addToolAction('tool-read-1', { id: 'act-1', kind: 'search', title: 'Check file size' });
+      ctx.addToolAction('tool-read-1', { id: 'act-2', kind: 'read', title: 'Read bytes' });
       ctx.emitToolCompleted({ toolId: 'tool-read-1', status: 'completed', output: 'content' });
       // 3. Second commentary
-      ctx.emitDelta('File inspected successfully.\n');
+      ctx.emitCommentaryDelta('File inspected successfully.\n');
       // 4. Final Answer
-      coord.setFinalAnswer({ id: 'fa-1', text: 'All done and verified.', status: 'completed' });
+      ctx.setFinalAnswer({ id: 'fa-1', text: 'All done and verified.', status: 'completed' });
 
       return { providerSessionId: 'sess-v2-test' };
     },

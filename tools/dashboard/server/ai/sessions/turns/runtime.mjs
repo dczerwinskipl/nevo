@@ -30,12 +30,15 @@ function publicFailure(error) {
 }
 
 const TURN_ACTIVITY_EVENT_TYPES = new Set([
+  'commentary.delta',
+  'final_answer.delta',
   'text.delta',
   'progress.delta',
   'reasoning.delta',
   'tool.started',
   'tool.updated',
   'tool.completed',
+  'tool.action.added',
   'usage.updated',
 ]);
 
@@ -312,13 +315,14 @@ export class AgentTurnRuntime {
       mode: state.mode,
       signal: state.abortController.signal,
       setOperation: operation => { state.privateOperation = operation; },
-      emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
-      emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
-      emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
-      emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
+      emitCommentaryDelta: (text, commentaryId) => this.#emitCommentaryDelta(state, text, commentaryId),
+      emitReasoningDelta: (text, reasoningId, representation) => this.#emitReasoningDelta(state, text, reasoningId, representation),
+      emitFinalAnswerDelta: (text, finalAnswerId, confidence) => this.#emitFinalAnswerDelta(state, text, finalAnswerId, confidence),
+      setFinalAnswer: finalAnswerData => this.#setFinalAnswer(state, finalAnswerData),
       emitToolStarted: tool => this.#emitToolStarted(state, tool),
       emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
       emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
+      addToolAction: (toolId, action) => this.#addToolAction(state, toolId, action),
       emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
       emitEvent: (type, data) => this.#emit(state, type, data),
       ...extra,
@@ -404,61 +408,62 @@ export class AgentTurnRuntime {
     }
   }
 
-  #emitDelta(state, delta, messageId = `message-${state.turnId}`) {
-    if (this.#isTerminal(state)) return;
-    if (typeof delta !== 'string' || delta.length === 0 || delta.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid message delta.', { status: 502 });
-    }
-    state.coordinator.recordTextDelta(delta, messageId);
-    this.#emit(state, 'text.delta', { messageId, text: delta, delta });
-  }
-
-  #emitTextDelta(state, text, messageId = `message-${state.turnId}`) {
+  #emitCommentaryDelta(state, text, commentaryId = `commentary-${state.turnId}`) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid text delta.', { status: 502 });
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid commentary delta.', { status: 502 });
     }
-    state.coordinator.recordTextDelta(text, messageId);
-    this.#emit(state, 'text.delta', { messageId, text, delta: text });
+    state.coordinator.recordCommentaryDelta(text, commentaryId);
+    this.#emit(state, 'text.delta', { messageId: commentaryId, text, delta: text });
   }
 
-  #emitProgressDelta(state, text, progressId = `progress-${state.turnId}`) {
+  #emitFinalAnswerDelta(state, text, finalAnswerId = 'final-answer', confidence = undefined) {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
-      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid progress delta.', { status: 502 });
+      throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid final answer delta.', { status: 502 });
     }
-    state.coordinator.touchActivity(this.clock().getTime());
-    this.#emit(state, 'progress.delta', { progressId, text });
+    state.coordinator.recordFinalAnswerDelta(text, finalAnswerId, confidence);
+    this.#emit(state, 'text.delta', { messageId: finalAnswerId, text, delta: text });
   }
 
-  #emitReasoningDelta(state, text, messageId = `message-${state.turnId}`) {
+  #setFinalAnswer(state, finalAnswerData) {
+    if (this.#isTerminal(state)) return null;
+    return state.coordinator.setFinalAnswer(finalAnswerData);
+  }
+
+  #emitReasoningDelta(state, text, messageId = `reasoning-${state.turnId}`, representation = 'raw_text') {
     if (this.#isTerminal(state)) return;
     if (typeof text !== 'string' || text.length === 0 || text.length > 50_000) {
       throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider emitted an invalid reasoning delta.', { status: 502 });
     }
-    state.coordinator.recordReasoningDelta(text, messageId);
+    state.coordinator.recordReasoningDelta(text, messageId, representation);
     this.#emit(state, 'reasoning.delta', { messageId, text });
   }
 
-  #emitToolStarted(state, { toolId, toolName, input, kind, title, status } = {}) {
+  #emitToolStarted(state, { toolId, toolName, input, kind, title, description, actions, status } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
-    state.coordinator.recordToolStarted({ toolId, toolName, input, kind, title, status: normalizedStatus });
-    this.#emit(state, 'tool.started', { toolId, toolName, input });
+    state.coordinator.recordToolStarted({ toolId, toolName, input, kind, title, description, actions, status: normalizedStatus });
+    this.#emit(state, 'tool.started', { toolId, toolName, input: input === undefined ? {} : input });
   }
 
-  #emitToolUpdated(state, { toolId, output, status, progress } = {}) {
+  #emitToolUpdated(state, { toolId, output, status, progress, durationMs, exitCode, actions } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
-    state.coordinator.recordToolUpdated({ toolId, output, status: normalizedStatus, progress });
+    state.coordinator.recordToolUpdated({ toolId, output, status: normalizedStatus, progress, durationMs, exitCode, actions });
     this.#emit(state, 'tool.updated', { toolId, output, status: normalizedStatus });
   }
 
-  #emitToolCompleted(state, { toolId, output, durationMs, status, exitCode, closureReason } = {}) {
+  #emitToolCompleted(state, { toolId, output, durationMs, status, exitCode, actions, closureReason } = {}) {
     if (this.#isTerminal(state)) return;
     const normalizedStatus = normalizeTransitionalToolStatus(status, 'completed');
-    state.coordinator.recordToolCompleted({ toolId, output, durationMs, status: normalizedStatus, exitCode, closureReason });
+    state.coordinator.recordToolCompleted({ toolId, output, durationMs, status: normalizedStatus, exitCode, actions, closureReason });
     this.#emit(state, 'tool.completed', { toolId, output, durationMs, status: normalizedStatus });
+  }
+
+  #addToolAction(state, toolId, actionData) {
+    if (this.#isTerminal(state)) return null;
+    return state.coordinator.addToolAction(toolId, actionData);
   }
 
   #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {

@@ -209,7 +209,7 @@ export class ClaudeAgentProvider {
     const initialFlag = isNew && !isMaterialized ? '--session-id' : '--resume';
 
     try {
-      return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: initialFlag });
+      return await this.#startTurnWithSession({ ...params, mode }, { effectiveSessionId, sessionFlag: initialFlag });
     } catch (err) {
       const isSessionNotFound =
         err instanceof AiError &&
@@ -219,13 +219,13 @@ export class ClaudeAgentProvider {
       if (initialFlag === '--resume' && isSessionNotFound) {
         console.warn(`[claude] session ${effectiveSessionId} not found in Claude CLI DB, retrying with --session-id`);
         this.#materializedSessions.delete(effectiveSessionId);
-        return await this.#runClaudeProcess({ ...params, mode }, { effectiveSessionId, sessionFlag: '--session-id' });
+        return await this.#startTurnWithSession({ ...params, mode }, { effectiveSessionId, sessionFlag: '--session-id' });
       }
       throw err;
     }
   }
 
-  async #runClaudeProcess({
+  async #startTurnWithSession({
     turnId,
     providerSessionId,
     setProviderSessionId,
@@ -235,16 +235,22 @@ export class ClaudeAgentProvider {
     mode = 'edit',
     signal,
     setOperation,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    emitTextDelta,
+    emitDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     emitEvent,
     requestInteraction,
   } = {}, { effectiveSessionId, sessionFlag }) {
+    const commentaryDelta = emitCommentaryDelta || emitTextDelta || emitDelta;
+    const finalAnswerDelta = emitFinalAnswerDelta || emitTextDelta || emitDelta;
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
     const permissionMode =
@@ -298,16 +304,22 @@ export class ClaudeAgentProvider {
       let lineBuffer = '';
       let activeThinking = false;
       const activeTools = new Map();
+      let hasExecutedTools = false;
       let isDeferred = false;
       let deferredPayload = null;
       let isMaterialized = sessionFlag === '--resume';
-      let emittedAnyText = false;
+      let commentaryCounter = 0;
+      let pendingCommentary = null;
 
-      const sendTextDelta = text => {
-        if (!text) return;
-        emittedAnyText = true;
-        if (emitTextDelta) emitTextDelta(text);
-        else if (emitDelta) emitDelta(text);
+      const flushPendingCommentary = () => {
+        if (pendingCommentary && pendingCommentary.chunks.length > 0) {
+          if (commentaryDelta) {
+            for (const chunk of pendingCommentary.chunks) {
+              commentaryDelta(chunk, pendingCommentary.id);
+            }
+          }
+          pendingCommentary = null;
+        }
       };
 
       const cleanupSettings = () => {
@@ -350,11 +362,28 @@ export class ClaudeAgentProvider {
               ? event.content
               : (Array.isArray(event.message?.content) ? event.message.content : []);
 
+            const containsToolUse = contentBlocks.some(b => b.type === 'tool_use');
+            if (containsToolUse) {
+              hasExecutedTools = true;
+              flushPendingCommentary();
+            }
+
             for (const block of contentBlocks) {
               if (block.type === 'thinking' && block.thinking) {
                 if (emitReasoningDelta) emitReasoningDelta(block.thinking);
               } else if (block.type === 'text' && block.text) {
-                sendTextDelta(block.text);
+                if (containsToolUse || activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta) {
+                    commentaryDelta(block.text, `commentary-${turnId}-${++commentaryCounter}`);
+                  }
+                } else {
+                  flushPendingCommentary();
+                  pendingCommentary = {
+                    chunks: [block.text],
+                    id: `commentary-${turnId}-${++commentaryCounter}`,
+                  };
+                }
               } else if (block.type === 'tool_use') {
                 const toolId = block.id;
                 const toolName = block.name;
@@ -393,9 +422,23 @@ export class ClaudeAgentProvider {
               }
             } else if (event.content_block?.type === 'text') {
               if (event.content_block.text) {
-                sendTextDelta(event.content_block.text);
+                if (activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta) commentaryDelta(event.content_block.text, `commentary-${turnId}-${++commentaryCounter}`);
+                } else {
+                  if (pendingCommentary) {
+                    pendingCommentary.chunks.push(event.content_block.text);
+                  } else {
+                    pendingCommentary = {
+                      chunks: [event.content_block.text],
+                      id: `commentary-${turnId}-${++commentaryCounter}`,
+                    };
+                  }
+                }
               }
             } else if (event.content_block?.type === 'tool_use') {
+              hasExecutedTools = true;
+              flushPendingCommentary();
               const toolId = event.content_block.id;
               const toolName = event.content_block.name;
               const input = event.content_block.input || {};
@@ -422,7 +465,19 @@ export class ClaudeAgentProvider {
               }
             } else if (event.delta?.type === 'text_delta') {
               if (event.delta.text) {
-                sendTextDelta(event.delta.text);
+                if (activeTools.size > 0) {
+                  flushPendingCommentary();
+                  if (commentaryDelta) commentaryDelta(event.delta.text, `commentary-${turnId}-${commentaryCounter || 1}`);
+                } else {
+                  if (pendingCommentary) {
+                    pendingCommentary.chunks.push(event.delta.text);
+                  } else {
+                    pendingCommentary = {
+                      chunks: [event.delta.text],
+                      id: `commentary-${turnId}-${++commentaryCounter}`,
+                    };
+                  }
+                }
               }
             } else if (event.delta?.type === 'input_json_delta') {
               let targetTool = null;
@@ -444,12 +499,6 @@ export class ClaudeAgentProvider {
             break;
           }
           case 'content_block_stop': {
-            // A `tool_use` content block finishing only means the model stopped
-            // streaming the call's arguments — the tool has not actually run yet.
-            // The `tool_result` block in the later `user` event (or, if that never
-            // arrives, the `result` fallback below) is the only real terminal signal
-            // for this toolId (owner-decisions.md D6). Emitting anything here would
-            // race or overwrite that real outcome with a synthetic one.
             if (activeThinking) activeThinking = false;
             break;
           }
@@ -496,10 +545,6 @@ export class ClaudeAgentProvider {
 
           case 'result': {
             for (const [toolId, tool] of activeTools.entries()) {
-              // The turn ended without a real `tool_result` ever arriving for this
-              // toolId — it never received a successful terminal signal, so it
-              // resolves to 'failed' regardless of the turn's own outcome
-              // (owner-decisions.md D6).
               if (emitToolCompleted) {
                 emitToolCompleted({ toolId, output: 'executed', status: 'failed', closureReason: 'turn_completed' });
               }
@@ -515,8 +560,18 @@ export class ClaudeAgentProvider {
               reject(new AiError('AI_PROVIDER_ERROR', event.error?.message || event.result || 'Claude turn failed.'));
               return;
             }
-            if (event.result && typeof event.result === 'string' && !emittedAnyText && !isDeferred) {
-              sendTextDelta(event.result);
+
+            if (pendingCommentary && pendingCommentary.chunks.length > 0 && !isDeferred) {
+              if (finalAnswerDelta) {
+                for (const chunk of pendingCommentary.chunks) {
+                  finalAnswerDelta(chunk, 'final-answer');
+                }
+              }
+              pendingCommentary = null;
+            } else if (event.result && typeof event.result === 'string' && !isDeferred) {
+              if (finalAnswerDelta) {
+                finalAnswerDelta(event.result, 'final-answer');
+              }
             }
             if (event.usage && emitUsageUpdated) {
               emitUsageUpdated({
@@ -605,7 +660,14 @@ export class ClaudeAgentProvider {
             });
           }
         }
-        activeTools.clear();
+        if (pendingCommentary && pendingCommentary.chunks.length > 0 && !isDeferred) {
+          if (finalAnswerDelta) {
+            for (const chunk of pendingCommentary.chunks) {
+              finalAnswerDelta(chunk, 'final-answer');
+            }
+          }
+          pendingCommentary = null;
+        }
 
         await this.#rawCapture.flushRawCaptureBounded(effectiveSessionId);
 
@@ -707,14 +769,18 @@ export class ClaudeAgentProvider {
     mode,
     signal,
     setOperation,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     emitEvent,
+    emitDelta,
+    emitTextDelta,
   } = {}) {
     if (!providerSessionId) {
       throw new AiValidationError("'providerSessionId' is required.");
@@ -735,14 +801,18 @@ export class ClaudeAgentProvider {
         mode,
         signal,
         setOperation,
-        emitDelta,
-        emitTextDelta,
+        emitCommentaryDelta,
         emitReasoningDelta,
+        emitFinalAnswerDelta: emitFinalAnswerDelta || emitTextDelta || emitDelta,
+        setFinalAnswer,
         emitToolStarted,
         emitToolUpdated,
         emitToolCompleted,
+        addToolAction,
         emitUsageUpdated,
         emitEvent,
+        emitDelta,
+        emitTextDelta,
       });
 
       // Turn completed successfully: complete/cleanup continuation record

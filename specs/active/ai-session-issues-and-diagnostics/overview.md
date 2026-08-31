@@ -150,7 +150,9 @@ the browser must never compensate by parsing provider payloads or commands.
 - `areas/persistence-and-server-projection.md` - canonical persistence, live/reload equivalence,
   API/SSE projection, activity summary, and temporary dual chat projection.
 - `areas/provider-mappings.md` - provider-specific mapping rules and conformance boundaries.
-- `areas/chat-migration-and-validation.md` - V2 Work UX, migration switch, cross-provider scenarios,
+- `areas/work-ux-presentation.md` - the three-level Work UX model (indicator, expanded timeline, Work
+  Details), current-activity projection, and mobile requirements.
+- `areas/chat-migration-and-validation.md` - migration switch, cross-provider validation scenarios,
   cutover, and mandatory cleanup.
 
 ## Change-wide acceptance criteria

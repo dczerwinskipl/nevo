@@ -487,12 +487,14 @@ export class AntigravityAgentProvider {
     message,
     prompt,
     mode: rawMode,
-    emitDelta,
-    emitTextDelta,
+    emitCommentaryDelta,
     emitReasoningDelta,
+    emitFinalAnswerDelta,
+    setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
     emitToolCompleted,
+    addToolAction,
     emitUsageUpdated,
     requestInteraction,
     signal,
@@ -506,13 +508,16 @@ export class AntigravityAgentProvider {
 
     const effectiveSessionId = providerSessionId || randomUUID();
     let isSessionEstablished = false;
-    let accumulatedText = '';
+    let accumulatedCommentary = '';
+    let commentaryCounter = 0;
+    let finalAnswerEmitted = false;
 
-    const sendTextDelta = (chunk) => {
+    const sendCommentaryDelta = (chunk) => {
       if (!chunk) return;
-      accumulatedText += chunk;
-      if (emitTextDelta) emitTextDelta(chunk);
-      else if (emitDelta) emitDelta(chunk);
+      accumulatedCommentary += chunk;
+      if (emitCommentaryDelta) {
+        emitCommentaryDelta(chunk, `commentary-${turnId}-${commentaryCounter || 1}`);
+      }
     };
 
     return new Promise((resolve, reject) => {
@@ -741,7 +746,7 @@ export class AntigravityAgentProvider {
         } catch {
           // Fallback to plain streaming text if not JSON
           if (!isDone && !isResolved) {
-            sendTextDelta(trimmed + '\n');
+            sendCommentaryDelta(trimmed + '\n');
           }
           return;
         }
@@ -763,15 +768,35 @@ export class AntigravityAgentProvider {
 
         if (eventType === 'step_update') {
           if (payload.text_delta) {
-            sendTextDelta(payload.text_delta);
+            sendCommentaryDelta(payload.text_delta);
           }
           if (payload.thought || payload.thinking) {
             if (emitReasoningDelta) emitReasoningDelta(payload.thought || payload.thinking);
           }
           if (payload.step_type === 'tool' || payload.tool_name) {
-            const toolId = payload.toolId || `tool-${payload.step_index ?? randomUUID()}`;
             const toolName = payload.tool_name || payload.toolName || payload.tool_info?.name || 'tool';
             const input = payload.tool_info?.parameters || payload.input || payload.args || {};
+
+            if (toolName === 'ask_question') {
+              if (payload.state === 'ACTIVE' && requestInteraction) {
+                const interaction = {
+                  id: payload.toolId || `int-${randomUUID()}`,
+                  kind: 'question',
+                  prompt: input.prompt || input.question || 'Antigravity requested input',
+                  questions: input.questions || [{
+                    id: input.questionId || 'q1',
+                    question: input.prompt || input.question || 'Antigravity requested input',
+                    header: input.header || 'Pytanie',
+                    options: input.options || [],
+                    isMultiSelect: Boolean(input.isMultiSelect),
+                  }],
+                };
+                pendingInteractionPromise = requestInteraction(interaction);
+              }
+              return;
+            }
+
+            const toolId = payload.toolId || `tool-${payload.step_index ?? randomUUID()}`;
             const mapped = mapAntigravityTool(toolName, input);
 
             if (payload.state === 'ACTIVE') {
@@ -817,7 +842,7 @@ export class AntigravityAgentProvider {
           case 'text.delta':
           case 'content': {
             const delta = raw.text ?? raw.delta ?? raw.content ?? '';
-            if (delta) sendTextDelta(delta);
+            if (delta) sendCommentaryDelta(delta);
             break;
           }
 
@@ -832,9 +857,29 @@ export class AntigravityAgentProvider {
           case 'tool_use':
           case 'tool.started':
           case 'call': {
-            const toolId = raw.toolId || raw.id || `tool-${randomUUID()}`;
             const toolName = raw.toolName || raw.name || 'tool';
             const input = raw.input || raw.args || {};
+
+            if (toolName === 'ask_question') {
+              if (requestInteraction) {
+                const interaction = {
+                  id: raw.toolId || raw.id || `int-${randomUUID()}`,
+                  kind: 'question',
+                  prompt: input.prompt || input.question || 'Antigravity requested input',
+                  questions: input.questions || [{
+                    id: input.questionId || 'q1',
+                    question: input.prompt || input.question || 'Antigravity requested input',
+                    header: input.header || 'Pytanie',
+                    options: input.options || [],
+                    isMultiSelect: Boolean(input.isMultiSelect),
+                  }],
+                };
+                pendingInteractionPromise = requestInteraction(interaction);
+              }
+              break;
+            }
+
+            const toolId = raw.toolId || raw.id || `tool-${randomUUID()}`;
             const mapped = mapAntigravityTool(toolName, input);
             activeTools.set(toolId, { id: toolId, ...mapped, input });
             if (emitToolStarted) {
@@ -852,10 +897,17 @@ export class AntigravityAgentProvider {
 
           case 'tool.updated': {
             if (emitToolUpdated) {
-              const toolId = raw.toolId || (activeTools.size > 0 ? activeTools.keys().next().value : null);
-              if (toolId) {
+              let targetToolId = raw.toolId;
+              if (!targetToolId) {
+                if (activeTools.size === 1) {
+                  targetToolId = activeTools.keys().next().value;
+                } else if (activeTools.size > 1) {
+                  console.warn('[antigravity] Diagnostic ambiguity: tool.updated received without toolId while multiple tools are active.');
+                }
+              }
+              if (targetToolId) {
                 emitToolUpdated({
-                  toolId,
+                  toolId: targetToolId,
                   status: raw.status || 'running',
                   input: raw.input,
                 });
@@ -867,22 +919,29 @@ export class AntigravityAgentProvider {
           case 'tool_result':
           case 'tool.completed':
           case 'tool_use_result': {
-            const toolId = raw.toolId || raw.tool_use_id || (activeTools.size > 0 ? activeTools.keys().next().value : null);
+            let targetToolId = raw.toolId || raw.tool_use_id;
+            if (!targetToolId) {
+              if (activeTools.size === 1) {
+                targetToolId = activeTools.keys().next().value;
+              } else if (activeTools.size > 1) {
+                console.warn('[antigravity] Diagnostic ambiguity: tool_result received without toolId while multiple tools are active.');
+              }
+            }
             const status = raw.is_error || raw.status === 'failed' ? 'failed' : 'completed';
             const output = raw.output
               ?? raw.content
               ?? raw.result
               ?? (status === 'failed' ? FAILED_TOOL_WITHOUT_OUTPUT : COMPLETED_TOOL_WITHOUT_OUTPUT);
-            if (toolId && emitToolCompleted) {
+            if (targetToolId && emitToolCompleted) {
               emitToolCompleted({
-                toolId,
+                toolId: targetToolId,
                 output,
                 status,
                 durationMs: raw.durationMs,
               });
             }
-            if (toolId) {
-              activeTools.delete(toolId);
+            if (targetToolId) {
+              activeTools.delete(targetToolId);
             }
             break;
           }
@@ -930,14 +989,13 @@ export class AntigravityAgentProvider {
             const finalText = extractFinalResponse(raw);
             const hasFinalResponse = typeof finalText === 'string' && finalText.trim().length > 0;
             if (hasFinalResponse) {
-              if (!accumulatedText) {
-                sendTextDelta(finalText);
-              } else if (finalText === accumulatedText) {
-                // Already fully streamed, do not duplicate
-              } else if (finalText.startsWith(accumulatedText)) {
-                sendTextDelta(finalText.slice(accumulatedText.length));
-              } else if (!accumulatedText.endsWith(finalText) && !accumulatedText.includes(finalText)) {
-                sendTextDelta(finalText);
+              let textToEmit = finalText;
+              if (accumulatedCommentary && finalText.startsWith(accumulatedCommentary)) {
+                textToEmit = finalText.slice(accumulatedCommentary.length);
+              }
+              if (textToEmit && emitFinalAnswerDelta) {
+                finalAnswerEmitted = true;
+                emitFinalAnswerDelta(textToEmit, 'final-answer');
               }
             }
             const usageObj = payload?.usage || raw.usage;

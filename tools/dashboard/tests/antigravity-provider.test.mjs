@@ -148,7 +148,8 @@ test('new conversation spawns with stream-json input format and sets providerSes
     turnId: 'turn-1',
     message: 'Hello',
     setProviderSessionId: (id) => { allocatedSessionId = id; },
-    emitTextDelta: (d) => deltas.push(d),
+    emitCommentaryDelta: (d) => deltas.push(d),
+    emitFinalAnswerDelta: (d) => deltas.push(d),
   });
 
   assert.equal(result.status, 'completed');
@@ -258,7 +259,8 @@ test('maps reasoning, tool calls, and usage events', async () => {
     emitReasoningDelta: (r) => reasonings.push(r),
     emitToolStarted: (t) => toolsStarted.push(t),
     emitToolCompleted: (t) => toolsCompleted.push(t),
-    emitTextDelta: (t) => texts.push(t),
+    emitCommentaryDelta: (t) => texts.push(t),
+    emitFinalAnswerDelta: (t) => texts.push(t),
     emitUsageUpdated: (u) => { usage = u; },
   });
 
@@ -434,7 +436,8 @@ test('Antigravity ask mode contract simulation: provider correctly processes blo
     providerSessionId: 'conv-ask',
     message: 'Review codebase and try edit',
     mode: 'ask',
-    emitTextDelta: (d) => textDeltas.push(d),
+    emitCommentaryDelta: (d) => textDeltas.push(d),
+    emitFinalAnswerDelta: (d) => textDeltas.push(d),
     emitToolStarted: (t) => toolsStarted.push(t),
     emitToolCompleted: (t) => toolsCompleted.push(t),
   });
@@ -638,7 +641,8 @@ test('Antigravity extracts final assistant response from result.response without
     turnId: 'turn-final-resp',
     providerSessionId: 'conv-final-resp',
     message: 'Read file and summarize',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
     emitToolCompleted: (t) => toolsCompleted.push(t),
   });
 
@@ -670,7 +674,8 @@ test('Antigravity deduplicates final prose when both text_delta and result.respo
     turnId: 'turn-dedup',
     providerSessionId: 'conv-dedup',
     message: 'Summarize',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
   });
 
   assert.equal(result.status, 'completed');
@@ -699,7 +704,8 @@ test('Antigravity handles partial streaming prefix followed by complete final re
     turnId: 'turn-partial',
     providerSessionId: 'conv-partial',
     message: 'Summarize',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
   });
 
   assert.equal(result.status, 'completed');
@@ -726,7 +732,8 @@ test('Antigravity turn completes immediately upon authoritative result event eve
     turnId: 'turn-early-resolve',
     providerSessionId: 'sess-early-resolve',
     message: 'hello',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
   });
 
   // Feed stdout lines
@@ -774,7 +781,8 @@ test('Antigravity preserves final assistant response even when an earlier tool i
     turnId: 'turn-tool-fail',
     providerSessionId: 'conv-tool-fail',
     message: 'Read file',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
     emitToolCompleted: (t) => toolsCompleted.push(t),
   });
 
@@ -834,7 +842,8 @@ test('Antigravity lifecycle: authoritative terminal result resolves immediately,
     turnId: 'turn-cutoff-test',
     providerSessionId: 'sess-cutoff',
     message: 'run test',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
     emitToolStarted: (t) => toolsStarted.push(t),
     emitReasoningDelta: (r) => reasonings.push(r),
     emitUsageUpdated: (u) => usages.push(u),
@@ -1225,7 +1234,8 @@ test('Antigravity raw capture: captures trailing events, raw text, and unclosed 
       turnId: 'turn-post-result',
       providerSessionId: 'conv-post-result',
       message: 'test post result capture',
-      emitTextDelta: (delta) => semanticDeltas.push(delta),
+      emitCommentaryDelta: (delta) => semanticDeltas.push(delta),
+      emitFinalAnswerDelta: (delta) => semanticDeltas.push(delta),
     });
 
     // 1. Initial conversation and tool events
@@ -1545,7 +1555,8 @@ test('Antigravity error result: event "result" + status "ERROR" + empty response
         turnId: 'turn-err-empty',
         providerSessionId: 'conv-err-empty',
         message: 'View file',
-        emitTextDelta: (t) => textDeltas.push(t),
+        emitCommentaryDelta: (t) => textDeltas.push(t),
+        emitFinalAnswerDelta: (t) => textDeltas.push(t),
       });
     },
     (err) => {
@@ -1596,7 +1607,8 @@ test('Antigravity error result: streamed waiting text plus active run_command pl
       turnId: 'turn-waiting-error',
       providerSessionId: 'conv-waiting-error',
       message: 'Run verification',
-      emitTextDelta: delta => textDeltas.push(delta),
+      emitCommentaryDelta: delta => textDeltas.push(delta),
+      emitFinalAnswerDelta: delta => textDeltas.push(delta),
       emitToolCompleted: tool => toolsCompleted.push(tool),
     }),
     err => {
@@ -1754,7 +1766,8 @@ test('Antigravity error result: event "result" + status "ERROR" with non-empty r
     turnId: 'turn-err-response',
     providerSessionId: 'conv-err-response',
     message: 'Do work',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
   });
 
   assert.equal(result.status, 'completed');
@@ -1832,7 +1845,8 @@ test('Antigravity successful result: event "result" + status "SUCCESS" completes
     turnId: 'turn-success-status',
     providerSessionId: 'conv-success-status',
     message: 'Do task',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
     emitUsageUpdated: (u) => usages.push(u),
   });
 
@@ -1866,7 +1880,8 @@ test('Antigravity deduplicates already streamed text even when result event carr
     turnId: 'turn-err-streamed',
     providerSessionId: 'conv-err-streamed',
     message: 'Stream and complete',
-    emitTextDelta: (t) => textDeltas.push(t),
+    emitCommentaryDelta: (t) => textDeltas.push(t),
+    emitFinalAnswerDelta: (t) => textDeltas.push(t),
   });
 
   assert.equal(result.status, 'completed');
@@ -2254,9 +2269,13 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
     providerSessionId: evidence.sessionId,
     message: 'verify status and specs',
     mode: 'agent',
-    emitTextDelta: text => {
+    emitCommentaryDelta: (text, id) => {
       textDeltas.push(text);
-      coordinator.recordTextDelta(text);
+      coordinator.recordCommentaryDelta(text, id);
+    },
+    emitFinalAnswerDelta: (text, id) => {
+      textDeltas.push(text);
+      coordinator.recordFinalAnswerDelta(text, id);
     },
     emitReasoningDelta: text => {
       reasoningDeltas.push(text);

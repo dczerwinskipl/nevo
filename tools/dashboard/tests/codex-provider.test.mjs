@@ -134,13 +134,13 @@ function directTurn(provider, values = {}) {
     mode: values.mode ?? 'edit',
     setProviderSessionId: values.setProviderSessionId,
     setOperation: value => { operation = value; },
-    emitTextDelta: (text, messageId) => {
-      emitted.text.push({ text, messageId });
-      emitted.timeline.push({ type: 'text.delta', text, id: messageId });
+    emitCommentaryDelta: (text, commentaryId) => {
+      emitted.progress.push({ text, progressId: commentaryId });
+      emitted.timeline.push({ type: 'progress.delta', text, id: commentaryId });
     },
-    emitProgressDelta: (text, progressId) => {
-      emitted.progress.push({ text, progressId });
-      emitted.timeline.push({ type: 'progress.delta', text, id: progressId });
+    emitFinalAnswerDelta: (text, finalAnswerId) => {
+      emitted.text.push({ text, messageId: finalAnswerId });
+      emitted.timeline.push({ type: 'text.delta', text, id: finalAnswerId });
     },
     emitReasoningDelta: (text, messageId) => {
       emitted.reasoning.push({ text, messageId });
@@ -1015,13 +1015,13 @@ test('Codex evidence replay: maps full diagnostic turn with reasoning, commentar
     providerSessionId: evidence.sessionId,
     message: 'Run diagnostic check',
     mode: 'edit',
-    emitTextDelta: (text, messageId) => {
-      emitted.text.push({ text, messageId });
-      coordinator.recordTextDelta(text, messageId);
+    emitCommentaryDelta: (text, commentaryId) => {
+      emitted.progress.push({ text, progressId: commentaryId });
+      coordinator.recordCommentaryDelta(text, commentaryId);
     },
-    emitProgressDelta: (text, progressId) => {
-      emitted.progress.push({ text, progressId });
-      coordinator.recordTextDelta(text, progressId);
+    emitFinalAnswerDelta: (text, finalAnswerId) => {
+      emitted.text.push({ text, messageId: finalAnswerId });
+      coordinator.recordFinalAnswerDelta(text, finalAnswerId);
     },
     emitReasoningDelta: (text, messageId) => {
       emitted.reasoning.push({ text, messageId });

@@ -59,7 +59,7 @@ test('Part A1 & A2: live V2 progression streams meaningful canonical changes whi
       async startTurn(ctx) {
         runtimeContext = ctx;
         // Step 1: Start commentary
-        ctx.emitTextDelta('Beginning file analysis...', 'msg-1');
+        ctx.emitCommentaryDelta('Beginning file analysis...', 'msg-1');
         await turnBlocker;
         return { done: true };
       },
@@ -131,7 +131,7 @@ test('Part A1 & A2: live V2 progression streams meaningful canonical changes whi
     assert.equal(update4.work[1].durationMs, 45);
 
     // Step 5: Second commentary block
-    runtimeContext.emitTextDelta('File analyzed successfully. Preparing final response.', 'msg-2');
+    runtimeContext.emitCommentaryDelta('File analyzed successfully. Preparing final response.', 'msg-2');
     await waitFor(() => turnUpdates.length, len => len >= 5, 'commentary 2 turn.updated');
     const update5 = turnUpdates[turnUpdates.length - 1];
     assert.equal(update5.work.length, 3);
@@ -167,10 +167,10 @@ test('Part A2: Live SSE vs Reconnected SSE vs HTTP V2 vs Persistence Reload all 
         capabilities: { toolCalls: true, cancelTurn: true },
       },
       async startTurn(ctx) {
-        ctx.emitTextDelta('Inspecting workspace...', 'msg-1');
+        ctx.emitCommentaryDelta('Inspecting workspace...', 'msg-1');
         ctx.emitToolStarted({ toolId: 'tool-git', toolName: 'GitStatus', input: {} });
         ctx.emitToolCompleted({ toolId: 'tool-git', output: 'clean', durationMs: 15, status: 'completed' });
-        ctx.emitTextDelta('All checks passed.', 'msg-2');
+        ctx.emitCommentaryDelta('All checks passed.', 'msg-2');
       },
       async cancelTurn() {},
     });
@@ -246,7 +246,7 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
         capabilities: { cancelTurn: true },
       },
       async startTurn(ctx) {
-        ctx.emitTextDelta('Processing...', 'msg-1');
+        ctx.emitCommentaryDelta('Processing...', 'msg-1');
         await new Promise(r => { finishDeferred = r; });
         // Provider throws during/after cleanup
         throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider internal protocol crash');
@@ -337,7 +337,7 @@ test('Part A3: Terminal arbitration: user cancellation prevails over subsequent 
         capabilities: { cancelTurn: true },
       },
       async startTurn(ctx) {
-        ctx.emitTextDelta('Working...', 'msg-1');
+        ctx.emitCommentaryDelta('Working...', 'msg-1');
         await new Promise(r => { finishDeferred = r; });
         // Provider throws during cancellation cleanup
         throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider crashed on abort');
@@ -422,7 +422,7 @@ test('Part A3: Timeout intent idempotency: slow cancelTurn with multiple watchdo
       },
       async startTurn(ctx) {
         ctx.setOperation({ pid: 12345 });
-        ctx.emitTextDelta('Hanging work...', 'msg-hang');
+        ctx.emitCommentaryDelta('Hanging work...', 'msg-hang');
         // Hang indefinitely
         await new Promise(() => {});
       },
@@ -510,7 +510,7 @@ test('Part A3: Provider session late binding semantics and sessionId vs provider
         runtimeContext = ctx;
         // Provider dynamically allocates a providerSessionId mid-turn
         await ctx.setProviderSessionId('allocated-prov-session-99');
-        ctx.emitTextDelta('Session bound and ready.', 'msg-1');
+        ctx.emitCommentaryDelta('Session bound and ready.', 'msg-1');
         return { done: true, providerSessionId: 'allocated-prov-session-99' };
       },
       async cancelTurn() {},
@@ -593,7 +593,7 @@ test('Part A2: High-frequency delta coalescing: 50 text deltas in burst produce 
         // Emit 50 streaming deltas in a fast synchronous loop
         const before = persistenceRecordCount;
         for (let i = 1; i <= 50; i++) {
-          ctx.emitTextDelta(`word${i} `, 'msg-burst');
+          ctx.emitCommentaryDelta(`word${i} `, 'msg-burst');
         }
         burstDeltasCount = persistenceRecordCount - before;
         return { done: true };

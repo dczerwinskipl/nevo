@@ -292,15 +292,15 @@ test('integration: new chat -> first prompt -> provider identity created and bou
   let resumeCalledWith = null;
   const provider = {
     descriptor: { id: 'fake', label: 'Fake', capabilities },
-    async startTurn({ providerSessionId, setProviderSessionId, message, emitTextDelta }) {
+    async startTurn({ providerSessionId, setProviderSessionId, message, emitFinalAnswerDelta }) {
       if (!providerSessionId) {
         const newId = 'fake-allocated-uuid-999';
         setProviderSessionId(newId);
-        emitTextDelta('first turn response');
+        emitFinalAnswerDelta('first turn response');
         return { providerSessionId: newId };
       } else {
         resumeCalledWith = providerSessionId;
-        emitTextDelta('second turn response');
+        emitFinalAnswerDelta('second turn response');
         return { providerSessionId };
       }
     },

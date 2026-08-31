@@ -368,9 +368,9 @@ export class TurnLifecycleCoordinator {
   }
 
   /**
-   * Record arrival of a text delta.
+   * Record arrival of a commentary delta in Work[].
    */
-  recordTextDelta(text, messageId = `msg-${this.#turn.id}`) {
+  recordCommentaryDelta(text, messageId = `commentary-${this.#turn.id}-${this.#turn.work.length + 1}`) {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
@@ -408,9 +408,16 @@ export class TurnLifecycleCoordinator {
   }
 
   /**
-   * Record arrival of a reasoning delta.
+   * Record arrival of a legacy text delta (maps to commentary).
    */
-  recordReasoningDelta(text, messageId = `reasoning-${this.#turn.id}`) {
+  recordTextDelta(text, messageId = `msg-${this.#turn.id}`) {
+    return this.recordCommentaryDelta(text, messageId);
+  }
+
+  /**
+   * Record arrival of a reasoning delta in Work[].
+   */
+  recordReasoningDelta(text, messageId = `reasoning-${this.#turn.id}`, representation = 'raw_text') {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
@@ -428,7 +435,7 @@ export class TurnLifecycleCoordinator {
       currentItem = appendWorkItem(this.#turn, {
         id: this.#activeReasoningId,
         type: 'reasoning',
-        representation: 'raw_text',
+        representation,
         text,
         status: 'streaming',
       });
@@ -449,9 +456,57 @@ export class TurnLifecycleCoordinator {
   }
 
   /**
+   * Record arrival of a final answer delta outside Work[].
+   */
+  recordFinalAnswerDelta(text, finalAnswerId = 'final-answer', confidence = undefined) {
+    if (this.isTerminal || this.isCancelling) return null;
+    this.touchActivity();
+
+    if (this.#activeCommentaryId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeCommentaryId, { status: 'completed' });
+      } catch {}
+      this.#activeCommentaryId = null;
+    }
+    if (this.#activeReasoningId) {
+      try {
+        updateWorkItem(this.#turn, this.#activeReasoningId, { status: 'completed' });
+      } catch {}
+      this.#activeReasoningId = null;
+    }
+
+    let isNewBlock = false;
+    const now = new Date().toISOString();
+    if (!this.#turn.finalAnswer) {
+      isNewBlock = true;
+      this.#turn.finalAnswer = {
+        id: finalAnswerId,
+        text,
+        status: 'streaming',
+        ...(confidence ? { confidence } : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.#tracer?.record?.({
+        source: 'adapter',
+        event: 'final_answer.started',
+        subjectId: finalAnswerId,
+        disposition: 'accepted',
+      });
+    } else {
+      this.#turn.finalAnswer.text = (this.#turn.finalAnswer.text || '') + text;
+      this.#turn.finalAnswer.status = 'streaming';
+      if (confidence) this.#turn.finalAnswer.confidence = confidence;
+      this.#turn.finalAnswer.updatedAt = now;
+    }
+    this.#notifyTurnUpdated({ semantic: isNewBlock ? true : 'throttled' });
+    return this.#turn.finalAnswer;
+  }
+
+  /**
    * Record tool started.
    */
-  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null, status = 'active' }) {
+  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null, description = null, actions = null, status = 'active' }) {
     if (this.isTerminal || this.isCancelling) {
       this.#tracer?.record?.({
         source: 'tool',
@@ -485,6 +540,8 @@ export class TurnLifecycleCoordinator {
       kind: kind || 'other',
       title: title || toolName || 'tool',
       status: normalizedStatus,
+      ...(description != null ? { description } : {}),
+      ...(Array.isArray(actions) ? { actions } : {}),
       ...(input !== undefined ? { input } : {}),
     });
 
@@ -510,7 +567,7 @@ export class TurnLifecycleCoordinator {
   /**
    * Record tool updated.
    */
-  recordToolUpdated({ toolId, output, status = 'active', progress }) {
+  recordToolUpdated({ toolId, output, status = 'active', progress, durationMs, exitCode, actions }) {
     if (this.isTerminal) {
       this.#tracer?.record?.({
         source: 'tool',
@@ -528,6 +585,9 @@ export class TurnLifecycleCoordinator {
       ...(output !== undefined ? { output } : {}),
       status: normalizedStatus,
       ...(progress !== undefined ? { progress } : {}),
+      ...(typeof durationMs === 'number' ? { durationMs } : {}),
+      ...(typeof exitCode === 'number' ? { exitCode } : {}),
+      ...(Array.isArray(actions) ? { actions } : {}),
     });
 
     this.#tracer?.record?.({
@@ -545,7 +605,7 @@ export class TurnLifecycleCoordinator {
   /**
    * Record tool completed.
    */
-  recordToolCompleted({ toolId, output, durationMs, status = 'completed', exitCode, closureReason }) {
+  recordToolCompleted({ toolId, output, durationMs, status = 'completed', exitCode, actions, closureReason }) {
     if (this.isTerminal) {
       this.#tracer?.record?.({
         source: 'tool',
@@ -565,6 +625,7 @@ export class TurnLifecycleCoordinator {
       ...(output !== undefined ? { output } : {}),
       ...(typeof durationMs === 'number' ? { durationMs } : {}),
       ...(typeof exitCode === 'number' ? { exitCode } : {}),
+      ...(Array.isArray(actions) ? { actions } : {}),
       ...(closureReason ? { closureReason } : {}),
     });
 
@@ -968,6 +1029,16 @@ export class TurnLifecycleCoordinator {
           updateWorkItem(this.#turn, item.id, { status: 'completed' });
         } catch {}
       }
+    }
+
+    // Seal finalAnswer if it was streaming
+    if (this.#turn.finalAnswer && this.#turn.finalAnswer.status === 'streaming') {
+      const now = new Date().toISOString();
+      this.#turn.finalAnswer.status = effectiveOutcome === 'completed' ? 'completed' : 'absent';
+      if (effectiveOutcome === 'completed') {
+        this.#turn.finalAnswer.completedAt = now;
+      }
+      this.#turn.finalAnswer.updatedAt = now;
     }
 
     const terminalStatus = setTurnStatus(this.#turn, {

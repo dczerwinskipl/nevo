@@ -346,7 +346,8 @@ test('ClaudeAgentProvider parses stream-json output and emits deltas and reasoni
     turnId: 'turn-test-1',
     providerSessionId: 'sess-test-1',
     message: 'Hello Claude',
-    emitTextDelta: text => textDeltas.push(text),
+    emitCommentaryDelta: text => textDeltas.push(text),
+    emitFinalAnswerDelta: text => textDeltas.push(text),
     emitReasoningDelta: text => reasoningDeltas.push(text),
     emitUsageUpdated: u => { usage = u; },
   });
@@ -605,7 +606,8 @@ test('Claude ask mode contract simulation: provider correctly processes blocked 
     providerSessionId: 'sess-ask-1',
     message: 'Please review architecture',
     mode: 'ask',
-    emitTextDelta: (delta) => textDeltas.push(delta),
+    emitCommentaryDelta: (delta) => textDeltas.push(delta),
+    emitFinalAnswerDelta: (delta) => textDeltas.push(delta),
     emitToolStarted: (tool) => toolsStarted.push(tool),
     emitToolCompleted: (tool) => toolsCompleted.push(tool),
   });
@@ -1097,9 +1099,13 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
     turnId: 'turn-evidence-2',
     providerSessionId: evidence.sessionId,
     message: evidence.turns[1].userMessage,
-    emitTextDelta: text => {
+    emitCommentaryDelta: (text, id) => {
       textDeltas.push(text);
-      coordinator.recordTextDelta(text);
+      coordinator.recordCommentaryDelta(text, id);
+    },
+    emitFinalAnswerDelta: (text, id) => {
+      textDeltas.push(text);
+      coordinator.recordFinalAnswerDelta(text, id);
     },
     emitReasoningDelta: reasoning => {
       reasoningDeltas.push(reasoning);
@@ -1122,8 +1128,8 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
   assert.equal(snapshot.status.status, 'terminal');
   assert.equal(snapshot.status.outcome, 'completed');
 
-  // Verify Work items order
-  assert.ok(snapshot.work.length >= 5, `Expected at least 5 work items, got ${snapshot.work.length}`);
+  // Verify Work items order: 2 commentary blocks + 3 tool items = 5 items total in work[]
+  assert.equal(snapshot.work.length, 5);
   // 1: Commentary before tools
   assert.equal(snapshot.work[0].type, 'commentary');
   assert.ok(snapshot.work[0].text.includes('Starting diagnostic check'));
@@ -1152,9 +1158,10 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
   assert.equal(snapshot.work[4].status, 'completed');
   assert.equal(snapshot.work[4].durationMs, 45);
 
-  // 6: Final commentary text
-  assert.equal(snapshot.work[5].type, 'commentary');
-  assert.ok(snapshot.work[5].text.includes('Diagnostic test complete'));
+  // Final Answer outside work[]
+  assert.ok(snapshot.finalAnswer);
+  assert.equal(snapshot.finalAnswer.status, 'completed');
+  assert.ok(snapshot.finalAnswer.text.includes('Diagnostic test complete'));
 
   // Ensure no Claude-private IDs leaked in public model fields
   const serialized = JSON.stringify(snapshot);
@@ -1216,7 +1223,8 @@ test('Claude tool failure followed by recovery completes turn successfully', asy
     turnId: 'turn-recover-1',
     providerSessionId: 'sess-recover-1',
     message: 'Try reading missing file then recover',
-    emitTextDelta: text => coordinator.recordTextDelta(text),
+    emitCommentaryDelta: text => coordinator.recordCommentaryDelta(text),
+    emitFinalAnswerDelta: text => coordinator.recordFinalAnswerDelta(text),
     emitToolStarted: tool => coordinator.recordToolStarted(tool),
     emitToolCompleted: tool => {
       toolsCompleted.push(tool);
