@@ -2,7 +2,7 @@
 id: refaktoring-tooli
 title: "Tools refactoring according to Node and React guidelines"
 type: architectural
-status: draft
+status: archived
 priority: 10
 created: 2026-08-25
 spec_id: 7405b472-f237-4a52-a64c-3af1c1d5d1cc
