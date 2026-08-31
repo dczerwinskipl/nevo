@@ -12,10 +12,14 @@ import {
   validateInteractionResponse,
 } from '../../contracts.mjs';
 import { createTranscriptCacheService } from '../transcript-cache.mjs';
-
-function sessionKey(provider, providerSessionId) {
-  return `${provider}\u0000${providerSessionId}`;
-}
+import { TurnEventStream, sessionKey } from './turn-event-stream.mjs';
+import {
+  findPersistedActiveTurn,
+  getPersistedTurnSnapshot,
+  interruptStaleLiveInteraction,
+  reconcileOrphanedTurns,
+  reconstructTurnState,
+} from './turn-recovery.mjs';
 
 function publicFailure(error) {
   const normalized = publicAiError(error);
@@ -32,17 +36,21 @@ const TURN_ACTIVITY_EVENT_TYPES = new Set([
   'usage.updated',
 ]);
 
+/**
+ * Main application-facing Agent Turn runtime facade.
+ * Coordinates turn lifecycle admission, provider turn orchestration,
+ * interaction state transitions, cancellation/timeout policy, and delegates
+ * event streaming and recovery to focused collaborators.
+ */
 export class AgentTurnRuntime {
   #turns = new Map();
   #activeBySession = new Map();
   #startQueueBySession = new Map();
-  #sessionSequences = new Map();
-  #sessionSubscribers = new Map();
-  #sessionEvents = new Map();
   #terminalOrder = [];
   #closed = false;
   #shutdownPromise;
   #idleWatchdogTimer = null;
+  #eventStream;
 
   constructor({
     registry,
@@ -62,6 +70,7 @@ export class AgentTurnRuntime {
     this.clock = clock;
     this.idleTimeoutMs = idleTimeoutMs;
     this.idleCheckIntervalMs = idleCheckIntervalMs;
+    this.#eventStream = new TurnEventStream({ maxEventsPerTurn, clock });
 
     if (this.idleTimeoutMs > 0) {
       this.#idleWatchdogTimer = setInterval(() => this.#checkIdleTurns(), this.idleCheckIntervalMs);
@@ -117,13 +126,14 @@ export class AgentTurnRuntime {
 
       let initialSeq = 0;
       if (!isNewSession) {
-        if (this.#sessionSequences.has(key)) {
-          initialSeq = this.#sessionSequences.get(key);
+        const existingSeq = this.#eventStream.getSessionSequence(provider, providerSessionId);
+        if (existingSeq !== undefined) {
+          initialSeq = existingSeq;
         } else if (this.transcriptCache) {
           try {
             const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
             initialSeq = transcript.lastEventSeq || 0;
-            this.#sessionSequences.set(key, initialSeq);
+            this.#eventStream.initSessionSequence(provider, providerSessionId, initialSeq);
           } catch {
             initialSeq = 0;
           }
@@ -176,11 +186,7 @@ export class AgentTurnRuntime {
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
-          let seq = this.#sessionSequences.get(state.key) || 0;
-          if (seq < state.sequence) {
-            seq = state.sequence;
-            this.#sessionSequences.set(state.key, seq);
-          }
+          this.#eventStream.setSessionSequence(state.provider, allocatedSessionId, state.sequence);
           if (this.transcriptCache) {
             this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
               text: inputMessage,
@@ -245,29 +251,37 @@ export class AgentTurnRuntime {
     };
   }
 
+  #createProviderTurnContext(state, extra = {}) {
+    return {
+      turnId: state.turnId,
+      providerSessionId: state.providerSessionId,
+      identity: state.identity,
+      mode: state.mode,
+      signal: state.abortController.signal,
+      setOperation: operation => { state.privateOperation = operation; },
+      emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
+      emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
+      emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
+      emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
+      emitToolStarted: tool => this.#emitToolStarted(state, tool),
+      emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
+      emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
+      emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
+      emitEvent: (type, data) => this.#emit(state, type, data),
+      ...extra,
+    };
+  }
+
   async #run(state, message, setProviderSessionId, rejectEstablished) {
     try {
-      const turnResult = state.agentProvider.startTurn({
-        turnId: state.turnId,
-        providerSessionId: state.providerSessionId,
-        setProviderSessionId,
-        identity: state.identity,
-        message,
-        prompt: message,
-        mode: state.mode,
-        signal: state.abortController.signal,
-        setOperation: operation => { state.privateOperation = operation; },
-        emitDelta: (delta, messageId) => this.#emitDelta(state, delta, messageId),
-        emitTextDelta: (text, messageId) => this.#emitTextDelta(state, text, messageId),
-        emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
-        emitReasoningDelta: (text, messageId) => this.#emitReasoningDelta(state, text, messageId),
-        emitToolStarted: tool => this.#emitToolStarted(state, tool),
-        emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
-        emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
-        emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
-        emitEvent: (type, data) => this.#emit(state, type, data),
-        requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
-      });
+      const turnResult = state.agentProvider.startTurn(
+        this.#createProviderTurnContext(state, {
+          setProviderSessionId,
+          message,
+          prompt: message,
+          requestInteraction: (interaction, options) => this.#requestInteraction(state, interaction, options),
+        })
+      );
 
       let result;
       if (turnResult && typeof turnResult[Symbol.asyncIterator] === 'function') {
@@ -305,30 +319,17 @@ export class AgentTurnRuntime {
     }
   }
 
-
   async #runContinuation(state, interactionId, interaction, response) {
     try {
       let result;
       if (typeof state.agentProvider.respondInteraction === 'function') {
-        result = await state.agentProvider.respondInteraction({
-          turnId: state.turnId,
-          providerSessionId: state.providerSessionId,
-          interactionId,
-          interaction,
-          response,
-          mode: state.mode,
-          signal: state.abortController.signal,
-          setOperation: op => { state.privateOperation = op; },
-          emitDelta: (delta, msgId) => this.#emitDelta(state, delta, msgId),
-          emitTextDelta: (text, msgId) => this.#emitTextDelta(state, text, msgId),
-          emitProgressDelta: (text, progressId) => this.#emitProgressDelta(state, text, progressId),
-          emitReasoningDelta: (text, msgId) => this.#emitReasoningDelta(state, text, msgId),
-          emitToolStarted: tool => this.#emitToolStarted(state, tool),
-          emitToolUpdated: tool => this.#emitToolUpdated(state, tool),
-          emitToolCompleted: tool => this.#emitToolCompleted(state, tool),
-          emitUsageUpdated: usage => this.#emitUsageUpdated(state, usage),
-          emitEvent: (type, data) => this.#emit(state, type, data),
-        });
+        result = await state.agentProvider.respondInteraction(
+          this.#createProviderTurnContext(state, {
+            interactionId,
+            interaction,
+            response,
+          })
+        );
       }
 
       if (result?.isDeferred) {
@@ -449,69 +450,26 @@ export class AgentTurnRuntime {
     }
 
     if (!state && this.transcriptCache) {
-      if (provider && providerSessionId) {
-        const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
-        if (cached?.activeTurn && cached?.pendingInteraction?.id === interactionId) {
-          if (!turnId || cached.activeTurn.turnId === turnId) {
-            if (cached.pendingInteraction.resumePolicy === 'live-operation') {
-              await this.#interruptStaleLiveInteraction(cached.provider, cached.providerSessionId);
-            }
-            turnId = cached.activeTurn.turnId;
-            const restoredMode = cached.activeTurn.mode
-              ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
-              : 'edit';
-            state = {
-              turnId,
-              provider: cached.provider,
-              providerSessionId: cached.providerSessionId,
-              identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
-              key: sessionKey(cached.provider, cached.providerSessionId),
-              mode: restoredMode,
-              status: 'waitingForUser',
-              pendingInteraction: structuredClone(cached.pendingInteraction),
-              sequence: cached.lastEventSeq || 0,
-              events: [],
-              subscribers: new Set(),
-              abortController: new AbortController(),
-              agentProvider: this.registry.get(cached.provider).provider,
-              startedAt: cached.activeTurn.startedAt,
-            };
-            this.#turns.set(turnId, state);
-            this.#activeBySession.set(state.key, turnId);
-            this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
-          }
+      const cached = await findPersistedActiveTurn({
+        transcriptCache: this.transcriptCache,
+        provider,
+        providerSessionId,
+        turnId,
+        interactionId,
+      });
+      if (cached) {
+        if (cached.pendingInteraction?.resumePolicy === 'live-operation') {
+          await interruptStaleLiveInteraction(this.transcriptCache, cached.provider, cached.providerSessionId);
         }
-      } else if (turnId) {
-        for (const [key, cached] of this.transcriptCache.entries?.() || []) {
-          if (cached?.activeTurn?.turnId === turnId && cached?.pendingInteraction?.id === interactionId) {
-            if (cached.pendingInteraction.resumePolicy === 'live-operation') {
-              await this.#interruptStaleLiveInteraction(cached.provider, cached.providerSessionId);
-            }
-            const restoredMode = cached.activeTurn.mode
-              ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
-              : 'edit';
-            state = {
-              turnId,
-              provider: cached.provider,
-              providerSessionId: cached.providerSessionId,
-              identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
-              key: sessionKey(cached.provider, cached.providerSessionId),
-              mode: restoredMode,
-              status: 'waitingForUser',
-              pendingInteraction: structuredClone(cached.pendingInteraction),
-              sequence: cached.lastEventSeq || 0,
-              events: [],
-              subscribers: new Set(),
-              abortController: new AbortController(),
-              agentProvider: this.registry.get(cached.provider).provider,
-              startedAt: cached.activeTurn.startedAt,
-            };
-            this.#turns.set(turnId, state);
-            this.#activeBySession.set(state.key, turnId);
-            this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
-            break;
-          }
-        }
+        turnId = cached.activeTurn.turnId;
+        state = reconstructTurnState({
+          cached,
+          registry: this.registry,
+          clock: this.clock,
+        });
+        this.#turns.set(turnId, state);
+        this.#activeBySession.set(state.key, turnId);
+        this.#eventStream.initSessionSequence(state.provider, state.providerSessionId, cached.lastEventSeq || 0);
       }
     }
 
@@ -547,46 +505,25 @@ export class AgentTurnRuntime {
     return this.getSnapshot(state.turnId);
   }
 
-  async #interruptStaleLiveInteraction(provider, providerSessionId) {
-    this.transcriptCache.markTurnInterrupted(provider, providerSessionId, {
-      text: 'Interrupted by server restart.',
-    });
-    await this.transcriptCache.flush?.(provider, providerSessionId);
-    throw new AiError(
-      'AI_TURN_INTERRUPTED',
-      'The interaction can no longer be answered because its live provider operation ended.',
-      { status: 409 },
-    );
-  }
-
   async cancelTurn(turnId, options = {}) {
     const { provider, providerSessionId } = options;
     let state = this.#turns.get(turnId);
     if (!state && this.transcriptCache && provider && providerSessionId) {
-      const cached = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      if (cached?.activeTurn?.turnId === turnId) {
-        const restoredMode = cached.activeTurn.mode
-          ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
-          : 'edit';
-        state = {
-          turnId,
-          provider: cached.provider,
-          providerSessionId: cached.providerSessionId,
-          identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
-          key: sessionKey(cached.provider, cached.providerSessionId),
-          mode: restoredMode,
-          status: 'waitingForUser',
-          pendingInteraction: structuredClone(cached.pendingInteraction),
-          sequence: cached.lastEventSeq || 0,
-          events: [],
-          subscribers: new Set(),
-          abortController: new AbortController(),
-          agentProvider: this.registry.get(cached.provider).provider,
-          startedAt: cached.activeTurn.startedAt,
-        };
+      const cached = await findPersistedActiveTurn({
+        transcriptCache: this.transcriptCache,
+        provider,
+        providerSessionId,
+        turnId,
+      });
+      if (cached) {
+        state = reconstructTurnState({
+          cached,
+          registry: this.registry,
+          clock: this.clock,
+        });
         this.#turns.set(turnId, state);
         this.#activeBySession.set(state.key, turnId);
-        this.#sessionSequences.set(state.key, cached.lastEventSeq || 0);
+        this.#eventStream.initSessionSequence(state.provider, state.providerSessionId, cached.lastEventSeq || 0);
       }
     }
     if (!state) {
@@ -681,41 +618,17 @@ export class AgentTurnRuntime {
    * `transcriptCache` doesn't support persisted-session enumeration (e.g. a test double).
    */
   async reconcileOrphanedTurns() {
-    if (typeof this.transcriptCache?.listPersistedSessions !== 'function') return { reconciledCount: 0 };
-    const sessions = await this.transcriptCache.listPersistedSessions();
-    let reconciledCount = 0;
-    for (const { provider, providerSessionId } of sessions) {
-      const transcript = await this.transcriptCache.getTranscript(provider, providerSessionId);
-      if (!transcript?.activeTurn) continue;
-      if (transcript.pendingInteraction && transcript.pendingInteraction.resumePolicy !== 'live-operation') continue;
-      this.transcriptCache.markTurnInterrupted(provider, providerSessionId, {
-        text: 'Interrupted by server restart.',
-      });
-      reconciledCount += 1;
-    }
-    if (reconciledCount > 0 && typeof this.transcriptCache.flushAll === 'function') {
-      await this.transcriptCache.flushAll();
-    }
-    return { reconciledCount };
+    return reconcileOrphanedTurns(this.transcriptCache);
   }
 
   getSnapshot(turnId) {
     let state = this.#turns.get(turnId);
     if (!state && this.transcriptCache) {
-      for (const [key, cached] of this.transcriptCache.entries?.() || []) {
-        if (cached?.activeTurn?.turnId === turnId) {
-          return {
-            turnId,
-            provider: cached.provider,
-            providerSessionId: cached.providerSessionId,
-            status: 'waitingForUser',
-            startedAt: cached.activeTurn.startedAt,
-            lastEventId: cached.lastEventSeq || 0,
-            pendingInteraction: cached.pendingInteraction ? structuredClone(cached.pendingInteraction) : null,
-            events: [],
-          };
-        }
-      }
+      const persistedSnapshot = getPersistedTurnSnapshot({
+        transcriptCache: this.transcriptCache,
+        turnId,
+      });
+      if (persistedSnapshot) return persistedSnapshot;
     }
     if (!state) {
       state = this.#get(turnId);
@@ -729,45 +642,22 @@ export class AgentTurnRuntime {
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
       lastEventId: state.sequence,
       pendingInteraction: state.pendingInteraction ? structuredClone(state.pendingInteraction) : null,
-      events: state.events.map(event => structuredClone(event)),
+      events: this.#eventStream.getEvents(state.events, 0),
     };
   }
 
   getEvents(turnId, afterSequence = 0) {
     const state = this.#get(turnId);
-    const cursor = Number(afterSequence) || 0;
-    return state.events.filter(event => (event.id ?? event.seq ?? 0) > cursor).map(event => structuredClone(event));
+    return this.#eventStream.getEvents(state.events, afterSequence);
   }
 
-  subscribe(turnId, { afterSequence = 0, onEvent } = {}) {
+  subscribe(turnId, options = {}) {
     const state = this.#get(turnId);
-    if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
-    for (const event of this.getEvents(turnId, afterSequence)) onEvent(event);
-    if (!this.#isTerminal(state)) state.subscribers.add(onEvent);
-    return () => state.subscribers.delete(onEvent);
+    return this.#eventStream.subscribeToTurn(state, options);
   }
 
-  subscribeToSession({ provider, providerSessionId }, { afterSequence = 0, onEvent } = {}) {
-    validateAgentIdentity({ provider, providerSessionId });
-    if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
-    const key = sessionKey(provider, providerSessionId);
-    let subs = this.#sessionSubscribers.get(key);
-    if (!subs) {
-      subs = new Set();
-      this.#sessionSubscribers.set(key, subs);
-    }
-    const recent = this.#sessionEvents.get(key) || [];
-    const cursor = Number(afterSequence) || 0;
-    for (const event of recent) {
-      if ((event.seq ?? event.id ?? 0) > cursor) {
-        onEvent(structuredClone(event));
-      }
-    }
-    subs.add(onEvent);
-    return () => {
-      subs.delete(onEvent);
-      if (subs.size === 0) this.#sessionSubscribers.delete(key);
-    };
+  subscribeToSession({ provider, providerSessionId }, options = {}) {
+    return this.#eventStream.subscribeToSession({ provider, providerSessionId }, options);
   }
 
   shutdown() {
@@ -809,57 +699,11 @@ export class AgentTurnRuntime {
     return Promise.resolve();
   }
 
-  #getNextSeq(state) {
-    if (state.provider && state.providerSessionId) {
-      const key = sessionKey(state.provider, state.providerSessionId);
-      let current = this.#sessionSequences.get(key);
-      if (current === undefined) {
-        current = state.sequence || 0;
-      }
-      current += 1;
-      this.#sessionSequences.set(key, current);
-      state.sequence = current;
-      return current;
-    }
-    state.sequence = (state.sequence || 0) + 1;
-    return state.sequence;
-  }
-
   #emit(state, type, data = {}) {
-    const seq = this.#getNextSeq(state);
-    const event = {
-      id: seq,
-      seq,
-      type,
-      turnId: state.turnId,
-      timestamp: this.#timestamp(),
-      ...structuredClone(data),
-    };
-    state.events.push(event);
-    if (state.events.length > this.maxEventsPerTurn) state.events.shift();
-    if (TURN_ACTIVITY_EVENT_TYPES.has(type)) state.lastActivityAt = this.clock().getTime();
-
-    if (state.provider && state.providerSessionId) {
-      const key = sessionKey(state.provider, state.providerSessionId);
-      let sessionEvents = this.#sessionEvents.get(key);
-      if (!sessionEvents) {
-        sessionEvents = [];
-        this.#sessionEvents.set(key, sessionEvents);
-      }
-      sessionEvents.push(event);
-      if (sessionEvents.length > 500) sessionEvents.shift();
-
-      if (this.transcriptCache) {
-        this.transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
-      }
-
-      const sessionSubs = this.#sessionSubscribers.get(key);
-      if (sessionSubs) {
-        for (const subscriber of sessionSubs) subscriber(structuredClone(event));
-      }
+    const event = this.#eventStream.emit(state, type, data, this.transcriptCache);
+    if (TURN_ACTIVITY_EVENT_TYPES.has(type)) {
+      state.lastActivityAt = this.clock().getTime();
     }
-
-    for (const subscriber of state.subscribers) subscriber(structuredClone(event));
     return event;
   }
 
