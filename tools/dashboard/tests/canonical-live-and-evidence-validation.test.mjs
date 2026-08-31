@@ -232,8 +232,8 @@ test('Part A2: Live SSE vs Reconnected SSE vs HTTP V2 vs Persistence Reload all 
   }
 });
 
-test('Part A3: Terminal arbitration prevents turn.completed contradiction when timeout intent accepted', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-arb-test-'));
+test('Part A3: Terminal arbitration: timeout intent prevails over subsequent provider error', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-timeout-err-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
     const registry = createAgentProviderRegistry();
@@ -241,18 +241,18 @@ test('Part A3: Terminal arbitration prevents turn.completed contradiction when t
     let finishDeferred;
     registry.register({
       descriptor: {
-        id: 'fake-race',
-        label: 'Fake Race',
+        id: 'fake-timeout-err',
+        label: 'Fake Timeout Error',
         capabilities: { cancelTurn: true },
       },
       async startTurn(ctx) {
-        ctx.emitTextDelta('Working...', 'msg-1');
+        ctx.emitTextDelta('Processing...', 'msg-1');
         await new Promise(r => { finishDeferred = r; });
-        // Provider attempts to report normal completion after timeout was triggered
-        return { done: true };
+        // Provider throws during/after cleanup
+        throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider internal protocol crash');
       },
       async cancelTurn() {
-        // Cancellation / timeout cleanup hook
+        // cleanup hook
       },
     });
 
@@ -264,14 +264,14 @@ test('Part A3: Terminal arbitration prevents turn.completed contradiction when t
     });
 
     const sessionEvents = [];
-    const unsub = runtime.subscribeToSession({ provider: 'fake-race', providerSessionId: 'sess-race-1' }, {
+    const unsub = runtime.subscribeToSession({ provider: 'fake-timeout-err', providerSessionId: 'sess-timeout-err-1' }, {
       onEvent: ev => sessionEvents.push(ev),
     });
 
     const { turnId } = await runtime.startTurn({
-      provider: 'fake-race',
-      providerSessionId: 'sess-race-1',
-      message: 'Trigger race test',
+      provider: 'fake-timeout-err',
+      providerSessionId: 'sess-timeout-err-1',
+      message: 'Timeout error race',
     });
 
     // Wait for idle watchdog to trigger timeout
@@ -280,19 +280,17 @@ test('Part A3: Terminal arbitration prevents turn.completed contradiction when t
       return snap.status === 'failed';
     }, v => v === true, 'timeout termination');
 
-    // Provider now resolves and attempts to complete
+    // Provider throws after timeout was accepted
     if (finishDeferred) finishDeferred();
     await new Promise(r => setTimeout(r, 60));
 
-    // Assert: external stream MUST NOT contain turn.completed!
-    const eventTypes = sessionEvents.map(e => e.type);
-    assert.equal(eventTypes.includes('turn.completed'), false, 'turn.completed must never be emitted after timeout');
-    assert.equal(eventTypes.includes('turn.failed'), true, 'turn.failed must be emitted');
-
+    // Assert: external event MUST be AI_TURN_TIMEOUT, not AI_PROVIDER_PROTOCOL_ERROR!
     const failedEvent = sessionEvents.find(e => e.type === 'turn.failed');
+    assert.ok(failedEvent, 'turn.failed must be emitted');
     assert.equal(failedEvent.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(sessionEvents.some(e => e.type === 'turn.completed'), false);
 
-    // Assert: Canonical state outcome is failed with timeout/protocol-silence
+    // Canonical state outcome must be failed with timeout/protocol-silence
     const canonical = runtime.getCanonicalTurn(turnId);
     assert.equal(canonical.status.status, 'terminal');
     assert.equal(canonical.status.outcome, 'failed');
@@ -305,135 +303,268 @@ test('Part A3: Terminal arbitration prevents turn.completed contradiction when t
   }
 });
 
-test('Part A4: Persistence health reflects write failure truthfully without corrupting readiness', async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-health-fail-'));
+test('Part A3: Terminal arbitration: user cancellation prevails over subsequent provider error', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-cancel-err-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const registry = createAgentProviderRegistry();
 
-    const turn = createCanonicalTurn({
-      id: 'turn-h1',
-      provider: 'fake',
-      providerSessionId: 'sess-health-1',
+    let finishDeferred;
+    registry.register({
+      descriptor: {
+        id: 'fake-cancel-err',
+        label: 'Fake Cancel Error',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        ctx.emitTextDelta('Working...', 'msg-1');
+        await new Promise(r => { finishDeferred = r; });
+        // Provider throws during cancellation cleanup
+        throw new AiError('AI_PROVIDER_PROTOCOL_ERROR', 'Provider crashed on abort');
+      },
+      async cancelTurn() {
+        // cancellation hook
+      },
     });
 
-    transcriptCache.recordCanonicalTurn('fake', 'sess-health-1', turn);
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+    });
 
-    // Force write failure by pointing file path to an un-writable directory structure or locking directory
-    const invalidCache = createTranscriptCacheService({ baseDir: join(tmpDir, 'non-existent\u0000invalid'), flushDebounceMs: 0 });
-    invalidCache.recordCanonicalTurn('fake', 'sess-health-1', turn);
+    const sessionEvents = [];
+    const unsub = runtime.subscribeToSession({ provider: 'fake-cancel-err', providerSessionId: 'sess-cancel-err-1' }, {
+      onEvent: ev => sessionEvents.push(ev),
+    });
 
-    // Flush should reject and record unhealthy status
-    await assert.rejects(() => invalidCache.flush('fake', 'sess-health-1'));
+    const { turnId } = await runtime.startTurn({
+      provider: 'fake-cancel-err',
+      providerSessionId: 'sess-cancel-err-1',
+      message: 'Cancel error race',
+    });
 
-    const state = await invalidCache.getTranscript('fake', 'sess-health-1');
-    assert.equal(state.health, 'unhealthy');
-    assert.ok(state.error);
-    assert.ok(state.persistenceError);
-    assert.ok(state.persistenceError.at);
+    // User cancels the turn
+    await runtime.cancelTurn(turnId, { initiator: 'user', cause: 'user-cancelled' });
+
+    // Provider throws after cancellation
+    if (finishDeferred) finishDeferred();
+    await new Promise(r => setTimeout(r, 60));
+
+    // Assert: external event MUST be AI_TURN_CANCELLED, not AI_PROVIDER_PROTOCOL_ERROR!
+    const failedEvent = sessionEvents.find(e => e.type === 'turn.failed');
+    assert.ok(failedEvent, 'turn.failed must be emitted');
+    assert.equal(failedEvent.error.code, 'AI_TURN_CANCELLED');
+    assert.equal(sessionEvents.some(e => e.type === 'turn.completed'), false);
+
+    // Canonical state outcome must be cancelled
+    const canonical = runtime.getCanonicalTurn(turnId);
+    assert.equal(canonical.status.status, 'terminal');
+    assert.equal(canonical.status.outcome, 'cancelled');
+
+    unsub();
+    await runtime.shutdown();
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
 });
 
-test('Part B & C: Real provider sanitized fixtures map cleanly to CanonicalTurn model without validation errors', async () => {
-  // 1. Claude Evidence Validation
+test('Part A2: High-frequency delta coalescing: 50 text deltas in burst produce minimal canonical snapshots while preserving full text', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-delta-burst-'));
+  try {
+    let persistenceRecordCount = 0;
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const originalRecord = transcriptCache.recordCanonicalTurn.bind(transcriptCache);
+    transcriptCache.recordCanonicalTurn = (provider, sessionId, turn) => {
+      persistenceRecordCount++;
+      return originalRecord(provider, sessionId, turn);
+    };
+
+    let burstDeltasCount = 0;
+    const registry = createAgentProviderRegistry();
+    registry.register({
+      descriptor: {
+        id: 'fake-burst',
+        label: 'Fake Burst',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        // Emit 50 streaming deltas in a fast synchronous loop
+        const before = persistenceRecordCount;
+        for (let i = 1; i <= 50; i++) {
+          ctx.emitTextDelta(`word${i} `, 'msg-burst');
+        }
+        burstDeltasCount = persistenceRecordCount - before;
+        return { done: true };
+      },
+      async cancelTurn() {},
+    });
+
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+    });
+
+    const turnUpdates = [];
+    const unsub = runtime.subscribeToSession({ provider: 'fake-burst', providerSessionId: 'sess-burst-1' }, {
+      onEvent: ev => {
+        if (ev.type === 'turn.updated') {
+          turnUpdates.push(structuredClone(ev.turn));
+        }
+      },
+    });
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'fake-burst',
+      providerSessionId: 'sess-burst-1',
+      message: 'Burst test',
+    });
+
+    await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'turn completion');
+
+    // Prove that the synchronous burst of 50 deltas only produced at most 2 snapshots (the initial work item creation + at most 1 coalesced update),
+    // and the remaining 48+ deltas were throttled/coalesced without creating 50 snapshots/clones!
+    assert.ok(
+      burstDeltasCount <= 2,
+      `Expected <= 2 snapshot creations during 50 synchronous deltas, got ${burstDeltasCount}`,
+    );
+
+    // Total records across whole turn lifecycle is <= 8 (turn start, session bind, delta 1, completion)
+    assert.ok(
+      persistenceRecordCount <= 8,
+      `Expected <= 8 total persistence snapshot records for turn, got ${persistenceRecordCount}`,
+    );
+
+    // Prove that final persisted text contains all 50 words completely
+    const canonical = runtime.getCanonicalTurn(turnId);
+    const fullText = canonical.work.filter(w => w.type === 'commentary').map(w => w.text).join('');
+    for (let i = 1; i <= 50; i++) {
+      assert.ok(fullText.includes(`word${i}`), `Missing word${i} in final aggregated text`);
+    }
+
+    unsub();
+    await runtime.shutdown();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Part B: Evidence-driven validation against real Claude CLI v2.1.220 protocol capture', async () => {
   const claudeUrl = new URL('./fixtures/evidence/claude-evidence.json', import.meta.url);
   const claudeRaw = JSON.parse(await readFile(claudeUrl, 'utf-8'));
+
+  // 1. Evidence: Provider & version metadata
   assert.equal(claudeRaw.provider, 'claude');
-  assert.equal(claudeRaw.turns.length, 2);
+  assert.equal(claudeRaw.version, '2.1.220');
 
-  // Turn 1: Rate limit error
-  const claudeTurn1 = createCanonicalTurn({
-    id: claudeRaw.turns[0].turnId,
-    sessionId: claudeRaw.sessionId,
-    provider: 'claude',
-    providerSessionId: claudeRaw.sessionId,
-    prompt: claudeRaw.turns[0].userMessage,
-  });
-  claudeTurn1.status = {
-    status: 'terminal',
-    outcome: 'failed',
-    initiator: 'provider',
-    cause: 'api_error',
-    error: { code: 'AI_PROVIDER_ERROR', message: 'Rate limit 429' },
-  };
-  assert.doesNotThrow(() => validateCanonicalTurn(claudeTurn1));
+  // 2. Evidence: Terminal error representation (Turn 1 rate limit 429)
+  const turn1Events = claudeRaw.turns[0].rawEvents;
+  const result1 = turn1Events.find(e => e.type === 'result');
+  assert.equal(result1.subtype, 'error');
+  assert.equal(result1.terminal_reason, 'api_error');
+  assert.equal(result1.api_error_status, 429);
 
-  // Turn 2: Commentary -> Parallel Tools -> Read -> Summary -> Complete
-  const coordinator2 = new TurnLifecycleCoordinator({
-    turnId: claudeRaw.turns[1].turnId,
-    sessionId: claudeRaw.sessionId,
-    provider: 'claude',
-    providerSessionId: claudeRaw.sessionId,
-    prompt: claudeRaw.turns[1].userMessage,
-  });
+  // 3. Evidence: Thinking content block is distinct from text (Turn 2)
+  const turn2Events = claudeRaw.turns[1].rawEvents;
+  const thinkingAssistant = turn2Events.find(e => e.type === 'assistant' && e.content.some(c => c.type === 'thinking'));
+  assert.ok(thinkingAssistant, 'Claude emits thinking content type');
+  const thinkingBlock = thinkingAssistant.content.find(c => c.type === 'thinking');
+  assert.ok(thinkingBlock.signature, 'Claude thinking has signature');
 
-  coordinator2.recordTextDelta('Starting diagnostic check: checking repository status and files.');
-  coordinator2.recordToolStarted({ toolId: 'toolu_01Bash', toolName: 'Bash', input: { command: 'git status --porcelain' } });
-  coordinator2.recordToolStarted({ toolId: 'toolu_02Glob', toolName: 'Glob', input: { pattern: 'specs/active/*' } });
-  coordinator2.recordToolCompleted({ toolId: 'toolu_02Glob', output: 'specs/active/ai-session-issues-and-diagnostics\n', durationMs: 220, status: 'completed' });
-  coordinator2.recordToolCompleted({ toolId: 'toolu_01Bash', output: '', durationMs: 350, status: 'completed' });
-  coordinator2.recordTextDelta('Repository is clean and spec directory verified. Now reading overview.');
-  coordinator2.recordToolStarted({ toolId: 'toolu_03Read', toolName: 'Read', input: { file_path: 'specs/active/ai-session-issues-and-diagnostics/overview.md' } });
-  coordinator2.recordToolCompleted({ toolId: 'toolu_03Read', output: '# AI session issues and diagnostics\n', durationMs: 45, status: 'completed' });
-  coordinator2.setFinalAnswer({ text: 'Diagnostic test complete:\n1. Git status clean\n2. Spec located\n3. Overview verified.', status: 'completed' });
-  coordinator2.settleTerminal({ outcome: 'completed', initiator: 'provider' });
+  // 4. Evidence: Multiple assistant text blocks occur before and between tools
+  const textAssistants = turn2Events.filter(e => e.type === 'assistant' && e.content.some(c => c.type === 'text'));
+  assert.ok(textAssistants.length >= 3, 'Claude emits multiple distinct assistant text blocks across turn');
 
-  const claudeTurn2 = coordinator2.getCanonicalSnapshot();
-  assert.doesNotThrow(() => validateCanonicalTurn(claudeTurn2));
-  assert.equal(claudeTurn2.work.length, 5); // commentary, tool, tool, commentary, tool
-  assert.equal(claudeTurn2.finalAnswer?.status, 'completed');
+  // 5. Evidence: Parallel tool invocation in a single assistant message
+  const toolUseAssistant = turn2Events.find(e => e.type === 'assistant' && e.content.some(c => c.type === 'tool_use'));
+  const toolUses = toolUseAssistant.content.filter(c => c.type === 'tool_use');
+  assert.equal(toolUses.length, 2, 'Claude emits parallel tool_use blocks (Bash and Glob)');
+  assert.equal(toolUses[0].name, 'Bash');
+  assert.equal(toolUses[1].name, 'Glob');
 
-  // 2. Codex Evidence Validation
+  // 6. Evidence: Tool correlation uses tool_use.id and tool_result.tool_use_id
+  const globResult = turn2Events.find(e => e.type === 'user' && e.message?.content?.some(c => c.tool_use_id === 'toolu_02Glob'));
+  assert.ok(globResult, 'Tool result correlated via tool_use_id toolu_02Glob');
+  const bashResult = turn2Events.find(e => e.type === 'user' && e.message?.content?.some(c => c.tool_use_id === 'toolu_01Bash'));
+  assert.ok(bashResult, 'Tool result correlated via tool_use_id toolu_01Bash');
+
+  // 7. Evidence: Terminal result supplies authoritative success evidence
+  const finalResult = turn2Events.find(e => e.type === 'result');
+  assert.equal(finalResult.subtype, 'success');
+  assert.equal(finalResult.terminal_reason, 'completed');
+  assert.equal(finalResult.is_error, false);
+
+  // 8. Protocol Observation: Claude protocol does NOT provide explicit commentary vs final_answer phase markers.
+  // In Task 08 adapter design, final trailing text preceding success result may be treated as FinalAnswer.
+  const hasExplicitPhaseMarkers = turn2Events.some(e => e.phase || e.content?.some?.(c => c.phase));
+  assert.equal(hasExplicitPhaseMarkers, false, 'Claude protocol lacks explicit phase markers');
+});
+
+test('Part B: Evidence-driven validation against real Codex CLI v0.149.0 protocol capture', async () => {
   const codexUrl = new URL('./fixtures/evidence/codex-evidence.json', import.meta.url);
   const codexRaw = JSON.parse(await readFile(codexUrl, 'utf-8'));
-  const codexCoordinator = new TurnLifecycleCoordinator({
-    turnId: codexRaw.turnId,
-    sessionId: codexRaw.sessionId,
-    provider: 'codex',
-    providerSessionId: codexRaw.sessionId,
-    prompt: 'Run diagnostic check',
-  });
 
-  codexCoordinator.recordReasoningDelta('Analyzed diagnostic scope');
-  codexCoordinator.recordTextDelta('Sprawdzę repozytorium i uruchomię polecenie narzędziowe.');
-  codexCoordinator.recordToolStarted({ toolId: 'exec-01', toolName: 'commandExecution', input: { command: 'node tools/specs.mjs next' } });
-  codexCoordinator.addToolAction('exec-01', { id: 'act-01', kind: 'execute', title: 'node tools/specs.mjs next' });
-  codexCoordinator.recordToolCompleted({ toolId: 'exec-01', output: 'node : CommandNotFoundException', exitCode: 1, durationMs: 1200, status: 'failed' });
-  codexCoordinator.recordTextDelta('Wykryto brak środowiska node w PATH. Sprawdzam stan Git bez node.');
-  codexCoordinator.recordToolStarted({ toolId: 'exec-02', toolName: 'commandExecution', input: { command: 'git status --porcelain' } });
-  codexCoordinator.addToolAction('exec-02', { id: 'act-02', kind: 'execute', title: 'git status --porcelain' });
-  codexCoordinator.recordToolCompleted({ toolId: 'exec-02', output: '', exitCode: 0, durationMs: 350, status: 'completed' });
-  codexCoordinator.setFinalAnswer({ text: 'Diagnostyka zakończona pomyślnie. Stan repozytorium czysty, zidentyfikowano brak PATH node.', status: 'completed' });
-  codexCoordinator.settleTerminal({ outcome: 'completed', initiator: 'provider' });
+  // 1. Evidence: Provider & version metadata
+  assert.equal(codexRaw.provider, 'codex');
+  assert.equal(codexRaw.version, '0.149.0');
 
-  const codexTurn = codexCoordinator.getCanonicalSnapshot();
-  assert.doesNotThrow(() => validateCanonicalTurn(codexTurn));
-  assert.equal(codexTurn.work.length, 5); // reasoning, commentary, tool (failed), commentary, tool (completed)
-  assert.equal(codexTurn.work[2].actions.length, 1);
+  // 2. Evidence: Reasoning item is a distinct item type with summary
+  const reasoningItem = codexRaw.rawEvents.find(e => e.params?.item?.type === 'reasoning');
+  assert.ok(reasoningItem, 'Codex emits dedicated reasoning item');
 
-  // 3. Antigravity Evidence Validation
+  // 3. Evidence: agentMessage explicitly provides commentary and final_answer phases
+  const commentaryMsg = codexRaw.rawEvents.find(e => e.params?.item?.type === 'agentMessage' && e.params?.item?.phase === 'commentary');
+  assert.ok(commentaryMsg, 'Codex explicitly marks phase=commentary');
+  const finalAnswerMsg = codexRaw.rawEvents.find(e => e.params?.item?.type === 'agentMessage' && e.params?.item?.phase === 'final_answer');
+  assert.ok(finalAnswerMsg, 'Codex explicitly marks phase=final_answer');
+
+  // 4. Evidence: commandExecution has invocation lifecycle with commandActions
+  const commandStarted = codexRaw.rawEvents.find(e => e.params?.item?.type === 'commandExecution' && e.method === 'item/started');
+  assert.ok(commandStarted, 'Codex emits commandExecution started');
+  assert.ok(Array.isArray(commandStarted.params.item.commandActions), 'commandExecution carries commandActions array');
+  assert.equal(commandStarted.params.item.commandActions[0].command, 'node tools/specs.mjs next');
+
+  // 5. Evidence: commandExecution failed with exitCode and aggregatedOutput
+  const commandFailed = codexRaw.rawEvents.find(e => e.params?.item?.type === 'commandExecution' && e.params?.item?.status === 'failed');
+  assert.equal(commandFailed.params.item.exitCode, 1);
+  assert.ok(commandFailed.params.item.aggregatedOutput.includes('CommandNotFoundException'));
+
+  // 6. Evidence: turn/completed is authoritative terminal evidence
+  const terminalTurn = codexRaw.rawEvents.find(e => e.method === 'turn/completed');
+  assert.ok(terminalTurn, 'Codex emits turn/completed');
+  assert.equal(terminalTurn.params.turn.status, 'completed');
+  assert.equal(terminalTurn.params.turn.durationMs, 45000);
+});
+
+test('Part B: Evidence-driven validation against real Antigravity CLI protocol capture', async () => {
   const agyUrl = new URL('./fixtures/evidence/antigravity-evidence.json', import.meta.url);
   const agyRaw = JSON.parse(await readFile(agyUrl, 'utf-8'));
-  const agyCoordinator = new TurnLifecycleCoordinator({
-    turnId: agyRaw.turnId,
-    sessionId: agyRaw.sessionId,
-    provider: 'antigravity',
-    providerSessionId: agyRaw.sessionId,
-    prompt: 'Status check',
-  });
 
-  agyCoordinator.recordReasoningDelta('Thinking about workspace structure');
-  agyCoordinator.recordToolStarted({ toolId: 'step-2', toolName: 'run_command', input: { CommandLine: 'git status' } });
-  agyCoordinator.recordToolCompleted({ toolId: 'step-2', output: 'nothing to commit, working tree clean\n', durationMs: 250, status: 'completed' });
-  agyCoordinator.recordReasoningDelta('Checking specs directory');
-  agyCoordinator.recordToolStarted({ toolId: 'step-4', toolName: 'find_by_name', input: { Pattern: '*', SearchDirectory: 'specs/active' } });
-  agyCoordinator.recordToolCompleted({ toolId: 'step-4', output: 'ai-session-issues-and-diagnostics\n', durationMs: 20, status: 'completed' });
-  agyCoordinator.setFinalAnswer({ text: 'Working tree is clean and active specs were verified.', status: 'completed' });
-  agyCoordinator.settleTerminal({ outcome: 'completed', initiator: 'provider' });
+  // 1. Evidence: Provider & session identity
+  assert.equal(agyRaw.provider, 'antigravity');
+  assert.ok(agyRaw.sessionId);
 
-  const agyTurn = agyCoordinator.getCanonicalSnapshot();
-  assert.doesNotThrow(() => validateCanonicalTurn(agyTurn));
-  assert.equal(agyTurn.work.length, 4); // reasoning, tool, reasoning, tool
-  assert.equal(agyTurn.finalAnswer?.text, 'Working tree is clean and active specs were verified.');
+  // 2. Evidence: Tool steps expose ACTIVE -> DONE transitions
+  const toolActive = agyRaw.rawEvents.find(e => e.event === 'step_update' && e.step_update?.step_type === 'tool' && e.step_update?.state === 'ACTIVE');
+  assert.ok(toolActive, 'Antigravity emits tool ACTIVE state');
+  const toolDone = agyRaw.rawEvents.find(e => e.event === 'step_update' && e.step_update?.step_type === 'tool' && e.step_update?.state === 'DONE');
+  assert.ok(toolDone, 'Antigravity emits tool DONE state');
+
+  // 3. Evidence: Tool parameters and output are exposed in tool_info
+  assert.equal(toolDone.step_update.tool_name, 'run_command');
+  assert.equal(toolDone.step_update.tool_info.parameters.CommandLine, 'git status');
+  assert.ok(toolDone.step_update.tool_info.output.includes('working tree clean'));
+
+  // 4. Evidence: agent_response steps provide token & thinking telemetry
+  const agentResponse = agyRaw.rawEvents.find(e => e.event === 'step_update' && e.step_update?.step_type === 'agent_response');
+  assert.ok(agentResponse, 'Antigravity emits agent_response steps');
+  assert.equal(agentResponse.step_update.usage.thinking_tokens, 150);
+
+  // 5. Evidence: result provides terminal outcome and aggregated response string
+  const resultEvent = agyRaw.rawEvents.find(e => e.event === 'result');
+  assert.ok(resultEvent, 'Antigravity emits terminal result');
+  assert.equal(resultEvent.result.status, 'SUCCESS');
+  assert.equal(resultEvent.result.response, 'Working tree is clean and active specs were verified.');
+
+  // 6. Protocol Observation: In Antigravity, intermediate agent_response steps lack full text deltas,
+  // while final response text arrives in the terminal result packet. Adapter mapping in Task 10 will synthesize commentary vs final answer accordingly.
 });

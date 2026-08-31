@@ -194,23 +194,8 @@ export class AgentTurnRuntime {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
             this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
           }
-          if (!state) return;
-          if (semantic === true) {
-            if (state.pendingTurnUpdateTimer) {
-              clearTimeout(state.pendingTurnUpdateTimer);
-              state.pendingTurnUpdateTimer = null;
-            }
+          if (state && semantic) {
             this.#emit(state, 'turn.updated', { turn: turnSnapshot });
-          } else if (semantic === 'throttled') {
-            if (!state.pendingTurnUpdateTimer) {
-              state.pendingTurnUpdateTimer = setTimeout(() => {
-                state.pendingTurnUpdateTimer = null;
-                if (!this.#isTerminal(state)) {
-                  this.#emit(state, 'turn.updated', { turn: state.coordinator.getCanonicalSnapshot() });
-                }
-              }, 50);
-              state.pendingTurnUpdateTimer.unref?.();
-            }
           }
         },
       });
@@ -227,7 +212,6 @@ export class AgentTurnRuntime {
         idempotencyKey,
         onSessionEstablished,
         finished: false,
-        pendingTurnUpdateTimer: null,
         abortController: new AbortController(),
         agentProvider,
         privateOperation: undefined,
@@ -823,11 +807,6 @@ export class AgentTurnRuntime {
     if (state.finished) return Promise.resolve();
     state.finished = true;
 
-    if (state.pendingTurnUpdateTimer) {
-      clearTimeout(state.pendingTurnUpdateTimer);
-      state.pendingTurnUpdateTimer = null;
-    }
-
     const outcome = options.outcome ?? (type === 'turn.completed' ? 'completed' : 'failed');
     const cause = options.cause ?? error?.code;
     const terminalStatus = state.coordinator.settleTerminal({
@@ -848,21 +827,25 @@ export class AgentTurnRuntime {
     if (terminalStatus.outcome === 'completed') {
       effectiveEventType = 'turn.completed';
       eventData = {};
-    } else {
+    } else if (terminalStatus.outcome === 'cancelled') {
       effectiveEventType = 'turn.failed';
-      const effectiveCode = terminalStatus.outcome === 'cancelled'
-        ? 'AI_TURN_CANCELLED'
-        : (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT')
-          ? 'AI_TURN_TIMEOUT'
-          : (error?.code || 'AI_TURN_FAILED');
-      const effectiveMessage = error?.message || (terminalStatus.outcome === 'cancelled'
-        ? 'The turn was cancelled.'
-        : (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT')
-          ? 'The turn was cancelled because it stopped responding.'
-          : 'The turn failed.');
       eventData = {
         error: publicFailure(
-          error ?? new AiError(effectiveCode, effectiveMessage, { status: effectiveCode === 'AI_TURN_TIMEOUT' ? 504 : 500 }),
+          new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }),
+        ),
+      };
+    } else if (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT') {
+      effectiveEventType = 'turn.failed';
+      eventData = {
+        error: publicFailure(
+          new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
+        ),
+      };
+    } else {
+      effectiveEventType = 'turn.failed';
+      eventData = {
+        error: publicFailure(
+          error ?? new AiError(terminalStatus.error?.code || 'AI_TURN_FAILED', terminalStatus.error?.message || 'The turn failed.', { status: 500 }),
         ),
       };
     }

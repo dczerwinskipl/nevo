@@ -35,6 +35,7 @@ export class TurnLifecycleCoordinator {
   #timeoutInitiator = null;
   #timeoutCause = null;
   #onTurnUpdated = null;
+  #pendingUpdateTimer = null;
 
   constructor({
     turnId,
@@ -83,13 +84,46 @@ export class TurnLifecycleCoordinator {
       disposition: 'accepted',
       afterStatus: this.#turn.status,
     });
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: false });
   }
 
-  #notifyTurnUpdated({ semantic = false } = {}) {
-    if (typeof this.#onTurnUpdated === 'function') {
+  #notifyTurnUpdated({ semantic = true } = {}) {
+    if (typeof this.#onTurnUpdated !== 'function') return;
+
+    if (semantic === true) {
+      if (this.#pendingUpdateTimer) {
+        clearTimeout(this.#pendingUpdateTimer);
+        this.#pendingUpdateTimer = null;
+      }
       try {
-        this.#onTurnUpdated(this.getCanonicalSnapshot(), { semantic });
+        this.#onTurnUpdated(this.getCanonicalSnapshot(), { semantic: true });
+      } catch {}
+      return;
+    }
+
+    if (semantic === 'throttled') {
+      if (this.#pendingUpdateTimer) {
+        // High-frequency token delta: in-memory #turn updated in-place without snapshot cloning.
+        return;
+      }
+      this.#pendingUpdateTimer = setTimeout(() => {
+        this.#pendingUpdateTimer = null;
+        if (!this.#isTerminal) {
+          try {
+            this.#onTurnUpdated(this.getCanonicalSnapshot(), { semantic: true });
+          } catch {}
+        }
+      }, 50);
+      this.#pendingUpdateTimer.unref?.();
+    }
+  }
+
+  flushPendingUpdates() {
+    if (this.#pendingUpdateTimer) {
+      clearTimeout(this.#pendingUpdateTimer);
+      this.#pendingUpdateTimer = null;
+      try {
+        this.#onTurnUpdated?.(this.getCanonicalSnapshot(), { semantic: true });
       } catch {}
     }
   }
@@ -696,7 +730,7 @@ export class TurnLifecycleCoordinator {
     }
     this.#turn.providerSessionId = providerSessionId;
     this.#turn.sessionId = providerSessionId;
-    this.#notifyTurnUpdated({ semantic: true });
+    this.#notifyTurnUpdated({ semantic: false });
     return true;
   }
 
