@@ -97,8 +97,8 @@ test('specs events: server shutdown closes open SSE connections and cleans subsc
   const app = await buildSpecEventsTestApp({ watcher: fakeWatcher });
   const baseUrl = await app.listen({ port: 0 });
 
-  // Open a real persistent SSE connection without aborting it
-  const res = await fetch(`${baseUrl}/api/events`);
+  const controller = new AbortController();
+  const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
   assert.equal(res.status, 200);
 
   const reader = res.body.getReader();
@@ -110,7 +110,11 @@ test('specs events: server shutdown closes open SSE connections and cleans subsc
   const closePromise = app.close();
 
   // The reader must receive stream completion (done: true) because server closes the SSE response
-  const { done: streamEnded } = await reader.read();
+  const readPromise = reader.read();
+  const { done: streamEnded } = await Promise.race([
+    readPromise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for stream end on shutdown')), 5000)),
+  ]);
   assert.equal(streamEnded, true, 'SSE stream was closed by server shutdown');
 
   // Server close completes without needing client abort
@@ -174,8 +178,8 @@ test('specs events: a configured activeDir/archiveDir is what the watcher actual
   await app.register(specsRoutes, { config: { activeDir, archiveDir } });
   const baseUrl = await app.listen({ port: 0 });
 
+  const controller = new AbortController();
   try {
-    const controller = new AbortController();
     const res = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
     assert.equal(res.status, 200);
     const reader = res.body.getReader();
@@ -183,14 +187,26 @@ test('specs events: a configured activeDir/archiveDir is what the watcher actual
     let buffered = decoder.decode((await reader.read()).value); // "connected"
     assert.match(buffered, /event: connected/);
 
+    // Allow watcher initialization to settle before writing test file
+    await new Promise(r => setTimeout(r, 100));
+
     await writeFile(join(activeDir, 'sample-change.yaml'), 'id: sample-change\n');
 
-    buffered = '';
-    while (!buffered.includes('event: specs-changed')) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffered += decoder.decode(value);
-    }
+    const readEvent = (async () => {
+      let buf = '';
+      while (!buf.includes('event: specs-changed')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value);
+      }
+      return buf;
+    })();
+
+    buffered = await Promise.race([
+      readEvent,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for specs-changed event over SSE')), 5000)),
+    ]);
+
     assert.match(buffered, /event: specs-changed/);
     const dataLine = buffered.split('\n').find(line => line.startsWith('data:'));
     const payload = JSON.parse(dataLine.slice('data:'.length).trim());
@@ -198,7 +214,11 @@ test('specs events: a configured activeDir/archiveDir is what the watcher actual
 
     controller.abort();
   } finally {
-    await app.close();
+    controller.abort();
+    try {
+      app?.server?.closeAllConnections?.();
+      await app.close();
+    } catch {}
     await rm(tmpRoot, { recursive: true, force: true });
   }
 });

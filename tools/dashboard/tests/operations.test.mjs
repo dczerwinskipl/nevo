@@ -613,13 +613,20 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       assert.equal(activeSubscribers, 1);
 
       capturedOnEvent({ id: 1, type: 'operation.completed', data: { ok: true } });
-      let done = false;
-      while (!done) {
-        ({ done } = await reader.read());
-      }
+      const drainPromise = (async () => {
+        let done = false;
+        while (!done) {
+          ({ done } = await reader.read());
+        }
+      })();
+      await Promise.race([
+        drainPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for terminal stream completion')), 5000)),
+      ]);
       assert.equal(unsubscribeCallCount, 1, 'terminal completion triggers unsubscribe');
       assert.equal(activeSubscribers, 0);
     } finally {
+      app?.server?.closeAllConnections?.();
       await app.close();
     }
   });
@@ -642,12 +649,19 @@ test('operation SSE route lifecycle guarantees (deterministic verification)', as
       const res = await fetch(`${baseUrl}/api/operations/op-3/events?after=5`);
       assert.equal(res.status, 200);
       const reader = res.body.getReader();
-      let done = false;
-      while (!done) {
-        ({ done } = await reader.read());
-      }
+      const drainPromise = (async () => {
+        let done = false;
+        while (!done) {
+          ({ done } = await reader.read());
+        }
+      })();
+      await Promise.race([
+        drainPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for replay stream completion')), 5000)),
+      ]);
       assert.equal(subscribeCallCount, 0, 'terminal replay with up-to-date cursor does not register subscription');
     } finally {
+      app?.server?.closeAllConnections?.();
       await app.close();
     }
   });
