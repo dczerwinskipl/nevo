@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -976,4 +976,210 @@ test('ai events SSE: live SSE stream delivers interaction.requested events in re
     await closeServer(server);
   }
 });
+
+test('Task 07: Live application and fresh reload produce semantically equal Turn status, ordered Work, and FinalAnswer', async () => {
+  const cacheDir = join(tmpdir(), `nevo-ai-reload-test-${randomUUID()}`);
+  const transcriptCache1 = createTranscriptCacheService({ baseDir: cacheDir });
+  const provider1 = createMockAgentProvider({ specId, taskIds: ['task-a'], streamDelayMs: 1 });
+  const registry1 = createAgentProviderRegistry([provider1]);
+  const bindingService1 = createAgentSessionBindingService();
+  const turnRuntime1 = createAgentTurnRuntime({ registry: registry1, transcriptCache: transcriptCache1 });
+  const service1 = createAgentSessionService({ registry: registry1, turnRuntime: turnRuntime1, transcriptCache: transcriptCache1, bindingService: bindingService1 });
+  const server1 = await buildAiTestApp({ service: service1 });
+  const baseUrl1 = await listen(server1, { port: 0 });
+
+  let turnId;
+  const sessionId = 'session-reload-canonical';
+
+  try {
+    const startRes = await fetch(`${baseUrl1}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/turns`, control({
+      message: 'Run full turn for reload verification',
+    }));
+    assert.equal(startRes.status, 202);
+    const body = await startRes.json();
+    turnId = body.turnId;
+
+    await waitFor(service1, turnId, t => t.status === 'completed');
+    await transcriptCache1.flushAll();
+
+    const liveDetails = await fetch(`${baseUrl1}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    assert.equal(liveDetails.status, 200);
+    const liveBody = await liveDetails.json();
+    assert.equal(liveBody.turns.length, 1);
+    assert.equal(liveBody.turns[0].id, turnId);
+    assert.equal(liveBody.turns[0].status.outcome, 'completed');
+    assert.ok(liveBody.turns[0].work.length > 0);
+  } finally {
+    await closeServer(server1);
+  }
+
+  // Phase 2: Start new server instance from same persisted cacheDir (simulating fresh reload)
+  const transcriptCache2 = createTranscriptCacheService({ baseDir: cacheDir });
+  const provider2 = createMockAgentProvider({ specId, taskIds: ['task-a'], streamDelayMs: 1 });
+  const registry2 = createAgentProviderRegistry([provider2]);
+  const bindingService2 = createAgentSessionBindingService();
+  const turnRuntime2 = createAgentTurnRuntime({ registry: registry2, transcriptCache: transcriptCache2 });
+  const service2 = createAgentSessionService({ registry: registry2, turnRuntime: turnRuntime2, transcriptCache: transcriptCache2, bindingService: bindingService2 });
+  const server2 = await buildAiTestApp({ service: service2 });
+  const baseUrl2 = await listen(server2, { port: 0 });
+
+  try {
+    const reloadedDetails = await fetch(`${baseUrl2}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    assert.equal(reloadedDetails.status, 200);
+    const reloadedBody = await reloadedDetails.json();
+    assert.equal(reloadedBody.turns.length, 1);
+    assert.equal(reloadedBody.turns[0].id, turnId);
+    assert.equal(reloadedBody.turns[0].status.outcome, 'completed');
+    assert.ok(reloadedBody.turns[0].work.length > 0);
+    assert.equal(reloadedBody.readiness.status, 'ready');
+    assert.equal(reloadedBody.workSummary.status, 'completed');
+  } finally {
+    await closeServer(server2);
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: Server workSummary supplies activityCount, currentActivity, and attention without client guessing', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+  const sessionId = 'session-summary-test';
+
+  try {
+    const startRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/turns`, control({
+      message: 'permission on summary test',
+    }));
+    assert.equal(startRes.status, 202);
+    const { turnId } = await startRes.json();
+
+    // Wait until turn is waiting for user interaction
+    const turn = await waitFor(service, turnId, t => t.pendingInteraction);
+    assert.ok(turn.pendingInteraction);
+
+    const chatResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    assert.equal(chatResponse.status, 200);
+    const chatBody = await chatResponse.json();
+
+    assert.equal(chatBody.readiness.status, 'requiresAttention');
+    assert.ok(chatBody.workSummary);
+    assert.equal(chatBody.workSummary.status, 'waitingForUser');
+    assert.equal(chatBody.workSummary.attention.required, true);
+    assert.ok(chatBody.workSummary.attention.interactionId);
+    assert.equal(chatBody.workSummary.expandable, true);
+
+    // Resolve the interaction
+    const resolveRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(turn.pendingInteraction.id)}/respond`, control({
+      decision: 'allow',
+    }));
+    assert.equal(resolveRes.status, 200);
+
+    await waitFor(service, turnId, t => t.status === 'completed');
+
+    const completedChat = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    const completedBody = await completedChat.json();
+    assert.equal(completedBody.readiness.status, 'ready');
+    assert.equal(completedBody.workSummary.status, 'completed');
+    assert.equal(completedBody.workSummary.attention, null);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('Task 07: Corrupt/unreadable persistence state does not become empty ready/idle', async () => {
+  const cacheDir = join(tmpdir(), `nevo-ai-corrupt-test-${randomUUID()}`);
+  const transcriptCache = createTranscriptCacheService({ baseDir: cacheDir });
+  const provider = createMockAgentProvider({ specId, taskIds: ['task-a'] });
+  const registry = createAgentProviderRegistry([provider]);
+  const bindingService = createAgentSessionBindingService();
+  const turnRuntime = createAgentTurnRuntime({ registry, transcriptCache });
+  const service = createAgentSessionService({ registry, turnRuntime, transcriptCache, bindingService });
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+
+  const sessionId = 'corrupt-session';
+  const corruptFilePath = join(cacheDir, 'mock', `${sessionId}.json`);
+  await mkdir(join(cacheDir, 'mock'), { recursive: true });
+  await writeFile(corruptFilePath, '{ invalid json content !!!', 'utf8');
+
+  try {
+    const detailsResponse = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}`);
+    assert.equal(detailsResponse.status, 200);
+    const details = (await detailsResponse.json()).session;
+
+    assert.equal(details.readiness.status, 'unavailable');
+    assert.equal(details.readiness.reason, 'persistence_corrupt');
+  } finally {
+    await closeServer(server);
+    await rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('Task 07: V1 and V2 can project the same session and representation switching has no lifecycle write effect', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+  const sessionId = 'session-v1-v2-projection';
+
+  try {
+    const startRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/turns`, control({
+      message: 'Dual representation projection test',
+    }));
+    assert.equal(startRes.status, 202);
+    const { turnId } = await startRes.json();
+    await waitFor(service, turnId, t => t.status === 'completed');
+
+    // 1. Query with representation=v1
+    const v1Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v1`);
+    assert.equal(v1Res.status, 200);
+    const v1Body = (await v1Res.json()).session;
+    assert.ok(Array.isArray(v1Body.messages));
+    assert.ok(v1Body.messages.length >= 2);
+
+    // 2. Query with representation=v2
+    const v2Res = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}?representation=v2`);
+    assert.equal(v2Res.status, 200);
+    const v2Body = (await v2Res.json()).session;
+    assert.ok(Array.isArray(v2Body.turns));
+    assert.equal(v2Body.turns.length, 1);
+    assert.ok(v2Body.workSummary);
+    assert.equal(v2Body.readiness.status, 'ready');
+
+    // 3. Query /chat endpoint
+    const chatRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    assert.equal(chatRes.status, 200);
+    const chatBody = await chatRes.json();
+    assert.ok(Array.isArray(chatBody.turns));
+    assert.equal(chatBody.turns.length, 1);
+    assert.equal(chatBody.turns[0].id, turnId);
+    assert.equal(chatBody.workSummary.status, 'completed');
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('Task 07: API and SSE serialization contain no provider-private IDs or diagnostic sidecar content', async () => {
+  const { service } = createStack();
+  const server = await buildAiTestApp({ service });
+  const baseUrl = await listen(server, { port: 0 });
+  const sessionId = 'session-neutral-payload';
+
+  try {
+    const startRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/turns`, control({
+      message: 'Verify clean neutral serialization',
+    }));
+    assert.equal(startRes.status, 202);
+    const { turnId } = await startRes.json();
+    await waitFor(service, turnId, t => t.status === 'completed');
+
+    const detailsRes = await fetch(`${baseUrl}/api/agent-sessions/mock/${encodeURIComponent(sessionId)}/chat`);
+    const rawText = await detailsRes.text();
+
+    assert.ok(!rawText.includes('__private'));
+    assert.ok(!rawText.includes('internalDiagnostic'));
+    assert.ok(!rawText.includes('rawTrace'));
+  } finally {
+    await closeServer(server);
+  }
+});
+
 

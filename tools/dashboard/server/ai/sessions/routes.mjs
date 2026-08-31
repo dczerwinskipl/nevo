@@ -78,7 +78,44 @@ export default async function sessionRoutes(fastify, { service, accessPolicy }) 
     const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
     const providerSessionId = validatedSessionId(request.params.providerSessionId);
     authorize(accessPolicy, 'read', request);
-    reply.send({ session: await service.getSessionDetails(provider, providerSessionId) });
+    const representation = request.query?.representation || undefined;
+    const session = await service.getSessionDetails(provider, providerSessionId, { representation });
+    reply.send({ session });
+  });
+
+  fastify.get('/api/agent-sessions/:provider/:providerSessionId/chat', async (request, reply) => {
+    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+    const providerSessionId = validatedSessionId(request.params.providerSessionId);
+    authorize(accessPolicy, 'read', request);
+    const details = await service.getSessionDetails(provider, providerSessionId);
+    reply.send({
+      session: {
+        provider: details.provider,
+        providerSessionId: details.providerSessionId,
+        sessionId: details.sessionId,
+        status: details.status,
+        readiness: details.readiness,
+        mode: details.mode,
+        capabilities: details.capabilities,
+        specId: details.specId,
+        taskId: details.taskId,
+        taskIds: details.taskIds,
+        title: details.title,
+        createdAt: details.createdAt,
+        lastActivityAt: details.lastActivityAt,
+      },
+      turns: details.turns || [],
+      workSummary: details.workSummary,
+      readiness: details.readiness,
+    });
+  });
+
+  fastify.get('/api/agent-sessions/:provider/:providerSessionId/turns', async (request, reply) => {
+    const provider = validatedSegment(request.params.provider, PROVIDER_PATTERN, 'provider ID');
+    const providerSessionId = validatedSessionId(request.params.providerSessionId);
+    authorize(accessPolicy, 'read', request);
+    const turns = await service.listTurns(provider, providerSessionId);
+    reply.send({ turns });
   });
 
   fastify.patch('/api/agent-sessions/:provider/:providerSessionId', { bodyLimit: SESSION_PATCH_BODY_LIMIT }, async (request, reply) => {

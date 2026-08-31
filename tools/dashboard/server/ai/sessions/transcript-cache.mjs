@@ -6,6 +6,13 @@ import {
   validateAgentIdentity,
   validateAiEvent,
   AiValidationError,
+  createCanonicalTurn,
+  appendWorkItem,
+  updateWorkItem,
+  setTurnStatus,
+  setFinalAnswer,
+  computeCurrentActivity,
+  normalizeTransitionalToolStatus,
 } from '../contracts.mjs';
 
 function sanitizeFilename(value) {
@@ -13,18 +20,51 @@ function sanitizeFilename(value) {
 }
 
 /**
- * Resolves a still-`running` tool call to `'failed'` when its turn ends without a real
- * successful terminal signal (owner-decisions.md D6). Scoped strictly to `turnId` — a
- * terminal event for one turn must never mutate a different turn's still-running tools
- * (the single-active-turn invariant means only one turn can be non-terminal at a time in
- * practice, but this scoping makes that safety explicit rather than implicit).
+ * Resolves still-running tool calls to 'failed' in V1 messages.
  */
 function completeRunningToolCalls(state, turnId) {
-  for (const msg of state.messages) {
+  for (const msg of state.messages || []) {
     if (turnId && msg.turnId !== turnId) continue;
     if (!msg.toolCalls) continue;
     for (const tool of msg.toolCalls) {
-      if (tool.status === 'running') tool.status = 'failed';
+      if (tool.status === 'running' || tool.status === 'active') tool.status = 'failed';
+    }
+  }
+}
+
+/**
+ * Closes unresolved tools in canonical Turn aggregate with explicit closure reason.
+ */
+function closeDanglingTurnWork(turn, outcome = 'failed', cause = null) {
+  if (!turn || !Array.isArray(turn.work)) return;
+  let closureReason = 'turn_failed';
+  let toolStatus = 'failed';
+
+  if (outcome === 'completed') {
+    closureReason = 'turn_completed';
+    toolStatus = 'failed';
+  } else if (outcome === 'cancelled') {
+    closureReason = 'turn_cancelled';
+    toolStatus = 'cancelled';
+  } else if (outcome === 'interrupted') {
+    closureReason = 'turn_interrupted';
+    toolStatus = 'interrupted';
+  } else if (cause === 'timeout/protocol-silence' || cause === 'AI_TURN_TIMEOUT') {
+    closureReason = 'timeout';
+    toolStatus = 'failed';
+  } else if (cause === 'process_exit') {
+    closureReason = 'process_exit';
+    toolStatus = 'failed';
+  }
+
+  for (const item of turn.work) {
+    if (item.type === 'tool' && (item.status === 'active' || item.status === 'queued')) {
+      item.status = toolStatus;
+      item.closureReason = closureReason;
+      item.updatedAt = new Date().toISOString();
+    } else if (item.type === 'interaction' && item.status === 'pending') {
+      item.status = outcome === 'cancelled' ? 'cancelled' : 'denied';
+      item.updatedAt = new Date().toISOString();
     }
   }
 }
@@ -58,10 +98,7 @@ export class SessionTranscriptCacheService {
   }
 
   /**
-   * Lists every session with a persisted transcript file on disk, including ones never
-   * loaded into the in-memory cache yet (e.g. right after a process restart). Used by
-   * boot-time orphaned-turn reconciliation, which otherwise has nothing to scan since
-   * `entries()` only sees what's already been loaded.
+   * Lists every session with a persisted transcript file on disk.
    */
   async listPersistedSessions() {
     const results = [];
@@ -92,11 +129,8 @@ export class SessionTranscriptCacheService {
   }
 
   /**
-   * Finalizes an orphaned `activeTurn` left behind by a session whose owning turn was
-   * never terminated (e.g. an ungraceful server restart) — clears the ghost `activeTurn`,
-   * completes any still-`running` tool calls, and appends a visible message so the next
-   * read reflects reality instead of a stale "running" state. Requires the transcript to
-   * already be loaded (via `getTranscript`); a no-op if there is no `activeTurn` to clear.
+   * Finalizes an orphaned activeTurn left behind by a session whose owning turn was
+   * never terminated (e.g. ungraceful server restart).
    */
   markTurnInterrupted(provider, providerSessionId, { text, createdAt = new Date().toISOString() } = {}) {
     validateAgentIdentity({ provider, providerSessionId });
@@ -107,6 +141,24 @@ export class SessionTranscriptCacheService {
     const interruptedTurnId = state.activeTurn.turnId;
     delete state.activeTurn;
     delete state.pendingInteraction;
+
+    // 1. Reconcile canonical Turn in state.turns
+    if (Array.isArray(state.turns)) {
+      const activeTurn = state.turns.find(t => t.id === interruptedTurnId);
+      if (activeTurn) {
+        closeDanglingTurnWork(activeTurn, 'interrupted', 'turn_interrupted');
+        activeTurn.status = {
+          status: 'terminal',
+          outcome: 'interrupted',
+          initiator: 'shutdown',
+          cause: 'turn_interrupted',
+        };
+        activeTurn.completedAt = normalizeTimestamp(createdAt, 'completedAt');
+        activeTurn.updatedAt = activeTurn.completedAt;
+      }
+    }
+
+    // 2. Reconcile V1 messages
     completeRunningToolCalls(state, interruptedTurnId);
     state.lastEventSeq = (state.lastEventSeq || 0) + 1;
 
@@ -122,6 +174,39 @@ export class SessionTranscriptCacheService {
     return msg;
   }
 
+  /**
+   * Record or update a full canonical Turn aggregate in persistence.
+   */
+  recordCanonicalTurn(provider, providerSessionId, turn) {
+    validateAgentIdentity({ provider, providerSessionId });
+    const key = this.#key(provider, providerSessionId);
+    let state = this.#inMemory.get(key);
+    if (!state) {
+      state = {
+        schemaVersion: 2,
+        provider,
+        providerSessionId,
+        turns: [],
+        messages: [],
+        lastEventSeq: 0,
+        health: 'healthy',
+        updatedAt: turn.updatedAt || new Date().toISOString(),
+      };
+      this.#inMemory.set(key, state);
+    }
+
+    if (!Array.isArray(state.turns)) state.turns = [];
+    const index = state.turns.findIndex(t => t.id === turn.id);
+    if (index >= 0) {
+      state.turns[index] = structuredClone(turn);
+    } else {
+      state.turns.push(structuredClone(turn));
+    }
+
+    state.updatedAt = turn.updatedAt || new Date().toISOString();
+    this.#markDirty(provider, providerSessionId);
+  }
+
   async getTranscript(provider, providerSessionId) {
     validateAgentIdentity({ provider, providerSessionId });
     const key = this.#key(provider, providerSessionId);
@@ -133,17 +218,36 @@ export class SessionTranscriptCacheService {
     try {
       const data = await readFile(filePath, 'utf-8');
       const parsed = JSON.parse(data);
+      if (!Array.isArray(parsed.turns)) parsed.turns = [];
+      if (!Array.isArray(parsed.messages)) parsed.messages = [];
+      parsed.health = parsed.health || 'healthy';
       this.#inMemory.set(key, parsed);
       return structuredClone(parsed);
     } catch (err) {
       if (err.code !== 'ENOENT') {
-        // file corruption or other error
+        // File is corrupt or unreadable -> do not synthesize empty ready session
+        const corruptState = {
+          schemaVersion: 2,
+          provider,
+          providerSessionId,
+          turns: [],
+          messages: [],
+          lastEventSeq: 0,
+          health: 'corrupt',
+          error: err.message,
+          updatedAt: new Date().toISOString(),
+        };
+        this.#inMemory.set(key, corruptState);
+        return structuredClone(corruptState);
       }
       const initial = {
+        schemaVersion: 2,
         provider,
         providerSessionId,
+        turns: [],
         messages: [],
         lastEventSeq: 0,
+        health: 'healthy',
         updatedAt: new Date().toISOString(),
       };
       this.#inMemory.set(key, initial);
@@ -157,10 +261,13 @@ export class SessionTranscriptCacheService {
     let state = this.#inMemory.get(key);
     if (!state) {
       state = {
+        schemaVersion: 2,
         provider,
         providerSessionId,
+        turns: [],
         messages: [],
         lastEventSeq: 0,
+        health: 'healthy',
         updatedAt: createdAt,
       };
       this.#inMemory.set(key, state);
@@ -192,14 +299,19 @@ export class SessionTranscriptCacheService {
     let state = this.#inMemory.get(key);
     if (!state) {
       state = {
+        schemaVersion: 2,
         provider,
         providerSessionId,
+        turns: [],
         messages: [],
         lastEventSeq: 0,
+        health: 'healthy',
         updatedAt: event.timestamp,
       };
       this.#inMemory.set(key, state);
     }
+
+    if (!Array.isArray(state.turns)) state.turns = [];
 
     const eventSeq = event.id ?? event.seq ?? 0;
     if (eventSeq > state.lastEventSeq) {
@@ -207,17 +319,28 @@ export class SessionTranscriptCacheService {
     }
     state.updatedAt = event.timestamp;
 
+    // Helper: get or create active Turn aggregate in state.turns
+    const getOrCreateCanonicalTurn = (turnId, mode = 'edit') => {
+      let turn = state.turns.find(t => t.id === turnId);
+      if (!turn) {
+        turn = createCanonicalTurn({
+          id: turnId,
+          sessionId: providerSessionId,
+          provider,
+          providerSessionId,
+          mode,
+          createdAt: event.timestamp,
+        });
+        state.turns.push(turn);
+      }
+      return turn;
+    };
+
     const getOrCreateAssistantMsg = (explicitMsgId) => {
       let msg = null;
       if (explicitMsgId) {
-        // Explicit messageId takes priority — preserves distinct message identity within a turn.
-        // If the event carries an explicit messageId but it isn't in the list yet, create a new
-        // message with that ID (do NOT fall through to the turnId fallback, which would merge
-        // two distinct messages sharing only a turnId).
         msg = state.messages.find(m => m.id === explicitMsgId);
       } else if (event.turnId) {
-        // turnId fallback — for events that carry a turnId but no explicit messageId
-        // (e.g. tool events, or reasoning without an explicit messageId).
         msg = state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant');
       }
       if (!msg) {
@@ -233,6 +356,7 @@ export class SessionTranscriptCacheService {
       return msg;
     };
 
+    // Apply event to both Canonical Turns and V1 Messages
     switch (event.type) {
       case 'turn.started': {
         state.activeTurn = {
@@ -240,6 +364,7 @@ export class SessionTranscriptCacheService {
           startedAt: event.timestamp,
           ...(event.mode ? { mode: event.mode } : {}),
         };
+        getOrCreateCanonicalTurn(event.turnId, event.mode || 'edit');
         break;
       }
       case 'message.started': {
@@ -258,17 +383,59 @@ export class SessionTranscriptCacheService {
         break;
       }
       case 'text.delta': {
+        // V1
         const msg = getOrCreateAssistantMsg(event.messageId);
         const delta = event.text || '';
         msg.text += delta;
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const commentaryId = event.messageId || `commentary-${event.turnId}`;
+          const existingWork = turn.work.find(w => w.id === commentaryId && w.type === 'commentary');
+          if (existingWork) {
+            existingWork.text = (existingWork.text || '') + delta;
+            existingWork.updatedAt = event.timestamp;
+          } else {
+            appendWorkItem(turn, {
+              id: commentaryId,
+              type: 'commentary',
+              text: delta,
+              status: 'streaming',
+              createdAt: event.timestamp,
+            });
+          }
+        }
         break;
       }
       case 'reasoning.delta': {
+        // V1
         const msg = getOrCreateAssistantMsg(event.messageId);
         msg.reasoning = (msg.reasoning || '') + (event.text || '');
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const reasoningId = event.messageId || `reasoning-${event.turnId}`;
+          const existingWork = turn.work.find(w => w.id === reasoningId && w.type === 'reasoning');
+          if (existingWork) {
+            existingWork.text = (existingWork.text || '') + (event.text || '');
+            existingWork.updatedAt = event.timestamp;
+          } else {
+            appendWorkItem(turn, {
+              id: reasoningId,
+              type: 'reasoning',
+              representation: 'raw_text',
+              text: event.text || '',
+              status: 'streaming',
+              createdAt: event.timestamp,
+            });
+          }
+        }
         break;
       }
       case 'tool.started': {
+        // V1
         const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
           || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
           || getOrCreateAssistantMsg(event.messageId);
@@ -282,9 +449,29 @@ export class SessionTranscriptCacheService {
             status: 'running',
           });
         }
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const existing = turn.work.find(w => w.id === event.toolId);
+          if (!existing) {
+            appendWorkItem(turn, {
+              id: event.toolId,
+              type: 'tool',
+              toolName: event.toolName,
+              kind: event.kind || 'command',
+              title: event.title || event.toolName,
+              status: 'active',
+              input: event.input,
+              createdAt: event.timestamp,
+            });
+          }
+          setTurnStatus(turn, { status: 'active', detail: 'tool_execution', subjectId: event.toolId });
+        }
         break;
       }
       case 'tool.updated': {
+        // V1
         const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
           || (event.messageId && state.messages.find(m => m.id === event.messageId))
           || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
@@ -299,9 +486,23 @@ export class SessionTranscriptCacheService {
             }
           }
         }
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const existing = turn.work.find(w => w.id === event.toolId);
+          if (existing && existing.type === 'tool') {
+            const normalizedStatus = normalizeTransitionalToolStatus(event.status, 'active');
+            updateWorkItem(turn, event.toolId, {
+              ...(event.output !== undefined ? { output: event.output } : {}),
+              status: normalizedStatus,
+            });
+          }
+        }
         break;
       }
       case 'tool.completed': {
+        // V1
         const msg = (event.toolId && state.messages.find(m => m.toolCalls?.some(t => t.id === event.toolId)))
           || (event.messageId && state.messages.find(m => m.id === event.messageId))
           || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
@@ -316,17 +517,59 @@ export class SessionTranscriptCacheService {
         if (event.output !== undefined) tool.output = event.output;
         tool.status = resolvedStatus;
         if (typeof event.durationMs === 'number') tool.durationMs = event.durationMs;
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const existing = turn.work.find(w => w.id === event.toolId);
+          const validStatus = normalizeTransitionalToolStatus(event.status, 'completed');
+          if (existing && existing.type === 'tool') {
+            updateWorkItem(turn, event.toolId, {
+              status: validStatus,
+              ...(event.output !== undefined ? { output: event.output } : {}),
+              ...(typeof event.durationMs === 'number' ? { durationMs: event.durationMs } : {}),
+              ...(typeof event.exitCode === 'number' ? { exitCode: event.exitCode } : {}),
+              ...(event.closureReason ? { closureReason: event.closureReason } : {}),
+            });
+          }
+          const hasRemainingOpen = turn.work.some(w => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'));
+          if (!hasRemainingOpen && turn.status.status === 'active') {
+            setTurnStatus(turn, { status: 'active', detail: 'processing' });
+          }
+        }
         break;
       }
       case 'interaction.requested': {
+        // V1
         state.pendingInteraction = structuredClone(event.interaction);
         const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
           || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
           || getOrCreateAssistantMsg(event.messageId);
         msg.interaction = structuredClone(event.interaction);
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const existing = turn.work.find(w => w.id === event.interaction?.id);
+          if (!existing && event.interaction) {
+            appendWorkItem(turn, {
+              id: event.interaction.id,
+              type: 'interaction',
+              interaction: structuredClone(event.interaction),
+              status: 'pending',
+              createdAt: event.timestamp,
+            });
+          }
+          setTurnStatus(turn, {
+            status: 'requiresAttention',
+            reason: event.interaction?.kind || 'permission',
+            interactionId: event.interaction?.id,
+          });
+        }
         break;
       }
       case 'interaction.resolved': {
+        // V1
         delete state.pendingInteraction;
         const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
           || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
@@ -336,31 +579,80 @@ export class SessionTranscriptCacheService {
             msg.interaction.response = structuredClone(event.response);
           }
         }
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const existing = turn.work.find(w => w.id === event.interactionId);
+          if (existing && existing.type === 'interaction') {
+            updateWorkItem(turn, event.interactionId, {
+              status: 'resolved',
+              response: structuredClone(event.response),
+              resolvedAt: event.timestamp,
+            });
+          }
+          setTurnStatus(turn, { status: 'active', detail: 'processing' });
+        }
         break;
       }
       case 'turn.completed': {
         delete state.activeTurn;
         completeRunningToolCalls(state, event.turnId);
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          closeDanglingTurnWork(turn, 'completed');
+          // Complete streaming commentary
+          for (const item of turn.work) {
+            if (item.status === 'streaming') item.status = 'completed';
+          }
+          setTurnStatus(turn, {
+            status: 'terminal',
+            outcome: 'completed',
+            initiator: 'provider',
+          });
+          turn.completedAt = event.timestamp;
+          turn.updatedAt = event.timestamp;
+        }
         break;
       }
       case 'turn.failed': {
         delete state.activeTurn;
         delete state.pendingInteraction;
         completeRunningToolCalls(state, event.turnId);
+
         if (event.error) {
-          // Reload-safe home for the turn's terminal error.code (owner-decisions.md D6/D9)
-          // so Task 09 can distinguish Turn/Work Outcome without needing backend access.
           const msg = (event.messageId && state.messages.find(m => m.id === event.messageId))
             || (event.turnId && state.messages.find(m => m.turnId === event.turnId && m.role === 'assistant'))
             || getOrCreateAssistantMsg(event.messageId);
           msg.turnError = { code: event.error.code, message: event.error.message };
+        }
+
+        // V2 Canonical Turn Work
+        if (event.turnId) {
+          const turn = getOrCreateCanonicalTurn(event.turnId);
+          const outcome = event.error?.code === 'AI_TURN_CANCELLED' ? 'cancelled' : 'failed';
+          const initiator = outcome === 'cancelled' ? 'user' : 'provider';
+          closeDanglingTurnWork(turn, outcome, event.error?.code);
+          for (const item of turn.work) {
+            if (item.status === 'streaming') item.status = 'completed';
+          }
+          setTurnStatus(turn, {
+            status: 'terminal',
+            outcome,
+            initiator,
+            cause: event.error?.code,
+            ...(event.error ? { error: { code: event.error.code, message: event.error.message } } : {}),
+          });
+          turn.completedAt = event.timestamp;
+          turn.updatedAt = event.timestamp;
         }
         break;
       }
       default:
         break;
     }
-
 
     this.#markDirty(provider, providerSessionId);
 
