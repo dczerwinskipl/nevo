@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T15:03:47.700Z",
+  "generated": "2026-08-31T15:04:37.586Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -154,7 +154,7 @@
           "id": "canonical-persistence-and-server-projection",
           "order": 7,
           "file": "tasks/07-canonical-persistence-and-server-projection.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
           ]
