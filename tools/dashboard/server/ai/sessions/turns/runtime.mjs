@@ -70,7 +70,11 @@ export class AgentTurnRuntime {
     this.clock = clock;
     this.idleTimeoutMs = idleTimeoutMs;
     this.idleCheckIntervalMs = idleCheckIntervalMs;
-    this.#eventStream = new TurnEventStream({ maxEventsPerTurn, clock });
+    this.#eventStream = new TurnEventStream({
+      transcriptCache: this.transcriptCache,
+      maxEventsPerTurn,
+      clock,
+    });
 
     if (this.idleTimeoutMs > 0) {
       this.#idleWatchdogTimer = setInterval(() => this.#checkIdleTurns(), this.idleCheckIntervalMs);
@@ -147,6 +151,13 @@ export class AgentTurnRuntime {
         });
       }
 
+      this.#eventStream.registerTurn({
+        turnId,
+        provider: isNewSession ? undefined : provider,
+        providerSessionId: isNewSession ? undefined : providerSessionId,
+        initialSequence: initialSeq,
+      });
+
       const state = {
         turnId,
         provider,
@@ -157,9 +168,6 @@ export class AgentTurnRuntime {
         idempotencyKey,
         onSessionEstablished,
         status: 'running',
-        sequence: initialSeq,
-        events: [],
-        subscribers: new Set(),
         pendingInteraction: null,
         abortController: new AbortController(),
         agentProvider,
@@ -186,13 +194,13 @@ export class AgentTurnRuntime {
           state.identity = { provider: state.provider, providerSessionId: allocatedSessionId };
           state.key = sessionKey(state.provider, allocatedSessionId);
           this.#activeBySession.set(state.key, state.turnId);
-          this.#eventStream.setSessionSequence(state.provider, allocatedSessionId, state.sequence);
+          this.#eventStream.bindSession(state.turnId, { provider: state.provider, providerSessionId: allocatedSessionId });
           if (this.transcriptCache) {
             this.transcriptCache.recordUserMessage(state.provider, allocatedSessionId, {
               text: inputMessage,
               createdAt: state.startedAt,
             });
-            for (const ev of state.events) {
+            for (const ev of this.#eventStream.getTurnEvents(state.turnId, 0)) {
               this.transcriptCache.applyEvent(state.provider, allocatedSessionId, ev).catch(() => {});
             }
           }
@@ -427,6 +435,42 @@ export class AgentTurnRuntime {
     return interaction;
   }
 
+  async #restorePersistedTurn({ provider, providerSessionId, turnId, interactionId, checkStaleLiveOp = false } = {}) {
+    if (!this.transcriptCache) return null;
+
+    const cached = await findPersistedActiveTurn({
+      transcriptCache: this.transcriptCache,
+      provider,
+      providerSessionId,
+      turnId,
+      interactionId,
+    });
+
+    if (!cached) return null;
+
+    if (checkStaleLiveOp && cached.pendingInteraction?.resumePolicy === 'live-operation') {
+      await interruptStaleLiveInteraction(this.transcriptCache, cached.provider, cached.providerSessionId);
+    }
+
+    const restoredTurnId = cached.activeTurn.turnId;
+    const state = reconstructTurnState({
+      cached,
+      registry: this.registry,
+      clock: this.clock,
+    });
+
+    this.#eventStream.registerTurn({
+      turnId: restoredTurnId,
+      provider: state.provider,
+      providerSessionId: state.providerSessionId,
+      initialSequence: cached.lastEventSeq || 0,
+    });
+
+    this.#turns.set(restoredTurnId, state);
+    this.#activeBySession.set(state.key, restoredTurnId);
+    return state;
+  }
+
   async resolveInteraction(turnId, interactionId, response, options = {}) {
     const { provider, providerSessionId } = options;
     let state = turnId ? this.#turns.get(turnId) : null;
@@ -449,28 +493,14 @@ export class AgentTurnRuntime {
       }
     }
 
-    if (!state && this.transcriptCache) {
-      const cached = await findPersistedActiveTurn({
-        transcriptCache: this.transcriptCache,
+    if (!state) {
+      state = await this.#restorePersistedTurn({
         provider,
         providerSessionId,
         turnId,
         interactionId,
+        checkStaleLiveOp: true,
       });
-      if (cached) {
-        if (cached.pendingInteraction?.resumePolicy === 'live-operation') {
-          await interruptStaleLiveInteraction(this.transcriptCache, cached.provider, cached.providerSessionId);
-        }
-        turnId = cached.activeTurn.turnId;
-        state = reconstructTurnState({
-          cached,
-          registry: this.registry,
-          clock: this.clock,
-        });
-        this.#turns.set(turnId, state);
-        this.#activeBySession.set(state.key, turnId);
-        this.#eventStream.initSessionSequence(state.provider, state.providerSessionId, cached.lastEventSeq || 0);
-      }
     }
 
     if (!state) {
@@ -508,23 +538,13 @@ export class AgentTurnRuntime {
   async cancelTurn(turnId, options = {}) {
     const { provider, providerSessionId } = options;
     let state = this.#turns.get(turnId);
-    if (!state && this.transcriptCache && provider && providerSessionId) {
-      const cached = await findPersistedActiveTurn({
-        transcriptCache: this.transcriptCache,
+    if (!state) {
+      state = await this.#restorePersistedTurn({
         provider,
         providerSessionId,
         turnId,
+        checkStaleLiveOp: false,
       });
-      if (cached) {
-        state = reconstructTurnState({
-          cached,
-          registry: this.registry,
-          clock: this.clock,
-        });
-        this.#turns.set(turnId, state);
-        this.#activeBySession.set(state.key, turnId);
-        this.#eventStream.initSessionSequence(state.provider, state.providerSessionId, cached.lastEventSeq || 0);
-      }
     }
     if (!state) {
       state = this.#get(turnId);
@@ -640,20 +660,23 @@ export class AgentTurnRuntime {
       status: state.status,
       startedAt: state.startedAt,
       ...(state.completedAt ? { completedAt: state.completedAt } : {}),
-      lastEventId: state.sequence,
+      lastEventId: this.#eventStream.getTurnSequence(state.turnId),
       pendingInteraction: state.pendingInteraction ? structuredClone(state.pendingInteraction) : null,
-      events: this.#eventStream.getEvents(state.events, 0),
+      events: this.#eventStream.getTurnEvents(state.turnId, 0),
     };
   }
 
   getEvents(turnId, afterSequence = 0) {
     const state = this.#get(turnId);
-    return this.#eventStream.getEvents(state.events, afterSequence);
+    return this.#eventStream.getTurnEvents(state.turnId, afterSequence);
   }
 
   subscribe(turnId, options = {}) {
     const state = this.#get(turnId);
-    return this.#eventStream.subscribeToTurn(state, options);
+    return this.#eventStream.subscribeToTurn(state.turnId, {
+      ...options,
+      isTerminal: this.#isTerminal(state),
+    });
   }
 
   subscribeToSession({ provider, providerSessionId }, options = {}) {
@@ -687,20 +710,21 @@ export class AgentTurnRuntime {
     this.#notifyProviderState(state);
     console.log(`[ai] [turn:${type}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${error ? ` error="${error.message}"` : ''}`);
     this.#emit(state, type, error ? { error: publicFailure(error) } : {});
-    state.subscribers.clear();
+    this.#eventStream.clearTurnSubscribers(state.turnId);
     this.#terminalOrder.push(state.turnId);
     while (this.#terminalOrder.length > this.maxRetainedTurns) {
       const evicted = this.#terminalOrder.shift();
       this.#turns.delete(evicted);
+      this.#eventStream.releaseTurn(evicted);
     }
-    if (this.transcriptCache) {
+    if (this.transcriptCache && state.provider && state.providerSessionId) {
       return this.transcriptCache.flush(state.provider, state.providerSessionId).catch(() => {});
     }
     return Promise.resolve();
   }
 
   #emit(state, type, data = {}) {
-    const event = this.#eventStream.emit(state, type, data, this.transcriptCache);
+    const event = this.#eventStream.emit(state.turnId, type, data);
     if (TURN_ACTIVITY_EVENT_TYPES.has(type)) {
       state.lastActivityAt = this.clock().getTime();
     }

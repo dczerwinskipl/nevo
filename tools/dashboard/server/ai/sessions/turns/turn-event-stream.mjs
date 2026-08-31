@@ -6,21 +6,53 @@ export function sessionKey(provider, providerSessionId) {
 
 /**
  * Manages low-level Agent Turn event mechanics:
- * - Monotonic per-session event sequencing
- * - Per-turn and per-session event buffering
- * - Event publication and subscriber dispatching
- * - Replay from sequence cursors
+ * - Owns per-turn event buffers and subscribers
+ * - Owns per-session event sequences, buffers, and subscribers
+ * - Dispatches published events to turn and session subscribers
+ * - Replays event buffers from sequence cursors
+ * - Persists session-bound events to transcriptCache
  */
 export class TurnEventStream {
+  #turnEvents = new Map();
+  #turnSubscribers = new Map();
+  #turnBindings = new Map();
   #sessionSequences = new Map();
   #sessionEvents = new Map();
   #sessionSubscribers = new Map();
+  #turnSequences = new Map();
   #maxEventsPerTurn;
   #clock;
+  #transcriptCache;
 
-  constructor({ maxEventsPerTurn = 500, clock = () => new Date() } = {}) {
+  constructor({ transcriptCache = null, maxEventsPerTurn = 500, clock = () => new Date() } = {}) {
+    this.#transcriptCache = transcriptCache;
     this.#maxEventsPerTurn = maxEventsPerTurn;
     this.#clock = clock;
+  }
+
+  registerTurn({ turnId, provider, providerSessionId, initialSequence = 0 } = {}) {
+    if (!this.#turnEvents.has(turnId)) {
+      this.#turnEvents.set(turnId, []);
+    }
+    if (!this.#turnSubscribers.has(turnId)) {
+      this.#turnSubscribers.set(turnId, new Set());
+    }
+    this.#turnSequences.set(turnId, initialSequence);
+    if (provider && providerSessionId) {
+      this.bindSession(turnId, { provider, providerSessionId });
+      this.initSessionSequence(provider, providerSessionId, initialSequence);
+    }
+  }
+
+  bindSession(turnId, { provider, providerSessionId } = {}) {
+    validateAgentIdentity({ provider, providerSessionId });
+    this.#turnBindings.set(turnId, { provider, providerSessionId });
+    const key = sessionKey(provider, providerSessionId);
+    const turnSeq = this.#turnSequences.get(turnId) || 0;
+    const currentSessionSeq = this.#sessionSequences.get(key) || 0;
+    if (turnSeq > currentSessionSeq) {
+      this.#sessionSequences.set(key, turnSeq);
+    }
   }
 
   initSessionSequence(provider, providerSessionId, initialSeq = 0) {
@@ -44,41 +76,57 @@ export class TurnEventStream {
     }
   }
 
-  allocateNextSeq(state) {
-    if (state.provider && state.providerSessionId) {
-      const key = sessionKey(state.provider, state.providerSessionId);
+  getTurnSequence(turnId) {
+    const binding = this.#turnBindings.get(turnId);
+    if (binding) {
+      return this.#sessionSequences.get(sessionKey(binding.provider, binding.providerSessionId)) || 0;
+    }
+    return this.#turnSequences.get(turnId) || 0;
+  }
+
+  allocateNextSeq(turnId) {
+    const binding = this.#turnBindings.get(turnId);
+    if (binding) {
+      const key = sessionKey(binding.provider, binding.providerSessionId);
       let current = this.#sessionSequences.get(key);
       if (current === undefined) {
-        current = state.sequence || 0;
+        current = this.#turnSequences.get(turnId) || 0;
       }
       current += 1;
       this.#sessionSequences.set(key, current);
-      state.sequence = current;
+      this.#turnSequences.set(turnId, current);
       return current;
     }
-    state.sequence = (state.sequence || 0) + 1;
-    return state.sequence;
+    let current = (this.#turnSequences.get(turnId) || 0) + 1;
+    this.#turnSequences.set(turnId, current);
+    return current;
   }
 
-  emit(state, type, data = {}, transcriptCache = null) {
-    const seq = this.allocateNextSeq(state);
+  emit(turnId, type, data = {}) {
+    const seq = this.allocateNextSeq(turnId);
     const timestamp = this.#timestamp();
     const event = {
       id: seq,
       seq,
       type,
-      turnId: state.turnId,
+      turnId,
       timestamp,
       ...structuredClone(data),
     };
 
-    state.events.push(event);
-    if (state.events.length > this.#maxEventsPerTurn) {
-      state.events.shift();
+    let events = this.#turnEvents.get(turnId);
+    if (!events) {
+      events = [];
+      this.#turnEvents.set(turnId, events);
+    }
+    events.push(event);
+    if (events.length > this.#maxEventsPerTurn) {
+      events.shift();
     }
 
-    if (state.provider && state.providerSessionId) {
-      const key = sessionKey(state.provider, state.providerSessionId);
+    const binding = this.#turnBindings.get(turnId);
+    if (binding) {
+      const key = sessionKey(binding.provider, binding.providerSessionId);
       let sessionEvents = this.#sessionEvents.get(key);
       if (!sessionEvents) {
         sessionEvents = [];
@@ -89,8 +137,8 @@ export class TurnEventStream {
         sessionEvents.shift();
       }
 
-      if (transcriptCache) {
-        transcriptCache.applyEvent(state.provider, state.providerSessionId, event).catch(() => {});
+      if (this.#transcriptCache) {
+        this.#transcriptCache.applyEvent(binding.provider, binding.providerSessionId, event).catch(() => {});
       }
 
       const sessionSubs = this.#sessionSubscribers.get(key);
@@ -101,29 +149,40 @@ export class TurnEventStream {
       }
     }
 
-    for (const subscriber of state.subscribers) {
-      subscriber(structuredClone(event));
+    const turnSubs = this.#turnSubscribers.get(turnId);
+    if (turnSubs) {
+      for (const subscriber of turnSubs) {
+        subscriber(structuredClone(event));
+      }
     }
     return event;
   }
 
-  getEvents(events, afterSequence = 0) {
+  getTurnEvents(turnId, afterSequence = 0) {
     const cursor = Number(afterSequence) || 0;
-    return (events || [])
+    const events = this.#turnEvents.get(turnId) || [];
+    return events
       .filter(event => (event.id ?? event.seq ?? 0) > cursor)
       .map(event => structuredClone(event));
   }
 
-  subscribeToTurn(state, { afterSequence = 0, onEvent } = {}) {
+  subscribeToTurn(turnId, { afterSequence = 0, onEvent, isTerminal = false } = {}) {
     if (typeof onEvent !== 'function') throw new TypeError('onEvent is required.');
-    for (const event of this.getEvents(state.events, afterSequence)) {
+    for (const event of this.getTurnEvents(turnId, afterSequence)) {
       onEvent(event);
     }
-    const isTerminal = state.status === 'completed' || state.status === 'failed';
     if (!isTerminal) {
-      state.subscribers.add(onEvent);
+      let subs = this.#turnSubscribers.get(turnId);
+      if (!subs) {
+        subs = new Set();
+        this.#turnSubscribers.set(turnId, subs);
+      }
+      subs.add(onEvent);
     }
-    return () => state.subscribers.delete(onEvent);
+    return () => {
+      const subs = this.#turnSubscribers.get(turnId);
+      subs?.delete(onEvent);
+    };
   }
 
   subscribeToSession({ provider, providerSessionId }, { afterSequence = 0, onEvent } = {}) {
@@ -149,6 +208,18 @@ export class TurnEventStream {
         this.#sessionSubscribers.delete(key);
       }
     };
+  }
+
+  clearTurnSubscribers(turnId) {
+    const subs = this.#turnSubscribers.get(turnId);
+    subs?.clear();
+  }
+
+  releaseTurn(turnId) {
+    this.#turnEvents.delete(turnId);
+    this.#turnSubscribers.delete(turnId);
+    this.#turnBindings.delete(turnId);
+    this.#turnSequences.delete(turnId);
   }
 
   #timestamp() {
