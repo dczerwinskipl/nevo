@@ -76,12 +76,13 @@ export function checkSpecsIndexes({
 } = {}) {
   const built = buildSpecsIndexes({ activeDir, archiveDir });
   const problems = [];
+  const normalizeLf = (s) => (s || '').replace(/\r\n/g, '\n');
 
   if (!existsSync(activeIndexMd)) problems.push('missing: specs/active.generated.md');
-  else if (readUtf8(activeIndexMd) !== built.activeMd) problems.push('stale: specs/active.generated.md');
+  else if (normalizeLf(readUtf8(activeIndexMd)) !== normalizeLf(built.activeMd)) problems.push('stale: specs/active.generated.md');
 
   if (!existsSync(archiveIndexMd)) problems.push('missing: specs/archive.generated.md');
-  else if (readUtf8(archiveIndexMd) !== built.archiveMd) problems.push('stale: specs/archive.generated.md');
+  else if (normalizeLf(readUtf8(archiveIndexMd)) !== normalizeLf(built.archiveMd)) problems.push('stale: specs/archive.generated.md');
 
   if (!existsSync(indexJson)) {
     problems.push('missing: specs/index.generated.json');
