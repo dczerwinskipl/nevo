@@ -11,6 +11,7 @@ import {
   validateAgentExecutionMode,
   validateInteractionResponse,
   getGlobalTraceSink,
+  normalizeTransitionalToolStatus,
 } from '../../contracts.mjs';
 import { createTranscriptCacheService } from '../transcript-cache.mjs';
 import { TurnLifecycleCoordinator } from './coordinator.mjs';
@@ -427,22 +428,25 @@ export class AgentTurnRuntime {
     this.#emit(state, 'reasoning.delta', { messageId, text });
   }
 
-  #emitToolStarted(state, { toolId, toolName, input } = {}) {
+  #emitToolStarted(state, { toolId, toolName, input, kind, title, status } = {}) {
     if (this.#isTerminal(state)) return;
-    state.coordinator.recordToolStarted({ toolId, toolName, input });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
+    state.coordinator.recordToolStarted({ toolId, toolName, input, kind, title, status: normalizedStatus });
     this.#emit(state, 'tool.started', { toolId, toolName, input });
   }
 
-  #emitToolUpdated(state, { toolId, output, status } = {}) {
+  #emitToolUpdated(state, { toolId, output, status, progress } = {}) {
     if (this.#isTerminal(state)) return;
-    state.coordinator.recordToolUpdated({ toolId, output, status });
-    this.#emit(state, 'tool.updated', { toolId, output, status });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
+    state.coordinator.recordToolUpdated({ toolId, output, status: normalizedStatus, progress });
+    this.#emit(state, 'tool.updated', { toolId, output, status: normalizedStatus });
   }
 
-  #emitToolCompleted(state, { toolId, output, durationMs, status } = {}) {
+  #emitToolCompleted(state, { toolId, output, durationMs, status, exitCode, closureReason } = {}) {
     if (this.#isTerminal(state)) return;
-    state.coordinator.recordToolCompleted({ toolId, output, durationMs, status });
-    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status });
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'completed');
+    state.coordinator.recordToolCompleted({ toolId, output, durationMs, status: normalizedStatus, exitCode, closureReason });
+    this.#emit(state, 'tool.completed', { toolId, output, durationMs, status: normalizedStatus });
   }
 
   #emitUsageUpdated(state, { tokensIn, tokensOut, cost } = {}) {
@@ -555,6 +559,10 @@ export class AgentTurnRuntime {
           providerSessionId,
         });
       }
+    }
+
+    if (this.#isTerminal(state) || state.coordinator.isCancelling) {
+      throw new AiNotFoundError('The turn is already cancelling or terminal.', { turnId: state.turnId, interactionId });
     }
 
     const pending = state.coordinator.pendingInteraction;

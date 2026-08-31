@@ -1408,5 +1408,240 @@ test('regression: resolving interaction after turn cancellation throws AiNotFoun
   fixture.runtime.shutdown();
 });
 
+test('regression: Antigravity transitional tool statuses (running, in_progress, success, error) normalized without validation errors', async () => {
+  const agyMockProvider = {
+    descriptor: { id: 'agy-mock', label: 'Antigravity Mock', capabilities },
+    async startTurn({ emitDelta, emitToolStarted, emitToolUpdated, emitToolCompleted }) {
+      emitDelta('Starting task...');
+      // Antigravity emits status: 'running' on updates
+      emitToolStarted({ toolId: 'tool-agy-1', toolName: 'run_command', input: { command: 'npm test' } });
+      emitToolUpdated({ toolId: 'tool-agy-1', output: 'running tests...', status: 'running' });
+      emitToolCompleted({ toolId: 'tool-agy-1', output: 'all tests passed', status: 'success', durationMs: 42 });
+      emitDelta('Task finished.');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([agyMockProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'agy-mock',
+    providerSessionId: 'sess-agy-transitional',
+    message: 'run test',
+  });
+
+  const snapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completed turn');
+  assert.equal(snapshot.status, 'completed');
+  const turn = runtime.getCanonicalTurn(turnId);
+  const tool = turn.work.find(w => w.id === 'tool-agy-1');
+  assert.equal(tool.status, 'completed');
+  assert.equal(tool.toolName, 'run_command');
+  runtime.shutdown();
+});
+
+test('regression: terminal arbitration: cancellation intent prevails over concurrent provider completion', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-arb-1',
+    sessionId: 'sess-arb-1',
+    provider: 'codex',
+  });
+
+  coordinator.recordToolStarted({ toolId: 'tool-1', toolName: 'build' });
+
+  // 1. User cancellation accepted
+  const accepted = coordinator.requestCancellation({ initiator: 'user' });
+  assert.equal(accepted, true);
+  assert.equal(coordinator.status.status, 'cancelling');
+  assert.equal(coordinator.isCancelling, true);
+
+  // 2. While cancelTurn is in flight, provider completes normally and calls settleTerminal(completed)
+  const settled = coordinator.settleTerminal({ outcome: 'completed', initiator: 'provider' });
+
+  // 3. Coordinator arbitration ensures cancellation prevails
+  assert.equal(settled.status, 'terminal');
+  assert.equal(settled.outcome, 'cancelled');
+  assert.equal(settled.initiator, 'user');
+  assert.equal(coordinator.status.outcome, 'cancelled');
+
+  // 4. Open tools closed with turn_cancelled
+  const tool = coordinator.turn.work.find(w => w.id === 'tool-1');
+  assert.equal(tool.status, 'cancelled');
+  assert.equal(tool.closureReason, 'turn_cancelled');
+});
+
+test('regression: terminal arbitration: cancellation intent prevails over provider failure during cleanup', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-arb-2',
+    sessionId: 'sess-arb-2',
+    provider: 'claude',
+  });
+
+  // 1. User cancellation accepted
+  coordinator.requestCancellation({ initiator: 'user' });
+
+  // 2. Provider cleanup fails with error (SIGKILL / process crash)
+  const settled = coordinator.settleTerminal({ outcome: 'failed', initiator: 'provider', cause: 'process_crash' });
+
+  // 3. Cancellation remains the authoritative outcome
+  assert.equal(settled.outcome, 'cancelled');
+  assert.equal(settled.initiator, 'user');
+});
+
+test('regression: terminal arbitration: timeout suppresses late user cancel and late provider completion', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-arb-3',
+    sessionId: 'sess-arb-3',
+    provider: 'mock',
+  });
+
+  // 1. Timeout fires
+  const check = coordinator.checkProtocolSilence(Date.now() + 600_000, 300_000);
+  assert.equal(check.fired, true);
+  assert.equal(coordinator.status.status, 'terminal');
+  assert.equal(coordinator.status.outcome, 'failed');
+  assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
+
+  // 2. Late user cancellation arrives after timeout
+  const cancelAccepted = coordinator.requestCancellation({ initiator: 'user' });
+  assert.equal(cancelAccepted, false);
+
+  // 3. Late provider completion arrives after timeout
+  const lateSettled = coordinator.settleTerminal({ outcome: 'completed' });
+  assert.equal(lateSettled.outcome, 'failed');
+  assert.equal(coordinator.status.outcome, 'failed');
+});
+
+test('regression: terminal arbitration: user cancel suppresses timeout watchdog', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-arb-4',
+    sessionId: 'sess-arb-4',
+    provider: 'mock',
+  });
+
+  // 1. User cancellation accepted
+  coordinator.requestCancellation({ initiator: 'user' });
+
+  // 2. Watchdog evaluates silence while cancelling
+  const check = coordinator.checkProtocolSilence(Date.now() + 600_000, 300_000);
+  assert.equal(check.fired, false);
+  assert.equal(check.suppressed, 'cancelling');
+
+  // 3. Settles as cancelled
+  coordinator.settleTerminal({ outcome: 'cancelled' });
+  assert.equal(coordinator.status.outcome, 'cancelled');
+});
+
+test('regression: complete terminal Work immutability: all terminal statuses cannot transition back to active/pending', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-imm-all',
+    sessionId: 'sess-imm',
+    provider: 'mock',
+  });
+
+  // 1. Tool in 'interrupted' status cannot transition back to 'active' or 'queued'
+  coordinator.appendWork({ id: 'tool-int', type: 'tool', toolName: 't', status: 'interrupted' });
+  assert.throws(
+    () => coordinator.updateWork('tool-int', { status: 'active' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 2. Tool in 'unknown' status cannot transition back to 'active'
+  coordinator.appendWork({ id: 'tool-unk', type: 'tool', toolName: 't', status: 'unknown' });
+  assert.throws(
+    () => coordinator.updateWork('tool-unk', { status: 'active' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 3. Interaction in 'rejected' status cannot transition back to 'pending'
+  coordinator.appendWork({
+    id: 'int-rej',
+    type: 'interaction',
+    status: 'rejected',
+    interaction: { id: 'int-rej', kind: 'permission', toolName: 'bash' },
+  });
+  assert.throws(
+    () => coordinator.updateWork('int-rej', { status: 'pending' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 4. Interaction in 'expired' status cannot transition back to 'pending'
+  coordinator.appendWork({
+    id: 'int-exp',
+    type: 'interaction',
+    status: 'expired',
+    interaction: { id: 'int-exp', kind: 'question', questions: [{ id: 'q', question: 'ok?' }] },
+  });
+  assert.throws(
+    () => coordinator.updateWork('int-exp', { status: 'pending' }),
+    { name: 'AiValidationError' },
+  );
+
+  // 5. Valid non-terminal updates are allowed
+  const validTool = coordinator.appendWork({ id: 'tool-valid', type: 'tool', toolName: 't', status: 'queued' });
+  assert.equal(validTool.status, 'queued');
+  const activatedTool = coordinator.updateWork('tool-valid', { status: 'active' });
+  assert.equal(activatedTool.status, 'active');
+  const completedTool = coordinator.updateWork('tool-valid', { status: 'completed' });
+  assert.equal(completedTool.status, 'completed');
+});
+
+test('regression: late tool update on terminal turn is ignored by coordinator', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-late-tool',
+    sessionId: 'sess-lt',
+    provider: 'claude',
+  });
+
+  coordinator.recordToolStarted({ toolId: 'tool-finished', toolName: 'bash' });
+  coordinator.recordToolCompleted({ toolId: 'tool-finished', output: 'ok', status: 'completed' });
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  assert.equal(coordinator.isTerminal, true);
+
+  // Late tool update from background provider
+  const result = coordinator.recordToolUpdated({ toolId: 'tool-finished', output: 'late rogue output' });
+  assert.equal(result, null);
+
+  const tool = coordinator.turn.work.find(w => w.id === 'tool-finished');
+  assert.equal(tool.output, 'ok');
+});
+
+test('regression: cross-provider smoke test for Claude, Codex, and Antigravity event streams', async () => {
+  const eventsCaptured = [];
+  const multiProvider = {
+    descriptor: { id: 'multi-test', label: 'Multi Provider', capabilities },
+    async startTurn({ emitDelta, emitReasoningDelta, emitProgressDelta, emitToolStarted, emitToolUpdated, emitToolCompleted, emitUsageUpdated }) {
+      emitReasoningDelta('Thinking about architecture...');
+      emitProgressDelta('Analyzing files...');
+      emitDelta('Here is the plan.');
+      emitToolStarted({ toolId: 't-multi', toolName: 'search_files', input: { query: 'test' } });
+      emitToolUpdated({ toolId: 't-multi', output: '3 files found', status: 'active' });
+      emitToolCompleted({ toolId: 't-multi', output: ['a.js', 'b.js'], durationMs: 50, status: 'completed' });
+      emitUsageUpdated({ tokensIn: 100, tokensOut: 200, cost: 0.005 });
+      emitDelta('Done.');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([multiProvider]);
+  const runtime = createAgentTurnRuntime({ registry });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'multi-test',
+    providerSessionId: 'sess-multi',
+    message: 'perform multi test',
+  });
+
+  const snapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'completed');
+  assert.equal(snapshot.status, 'completed');
+  const turn = runtime.getCanonicalTurn(turnId);
+  assert.equal(turn.work.length >= 3, true);
+  assert.equal(turn.status.status, 'terminal');
+  assert.equal(turn.status.outcome, 'completed');
+  runtime.shutdown();
+});
+
+
 
 

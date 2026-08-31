@@ -74,6 +74,66 @@ export const INTERACTION_WORK_STATUSES = Object.freeze([
   'expired',
 ]);
 
+export const TERMINAL_WORK_STATUSES = Object.freeze({
+  commentary: Object.freeze(['completed']),
+  reasoning: Object.freeze(['completed']),
+  tool: Object.freeze(['completed', 'failed', 'cancelled', 'interrupted', 'unknown']),
+  interaction: Object.freeze(['resolved', 'denied', 'rejected', 'cancelled', 'expired']),
+});
+
+export const ACTIVE_WORK_STATUSES = Object.freeze({
+  commentary: Object.freeze(['streaming']),
+  reasoning: Object.freeze(['streaming']),
+  tool: Object.freeze(['queued', 'active']),
+  interaction: Object.freeze(['pending']),
+});
+
+export function isTerminalWorkStatus(type, status) {
+  const terminalList = TERMINAL_WORK_STATUSES[type];
+  return terminalList ? terminalList.includes(status) : false;
+}
+
+export function isActiveWorkStatus(type, status) {
+  const activeList = ACTIVE_WORK_STATUSES[type];
+  return activeList ? activeList.includes(status) : false;
+}
+
+export function normalizeTransitionalToolStatus(status, fallback = 'active') {
+  if (!status || typeof status !== 'string') return fallback;
+  const s = status.toLowerCase().trim();
+  switch (s) {
+    case 'active':
+    case 'running':
+    case 'in_progress':
+    case 'executing':
+    case 'streaming':
+    case 'busy':
+      return 'active';
+    case 'queued':
+    case 'pending':
+      return 'queued';
+    case 'completed':
+    case 'success':
+    case 'done':
+    case 'ok':
+      return 'completed';
+    case 'failed':
+    case 'error':
+    case 'err':
+      return 'failed';
+    case 'cancelled':
+    case 'canceled':
+    case 'aborted':
+      return 'cancelled';
+    case 'interrupted':
+      return 'interrupted';
+    case 'unknown':
+      return 'unknown';
+    default:
+      return fallback;
+  }
+}
+
 function rejectProviderFields(value, path = 'item') {
   for (const [key, child] of Object.entries(value || {})) {
     if (/provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i.test(key)) {

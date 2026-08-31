@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T13:45:30.406Z",
+  "generated": "2026-08-31T15:03:47.700Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -117,7 +117,7 @@
           ],
           "implementation": {
             "baseline_revision": "bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8",
-            "review_revision": "0479381d392860783bc637da1af4f4ea4a07e05c",
+            "review_revision": "8ba276b4303cd466673d3180a317dbb38879fc64",
             "changed_paths": [
               "tools/dashboard/server/ai/contracts.mjs",
               "tools/dashboard/server/ai/diagnostics/index.mjs",
@@ -136,11 +136,11 @@
               "tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs",
               "tools/dashboard/tests/ai-turn-runtime.test.mjs"
             ],
-            "worktree_patch_fingerprint": "5557da8661f73396af764e1b9c38eda023eb2624b5e435e14e3b099758cf2f01"
+            "worktree_patch_fingerprint": "d6217da182ed8cc5dd833d271c6c326fabbca7d3d57581940e58c174e6dcc61f"
           },
           "self_check": {
             "fingerprint": "0894626c45a9ca6a11551e6633c1b656b985a9bad47da3fcdb9297163cf26ac8",
-            "revision": "0479381d392860783bc637da1af4f4ea4a07e05c",
+            "revision": "8ba276b4303cd466673d3180a317dbb38879fc64",
             "commands": [
               {
                 "command": "node --test tools/dashboard/tests/ai-turn-runtime.test.mjs tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs tools/dashboard/tests/session-states-integration.test.mjs",

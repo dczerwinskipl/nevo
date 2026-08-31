@@ -5,7 +5,7 @@ import {
   DEFAULT_AGENT_EXECUTION_MODE,
 } from '../contracts.mjs';
 import { validateTurnStatus, createTurnStatus } from './turn-status.mjs';
-import { validateWorkItem, validateToolAction } from './work-items.mjs';
+import { validateWorkItem, validateToolAction, isTerminalWorkStatus, isActiveWorkStatus } from './work-items.mjs';
 import { validateFinalAnswer, createFinalAnswer } from './final-answer.mjs';
 
 function requiredString(value, field, max = 256) {
@@ -179,11 +179,11 @@ export function updateWorkItem(turn, itemId, updates) {
     throw new AiValidationError(`WorkItem sequence cannot be changed from '${current.seq}' to '${updates.seq}'.`);
   }
 
-  // Invariant: Terminal items cannot return to active
-  const isCurrentlyTerminal = ['completed', 'failed', 'cancelled', 'resolved', 'denied'].includes(current.status);
+  // Invariant: Terminal items cannot return to active/pending
+  const isCurrentlyTerminal = isTerminalWorkStatus(current.type, current.status);
   const targetStatus = updates.status ?? current.status;
-  if (isCurrentlyTerminal && ['streaming', 'active', 'pending', 'queued'].includes(targetStatus)) {
-    throw new AiValidationError(`Terminal WorkItem '${itemId}' (status: ${current.status}) cannot return to active status '${targetStatus}'.`);
+  if (isCurrentlyTerminal && isActiveWorkStatus(current.type, targetStatus)) {
+    throw new AiValidationError(`Terminal ${current.type} WorkItem '${itemId}' (status: ${current.status}) cannot return to active status '${targetStatus}'.`);
   }
 
   const merged = {

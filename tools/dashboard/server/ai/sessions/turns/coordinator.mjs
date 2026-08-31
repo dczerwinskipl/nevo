@@ -10,11 +10,13 @@ import {
   setTurnStatus,
   computeCurrentActivity,
   getGlobalTraceSink,
+  normalizeTransitionalToolStatus,
 } from '../../contracts.mjs';
 
 /**
  * TurnLifecycleCoordinator: Authoritative synchronous in-memory owner of Turn status transitions,
- * ordered Work sequence, multi-tool tracking, timeout decisions, and lifecycle trace recording.
+ * ordered Work sequence, multi-tool tracking, timeout decisions, deterministic terminal arbitration,
+ * and lifecycle trace recording.
  */
 export class TurnLifecycleCoordinator {
   #turn;
@@ -26,6 +28,9 @@ export class TurnLifecycleCoordinator {
   #isTerminal = false;
   #activeCommentaryId = null;
   #activeReasoningId = null;
+  #cancellationRequested = false;
+  #cancellationInitiator = null;
+  #cancellationCause = null;
 
   constructor({
     turnId,
@@ -70,6 +75,10 @@ export class TurnLifecycleCoordinator {
 
   get isTerminal() {
     return this.#isTerminal || this.#turn.status.status === 'terminal';
+  }
+
+  get isCancelling() {
+    return this.#cancellationRequested || this.#turn.status.status === 'cancelling';
   }
 
   get hasOpenTools() {
@@ -186,6 +195,9 @@ export class TurnLifecycleCoordinator {
     } else if (cause === 'process_exit') {
       closureReason = 'process_exit';
       toolStatus = 'failed';
+    } else if (outcome === 'unknown') {
+      closureReason = 'unknown';
+      toolStatus = 'unknown';
     } else {
       closureReason = 'turn_failed';
       toolStatus = 'failed';
@@ -212,7 +224,7 @@ export class TurnLifecycleCoordinator {
    * Append a new top-level Work item with monotonic sequence.
    */
   appendWork(itemData, { source = 'adapter' } = {}) {
-    if (this.isTerminal) {
+    if (this.isTerminal || this.isCancelling) {
       this.#tracer?.record?.({
         source,
         event: 'work.ignored',
@@ -287,7 +299,7 @@ export class TurnLifecycleCoordinator {
    * Record arrival of a text delta.
    */
   recordTextDelta(text, messageId = `msg-${this.#turn.id}`) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
     let currentItem = this.#activeCommentaryId
@@ -321,7 +333,7 @@ export class TurnLifecycleCoordinator {
    * Record arrival of a reasoning delta.
    */
   recordReasoningDelta(text, messageId = `reasoning-${this.#turn.id}`) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
     let currentItem = this.#activeReasoningId
@@ -355,8 +367,8 @@ export class TurnLifecycleCoordinator {
   /**
    * Record tool started.
    */
-  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null }) {
-    if (this.isTerminal) {
+  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null, status = 'active' }) {
+    if (this.isTerminal || this.isCancelling) {
       this.#tracer?.record?.({
         source: 'tool',
         event: 'tool.started_ignored',
@@ -368,13 +380,14 @@ export class TurnLifecycleCoordinator {
     }
 
     this.touchActivity();
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
     const item = appendWorkItem(this.#turn, {
       id: toolId,
       type: 'tool',
-      toolName,
+      toolName: toolName || 'tool',
       kind: kind || 'other',
-      title: title || toolName,
-      status: 'active',
+      title: title || toolName || 'tool',
+      status: normalizedStatus,
       ...(input !== undefined ? { input } : {}),
     });
 
@@ -400,12 +413,22 @@ export class TurnLifecycleCoordinator {
    * Record tool updated.
    */
   recordToolUpdated({ toolId, output, status = 'active', progress }) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal) {
+      this.#tracer?.record?.({
+        source: 'tool',
+        event: 'tool.updated_ignored',
+        subjectId: toolId,
+        disposition: 'ignored',
+        metadata: { status },
+      });
+      return null;
+    }
     this.touchActivity();
 
+    const normalizedStatus = normalizeTransitionalToolStatus(status, 'active');
     const item = updateWorkItem(this.#turn, toolId, {
       ...(output !== undefined ? { output } : {}),
-      status,
+      status: normalizedStatus,
       ...(progress !== undefined ? { progress } : {}),
     });
 
@@ -414,7 +437,7 @@ export class TurnLifecycleCoordinator {
       event: 'tool.updated',
       subjectId: toolId,
       disposition: 'accepted',
-      metadata: { status },
+      metadata: { status: normalizedStatus },
     });
 
     return item;
@@ -436,9 +459,7 @@ export class TurnLifecycleCoordinator {
     }
 
     this.touchActivity();
-    const validStatus = ['completed', 'failed', 'cancelled', 'interrupted', 'unknown'].includes(status)
-      ? status
-      : 'completed';
+    const validStatus = normalizeTransitionalToolStatus(status, 'completed');
 
     const item = updateWorkItem(this.#turn, toolId, {
       status: validStatus,
@@ -473,7 +494,7 @@ export class TurnLifecycleCoordinator {
    * Record interaction requested.
    */
   recordInteractionRequested({ interaction }) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
     const item = appendWorkItem(this.#turn, {
@@ -506,7 +527,16 @@ export class TurnLifecycleCoordinator {
    * Record interaction resolved.
    */
   recordInteractionResolved({ interactionId, response }) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) {
+      this.#tracer?.record?.({
+        source: 'runtime',
+        event: 'interaction.resolved_ignored',
+        disposition: 'ignored',
+        subjectId: interactionId,
+        metadata: { turnStatus: this.#turn.status.status },
+      });
+      return null;
+    }
     this.touchActivity();
 
     const item = updateWorkItem(this.#turn, interactionId, {
@@ -539,7 +569,7 @@ export class TurnLifecycleCoordinator {
    * Add a nested ToolAction to a tool WorkItem.
    */
   addToolAction(toolWorkId, actionData, { source = 'adapter' } = {}) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
     const tool = this.#turn.work.find(w => w.id === toolWorkId && w.type === 'tool');
     if (!tool) {
@@ -562,7 +592,7 @@ export class TurnLifecycleCoordinator {
    * Set the authoritative final answer.
    */
   setFinalAnswer(finalAnswerData, { source = 'adapter' } = {}) {
-    if (this.isTerminal) return null;
+    if (this.isTerminal || this.isCancelling) return null;
     const answer = assignFinalAnswer(this.#turn, finalAnswerData);
     this.#tracer?.record?.({
       source,
@@ -588,6 +618,10 @@ export class TurnLifecycleCoordinator {
       return false;
     }
 
+    this.#cancellationRequested = true;
+    this.#cancellationInitiator = initiator;
+    this.#cancellationCause = cause;
+
     setTurnStatus(this.#turn, {
       status: 'cancelling',
       initiator,
@@ -612,6 +646,19 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal || timeoutMs <= 0) return { fired: false };
 
     // 1. Suppression checks
+    if (this.isCancelling) {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: {
+          kind: 'protocol-silence',
+          suppressionReason: 'cancelling',
+        },
+      });
+      return { fired: false, suppressed: 'cancelling' };
+    }
+
     if (this.hasOpenTools) {
       this.#tracer?.record?.({
         source: 'coordinator',
@@ -690,6 +737,10 @@ export class TurnLifecycleCoordinator {
 
   /**
    * Settle the terminal state of the turn.
+   * Applies deterministic terminal arbitration:
+   * 1. If turn is already terminal -> ignored.
+   * 2. If cancellation was accepted (status === 'cancelling' or #cancellationRequested) ->
+   *    cancellation PREVAILS over provider completion or provider cleanup failure.
    */
   settleTerminal({ outcome = 'completed', initiator = 'provider', cause, finishReason, error } = {}) {
     if (this.isTerminal) {
@@ -702,13 +753,26 @@ export class TurnLifecycleCoordinator {
       return this.#turn.status;
     }
 
+    let effectiveOutcome = outcome;
+    let effectiveInitiator = initiator;
+    let effectiveCause = cause;
+
+    // Terminal arbitration: Cancellation intent prevails over normal provider completion or failure
+    if (this.#cancellationRequested || this.#turn.status.status === 'cancelling') {
+      if (outcome === 'completed' || outcome === 'failed') {
+        effectiveOutcome = 'cancelled';
+        effectiveInitiator = this.#cancellationInitiator || 'user';
+        effectiveCause = this.#cancellationCause || 'user_cancelled';
+      }
+    }
+
     this.#isTerminal = true;
-    this.#closeDanglingTools(outcome, cause);
+    this.#closeDanglingTools(effectiveOutcome, effectiveCause);
 
     if (this.#pendingInteractionId) {
       try {
         updateWorkItem(this.#turn, this.#pendingInteractionId, {
-          status: outcome === 'cancelled' ? 'cancelled' : 'denied',
+          status: effectiveOutcome === 'cancelled' ? 'cancelled' : 'denied',
         });
       } catch {}
       this.#pendingInteractionId = null;
@@ -725,20 +789,20 @@ export class TurnLifecycleCoordinator {
 
     const terminalStatus = setTurnStatus(this.#turn, {
       status: 'terminal',
-      outcome,
-      initiator,
-      cause,
+      outcome: effectiveOutcome,
+      initiator: effectiveInitiator,
+      cause: effectiveCause,
       finishReason,
       ...(error ? { error } : {}),
     });
 
     this.#tracer?.record?.({
       source: 'coordinator',
-      event: outcome === 'completed' ? 'turn.completed' : 'turn.failed',
+      event: effectiveOutcome === 'completed' ? 'turn.completed' : 'turn.failed',
       disposition: 'accepted',
       afterStatus: terminalStatus,
-      initiator,
-      cause,
+      initiator: effectiveInitiator,
+      cause: effectiveCause,
     });
 
     return terminalStatus;
