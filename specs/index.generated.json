@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T19:16:18.158Z",
+  "generated": "2026-08-31T19:16:34.617Z",
   "changes": [
     {
       "id": "ai-adapters-hardening",
@@ -220,7 +220,7 @@
           "id": "codex-neutral-mapping",
           "order": 9,
           "file": "tasks/09-codex-neutral-mapping.md",
-          "status": "draft",
+          "status": "approved",
           "depends_on": [
             "lifecycle-coordinator-and-timeouts"
           ]
