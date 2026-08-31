@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 
 import { LoadingScreen } from '@/shared/ui/loading-screen';
@@ -9,15 +9,18 @@ import type { SpecificationSummary, SpecificationSource } from '../types';
 import { useSpecificationIndex } from '../queries';
 import { SpecificationDetail } from './specification-detail';
 
+export interface SpecificationRouteProps {
+  source: string;
+  slug: string;
+}
+
 /**
  * Specification detail route (`/specs/:source/:slug`): resolves the specification from
  * the Specifications index, redirects on a source mismatch (active/archive
  * fallback), and hosts spec-scoped Agent Session creation.
  */
-export function SpecificationRoute() {
-  const params = useParams({ strict: false });
-  const source = (params.source || 'active') as SpecificationSource;
-  const slug = params.slug!;
+export function SpecificationRoute({ source: rawSource, slug }: SpecificationRouteProps) {
+  const source: SpecificationSource = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading, error, refresh } = useSpecificationIndex();
   const navigate = useNavigate();

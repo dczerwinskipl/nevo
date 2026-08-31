@@ -1,4 +1,4 @@
-import { useNavigate, useParams, useRouter } from '@tanstack/react-router';
+import { useNavigate, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -9,18 +9,26 @@ import type { AgentSession } from './types';
 import { useAgentSessions } from './queries';
 import { AgentSessionPage } from './agent-session-page';
 
+export interface AgentSessionRouteProps {
+  source: string;
+  slug: string;
+  provider: string;
+  providerSessionId: string;
+}
+
 /**
  * Agent Session route (`/specs/:source/:slug/sessions/:provider/:providerSessionId`):
  * resolves the owning specification (via the Specifications feature's own index
  * query — AgentSession belongs to / is attached to a Specification) and the
  * session itself, then hands off to `AgentSessionPage`.
  */
-export function AgentSessionRoute() {
-  const params = useParams({ strict: false });
-  const source = (params.source || 'active') as 'active' | 'archive';
-  const slug = params.slug!;
-  const provider = params.provider!;
-  const providerSessionId = params.providerSessionId!;
+export function AgentSessionRoute({
+  source: rawSource,
+  slug,
+  provider,
+  providerSessionId,
+}: AgentSessionRouteProps) {
+  const source: 'active' | 'archive' = rawSource === 'archive' ? 'archive' : 'active';
 
   const { data, loading: dataLoading, error: dataError } = useSpecificationIndex();
   const navigate = useNavigate();
@@ -36,7 +44,7 @@ export function AgentSessionRoute() {
     const oppositeSource = source === 'active' ? 'archive' : 'active';
     const oppositeCollection = source === 'active' ? data.archive : data.active;
     const match = oppositeCollection.find((c) => c.slug === slug);
-    return match ? { change: match, oppositeSource } : null;
+    return match ? { specification: match, oppositeSource } : null;
   }, [data, selectedSpec, source, slug]);
 
   useEffect(() => {
@@ -54,7 +62,7 @@ export function AgentSessionRoute() {
     }
   }, [fallbackSpec, navigate, provider, providerSessionId, slug]);
 
-  const effectiveSpec = selectedSpec || fallbackSpec?.change || null;
+  const effectiveSpec = selectedSpec || fallbackSpec?.specification || null;
   const effectiveSource = effectiveSpec?.source || source;
 
   const specId = effectiveSpec?.specId ?? null;

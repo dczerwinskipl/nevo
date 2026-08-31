@@ -6,14 +6,6 @@ export const router = createRouter({
   defaultPreload: 'intent',
 });
 
-export function createAppRouter(history?: any) {
-  return createRouter({
-    routeTree,
-    history,
-    defaultPreload: 'intent',
-  });
-}
-
 declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router;
