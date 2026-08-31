@@ -37,7 +37,7 @@ export interface AgentSessionTranscriptProps {
   isLoading: boolean;
   isRunning: boolean;
   hasSessionDetails: boolean;
-  loadError?: Error | AgentSessionLoadError | null;
+  loadError?: AgentSessionLoadError | null;
   contentRevision: number;
   displayError?: string | null;
   canRetryInitial?: boolean;
@@ -107,12 +107,6 @@ export const AgentSessionTranscript = forwardRef<
     return new Map(projection.workByTurn.map((work) => [work.turnId, work]));
   }, [messages, activeTurnId]);
 
-  const loadErrorTitle = loadError instanceof AgentSessionLoadError
-    ? loadError.title
-    : (typeof (loadError as unknown as { title?: unknown })?.title === 'string'
-        ? (loadError as unknown as { title: string }).title
-        : 'Nie można wczytać sesji');
-
   return (
     <div
       ref={containerRef}
@@ -126,7 +120,7 @@ export const AgentSessionTranscript = forwardRef<
               <AlertTriangle className="size-6" />
             </div>
             <h2 className="mt-4 text-base font-semibold text-[var(--foreground)]">
-              {loadErrorTitle}
+              {loadError.title}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-xs text-[var(--muted)]">
               {loadError.message || 'Wystąpił nieoczekiwany błąd podczas wczytywania sesji.'}

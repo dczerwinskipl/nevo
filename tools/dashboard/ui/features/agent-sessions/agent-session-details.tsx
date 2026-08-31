@@ -1,14 +1,7 @@
 import { Trash2, LoaderCircle, FileText, CheckSquare, Cpu, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AgentExecutionMode, TaskNavigationTarget } from './types';
-
-export interface SessionTaskItem {
-  id: string;
-  title?: string;
-  isClickable?: boolean;
-}
-
-export { resolveSessionTaskItems } from './session-tasks';
+import type { SessionTaskItem } from './session-tasks';
 
 export interface AgentSessionDetailsProps {
   specTitle?: string;

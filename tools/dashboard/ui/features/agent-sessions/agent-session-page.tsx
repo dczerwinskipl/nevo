@@ -4,7 +4,7 @@ import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { AgentSessionHeader } from './agent-session-header';
 import { formatSessionStatus } from '@/shared/ui/status-label';
 import { AgentSessionDetailsSheet } from './agent-session-details-sheet';
-import { resolveSessionTaskItems } from './agent-session-details';
+import { resolveSessionTaskItems } from './session-tasks';
 import { ProviderUnavailableBanner } from './provider-unavailable-banner';
 import { AgentSessionComposer } from './composer/agent-session-composer';
 import {

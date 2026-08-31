@@ -47,7 +47,7 @@ export function useAgentSessionRuntime({
   const [contentRevision, setContentRevision] = useState<number>(0);
   const [lastEventSeq, setLastEventSeq] = useState<number>(0);
   const [sessionDetails, setSessionDetails] = useState<AgentSessionSnapshot | null>(null);
-  const [loadError, setLoadError] = useState<AgentSessionLoadError | Error | null>(null);
+  const [loadError, setLoadError] = useState<AgentSessionLoadError | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState<number>(0);
   const [live, setLive] = useState<boolean>(true);
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('unknown');

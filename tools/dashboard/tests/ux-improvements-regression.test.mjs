@@ -47,6 +47,7 @@ test('Item 2A & 2B (Task 07 / Item 9A): AgentSessionRow uses non-interactive car
 });
 
 test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve tasks against change and use TaskNavigationTarget', () => {
+  const sessionTasksSource = readSource('features/agent-sessions/session-tasks.ts');
   const sessionDetailsSource = readSource('features/agent-sessions/agent-session-details.tsx');
   const agentSessionPageSource = readSource('features/agent-sessions/agent-session-page.tsx');
   const typesSource = readSource('features/agent-sessions/types.ts');
@@ -55,8 +56,9 @@ test('Item 2B & 2C (Task 07): AgentSessionDetails and AgentSessionPage resolve t
   assert.ok(typesSource.includes('export interface TaskNavigationTarget {'));
   assert.ok(typesSource.includes('taskId: string;'));
 
-  // AgentSessionDetails supports normalized tasks and inert rendering for stale tasks
-  assert.ok(sessionDetailsSource.includes('export interface SessionTaskItem {'));
+  // SessionTaskItem and resolveSessionTaskItems are canonically owned by session-tasks.ts
+  assert.ok(sessionTasksSource.includes('export interface SessionTaskItem {'));
+  assert.ok(sessionTasksSource.includes('export function resolveSessionTaskItems('));
   assert.ok(sessionDetailsSource.includes('onOpenTask?: (target: TaskNavigationTarget) => void'));
   assert.ok(sessionDetailsSource.includes('onOpenTask?.({ taskId: taskItem.id, specSlug })'));
 

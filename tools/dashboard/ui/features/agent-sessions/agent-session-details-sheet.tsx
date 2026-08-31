@@ -5,7 +5,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { AgentSessionDetails, type SessionTaskItem } from './agent-session-details';
+import { AgentSessionDetails } from './agent-session-details';
+import type { SessionTaskItem } from './session-tasks';
 import type { AgentExecutionMode, AgentSession, TaskNavigationTarget } from './types';
 import type { SpecificationSummary } from '@/features/specifications/types';
 
