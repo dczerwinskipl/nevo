@@ -286,7 +286,7 @@ export class TurnLifecycleCoordinator {
       metadata: { seq: item.seq, type: item.type },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -328,7 +328,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: item.status },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -343,7 +343,9 @@ export class TurnLifecycleCoordinator {
       ? this.#turn.work.find(w => w.id === this.#activeCommentaryId && w.type === 'commentary' && w.status === 'streaming')
       : null;
 
+    let isNewBlock = false;
     if (!currentItem) {
+      isNewBlock = true;
       const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
         ? messageId
         : `commentary-${this.#turn.id}-${this.#turn.work.length + 1}`;
@@ -366,7 +368,7 @@ export class TurnLifecycleCoordinator {
         status: 'streaming',
       });
     }
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: isNewBlock ? true : 'throttled' });
     return currentItem;
   }
 
@@ -381,7 +383,9 @@ export class TurnLifecycleCoordinator {
       ? this.#turn.work.find(w => w.id === this.#activeReasoningId && w.type === 'reasoning' && w.status === 'streaming')
       : null;
 
+    let isNewBlock = false;
     if (!currentItem) {
+      isNewBlock = true;
       const generatedId = (messageId && !this.#turn.work.some(w => w.id === messageId))
         ? messageId
         : `reasoning-${this.#turn.id}-${this.#turn.work.length + 1}`;
@@ -405,7 +409,7 @@ export class TurnLifecycleCoordinator {
         status: 'streaming',
       });
     }
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: isNewBlock ? true : 'throttled' });
     return currentItem;
   }
 
@@ -464,7 +468,7 @@ export class TurnLifecycleCoordinator {
       metadata: { toolName },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -499,7 +503,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: normalizedStatus },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -547,7 +551,7 @@ export class TurnLifecycleCoordinator {
       metadata: { status: validStatus, durationMs },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -594,7 +598,7 @@ export class TurnLifecycleCoordinator {
       metadata: { kind: interaction.kind },
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -637,7 +641,7 @@ export class TurnLifecycleCoordinator {
       afterStatus: this.#turn.status,
     });
 
-    this.#notifyTurnUpdated();
+    this.#notifyTurnUpdated({ semantic: true });
     return item;
   }
 
@@ -921,7 +925,7 @@ export class TurnLifecycleCoordinator {
       cause: effectiveCause,
     });
 
-    this.#notifyTurnUpdated({ semantic: false });
+    this.#notifyTurnUpdated({ semantic: true });
     return terminalStatus;
   }
 

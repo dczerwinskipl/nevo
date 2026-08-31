@@ -363,25 +363,44 @@ export class SessionTranscriptCacheService {
         this.#dirty.delete(key);
 
         const filePath = this.#getFilePath(provider, providerSessionId);
-        await mkdir(dirname(filePath), { recursive: true });
-
-        const content = JSON.stringify(state, null, 2);
         const tempPath = `${filePath}.${randomUUID()}.tmp`;
-        await writeFile(tempPath, content, 'utf-8');
         try {
-          await rename(tempPath, filePath);
-        } catch (renameErr) {
-          if (process.platform === 'win32') {
-            await new Promise(r => setTimeout(r, 10));
-            try {
-              await rename(tempPath, filePath);
-            } catch {
-              await writeFile(filePath, content, 'utf-8');
-              await unlink(tempPath).catch(() => {});
+          await mkdir(dirname(filePath), { recursive: true });
+
+          const content = JSON.stringify(state, null, 2);
+          await writeFile(tempPath, content, 'utf-8');
+          try {
+            await rename(tempPath, filePath);
+          } catch (renameErr) {
+            if (process.platform === 'win32') {
+              await new Promise(r => setTimeout(r, 10));
+              try {
+                await rename(tempPath, filePath);
+              } catch {
+                await writeFile(filePath, content, 'utf-8');
+                await unlink(tempPath).catch(() => {});
+              }
+            } else {
+              throw renameErr;
             }
-          } else {
-            throw renameErr;
           }
+
+          if (state.health === 'unhealthy') {
+            state.health = 'healthy';
+            delete state.error;
+            delete state.persistenceError;
+          }
+        } catch (writeErr) {
+          await unlink(tempPath).catch(() => {});
+          state.health = 'unhealthy';
+          state.error = `Write failure: ${writeErr.message}`;
+          state.persistenceError = {
+            code: writeErr.code || 'EWRITE',
+            message: writeErr.message,
+            at: new Date().toISOString(),
+          };
+          this.#dirty.add(key);
+          throw writeErr;
         }
       })
       .finally(() => {

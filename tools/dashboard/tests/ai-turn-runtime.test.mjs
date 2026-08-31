@@ -139,8 +139,8 @@ test('turns stream ordered deltas (text.delta) and complete with terminal snapsh
   const fixture = createFixture();
   const { turnId } = await fixture.runtime.startTurn({ provider: 'fake', providerSessionId: 's1', message: 'normal' });
   const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed', 'completion');
-  assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'text.delta', 'text.delta', 'turn.completed']);
-  assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4]);
+  assert.deepEqual(snapshot.events.map(event => event.type), ['turn.started', 'turn.updated', 'text.delta', 'text.delta', 'turn.updated', 'turn.completed']);
+  assert.deepEqual(snapshot.events.map(event => event.id), [1, 2, 3, 4, 5, 6]);
   assert.equal(snapshot.providerSessionId, 's1');
   assert.equal(snapshot.sessionId, undefined);
 });
@@ -155,11 +155,11 @@ test('progress.delta remains ordered provider-neutral activity and never becomes
     });
     const snapshot = await waitFor(() => fixture.runtime.getSnapshot(turnId), value => value.status === 'completed');
     assert.deepEqual(snapshot.events.map(event => event.type), [
-      'turn.started', 'text.delta', 'progress.delta', 'text.delta', 'turn.completed',
+      'turn.started', 'turn.updated', 'text.delta', 'progress.delta', 'text.delta', 'turn.updated', 'turn.completed',
     ]);
     const progress = snapshot.events.find(event => event.type === 'progress.delta');
-    assert.equal(progress.id, 3);
-    assert.equal(progress.seq, 3);
+    assert.equal(progress.id, 4);
+    assert.equal(progress.seq, 4);
     assert.equal(progress.turnId, turnId);
     assert.equal(progress.progressId, 'progress-1');
     assert.equal(progress.text, 'checking...');
@@ -277,12 +277,12 @@ test('session-wide monotonic sequence numbering across multiple turns', async ()
   // Turn 1
   const turn1 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
   const snap1 = await waitFor(() => fixture.runtime.getSnapshot(turn1.turnId), v => v.status === 'completed');
-  assert.deepEqual(snap1.events.map(e => e.seq), [1, 2, 3, 4]);
+  assert.deepEqual(snap1.events.map(e => e.seq), [1, 2, 3, 4, 5, 6]);
 
   // Turn 2
   const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
   const snap2 = await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
-  assert.deepEqual(snap2.events.map(e => e.seq), [5, 6, 7, 8]);
+  assert.deepEqual(snap2.events.map(e => e.seq), [7, 8, 9, 10, 11, 12]);
 });
 
 test('session-scoped subscription receives events across turns with monotonic sequence', async () => {
@@ -300,8 +300,8 @@ test('session-scoped subscription receives events across turns with monotonic se
   const turn2 = await fixture.runtime.startTurn({ ...sessionIdentity, message: 'normal' });
   await waitFor(() => fixture.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
 
-  assert.equal(sessionEvents.length, 8);
-  assert.deepEqual(sessionEvents.map(e => e.seq), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(sessionEvents.length, 12);
+  assert.deepEqual(sessionEvents.map(e => e.seq), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   unsub();
 });
 
@@ -317,15 +317,15 @@ test('reconstruction after restart preserves session sequence from transcript ca
     await transcriptCache.flush('fake', 'sess-restart');
 
     const transcript = await transcriptCache.getTranscript('fake', 'sess-restart');
-    assert.equal(transcript.lastEventSeq, 4);
+    assert.equal(transcript.lastEventSeq, 6);
 
     // Reconstruct runtime 2 (simulating server restart)
     const fixture2 = createFixture({ transcriptCache });
     const turn2 = await fixture2.runtime.startTurn({ provider: 'fake', providerSessionId: 'sess-restart', message: 'normal' });
     const snap2 = await waitFor(() => fixture2.runtime.getSnapshot(turn2.turnId), v => v.status === 'completed');
 
-    // Sequence must continue at 5, 6, 7, 8
-    assert.deepEqual(snap2.events.map(e => e.seq), [5, 6, 7, 8]);
+    // Sequence must continue at 7, 8, 9, 10, 11, 12
+    assert.deepEqual(snap2.events.map(e => e.seq), [7, 8, 9, 10, 11, 12]);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -493,7 +493,7 @@ test('transcript caching persists messages, tool invocations, reasoning, and pre
 
     // Invariant check: lastEventSeq matches highest sequence
     assert.equal(transcript.lastEventSeq > 0, true);
-    assert.equal(transcript.lastEventSeq, 8);
+    assert.equal(transcript.lastEventSeq, 14);
     const snapshot = fixture.runtime.getSnapshot(turnId);
     assert.equal(transcript.lastEventSeq, snapshot.lastEventId);
   } finally {

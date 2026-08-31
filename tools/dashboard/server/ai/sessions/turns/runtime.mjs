@@ -188,14 +188,29 @@ export class AgentTurnRuntime {
         mode: validatedMode,
         prompt: inputMessage,
         traceSink: this.traceSink,
-        onTurnUpdated: (turnSnapshot, { semantic = false } = {}) => {
+        onTurnUpdated: (turnSnapshot, { semantic = true } = {}) => {
           const sessId = turnSnapshot.providerSessionId || state?.providerSessionId;
           if (sessId && this.transcriptCache?.recordCanonicalTurn) {
             turnSnapshot.prompt = turnSnapshot.prompt || inputMessage;
             this.transcriptCache.recordCanonicalTurn(turnSnapshot.provider, sessId, turnSnapshot);
           }
-          if (state && semantic) {
+          if (!state) return;
+          if (semantic === true) {
+            if (state.pendingTurnUpdateTimer) {
+              clearTimeout(state.pendingTurnUpdateTimer);
+              state.pendingTurnUpdateTimer = null;
+            }
             this.#emit(state, 'turn.updated', { turn: turnSnapshot });
+          } else if (semantic === 'throttled') {
+            if (!state.pendingTurnUpdateTimer) {
+              state.pendingTurnUpdateTimer = setTimeout(() => {
+                state.pendingTurnUpdateTimer = null;
+                if (!this.#isTerminal(state)) {
+                  this.#emit(state, 'turn.updated', { turn: state.coordinator.getCanonicalSnapshot() });
+                }
+              }, 50);
+              state.pendingTurnUpdateTimer.unref?.();
+            }
           }
         },
       });
@@ -212,6 +227,7 @@ export class AgentTurnRuntime {
         idempotencyKey,
         onSessionEstablished,
         finished: false,
+        pendingTurnUpdateTimer: null,
         abortController: new AbortController(),
         agentProvider,
         privateOperation: undefined,
@@ -807,9 +823,14 @@ export class AgentTurnRuntime {
     if (state.finished) return Promise.resolve();
     state.finished = true;
 
+    if (state.pendingTurnUpdateTimer) {
+      clearTimeout(state.pendingTurnUpdateTimer);
+      state.pendingTurnUpdateTimer = null;
+    }
+
     const outcome = options.outcome ?? (type === 'turn.completed' ? 'completed' : 'failed');
     const cause = options.cause ?? error?.code;
-    state.coordinator.settleTerminal({
+    const terminalStatus = state.coordinator.settleTerminal({
       outcome,
       initiator: options.initiator ?? 'provider',
       cause,
@@ -819,8 +840,39 @@ export class AgentTurnRuntime {
     state.completedAt = this.#timestamp();
     this.#activeBySession.delete(state.key);
     this.#notifyProviderState(state);
-    console.log(`[ai] [turn:${type}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${error ? ` error="${error.message}"` : ''}`);
-    this.#emit(state, type, error ? { error: publicFailure(error) } : {});
+
+    // Authoritative external event derivation from accepted canonical outcome
+    let effectiveEventType = 'turn.completed';
+    let eventData = {};
+
+    if (terminalStatus.outcome === 'completed') {
+      effectiveEventType = 'turn.completed';
+      eventData = {};
+    } else {
+      effectiveEventType = 'turn.failed';
+      const effectiveCode = terminalStatus.outcome === 'cancelled'
+        ? 'AI_TURN_CANCELLED'
+        : (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT')
+          ? 'AI_TURN_TIMEOUT'
+          : (error?.code || 'AI_TURN_FAILED');
+      const effectiveMessage = error?.message || (terminalStatus.outcome === 'cancelled'
+        ? 'The turn was cancelled.'
+        : (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT')
+          ? 'The turn was cancelled because it stopped responding.'
+          : 'The turn failed.');
+      eventData = {
+        error: publicFailure(
+          error ?? new AiError(effectiveCode, effectiveMessage, { status: effectiveCode === 'AI_TURN_TIMEOUT' ? 504 : 500 }),
+        ),
+      };
+    }
+
+    console.log(
+      `[ai] [turn:${effectiveEventType}] turnId=${state.turnId} provider=${state.provider} session=${state.providerSessionId}${
+        eventData.error ? ` error="${eventData.error.message}"` : ''
+      }`,
+    );
+    this.#emit(state, effectiveEventType, eventData);
     this.#eventStream.clearTurnSubscribers(state.turnId);
     this.#terminalOrder.push(state.turnId);
     while (this.#terminalOrder.length > this.maxRetainedTurns) {
