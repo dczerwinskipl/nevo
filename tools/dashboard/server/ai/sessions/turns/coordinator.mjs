@@ -188,15 +188,16 @@ export class TurnLifecycleCoordinator {
    * Bind providerSessionId late when provider confirms/allocates it.
    */
   bindProviderSessionId(allocatedSessionId) {
-    bindTurnProviderSessionId(this.#turn, allocatedSessionId);
+    const boundId = bindTurnProviderSessionId(this.#turn, allocatedSessionId);
     this.#tracer?.record?.({
       source: 'coordinator',
       event: 'provider_session.bound',
-      subjectId: allocatedSessionId,
+      subjectId: boundId,
       disposition: 'accepted',
+      metadata: { providerSessionId: boundId, sessionId: this.#turn.sessionId },
     });
-    this.#notifyTurnUpdated();
-    return allocatedSessionId;
+    this.#notifyTurnUpdated({ semantic: true });
+    return boundId;
   }
 
   /**
@@ -720,32 +721,22 @@ export class TurnLifecycleCoordinator {
   }
 
   /**
-   * Late-bind the provider session ID to this Turn aggregate.
-   */
-  bindProviderSessionId(providerSessionId) {
-    if (this.#turn.providerSessionId && this.#turn.providerSessionId !== providerSessionId) {
-      throw new AiValidationError(
-        `Cannot re-bind providerSessionId to '${providerSessionId}' when already bound to '${this.#turn.providerSessionId}'.`,
-      );
-    }
-    this.#turn.providerSessionId = providerSessionId;
-    this.#turn.sessionId = providerSessionId;
-    this.#notifyTurnUpdated({ semantic: false });
-    return true;
-  }
-
-  /**
    * Request timeout intent. Sets timeout intention without marking turn terminal prematurely,
    * guaranteeing that timeout outcome arbitrates over subsequent provider completion.
    */
   requestTimeoutIntent({ initiator = 'runtime', cause = 'timeout/protocol-silence' } = {}) {
-    if (this.isTerminal) {
+    if (this.isTerminal || this.#timeoutRequested || this.isCancelling) {
       this.#tracer?.record?.({
         source: 'runtime',
         event: 'timeout.intent_ignored',
         disposition: 'ignored',
         initiator,
         cause,
+        metadata: {
+          isTerminal: this.isTerminal,
+          timeoutRequested: this.#timeoutRequested,
+          isCancelling: this.isCancelling,
+        },
       });
       return false;
     }
@@ -770,13 +761,18 @@ export class TurnLifecycleCoordinator {
    * Request cancellation of the turn.
    */
   requestCancellation({ initiator = 'user', cause = 'user_cancelled' } = {}) {
-    if (this.isTerminal) {
+    if (this.isTerminal || this.#cancellationRequested || this.isCancelling) {
       this.#tracer?.record?.({
         source: 'runtime',
         event: 'cancel.ignored',
         disposition: 'ignored',
         initiator,
         cause,
+        metadata: {
+          isTerminal: this.isTerminal,
+          cancellationRequested: this.#cancellationRequested,
+          isCancelling: this.isCancelling,
+        },
       });
       return false;
     }
@@ -810,7 +806,7 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal || timeoutMs <= 0) return { fired: false };
 
     // 1. Suppression checks
-    if (this.isCancelling) {
+    if (this.isCancelling || this.#cancellationRequested) {
       this.#tracer?.record?.({
         source: 'coordinator',
         event: 'timeout.suppressed',
@@ -821,6 +817,19 @@ export class TurnLifecycleCoordinator {
         },
       });
       return { fired: false, suppressed: 'cancelling' };
+    }
+
+    if (this.#timeoutRequested) {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: {
+          kind: 'protocol-silence',
+          suppressionReason: 'timeout_already_requested',
+        },
+      });
+      return { fired: false, suppressed: 'timeout_already_requested' };
     }
 
     if (this.hasOpenTools) {
@@ -920,6 +929,26 @@ export class TurnLifecycleCoordinator {
       }
     }
 
+    let effectiveError = error;
+    if (effectiveOutcome === 'completed') {
+      effectiveError = undefined;
+    } else if (effectiveOutcome === 'cancelled') {
+      effectiveError = {
+        code: 'AI_TURN_CANCELLED',
+        message: 'The turn was cancelled.',
+      };
+    } else if (effectiveCause === 'timeout/protocol-silence' || effectiveCause === 'AI_TURN_TIMEOUT') {
+      effectiveError = {
+        code: 'AI_TURN_TIMEOUT',
+        message: 'The turn was cancelled because it stopped responding.',
+      };
+    } else {
+      effectiveError = error ? structuredClone(error) : {
+        code: 'AI_TURN_FAILED',
+        message: 'The turn failed.',
+      };
+    }
+
     this.#isTerminal = true;
     this.#closeDanglingTools(effectiveOutcome, effectiveCause);
 
@@ -947,7 +976,7 @@ export class TurnLifecycleCoordinator {
       initiator: effectiveInitiator,
       cause: effectiveCause,
       finishReason,
-      ...(error ? { error } : {}),
+      ...(effectiveError ? { error: effectiveError } : {}),
     });
 
     this.#tracer?.record?.({

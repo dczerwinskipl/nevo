@@ -127,7 +127,7 @@ tasks:
       - lifecycle-coordinator-and-timeouts
     implementation:
       baseline_revision: 56cc0d54e192280f2e18ef713864462f725ddcf2
-      review_revision: b844bac126d46e0919c410a792b52242571f64fa
+      review_revision: a3fe85e544f2b678c1aa0e8a9070c91e2fe1f3f7
       changed_paths:
         - tools/dashboard/server/ai/contracts.mjs
         - tools/dashboard/server/ai/diagnostics/trace-record.mjs
@@ -139,10 +139,10 @@ tasks:
         - tools/dashboard/server/ai/sessions/turns/runtime.mjs
         - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
         - tools/dashboard/tests/ai-server.test.mjs
-      worktree_patch_fingerprint: 7d8336f7c0ec456093f294ecdf23bf9b28cf1ddcc01d8c5f7c576732685e4824
+      worktree_patch_fingerprint: 2e24529614175d670810beccd64378f04cc73e3283fde9d67ad0503ab60bc7f6
     self_check:
       fingerprint: ba73497dc34110bf99c2d92004fb1605e57e7f5228c95c893ee17aa514e3a248
-      revision: b844bac126d46e0919c410a792b52242571f64fa
+      revision: a3fe85e544f2b678c1aa0e8a9070c91e2fe1f3f7
       commands:
         - command: node --experimental-strip-types --test
             tools/dashboard/tests/ai-server.test.mjs

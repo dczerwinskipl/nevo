@@ -619,7 +619,8 @@ export class AgentTurnRuntime {
     if (this.#isTerminal(state)) return this.getSnapshot(turnId);
 
     const isWaiting = state.coordinator.status.status === 'requiresAttention' || state.coordinator.pendingInteraction;
-    state.coordinator.requestCancellation({ initiator: 'user' });
+    const accepted = state.coordinator.requestCancellation({ initiator: 'user' });
+    if (!accepted) return this.getSnapshot(turnId);
 
     if (isWaiting) {
       const error = new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 });
@@ -662,7 +663,8 @@ export class AgentTurnRuntime {
    */
   async #timeoutRunningTurn(state, error) {
     if (state.finished) return;
-    state.coordinator.requestTimeoutIntent({ cause: 'timeout/protocol-silence', initiator: 'runtime' });
+    const accepted = state.coordinator.requestTimeoutIntent({ cause: 'timeout/protocol-silence', initiator: 'runtime' });
+    if (!accepted) return;
     const entry = this.registry.get(state.provider);
     if (state.privateOperation && entry?.provider?.cancelTurn) {
       try {
@@ -827,25 +829,17 @@ export class AgentTurnRuntime {
     if (terminalStatus.outcome === 'completed') {
       effectiveEventType = 'turn.completed';
       eventData = {};
-    } else if (terminalStatus.outcome === 'cancelled') {
-      effectiveEventType = 'turn.failed';
-      eventData = {
-        error: publicFailure(
-          new AiError('AI_TURN_CANCELLED', 'The turn was cancelled.', { status: 409 }),
-        ),
-      };
-    } else if (terminalStatus.cause === 'timeout/protocol-silence' || terminalStatus.cause === 'AI_TURN_TIMEOUT') {
-      effectiveEventType = 'turn.failed';
-      eventData = {
-        error: publicFailure(
-          new AiError('AI_TURN_TIMEOUT', 'The turn was cancelled because it stopped responding.', { status: 504 }),
-        ),
-      };
     } else {
       effectiveEventType = 'turn.failed';
+      const terminalErr = terminalStatus.error;
+      const status = terminalErr?.code === 'AI_TURN_TIMEOUT'
+        ? 504
+        : (terminalErr?.code === 'AI_TURN_CANCELLED' ? 409 : (error?.status || 500));
       eventData = {
         error: publicFailure(
-          error ?? new AiError(terminalStatus.error?.code || 'AI_TURN_FAILED', terminalStatus.error?.message || 'The turn failed.', { status: 500 }),
+          terminalErr
+            ? new AiError(terminalErr.code, terminalErr.message, { status })
+            : (error ?? new AiError('AI_TURN_FAILED', 'The turn failed.', { status: 500 })),
         ),
       };
     }

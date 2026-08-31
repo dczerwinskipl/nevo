@@ -369,6 +369,9 @@ export function bindTurnProviderSessionId(turn, allocatedId) {
     );
   }
   turn.providerSessionId = validId;
+  if (!turn.sessionId) {
+    turn.sessionId = validId;
+  }
   turn.updatedAt = new Date().toISOString();
   return validId;
 }

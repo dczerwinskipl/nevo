@@ -232,7 +232,7 @@ test('Part A2: Live SSE vs Reconnected SSE vs HTTP V2 vs Persistence Reload all 
   }
 });
 
-test('Part A3: Terminal arbitration: timeout intent prevails over subsequent provider error', async () => {
+test('Part A3: Terminal arbitration: timeout intent prevails over subsequent provider error and guarantees equality across all read paths', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-timeout-err-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -284,17 +284,37 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
     if (finishDeferred) finishDeferred();
     await new Promise(r => setTimeout(r, 60));
 
-    // Assert: external event MUST be AI_TURN_TIMEOUT, not AI_PROVIDER_PROTOCOL_ERROR!
-    const failedEvent = sessionEvents.find(e => e.type === 'turn.failed');
-    assert.ok(failedEvent, 'turn.failed must be emitted');
+    // 1. Public terminal event assertion
+    const failedEvents = sessionEvents.filter(e => e.type === 'turn.failed');
+    assert.equal(failedEvents.length, 1, 'Exactly one turn.failed must be emitted');
+    const failedEvent = failedEvents[0];
     assert.equal(failedEvent.error.code, 'AI_TURN_TIMEOUT');
     assert.equal(sessionEvents.some(e => e.type === 'turn.completed'), false);
 
-    // Canonical state outcome must be failed with timeout/protocol-silence
+    // 2. Canonical in-memory Turn assertion
     const canonical = runtime.getCanonicalTurn(turnId);
     assert.equal(canonical.status.status, 'terminal');
     assert.equal(canonical.status.outcome, 'failed');
     assert.equal(canonical.status.cause, 'timeout/protocol-silence');
+    assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(canonical.terminalOutcome.error.code, 'AI_TURN_TIMEOUT');
+
+    // 3. Persisted Turn & Fresh Reload assertion
+    await transcriptCache.flush('fake-timeout-err', 'sess-timeout-err-1');
+    const freshCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const persistedTranscript = await freshCache.getTranscript('fake-timeout-err', 'sess-timeout-err-1');
+    const persistedTurn = persistedTranscript.turns.find(t => t.id === turnId);
+    assert.ok(persistedTurn);
+    assert.equal(persistedTurn.status.status, 'terminal');
+    assert.equal(persistedTurn.status.outcome, 'failed');
+    assert.equal(persistedTurn.status.cause, 'timeout/protocol-silence');
+    assert.equal(persistedTurn.status.error.code, 'AI_TURN_TIMEOUT');
+    assert.equal(persistedTurn.terminalOutcome.error.code, 'AI_TURN_TIMEOUT');
+
+    // 4. Equal across all read paths
+    assert.deepEqual(canonical.status.error, persistedTurn.status.error);
+    assert.deepEqual(canonical.terminalOutcome.error, persistedTurn.terminalOutcome.error);
+    assert.equal(failedEvent.error.code, canonical.status.error.code);
 
     unsub();
     await runtime.shutdown();
@@ -303,7 +323,7 @@ test('Part A3: Terminal arbitration: timeout intent prevails over subsequent pro
   }
 });
 
-test('Part A3: Terminal arbitration: user cancellation prevails over subsequent provider error', async () => {
+test('Part A3: Terminal arbitration: user cancellation prevails over subsequent provider error and guarantees equality across all read paths', async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-cancel-err-'));
   try {
     const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
@@ -350,18 +370,200 @@ test('Part A3: Terminal arbitration: user cancellation prevails over subsequent 
     if (finishDeferred) finishDeferred();
     await new Promise(r => setTimeout(r, 60));
 
-    // Assert: external event MUST be AI_TURN_CANCELLED, not AI_PROVIDER_PROTOCOL_ERROR!
-    const failedEvent = sessionEvents.find(e => e.type === 'turn.failed');
-    assert.ok(failedEvent, 'turn.failed must be emitted');
+    // 1. Public terminal event assertion
+    const failedEvents = sessionEvents.filter(e => e.type === 'turn.failed');
+    assert.equal(failedEvents.length, 1, 'Exactly one turn.failed must be emitted');
+    const failedEvent = failedEvents[0];
     assert.equal(failedEvent.error.code, 'AI_TURN_CANCELLED');
     assert.equal(sessionEvents.some(e => e.type === 'turn.completed'), false);
 
-    // Canonical state outcome must be cancelled
+    // 2. Canonical in-memory Turn assertion
     const canonical = runtime.getCanonicalTurn(turnId);
     assert.equal(canonical.status.status, 'terminal');
     assert.equal(canonical.status.outcome, 'cancelled');
+    assert.equal(canonical.status.error.code, 'AI_TURN_CANCELLED');
+    assert.equal(canonical.terminalOutcome.error.code, 'AI_TURN_CANCELLED');
+
+    // 3. Persisted Turn & Fresh Reload assertion
+    await transcriptCache.flush('fake-cancel-err', 'sess-cancel-err-1');
+    const freshCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const persistedTranscript = await freshCache.getTranscript('fake-cancel-err', 'sess-cancel-err-1');
+    const persistedTurn = persistedTranscript.turns.find(t => t.id === turnId);
+    assert.ok(persistedTurn);
+    assert.equal(persistedTurn.status.status, 'terminal');
+    assert.equal(persistedTurn.status.outcome, 'cancelled');
+    assert.equal(persistedTurn.status.error.code, 'AI_TURN_CANCELLED');
+    assert.equal(persistedTurn.terminalOutcome.error.code, 'AI_TURN_CANCELLED');
+
+    // 4. Equal across all read paths
+    assert.deepEqual(canonical.status.error, persistedTurn.status.error);
+    assert.deepEqual(canonical.terminalOutcome.error, persistedTurn.terminalOutcome.error);
+    assert.equal(failedEvent.error.code, canonical.status.error.code);
 
     unsub();
+    await runtime.shutdown();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Part A3: Timeout intent idempotency: slow cancelTurn with multiple watchdog ticks invokes provider cleanup at most once', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-timeout-idempotent-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const registry = createAgentProviderRegistry();
+
+    let cancelTurnCallCount = 0;
+    registry.register({
+      descriptor: {
+        id: 'fake-slow-timeout',
+        label: 'Fake Slow Timeout',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        ctx.setOperation({ pid: 12345 });
+        ctx.emitTextDelta('Hanging work...', 'msg-hang');
+        // Hang indefinitely
+        await new Promise(() => {});
+      },
+      async cancelTurn() {
+        cancelTurnCallCount++;
+        // Simulate slow cleanup spanning multiple watchdog intervals
+        await new Promise(r => setTimeout(r, 60));
+      },
+    });
+
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+      idleTimeoutMs: 25,
+      idleCheckIntervalMs: 10,
+    });
+
+    const sessionEvents = [];
+    const unsub = runtime.subscribeToSession({ provider: 'fake-slow-timeout', providerSessionId: 'sess-slow-1' }, {
+      onEvent: ev => sessionEvents.push(ev),
+    });
+
+    const { turnId } = await runtime.startTurn({
+      provider: 'fake-slow-timeout',
+      providerSessionId: 'sess-slow-1',
+      message: 'Hanging turn test',
+    });
+
+    // Wait for terminal settlement (timeout after 25ms + cleanup 60ms)
+    await waitFor(() => {
+      const snap = runtime.getSnapshot(turnId);
+      return snap.status === 'failed';
+    }, v => v === true, 'timeout termination', 3000);
+
+    // Let any trailing watchdog intervals pass
+    await new Promise(r => setTimeout(r, 40));
+
+    // Assert: provider cancelTurn was invoked EXACTLY ONCE
+    assert.equal(cancelTurnCallCount, 1, 'Provider cancelTurn must be called at most once');
+
+    // Assert: exactly one turn.failed was emitted with AI_TURN_TIMEOUT
+    const failedEvents = sessionEvents.filter(e => e.type === 'turn.failed');
+    assert.equal(failedEvents.length, 1, 'Exactly one turn.failed must be emitted');
+    assert.equal(failedEvents[0].error.code, 'AI_TURN_TIMEOUT');
+
+    // Assert: canonical status is failed with timeout/protocol-silence
+    const canonical = runtime.getCanonicalTurn(turnId);
+    assert.equal(canonical.status.outcome, 'failed');
+    assert.equal(canonical.status.cause, 'timeout/protocol-silence');
+    assert.equal(canonical.status.error.code, 'AI_TURN_TIMEOUT');
+
+    unsub();
+    await runtime.shutdown();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('Part A3: Provider session late binding semantics and sessionId vs providerSessionId invariants', async () => {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'nevo-bind-test-'));
+  try {
+    const transcriptCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const registry = createAgentProviderRegistry();
+
+    const recordedTraces = [];
+    const mockTraceSink = {
+      createTurnTracer(meta) {
+        return {
+          record(event) {
+            recordedTraces.push({ ...event, meta });
+          },
+          async flush() {},
+        };
+      },
+    };
+
+    let runtimeContext;
+    registry.register({
+      descriptor: {
+        id: 'fake-late-bind',
+        label: 'Fake Late Bind',
+        capabilities: { cancelTurn: true },
+      },
+      async startTurn(ctx) {
+        runtimeContext = ctx;
+        // Provider dynamically allocates a providerSessionId mid-turn
+        await ctx.setProviderSessionId('allocated-prov-session-99');
+        ctx.emitTextDelta('Session bound and ready.', 'msg-1');
+        return { done: true, providerSessionId: 'allocated-prov-session-99' };
+      },
+      async cancelTurn() {},
+    });
+
+    const runtime = createAgentTurnRuntime({
+      registry,
+      transcriptCache,
+      traceSink: mockTraceSink,
+    });
+
+    // Start turn 1 without pre-existing providerSessionId
+    const { turnId: turn1Id } = await runtime.startTurn({
+      provider: 'fake-late-bind',
+      message: 'Initial dynamic session turn',
+    });
+
+    await waitFor(() => runtime.getSnapshot(turn1Id), v => v.status === 'completed', 'turn completion');
+
+    const canonical1 = runtime.getCanonicalTurn(turn1Id);
+    assert.equal(canonical1.providerSessionId, 'allocated-prov-session-99');
+    assert.equal(canonical1.sessionId, 'allocated-prov-session-99');
+
+    // Verify trace sink contains provider_session.bound event
+    const boundTrace = recordedTraces.find(t => t.event === 'provider_session.bound');
+    assert.ok(boundTrace, 'Trace must contain provider_session.bound event');
+    assert.equal(boundTrace.metadata?.providerSessionId, 'allocated-prov-session-99');
+
+    // Verify persisted Turn in cache
+    await transcriptCache.flush('fake-late-bind', 'allocated-prov-session-99');
+    const freshCache = createTranscriptCacheService({ baseDir: tmpDir, flushDebounceMs: 0 });
+    const transcript = await freshCache.getTranscript('fake-late-bind', 'allocated-prov-session-99');
+    assert.equal(transcript.turns.length, 1);
+    assert.equal(transcript.turns[0].providerSessionId, 'allocated-prov-session-99');
+
+    // Attempted re-bind to a different providerSessionId must be rejected
+    const coordinator1 = runtime.getCoordinator(turn1Id);
+    assert.throws(
+      () => coordinator1.bindProviderSessionId('malicious-rebind-id'),
+      /Cannot re-bind turn/,
+    );
+
+    // Turn 2 in same session starts with allocated providerSessionId
+    const coordinator2 = new TurnLifecycleCoordinator({
+      turnId: 'turn-2',
+      sessionId: 'stable-nevo-session-id',
+      provider: 'fake-late-bind',
+      providerSessionId: 'allocated-prov-session-99',
+    });
+    const snap2 = coordinator2.getCanonicalSnapshot();
+    assert.equal(snap2.sessionId, 'stable-nevo-session-id', 'Pre-existing Nevo sessionId is preserved');
+    assert.equal(snap2.providerSessionId, 'allocated-prov-session-99', 'providerSessionId matches allocated session');
+
     await runtime.shutdown();
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
