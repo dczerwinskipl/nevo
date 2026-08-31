@@ -1188,4 +1188,225 @@ test('timeout versus user cancellation race: timeout persists failed with timeou
   assert.equal(coordinator.status.cause, 'timeout/protocol-silence');
 });
 
+test('regression: long-running tool suppresses protocol silence timeout through runtime integration', async () => {
+  let finishTool;
+  const toolHoldingProvider = {
+    descriptor: { id: 'tool-holder', label: 'Tool Holder', capabilities },
+    async startTurn({ emitDelta, emitToolStarted, emitToolCompleted, signal }) {
+      emitDelta('starting');
+      emitToolStarted({ toolId: 't-long', toolName: 'heavyBuild' });
+      await new Promise(resolve => { finishTool = resolve; });
+      emitToolCompleted({ toolId: 't-long', status: 'completed', durationMs: 100 });
+      emitDelta('finished');
+    },
+    async cancelTurn() {},
+  };
+
+  const registry = createAgentProviderRegistry([toolHoldingProvider]);
+  const runtime = createAgentTurnRuntime({
+    registry,
+    idleTimeoutMs: 25,
+    idleCheckIntervalMs: 5,
+  });
+
+  const { turnId } = await runtime.startTurn({
+    provider: 'tool-holder',
+    providerSessionId: 'sess-long-tool',
+    message: 'run',
+  });
+
+  // Wait 40ms (> idleTimeoutMs 25ms) while tool is open
+  await new Promise(r => setTimeout(r, 40));
+  const midSnapshot = runtime.getSnapshot(turnId);
+  const midTurn = runtime.getCanonicalTurn(turnId);
+  assert.equal(midSnapshot.status, 'running');
+  assert.equal(midTurn.status.status, 'active');
+  assert.equal(midTurn.status.detail, 'tool_execution');
+
+  // Complete tool
+  finishTool();
+  const completedSnapshot = await waitFor(() => runtime.getSnapshot(turnId), v => v.status === 'completed', 'tool finish');
+  const completedTurn = runtime.getCanonicalTurn(turnId);
+  assert.equal(completedSnapshot.status, 'completed');
+  assert.equal(completedTurn.work.find(w => w.id === 't-long').status, 'completed');
+  runtime.shutdown();
+});
+
+test('regression: provider wait without active tool maintains canonical waiting/liveness semantics', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-wait-1',
+    sessionId: 'sess-wait',
+    provider: 'codex',
+  });
+
+  coordinator.requestStatusTransition({
+    status: 'waiting',
+    reason: 'provider_response',
+    subjectId: 'op-123',
+  });
+
+  const activity = coordinator.getCurrentActivity();
+  assert.equal(activity.kind, 'waiting');
+  assert.equal(activity.status, 'waiting');
+  assert.equal(activity.title, 'Waiting for model response');
+  assert.equal(activity.subjectId, 'op-123');
+});
+
+test('regression: successful completion followed by late events preserves immutability', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-immutable-1',
+    sessionId: 'sess-imm',
+    provider: 'claude',
+  });
+
+  coordinator.recordTextDelta('Initial answer', 'msg-1');
+  coordinator.setFinalAnswer({
+    id: 'final-1',
+    text: 'All done.',
+    status: 'completed',
+  });
+  coordinator.settleTerminal({ outcome: 'completed' });
+
+  assert.equal(coordinator.isTerminal, true);
+  assert.equal(coordinator.status.status, 'terminal');
+  assert.equal(coordinator.status.outcome, 'completed');
+  const workCountBefore = coordinator.turn.work.length;
+
+  // Late commentary delta
+  const lateCommentary = coordinator.recordTextDelta('Late extra text', 'msg-late');
+  assert.equal(lateCommentary, null);
+
+  // Late tool start
+  const lateTool = coordinator.recordToolStarted({ toolId: 't-late', toolName: 'lateTool' });
+  assert.equal(lateTool, null);
+
+  // Late work append
+  const lateWork = coordinator.appendWork({ id: 'late-work', type: 'commentary', text: 'late' });
+  assert.equal(lateWork, null);
+
+  // Late transition
+  const lateTransition = coordinator.requestStatusTransition({ status: 'active' });
+  assert.equal(lateTransition.status, 'terminal');
+
+  // Assert immutable state
+  assert.equal(coordinator.turn.work.length, workCountBefore);
+  assert.equal(coordinator.turn.status.status, 'terminal');
+  assert.equal(coordinator.turn.status.outcome, 'completed');
+});
+
+test('regression: cancel followed by late tool result preserves cancelled outcome', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-cancel-race-1',
+    sessionId: 'sess-cr',
+    provider: 'codex',
+  });
+
+  coordinator.recordToolStarted({ toolId: 't-active', toolName: 'compiler' });
+  assert.equal(coordinator.hasOpenTools, true);
+
+  // Cancel turn
+  coordinator.requestCancellation({ initiator: 'user' });
+  coordinator.settleTerminal({ outcome: 'cancelled', initiator: 'user' });
+
+  assert.equal(coordinator.isTerminal, true);
+  assert.equal(coordinator.status.outcome, 'cancelled');
+  assert.equal(coordinator.hasOpenTools, false);
+
+  const toolItem = coordinator.turn.work.find(w => w.id === 't-active');
+  assert.equal(toolItem.status, 'cancelled');
+  assert.equal(toolItem.closureReason, 'turn_cancelled');
+
+  // Late tool completed event arrives from detached child process
+  const lateToolResult = coordinator.recordToolCompleted({
+    toolId: 't-active',
+    status: 'completed',
+    output: 'built successfully',
+  });
+  assert.equal(lateToolResult, null);
+
+  // Tool status remains cancelled, turn outcome remains cancelled
+  assert.equal(toolItem.status, 'cancelled');
+  assert.equal(coordinator.status.outcome, 'cancelled');
+});
+
+test('regression: provider session identity late binding and re-bind prevention', async () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-unbound-1',
+    sessionId: 'nevo-session-42',
+    provider: 'antigravity',
+    providerSessionId: null, // Initially unbound
+  });
+
+  assert.equal(coordinator.turn.sessionId, 'nevo-session-42');
+  assert.equal(coordinator.turn.providerSessionId, null);
+
+  // Provider allocates session ID later
+  coordinator.bindProviderSessionId('provider-thread-999');
+  assert.equal(coordinator.turn.providerSessionId, 'provider-thread-999');
+
+  // Re-binding identical ID is idempotent
+  coordinator.bindProviderSessionId('provider-thread-999');
+  assert.equal(coordinator.turn.providerSessionId, 'provider-thread-999');
+
+  // Re-binding different ID throws AiValidationError
+  assert.throws(
+    () => coordinator.bindProviderSessionId('different-thread-888'),
+    { name: 'AiValidationError' },
+  );
+});
+
+test('regression: dangling tool closure preserves truthful closure reasons across all terminal variants', async () => {
+  const variants = [
+    { outcome: 'completed', expectedToolStatus: 'failed', expectedReason: 'turn_completed' },
+    { outcome: 'failed', cause: 'generic_error', expectedToolStatus: 'failed', expectedReason: 'turn_failed' },
+    { outcome: 'cancelled', expectedToolStatus: 'cancelled', expectedReason: 'turn_cancelled' },
+    { outcome: 'interrupted', expectedToolStatus: 'interrupted', expectedReason: 'turn_interrupted' },
+    { outcome: 'failed', cause: 'timeout/protocol-silence', expectedToolStatus: 'failed', expectedReason: 'timeout' },
+  ];
+
+  for (const { outcome, cause, expectedToolStatus, expectedReason } of variants) {
+    const coordinator = new TurnLifecycleCoordinator({
+      turnId: `turn-dangle-${outcome}-${cause || 'default'}`,
+      sessionId: 'sess-dangle',
+      provider: 'mock',
+    });
+
+    coordinator.recordToolStarted({ toolId: 'tool-dangling', toolName: 'worker' });
+    assert.equal(coordinator.hasOpenTools, true);
+
+    coordinator.settleTerminal({ outcome, cause });
+    assert.equal(coordinator.hasOpenTools, false);
+
+    const tool = coordinator.turn.work.find(w => w.id === 'tool-dangling');
+    assert.equal(tool.status, expectedToolStatus, `status mismatch for outcome ${outcome}`);
+    assert.equal(tool.closureReason, expectedReason, `closureReason mismatch for outcome ${outcome}`);
+  }
+});
+
+test('regression: resolving interaction after turn cancellation throws AiNotFoundError', async () => {
+  const fixture = createFixture();
+  const { turnId } = await fixture.runtime.startTurn({
+    provider: 'fake',
+    providerSessionId: 'cancel-int-race',
+    message: 'permission',
+  });
+
+  const waiting = await waitFor(() => fixture.runtime.getSnapshot(turnId), v => v.pendingInteraction, 'waiting');
+  const interactionId = waiting.pendingInteraction.id;
+
+  // Cancel turn
+  await fixture.runtime.cancelTurn(turnId);
+  const cancelled = fixture.runtime.getSnapshot(turnId);
+  assert.equal(cancelled.status, 'failed');
+  assert.equal(cancelled.pendingInteraction, null);
+
+  // Late resolution attempt
+  await assert.rejects(
+    () => fixture.runtime.resolveInteraction(turnId, interactionId, { decision: 'allow' }),
+    { name: 'AiNotFoundError' },
+  );
+  fixture.runtime.shutdown();
+});
+
+
 

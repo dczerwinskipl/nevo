@@ -90,7 +90,7 @@ tasks:
       - neutral-lifecycle-diagnostics
     implementation:
       baseline_revision: bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8
-      review_revision: bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8
+      review_revision: 0479381d392860783bc637da1af4f4ea4a07e05c
       changed_paths:
         - tools/dashboard/server/ai/contracts.mjs
         - tools/dashboard/server/ai/diagnostics/index.mjs
@@ -105,12 +105,13 @@ tasks:
         - tools/dashboard/server/ai/model/work-items.mjs
         - tools/dashboard/server/ai/sessions/turns/coordinator.mjs
         - tools/dashboard/server/ai/sessions/turns/runtime.mjs
+        - tools/dashboard/server/ai/sessions/turns/turn-recovery.mjs
         - tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs
         - tools/dashboard/tests/ai-turn-runtime.test.mjs
-      worktree_patch_fingerprint: e7b32602008f9d330f3a74e1216f6d8a0d04549015ef4eb879bea77fa79e6960
+      worktree_patch_fingerprint: 5557da8661f73396af764e1b9c38eda023eb2624b5e435e14e3b099758cf2f01
     self_check:
       fingerprint: 0894626c45a9ca6a11551e6633c1b656b985a9bad47da3fcdb9297163cf26ac8
-      revision: bde9d884c688825f86cfb6a9d5a9e0e8f9991cf8
+      revision: 0479381d392860783bc637da1af4f4ea4a07e05c
       commands:
         - command: node --test tools/dashboard/tests/ai-turn-runtime.test.mjs
             tools/dashboard/tests/ai-lifecycle-diagnostics.test.mjs

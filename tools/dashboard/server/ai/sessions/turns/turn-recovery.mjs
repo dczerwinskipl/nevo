@@ -2,6 +2,7 @@ import {
   AiError,
   validateAgentExecutionMode,
 } from '../../contracts.mjs';
+import { TurnLifecycleCoordinator } from './coordinator.mjs';
 import { sessionKey } from './turn-event-stream.mjs';
 
 /**
@@ -13,15 +14,28 @@ export function reconstructTurnState({ cached, registry, clock }) {
     ? validateAgentExecutionMode(cached.activeTurn.mode, 'activeTurn.mode')
     : 'edit';
 
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: cached.activeTurn.turnId,
+    sessionId: cached.providerSessionId || cached.activeTurn.turnId,
+    provider: cached.provider,
+    providerSessionId: cached.providerSessionId,
+    mode: restoredMode,
+  });
+
+  if (cached.pendingInteraction) {
+    coordinator.recordInteractionRequested({
+      interaction: structuredClone(cached.pendingInteraction),
+    });
+  }
+
   return {
     turnId: cached.activeTurn.turnId,
+    coordinator,
     provider: cached.provider,
     providerSessionId: cached.providerSessionId,
     identity: { provider: cached.provider, providerSessionId: cached.providerSessionId },
     key: sessionKey(cached.provider, cached.providerSessionId),
     mode: restoredMode,
-    status: 'waitingForUser',
-    pendingInteraction: cached.pendingInteraction ? structuredClone(cached.pendingInteraction) : null,
     abortController: new AbortController(),
     agentProvider: registry.get(cached.provider).provider,
     privateOperation: undefined,

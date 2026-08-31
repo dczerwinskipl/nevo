@@ -35,7 +35,9 @@ export function validateCanonicalTurn(value) {
   const id = requiredString(value.id ?? value.turnId, 'turn.id');
   const sessionId = requiredString(value.sessionId, 'turn.sessionId');
   const provider = requiredString(value.provider, 'turn.provider');
-  const providerSessionId = requiredString(value.providerSessionId, 'turn.providerSessionId');
+  const providerSessionId = value.providerSessionId != null && value.providerSessionId !== ''
+    ? requiredString(value.providerSessionId, 'turn.providerSessionId')
+    : null;
   const mode = validateAgentExecutionMode(value.mode ?? DEFAULT_AGENT_EXECUTION_MODE, 'turn.mode');
 
   const status = validateTurnStatus(value.status);
@@ -350,4 +352,20 @@ export function computeCurrentActivity(turn) {
     title: 'Unknown state',
     status: 'unknown',
   };
+}
+
+export function bindTurnProviderSessionId(turn, allocatedId) {
+  if (!allocatedId || typeof allocatedId !== 'string' || allocatedId.trim().length === 0) {
+    throw new AiValidationError("Property 'providerSessionId' must be a non-empty string.", { field: 'providerSessionId' });
+  }
+  const validId = allocatedId.trim();
+  if (turn.providerSessionId && turn.providerSessionId !== validId) {
+    throw new AiValidationError(
+      `Cannot re-bind turn '${turn.id}' providerSessionId from '${turn.providerSessionId}' to '${validId}'.`,
+      { field: 'providerSessionId' },
+    );
+  }
+  turn.providerSessionId = validId;
+  turn.updatedAt = new Date().toISOString();
+  return validId;
 }

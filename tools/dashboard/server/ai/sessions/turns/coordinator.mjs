@@ -2,6 +2,7 @@ import {
   AiError,
   AiValidationError,
   createCanonicalTurn,
+  bindTurnProviderSessionId,
   appendWorkItem,
   updateWorkItem,
   addToolAction as appendToolAction,
@@ -12,8 +13,8 @@ import {
 } from '../../contracts.mjs';
 
 /**
- * TurnLifecycleCoordinator: Serialized owner of Turn status transitions,
- * ordered Work sequence, multi-tool tracking, timeout decisions, and lifecycle trace.
+ * TurnLifecycleCoordinator: Authoritative synchronous in-memory owner of Turn status transitions,
+ * ordered Work sequence, multi-tool tracking, timeout decisions, and lifecycle trace recording.
  */
 export class TurnLifecycleCoordinator {
   #turn;
@@ -22,30 +23,33 @@ export class TurnLifecycleCoordinator {
   #pendingInteractionId = null;
   #isRecoverableWait = false;
   #lastQualifyingActivityAt = Date.now();
-  #queue = Promise.resolve();
   #isTerminal = false;
+  #activeCommentaryId = null;
+  #activeReasoningId = null;
 
   constructor({
     turnId,
-    sessionId = 'default-session',
+    sessionId = null,
     provider,
     providerSessionId = null,
+    mode = 'edit',
     traceSink = null,
   }) {
-    const effectiveProviderSessionId = providerSessionId || sessionId || 'default-session';
+    const effectiveSessionId = sessionId || turnId;
     this.#turn = createCanonicalTurn({
       id: turnId,
-      sessionId,
+      sessionId: effectiveSessionId,
       provider,
-      providerSessionId: effectiveProviderSessionId,
+      providerSessionId: providerSessionId || null,
+      mode,
     });
 
     const sink = traceSink ?? getGlobalTraceSink();
     this.#tracer = sink?.createTurnTracer?.({
       turnId,
-      sessionId,
+      sessionId: effectiveSessionId,
       provider,
-      providerSessionId: effectiveProviderSessionId,
+      providerSessionId: providerSessionId || null,
     });
 
     this.#tracer?.record?.({
@@ -80,6 +84,14 @@ export class TurnLifecycleCoordinator {
     return this.#pendingInteractionId;
   }
 
+  get pendingInteraction() {
+    if (!this.#pendingInteractionId || this.isTerminal) return null;
+    const item = this.#turn.work.find(
+      w => w.id === this.#pendingInteractionId && w.type === 'interaction' && w.status === 'pending',
+    );
+    return item?.interaction ? structuredClone(item.interaction) : null;
+  }
+
   get lastQualifyingActivityAt() {
     return this.#lastQualifyingActivityAt;
   }
@@ -88,68 +100,108 @@ export class TurnLifecycleCoordinator {
     return this.#tracer;
   }
 
-  touchActivity() {
-    this.#lastQualifyingActivityAt = Date.now();
+  touchActivity(timestamp = Date.now()) {
+    this.#lastQualifyingActivityAt = typeof timestamp === 'number' ? timestamp : Date.now();
   }
 
   setRecoverableWait(value = true) {
     this.#isRecoverableWait = Boolean(value);
   }
 
-  #runSerialized(action) {
-    const next = this.#queue.then(async () => {
-      return action();
+  /**
+   * Bind providerSessionId late when provider confirms/allocates it.
+   */
+  bindProviderSessionId(allocatedSessionId) {
+    bindTurnProviderSessionId(this.#turn, allocatedSessionId);
+    this.#tracer?.record?.({
+      source: 'coordinator',
+      event: 'provider_session.bound',
+      subjectId: allocatedSessionId,
+      disposition: 'accepted',
     });
-    this.#queue = next.catch(() => {});
-    return next;
+    return allocatedSessionId;
   }
 
   /**
    * Request status transition through the coordinator.
    */
   requestStatusTransition(newStatusData, { source = 'coordinator', initiator } = {}) {
-    return this.#runSerialized(() => {
-      if (this.isTerminal) {
-        this.#tracer?.record?.({
-          source,
-          event: 'transition.ignored',
-          disposition: 'ignored',
-          beforeStatus: this.#turn.status,
-          initiator,
-          metadata: { requestedStatus: newStatusData },
-        });
-        return this.#turn.status;
-      }
-
-      const beforeStatus = structuredClone(this.#turn.status);
-      const after = setTurnStatus(this.#turn, newStatusData);
-
-      if (after.status === 'terminal') {
-        this.#isTerminal = true;
-        // Close any dangling open tools with inferred closure
-        this.#closeDanglingTools(after.outcome === 'completed' ? 'turn_completed' : 'turn_failed');
-      }
-
+    if (this.isTerminal) {
       this.#tracer?.record?.({
         source,
-        event: 'transition.accepted',
-        disposition: 'accepted',
-        beforeStatus,
-        afterStatus: after,
-        initiator: initiator ?? after.initiator,
-        cause: after.cause,
+        event: 'transition.ignored',
+        disposition: 'ignored',
+        beforeStatus: this.#turn.status,
+        initiator,
+        metadata: { requestedStatus: newStatusData },
       });
+      return this.#turn.status;
+    }
 
-      return after;
+    const beforeStatus = structuredClone(this.#turn.status);
+    const after = setTurnStatus(this.#turn, newStatusData);
+
+    if (after.status === 'terminal') {
+      this.#isTerminal = true;
+      this.#closeDanglingTools(after.outcome, after.cause);
+      if (this.#pendingInteractionId) {
+        try {
+          updateWorkItem(this.#turn, this.#pendingInteractionId, {
+            status: after.outcome === 'cancelled' ? 'cancelled' : 'denied',
+          });
+        } catch {}
+        this.#pendingInteractionId = null;
+      }
+    }
+
+    this.#tracer?.record?.({
+      source,
+      event: 'transition.accepted',
+      disposition: 'accepted',
+      beforeStatus,
+      afterStatus: after,
+      initiator: initiator ?? after.initiator,
+      cause: after.cause,
     });
+
+    return after;
   }
 
-  #closeDanglingTools(closureReason) {
+  #closeDanglingTools(outcome = 'failed', cause = null) {
+    let closureReason = 'turn_failed';
+    let toolStatus = 'failed';
+
+    if (outcome === 'completed') {
+      closureReason = 'turn_completed';
+      toolStatus = 'failed';
+    } else if (outcome === 'cancelled') {
+      closureReason = 'turn_cancelled';
+      toolStatus = 'cancelled';
+    } else if (outcome === 'interrupted') {
+      closureReason = 'turn_interrupted';
+      toolStatus = 'interrupted';
+    } else if (cause === 'timeout/protocol-silence' || cause === 'AI_TURN_TIMEOUT') {
+      closureReason = 'timeout';
+      toolStatus = 'failed';
+    } else if (cause === 'process_exit') {
+      closureReason = 'process_exit';
+      toolStatus = 'failed';
+    } else {
+      closureReason = 'turn_failed';
+      toolStatus = 'failed';
+    }
+
     for (const toolId of this.#openToolIds) {
       try {
         updateWorkItem(this.#turn, toolId, {
-          status: 'failed',
+          status: toolStatus,
           closureReason,
+        });
+        this.#tracer?.record?.({
+          source: 'coordinator',
+          event: 'tool.inferred_closed',
+          subjectId: toolId,
+          metadata: { status: toolStatus, closureReason },
         });
       } catch {}
     }
@@ -160,261 +212,536 @@ export class TurnLifecycleCoordinator {
    * Append a new top-level Work item with monotonic sequence.
    */
   appendWork(itemData, { source = 'adapter' } = {}) {
-    return this.#runSerialized(() => {
-      if (this.isTerminal) {
-        this.#tracer?.record?.({
-          source,
-          event: 'work.ignored',
-          disposition: 'ignored',
-          metadata: { itemType: itemData.type, itemId: itemData.id },
-        });
-        return null;
-      }
-
-      this.touchActivity();
-      const item = appendWorkItem(this.#turn, itemData);
-
-      if (item.type === 'tool' && (item.status === 'active' || item.status === 'waiting_for_result')) {
-        this.#openToolIds.add(item.id);
-      } else if (item.type === 'interaction' && item.status === 'pending') {
-        this.#pendingInteractionId = item.id;
-      }
-
+    if (this.isTerminal) {
       this.#tracer?.record?.({
         source,
-        event: `work.${item.type}.appended`,
-        disposition: 'accepted',
-        subjectId: item.id,
-        metadata: { seq: item.seq, type: item.type },
+        event: 'work.ignored',
+        disposition: 'ignored',
+        metadata: { itemType: itemData.type, itemId: itemData.id },
       });
+      return null;
+    }
 
-      return item;
+    this.touchActivity();
+    const item = appendWorkItem(this.#turn, itemData);
+
+    if (item.type === 'tool' && (item.status === 'active' || item.status === 'queued')) {
+      this.#openToolIds.add(item.id);
+    } else if (item.type === 'interaction' && item.status === 'pending') {
+      this.#pendingInteractionId = item.id;
+    }
+
+    this.#tracer?.record?.({
+      source,
+      event: `work.${item.type}.appended`,
+      disposition: 'accepted',
+      subjectId: item.id,
+      metadata: { seq: item.seq, type: item.type },
     });
+
+    return item;
   }
 
   /**
    * Update an existing Work item in place.
    */
   updateWork(itemId, deltaData, { source = 'adapter' } = {}) {
-    return this.#runSerialized(() => {
-      this.touchActivity();
-      const item = updateWorkItem(this.#turn, itemId, deltaData);
-
-      if (item.type === 'tool') {
-        if (item.status === 'completed' || item.status === 'failed' || item.status === 'cancelled') {
-          this.#openToolIds.delete(item.id);
-        }
-      } else if (item.type === 'interaction') {
-        if (item.status === 'resolved' || item.status === 'rejected' || item.status === 'expired') {
-          if (this.#pendingInteractionId === item.id) {
-            this.#pendingInteractionId = null;
-          }
-        }
-      }
-
+    if (this.isTerminal) {
       this.#tracer?.record?.({
         source,
-        event: `work.${item.type}.updated`,
-        disposition: 'accepted',
-        subjectId: item.id,
-        metadata: { status: item.status },
+        event: 'work.update_ignored',
+        disposition: 'ignored',
+        subjectId: itemId,
+        metadata: deltaData,
       });
+      return this.#turn.work.find(w => w.id === itemId) || null;
+    }
 
-      return item;
+    this.touchActivity();
+    const item = updateWorkItem(this.#turn, itemId, deltaData);
+
+    if (item.type === 'tool') {
+      if (['completed', 'failed', 'cancelled', 'interrupted', 'unknown'].includes(item.status)) {
+        this.#openToolIds.delete(item.id);
+      }
+    } else if (item.type === 'interaction') {
+      if (['resolved', 'denied', 'rejected', 'cancelled', 'expired'].includes(item.status)) {
+        if (this.#pendingInteractionId === item.id) {
+          this.#pendingInteractionId = null;
+        }
+      }
+    }
+
+    this.#tracer?.record?.({
+      source,
+      event: `work.${item.type}.updated`,
+      disposition: 'accepted',
+      subjectId: item.id,
+      metadata: { status: item.status },
     });
+
+    return item;
+  }
+
+  /**
+   * Record arrival of a text delta.
+   */
+  recordTextDelta(text, messageId = `msg-${this.#turn.id}`) {
+    if (this.isTerminal) return null;
+    this.touchActivity();
+
+    let currentItem = this.#activeCommentaryId
+      ? this.#turn.work.find(w => w.id === this.#activeCommentaryId && w.type === 'commentary' && w.status === 'streaming')
+      : null;
+
+    if (!currentItem) {
+      this.#activeCommentaryId = messageId || `commentary-${Date.now()}`;
+      currentItem = appendWorkItem(this.#turn, {
+        id: this.#activeCommentaryId,
+        type: 'commentary',
+        text,
+        status: 'streaming',
+      });
+      this.#tracer?.record?.({
+        source: 'adapter',
+        event: 'commentary.started',
+        subjectId: currentItem.id,
+        disposition: 'accepted',
+      });
+    } else {
+      currentItem = updateWorkItem(this.#turn, currentItem.id, {
+        text: (currentItem.text || '') + text,
+        status: 'streaming',
+      });
+    }
+    return currentItem;
+  }
+
+  /**
+   * Record arrival of a reasoning delta.
+   */
+  recordReasoningDelta(text, messageId = `reasoning-${this.#turn.id}`) {
+    if (this.isTerminal) return null;
+    this.touchActivity();
+
+    let currentItem = this.#activeReasoningId
+      ? this.#turn.work.find(w => w.id === this.#activeReasoningId && w.type === 'reasoning' && w.status === 'streaming')
+      : null;
+
+    if (!currentItem) {
+      this.#activeReasoningId = messageId || `reasoning-${Date.now()}`;
+      currentItem = appendWorkItem(this.#turn, {
+        id: this.#activeReasoningId,
+        type: 'reasoning',
+        representation: 'raw_text',
+        text,
+        status: 'streaming',
+      });
+      this.#tracer?.record?.({
+        source: 'adapter',
+        event: 'reasoning.started',
+        subjectId: currentItem.id,
+        disposition: 'accepted',
+      });
+    } else {
+      currentItem = updateWorkItem(this.#turn, currentItem.id, {
+        text: (currentItem.text || '') + text,
+        status: 'streaming',
+      });
+    }
+    return currentItem;
+  }
+
+  /**
+   * Record tool started.
+   */
+  recordToolStarted({ toolId, toolName, input, kind = 'command', title = null }) {
+    if (this.isTerminal) {
+      this.#tracer?.record?.({
+        source: 'tool',
+        event: 'tool.started_ignored',
+        subjectId: toolId,
+        disposition: 'ignored',
+        metadata: { toolName },
+      });
+      return null;
+    }
+
+    this.touchActivity();
+    const item = appendWorkItem(this.#turn, {
+      id: toolId,
+      type: 'tool',
+      toolName,
+      kind: kind || 'other',
+      title: title || toolName,
+      status: 'active',
+      ...(input !== undefined ? { input } : {}),
+    });
+
+    this.#openToolIds.add(toolId);
+    setTurnStatus(this.#turn, {
+      status: 'active',
+      detail: 'tool_execution',
+      subjectId: toolId,
+    });
+
+    this.#tracer?.record?.({
+      source: 'tool',
+      event: 'tool.started',
+      subjectId: toolId,
+      disposition: 'accepted',
+      metadata: { toolName },
+    });
+
+    return item;
+  }
+
+  /**
+   * Record tool updated.
+   */
+  recordToolUpdated({ toolId, output, status = 'active', progress }) {
+    if (this.isTerminal) return null;
+    this.touchActivity();
+
+    const item = updateWorkItem(this.#turn, toolId, {
+      ...(output !== undefined ? { output } : {}),
+      status,
+      ...(progress !== undefined ? { progress } : {}),
+    });
+
+    this.#tracer?.record?.({
+      source: 'tool',
+      event: 'tool.updated',
+      subjectId: toolId,
+      disposition: 'accepted',
+      metadata: { status },
+    });
+
+    return item;
+  }
+
+  /**
+   * Record tool completed.
+   */
+  recordToolCompleted({ toolId, output, durationMs, status = 'completed', exitCode, closureReason }) {
+    if (this.isTerminal) {
+      this.#tracer?.record?.({
+        source: 'tool',
+        event: 'tool.completed_ignored',
+        subjectId: toolId,
+        disposition: 'late',
+        metadata: { status, durationMs },
+      });
+      return null;
+    }
+
+    this.touchActivity();
+    const validStatus = ['completed', 'failed', 'cancelled', 'interrupted', 'unknown'].includes(status)
+      ? status
+      : 'completed';
+
+    const item = updateWorkItem(this.#turn, toolId, {
+      status: validStatus,
+      ...(output !== undefined ? { output } : {}),
+      ...(typeof durationMs === 'number' ? { durationMs } : {}),
+      ...(typeof exitCode === 'number' ? { exitCode } : {}),
+      ...(closureReason ? { closureReason } : {}),
+    });
+
+    this.#openToolIds.delete(toolId);
+
+    // If no more open tools, transition back to active model processing
+    if (this.#openToolIds.size === 0 && this.#turn.status.status === 'active') {
+      setTurnStatus(this.#turn, {
+        status: 'active',
+        detail: 'processing',
+      });
+    }
+
+    this.#tracer?.record?.({
+      source: 'tool',
+      event: 'tool.completed',
+      subjectId: toolId,
+      disposition: 'accepted',
+      metadata: { status: validStatus, durationMs },
+    });
+
+    return item;
+  }
+
+  /**
+   * Record interaction requested.
+   */
+  recordInteractionRequested({ interaction }) {
+    if (this.isTerminal) return null;
+    this.touchActivity();
+
+    const item = appendWorkItem(this.#turn, {
+      id: interaction.id,
+      type: 'interaction',
+      interaction: structuredClone(interaction),
+      status: 'pending',
+    });
+
+    this.#pendingInteractionId = interaction.id;
+    setTurnStatus(this.#turn, {
+      status: 'requiresAttention',
+      reason: interaction.kind || 'permission',
+      interactionId: interaction.id,
+    });
+
+    this.#tracer?.record?.({
+      source: 'runtime',
+      event: 'interaction.requested',
+      subjectId: interaction.id,
+      disposition: 'accepted',
+      afterStatus: this.#turn.status,
+      metadata: { kind: interaction.kind },
+    });
+
+    return item;
+  }
+
+  /**
+   * Record interaction resolved.
+   */
+  recordInteractionResolved({ interactionId, response }) {
+    if (this.isTerminal) return null;
+    this.touchActivity();
+
+    const item = updateWorkItem(this.#turn, interactionId, {
+      status: 'resolved',
+      response: structuredClone(response),
+      resolvedAt: new Date().toISOString(),
+    });
+
+    if (this.#pendingInteractionId === interactionId) {
+      this.#pendingInteractionId = null;
+    }
+
+    setTurnStatus(this.#turn, {
+      status: 'active',
+      detail: 'processing',
+    });
+
+    this.#tracer?.record?.({
+      source: 'runtime',
+      event: 'interaction.resolved',
+      subjectId: interactionId,
+      disposition: 'accepted',
+      afterStatus: this.#turn.status,
+    });
+
+    return item;
   }
 
   /**
    * Add a nested ToolAction to a tool WorkItem.
    */
   addToolAction(toolWorkId, actionData, { source = 'adapter' } = {}) {
-    return this.#runSerialized(() => {
-      this.touchActivity();
-      const tool = this.#turn.work.find(w => w.id === toolWorkId && w.type === 'tool');
-      if (!tool) {
-        throw new AiValidationError(`Tool invocation '${toolWorkId}' not found.`);
-      }
-      const action = appendToolAction(tool, actionData);
+    if (this.isTerminal) return null;
+    this.touchActivity();
+    const tool = this.#turn.work.find(w => w.id === toolWorkId && w.type === 'tool');
+    if (!tool) {
+      throw new AiValidationError(`Tool invocation '${toolWorkId}' not found.`);
+    }
+    const action = appendToolAction(tool, actionData);
 
-      this.#tracer?.record?.({
-        source,
-        event: 'tool.action.added',
-        disposition: 'accepted',
-        subjectId: toolWorkId,
-        metadata: { actionId: action.id, kind: action.kind },
-      });
-
-      return action;
+    this.#tracer?.record?.({
+      source,
+      event: 'tool.action.added',
+      disposition: 'accepted',
+      subjectId: toolWorkId,
+      metadata: { actionId: action.id, kind: action.kind },
     });
+
+    return action;
   }
 
   /**
    * Set the authoritative final answer.
    */
   setFinalAnswer(finalAnswerData, { source = 'adapter' } = {}) {
-    return this.#runSerialized(() => {
-      const answer = assignFinalAnswer(this.#turn, finalAnswerData);
-      this.#tracer?.record?.({
-        source,
-        event: 'final_answer.set',
-        disposition: 'accepted',
-        metadata: { status: answer.status },
-      });
-      return answer;
+    if (this.isTerminal) return null;
+    const answer = assignFinalAnswer(this.#turn, finalAnswerData);
+    this.#tracer?.record?.({
+      source,
+      event: 'final_answer.set',
+      disposition: 'accepted',
+      metadata: { status: answer.status },
     });
+    return answer;
   }
 
   /**
    * Request user cancellation.
    */
   requestCancellation({ initiator = 'user', cause = 'user_cancelled' } = {}) {
-    return this.#runSerialized(() => {
-      if (this.isTerminal) {
-        this.#tracer?.record?.({
-          source: 'runtime',
-          event: 'cancel.ignored',
-          disposition: 'ignored',
-          initiator,
-          cause,
-        });
-        return false;
-      }
-
-      setTurnStatus(this.#turn, {
-        status: 'cancelling',
-        initiator,
-      });
-
+    if (this.isTerminal) {
       this.#tracer?.record?.({
         source: 'runtime',
-        event: 'turn.cancel_requested',
-        disposition: 'accepted',
+        event: 'cancel.ignored',
+        disposition: 'ignored',
         initiator,
         cause,
-        afterStatus: this.#turn.status,
       });
+      return false;
+    }
 
-      return true;
+    setTurnStatus(this.#turn, {
+      status: 'cancelling',
+      initiator,
     });
+
+    this.#tracer?.record?.({
+      source: 'runtime',
+      event: 'turn.cancel_requested',
+      disposition: 'accepted',
+      initiator,
+      cause,
+      afterStatus: this.#turn.status,
+    });
+
+    return true;
   }
 
   /**
    * Check and evaluate protocol silence timeout.
    */
   checkProtocolSilence(now = Date.now(), timeoutMs = 300_000) {
-    return this.#runSerialized(() => {
-      if (this.isTerminal || timeoutMs <= 0) return { fired: false };
+    if (this.isTerminal || timeoutMs <= 0) return { fired: false };
 
-      // 1. Suppression checks
-      if (this.hasOpenTools) {
-        this.#tracer?.record?.({
-          source: 'coordinator',
-          event: 'timeout.suppressed',
-          disposition: 'suppressed',
-          timeout: {
-            kind: 'protocol-silence',
-            suppressionReason: 'open_tools',
-          },
-        });
-        return { fired: false, suppressed: 'open_tools' };
+    // 1. Suppression checks
+    if (this.hasOpenTools) {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: {
+          kind: 'protocol-silence',
+          suppressionReason: 'open_tools',
+        },
+      });
+      return { fired: false, suppressed: 'open_tools' };
+    }
+
+    if (this.#pendingInteractionId || this.#turn.status.status === 'requiresAttention') {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: {
+          kind: 'protocol-silence',
+          suppressionReason: 'pending_interaction',
+        },
+      });
+      return { fired: false, suppressed: 'pending_interaction' };
+    }
+
+    if (this.#isRecoverableWait) {
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.suppressed',
+        disposition: 'suppressed',
+        timeout: {
+          kind: 'protocol-silence',
+          suppressionReason: 'recoverable_wait',
+        },
+      });
+      return { fired: false, suppressed: 'recoverable_wait' };
+    }
+
+    // 2. Deadline evaluation
+    const elapsedSinceActivity = now - this.#lastQualifyingActivityAt;
+    if (elapsedSinceActivity >= timeoutMs) {
+      this.#isTerminal = true;
+      this.#closeDanglingTools('failed', 'timeout/protocol-silence');
+      if (this.#pendingInteractionId) {
+        try {
+          updateWorkItem(this.#turn, this.#pendingInteractionId, { status: 'denied' });
+        } catch {}
+        this.#pendingInteractionId = null;
       }
+      setTurnStatus(this.#turn, {
+        status: 'terminal',
+        outcome: 'failed',
+        initiator: 'runtime',
+        cause: 'timeout/protocol-silence',
+      });
 
-      if (this.#pendingInteractionId || this.#turn.status.status === 'requiresAttention') {
-        this.#tracer?.record?.({
-          source: 'coordinator',
-          event: 'timeout.suppressed',
-          disposition: 'suppressed',
-          timeout: {
-            kind: 'protocol-silence',
-            suppressionReason: 'pending_interaction',
-          },
-        });
-        return { fired: false, suppressed: 'pending_interaction' };
-      }
+      this.#tracer?.record?.({
+        source: 'coordinator',
+        event: 'timeout.fired',
+        disposition: 'accepted',
+        initiator: 'runtime',
+        cause: 'timeout/protocol-silence',
+        afterStatus: this.#turn.status,
+        timeout: {
+          kind: 'protocol-silence',
+          deadlineMs: timeoutMs,
+        },
+      });
 
-      if (this.#isRecoverableWait) {
-        this.#tracer?.record?.({
-          source: 'coordinator',
-          event: 'timeout.suppressed',
-          disposition: 'suppressed',
-          timeout: {
-            kind: 'protocol-silence',
-            suppressionReason: 'recoverable_wait',
-          },
-        });
-        return { fired: false, suppressed: 'recoverable_wait' };
-      }
+      return { fired: true, cause: 'timeout/protocol-silence' };
+    }
 
-      // 2. Deadline evaluation
-      const elapsedSinceActivity = now - this.#lastQualifyingActivityAt;
-      if (elapsedSinceActivity >= timeoutMs) {
-        // Fire protocol silence timeout
-        this.#isTerminal = true;
-        this.#closeDanglingTools('turn_failed');
-        setTurnStatus(this.#turn, {
-          status: 'terminal',
-          outcome: 'failed',
-          initiator: 'runtime',
-          cause: 'timeout/protocol-silence',
-        });
-
-        this.#tracer?.record?.({
-          source: 'coordinator',
-          event: 'timeout.fired',
-          disposition: 'accepted',
-          initiator: 'runtime',
-          cause: 'timeout/protocol-silence',
-          afterStatus: this.#turn.status,
-          timeout: {
-            kind: 'protocol-silence',
-            deadlineMs: timeoutMs,
-          },
-        });
-
-        return { fired: true, cause: 'timeout/protocol-silence' };
-      }
-
-      return { fired: false, elapsedMs: elapsedSinceActivity };
-    });
+    return { fired: false, elapsedMs: elapsedSinceActivity };
   }
 
   /**
    * Settle the terminal state of the turn.
    */
-  settleTerminal({ outcome = 'completed', initiator = 'provider', cause, finishReason } = {}) {
-    return this.#runSerialized(() => {
-      if (this.isTerminal) {
-        this.#tracer?.record?.({
-          source: 'coordinator',
-          event: 'terminal.ignored',
-          disposition: 'ignored',
-          metadata: { attemptedOutcome: outcome, attemptedCause: cause },
-        });
-        return this.#turn.status;
-      }
-
-      this.#isTerminal = true;
-      this.#closeDanglingTools(outcome === 'completed' ? 'turn_completed' : 'turn_failed');
-
-      const terminalStatus = setTurnStatus(this.#turn, {
-        status: 'terminal',
-        outcome,
-        initiator,
-        cause,
-        finishReason,
-      });
-
+  settleTerminal({ outcome = 'completed', initiator = 'provider', cause, finishReason, error } = {}) {
+    if (this.isTerminal) {
       this.#tracer?.record?.({
         source: 'coordinator',
-        event: outcome === 'completed' ? 'turn.completed' : 'turn.failed',
-        disposition: 'accepted',
-        afterStatus: terminalStatus,
-        initiator,
-        cause,
+        event: 'terminal.ignored',
+        disposition: 'ignored',
+        metadata: { attemptedOutcome: outcome, attemptedCause: cause },
       });
+      return this.#turn.status;
+    }
 
-      return terminalStatus;
+    this.#isTerminal = true;
+    this.#closeDanglingTools(outcome, cause);
+
+    if (this.#pendingInteractionId) {
+      try {
+        updateWorkItem(this.#turn, this.#pendingInteractionId, {
+          status: outcome === 'cancelled' ? 'cancelled' : 'denied',
+        });
+      } catch {}
+      this.#pendingInteractionId = null;
+    }
+
+    // Close active commentary / reasoning items
+    for (const item of this.#turn.work) {
+      if (item.status === 'streaming') {
+        try {
+          updateWorkItem(this.#turn, item.id, { status: 'completed' });
+        } catch {}
+      }
+    }
+
+    const terminalStatus = setTurnStatus(this.#turn, {
+      status: 'terminal',
+      outcome,
+      initiator,
+      cause,
+      finishReason,
+      ...(error ? { error } : {}),
     });
+
+    this.#tracer?.record?.({
+      source: 'coordinator',
+      event: outcome === 'completed' ? 'turn.completed' : 'turn.failed',
+      disposition: 'accepted',
+      afterStatus: terminalStatus,
+      initiator,
+      cause,
+    });
+
+    return terminalStatus;
   }
 
   getCurrentActivity() {

@@ -55,6 +55,8 @@ export const TOOL_CLOSURE_REASONS = Object.freeze([
   'turn_interrupted',
   'turn_completed',
   'process_exit',
+  'timeout',
+  'unknown',
 ]);
 
 export const REASONING_REPRESENTATIONS = Object.freeze([
@@ -67,7 +69,9 @@ export const INTERACTION_WORK_STATUSES = Object.freeze([
   'pending',
   'resolved',
   'denied',
+  'rejected',
   'cancelled',
+  'expired',
 ]);
 
 function rejectProviderFields(value, path = 'item') {
