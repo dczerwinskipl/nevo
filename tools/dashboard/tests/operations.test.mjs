@@ -373,8 +373,9 @@ test('Dashboard server — action concurrency & /api/operations routes', async (
   await server.register(operationRoutes);
   const baseUrl = await server.listen({ port: 0 });
 
-  t.after(() => {
-    server.close();
+  t.after(async () => {
+    server?.server?.closeAllConnections?.();
+    await server.close();
     sample.cleanup();
   });
 

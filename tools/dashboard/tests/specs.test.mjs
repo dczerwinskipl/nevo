@@ -230,6 +230,10 @@ test('specs route adapter manages AbortController and completion settlement duri
       { type: 'runtime-shutdown', afterActionSettled: true },
     ]);
   } finally {
-    try { await server.close(); } catch {}
+    settleActionPromise?.();
+    try {
+      server?.server?.closeAllConnections?.();
+      await server.close();
+    } catch {}
   }
 });

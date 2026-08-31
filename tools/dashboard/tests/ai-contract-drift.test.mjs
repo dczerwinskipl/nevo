@@ -51,8 +51,9 @@ async function waitForTurn(aiService, turnId, predicate) {
 }
 
 async function closeServer(server) {
-  server.closeAllConnections?.();
-  await new Promise(resolve => server.close(resolve));
+  server?.server?.closeAllConnections?.();
+  server?.closeAllConnections?.();
+  await server?.close?.();
 }
 
 test('dashboard AI payload field and event names stay aligned with the neutral browser contract', async () => {

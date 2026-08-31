@@ -69,8 +69,9 @@ async function waitForSession(baseUrl, provider, providerSessionId, predicate) {
 }
 
 async function closeServer(server) {
-  server.closeAllConnections?.();
-  await new Promise(resolve => server.close(resolve));
+  server?.server?.closeAllConnections?.();
+  server?.closeAllConnections?.();
+  await server?.close?.();
 }
 
 test('Agent session routes expose the complete provider-neutral session and turn lifecycle', async () => {
