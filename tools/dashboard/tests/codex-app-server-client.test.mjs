@@ -536,6 +536,7 @@ test('CodexAppServerClient raw capture: captures turn-scoped events and server-r
       method: 'turn/completed',
       params: { threadId: 'thread-beta-456', turn: { id: 'turn-beta-99', status: 'completed' } },
     });
+    await tick();
 
     await client.flushRawCapture('thread-beta-456');
     const rawPath = client.getRawCapturePath('thread-beta-456');

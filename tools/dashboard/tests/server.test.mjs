@@ -6,8 +6,10 @@ import test from 'node:test';
 
 import { buildDashboardApp, listen } from '../server/index.mjs';
 
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+
 test('composed server routes all major capability route groups', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -31,7 +33,7 @@ test('composed server routes all major capability route groups', async () => {
 });
 
 test('handles unknown /api/* fallback with 404 JSON', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
@@ -52,7 +54,7 @@ test('handles unknown /api/* fallback with 404 JSON', async () => {
 });
 
 test('handles static asset serving and missing distDir fallback', async () => {
-  const serverMissing = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const serverMissing = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrlMissing = await listen(serverMissing, { port: 0 });
 
   try {
@@ -111,7 +113,7 @@ test('handles static asset serving and missing distDir fallback', async () => {
 // shutdown wiring (eventHub, AI service) is covered by that capability's own
 // slice-level tests (events.test.mjs, ai-server.test.mjs).
 test('the shared operationRuntime decoration is shut down when the app closes', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const runtime = server.operationRuntime;
   assert.ok(runtime, 'operationRuntime is decorated on the app instance');
 

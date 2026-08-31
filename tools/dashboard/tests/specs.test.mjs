@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import { buildDashboardApp, listen } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
+
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 test('serves read-only dashboard data and rejects unknown or mutating routes', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const dashboard = await fetch(`${baseUrl}/api/dashboard`);
@@ -20,7 +24,7 @@ test('serves read-only dashboard data and rejects unknown or mutating routes', a
   }
 });
 test('serves exact specification manifest routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const active = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content`);
@@ -38,7 +42,7 @@ test('serves exact specification manifest routes without leaking lookup failures
   }
 });
 test('serves exact per-document content routes without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const doc = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/content/overview`);
@@ -56,7 +60,7 @@ test('serves exact per-document content routes without leaking lookup failures',
   }
 });
 test('serves a small, fast task-statuses route without leaking lookup failures', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const response = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/task-statuses`);
@@ -74,7 +78,7 @@ test('serves a small, fast task-statuses route without leaking lookup failures',
   }
 });
 test('serves active-only lifecycle gates and executes explicit validated actions', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
   try {
     const gates = await fetch(`${baseUrl}/api/specs/active/refaktoring-tooli/actions`);

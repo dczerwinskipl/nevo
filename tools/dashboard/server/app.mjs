@@ -22,13 +22,14 @@ const DEFAULT_DIST_DIR = resolve(DASHBOARD_ROOT, 'dist');
 const CAPABILITY_ROUTES_PATTERN = /^\/[^/]+\/routes\.mjs$/;
 
 function registerStaticAssets(app, distDir) {
+  const resolvedDistDir = resolve(distDir);
   app.setNotFoundHandler((request, reply) => {
     const pathname = request.url.split('?')[0];
     if (pathname.startsWith('/api/')) {
       reply.code(404).send({ error: 'API route not found' });
       return;
     }
-    if (!existsSync(distDir)) {
+    if (!existsSync(resolvedDistDir)) {
       reply.code(404).send({
         error: 'Dashboard assets not found',
         detail: 'Run the dashboard build before starting the production server.',
@@ -46,7 +47,7 @@ function registerStaticAssets(app, distDir) {
   });
 
   app.register(fastifyStatic, {
-    root: distDir,
+    root: resolvedDistDir,
     index: ['index.html'],
     // `wildcard: false` globs `distDir` once at plugin-registration time and
     // pre-registers one route per file found then — it never serves a file

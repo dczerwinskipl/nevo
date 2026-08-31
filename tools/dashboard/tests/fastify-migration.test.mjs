@@ -9,6 +9,8 @@ import { buildDashboardApp } from '../server/index.mjs';
 import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
 
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+
 // Characterization coverage specific to the Fastify migration (Task 09) —
 // exercised via `app.inject()`, never a real network port. Behavior already
 // covered by the adapted pre-existing suites (routing/method compatibility,
@@ -45,7 +47,7 @@ test('an unexpected actionExecutor failure is mapped by the specs capability\'s 
 });
 
 test('a truly uncaught error reaches the shared Fastify error handler as a generic 500', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   app.get('/__test/boom', async () => {
     throw new Error('unexpected internal failure');
   });
@@ -59,7 +61,7 @@ test('a truly uncaught error reaches the shared Fastify error handler as a gener
 });
 
 test('the default 4096-byte body limit applies to non-AI routes and rejects oversized JSON with 413', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({
       method: 'POST',
@@ -78,7 +80,7 @@ test('the default 4096-byte body limit applies to non-AI routes and rejects over
 });
 
 test('malformed JSON with a declared application/json content-type yields Fastify\'s own 400 message', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({
       method: 'POST',
@@ -96,7 +98,7 @@ test('malformed JSON with a declared application/json content-type yields Fastif
 });
 
 test('a body with an unrelated content-type is never silently parsed as JSON', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({
       method: 'POST',
@@ -116,7 +118,7 @@ test('a body with an unrelated content-type is never silently parsed as JSON', a
 });
 
 test('an empty POST body parses as an empty object, matching the old readJsonBody contract', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({ method: 'POST', url: '/api/specs' });
     // No `slug` in an empty body reaches domain validation (not the
@@ -131,7 +133,7 @@ test('an empty POST body parses as an empty object, matching the old readJsonBod
 });
 
 test('HEAD falls through to the generic API 404 (no auto-HEAD, no custom method-fallback machinery)', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({ method: 'HEAD', url: '/api/health' });
     assert.equal(res.statusCode, 404);
@@ -141,7 +143,7 @@ test('HEAD falls through to the generic API 404 (no auto-HEAD, no custom method-
 });
 
 test('a source outside {active, archive} falls through to the generic API-not-found 404, not a resource-specific one', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   try {
     const res = await app.inject({ method: 'GET', url: '/api/specs/bogus-source/refaktoring-tooli/content' });
     assert.equal(res.statusCode, 404);
@@ -179,7 +181,7 @@ test('static caching distinguishes index.html (no-cache) from versioned assets (
 });
 
 test('graceful shutdown via app.close() completes deterministically and rejects new requests while closing', async () => {
-  const app = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const app = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const res = await app.inject({ method: 'GET', url: '/api/health' });
   assert.equal(res.statusCode, 200);
   await app.close();

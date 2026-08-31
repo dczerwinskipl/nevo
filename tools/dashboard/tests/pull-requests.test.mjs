@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
+
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+
 test('serves provider-neutral pull request results through an exact read-only route', async () => {
   const server = await buildDashboardApp({
-    config: { distDir: 'Z:/does-not-exist' },
+    config: { distDir: NONEXISTENT_DIST },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {
@@ -28,7 +33,7 @@ test('serves provider-neutral pull request results through an exact read-only ro
 });
 test('serves the PR file-diffs route (POST { paths, headSha }) and rejects a malformed body', async () => {
   const server = await buildDashboardApp({
-    config: { distDir: 'Z:/does-not-exist' },
+    config: { distDir: NONEXISTENT_DIST },
   });
   const baseUrl = await listen(server, { port: 0 });
   try {

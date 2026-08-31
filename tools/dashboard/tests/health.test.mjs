@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildDashboardApp, listen } from '../server/index.mjs';
+
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
 
 test('serves GET /api/health with status ok and rejects unsupported methods with the generic API 404', async () => {
   const server = await buildDashboardApp({
-    config: { distDir: 'Z:/does-not-exist' },
+    config: { distDir: NONEXISTENT_DIST },
   });
   const baseUrl = await listen(server, { port: 0 });
 

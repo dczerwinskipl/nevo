@@ -9,8 +9,10 @@ import { registerGlobalHttpInfrastructure } from '../server/infrastructure/http.
 import specEventRoutes from '../server/specs/events.mjs';
 import specsRoutes from '../server/specs/routes.mjs';
 
+const NONEXISTENT_DIST = join(tmpdir(), 'nevo-nonexistent-dist');
+
 test('full app: GET /api/events opens an SSE stream and POST falls through to the generic API 404', async () => {
-  const server = await buildDashboardApp({ config: { distDir: 'Z:/does-not-exist' } });
+  const server = await buildDashboardApp({ config: { distDir: NONEXISTENT_DIST } });
   const baseUrl = await listen(server, { port: 0 });
 
   try {
