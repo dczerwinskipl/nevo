@@ -973,26 +973,26 @@ test('Claude raw capture: graceful shutdown flushes pending raw diagnostics', as
 test('mapClaudeTool maps tools to normalized kinds, titles, and descriptions', () => {
   assert.deepEqual(mapClaudeTool('Bash', { command: 'git status' }), {
     kind: 'command',
-    title: 'Bash',
+    title: 'Run command',
     description: 'git status',
   });
   assert.deepEqual(mapClaudeTool('Read', { file_path: 'path/to/file.ts' }), {
-    kind: 'file_operation',
-    title: 'Read',
+    kind: 'read',
+    title: 'Read file',
     description: 'path/to/file.ts',
   });
   assert.deepEqual(mapClaudeTool('Glob', { pattern: 'specs/**/*' }), {
-    kind: 'search',
-    title: 'Glob',
+    kind: 'list',
+    title: 'List files',
     description: 'specs/**/*',
   });
   assert.deepEqual(mapClaudeTool('WebSearch', { url: 'https://example.com' }), {
     kind: 'web',
-    title: 'WebSearch',
+    title: 'Web search / fetch',
     description: 'https://example.com',
   });
   assert.deepEqual(mapClaudeTool('mcp__github__search_issues', { q: 'bug' }), {
-    kind: 'mcp',
+    kind: 'other',
     title: 'mcp__github__search_issues',
     description: undefined,
   });
@@ -1039,10 +1039,10 @@ test('Claude parallel tool calls from fixture are tracked independently and do n
   assert.equal(toolsStarted.length, 2);
   assert.equal(toolsStarted[0].toolId, 'toolu_parallel_01');
   assert.equal(toolsStarted[0].toolName, 'Read');
-  assert.equal(toolsStarted[0].kind, 'file_operation');
+  assert.equal(toolsStarted[0].kind, 'read');
   assert.equal(toolsStarted[1].toolId, 'toolu_parallel_02');
   assert.equal(toolsStarted[1].toolName, 'Read');
-  assert.equal(toolsStarted[1].kind, 'file_operation');
+  assert.equal(toolsStarted[1].kind, 'read');
 
   // Both tools were closed as failed/inferred_closed on result event since no tool_result arrived
   assert.equal(toolsCompleted.length, 2);
@@ -1143,7 +1143,7 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
 
   assert.equal(snapshot.work[2].type, 'tool');
   assert.equal(snapshot.work[2].id, 'toolu_02Glob');
-  assert.equal(snapshot.work[2].kind, 'search');
+  assert.equal(snapshot.work[2].kind, 'list');
   assert.equal(snapshot.work[2].status, 'completed');
   assert.equal(snapshot.work[2].durationMs, 220);
 
@@ -1154,7 +1154,7 @@ test('Claude evidence replay: Turn 2 maps exact Work order, parallel tools, dura
   // 5: Read tool
   assert.equal(snapshot.work[4].type, 'tool');
   assert.equal(snapshot.work[4].id, 'toolu_03Read');
-  assert.equal(snapshot.work[4].kind, 'file_operation');
+  assert.equal(snapshot.work[4].kind, 'read');
   assert.equal(snapshot.work[4].status, 'completed');
   assert.equal(snapshot.work[4].durationMs, 45);
 

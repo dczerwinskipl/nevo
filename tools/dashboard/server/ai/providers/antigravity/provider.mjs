@@ -148,70 +148,71 @@ export function mapAntigravityTool(toolName, parameters = {}) {
       return {
         toolName: 'run_command',
         kind: 'command',
-        title: params.CommandLine ? `Run ${params.CommandLine.slice(0, 100)}` : 'Run command',
-        description: params.Cwd || undefined,
+        title: 'Run command',
+        description: params.CommandLine || params.Cwd || undefined,
       };
     case 'view_file':
       return {
         toolName: 'view_file',
-        kind: 'file_operation',
-        title: params.AbsolutePath ? `View ${params.AbsolutePath}` : 'View file',
+        kind: 'read',
+        title: 'Read file',
         description: params.AbsolutePath || undefined,
       };
     case 'write_to_file':
       return {
         toolName: 'write_to_file',
-        kind: 'file_operation',
-        title: params.TargetFile ? `Write ${params.TargetFile}` : 'Write to file',
+        kind: 'write',
+        title: 'Write file',
         description: params.TargetFile || undefined,
       };
     case 'replace_file_content':
       return {
         toolName: 'replace_file_content',
-        kind: 'file_operation',
-        title: params.TargetFile ? `Edit ${params.TargetFile}` : 'Replace file content',
+        kind: 'edit',
+        title: 'Edit file',
         description: params.TargetFile || undefined,
       };
     case 'find_by_name':
       return {
         toolName: 'find_by_name',
         kind: 'search',
-        title: params.Pattern ? `Find ${params.Pattern}${params.SearchDirectory ? ` in ${params.SearchDirectory}` : ''}` : 'Find files',
-        description: params.SearchDirectory || undefined,
+        title: 'Find files',
+        description: params.Pattern ? (params.SearchDirectory ? `${params.Pattern} in ${params.SearchDirectory}` : params.Pattern) : params.SearchDirectory || undefined,
       };
     case 'grep_search':
       return {
         toolName: 'grep_search',
         kind: 'search',
-        title: params.Query ? `Grep ${params.Query}` : 'Search files (grep)',
-        description: params.SearchPath || undefined,
+        title: 'Search files',
+        description: params.Query ? (params.SearchPath ? `${params.Query} in ${params.SearchPath}` : params.Query) : params.SearchPath || undefined,
       };
     case 'list_dir':
       return {
         toolName: 'list_dir',
-        kind: 'file_operation',
-        title: params.DirectoryPath ? `List ${params.DirectoryPath}` : 'List directory',
+        kind: 'list',
+        title: 'List directory',
         description: params.DirectoryPath || undefined,
       };
     case 'read_url_content':
+      return {
+        toolName: 'read_url_content',
+        kind: 'web',
+        title: 'Fetch URL',
+        description: params.Url || undefined,
+      };
     case 'search_web':
       return {
-        toolName: name,
+        toolName: 'search_web',
         kind: 'web',
-        title: params.Url || params.query ? `Web: ${params.Url || params.query}` : 'Web search / fetch',
-        description: params.Url || params.query || undefined,
-      };
-    case 'ask_question':
-      return {
-        toolName: 'ask_question',
-        kind: 'question',
-        title: 'Ask question',
+        title: 'Web search',
+        description: params.query || undefined,
       };
     default:
       return {
         toolName: name,
         kind: 'other',
         title: name,
+        description: undefined,
       };
   }
 }

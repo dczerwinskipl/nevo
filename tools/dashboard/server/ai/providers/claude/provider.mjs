@@ -37,40 +37,56 @@ export function mapClaudeTool(toolName = '', input = {}) {
   if (['bash', 'terminal', 'executecommand', 'command'].includes(lower)) {
     return {
       kind: 'command',
-      title: name || 'Bash',
+      title: 'Run command',
       description: typeof input?.command === 'string' ? input.command : undefined,
     };
   }
 
-  if (['read', 'view', 'write', 'edit', 'multiedit', 'notebookread', 'notebookedit', 'fileedit', 'createfile', 'deletefile', 'movefile'].includes(lower)) {
+  if (['read', 'view', 'notebookread'].includes(lower)) {
     return {
-      kind: 'file_operation',
-      title: name || 'File Operation',
+      kind: 'read',
+      title: 'Read file',
       description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
     };
   }
 
-  if (['glob', 'grep', 'find', 'search', 'filesearch'].includes(lower)) {
+  if (['write', 'createfile'].includes(lower)) {
+    return {
+      kind: 'write',
+      title: 'Write file',
+      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+    };
+  }
+
+  if (['edit', 'multiedit', 'notebookedit', 'fileedit'].includes(lower)) {
+    return {
+      kind: 'edit',
+      title: 'Edit file',
+      description: typeof input?.file_path === 'string' ? input.file_path : (typeof input?.path === 'string' ? input.path : undefined),
+    };
+  }
+
+  if (['glob', 'ls', 'listdirectory', 'listfiles', 'listdir'].includes(lower)) {
+    return {
+      kind: 'list',
+      title: 'List files',
+      description: typeof input?.path === 'string' ? input.path : (typeof input?.pattern === 'string' ? input.pattern : undefined),
+    };
+  }
+
+  if (['grep', 'search', 'find', 'filesearch'].includes(lower)) {
     return {
       kind: 'search',
-      title: name || 'Search',
-      description: typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : undefined),
+      title: 'Search files',
+      description: typeof input?.pattern === 'string' ? input.pattern : (typeof input?.query === 'string' ? input.query : (typeof input?.path === 'string' ? input.path : undefined)),
     };
   }
 
   if (['websearch', 'webfetch', 'browser', 'fetch'].includes(lower)) {
     return {
       kind: 'web',
-      title: name || 'Web',
+      title: 'Web search / fetch',
       description: typeof input?.url === 'string' ? input.url : (typeof input?.query === 'string' ? input.query : undefined),
-    };
-  }
-
-  if (lower.startsWith('mcp__') || lower.startsWith('mcp_')) {
-    return {
-      kind: 'mcp',
-      title: name,
-      description: undefined,
     };
   }
 
@@ -238,8 +254,6 @@ export class ClaudeAgentProvider {
     emitCommentaryDelta,
     emitReasoningDelta,
     emitFinalAnswerDelta,
-    emitTextDelta,
-    emitDelta,
     setFinalAnswer,
     emitToolStarted,
     emitToolUpdated,
@@ -249,8 +263,8 @@ export class ClaudeAgentProvider {
     emitEvent,
     requestInteraction,
   } = {}, { effectiveSessionId, sessionFlag }) {
-    const commentaryDelta = emitCommentaryDelta || emitTextDelta || emitDelta;
-    const finalAnswerDelta = emitFinalAnswerDelta || emitTextDelta || emitDelta;
+    const commentaryDelta = emitCommentaryDelta;
+    const finalAnswerDelta = emitFinalAnswerDelta;
     const userPrompt = message ?? prompt;
     const settingsPath = this.#createSettingsFile();
     const permissionMode =
@@ -779,8 +793,6 @@ export class ClaudeAgentProvider {
     addToolAction,
     emitUsageUpdated,
     emitEvent,
-    emitDelta,
-    emitTextDelta,
   } = {}) {
     if (!providerSessionId) {
       throw new AiValidationError("'providerSessionId' is required.");
@@ -803,7 +815,7 @@ export class ClaudeAgentProvider {
         setOperation,
         emitCommentaryDelta,
         emitReasoningDelta,
-        emitFinalAnswerDelta: emitFinalAnswerDelta || emitTextDelta || emitDelta,
+        emitFinalAnswerDelta,
         setFinalAnswer,
         emitToolStarted,
         emitToolUpdated,
@@ -811,8 +823,6 @@ export class ClaudeAgentProvider {
         addToolAction,
         emitUsageUpdated,
         emitEvent,
-        emitDelta,
-        emitTextDelta,
       });
 
       // Turn completed successfully: complete/cleanup continuation record

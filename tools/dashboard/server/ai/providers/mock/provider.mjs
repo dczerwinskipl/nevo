@@ -75,7 +75,7 @@ export class MockAgentProvider {
 
     if (normalized.includes('tools') || normalized.includes('reasoning')) {
       if (emitReasoningDelta) emitReasoningDelta('Thinking through the problem...', messageId);
-      if (emitToolStarted) emitToolStarted({ toolId: 't1', toolName: 'ReadDir', input: { path: '.' } });
+      if (emitToolStarted) emitToolStarted({ toolId: 't1', toolName: 'ReadDir', kind: 'list', title: 'List directory', description: '.', input: { path: '.' } });
       await this.#yield(signal);
       if (emitToolCompleted) emitToolCompleted({ toolId: 't1', output: ['file1.txt', 'file2.txt'], durationMs: 15, status: 'completed' });
       if (emitUsageUpdated) emitUsageUpdated({ tokensIn: 50, tokensOut: 25, cost: 0.001 });

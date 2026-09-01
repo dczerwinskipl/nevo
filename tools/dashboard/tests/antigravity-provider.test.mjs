@@ -2078,35 +2078,43 @@ test('Antigravity terminal status & is_error matrix: status "SUCCESS" + is_error
 test('mapAntigravityTool maps standard tools to canonical kind, title, and description', () => {
   const t1 = mapAntigravityTool('run_command', { CommandLine: 'git status', Cwd: 'D:\\repos\\git\\nevo' });
   assert.equal(t1.kind, 'command');
-  assert.equal(t1.title, 'Run git status');
-  assert.equal(t1.description, 'D:\\repos\\git\\nevo');
+  assert.equal(t1.title, 'Run command');
+  assert.equal(t1.description, 'git status');
 
   const t2 = mapAntigravityTool('view_file', { AbsolutePath: 'D:\\repos\\git\\nevo\\package.json' });
-  assert.equal(t2.kind, 'file_operation');
-  assert.equal(t2.title, 'View D:\\repos\\git\\nevo\\package.json');
+  assert.equal(t2.kind, 'read');
+  assert.equal(t2.title, 'Read file');
+  assert.equal(t2.description, 'D:\\repos\\git\\nevo\\package.json');
 
   const t3 = mapAntigravityTool('write_to_file', { TargetFile: 'D:\\repos\\git\\nevo\\README.md' });
-  assert.equal(t3.kind, 'file_operation');
-  assert.equal(t3.title, 'Write D:\\repos\\git\\nevo\\README.md');
+  assert.equal(t3.kind, 'write');
+  assert.equal(t3.title, 'Write file');
+  assert.equal(t3.description, 'D:\\repos\\git\\nevo\\README.md');
 
   const t4 = mapAntigravityTool('replace_file_content', { TargetFile: 'D:\\repos\\git\\nevo\\src\\index.ts' });
-  assert.equal(t4.kind, 'file_operation');
-  assert.equal(t4.title, 'Edit D:\\repos\\git\\nevo\\src\\index.ts');
+  assert.equal(t4.kind, 'edit');
+  assert.equal(t4.title, 'Edit file');
+  assert.equal(t4.description, 'D:\\repos\\git\\nevo\\src\\index.ts');
 
   const t5 = mapAntigravityTool('find_by_name', { Pattern: '*.md', SearchDirectory: 'specs/active' });
   assert.equal(t5.kind, 'search');
-  assert.equal(t5.title, 'Find *.md in specs/active');
+  assert.equal(t5.title, 'Find files');
+  assert.equal(t5.description, '*.md in specs/active');
 
   const t6 = mapAntigravityTool('grep_search', { Query: 'TurnLifecycle', SearchPath: 'tools/dashboard' });
   assert.equal(t6.kind, 'search');
-  assert.equal(t6.title, 'Grep TurnLifecycle');
+  assert.equal(t6.title, 'Search files');
+  assert.equal(t6.description, 'TurnLifecycle in tools/dashboard');
 
   const t7 = mapAntigravityTool('list_dir', { DirectoryPath: 'specs/active' });
-  assert.equal(t7.kind, 'file_operation');
-  assert.equal(t7.title, 'List specs/active');
+  assert.equal(t7.kind, 'list');
+  assert.equal(t7.title, 'List directory');
+  assert.equal(t7.description, 'specs/active');
 
   const t8 = mapAntigravityTool('read_url_content', { Url: 'https://example.com' });
   assert.equal(t8.kind, 'web');
+  assert.equal(t8.title, 'Fetch URL');
+  assert.equal(t8.description, 'https://example.com');
 
   const t9 = mapAntigravityTool('custom_tool', {});
   assert.equal(t9.kind, 'other');
@@ -2232,9 +2240,13 @@ test('Antigravity independent active tool tracking: parallel tools do not overwr
 
   assert.equal(toolsStarted.length, 2);
   assert.equal(toolsStarted[0].toolId, 'tool-1');
-  assert.equal(toolsStarted[0].title, 'View a.txt');
+  assert.equal(toolsStarted[0].kind, 'read');
+  assert.equal(toolsStarted[0].title, 'Read file');
+  assert.equal(toolsStarted[0].description, 'a.txt');
   assert.equal(toolsStarted[1].toolId, 'tool-2');
-  assert.equal(toolsStarted[1].title, 'View b.txt');
+  assert.equal(toolsStarted[1].kind, 'read');
+  assert.equal(toolsStarted[1].title, 'Read file');
+  assert.equal(toolsStarted[1].description, 'b.txt');
 
   assert.equal(toolsCompleted.length, 2);
   assert.equal(toolsCompleted[0].toolId, 'tool-1');
@@ -2305,10 +2317,12 @@ test('Antigravity evidence replay: maps full protocol capture from fixture to ca
   assert.equal(toolsStarted.length, 2);
   assert.equal(toolsStarted[0].toolName, 'run_command');
   assert.equal(toolsStarted[0].kind, 'command');
-  assert.equal(toolsStarted[0].title, 'Run git status');
+  assert.equal(toolsStarted[0].title, 'Run command');
+  assert.equal(toolsStarted[0].description, 'git status');
   assert.equal(toolsStarted[1].toolName, 'find_by_name');
   assert.equal(toolsStarted[1].kind, 'search');
-  assert.equal(toolsStarted[1].title, 'Find * in specs/active');
+  assert.equal(toolsStarted[1].title, 'Find files');
+  assert.equal(toolsStarted[1].description, '* in specs/active');
 
   assert.equal(toolsCompleted.length, 2);
   assert.equal(toolsCompleted[0].status, 'completed');

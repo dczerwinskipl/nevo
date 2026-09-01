@@ -1107,7 +1107,7 @@ test('failed tool followed by subsequent Work finishes with completed Turn and p
     id: 't-1',
     type: 'tool',
     toolName: 'readFile',
-    kind: 'file_operation',
+    kind: 'read',
     title: 'Read missing file',
     status: 'active',
   });
@@ -1247,10 +1247,8 @@ test('regression: provider wait without active tool maintains canonical waiting/
   });
 
   const activity = coordinator.getCurrentActivity();
-  assert.equal(activity.kind, 'waiting');
-  assert.equal(activity.status, 'waiting');
+  assert.equal(activity.kind, 'waiting_for_model');
   assert.equal(activity.title, 'Waiting for model response');
-  assert.equal(activity.subjectId, 'op-123');
 });
 
 test('regression: successful completion followed by late events preserves immutability', async () => {

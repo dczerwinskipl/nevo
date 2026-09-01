@@ -10,12 +10,16 @@ import {
   validateCanonicalTurn,
   projectChatV1,
   normalizeTransitionalToolStatus,
+  computeCurrentActivity,
+  serializePublicTurn,
   AiError,
 } from '../server/ai/contracts.mjs';
 import { TurnLifecycleCoordinator } from '../server/ai/sessions/turns/coordinator.mjs';
 import { createAgentTurnRuntime } from '../server/ai/sessions/turns/runtime.mjs';
 import { createTranscriptCacheService } from '../server/ai/sessions/transcript-cache.mjs';
 import { createAgentProviderRegistry } from '../server/ai/providers/registry.mjs';
+import { mapClaudeTool } from '../server/ai/providers/claude/provider.mjs';
+import { mapAntigravityTool } from '../server/ai/providers/antigravity/provider.mjs';
 
 function waitFor(checkFn, predicate, message = 'condition', timeoutMs = 2000) {
   const start = Date.now();
@@ -769,4 +773,208 @@ test('Part B: Evidence-driven validation against real Antigravity CLI protocol c
 
   // 6. Protocol Observation: In Antigravity, intermediate agent_response steps lack full text deltas,
   // while final response text arrives in the terminal result packet. Adapter mapping in Task 10 will synthesize commentary vs final answer accordingly.
+});
+
+test('V2 Production Path: Provider-independent canonical tool kinds (Claude, Antigravity, Codex)', () => {
+  // Read operations
+  assert.equal(mapClaudeTool('Read', { file_path: 'foo.ts' }).kind, 'read');
+  assert.equal(mapClaudeTool('View', { path: 'foo.ts' }).kind, 'read');
+  assert.equal(mapAntigravityTool('view_file', { AbsolutePath: 'foo.ts' }).kind, 'read');
+
+  // Edit operations
+  assert.equal(mapClaudeTool('Edit', { file_path: 'foo.ts' }).kind, 'edit');
+  assert.equal(mapClaudeTool('MultiEdit', { file_path: 'foo.ts' }).kind, 'edit');
+  assert.equal(mapAntigravityTool('replace_file_content', { TargetFile: 'foo.ts' }).kind, 'edit');
+
+  // Write operations
+  assert.equal(mapClaudeTool('Write', { file_path: 'foo.ts' }).kind, 'write');
+  assert.equal(mapClaudeTool('CreateFile', { file_path: 'foo.ts' }).kind, 'write');
+  assert.equal(mapAntigravityTool('write_to_file', { TargetFile: 'foo.ts' }).kind, 'write');
+
+  // List operations
+  assert.equal(mapClaudeTool('Glob', { pattern: 'src/*' }).kind, 'list');
+  assert.equal(mapClaudeTool('ListDirectory', { path: 'src/' }).kind, 'list');
+  assert.equal(mapAntigravityTool('list_dir', { DirectoryPath: 'src/' }).kind, 'list');
+
+  // Search operations
+  assert.equal(mapClaudeTool('Grep', { pattern: 'pattern' }).kind, 'search');
+  assert.equal(mapClaudeTool('Find', { query: 'query' }).kind, 'search');
+  assert.equal(mapAntigravityTool('find_by_name', { Pattern: '*.ts' }).kind, 'search');
+  assert.equal(mapAntigravityTool('grep_search', { Query: 'pattern' }).kind, 'search');
+
+  // Command operations
+  assert.equal(mapClaudeTool('Bash', { command: 'npm test' }).kind, 'command');
+  assert.equal(mapAntigravityTool('run_command', { CommandLine: 'npm test' }).kind, 'command');
+
+  // Web operations
+  assert.equal(mapClaudeTool('WebSearch', { query: 'docs' }).kind, 'web');
+  assert.equal(mapAntigravityTool('read_url_content', { Url: 'https://docs.dev' }).kind, 'web');
+  assert.equal(mapAntigravityTool('search_web', { query: 'docs' }).kind, 'web');
+});
+
+test('V2 Production Path: Deterministic Commentary <-> Reasoning phase transitions (no multiple streaming text items)', () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-phase-test',
+    provider: 'claude',
+    mode: 'edit',
+  });
+
+  // 1. Commentary arrives -> active Commentary
+  coordinator.recordCommentaryDelta('Step 1: Reading configuration...', 'c-1');
+  let snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 1);
+  assert.equal(snap.work[0].type, 'commentary');
+  assert.equal(snap.work[0].status, 'streaming');
+  let act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'commentary');
+  assert.equal(act.subjectId, 'c-1');
+
+  // 2. Reasoning arrives -> Commentary completes, Reasoning becomes streaming
+  coordinator.recordReasoningDelta('Thinking: analyzing schema requirements...', 'r-1');
+  snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 2);
+  assert.equal(snap.work[0].status, 'completed', 'Prior commentary must be completed when reasoning starts');
+  assert.equal(snap.work[1].type, 'reasoning');
+  assert.equal(snap.work[1].status, 'streaming');
+  act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'thinking');
+  assert.equal(act.subjectId, 'r-1');
+
+  // 3. Commentary arrives again -> Reasoning completes, new Commentary becomes streaming
+  coordinator.recordCommentaryDelta('Step 2: Proceeding with updates...', 'c-2');
+  snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 3);
+  assert.equal(snap.work[1].status, 'completed', 'Prior reasoning must be completed when commentary starts');
+  assert.equal(snap.work[2].type, 'commentary');
+  assert.equal(snap.work[2].status, 'streaming');
+  act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'commentary');
+  assert.equal(act.subjectId, 'c-2');
+
+  // Invariant: At most one Work item is streaming at any point
+  const streamingCount = snap.work.filter(w => w.status === 'streaming').length;
+  assert.equal(streamingCount, 1, 'Exactly one Work item streaming at any time');
+});
+
+test('V2 Production Path: Authoritative CurrentActivity lifecycle, waiting_for_model (no fake thinking), and terminal clearance', () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-activity-lifecycle',
+    provider: 'antigravity',
+    mode: 'edit',
+  });
+
+  // 1. Initial active state without output -> waiting_for_model (never fake thinking)
+  let snap = coordinator.getCanonicalSnapshot();
+  let act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'waiting_for_model');
+  assert.equal(act.status, 'running');
+
+  // 2. Tool starts -> tool activity
+  coordinator.recordToolStarted({
+    toolId: 't-read',
+    toolName: 'view_file',
+    kind: 'read',
+    title: 'Read file',
+    description: 'package.json',
+  });
+  snap = coordinator.getCanonicalSnapshot();
+  act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'tool');
+  assert.equal(act.toolKind, 'read');
+  assert.equal(act.title, 'Read file');
+  assert.equal(act.description, 'package.json');
+  assert.equal(act.subjectId, 't-read');
+
+  // 3. Tool completes -> reverts to waiting_for_model
+  coordinator.recordToolCompleted({
+    toolId: 't-read',
+    status: 'completed',
+    output: '{}',
+    durationMs: 30,
+  });
+  snap = coordinator.getCanonicalSnapshot();
+  act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'waiting_for_model');
+  assert.equal(act.title, 'Waiting for model response');
+
+  // 4. Interaction requested -> requires_attention
+  coordinator.recordInteractionRequested({
+    id: 'int-perm',
+    kind: 'permission',
+    toolName: 'run_command',
+    prompt: 'Approve git commit',
+  });
+  snap = coordinator.getCanonicalSnapshot();
+  act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'requires_attention');
+  assert.equal(act.subjectId, 'int-perm');
+
+  // 5. Final answer streamed and terminal completion -> CurrentActivity is null
+  coordinator.recordFinalAnswerDelta('All operations finished successfully.');
+  coordinator.settleTerminal({ outcome: 'completed', finishReason: 'stop' });
+  snap = coordinator.getCanonicalSnapshot();
+  act = computeCurrentActivity(snap);
+  assert.equal(act, null, 'CurrentActivity must be null once turn is terminal');
+  assert.ok(snap.finalAnswer);
+  assert.equal(snap.finalAnswer.status, 'completed');
+});
+
+test('V2 Production Path: Concurrent multi-tool CurrentActivity and historicalWork projection without duplicates', () => {
+  const coordinator = new TurnLifecycleCoordinator({
+    turnId: 'turn-multi-tool',
+    provider: 'claude',
+    mode: 'agent',
+  });
+
+  // 1. Start completed historical commentary
+  coordinator.recordCommentaryDelta('Starting batch execution...', 'c-1');
+
+  // 2. Start two parallel tools
+  coordinator.recordToolStarted({
+    toolId: 't-1',
+    toolName: 'Read',
+    kind: 'read',
+    title: 'Read file 1',
+    description: 'file1.ts',
+  });
+  coordinator.recordToolStarted({
+    toolId: 't-2',
+    toolName: 'Read',
+    kind: 'read',
+    title: 'Read file 2',
+    description: 'file2.ts',
+  });
+
+  let snap = coordinator.getCanonicalSnapshot();
+  assert.equal(snap.work.length, 3); // commentary (completed), tool 1 (active), tool 2 (active)
+  assert.equal(snap.work[0].status, 'completed');
+  assert.equal(snap.work[1].status, 'active');
+  assert.equal(snap.work[2].status, 'active');
+
+  // Multi-tool CurrentActivity projection
+  let act = computeCurrentActivity(snap);
+  assert.equal(act.kind, 'tool');
+  assert.equal(act.activeCount, 2);
+  assert.equal(act.title, '2 tools running');
+  assert.equal(act.subjectId, 't-2', 'Primary subject should be the most recently started tool');
+
+  // Serialized public projection: historicalWork excludes active tools to prevent duplication
+  const publicTurn = serializePublicTurn(snap);
+  assert.equal(publicTurn.work.length, 3, 'Full work array preserved for details view');
+  assert.equal(publicTurn.historicalWork.length, 1, 'historicalWork contains only completed historical items');
+  assert.equal(publicTurn.historicalWork[0].id, 'c-1');
+  assert.equal(publicTurn.currentActivity.title, '2 tools running');
+
+  // Complete tool 1
+  coordinator.recordToolCompleted({ toolId: 't-1', status: 'completed', output: 'content 1' });
+  snap = coordinator.getCanonicalSnapshot();
+  act = computeCurrentActivity(snap);
+  assert.equal(act.activeCount, 1);
+  assert.equal(act.title, 'Read file 2');
+  assert.equal(act.subjectId, 't-2');
+
+  const publicTurn2 = serializePublicTurn(snap);
+  assert.equal(publicTurn2.historicalWork.length, 2, 'tool 1 moves to historicalWork upon completion');
+  assert.equal(publicTurn2.historicalWork[1].id, 't-1');
+  assert.equal(publicTurn2.currentActivity.subjectId, 't-2');
 });

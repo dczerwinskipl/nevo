@@ -279,82 +279,125 @@ export function setTurnStatus(turn, newStatus) {
 }
 
 export function computeCurrentActivity(turn) {
-  if (!turn) return { kind: 'unknown', title: 'No active session', status: 'unknown' };
+  if (!turn) return null;
 
   const status = turn.status?.status;
 
+  // Terminal: CurrentActivity disappears when Turn becomes terminal
+  if (status === 'terminal') {
+    return null;
+  }
+
+  const workItems = Array.isArray(turn.work) ? turn.work : [];
+
+  // 1. Pending blocking Interaction -> requires_attention
   if (status === 'requiresAttention') {
-    const interaction = turn.work.find(w => w.type === 'interaction' && w.id === turn.status.interactionId);
+    const interactionItem = workItems.find(
+      w => w.type === 'interaction' && (w.id === turn.status.interactionId || w.status === 'pending'),
+    );
+    const interaction = interactionItem?.interaction;
     return {
-      kind: 'attention',
-      title: interaction?.interaction?.kind === 'permission'
-        ? `Permission required for ${interaction.interaction.toolName || 'tool'}`
-        : (interaction?.interaction?.kind === 'question' ? 'User input question pending' : 'Confirmation required'),
+      kind: 'requires_attention',
+      subjectId: interactionItem?.id ?? turn.status.interactionId,
+      title: interaction?.kind === 'permission'
+        ? `Permission required for ${interaction.toolName || 'tool'}`
+        : (interaction?.kind === 'question' ? 'User input question pending' : 'Attention required'),
+      description: interaction?.prompt ?? interaction?.details ?? undefined,
       status: 'requiresAttention',
-      subjectId: turn.status.interactionId,
+      startedAt: interactionItem?.createdAt ?? turn.status.since ?? turn.updatedAt,
     };
   }
 
-  if (status === 'active') {
-    // Look for currently active tool invocation
-    const activeTool = [...turn.work].reverse().find(w => w.type === 'tool' && w.status === 'active');
-    if (activeTool) {
+  // 2. Active ToolInvocation(s)
+  const activeTools = workItems.filter(
+    w => w.type === 'tool' && (w.status === 'active' || w.status === 'queued'),
+  );
+  if (activeTools.length > 0) {
+    const primaryTool = activeTools[activeTools.length - 1]; // most recently started/updated
+    if (activeTools.length === 1) {
       return {
-        kind: activeTool.kind,
-        title: activeTool.title,
-        status: 'active',
-        subjectId: activeTool.id,
+        kind: 'tool',
+        toolKind: primaryTool.kind,
+        subjectId: primaryTool.id,
+        title: primaryTool.title,
+        description: primaryTool.description,
+        toolName: primaryTool.toolName,
+        status: primaryTool.status,
+        activeCount: 1,
+        startedAt: primaryTool.startedAt ?? primaryTool.createdAt ?? turn.updatedAt,
       };
     }
-
-    const detail = turn.status.detail || 'processing';
-    const detailTitles = {
-      startup: 'Initializing session',
-      processing: 'Model is thinking',
-      commentary: 'Generating response',
-      reasoning: 'Reasoning',
-      tool_execution: 'Running tool',
-    };
     return {
-      kind: detail,
-      title: detailTitles[detail] ?? 'Processing',
+      kind: 'tool',
+      toolKind: primaryTool.kind,
+      subjectId: primaryTool.id,
+      title: `${activeTools.length} tools running`,
+      description: primaryTool.description || primaryTool.title,
+      toolName: primaryTool.toolName,
       status: 'active',
+      activeCount: activeTools.length,
+      startedAt: primaryTool.startedAt ?? primaryTool.createdAt ?? turn.updatedAt,
     };
   }
 
-  if (status === 'waiting') {
-    const isTool = turn.status.reason === 'tool_result';
+  // 3. Active / streaming Reasoning backed by provider evidence -> thinking
+  const activeReasoning = workItems.find(w => w.type === 'reasoning' && w.status === 'streaming');
+  if (activeReasoning) {
     return {
-      kind: 'waiting',
-      title: isTool ? 'Waiting for tool execution' : 'Waiting for model response',
+      kind: 'thinking',
+      subjectId: activeReasoning.id,
+      title: 'Thinking',
+      text: activeReasoning.text,
+      status: 'streaming',
+      startedAt: activeReasoning.startedAt ?? activeReasoning.createdAt ?? turn.updatedAt,
+    };
+  }
+
+  // 4. Active / streaming Commentary -> commentary
+  const activeCommentary = workItems.find(w => w.type === 'commentary' && w.status === 'streaming');
+  if (activeCommentary) {
+    return {
+      kind: 'commentary',
+      subjectId: activeCommentary.id,
+      title: 'Generating response',
+      text: activeCommentary.text,
+      status: 'streaming',
+      startedAt: activeCommentary.startedAt ?? activeCommentary.createdAt ?? turn.updatedAt,
+    };
+  }
+
+  // 5. Known waiting for tool -> waiting_for_tool
+  if (status === 'waiting' && turn.status.reason === 'tool_result') {
+    return {
+      kind: 'waiting_for_tool',
+      title: 'Waiting for tool execution',
       status: 'waiting',
       subjectId: turn.status.subjectId,
+      startedAt: turn.status.since ?? turn.updatedAt,
     };
   }
 
+  // 7. Cancelling -> cancelling
   if (status === 'cancelling') {
     return {
       kind: 'cancelling',
       title: 'Cancelling turn...',
       status: 'cancelling',
+      startedAt: turn.status.since ?? turn.updatedAt,
     };
   }
 
-  if (status === 'terminal') {
-    const latest = [...turn.work].reverse().find(w => w.type === 'tool' || w.type === 'commentary');
+  // 6. Provider operation alive without current semantic output -> waiting_for_model (NEVER fake thinking)
+  if (status === 'active' || status === 'waiting') {
     return {
-      kind: latest?.kind ?? 'terminal',
-      title: latest ? (latest.title ?? latest.type) : `Turn ${turn.status.outcome}`,
-      status: turn.status.outcome,
-      subjectId: latest?.id,
+      kind: 'waiting_for_model',
+      title: 'Waiting for model response',
+      status: 'running',
+      startedAt: turn.status?.since ?? turn.startedAt ?? turn.updatedAt,
     };
   }
 
-  return {
-    kind: 'unknown',
-    title: 'Unknown state',
-    status: 'unknown',
-  };
+  return null;
 }
 
 export function bindTurnProviderSessionId(turn, allocatedId) {

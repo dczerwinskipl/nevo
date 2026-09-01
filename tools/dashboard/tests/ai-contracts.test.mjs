@@ -528,14 +528,14 @@ test('canonical WorkItem types validate correctly and enforce semantic separatio
     type: 'tool',
     seq: 3,
     toolName: 'readFile',
-    kind: 'file_operation',
+    kind: 'read',
     title: 'Read specification',
     status: 'completed',
     input: { path: 'specs/active/test.md' },
     output: 'content',
   });
   assert.equal(tool.type, 'tool');
-  assert.equal(tool.kind, 'file_operation');
+  assert.equal(tool.kind, 'read');
   assert.equal(tool.seq, 3);
 
   // Interaction
@@ -708,10 +708,11 @@ test('computeCurrentActivity resolves semantic activity and titles for all turn 
     providerSessionId: 'claude-1',
   });
 
-  // 1. Startup
+  // 1. Startup -> waiting for model
   let act = computeCurrentActivity(turn);
-  assert.equal(act.status, 'active');
-  assert.equal(act.kind, 'startup');
+  assert.equal(act.status, 'running');
+  assert.equal(act.kind, 'waiting_for_model');
+  assert.equal(act.title, 'Waiting for model response');
 
   // 2. Active Tool
   const tool = appendWorkItem(turn, {
@@ -723,16 +724,17 @@ test('computeCurrentActivity resolves semantic activity and titles for all turn 
     status: 'active',
   });
   act = computeCurrentActivity(turn);
-  assert.equal(act.kind, 'search');
+  assert.equal(act.kind, 'tool');
+  assert.equal(act.toolKind, 'search');
   assert.equal(act.title, 'Search repository');
   assert.equal(act.status, 'active');
   assert.equal(act.subjectId, 'tool-act');
 
-  // 3. Tool completed -> Waiting for model response
+  // 3. Tool completed -> Waiting for model response (never fake thinking)
   updateWorkItem(turn, 'tool-act', { status: 'completed' });
   setTurnStatus(turn, { status: 'waiting', reason: 'provider_response' });
   act = computeCurrentActivity(turn);
-  assert.equal(act.kind, 'waiting');
+  assert.equal(act.kind, 'waiting_for_model');
   assert.equal(act.title, 'Waiting for model response');
 
   // 4. Requires attention
@@ -748,15 +750,15 @@ test('computeCurrentActivity resolves semantic activity and titles for all turn 
   });
   setTurnStatus(turn, { status: 'requiresAttention', reason: 'question', interactionId: 'int-q' });
   act = computeCurrentActivity(turn);
-  assert.equal(act.kind, 'attention');
+  assert.equal(act.kind, 'requires_attention');
   assert.equal(act.status, 'requiresAttention');
   assert.equal(act.subjectId, 'int-q');
 
-  // 5. Terminal completed
+  // 5. Terminal completed -> CurrentActivity disappears (null)
   updateWorkItem(turn, 'int-q', { status: 'resolved', response: { answers: [{ questionId: 'q1', value: 'auto' }] } });
   setTurnStatus(turn, { status: 'terminal', outcome: 'completed', initiator: 'provider', finishReason: 'stop' });
   act = computeCurrentActivity(turn);
-  assert.equal(act.status, 'completed');
+  assert.equal(act, null);
 });
 
 test('representative provider fixture builders conform to canonical invariants', () => {

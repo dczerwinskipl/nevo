@@ -13,12 +13,14 @@ export const WORK_ITEM_TYPES = Object.freeze([
 ]);
 
 export const TOOL_KINDS = Object.freeze([
-  'command',
-  'file_operation',
+  'read',
+  'edit',
+  'write',
+  'list',
   'search',
+  'command',
+  'test',
   'web',
-  'mcp',
-  'custom',
   'other',
 ]);
 

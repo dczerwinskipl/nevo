@@ -374,6 +374,20 @@ export class TurnLifecycleCoordinator {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
 
+    // Closing any outstanding active reasoning when commentary arrives (one active text/reasoning phase invariant)
+    if (this.#activeReasoningId) {
+      try {
+        const item = this.#turn.work.find(w => w.id === this.#activeReasoningId);
+        if (item && item.status === 'streaming') {
+          updateWorkItem(this.#turn, this.#activeReasoningId, {
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+          });
+        }
+      } catch {}
+      this.#activeReasoningId = null;
+    }
+
     let currentItem = this.#activeCommentaryId
       ? this.#turn.work.find(w => w.id === this.#activeCommentaryId && w.type === 'commentary' && w.status === 'streaming')
       : null;
@@ -420,6 +434,20 @@ export class TurnLifecycleCoordinator {
   recordReasoningDelta(text, messageId = `reasoning-${this.#turn.id}`, representation = 'raw_text') {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
+
+    // Closing any outstanding active commentary when reasoning arrives (one active text/reasoning phase invariant)
+    if (this.#activeCommentaryId) {
+      try {
+        const item = this.#turn.work.find(w => w.id === this.#activeCommentaryId);
+        if (item && item.status === 'streaming') {
+          updateWorkItem(this.#turn, this.#activeCommentaryId, {
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+          });
+        }
+      } catch {}
+      this.#activeCommentaryId = null;
+    }
 
     let currentItem = this.#activeReasoningId
       ? this.#turn.work.find(w => w.id === this.#activeReasoningId && w.type === 'reasoning' && w.status === 'streaming')
@@ -654,9 +682,12 @@ export class TurnLifecycleCoordinator {
   /**
    * Record interaction requested.
    */
-  recordInteractionRequested({ interaction }) {
+  recordInteractionRequested(interactionData) {
     if (this.isTerminal || this.isCancelling) return null;
     this.touchActivity();
+
+    const interaction = interactionData?.interaction ?? interactionData;
+    if (!interaction?.id) return null;
 
     if (this.#activeCommentaryId) {
       try {

@@ -1,5 +1,5 @@
 import { AiValidationError } from '../contracts.mjs';
-import { validateCanonicalTurn } from './canonical-turn.mjs';
+import { validateCanonicalTurn, computeCurrentActivity } from './canonical-turn.mjs';
 
 const PRIVATE_KEY_PATTERN = /provider.*(?:request|event|payload).*id|providerRequestId|rawPayload/i;
 
@@ -23,6 +23,15 @@ export function stripProviderPrivateFields(value) {
 export function serializePublicTurn(turn) {
   const validated = validateCanonicalTurn(turn);
   const clean = stripProviderPrivateFields(validated);
+  const currentActivity = computeCurrentActivity(turn);
+
+  // Exclude active/streaming work items from compact historical timeline so UI never duplicates current activity
+  const activeSubjectIds = new Set(
+    currentActivity?.subjectId ? [currentActivity.subjectId] : []
+  );
+  const historicalWork = clean.work.filter(
+    w => !activeSubjectIds.has(w.id) && w.status !== 'streaming' && w.status !== 'active' && w.status !== 'queued'
+  );
 
   // Return strictly validated public turn DTO
   return {
@@ -34,7 +43,9 @@ export function serializePublicTurn(turn) {
     mode: clean.mode,
     status: clean.status,
     work: clean.work,
+    historicalWork,
     activityCount: clean.activityCount,
+    currentActivity,
     finalAnswer: clean.finalAnswer,
     ...(clean.terminalOutcome ? { terminalOutcome: clean.terminalOutcome } : {}),
     ...(clean.usage ? { usage: clean.usage } : {}),

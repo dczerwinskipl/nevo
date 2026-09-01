@@ -63,7 +63,7 @@ export function computeWorkSummary(turn) {
     return {
       status: 'idle',
       activityCount: 0,
-      currentActivity: { kind: 'idle', status: 'idle', title: 'Idle' },
+      currentActivity: null,
       activeToolCount: 0,
       attention: null,
       expandable: false,

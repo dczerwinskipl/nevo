@@ -119,7 +119,7 @@ test('AskUserQuestion PreToolUse/defer pauses, saves continuation, and resumed t
       interactionId: firstTurn.interaction.id,
       interaction: firstTurn.interaction,
       response: { answers: [{ questionId: 'q-1', value: 'PostgreSQL' }] },
-      emitTextDelta: text => textDeltas.push(text),
+      emitFinalAnswerDelta: text => textDeltas.push(text),
     });
 
     assert.equal(spawnCount, 2);
@@ -411,7 +411,7 @@ test('Full integration: provider -> generated settings -> real hook.mjs subproce
       interactionId: firstTurn.interaction.id,
       interaction: firstTurn.interaction,
       response: { answers: [{ questionId: 'q-1', value: 'React' }] },
-      emitTextDelta: text => textDeltas.push(text),
+      emitFinalAnswerDelta: text => textDeltas.push(text),
     });
 
     // Verify hook subprocess was executed via settings command and delivered decision

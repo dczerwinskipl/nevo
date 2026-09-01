@@ -160,7 +160,8 @@ function toolDescription(item) {
       return {
         toolName: 'Command',
         kind: 'command',
-        title: item.title || item.command || 'Command',
+        title: 'Run command',
+        description: item.command || undefined,
         input: { command: item.command, cwd: item.cwd },
         actions,
       };
@@ -168,22 +169,25 @@ function toolDescription(item) {
     case 'fileChange':
       return {
         toolName: 'File change',
-        kind: 'file_operation',
-        title: item.title || 'File change',
+        kind: 'edit',
+        title: 'Edit file',
+        description: Array.isArray(item.changes) ? item.changes.map(c => c.path).join(', ') : undefined,
         input: { changes: item.changes },
       };
     case 'mcpToolCall':
       return {
         toolName: `${item.server}/${item.tool}`,
-        kind: 'mcp',
+        kind: 'other',
         title: item.title || `${item.server}/${item.tool}`,
+        description: `${item.server}/${item.tool}`,
         input: { server: item.server, tool: item.tool, arguments: item.arguments },
       };
     case 'dynamicToolCall':
       return {
         toolName: item.tool,
-        kind: 'custom',
+        kind: 'other',
         title: item.title || item.tool,
+        description: item.tool,
         input: { tool: item.tool, arguments: item.arguments },
       };
     default:
